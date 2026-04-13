@@ -1,0 +1,19 @@
+# Reference corpus
+/encore/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+.cursor/
+
+# Local dependencies and caches
+node_modules/
+.direnv/
+
+# Local build and test outputs
+/pulse
+/pulse.test
+/pulse_internal_main/
+coverage.out
+*.log
