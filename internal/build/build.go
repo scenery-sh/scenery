@@ -16,6 +16,7 @@ import (
 
 	"pulse.dev/internal/app"
 	"pulse.dev/internal/codegen"
+	"pulse.dev/internal/model"
 	"pulse.dev/internal/parse"
 )
 
@@ -29,6 +30,18 @@ func App(appRoot, name string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	result, err := Prepare(appRoot, model)
+	if err != nil {
+		return nil, err
+	}
+	if err := Compile(result); err != nil {
+		_ = os.RemoveAll(result.Dir)
+		return nil, err
+	}
+	return result, nil
+}
+
+func Prepare(appRoot string, model *model.App) (*Result, error) {
 	gen, err := codegen.Generate(model)
 	if err != nil {
 		return nil, err
@@ -66,16 +79,22 @@ func App(appRoot, name string) (*Result, error) {
 	if err := patchGoMod(filepath.Join(tempDir, "go.mod"), app.RepoRoot()); err != nil {
 		return nil, err
 	}
-	if err := runGo(tempDir, "mod", "tidy"); err != nil {
-		return nil, err
-	}
-
 	binary := filepath.Join(tempDir, "pulse-app")
-	if err := runGo(tempDir, "build", "-o", binary, "./pulse_internal_main"); err != nil {
-		return nil, err
-	}
 	keepTempDir = true
 	return &Result{Dir: tempDir, Binary: binary}, nil
+}
+
+func Compile(result *Result) error {
+	if result == nil {
+		return fmt.Errorf("nil build result")
+	}
+	if err := runGo(result.Dir, "mod", "tidy"); err != nil {
+		return err
+	}
+	if err := runGo(result.Dir, "build", "-o", result.Binary, "./pulse_internal_main"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func copyTree(src, dst string) error {

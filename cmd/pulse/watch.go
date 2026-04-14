@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -14,7 +12,6 @@ import (
 	"time"
 
 	"pulse.dev/internal/app"
-	"pulse.dev/internal/build"
 )
 
 const (
@@ -30,20 +27,8 @@ type fileStamp struct {
 
 type fileSnapshot map[string]fileStamp
 
-type runningApp struct {
-	cmd      *exec.Cmd
-	done     chan error
-	buildDir string
-}
-
-type appRunner struct {
-	root string
-	addr string
-	app  *runningApp
-}
-
 func runWithWatch(addr string) error {
-	root, _, err := app.DiscoverRoot(".")
+	root, cfg, err := app.DiscoverRoot(".")
 	if err != nil {
 		return err
 	}
@@ -56,11 +41,17 @@ func runWithWatch(addr string) error {
 		return err
 	}
 
-	runner := &appRunner{root: root, addr: addr}
-	defer runner.close()
+	supervisor, err := newDevSupervisor(root, cfg, addr)
+	if err != nil {
+		return err
+	}
+	defer supervisor.Close()
+	if err := supervisor.Start(ctx); err != nil {
+		return err
+	}
 
-	if err := runner.rebuildAndRestart(); err != nil {
-		fmt.Fprintf(os.Stderr, "pulse: initial build failed:\n%v\n", err)
+	if err := supervisor.RebuildAndRestart(ctx, true); err != nil {
+		supervisor.console.InitialBuildFailed(err)
 	}
 
 	for {
@@ -72,112 +63,11 @@ func runWithWatch(addr string) error {
 			return err
 		}
 		snapshot = nextSnapshot
-		fmt.Fprintln(os.Stdout, "pulse: change detected, rebuilding...")
-		if err := runner.rebuildAndRestart(); err != nil {
-			fmt.Fprintf(os.Stderr, "pulse: rebuild failed:\n%v\n", err)
+		supervisor.announceRebuild()
+		if err := supervisor.RebuildAndRestart(ctx, false); err != nil {
+			supervisor.console.RebuildFailed(err)
 		}
 	}
-}
-
-func (r *appRunner) rebuildAndRestart() error {
-	_, cfg, err := app.DiscoverRoot(r.root)
-	if err != nil {
-		return err
-	}
-
-	result, err := build.App(r.root, cfg.Name)
-	if err != nil {
-		return err
-	}
-
-	previous := r.app
-	if previous != nil {
-		if err := previous.stop(); err != nil {
-			return err
-		}
-	}
-
-	current, err := startApp(r.root, r.addr, result)
-	if err != nil {
-		_ = os.RemoveAll(result.Dir)
-		return err
-	}
-	r.app = current
-	return nil
-}
-
-func (r *appRunner) close() error {
-	if r.app == nil {
-		return nil
-	}
-	err := r.app.stop()
-	r.app = nil
-	return err
-}
-
-func startApp(root, addr string, result *build.Result) (*runningApp, error) {
-	cmd := exec.Command(result.Binary)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "PULSE_LISTEN_ADDR="+addr)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-		close(done)
-	}()
-
-	return &runningApp{
-		cmd:      cmd,
-		done:     done,
-		buildDir: result.Dir,
-	}, nil
-}
-
-func (r *runningApp) stop() error {
-	if r == nil {
-		return nil
-	}
-	defer func() {
-		if r.buildDir != "" {
-			_ = os.RemoveAll(r.buildDir)
-		}
-	}()
-
-	if r.cmd == nil || r.cmd.Process == nil {
-		return nil
-	}
-
-	_ = r.cmd.Process.Signal(os.Interrupt)
-
-	select {
-	case err := <-r.done:
-		if err == nil || isExpectedExit(err) {
-			return nil
-		}
-		return err
-	case <-time.After(stopTimeout):
-		_ = r.cmd.Process.Kill()
-		err := <-r.done
-		if err == nil || isExpectedExit(err) {
-			return nil
-		}
-		return err
-	}
-}
-
-func isExpectedExit(err error) bool {
-	if err == nil {
-		return true
-	}
-	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr)
 }
 
 func waitForStableChange(ctx context.Context, root string, current fileSnapshot) (fileSnapshot, error) {

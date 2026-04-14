@@ -1,12 +1,15 @@
 package pulse_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestPulseRunBasicApp(t *testing.T) {
@@ -21,13 +26,14 @@ func TestPulseRunBasicApp(t *testing.T) {
 	appDir := filepath.Join(repo, "testdata", "apps", "basic")
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
 	binary := buildPulseBinary(t, repo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = os.Environ()
+	cmd.Env = pulseRunEnv(dashAddr)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.Stdin = nil
@@ -70,13 +76,14 @@ func TestPulseRunReloadsOnGoChanges(t *testing.T) {
 
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
 	binary := buildPulseBinary(t, repo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = os.Environ()
+	cmd.Env = pulseRunEnv(dashAddr)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.Stdin = nil
@@ -111,13 +118,14 @@ func TestPulseRunLoadsSecretsFromDotEnv(t *testing.T) {
 	appDir := filepath.Join(repo, "testdata", "apps", "secrets")
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
 	binary := buildPulseBinary(t, repo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = os.Environ()
+	cmd.Env = pulseRunEnv(dashAddr)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.Stdin = nil
@@ -140,13 +148,14 @@ func TestPulseRunMiddlewareApp(t *testing.T) {
 	appDir := filepath.Join(repo, "testdata", "apps", "middleware")
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
 	binary := buildPulseBinary(t, repo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = os.Environ()
+	cmd.Env = pulseRunEnv(dashAddr)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.Stdin = nil
@@ -173,13 +182,14 @@ func TestPulseRunExecutesCronJobs(t *testing.T) {
 	appDir := filepath.Join(repo, "testdata", "apps", "cron")
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
 	binary := buildPulseBinary(t, repo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = os.Environ()
+	cmd.Env = pulseRunEnv(dashAddr)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.Stdin = nil
@@ -231,6 +241,103 @@ func TestPulseBuildProducesRunnableBinary(t *testing.T) {
 	getJSON(t, "http://"+addr+"/service.CallPrivate", nil, http.StatusOK, map[string]any{"message": "secret:hi"})
 }
 
+func TestPulseRunDashboardNotificationsAndMCP(t *testing.T) {
+	repo := repoRoot(t)
+	sourceAppDir := filepath.Join(repo, "testdata", "apps", "basic")
+	appDir := filepath.Join(t.TempDir(), "basic")
+	copyDir(t, sourceAppDir, appDir)
+	rewriteFixtureReplace(t, filepath.Join(appDir, "go.mod"), repo)
+
+	port := freePort(t)
+	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
+	binary := buildPulseBinary(t, repo)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
+	cmd.Env = pulseRunEnv(dashAddr)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	cmd.Stdin = nil
+	cmd.Dir = appDir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start pulse run: %v", err)
+	}
+	defer stopPulseProcess(t, cancel, cmd)
+
+	waitForHTTP(t, "http://"+addr+"/service.CallPrivate")
+	waitForHTTP(t, "http://"+dashAddr+"/basicapp")
+
+	wsConn, _, err := websocket.DefaultDialer.Dial("ws://"+dashAddr+"/__pulse", nil)
+	if err != nil {
+		t.Fatalf("dial dashboard websocket: %v", err)
+	}
+	defer wsConn.Close()
+
+	version := wsCall(t, wsConn, 1, "version", map[string]any{})
+	if toString(version["version"]) == "" {
+		t.Fatalf("dashboard version response missing version: %#v", version)
+	}
+
+	getJSON(t, "http://"+addr+"/service.CallPrivate", nil, http.StatusOK, map[string]any{"message": "secret:hi"})
+	waitForWSMethods(t, wsConn, 10*time.Second, "trace/new")
+
+	mcp := openMCPClient(t, dashAddr, "basicapp")
+	defer mcp.Close()
+
+	initResp := mcp.Call(t, 1, "initialize", map[string]any{
+		"protocolVersion": "2024-11-05",
+		"clientInfo": map[string]any{
+			"name":    "pulse-test",
+			"version": "0.0.0",
+		},
+		"capabilities": map[string]any{},
+	})
+	if toString(toMap(initResp["serverInfo"])["name"]) != "pulse-mcp" {
+		t.Fatalf("unexpected mcp initialize response: %#v", initResp)
+	}
+
+	toolsResp := mcp.Call(t, 2, "tools/list", map[string]any{})
+	toolNames := mcpToolNames(toSlice(toolsResp["tools"]))
+	for _, want := range []string{"get_services", "get_traces", "call_endpoint"} {
+		if !toolNames[want] {
+			t.Fatalf("mcp tools missing %q: %#v", want, toolsResp)
+		}
+	}
+
+	servicesResp := mcp.CallTool(t, 3, "get_services", map[string]any{})
+	services := servicesResp["structuredContent"]
+	if !strings.Contains(fmt.Sprint(services), "service") {
+		t.Fatalf("unexpected get_services response: %#v", servicesResp)
+	}
+
+	tracesResp := waitForMCPToolResult(t, 10*time.Second, func() map[string]any {
+		return mcp.CallTool(t, 4, "get_traces", map[string]any{"limit": 10})
+	})
+	if !strings.Contains(fmt.Sprint(tracesResp["structuredContent"]), "trace_id") {
+		t.Fatalf("unexpected get_traces response: %#v", tracesResp)
+	}
+
+	apiPath := filepath.Join(appDir, "service", "api.go")
+	data, err := os.ReadFile(apiPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(data), `Prefix: "hi"`, `Prefix: "dashboard"`, 1)
+	if updated == string(data) {
+		t.Fatal("failed to update test fixture source")
+	}
+	if err := os.WriteFile(apiPath, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForWSMethods(t, wsConn, 15*time.Second, "process/compile-start", "process/output", "process/reload")
+	waitForJSONResponse(t, "http://"+addr+"/service.CallPrivate", http.StatusOK, map[string]any{"message": "secret:dashboard"})
+}
+
 func buildPulseBinary(t *testing.T, repo string) string {
 	t.Helper()
 	binDir := t.TempDir()
@@ -242,6 +349,10 @@ func buildPulseBinary(t *testing.T, repo string) string {
 		t.Fatalf("build pulse binary: %v\n%s", err, output)
 	}
 	return binPath
+}
+
+func pulseRunEnv(dashboardAddr string) []string {
+	return append(os.Environ(), "PULSE_DEV_DASHBOARD_ADDR="+dashboardAddr)
 }
 
 func stopPulseProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
@@ -257,6 +368,220 @@ func stopPulseProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("timed out waiting for pulse process to exit")
 	}
+}
+
+type mcpClient struct {
+	t        *testing.T
+	baseURL  string
+	endpoint string
+	reader   *bufio.Reader
+	body     io.Closer
+}
+
+func openMCPClient(t *testing.T, dashAddr, appID string) *mcpClient {
+	t.Helper()
+	resp, err := http.Get("http://" + dashAddr + "/sse?app=" + url.QueryEscape(appID))
+	if err != nil {
+		t.Fatalf("open mcp sse: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("unexpected mcp sse status %d: %s", resp.StatusCode, body)
+	}
+	reader := bufio.NewReader(resp.Body)
+	event := readSSEEvent(t, reader, 10*time.Second)
+	if event.event != "endpoint" {
+		resp.Body.Close()
+		t.Fatalf("unexpected first mcp event: %#v", event)
+	}
+	return &mcpClient{
+		t:        t,
+		baseURL:  "http://" + dashAddr,
+		endpoint: strings.TrimSpace(event.data),
+		reader:   reader,
+		body:     resp.Body,
+	}
+}
+
+func (c *mcpClient) Close() {
+	if c != nil && c.body != nil {
+		_ = c.body.Close()
+	}
+}
+
+func (c *mcpClient) Call(t *testing.T, id int, method string, params map[string]any) map[string]any {
+	t.Helper()
+	payload := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+		"params":  params,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(c.baseURL+c.endpoint, "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("mcp post %s: %v", method, err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("unexpected mcp post status %d for %s", resp.StatusCode, method)
+	}
+	for {
+		event := readSSEEvent(t, c.reader, 10*time.Second)
+		if event.event != "message" {
+			continue
+		}
+		var response map[string]any
+		if err := json.Unmarshal([]byte(event.data), &response); err != nil {
+			t.Fatalf("decode mcp response: %v", err)
+		}
+		if int(toFloat(response["id"])) != id {
+			continue
+		}
+		if errPayload, ok := response["error"]; ok && errPayload != nil {
+			t.Fatalf("mcp %s returned error: %#v", method, response)
+		}
+		return toMap(response["result"])
+	}
+}
+
+func (c *mcpClient) CallTool(t *testing.T, id int, name string, args map[string]any) map[string]any {
+	t.Helper()
+	return c.Call(t, id, "tools/call", map[string]any{
+		"name":      name,
+		"arguments": args,
+	})
+}
+
+type sseEvent struct {
+	event string
+	data  string
+}
+
+func readSSEEvent(t *testing.T, reader *bufio.Reader, timeout time.Duration) sseEvent {
+	t.Helper()
+	type result struct {
+		event sseEvent
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		var event sseEvent
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				ch <- result{err: err}
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if line == "" {
+				if event.event != "" || event.data != "" {
+					ch <- result{event: event}
+					return
+				}
+				continue
+			}
+			if strings.HasPrefix(line, ":") {
+				continue
+			}
+			if strings.HasPrefix(line, "event:") {
+				event.event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+				continue
+			}
+			if strings.HasPrefix(line, "data:") {
+				part := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				if event.data != "" {
+					event.data += "\n"
+				}
+				event.data += part
+			}
+		}
+	}()
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			t.Fatalf("read sse event: %v", res.err)
+		}
+		return res.event
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for sse event")
+		return sseEvent{}
+	}
+}
+
+func wsCall(t *testing.T, conn *websocket.Conn, id int, method string, params map[string]any) map[string]any {
+	t.Helper()
+	if err := conn.WriteJSON(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+		"params":  params,
+	}); err != nil {
+		t.Fatalf("write websocket rpc: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket deadline: %v", err)
+		}
+		var message map[string]any
+		if err := conn.ReadJSON(&message); err != nil {
+			t.Fatalf("read websocket rpc: %v", err)
+		}
+		if int(toFloat(message["id"])) != id {
+			continue
+		}
+		if errPayload, ok := message["error"]; ok && errPayload != nil {
+			t.Fatalf("websocket rpc %s returned error: %#v", method, message)
+		}
+		return toMap(message["result"])
+	}
+	t.Fatalf("timed out waiting for websocket rpc response %s", method)
+	return nil
+}
+
+func waitForWSMethods(t *testing.T, conn *websocket.Conn, timeout time.Duration, methods ...string) {
+	t.Helper()
+	remaining := make(map[string]bool, len(methods))
+	for _, method := range methods {
+		remaining[method] = true
+	}
+	deadline := time.Now().Add(timeout)
+	for len(remaining) > 0 && time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatalf("set websocket deadline: %v", err)
+		}
+		var message map[string]any
+		if err := conn.ReadJSON(&message); err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			t.Fatalf("read websocket notification: %v", err)
+		}
+		method, _ := message["method"].(string)
+		delete(remaining, method)
+	}
+	if len(remaining) > 0 {
+		t.Fatalf("timed out waiting for websocket notifications: %v", remaining)
+	}
+}
+
+func waitForMCPToolResult(t *testing.T, timeout time.Duration, fn func() map[string]any) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		result := fn()
+		if strings.Contains(fmt.Sprint(result["structuredContent"]), "trace_id") {
+			return result
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for mcp tool result")
+	return nil
 }
 
 func waitForHTTP(t *testing.T, url string) {
@@ -490,6 +815,48 @@ func toString(value any) string {
 		data, _ := json.Marshal(v)
 		return string(data)
 	}
+}
+
+func toMap(value any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	if m, ok := value.(map[string]any); ok {
+		return m
+	}
+	return map[string]any{}
+}
+
+func toSlice(value any) []any {
+	if value == nil {
+		return nil
+	}
+	if items, ok := value.([]any); ok {
+		return items
+	}
+	return nil
+}
+
+func toFloat(value any) float64 {
+	switch value := value.(type) {
+	case float64:
+		return value
+	case int:
+		return float64(value)
+	default:
+		return 0
+	}
+}
+
+func mcpToolNames(items []any) map[string]bool {
+	names := make(map[string]bool, len(items))
+	for _, item := range items {
+		name := toString(toMap(item)["name"])
+		if name != "" {
+			names[name] = true
+		}
+	}
+	return names
 }
 
 func freePort(t *testing.T) string {

@@ -70,6 +70,7 @@ type Middleware struct {
 }
 
 type AuthHandler struct {
+	Name         string
 	Service      string
 	ParamType    reflect.Type
 	AuthDataType reflect.Type
@@ -290,6 +291,7 @@ func CallEndpoint(ctx context.Context, service, name string, pathArgs []any, pay
 		if state.request.CronIdempotencyKey != "" {
 			reqState.request.Method = "CRON"
 		}
+		startInternalCallTrace(state, reqState)
 	}
 	if ep.Access == Auth && reqState.auth.UID == "" {
 		return nil, errs.B().Code(errs.Unauthenticated).Msg("endpoint requires auth").Err()
@@ -300,11 +302,16 @@ func CallEndpoint(ctx context.Context, service, name string, pathArgs []any, pay
 	defer restore()
 
 	resp, _, _, err := executeTypedEndpoint(ep, callCtx, pathArgs, payload)
+	finishRequestTrace(reqState, errs.HTTPStatus(err), resp, err)
 	return resp, err
 }
 
 func TypeOf[T any]() reflect.Type {
 	return reflect.TypeFor[T]()
+}
+
+func RecordServiceInit(service string, duration time.Duration, err error) {
+	recordServiceInit(service, duration, err)
 }
 
 func encodePathParams(specs []ParamSpec, values []any) shared.PathParams {

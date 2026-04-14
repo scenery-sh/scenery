@@ -17,3 +17,11 @@ node_modules/
 /pulse_internal_main/
 coverage.out
 *.log
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+.playwright-mcp/
+.pulse/

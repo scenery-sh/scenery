@@ -79,13 +79,16 @@ func runMiddlewareChain(ep *Endpoint, ctx context.Context, leaf func(pulsemiddle
 		switch {
 		case idx < len(middlewares):
 			mw := middlewares[idx]
+			recordMiddlewareEvent(mw.ID, "start", nil)
 			defer func() {
 				if recovered := recover(); recovered != nil {
 					resp = pulsemiddleware.Response{
 						Err:        errs.B().Code(errs.Internal).Msgf("panic executing middleware %s: %v", mw.ID, recovered).Err(),
 						HTTPStatus: http.StatusInternalServerError,
 					}
+					recordMiddlewareEvent(mw.ID, "panic", resp.Err)
 				}
+				recordMiddlewareEvent(mw.ID, "end", resp.Err)
 			}()
 			return mw.Invoke(req, next)
 		case idx == len(middlewares):

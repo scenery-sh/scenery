@@ -126,6 +126,7 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 	}
 	if serviceStruct != nil {
 		im.use("sync", "sync")
+		im.use("time", "time")
 	}
 	if hasRaw(pkgEndpoints) {
 		im.use("http", "net/http")
@@ -297,11 +298,13 @@ func writeServiceStruct(buf *strings.Builder, im *imports, ss *model.ServiceStru
 	fmt.Fprintf(buf, "var %s struct {\n\tonce sync.Once\n\tsvc *%s\n\terr error\n}\n\n", ss.InstanceVar, ss.TypeName)
 	fmt.Fprintf(buf, "func %s() (*%s, error) {\n", ss.GetterName, ss.TypeName)
 	fmt.Fprintf(buf, "\t%s.once.Do(func() {\n", ss.InstanceVar)
+	buf.WriteString("\t\tstarted := time.Now()\n")
 	if ss.InitFunc != "" {
 		fmt.Fprintf(buf, "\t\t%s.svc, %s.err = %s()\n", ss.InstanceVar, ss.InstanceVar, ss.InitFunc)
 	} else {
 		fmt.Fprintf(buf, "\t\t%s.svc = &%s{}\n", ss.InstanceVar, ss.TypeName)
 	}
+	fmt.Fprintf(buf, "\t\tpulseruntime.RecordServiceInit(%q, time.Since(started), %s.err)\n", ss.Service.Name, ss.InstanceVar)
 	buf.WriteString("\t})\n")
 	fmt.Fprintf(buf, "\treturn %s.svc, %s.err\n", ss.InstanceVar, ss.InstanceVar)
 	buf.WriteString("}\n\n")
@@ -487,6 +490,7 @@ func hasSecretsVar(pkg *model.Package) bool {
 
 func writeAuthRegistration(buf *strings.Builder, im *imports, ah *model.AuthHandler, ss *model.ServiceStruct) {
 	fmt.Fprintf(buf, "\tpulseruntime.RegisterAuthHandler(&pulseruntime.AuthHandler{\n")
+	fmt.Fprintf(buf, "\t\tName: %q,\n", ah.Name)
 	fmt.Fprintf(buf, "\t\tService: %q,\n", ah.Service.Name)
 	fmt.Fprintf(buf, "\t\tParamType: pulseruntime.TypeOf[%s](),\n", im.typeExpr(ah.Param.Type))
 	if ah.AuthData != nil {

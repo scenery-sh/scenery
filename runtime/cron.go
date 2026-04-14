@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"pulse.dev/errs"
 	"pulse.dev/runtime/shared"
 )
 
@@ -185,6 +186,19 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 }
 
 func safeInvokeCronJob(ctx context.Context, job *CronJob) (err error) {
+	state := stateFromContext(ctx)
+	if state != nil {
+		if state.request.Service == "" {
+			state.request.Service = "cron"
+		}
+		state.request.Endpoint = job.ID
+		state.request.Path = "/cron/" + job.ID
+		startRequestTrace(state)
+		logRequestStart(state)
+		defer func() {
+			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+		}()
+	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("panic executing cron job %s: %v", job.ID, recovered)

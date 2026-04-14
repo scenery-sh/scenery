@@ -15,9 +15,13 @@ import (
 )
 
 var (
-	secretsEnvOnce sync.Once
-	secretsEnvData map[string]string
-	secretsEnvErr  error
+	secretsEnvOnce      sync.Once
+	secretsEnvData      map[string]string
+	secretsEnvErr       error
+	secretsWarnedMu     sync.Mutex
+	secretsWarnedFields map[string]bool
+	secretsPendingKeys  map[string][]string
+	secretsFlushed      bool
 )
 
 func MustPopulateSecrets(target any) {
@@ -73,22 +77,77 @@ func logMissingSecrets(missing []missingSecret) {
 	if len(missing) == 0 {
 		return
 	}
-	fields := make([]string, 0, len(missing))
-	keys := make([]string, 0, len(missing)*2)
-	seenKeys := make(map[string]bool, len(missing)*2)
+	fields, keys, emitNow := rememberMissingSecrets(missing)
+	if len(fields) == 0 || !emitNow {
+		return
+	}
+	slog.Warn("pulse secrets missing", "fields", fields, "env_keys", keys, "source", ".env")
+}
+
+func rememberMissingSecrets(missing []missingSecret) (fields []string, keys []string, emitNow bool) {
+	secretsWarnedMu.Lock()
+	defer secretsWarnedMu.Unlock()
+	if secretsPendingKeys == nil {
+		secretsPendingKeys = make(map[string][]string, len(missing))
+	}
+	if secretsWarnedFields == nil {
+		secretsWarnedFields = make(map[string]bool, len(missing))
+	}
 	for _, secret := range missing {
-		fields = append(fields, secret.Field)
-		for _, key := range secret.Keys {
+		if secretsWarnedFields[secret.Field] {
+			continue
+		}
+		if _, ok := secretsPendingKeys[secret.Field]; ok {
+			continue
+		}
+		secretsPendingKeys[secret.Field] = append([]string(nil), secret.Keys...)
+	}
+	if !secretsFlushed {
+		return nil, nil, false
+	}
+	return collectMissingSecretsLocked()
+}
+
+func FlushMissingSecretsWarnings() {
+	secretsWarnedMu.Lock()
+	if !secretsFlushed {
+		secretsFlushed = true
+	}
+	fields, keys, ok := collectMissingSecretsLocked()
+	secretsWarnedMu.Unlock()
+	if !ok {
+		return
+	}
+	slog.Warn("pulse secrets missing", "fields", fields, "env_keys", keys, "source", ".env")
+}
+
+func collectMissingSecretsLocked() (fields []string, keys []string, ok bool) {
+	if len(secretsPendingKeys) == 0 {
+		return nil, nil, false
+	}
+	fields = make([]string, 0, len(secretsPendingKeys))
+	seenKeys := make(map[string]bool, len(secretsPendingKeys)*2)
+	for field, fieldKeys := range secretsPendingKeys {
+		if secretsWarnedFields[field] {
+			continue
+		}
+		secretsWarnedFields[field] = true
+		fields = append(fields, field)
+		for _, key := range fieldKeys {
 			if seenKeys[key] {
 				continue
 			}
 			seenKeys[key] = true
 			keys = append(keys, key)
 		}
+		delete(secretsPendingKeys, field)
+	}
+	if len(fields) == 0 {
+		return nil, nil, false
 	}
 	slices.Sort(fields)
 	slices.Sort(keys)
-	slog.Warn("pulse secrets missing", "fields", fields, "env_keys", keys, "source", ".env")
+	return fields, keys, true
 }
 
 func loadSecretsEnv() (map[string]string, error) {

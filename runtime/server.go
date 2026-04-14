@@ -110,19 +110,25 @@ func (s *server) registerRaw(ep *Endpoint) {
 			pathParams = append(pathParams, shared.PathParam{Name: param.Key, Value: strings.TrimPrefix(param.Value, "/")})
 		}
 
-		authInfo, err := authenticateRequest(req, ep)
-		if err != nil {
-			errs.HTTPError(w, err)
-			return
-		}
-
-		state := newExternalState(ep, req, pathParams, nil, authInfo)
+		state := newExternalState(ep, req, pathParams, nil, AuthInfo{})
 		ctx := withState(req.Context(), state)
 		restore := enterState(state)
 		defer restore()
+		startRequestTrace(state)
 
-		status, headers, body, callErr := executeRawEndpoint(ep, req.WithContext(ctx))
+			authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
+			if err != nil {
+				logRequestStart(state)
+				finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+				errs.HTTPError(w, err)
+				return
+			}
+			state.auth = authInfo
+			logRequestStart(state)
+
+			status, headers, body, callErr := executeRawEndpoint(ep, req.WithContext(ctx))
 		applyHeaders(w.Header(), headers)
+		defer finishRequestTrace(state, status, nil, callErr)
 		if callErr != nil {
 			errs.HTTPErrorWithCode(w, callErr, status)
 			return
@@ -142,25 +148,31 @@ func (s *server) registerTyped(ep *Endpoint) {
 			return
 		}
 
-		authInfo, err := authenticateRequest(req, ep)
-		if err != nil {
-			errs.HTTPError(w, err)
-			return
-		}
-
 		payload, err := decodePayload(req, ep.PayloadType)
 		if err != nil {
 			errs.HTTPError(w, err)
 			return
 		}
 
-		state := newExternalState(ep, req, pathParams, payload, authInfo)
+		state := newExternalState(ep, req, pathParams, payload, AuthInfo{})
 		ctx := withState(req.Context(), state)
 		restore := enterState(state)
 		defer restore()
+		startRequestTrace(state)
 
-		resp, status, headers, callErr := executeTypedEndpoint(ep, ctx, pathValues, payload)
+			authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
+			if err != nil {
+				logRequestStart(state)
+				finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+				errs.HTTPError(w, err)
+				return
+			}
+			state.auth = authInfo
+			logRequestStart(state)
+
+			resp, status, headers, callErr := executeTypedEndpoint(ep, ctx, pathValues, payload)
 		applyHeaders(w.Header(), headers)
+		defer finishRequestTrace(state, status, resp, callErr)
 		if callErr != nil {
 			errs.HTTPErrorWithCode(w, callErr, status)
 			return
@@ -209,17 +221,22 @@ func authenticateRequest(req *http.Request, ep *Endpoint) (AuthInfo, error) {
 	if err != nil {
 		return AuthInfo{}, err
 	}
-	ctx := context.WithValue(req.Context(), requestStateKey{}, &requestState{
-		request: shared.Request{
-			Type:     shared.APICall,
-			Service:  ep.Service,
-			Endpoint: ep.Name,
-			Method:   req.Method,
-			Path:     req.URL.Path,
-			Headers:  req.Header.Clone(),
-		},
+	ctx := req.Context()
+	if stateFromContext(ctx) == nil {
+		ctx = context.WithValue(ctx, requestStateKey{}, &requestState{
+			request: shared.Request{
+				Type:     shared.APICall,
+				Service:  ep.Service,
+				Endpoint: ep.Name,
+				Method:   req.Method,
+				Path:     req.URL.Path,
+				Headers:  req.Header.Clone(),
+			},
+		})
+	}
+	info, err := traceAuthCall(ctx, handler, func(callCtx context.Context) (AuthInfo, error) {
+		return handler.Authenticate(callCtx, params)
 	})
-	info, err := handler.Authenticate(ctx, params)
 	if err != nil {
 		return AuthInfo{}, err
 	}

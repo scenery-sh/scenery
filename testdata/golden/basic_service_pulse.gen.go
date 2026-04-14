@@ -5,6 +5,7 @@ import (
 	"net/http"
 	pulseruntime "pulse.dev/runtime"
 	"sync"
+	"time"
 )
 
 var pulseInternalServiceService struct {
@@ -15,7 +16,9 @@ var pulseInternalServiceService struct {
 
 func pulseInternalGetService() (*Service, error) {
 	pulseInternalServiceService.once.Do(func() {
+		started := time.Now()
 		pulseInternalServiceService.svc, pulseInternalServiceService.err = initService()
+		pulseruntime.RecordServiceInit("service", time.Since(started), pulseInternalServiceService.err)
 	})
 	return pulseInternalServiceService.svc, pulseInternalServiceService.err
 }
@@ -267,6 +270,7 @@ func init() {
 		},
 	})
 	pulseruntime.RegisterAuthHandler(&pulseruntime.AuthHandler{
+		Name:         "AuthHandler",
 		Service:      "service",
 		ParamType:    pulseruntime.TypeOf[string](),
 		AuthDataType: pulseruntime.TypeOf[*AuthData](),

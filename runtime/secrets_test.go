@@ -87,8 +87,46 @@ func TestPopulateSecretsLogsMissingFields(t *testing.T) {
 	if secrets.PresentSecret != "top-secret" {
 		t.Fatalf("PresentSecret = %q, want %q", secrets.PresentSecret, "top-secret")
 	}
+	FlushMissingSecretsWarnings()
 	gotLogs := logs.String()
 	for _, want := range []string{"pulse secrets missing", "MissingSecret", "MISSING_SECRET"} {
+		if !strings.Contains(gotLogs, want) {
+			t.Fatalf("logs %q do not contain %q", gotLogs, want)
+		}
+	}
+}
+
+func TestFlushMissingSecretsWarningsCombinesFields(t *testing.T) {
+	dir := t.TempDir()
+
+	prevDir, restoreDir := chdirRuntimeTest(t, dir)
+	defer restoreDir(prevDir)
+	resetSecretsEnvCache()
+
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prevLogger)
+
+	var first struct {
+		ResendAPIKey string
+	}
+	var second struct {
+		ElectricURL string
+	}
+	if err := PopulateSecrets(&first); err != nil {
+		t.Fatalf("PopulateSecrets returned error: %v", err)
+	}
+	if err := PopulateSecrets(&second); err != nil {
+		t.Fatalf("PopulateSecrets returned error: %v", err)
+	}
+	FlushMissingSecretsWarnings()
+
+	gotLogs := logs.String()
+	if strings.Count(gotLogs, "pulse secrets missing") != 1 {
+		t.Fatalf("expected single warning, got logs %q", gotLogs)
+	}
+	for _, want := range []string{"ResendAPIKey", "ElectricURL"} {
 		if !strings.Contains(gotLogs, want) {
 			t.Fatalf("logs %q do not contain %q", gotLogs, want)
 		}
@@ -99,6 +137,9 @@ func resetSecretsEnvCache() {
 	secretsEnvOnce = sync.Once{}
 	secretsEnvData = nil
 	secretsEnvErr = nil
+	secretsWarnedFields = nil
+	secretsPendingKeys = nil
+	secretsFlushed = false
 }
 
 func chdirRuntimeTest(t *testing.T, dir string) (string, func(string)) {

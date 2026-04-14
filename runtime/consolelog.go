@@ -1,0 +1,333 @@
+package runtime
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"pulse.dev/errs"
+	"pulse.dev/internal/termstyle"
+)
+
+const levelTrace = slog.Level(-8)
+
+func init() {
+	// Install the Pulse console logger before generated package init code runs.
+	slog.SetDefault(slog.New(newPulseConsoleHandler(osStderr())))
+}
+
+type consoleAttr struct {
+	key   string
+	value string
+}
+
+type pulseConsoleHandler struct {
+	out      io.Writer
+	minLevel slog.Level
+	palette  termstyle.Palette
+	mu       *sync.Mutex
+	attrs    []slog.Attr
+	groups   []string
+}
+
+func newPulseConsoleHandler(out io.Writer) slog.Handler {
+	return &pulseConsoleHandler{
+		out:      out,
+		minLevel: levelTrace,
+		palette:  termstyle.New(out),
+		mu:       &sync.Mutex{},
+	}
+}
+
+func (h *pulseConsoleHandler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= h.minLevel
+}
+
+func (h *pulseConsoleHandler) Handle(_ context.Context, record slog.Record) error {
+	attrs := h.collectAttrs(record)
+	line := h.formatRecord(record, attrs)
+	if line == "" {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, err := io.WriteString(h.out, line)
+	return err
+}
+
+func (h *pulseConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	next := *h
+	next.attrs = append(append([]slog.Attr(nil), h.attrs...), attrs...)
+	return &next
+}
+
+func (h *pulseConsoleHandler) WithGroup(name string) slog.Handler {
+	if strings.TrimSpace(name) == "" {
+		return h
+	}
+	next := *h
+	next.groups = append(append([]string(nil), h.groups...), name)
+	return &next
+}
+
+func (h *pulseConsoleHandler) collectAttrs(record slog.Record) []consoleAttr {
+	attrs := make([]consoleAttr, 0, len(h.attrs)+record.NumAttrs())
+	for _, attr := range h.attrs {
+		h.appendAttr(&attrs, h.groups, attr)
+	}
+	record.Attrs(func(attr slog.Attr) bool {
+		h.appendAttr(&attrs, h.groups, attr)
+		return true
+	})
+	return attrs
+}
+
+func (h *pulseConsoleHandler) appendAttr(dst *[]consoleAttr, groups []string, attr slog.Attr) {
+	attr.Value = attr.Value.Resolve()
+	if attr.Equal(slog.Attr{}) {
+		return
+	}
+	if attr.Value.Kind() == slog.KindGroup {
+		groupName := strings.TrimSpace(attr.Key)
+		nextGroups := groups
+		if groupName != "" {
+			nextGroups = append(append([]string(nil), groups...), groupName)
+		}
+		for _, item := range attr.Value.Group() {
+			h.appendAttr(dst, nextGroups, item)
+		}
+		return
+	}
+	key := strings.TrimSpace(attr.Key)
+	if key == "" {
+		return
+	}
+	if len(groups) > 0 {
+		key = strings.Join(append(append([]string(nil), groups...), key), ".")
+	}
+	if key == "err" {
+		key = "error"
+	}
+	*dst = append(*dst, consoleAttr{
+		key:   key,
+		value: consoleValueString(attr.Value),
+	})
+}
+
+func (h *pulseConsoleHandler) formatRecord(record slog.Record, attrs []consoleAttr) string {
+	if record.Message == "pulse secrets missing" {
+		return h.formatSecretsWarning(attrs)
+	}
+	level := h.levelLabel(record.Level)
+	message := strings.TrimSpace(strings.TrimPrefix(record.Message, "pulse "))
+	if message == "" {
+		message = record.Message
+	}
+	var b strings.Builder
+	b.WriteString(record.Time.Local().Format("3:04PM"))
+	b.WriteByte(' ')
+	b.WriteString(level)
+	if message != "" {
+		b.WriteByte(' ')
+		b.WriteString(message)
+	}
+	for _, attr := range attrs {
+		if attr.value == "" {
+			continue
+		}
+		b.WriteByte(' ')
+		b.WriteString(attr.key)
+		b.WriteByte('=')
+		b.WriteString(attr.value)
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func (h *pulseConsoleHandler) formatSecretsWarning(attrs []consoleAttr) string {
+	var fields []string
+	for _, attr := range attrs {
+		if attr.key == "fields" {
+			fields = splitConsoleList(attr.value)
+			break
+		}
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(h.palette.Yellow("warning:"))
+	b.WriteString(" secrets not defined: ")
+	b.WriteString(strings.Join(fields, ", "))
+	b.WriteByte('\n')
+	b.WriteString(h.palette.Cyan("note:"))
+	b.WriteString(" undefined secrets are left empty for local development only.")
+	b.WriteByte('\n')
+	b.WriteString(h.palette.Dim("see "))
+	b.WriteString(h.palette.Dim("https://pulse.dev/docs/primitives/secrets"))
+	b.WriteString(h.palette.Dim(" for more information"))
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func (h *pulseConsoleHandler) levelLabel(level slog.Level) string {
+	switch {
+	case level <= levelTrace:
+		return h.palette.Blue("TRC")
+	case level < slog.LevelInfo:
+		return h.palette.Dim("DBG")
+	case level < slog.LevelWarn:
+		return h.palette.Yellow("INF")
+	case level < slog.LevelError:
+		return h.palette.Yellow("WRN")
+	default:
+		return h.palette.Red("ERR")
+	}
+}
+
+func consoleValueString(value slog.Value) string {
+	switch value.Kind() {
+	case slog.KindString:
+		return value.String()
+	case slog.KindBool:
+		if value.Bool() {
+			return "true"
+		}
+		return "false"
+	case slog.KindInt64:
+		return fmt.Sprintf("%d", value.Int64())
+	case slog.KindUint64:
+		return fmt.Sprintf("%d", value.Uint64())
+	case slog.KindFloat64:
+		return fmt.Sprintf("%g", value.Float64())
+	case slog.KindDuration:
+		return value.Duration().String()
+	case slog.KindTime:
+		return value.Time().Format(time.RFC3339Nano)
+	case slog.KindAny:
+		switch v := value.Any().(type) {
+		case nil:
+			return ""
+		case error:
+			return v.Error()
+		case fmt.Stringer:
+			return v.String()
+		case []string:
+			return strings.Join(v, ",")
+		case []any:
+			items := make([]string, 0, len(v))
+			for _, item := range v {
+				items = append(items, fmt.Sprint(item))
+			}
+			return strings.Join(items, ",")
+		default:
+			return fmt.Sprint(v)
+		}
+	default:
+		return value.String()
+	}
+}
+
+func splitConsoleList(value string) []string {
+	if value == "" {
+		return nil
+	}
+	items := strings.Split(value, ",")
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func logTrace(ctx context.Context, msg string, args ...any) {
+	slog.Log(ctx, levelTrace, msg, args...)
+}
+
+func logRequestStart(state *requestState) {
+	if state == nil || state.trace == nil || !state.trace.isRoot || state.startLogged {
+		return
+	}
+	state.startLogged = true
+	args := []any{
+		"endpoint", state.request.Endpoint,
+		"service", state.request.Service,
+		"trace_id", state.trace.traceID,
+	}
+	if state.auth.UID != "" {
+		args = append(args, "uid", state.auth.UID)
+	}
+	logTrace(context.Background(), "starting request", args...)
+}
+
+func logRequestFailure(state *requestState, err error) {
+	if state == nil || state.trace == nil || !state.trace.isRoot || err == nil {
+		return
+	}
+	args := []any{
+		"error", err.Error(),
+		"code", errs.Code(err),
+		"endpoint", state.request.Endpoint,
+		"service", state.request.Service,
+		"trace_id", state.trace.traceID,
+	}
+	if state.auth.UID != "" {
+		args = append(args, "uid", state.auth.UID)
+	}
+	slog.Error("request failed", args...)
+}
+
+func logRequestCompleted(state *requestState, duration time.Duration, err error) {
+	if state == nil || state.trace == nil || !state.trace.isRoot {
+		return
+	}
+	args := []any{
+		"code", errs.Code(err),
+		"ms", duration.Milliseconds(),
+		"endpoint", state.request.Endpoint,
+		"service", state.request.Service,
+		"trace_id", state.trace.traceID,
+	}
+	if state.auth.UID != "" {
+		args = append(args, "uid", state.auth.UID)
+	}
+	logTrace(context.Background(), "request completed", args...)
+}
+
+func logAuthHandlerStart(state *requestState, handler *AuthHandler) {
+	if state == nil || state.trace == nil || handler == nil {
+		return
+	}
+	logTrace(context.Background(), "running auth handler",
+		"endpoint", handler.Name,
+		"service", handler.Service,
+		"trace_id", state.trace.traceID,
+	)
+}
+
+func logAuthHandlerCompleted(state *requestState, handler *AuthHandler, info AuthInfo, err error, duration time.Duration) {
+	if state == nil || state.trace == nil || handler == nil {
+		return
+	}
+	args := []any{
+		"endpoint", handler.Name,
+		"service", handler.Service,
+		"trace_id", state.trace.traceID,
+		"code", errs.Code(err),
+		"ms", duration.Milliseconds(),
+	}
+	if info.UID != "" {
+		args = append(args, "uid", info.UID)
+	}
+	logTrace(context.Background(), "auth handler completed", args...)
+}

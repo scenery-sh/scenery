@@ -23,6 +23,9 @@ func Main(cfg AppConfig) error {
 		cfg.ListenAddr = ListenAddrFromEnv()
 	}
 	SetAppConfig(cfg)
+	stopReporting := startDevelopmentReporting(cfg)
+	defer stopReporting()
+	FlushMissingSecretsWarnings()
 
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
@@ -38,7 +41,8 @@ func Main(cfg AppConfig) error {
 		errCh <- server.ListenAndServe()
 	}()
 
-	fmt.Fprintf(os.Stdout, "pulse app listening on http://%s\n", cfg.ListenAddr)
+	logTrace(context.Background(), fmt.Sprintf("registered %d API endpoints", len(listEndpoints())))
+	logTrace(context.Background(), "listening for incoming HTTP requests")
 
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

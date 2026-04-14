@@ -15,9 +15,11 @@ import (
 type requestStateKey struct{}
 
 type requestState struct {
-	started time.Time
-	request shared.Request
-	auth    AuthInfo
+	started     time.Time
+	request     shared.Request
+	auth        AuthInfo
+	trace       *traceSpan
+	startLogged bool
 }
 
 var stateStore sync.Map
