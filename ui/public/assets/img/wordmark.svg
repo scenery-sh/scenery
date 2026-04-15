@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" role="img" aria-label="Pulse">
+    <style type="text/css">
+        .wordmark {
+            fill: #EEEEE1;
+            font-family: "Suisse Intl", Inter, system-ui, sans-serif;
+            font-size: 42px;
+            font-weight: 700;
+            letter-spacing: -0.08em;
+        }
+    </style>
+    <text x="0" y="46" class="wordmark">Pulse</text>
+</svg>

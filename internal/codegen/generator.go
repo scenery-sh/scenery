@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	appcfg "pulse.dev/internal/app"
 	"pulse.dev/internal/model"
 	pulseruntime "pulse.dev/runtime"
 )
@@ -22,15 +23,19 @@ type Output struct {
 }
 
 func Generate(app *model.App) (*Output, error) {
+	return GenerateWithConfig(app, appcfg.Config{})
+}
+
+func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error) {
 	out := &Output{
 		Rewritten: make(map[string][]byte),
 		Generated: make(map[string][]byte),
 	}
 
-	rewriteEndpointDecls(app)
-	for _, pkg := range app.Packages {
+	rewriteEndpointDecls(appModel)
+	for _, pkg := range appModel.Packages {
 		for _, file := range pkg.Files {
-			rel, err := filepath.Rel(app.Root, file.Path)
+			rel, err := filepath.Rel(appModel.Root, file.Path)
 			if err != nil {
 				return nil, err
 			}
@@ -44,7 +49,7 @@ func Generate(app *model.App) (*Output, error) {
 		}
 	}
 
-	for _, pkg := range app.Packages {
+	for _, pkg := range appModel.Packages {
 		data, err := generatePackageFile(pkg)
 		if err != nil {
 			return nil, err
@@ -58,7 +63,7 @@ func Generate(app *model.App) (*Output, error) {
 		}
 	}
 
-	mainFile, err := generateMain(app)
+	mainFile, err := generateMain(appModel, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -147,23 +152,51 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 	return format.Source([]byte(buf.String()))
 }
 
-func generateMain(app *model.App) ([]byte, error) {
+func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 	var buf strings.Builder
 	buf.WriteString("package main\n\n")
 	buf.WriteString("import (\n")
+	buf.WriteString("\t\"fmt\"\n")
+	buf.WriteString("\t\"os\"\n")
 	buf.WriteString("\tpulseruntime \"pulse.dev/runtime\"\n")
-	for _, pkg := range app.Packages {
+	for _, pkg := range appModel.Packages {
 		if hasResources(pkg) {
 			fmt.Fprintf(&buf, "\t_ %q\n", pkg.ImportPath)
 		}
 	}
 	buf.WriteString(")\n\n")
 	buf.WriteString("func main() {\n")
-	fmt.Fprintf(&buf, "\tif err := pulseruntime.Main(pulseruntime.AppConfig{Name: %q, ListenAddr: pulseruntime.ListenAddrFromEnv()}); err != nil {\n", app.Name)
-	buf.WriteString("\t\tpanic(err)\n")
+	fmt.Fprintf(&buf, "\tif err := pulseruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel, cfg))
+	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"pulse: %v\\n\", err)\n")
+	buf.WriteString("\t\tos.Exit(1)\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n")
 	return format.Source([]byte(buf.String()))
+}
+
+func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
+	workspace := cfg.Proxy.Workspace
+	if workspace == "" {
+		workspace = filepath.Base(appModel.Root)
+	}
+	fields := []string{
+		fmt.Sprintf("Name: %q", appModel.Name),
+		fmt.Sprintf("Workspace: %q", workspace),
+		"ListenAddr: pulseruntime.ListenAddrFromEnv()",
+	}
+	if cfg.Proxy.APIHost != "" {
+		fields = append(fields, fmt.Sprintf("ProxyAPIHost: %q", cfg.Proxy.APIHost))
+	}
+	if cfg.Proxy.ConsoleHost != "" {
+		fields = append(fields, fmt.Sprintf("ProxyConsoleHost: %q", cfg.Proxy.ConsoleHost))
+	}
+	if cfg.Proxy.MCPHost != "" {
+		fields = append(fields, fmt.Sprintf("ProxyMCPHost: %q", cfg.Proxy.MCPHost))
+	}
+	if cfg.Proxy.FrontendHost != "" {
+		fields = append(fields, fmt.Sprintf("ProxyFrontendHost: %q", cfg.Proxy.FrontendHost))
+	}
+	return "pulseruntime.AppConfig{" + strings.Join(fields, ", ") + "}"
 }
 
 func hasResources(pkg *model.Package) bool {

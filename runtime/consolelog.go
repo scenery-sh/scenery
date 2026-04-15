@@ -293,7 +293,7 @@ func logRequestCompleted(state *requestState, duration time.Duration, err error)
 	}
 	args := []any{
 		"code", errs.Code(err),
-		"ms", duration.Milliseconds(),
+		"duration_ms", duration.Milliseconds(),
 		"endpoint", state.request.Endpoint,
 		"service", state.request.Service,
 		"trace_id", state.trace.traceID,
@@ -324,7 +324,7 @@ func logAuthHandlerCompleted(state *requestState, handler *AuthHandler, info Aut
 		"service", handler.Service,
 		"trace_id", state.trace.traceID,
 		"code", errs.Code(err),
-		"ms", duration.Milliseconds(),
+		"duration_ms", duration.Milliseconds(),
 	}
 	if info.UID != "" {
 		args = append(args, "uid", info.UID)

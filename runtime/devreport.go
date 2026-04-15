@@ -6,14 +6,17 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"pulse.dev/errs"
@@ -41,8 +44,10 @@ type devReporter struct {
 	client *http.Client
 	queue  chan devdash.ReportEnvelope
 	done   chan struct{}
+	stop   chan struct{}
 
 	eventSeq atomic.Uint64
+	disabled atomic.Bool
 
 	prevLogger           *slog.Logger
 	prevDefaultTransport http.RoundTripper
@@ -73,6 +78,7 @@ func startDevelopmentReporting(cfg AppConfig) func() {
 		client: &http.Client{Timeout: 2 * time.Second},
 		queue:  make(chan devdash.ReportEnvelope, 1024),
 		done:   make(chan struct{}),
+		stop:   make(chan struct{}),
 	}
 
 	reporter.prevLogger = slog.Default()
@@ -101,11 +107,12 @@ func startDevelopmentReporting(cfg AppConfig) func() {
 			globalReporter = nil
 		}
 		reporterMu.Unlock()
-		close(reporter.queue)
-		<-reporter.done
+		reporter.disabled.Store(true)
 		slog.SetDefault(reporter.prevLogger)
 		http.DefaultTransport = reporter.prevDefaultTransport
 		http.DefaultClient.Transport = reporter.prevClientTransport
+		reporter.stopLoop()
+		<-reporter.done
 	}
 }
 
@@ -122,9 +129,21 @@ func activeReporter() *devReporter {
 
 func (r *devReporter) loop() {
 	defer close(r.done)
-	for env := range r.queue {
-		if err := r.post(env); err != nil {
-			fmt.Fprintf(osStderr(), "pulse: dev report failed: %v\n", err)
+	for {
+		select {
+		case <-r.stop:
+			return
+		case env := <-r.queue:
+			if r.disabled.Load() {
+				continue
+			}
+			if err := r.post(env); err != nil {
+				if shouldDisableDevReporting(err) {
+					r.disabled.Store(true)
+					return
+				}
+				fmt.Fprintf(osStderr(), "pulse: dev report failed: %v\n", err)
+			}
 		}
 	}
 }
@@ -152,11 +171,45 @@ func (r *devReporter) post(env devdash.ReportEnvelope) error {
 }
 
 func (r *devReporter) enqueue(env devdash.ReportEnvelope) {
+	if r == nil || r.disabled.Load() {
+		return
+	}
 	select {
+	case <-r.stop:
+		return
 	case r.queue <- env:
 	default:
 		// Keep the app responsive if the dashboard falls behind.
 	}
+}
+
+func (r *devReporter) stopLoop() {
+	if r == nil {
+		return
+	}
+	select {
+	case <-r.stop:
+	default:
+		close(r.stop)
+	}
+}
+
+func shouldDisableDevReporting(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+		return true
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) && (errno == syscall.ECONNREFUSED || errno == syscall.EPIPE || errno == syscall.ECONNRESET) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	return false
 }
 
 func startRequestTrace(state *requestState) {

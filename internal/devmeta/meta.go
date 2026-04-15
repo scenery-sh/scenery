@@ -354,27 +354,27 @@ func buildSchema(field *model.Field) any {
 	if field == nil || field.Type == nil {
 		return nil
 	}
-	return buildType(field.Type)
+	return buildType(field.Type, make(map[types.Type]bool))
 }
 
-func buildType(typ types.Type) map[string]any {
+func buildType(typ types.Type, seen map[types.Type]bool) map[string]any {
 	switch value := typ.(type) {
 	case *types.Pointer:
 		return map[string]any{
 			"pointer": map[string]any{
-				"base": buildType(value.Elem()),
+				"base": buildType(value.Elem(), seen),
 			},
 		}
 	case *types.Named:
-		if basic, ok := builtinType(value.Underlying()); ok {
+		if basic, ok := builtinType(value); ok {
 			return basic
 		}
-		return map[string]any{
-			"named": map[string]any{
-				"id":             0,
-				"type_arguments": []any{},
-			},
+		if seen[value] {
+			return map[string]any{"builtin": "ANY"}
 		}
+		seen[value] = true
+		defer delete(seen, value)
+		return buildType(value.Underlying(), seen)
 	case *types.Struct:
 		fields := make([]map[string]any, 0, value.NumFields())
 		for i := 0; i < value.NumFields(); i++ {
@@ -383,7 +383,7 @@ func buildType(typ types.Type) map[string]any {
 			fields = append(fields, map[string]any{
 				"name":              field.Name(),
 				"doc":               "",
-				"typ":               buildType(field.Type()),
+				"typ":               buildType(field.Type(), seen),
 				"json_name":         jsonName(field.Name(), tag),
 				"optional":          tagContains(tag, `pulse:"optional"`),
 				"query_string_name": "",
@@ -399,14 +399,14 @@ func buildType(typ types.Type) map[string]any {
 	case *types.Slice:
 		return map[string]any{
 			"list": map[string]any{
-				"elem": buildType(value.Elem()),
+				"elem": buildType(value.Elem(), seen),
 			},
 		}
 	case *types.Map:
 		return map[string]any{
 			"map": map[string]any{
-				"key":   buildType(value.Key()),
-				"value": buildType(value.Elem()),
+				"key":   buildType(value.Key(), seen),
+				"value": buildType(value.Elem(), seen),
 			},
 		}
 	default:

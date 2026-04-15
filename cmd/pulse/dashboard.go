@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -23,10 +23,8 @@ import (
 	_ "github.com/lib/pq"
 
 	"pulse.dev/internal/devdash"
+	uidist "pulse.dev/ui"
 )
-
-//go:embed devdash_static/*
-var dashboardAssets embed.FS
 
 var dashboardUpgrader = websocket.Upgrader{
 	CheckOrigin: func(*http.Request) bool { return true },
@@ -39,13 +37,16 @@ type dashboardServer struct {
 	mu          sync.Mutex
 	clients     map[*dashboardClient]struct{}
 	mcpSessions map[string]*mcpSession
+	assets      fs.FS
 }
 
-func newDashboardServer(supervisor *devSupervisor) *dashboardServer {
+func newDashboardServer(supervisor *devSupervisor, assetsDir string) *dashboardServer {
+	assets, _ := dashboardAssetFS(assetsDir)
 	s := &dashboardServer{
 		supervisor:  supervisor,
 		clients:     make(map[*dashboardClient]struct{}),
 		mcpSessions: make(map[string]*mcpSession),
+		assets:      assets,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
@@ -95,16 +96,9 @@ func (s *dashboardServer) handleRoot(w http.ResponseWriter, req *http.Request) {
 	case "/":
 		http.Redirect(w, req, "/"+s.supervisor.activeAppID(), http.StatusFound)
 		return
-	case "/site.webmanifest":
-		s.serveAsset(w, req, "devdash_static/site.webmanifest", "application/manifest+json")
-		return
 	default:
-		if strings.HasPrefix(req.URL.Path, "/assets/") {
-			s.serveAsset(w, req, "devdash_static"+req.URL.Path, detectAssetContentType(req.URL.Path))
-			return
-		}
-		if req.URL.Path == "/favicon.ico" {
-			s.serveAsset(w, req, "devdash_static/assets/branding/icons/favicon.ico", "image/x-icon")
+		if isDashboardStaticPath(req.URL.Path) {
+			s.serveAsset(w, req, strings.TrimPrefix(req.URL.Path, "/"), detectAssetContentType(req.URL.Path))
 			return
 		}
 	}
@@ -115,16 +109,17 @@ func (s *dashboardServer) handleRoot(w http.ResponseWriter, req *http.Request) {
 	}
 	index := s.indexHTML(strings.TrimPrefix(req.URL.Path, "/"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.WriteString(w, index)
 }
 
 func (s *dashboardServer) serveAsset(w http.ResponseWriter, req *http.Request, name, contentType string) {
-	data, err := dashboardAssets.ReadFile(name)
+	data, err := s.readAsset(name)
 	if err != nil {
 		http.NotFound(w, req)
 		return
 	}
-	data = rewriteDashboardAsset(name, data)
+	w.Header().Set("Cache-Control", "no-store")
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
@@ -135,12 +130,8 @@ func (s *dashboardServer) indexHTML(appID string) string {
 	if appID == "" {
 		appID = s.supervisor.activeAppID()
 	}
-	data, err := dashboardAssets.ReadFile("devdash_static/index.html")
-	if err == nil {
-		html := rewriteDashboardBranding(string(data))
-		html = strings.ReplaceAll(html, `"/__encore"`, `"/__pulse"`)
-		html = strings.ReplaceAll(html, "__APP_ID__", appID)
-		return html
+	if data, err := s.readAsset("index.html"); err == nil {
+		return strings.ReplaceAll(string(data), "__APP_ID__", appID)
 	}
 	return `<!doctype html>
 <html lang="en">
@@ -159,11 +150,50 @@ func (s *dashboardServer) indexHTML(appID string) string {
 	<body>
     <main>
       <h1>Pulse Dev Dashboard</h1>
-      <p>The dashboard server is running for <code>` + appID + `</code>, but vendored UI assets are not present yet.</p>
+      <p>The dashboard server is running for <code>` + appID + `</code>, but the dashboard UI build is not available.</p>
+      <p>Build it from the Pulse repo with <code>bun run build</code> inside <code>ui/</code>.</p>
       <p>WebSocket endpoint: <code>ws://` + devdash.ListenAddr() + devdash.WebSocketPath + `</code></p>
     </main>
   </body>
 </html>`
+}
+
+func dashboardAssetFS(assetsDir string) (fs.FS, error) {
+	if dir := strings.TrimSpace(assetsDir); dir != "" {
+		return os.DirFS(dir), nil
+	}
+	if dir := strings.TrimSpace(os.Getenv("PULSE_DEV_DASHBOARD_UI_DIR")); dir != "" {
+		return os.DirFS(dir), nil
+	}
+	return fs.Sub(uidist.Dist, "dist")
+}
+
+func isDashboardStaticPath(path string) bool {
+	switch path {
+	case "/favicon.ico", "/manifest.webmanifest", "/site.webmanifest":
+		return true
+	}
+	return strings.HasPrefix(path, "/assets/")
+}
+
+func (s *dashboardServer) readAsset(name string) ([]byte, error) {
+	if s == nil || s.assets == nil {
+		return nil, fs.ErrNotExist
+	}
+	switch name {
+	case "favicon.ico":
+		if data, err := fs.ReadFile(s.assets, "favicon.ico"); err == nil {
+			return data, nil
+		}
+		return fs.ReadFile(s.assets, "assets/favicon.ico")
+	case "site.webmanifest", "manifest.webmanifest":
+		if data, err := fs.ReadFile(s.assets, "site.webmanifest"); err == nil {
+			return data, nil
+		}
+		return fs.ReadFile(s.assets, "manifest.webmanifest")
+	default:
+		return fs.ReadFile(s.assets, strings.TrimPrefix(name, "/"))
+	}
 }
 
 func (s *dashboardServer) handleWebSocket(w http.ResponseWriter, req *http.Request) {
@@ -223,6 +253,16 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		}
 		_ = json.Unmarshal(raw, &params)
 		return s.supervisor.statusFor(ctx, firstNonEmpty(params.AppID, s.supervisor.activeAppID()))
+	case "process/output/list":
+		var params struct {
+			AppID string `json:"app_id"`
+			Limit int    `json:"limit"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		if params.AppID == "" {
+			params.AppID = s.supervisor.activeAppID()
+		}
+		return s.supervisor.store.ListProcessOutput(ctx, params.AppID, params.Limit)
 	case "traces/clear":
 		var params struct {
 			AppID string `json:"app_id"`

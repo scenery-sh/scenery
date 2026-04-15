@@ -186,7 +186,7 @@ func newTestDashboardServer(t *testing.T) *dashboardServer {
 		cfg:   app.Config{Name: "app-test"},
 		store: store,
 	}
-	return newDashboardServer(supervisor)
+	return newDashboardServer(supervisor, "")
 }
 
 func postGraphQL(t *testing.T, server *dashboardServer, body map[string]any) map[string]any {

@@ -9,8 +9,17 @@ import (
 )
 
 type Config struct {
-	Name string `json:"name"`
-	ID   string `json:"id"`
+	Name  string      `json:"name"`
+	ID    string      `json:"id"`
+	Proxy ProxyConfig `json:"proxy"`
+}
+
+type ProxyConfig struct {
+	Workspace    string `json:"workspace"`
+	APIHost      string `json:"api_host"`
+	ConsoleHost  string `json:"console_host"`
+	MCPHost      string `json:"mcp_host"`
+	FrontendHost string `json:"frontend_host"`
 }
 
 func DiscoverRoot(start string) (string, Config, error) {

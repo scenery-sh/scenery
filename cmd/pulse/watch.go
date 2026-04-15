@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -27,8 +28,12 @@ type fileStamp struct {
 
 type fileSnapshot map[string]fileStamp
 
-func runWithWatch(addr string) error {
-	root, cfg, err := app.DiscoverRoot(".")
+func runWithWatch(addr string, verbose bool, appRoot string) error {
+	start, err := resolveAppRoot(appRoot)
+	if err != nil {
+		return err
+	}
+	root, cfg, err := app.DiscoverRoot(start)
 	if err != nil {
 		return err
 	}
@@ -41,7 +46,7 @@ func runWithWatch(addr string) error {
 		return err
 	}
 
-	supervisor, err := newDevSupervisor(root, cfg, addr)
+	supervisor, err := newDevSupervisor(root, cfg, addr, verbose)
 	if err != nil {
 		return err
 	}
@@ -62,8 +67,9 @@ func runWithWatch(addr string) error {
 			}
 			return err
 		}
+		paths := changedPaths(snapshot, nextSnapshot)
 		snapshot = nextSnapshot
-		supervisor.announceRebuild()
+		supervisor.announceRebuild(paths)
 		if err := supervisor.RebuildAndRestart(ctx, false); err != nil {
 			supervisor.console.RebuildFailed(err)
 		}
@@ -188,10 +194,6 @@ func shouldSkipWatchDir(rel string) bool {
 }
 
 func isWatchedFile(rel string) bool {
-	switch filepath.Base(rel) {
-	case "pulse.app", "go.mod", "go.sum", "go.work", "go.work.sum", ".env", ".env.local":
-		return true
-	}
 	return filepath.Ext(rel) == ".go"
 }
 
@@ -205,4 +207,23 @@ func snapshotsEqual(a, b fileSnapshot) bool {
 		}
 	}
 	return true
+}
+
+func changedPaths(before, after fileSnapshot) []string {
+	seen := make(map[string]struct{}, len(before)+len(after))
+	paths := make([]string, 0, len(before)+len(after))
+	for path, stamp := range before {
+		seen[path] = struct{}{}
+		if other, ok := after[path]; !ok || other != stamp {
+			paths = append(paths, path)
+		}
+	}
+	for path := range after {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
 }

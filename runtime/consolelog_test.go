@@ -17,7 +17,7 @@ func TestPulseConsoleHandlerFormatsTraceRecords(t *testing.T) {
 	record := slog.NewRecord(time.Date(2026, time.April, 14, 15, 13, 0, 0, time.Local), levelTrace, "request completed", 0)
 	record.AddAttrs(
 		slog.Any("code", errs.OK),
-		slog.Int64("ms", 231),
+		slog.Int64("duration_ms", 231),
 		slog.String("endpoint", "Config"),
 		slog.String("service", "tenants"),
 		slog.String("trace_id", "trace-123"),
@@ -29,7 +29,7 @@ func TestPulseConsoleHandlerFormatsTraceRecords(t *testing.T) {
 	for _, want := range []string{
 		"3:13PM TRC request completed",
 		"code=ok",
-		"ms=231",
+		"duration_ms=231",
 		"endpoint=Config",
 		"service=tenants",
 		"trace_id=trace-123",

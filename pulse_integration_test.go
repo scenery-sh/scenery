@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -226,7 +227,7 @@ func TestPulseBuildProducesRunnableBinary(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, outputPath)
-	cmd.Env = append(os.Environ(), "PULSE_LISTEN_ADDR="+addr)
+	cmd.Env = append(os.Environ(), "PULSE_LISTEN_ADDR="+addr, "PULSE_LOCAL_PROXY=0")
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.Stdin = nil
@@ -239,6 +240,137 @@ func TestPulseBuildProducesRunnableBinary(t *testing.T) {
 
 	waitForHTTP(t, "http://"+addr+"/service.CallPrivate")
 	getJSON(t, "http://"+addr+"/service.CallPrivate", nil, http.StatusOK, map[string]any{"message": "secret:hi"})
+}
+
+func TestPulseRunServesHTTPSHostnames(t *testing.T) {
+	repo := repoRoot(t)
+	sourceAppDir := filepath.Join(repo, "testdata", "apps", "basic")
+	appDir := filepath.Join(t.TempDir(), "basic")
+	copyDir(t, sourceAppDir, appDir)
+	rewriteFixtureReplace(t, filepath.Join(appDir, "go.mod"), repo)
+	writePulseApp(t, appDir, `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.onlv.localhost","console_host":"console.onlv.localhost","mcp_host":"mcp.onlv.localhost","frontend_host":"pulse.onlv.localhost"}}`)
+	port := freePort(t)
+	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
+	httpPort := freePort(t)
+	httpsPort := freePort(t)
+	frontendPort := freePort(t)
+	binary := buildPulseBinary(t, repo)
+
+	frontendLn, err := net.Listen("tcp", "127.0.0.1:"+frontendPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer frontendLn.Close()
+	frontendSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, _ = io.WriteString(w, "frontend ok")
+		}),
+	}
+	defer frontendSrv.Close()
+	go func() { _ = frontendSrv.Serve(frontendLn) }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
+	cmd.Env = pulseRunProxyEnv(dashAddr, httpPort, httpsPort, "127.0.0.1:"+frontendPort)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	cmd.Stdin = nil
+	cmd.Dir = appDir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start pulse run: %v", err)
+	}
+	defer stopPulseProcess(t, cancel, cmd)
+
+	waitForHTTP(t, "http://"+addr+"/service.CallPrivate")
+
+	client := insecureHTTPSClient()
+	apiURL := "https://api.onlv.localhost:" + httpsPort + "/service.CallPrivate"
+	getJSONWithClient(t, client, apiURL, nil, http.StatusOK, map[string]any{"message": "secret:hi"})
+
+	consoleURL := "https://console.onlv.localhost:" + httpsPort + "/"
+	waitForURL(t, client, consoleURL)
+	resp, err := client.Get(consoleURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("unexpected console status %d", resp.StatusCode)
+	}
+
+	mcpURL := "https://mcp.onlv.localhost:" + httpsPort + "/sse?app=basicapp"
+	waitForURL(t, client, mcpURL)
+	resp, err = client.Get(mcpURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected mcp status %d", resp.StatusCode)
+	}
+
+	frontendURL := "https://pulse.onlv.localhost:" + httpsPort + "/"
+	waitForURL(t, client, frontendURL)
+	resp, err = client.Get(frontendURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "frontend ok" {
+		t.Fatalf("unexpected frontend response status=%d body=%q", resp.StatusCode, body)
+	}
+}
+
+func TestPulseBuiltBinaryServesHTTPSHostname(t *testing.T) {
+	repo := repoRoot(t)
+	sourceAppDir := filepath.Join(repo, "testdata", "apps", "basic")
+	appDir := filepath.Join(t.TempDir(), "basic")
+	copyDir(t, sourceAppDir, appDir)
+	rewriteFixtureReplace(t, filepath.Join(appDir, "go.mod"), repo)
+	writePulseApp(t, appDir, `{"name":"basicapp","proxy":{"api_host":"api.onlv.localhost","console_host":"console.onlv.localhost","mcp_host":"mcp.onlv.localhost","frontend_host":"pulse.onlv.localhost"}}`)
+	pulseBinary := buildPulseBinary(t, repo)
+	outputPath := filepath.Join(t.TempDir(), "basic-app")
+
+	buildCmd := exec.Command(pulseBinary, "build", "-o", outputPath)
+	buildCmd.Dir = appDir
+	buildOutput, err := buildCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("pulse build failed: %v\n%s", err, buildOutput)
+	}
+
+	port := freePort(t)
+	addr := "127.0.0.1:" + port
+	httpPort := freePort(t)
+	httpsPort := freePort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, outputPath)
+	cmd.Env = append(
+		os.Environ(),
+		"PULSE_LISTEN_ADDR="+addr,
+		"PULSE_LOCAL_PROXY_HTTP_PORT="+httpPort,
+		"PULSE_LOCAL_PROXY_HTTPS_PORT="+httpsPort,
+		"PULSE_LOCAL_PROXY_SKIP_TRUST_INSTALL=1",
+	)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	cmd.Stdin = nil
+	cmd.Dir = appDir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start built app: %v", err)
+	}
+	defer stopPulseProcess(t, cancel, cmd)
+
+	waitForHTTP(t, "http://"+addr+"/service.CallPrivate")
+	client := insecureHTTPSClient()
+	getJSONWithClient(t, client, "https://api.onlv.localhost:"+httpsPort+"/service.CallPrivate", nil, http.StatusOK, map[string]any{"message": "secret:hi"})
 }
 
 func TestPulseRunDashboardNotificationsAndMCP(t *testing.T) {
@@ -352,7 +484,25 @@ func buildPulseBinary(t *testing.T, repo string) string {
 }
 
 func pulseRunEnv(dashboardAddr string) []string {
-	return append(os.Environ(), "PULSE_DEV_DASHBOARD_ADDR="+dashboardAddr)
+	return append(
+		os.Environ(),
+		"PULSE_DEV_DASHBOARD_ADDR="+dashboardAddr,
+		"PULSE_LOCAL_PROXY=0",
+	)
+}
+
+func pulseRunProxyEnv(dashboardAddr, httpPort, httpsPort, frontendAddr string) []string {
+	env := append(
+		os.Environ(),
+		"PULSE_DEV_DASHBOARD_ADDR="+dashboardAddr,
+		"PULSE_LOCAL_PROXY_HTTP_PORT="+httpPort,
+		"PULSE_LOCAL_PROXY_HTTPS_PORT="+httpsPort,
+		"PULSE_LOCAL_PROXY_SKIP_TRUST_INSTALL=1",
+	)
+	if frontendAddr != "" {
+		env = append(env, "PULSE_FRONTEND_ADDR="+frontendAddr)
+	}
+	return env
 }
 
 func stopPulseProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
@@ -524,12 +674,15 @@ func wsCall(t *testing.T, conn *websocket.Conn, id int, method string, params ma
 		t.Fatalf("write websocket rpc: %v", err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		t.Fatalf("set websocket deadline: %v", err)
+	}
 	for time.Now().Before(deadline) {
-		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-			t.Fatalf("set websocket deadline: %v", err)
-		}
 		var message map[string]any
 		if err := conn.ReadJSON(&message); err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				break
+			}
 			t.Fatalf("read websocket rpc: %v", err)
 		}
 		if int(toFloat(message["id"])) != id {
@@ -551,14 +704,14 @@ func waitForWSMethods(t *testing.T, conn *websocket.Conn, timeout time.Duration,
 		remaining[method] = true
 	}
 	deadline := time.Now().Add(timeout)
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		t.Fatalf("set websocket deadline: %v", err)
+	}
 	for len(remaining) > 0 && time.Now().Before(deadline) {
-		if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-			t.Fatalf("set websocket deadline: %v", err)
-		}
 		var message map[string]any
 		if err := conn.ReadJSON(&message); err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
+				break
 			}
 			t.Fatalf("read websocket notification: %v", err)
 		}
@@ -587,6 +740,11 @@ func waitForMCPToolResult(t *testing.T, timeout time.Duration, fn func() map[str
 func waitForHTTP(t *testing.T, url string) {
 	t.Helper()
 	client := &http.Client{Timeout: time.Second}
+	waitForURL(t, client, url)
+}
+
+func waitForURL(t *testing.T, client *http.Client, url string) {
+	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url)
@@ -682,6 +840,18 @@ func getJSON(t *testing.T, url string, headers map[string]string, wantStatus int
 	assertJSONResponse(t, req, wantStatus, want)
 }
 
+func getJSONWithClient(t *testing.T, client *http.Client, url string, headers map[string]string, wantStatus int, want map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	assertJSONResponseWithClient(t, client, req, wantStatus, want, nil)
+}
+
 func assertCORSPreflight(t *testing.T, url string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodOptions, url, nil)
@@ -759,6 +929,11 @@ func assertJSONResponse(t *testing.T, req *http.Request, wantStatus int, want ma
 func assertJSONResponseWithHeaders(t *testing.T, req *http.Request, wantStatus int, want map[string]any, wantHeaders map[string]string) {
 	t.Helper()
 	client := &http.Client{Timeout: 5 * time.Second}
+	assertJSONResponseWithClient(t, client, req, wantStatus, want, wantHeaders)
+}
+
+func assertJSONResponseWithClient(t *testing.T, client *http.Client, req *http.Request, wantStatus int, want map[string]any, wantHeaders map[string]string) {
+	t.Helper()
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -779,6 +954,18 @@ func assertJSONResponseWithHeaders(t *testing.T, req *http.Request, wantStatus i
 	}
 	if !mapsEqual(got, want) {
 		t.Fatalf("unexpected body: got=%v want=%v", got, want)
+	}
+}
+
+func insecureHTTPSClient() *http.Client {
+	return &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 }
 
@@ -913,6 +1100,13 @@ func rewriteFixtureReplace(t *testing.T, goModPath, repo string) {
 		t.Fatalf("expected fixture go.mod replace in %s", goModPath)
 	}
 	if err := os.WriteFile(goModPath, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writePulseApp(t *testing.T, appDir, contents string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(appDir, "pulse.app"), []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

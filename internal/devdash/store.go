@@ -280,6 +280,42 @@ func (s *Store) WriteProcessOutput(ctx context.Context, output ProcessOutput) er
 	return err
 }
 
+func (s *Store) ListProcessOutput(ctx context.Context, appID string, limit int) ([]ProcessOutput, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select app_id, pid, stream, output, created_at
+		from process_output
+		where app_id = ?
+		order by id desc
+		limit ?
+	`, appID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []ProcessOutput
+	for rows.Next() {
+		var item ProcessOutput
+		var createdAt string
+		if err := rows.Scan(&item.AppID, &item.PID, &item.Stream, &item.Output, &createdAt); err != nil {
+			return nil, err
+		}
+		item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+		items[i], items[j] = items[j], items[i]
+	}
+	return items, nil
+}
+
 func (s *Store) AppendTraceSummary(ctx context.Context, summary *TraceSummary) error {
 	if summary == nil {
 		return errors.New("trace summary is nil")

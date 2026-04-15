@@ -25,12 +25,12 @@ type Result struct {
 	Binary string
 }
 
-func App(appRoot, name string) (*Result, error) {
-	model, err := parse.App(appRoot, name)
+func App(appRoot string, cfg app.Config) (*Result, error) {
+	model, err := parse.App(appRoot, cfg.Name)
 	if err != nil {
 		return nil, err
 	}
-	result, err := Prepare(appRoot, model)
+	result, err := Prepare(appRoot, model, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -41,8 +41,8 @@ func App(appRoot, name string) (*Result, error) {
 	return result, nil
 }
 
-func Prepare(appRoot string, model *model.App) (*Result, error) {
-	gen, err := codegen.Generate(model)
+func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) {
+	gen, err := codegen.GenerateWithConfig(model, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -214,8 +214,9 @@ func rewriteEncoreCompat(path string, src []byte) ([]byte, error) {
 	needsAuthRewrite := strings.Contains(text, "encore.dev/beta/auth")
 	needsErrsRewrite := strings.Contains(text, "encore.dev/beta/errs")
 	needsMiddlewareRewrite := strings.Contains(text, "encore.dev/middleware")
+	needsPGXPoolRewrite := strings.Contains(text, "github.com/jackc/pgx/v5/pgxpool")
 	needsRootRewrite := strings.Contains(text, "\"encore.dev\"")
-	if !needsCronRewrite && !needsRlogRewrite && !needsAuthRewrite && !needsErrsRewrite && !needsMiddlewareRewrite && !needsRootRewrite {
+	if !needsCronRewrite && !needsRlogRewrite && !needsAuthRewrite && !needsErrsRewrite && !needsMiddlewareRewrite && !needsPGXPoolRewrite && !needsRootRewrite {
 		return src, nil
 	}
 
@@ -239,6 +240,9 @@ func rewriteEncoreCompat(path string, src []byte) ([]byte, error) {
 		changed = true
 	}
 	if rewriteImportPath(file, "encore.dev/middleware", "pulse.dev/middleware", "") {
+		changed = true
+	}
+	if rewriteImportPath(file, "github.com/jackc/pgx/v5/pgxpool", "pulse.dev/pgxpool", "") {
 		changed = true
 	}
 	if rewriteImportPath(file, "encore.dev", "pulse.dev", "encore") {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -88,8 +90,13 @@ type CronJob struct {
 }
 
 type AppConfig struct {
-	Name       string
-	ListenAddr string
+	Name              string
+	Workspace         string
+	ListenAddr        string
+	ProxyAPIHost      string
+	ProxyConsoleHost  string
+	ProxyMCPHost      string
+	ProxyFrontendHost string
 }
 
 type registry struct {
@@ -118,7 +125,17 @@ func SetAppConfig(cfg AppConfig) {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	global.meta.AppID = cfg.Name
+	if publicBaseURL := strings.TrimSpace(os.Getenv("PULSE_PUBLIC_BASE_URL")); publicBaseURL != "" {
+		global.meta.APIBaseURL = publicBaseURL
+		return
+	}
 	global.meta.APIBaseURL = "http://" + cfg.ListenAddr
+}
+
+func SetPublicBaseURL(baseURL string) {
+	global.mu.Lock()
+	defer global.mu.Unlock()
+	global.meta.APIBaseURL = baseURL
 }
 
 func Meta() *shared.AppMetadata {

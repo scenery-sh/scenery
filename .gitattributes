@@ -1,1 +1,3 @@
 cmd/pulse/devdash_static/** -diff linguist-generated=true linguist-vendored=true
+ui/public/assets/** -diff linguist-generated=true linguist-vendored=true
+ui/dist/** -diff linguist-generated=true

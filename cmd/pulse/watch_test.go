@@ -3,10 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
-func TestScanWatchedFilesIncludesGoAndModuleInputs(t *testing.T) {
+func TestScanWatchedFilesIncludesOnlyGoFiles(t *testing.T) {
 	root := t.TempDir()
 
 	writeWatchFile(t, root, "pulse.app", `{"name":"watchapp"}`)
@@ -22,12 +23,12 @@ func TestScanWatchedFilesIncludesGoAndModuleInputs(t *testing.T) {
 		t.Fatalf("scanWatchedFiles returned error: %v", err)
 	}
 
-	for _, want := range []string{"pulse.app", "go.mod", ".env", "svc/api.go"} {
+	for _, want := range []string{"svc/api.go"} {
 		if _, ok := snapshot[want]; !ok {
 			t.Fatalf("snapshot missing %q: %+v", want, snapshot)
 		}
 	}
-	for _, ignored := range []string{"README.md", ".git/config", "node_modules/pkg/index.js"} {
+	for _, ignored := range []string{"pulse.app", "go.mod", ".env", "README.md", ".git/config", "node_modules/pkg/index.js"} {
 		if _, ok := snapshot[ignored]; ok {
 			t.Fatalf("snapshot unexpectedly included %q: %+v", ignored, snapshot)
 		}
@@ -53,6 +54,32 @@ func TestSnapshotsEqual(t *testing.T) {
 	}
 	if snapshotsEqual(a, c) {
 		t.Fatal("snapshotsEqual returned true for different snapshots")
+	}
+}
+
+func TestChangedPaths(t *testing.T) {
+	before := fileSnapshot{
+		"svc/added.go":   {size: 1},
+		"svc/deleted.go": {size: 2},
+		"svc/same.go":    {size: 3},
+		"svc/updated.go": {size: 4},
+	}
+	after := fileSnapshot{
+		"svc/added.go":   {size: 9},
+		"svc/new.go":     {size: 5},
+		"svc/same.go":    {size: 3},
+		"svc/updated.go": {size: 7},
+	}
+
+	got := changedPaths(before, after)
+	want := []string{
+		"svc/added.go",
+		"svc/deleted.go",
+		"svc/new.go",
+		"svc/updated.go",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("changedPaths mismatch\n got: %v\nwant: %v", got, want)
 	}
 }
 

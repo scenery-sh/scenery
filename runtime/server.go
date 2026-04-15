@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"slices"
@@ -43,6 +44,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 		}
 		s.registerTyped(ep)
 	}
+	s.registerPulseConfig()
 
 	httpServer := &http.Server{
 		Addr:    listenAddr,
@@ -50,6 +52,25 @@ func newServer(listenAddr string) (*http.Server, error) {
 	}
 	s.http = httpServer
 	return httpServer, nil
+}
+
+type publicConfigResponse struct {
+	AppID      string `json:"appID"`
+	APIBaseURL string `json:"apiBaseURL"`
+}
+
+func (s *server) registerPulseConfig() {
+	registerRoute(s.public, "/__pulse/config", []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
+		meta := Meta()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if err := json.NewEncoder(w).Encode(publicConfigResponse{
+			AppID:      meta.AppID,
+			APIBaseURL: meta.APIBaseURL,
+		}); err != nil {
+			errs.HTTPError(w, errs.Wrap(err, "encode pulse config"))
+		}
+	})
 }
 
 func withCORS(next http.Handler) http.Handler {
@@ -116,17 +137,17 @@ func (s *server) registerRaw(ep *Endpoint) {
 		defer restore()
 		startRequestTrace(state)
 
-			authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
-			if err != nil {
-				logRequestStart(state)
-				finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
-				errs.HTTPError(w, err)
-				return
-			}
-			state.auth = authInfo
+		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
+		if err != nil {
 			logRequestStart(state)
+			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+			errs.HTTPError(w, err)
+			return
+		}
+		state.auth = authInfo
+		logRequestStart(state)
 
-			status, headers, body, callErr := executeRawEndpoint(ep, req.WithContext(ctx))
+		status, headers, body, callErr := executeRawEndpoint(ep, req.WithContext(ctx))
 		applyHeaders(w.Header(), headers)
 		defer finishRequestTrace(state, status, nil, callErr)
 		if callErr != nil {
@@ -160,17 +181,17 @@ func (s *server) registerTyped(ep *Endpoint) {
 		defer restore()
 		startRequestTrace(state)
 
-			authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
-			if err != nil {
-				logRequestStart(state)
-				finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
-				errs.HTTPError(w, err)
-				return
-			}
-			state.auth = authInfo
+		authInfo, err := authenticateRequest(req.WithContext(ctx), ep)
+		if err != nil {
 			logRequestStart(state)
+			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
+			errs.HTTPError(w, err)
+			return
+		}
+		state.auth = authInfo
+		logRequestStart(state)
 
-			resp, status, headers, callErr := executeTypedEndpoint(ep, ctx, pathValues, payload)
+		resp, status, headers, callErr := executeTypedEndpoint(ep, ctx, pathValues, payload)
 		applyHeaders(w.Header(), headers)
 		defer finishRequestTrace(state, status, resp, callErr)
 		if callErr != nil {

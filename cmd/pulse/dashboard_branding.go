@@ -10,6 +10,14 @@ var (
 	dashboardEncoreWord         = regexp.MustCompile(`\bEncore\b`)
 	dashboardFirstRunIntroRE    = regexp.MustCompile(`FirstRunFeatureIntro=\(\{storedKey:td,steps:ed\}\)=>\{[\s\S]*?\},VideoClip=`)
 	dashboardPublicDemoCardName = regexp.MustCompile(`PublicDemo[A-Za-z]+Card=\(\)=>useDemoApp\(\)\?`)
+	dashboardDBExplorerPreload  = regexp.MustCompile(`__vitePreload\(\(\)=>import\("\./index--a3-ikCh\.js"\)\.then\(td=>td\.i\),\[\]\);`)
+	dashboardUseGetTokenRE      = regexp.MustCompile(`function useGetToken\(\)\{const\{getToken:td\}=useAuth\(\),ed=Cookies\.get\("dev-token"\);return ed\?reactExports\.useCallback\(\(\)=>Promise\.resolve\(ed\),\[ed\]\):td\}`)
+	dashboardPlainChatRE        = regexp.MustCompile(`WebAppPlainChatWrapper=\(\)=>\{[\s\S]*?\},useMetaLang=`)
+	dashboardUserDataProviderRE = regexp.MustCompile(`UserContext=reactExports\.createContext\(void 0\),UserDataProvider=\(\{children:td\}\)=>\{[\s\S]*?\},useUser=\(\)=>\{const td=reactExports\.useContext\(UserContext\);if\(td===void 0\)throw new Error\("useUser must be used within a UserDataProvider"\);return td\};`)
+	dashboardWebAppBootstrapRE  = regexp.MustCompile(`function WebApp\(\)\{[\s\S]*?\}const WebAppInner=\(\)=>\{[\s\S]*?\},ERROR_OVERLAY_STORAGE_KEY=`)
+	dashboardInvitationRE       = regexp.MustCompile(`const Invitation=\(\)=>\{[\s\S]*?\};function FeatureRequestDialog`)
+	dashboardProfileSignOutRE   = regexp.MustCompile(`const ud=useC` + `lerk\(\),dd=reactExports\.useCallback\(\(\)=>\{Cookies\.remove\("token"\),ud\.signOut\(\)\},\[\]\);`)
+	dashboardAuthProviderDocsRE = regexp.MustCompile(`jsxRuntimeExports\.jsxs\("p",\{children:\["You can use any authentication provider you like inside the auth handler\. In our example repo you can find examples of using"," ",jsxRuntimeExports\.jsx\("a",\{href:"https://github\.com/encoredev/examples/tree/main/ts/auth0-react-sdk",target:"_blank",className:"link-brandient",children:"Auth0"\}\)," ","and"," ",jsxRuntimeExports\.jsx\("a",\{href:"https://github\.com/encoredev/examples/tree/main/ts/c` + `lerk",target:"_blank",className:"link-brandient",children:"C` + `lerk"\}\)," ","together with Pulse\."\]\}\)`)
 	dashboardBrandingReplacer   = strings.NewReplacer(
 		"Encore Cloud", "Pulse",
 		"encore.dev/", "pulse.dev/",
@@ -77,6 +85,14 @@ func isDashboardTextAsset(name string) bool {
 func rewriteDashboardExperience(text string) string {
 	text = dashboardExperienceReplacer.Replace(text)
 	text = dashboardFirstRunIntroRE.ReplaceAllString(text, `FirstRunFeatureIntro=()=>null,VideoClip=`)
+	text = dashboardDBExplorerPreload.ReplaceAllString(text, ``)
+	text = dashboardUseGetTokenRE.ReplaceAllString(text, `function useGetToken(){const td=Cookies.get("dev-token");return reactExports.useCallback(()=>Promise.resolve(td||""),[td])}`)
+	text = dashboardPlainChatRE.ReplaceAllString(text, `WebAppPlainChatWrapper=()=>null,useMetaLang=`)
+	text = dashboardUserDataProviderRE.ReplaceAllString(text, `UserContext=reactExports.createContext(void 0),UserDataProvider=({children:td})=>{const ed=reactExports.useMemo(()=>({eid:"pulse-local",email:"local@pulse.dev",given_name:"Local",full_name:"Local Developer"}),[]);return jsxRuntimeExports.jsx(UserContext.Provider,{value:ed,children:td})},useUser=()=>{const td=reactExports.useContext(UserContext);if(td===void 0)throw new Error("useUser must be used within a UserDataProvider");return td};`)
+	text = dashboardWebAppBootstrapRE.ReplaceAllString(text, `function WebApp(){return jsxRuntimeExports.jsx(WebAppInner,{})}const WebAppInner=()=>jsxRuntimeExports.jsx(LocalGraphQLProvider,{children:jsxRuntimeExports.jsx(SWRConfig$$2,{value:{fetcher:()=>Promise.resolve(null)},children:jsxRuntimeExports.jsx(ThemeProvider,{children:jsxRuntimeExports.jsx(UserDataProvider,{children:jsxRuntimeExports.jsx(WebAppRouter,{})})})})}),ERROR_OVERLAY_STORAGE_KEY=`)
+	text = dashboardInvitationRE.ReplaceAllString(text, `const Invitation=()=>jsxRuntimeExports.jsx(Navigate,{to:"/",replace:!0});function FeatureRequestDialog`)
+	text = dashboardProfileSignOutRE.ReplaceAllString(text, `const dd=reactExports.useCallback(()=>{Cookies.remove("token"),window.location.reload()},[]);`)
+	text = dashboardAuthProviderDocsRE.ReplaceAllString(text, `jsxRuntimeExports.jsx("p",{children:"You can use any authentication provider you like inside the auth handler."})`)
 	text = stripPublicDemoCards(text)
 	return text
 }

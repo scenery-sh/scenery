@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"pulse.dev/internal/build"
 	"pulse.dev/internal/devdash"
 	"pulse.dev/internal/devmeta"
+	"pulse.dev/internal/localproxy"
 	"pulse.dev/internal/model"
 	"pulse.dev/internal/parse"
 )
@@ -42,6 +44,7 @@ type devSupervisor struct {
 
 	store       *devdash.Store
 	dashboard   *dashboardServer
+	proxy       *localproxy.Proxy
 	reportToken string
 	console     *runConsole
 
@@ -52,7 +55,7 @@ type devSupervisor struct {
 
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func newDevSupervisor(root string, cfg app.Config, addr string) (*devSupervisor, error) {
+func newDevSupervisor(root string, cfg app.Config, addr string, verbose bool) (*devSupervisor, error) {
 	store, err := devdash.OpenStore(os.Getenv("PULSE_DEV_CACHE_DIR"))
 	if err != nil {
 		return nil, err
@@ -69,7 +72,7 @@ func newDevSupervisor(root string, cfg app.Config, addr string) (*devSupervisor,
 		addr:        addr,
 		store:       store,
 		reportToken: token,
-		console:     newRunConsole(os.Stdout, os.Stderr),
+		console:     newRunConsole(os.Stdout, os.Stderr, verbose),
 		status: devdash.AppRecord{
 			ID:         cfg.Name,
 			Name:       cfg.Name,
@@ -79,12 +82,22 @@ func newDevSupervisor(root string, cfg app.Config, addr string) (*devSupervisor,
 			UpdatedAt:  time.Now().UTC(),
 		},
 	}
-	s.dashboard = newDashboardServer(s)
+	uiDir, err := prepareDashboardUIDir(s.console)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	s.dashboard = newDashboardServer(s, uiDir)
 	return s, nil
 }
 
 func (s *devSupervisor) Close() error {
 	var errs []error
+	if s.proxy != nil {
+		if err := s.proxy.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if s.dashboard != nil {
 		if err := s.dashboard.Close(); err != nil {
 			errs = append(errs, err)
@@ -105,7 +118,13 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	if err := s.persistStatus(ctx); err != nil {
 		return err
 	}
-	return s.dashboard.Start(ctx)
+	if err := s.dashboard.Start(ctx); err != nil {
+		return err
+	}
+	if err := s.startLocalProxy(); err != nil {
+		slog.Warn("local HTTPS proxy unavailable", "err", err)
+	}
+	return nil
 }
 
 func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool) error {
@@ -142,13 +161,11 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool) err
 	}); err != nil {
 		return s.handleCompileError(ctx, nil, nil, err)
 	}
-	if err := s.console.Phase("Reading local secrets", func() error {
-		return validateLocalSecretsFiles(s.root)
-	}); err != nil {
+	if err := validateLocalSecretsFiles(s.root); err != nil {
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
-		result, err = build.Prepare(s.root, model)
+		result, err = build.Prepare(s.root, model, s.cfg)
 		return err
 	}); err != nil {
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
@@ -199,7 +216,12 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool) err
 	})
 	_ = s.store.WriteProcessEvent(ctx, s.cfg.Name, method, s.appStatus())
 	if initial {
-		s.console.Banner(s.apiURL(), s.dashboardURL(), s.mcpURL())
+		s.console.Banner(runURLs{
+			API:       s.apiURL(),
+			Dashboard: s.dashboardURL(),
+			MCP:       s.mcpURL(),
+			Frontend:  s.frontendURL(),
+		})
 	}
 	return nil
 }
@@ -213,9 +235,13 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		"PULSE_LISTEN_ADDR="+s.addr,
 		"PULSE_APP_ID="+s.cfg.Name,
 		"PULSE_APP_ROOT="+s.root,
+		"PULSE_LOCAL_PROXY=0",
 		"PULSE_DEV_REPORT_URL=http://"+devdash.ListenAddr()+devdash.ReportPath,
 		"PULSE_DEV_REPORT_TOKEN="+s.reportToken,
 	)
+	if s.proxy != nil {
+		cmd.Env = append(cmd.Env, "PULSE_PUBLIC_BASE_URL="+s.proxy.Routes().APIURL)
+	}
 	cmd.Stdin = os.Stdin
 
 	stdout, err := cmd.StdoutPipe()
@@ -265,19 +291,25 @@ func (s *devSupervisor) captureOutput(ctx context.Context, pid, stream string, s
 			s.dashboard.notify(&devdash.Notification{
 				Method: "process/output",
 				Params: map[string]any{
-					"appID":  s.cfg.Name,
-					"pid":    pid,
-					"output": output.Output,
+					"appID":      s.cfg.Name,
+					"pid":        pid,
+					"stream":     stream,
+					"output":     output.Output,
+					"created_at": output.CreatedAt.Format(time.RFC3339Nano),
 				},
 			})
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
+			if !isExpectedOutputReadError(err) {
 				fmt.Fprintf(os.Stderr, "pulse: failed reading %s: %v\n", stream, err)
 			}
 			return
 		}
 	}
+}
+
+func isExpectedOutputReadError(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || errors.Is(err, net.ErrClosed)
 }
 
 func appChildEnv(base []string, forceColor bool, vars ...string) []string {
@@ -420,26 +452,72 @@ func (s *devSupervisor) currentApp() *runningApp {
 	return s.current
 }
 
-func (s *devSupervisor) announceRebuild() {
+func (s *devSupervisor) announceRebuild(paths []string) {
 	if s.console != nil {
-		s.console.RebuildDetected()
+		s.console.RebuildDetected(paths)
 	}
 }
 
 func (s *devSupervisor) apiURL() string {
+	if s.proxy != nil && s.proxy.Routes().APIURL != "" {
+		return s.proxy.Routes().APIURL
+	}
 	return "http://" + s.addr
 }
 
 func (s *devSupervisor) dashboardURL() string {
+	if s.proxy != nil && s.proxy.Routes().ConsoleURL != "" {
+		return localproxy.ConsoleAppURL(s.proxy.Routes(), s.cfg.Name)
+	}
 	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.cfg.Name)
 }
 
 func (s *devSupervisor) mcpURL() string {
+	if s.proxy != nil && s.proxy.Routes().MCPBaseURL != "" {
+		return localproxy.MCPSSEURL(s.proxy.Routes(), s.cfg.Name)
+	}
 	return "http://" + devdash.ListenAddr() + "/sse?appID=" + url.QueryEscape(s.cfg.Name)
+}
+
+func (s *devSupervisor) frontendURL() string {
+	if s.proxy != nil {
+		return s.proxy.Routes().FrontendURL
+	}
+	return ""
 }
 
 func (s *devSupervisor) activeAppID() string {
 	return s.cfg.Name
+}
+
+func (s *devSupervisor) startLocalProxy() error {
+	if os.Getenv("PULSE_LOCAL_PROXY") == "0" {
+		return nil
+	}
+	workspace := s.cfg.Proxy.Workspace
+	if workspace == "" {
+		workspace = localproxy.DiscoverWorkspace(s.root, s.cfg.Name)
+	}
+	proxyCfg := localproxy.BuildConfig(localproxy.Config{
+		Workspace:         workspace,
+		APIHost:           s.cfg.Proxy.APIHost,
+		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
+		MCPHost:           s.cfg.Proxy.MCPHost,
+		FrontendHost:      s.cfg.Proxy.FrontendHost,
+		APIUpstream:       s.addr,
+		DashboardUpstream: devdash.ListenAddr(),
+		FrontendUpstream:  localproxy.DiscoverFrontendUpstream(s.root),
+		Verbose:           s.console != nil && s.console.verbose,
+	})
+	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
+		return nil
+	}
+	proxy, err := localproxy.Start(proxyCfg)
+	if err != nil {
+		return err
+	}
+	s.proxy = proxy
+	return nil
 }
 
 func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEncoding json.RawMessage, err error) error {
@@ -473,20 +551,26 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 }
 
 func (s *devSupervisor) listApps(ctx context.Context) ([]map[string]any, error) {
-	apps, err := s.store.ListApps(ctx)
+	appID := s.activeAppID()
+	if appID == "" {
+		return []map[string]any{}, nil
+	}
+	app, err := s.store.GetApp(ctx, appID)
 	if err != nil {
-		return nil, err
+		status := s.appStatus()
+		return []map[string]any{{
+			"id":       status.AppID,
+			"name":     status.AppID,
+			"app_root": status.AppRoot,
+			"offline":  !status.Running,
+		}}, nil
 	}
-	items := make([]map[string]any, 0, len(apps))
-	for _, app := range apps {
-		items = append(items, map[string]any{
-			"id":       app.ID,
-			"name":     app.Name,
-			"app_root": app.Root,
-			"offline":  !app.Running,
-		})
-	}
-	return items, nil
+	return []map[string]any{{
+		"id":       app.ID,
+		"name":     app.Name,
+		"app_root": app.Root,
+		"offline":  !app.Running,
+	}}, nil
 }
 
 func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {

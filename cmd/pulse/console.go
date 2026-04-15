@@ -12,13 +12,22 @@ import (
 type runConsole struct {
 	out     io.Writer
 	err     io.Writer
+	verbose bool
 	palette termstyle.Palette
 }
 
-func newRunConsole(out, err io.Writer) *runConsole {
+type runURLs struct {
+	API       string
+	Dashboard string
+	MCP       string
+	Frontend  string
+}
+
+func newRunConsole(out, err io.Writer, verbose bool) *runConsole {
 	return &runConsole{
 		out:     out,
 		err:     err,
+		verbose: verbose,
 		palette: termstyle.New(out),
 	}
 }
@@ -36,8 +45,16 @@ func (c *runConsole) Phase(title string, fn func() error) error {
 	return err
 }
 
-func (c *runConsole) RebuildDetected() {
-	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("Changes detected. Rebuilding..."))
+func (c *runConsole) RebuildDetected(paths []string) {
+	c.printf(c.out, "\n  %s\n", c.palette.Bold("Changes detected. Rebuilding..."))
+	if !c.verbose || len(paths) == 0 {
+		c.printf(c.out, "\n")
+		return
+	}
+	for _, path := range paths {
+		c.printf(c.out, "    changed: %s\n", path)
+	}
+	c.printf(c.out, "\n")
 }
 
 func (c *runConsole) InitialBuildFailed(err error) {
@@ -48,12 +65,19 @@ func (c *runConsole) RebuildFailed(err error) {
 	c.printError("rebuild failed", err)
 }
 
-func (c *runConsole) Banner(apiURL, dashboardURL, mcpURL string) {
+func (c *runConsole) Banner(urls runURLs) {
 	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("Pulse development server running!"))
 	width := len("Development Dashboard URL:")
-	c.printf(c.out, "  %-*s  %s\n", width, "Your API is running at:", apiURL)
-	c.printf(c.out, "  %-*s  %s\n", width, "Development Dashboard URL:", dashboardURL)
-	c.printf(c.out, "  %-*s  %s\n\n", width, "MCP SSE URL:", mcpURL)
+	if len("Pulse App URL:") > width {
+		width = len("Pulse App URL:")
+	}
+	c.printf(c.out, "  %-*s  %s\n", width, "Your API is running at:", urls.API)
+	c.printf(c.out, "  %-*s  %s\n", width, "Development Dashboard URL:", urls.Dashboard)
+	c.printf(c.out, "  %-*s  %s\n", width, "MCP SSE URL:", urls.MCP)
+	if urls.Frontend != "" {
+		c.printf(c.out, "  %-*s  %s\n", width, "Pulse App URL:", urls.Frontend)
+	}
+	c.printf(c.out, "\n")
 }
 
 func (c *runConsole) printError(label string, err error) {
@@ -73,5 +97,5 @@ func (c *runConsole) printf(w io.Writer, format string, args ...any) {
 }
 
 func msLabel(duration time.Duration) string {
-	return fmt.Sprintf("ms=%d", duration.Milliseconds())
+	return fmt.Sprintf("duration_ms=%d", duration.Milliseconds())
 }

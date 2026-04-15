@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -29,12 +30,14 @@ func run(args []string) error {
 }
 
 func usageError() error {
-	return fmt.Errorf("usage:\n  pulse run [--port <n>] [--listen <addr>]\n  pulse build [-o <path>]")
+	return fmt.Errorf("usage:\n  pulse run [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose]\n  pulse build [--app-root <path>] [-o <path>]")
 }
 
 func runCommand(args []string) error {
 	listen := ""
 	port := 4000
+	verbose := false
+	appRoot := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--port", "-p":
@@ -53,13 +56,21 @@ func runCommand(args []string) error {
 				return fmt.Errorf("missing value for --listen")
 			}
 			listen = args[i]
+		case "--verbose", "-v":
+			verbose = true
+		case "--app-root":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("missing value for --app-root")
+			}
+			appRoot = args[i]
 		default:
 			return fmt.Errorf("unknown flag %q", args[i])
 		}
 	}
 
 	addr := resolveListenAddr(listen, port)
-	return runWithWatch(addr)
+	return runWithWatch(addr, verbose, appRoot)
 }
 
 func resolveListenAddr(listen string, port int) string {
@@ -70,4 +81,15 @@ func resolveListenAddr(listen string, port int) string {
 		return listen
 	}
 	return net.JoinHostPort(listen, strconv.Itoa(port))
+}
+
+func resolveAppRoot(start string) (string, error) {
+	if start == "" {
+		return ".", nil
+	}
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		return "", err
+	}
+	return abs, nil
 }
