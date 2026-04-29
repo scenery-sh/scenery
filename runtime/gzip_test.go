@@ -89,6 +89,25 @@ func TestGzipSkipsNoBodyResponses(t *testing.T) {
 	}
 }
 
+func TestGzipSkipsEventStreamResponses(t *testing.T) {
+	handler := withGzip(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: ok\n\n")
+	}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("content-encoding = %q, want empty", got)
+	}
+	if got := rec.Body.String(); got != "data: ok\n\n" {
+		t.Fatalf("body = %q, want event stream body", got)
+	}
+}
+
 func TestGzipSkipsUpgradeRequests(t *testing.T) {
 	handler := withGzip(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		_, _ = w.Write([]byte("upgrade"))

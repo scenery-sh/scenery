@@ -3,9 +3,11 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestPulseConfigEndpoint(t *testing.T) {
@@ -68,6 +70,78 @@ func TestDevEndpointsAreDisabledByDefault(t *testing.T) {
 			t.Fatalf("%s %s status = %d, want %d", tt.method, tt.path, rec.Code, http.StatusNotFound)
 		}
 	}
+}
+
+func TestRawEndpointStreamsBeforeHandlerReturns(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+
+	releaseStream := make(chan struct{})
+	release := func() {
+		select {
+		case <-releaseStream:
+		default:
+			close(releaseStream)
+		}
+	}
+
+	RegisterEndpoint(&Endpoint{
+		Service: "events",
+		Name:    "Stream",
+		Access:  Public,
+		Raw:     true,
+		Path:    "/events",
+		Methods: []string{http.MethodGet},
+		RawHandler: func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "data: first\n\n")
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			<-releaseStream
+		},
+	})
+
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+	httpServer := httptest.NewServer(server.Handler)
+	defer httpServer.Close()
+	defer release()
+
+	client := httpServer.Client()
+	client.Timeout = 2 * time.Second
+	client.Transport = &http.Transport{DisableCompression: true}
+
+	req, err := http.NewRequest(http.MethodGet, httpServer.URL+"/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request should receive flushed raw response before handler returns: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusOK)
+	}
+	if got := res.Header.Get("Content-Length"); got != "" {
+		t.Fatalf("content-length = %q, want empty for streaming raw response", got)
+	}
+
+	got := make([]byte, len("data: first\n\n"))
+	if _, err := io.ReadFull(res.Body, got); err != nil {
+		t.Fatalf("read streamed body: %v", err)
+	}
+	if string(got) != "data: first\n\n" {
+		t.Fatalf("body prefix = %q, want %q", string(got), "data: first\n\n")
+	}
+	release()
 }
 
 func TestPlatformStatsEndpoint(t *testing.T) {

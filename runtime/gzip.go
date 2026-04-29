@@ -106,6 +106,9 @@ func shouldGzipResponse(req *http.Request, status int, headers http.Header) bool
 	if headers.Get("Content-Encoding") != "" {
 		return false
 	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(headers.Get("Content-Type"))), "text/event-stream") {
+		return false
+	}
 	addVary(headers, "Accept-Encoding")
 	return true
 }
