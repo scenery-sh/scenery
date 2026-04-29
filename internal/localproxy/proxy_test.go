@@ -412,6 +412,38 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 	}
 }
 
+func TestProxyServesHTTP2(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+
+	api := newEchoServer(t, "api")
+	defer api.Close()
+
+	httpPort := freeTCPPort(t)
+	httpsPort := freeTCPPort(t)
+	proxy, err := Start(Config{
+		Workspace:        "onlv",
+		APIUpstream:      api.URL,
+		HTTPPort:         httpPort,
+		HTTPSPort:        httpsPort,
+		SkipInstallTrust: true,
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer proxy.Close()
+
+	client := newProxyClient(t, cacheDir)
+	resp, err := client.Get(fmt.Sprintf("https://api.onlv.localhost:%d/v1", httpsPort))
+	if err != nil {
+		t.Fatalf("HTTP/2 proxy request error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.ProtoMajor != 2 {
+		t.Fatalf("proxy response protocol = %s, want HTTP/2", resp.Proto)
+	}
+}
+
 func TestCloseIsIdempotentAndReleasesPorts(t *testing.T) {
 	cacheDir := t.TempDir()
 	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
@@ -655,7 +687,8 @@ func newProxyClient(t *testing.T, cacheDir string) *http.Client {
 		t.Fatal("append local CA")
 	}
 	transport := &http.Transport{
-		Proxy: nil,
+		Proxy:             nil,
+		ForceAttemptHTTP2: true,
 		TLSClientConfig: &tls.Config{
 			RootCAs: roots,
 		},

@@ -190,6 +190,7 @@ func Start(cfg Config) (*Proxy, error) {
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{certs.Leaf},
 			MinVersion:   tls.VersionTLS12,
+			NextProtos:   []string{"h2", "http/1.1"},
 		},
 		ErrorLog: serverErrorLog(cfg.Verbose),
 	}
