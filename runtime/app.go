@@ -14,7 +14,7 @@ import (
 )
 
 func ListenAddrFromEnv() string {
-	if value := os.Getenv("PULSE_LISTEN_ADDR"); value != "" {
+	if value := os.Getenv("ONLAVA_LISTEN_ADDR"); value != "" {
 		return value
 	}
 	return "127.0.0.1:4000"
@@ -134,7 +134,7 @@ func shutdownRuntime(server *http.Server, stopPubSub func(context.Context) error
 }
 
 func launchedBySupervisor() bool {
-	return os.Getenv("PULSE_DEV_SUPERVISOR") == "1"
+	return os.Getenv("ONLAVA_DEV_SUPERVISOR") == "1"
 }
 
 func printRuntimeBanner(out io.Writer, listenAddr string, info StandaloneDevInfo) {
@@ -146,9 +146,9 @@ func printRuntimeBanner(out io.Writer, listenAddr string, info StandaloneDevInfo
 		apiURL = info.APIURL
 	}
 
-	title := "Pulse server running!"
+	title := "Onlava server running!"
 	if info.APIURL != "" || info.ConsoleURL != "" || info.MCPBaseURL != "" || info.FrontendURL != "" || info.DBStudioURL != "" {
-		title = "Pulse development server running!"
+		title = "Onlava development server running!"
 	}
 
 	lines := []string{
@@ -164,7 +164,7 @@ func printRuntimeBanner(out io.Writer, listenAddr string, info StandaloneDevInfo
 		lines = append(lines, fmt.Sprintf("  %-26s  %s", "MCP SSE URL:", info.MCPBaseURL+"/sse?appID="+Meta().AppID))
 	}
 	if info.FrontendURL != "" {
-		lines = append(lines, fmt.Sprintf("  %-26s  %s", "Pulse App URL:", info.FrontendURL))
+		lines = append(lines, fmt.Sprintf("  %-26s  %s", "Onlava App URL:", info.FrontendURL))
 	}
 	if info.DBStudioURL != "" {
 		lines = append(lines, fmt.Sprintf("  %-26s  %s", "Drizzle Studio URL:", info.DBStudioURL))

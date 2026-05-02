@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"pulse.dev/internal/devdash"
-	"pulse.dev/runtime/shared"
+	"onlava.com/internal/devdash"
+	"onlava.com/runtime/shared"
 )
 
 func TestDevReporterDisablesOnConnectionRefused(t *testing.T) {
 	reporter := &devReporter{
 		appID: "app",
-		url:   "http://127.0.0.1:9401/__pulse/report",
+		url:   "http://127.0.0.1:9401/__onlava/report",
 		token: "token",
 		client: &http.Client{
 			Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {

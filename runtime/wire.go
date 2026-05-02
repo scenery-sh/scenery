@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"pulse.dev/errs"
-	"pulse.dev/internal/wire"
-	"pulse.dev/runtime/shared"
+	"onlava.com/errs"
+	"onlava.com/internal/wire"
+	"onlava.com/runtime/shared"
 )
 
 type wireRecoveryRecord struct {

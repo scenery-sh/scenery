@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"pulse.dev/errs"
-	"pulse.dev/internal/wire"
-	"pulse.dev/runtime/shared"
+	"onlava.com/errs"
+	"onlava.com/internal/wire"
+	"onlava.com/runtime/shared"
 )
 
 type server struct {
@@ -58,7 +58,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 	s.wireCaps = buildWireCapabilities(endpoints)
 	s.registerWire()
 	if devEndpointsEnabled() {
-		s.registerPulseConfig()
+		s.registerOnlavaConfig()
 		s.registerDevPubSubAdmin()
 		s.registerPlatformStats()
 		s.registerPProf()
@@ -77,8 +77,8 @@ type publicConfigResponse struct {
 	APIBaseURL string `json:"apiBaseURL"`
 }
 
-func (s *server) registerPulseConfig() {
-	registerRoute(s.public, "/__pulse/config", []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
+func (s *server) registerOnlavaConfig() {
+	registerRoute(s.public, "/__onlava/config", []string{http.MethodGet}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
 		meta := Meta()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -86,14 +86,14 @@ func (s *server) registerPulseConfig() {
 			AppID:      meta.AppID,
 			APIBaseURL: meta.APIBaseURL,
 		}); err != nil {
-			errs.HTTPError(w, errs.Wrap(err, "encode pulse config"))
+			errs.HTTPError(w, errs.Wrap(err, "encode onlava config"))
 		}
 	})
 }
 
 func (s *server) registerDevPubSubAdmin() {
-	registerRoute(s.public, "/__pulse/pubsub/clear", []string{http.MethodPost}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
-		token := strings.TrimSpace(osGetenv("PULSE_DEV_REPORT_TOKEN"))
+	registerRoute(s.public, "/__onlava/pubsub/clear", []string{http.MethodPost}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
+		token := strings.TrimSpace(osGetenv("ONLAVA_DEV_REPORT_TOKEN"))
 		if token == "" || req.Header.Get("Authorization") != "Bearer "+token {
 			errs.HTTPError(w, errs.B().Code(errs.NotFound).Msg("endpoint not found").Err())
 			return
@@ -179,14 +179,14 @@ func applyCORSHeaders(headers http.Header, req *http.Request) {
 }
 
 func devEndpointsEnabled() bool {
-	return envBool("PULSE_DEV_ENDPOINTS") || envBool("PULSE_DEV_SUPERVISOR")
+	return envBool("ONLAVA_DEV_ENDPOINTS") || envBool("ONLAVA_DEV_SUPERVISOR")
 }
 
 func corsOriginAllowed(origin string) bool {
 	if devEndpointsEnabled() {
 		return true
 	}
-	for _, item := range strings.Split(osGetenv("PULSE_CORS_ALLOW_ORIGINS"), ",") {
+	for _, item := range strings.Split(osGetenv("ONLAVA_CORS_ALLOW_ORIGINS"), ",") {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			continue

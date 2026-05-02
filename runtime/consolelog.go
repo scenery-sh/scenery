@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"pulse.dev/errs"
-	"pulse.dev/internal/redact"
-	"pulse.dev/internal/stdlog"
-	"pulse.dev/internal/termstyle"
+	"onlava.com/errs"
+	"onlava.com/internal/redact"
+	"onlava.com/internal/stdlog"
+	"onlava.com/internal/termstyle"
 )
 
 const levelTrace = slog.Level(-8)
@@ -22,8 +22,8 @@ const levelTrace = slog.Level(-8)
 func init() {
 	stdlog.Install(osStderr())
 	log.SetFlags(log.LstdFlags)
-	// Install the Pulse console logger before generated package init code runs.
-	slog.SetDefault(slog.New(newPulseConsoleHandler(osStderr())))
+	// Install the Onlava console logger before generated package init code runs.
+	slog.SetDefault(slog.New(newOnlavaConsoleHandler(osStderr())))
 }
 
 type consoleAttr struct {
@@ -31,7 +31,7 @@ type consoleAttr struct {
 	value string
 }
 
-type pulseConsoleHandler struct {
+type onlavaConsoleHandler struct {
 	out      io.Writer
 	minLevel slog.Level
 	palette  termstyle.Palette
@@ -40,8 +40,8 @@ type pulseConsoleHandler struct {
 	groups   []string
 }
 
-func newPulseConsoleHandler(out io.Writer) slog.Handler {
-	return &pulseConsoleHandler{
+func newOnlavaConsoleHandler(out io.Writer) slog.Handler {
+	return &onlavaConsoleHandler{
 		out:      out,
 		minLevel: levelTrace,
 		palette:  termstyle.New(out),
@@ -49,11 +49,11 @@ func newPulseConsoleHandler(out io.Writer) slog.Handler {
 	}
 }
 
-func (h *pulseConsoleHandler) Enabled(_ context.Context, level slog.Level) bool {
+func (h *onlavaConsoleHandler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.minLevel
 }
 
-func (h *pulseConsoleHandler) Handle(_ context.Context, record slog.Record) error {
+func (h *onlavaConsoleHandler) Handle(_ context.Context, record slog.Record) error {
 	if state := currentState(); state != nil && !state.logsEnabled {
 		return nil
 	}
@@ -68,13 +68,13 @@ func (h *pulseConsoleHandler) Handle(_ context.Context, record slog.Record) erro
 	return err
 }
 
-func (h *pulseConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+func (h *onlavaConsoleHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	next := *h
 	next.attrs = append(append([]slog.Attr(nil), h.attrs...), attrs...)
 	return &next
 }
 
-func (h *pulseConsoleHandler) WithGroup(name string) slog.Handler {
+func (h *onlavaConsoleHandler) WithGroup(name string) slog.Handler {
 	if strings.TrimSpace(name) == "" {
 		return h
 	}
@@ -83,7 +83,7 @@ func (h *pulseConsoleHandler) WithGroup(name string) slog.Handler {
 	return &next
 }
 
-func (h *pulseConsoleHandler) collectAttrs(record slog.Record) []consoleAttr {
+func (h *onlavaConsoleHandler) collectAttrs(record slog.Record) []consoleAttr {
 	attrs := make([]consoleAttr, 0, len(h.attrs)+record.NumAttrs())
 	for _, attr := range h.attrs {
 		h.appendAttr(&attrs, h.groups, attr)
@@ -95,7 +95,7 @@ func (h *pulseConsoleHandler) collectAttrs(record slog.Record) []consoleAttr {
 	return attrs
 }
 
-func (h *pulseConsoleHandler) appendAttr(dst *[]consoleAttr, groups []string, attr slog.Attr) {
+func (h *onlavaConsoleHandler) appendAttr(dst *[]consoleAttr, groups []string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
 		return
@@ -128,12 +128,12 @@ func (h *pulseConsoleHandler) appendAttr(dst *[]consoleAttr, groups []string, at
 	})
 }
 
-func (h *pulseConsoleHandler) formatRecord(record slog.Record, attrs []consoleAttr) string {
-	if record.Message == "pulse secrets missing" {
+func (h *onlavaConsoleHandler) formatRecord(record slog.Record, attrs []consoleAttr) string {
+	if record.Message == "onlava secrets missing" {
 		return h.formatSecretsWarning(attrs)
 	}
 	level := h.levelLabel(record.Level)
-	message := strings.TrimSpace(strings.TrimPrefix(record.Message, "pulse "))
+	message := strings.TrimSpace(strings.TrimPrefix(record.Message, "onlava "))
 	if message == "" {
 		message = record.Message
 	}
@@ -158,7 +158,7 @@ func (h *pulseConsoleHandler) formatRecord(record slog.Record, attrs []consoleAt
 	return b.String()
 }
 
-func (h *pulseConsoleHandler) formatSecretsWarning(attrs []consoleAttr) string {
+func (h *onlavaConsoleHandler) formatSecretsWarning(attrs []consoleAttr) string {
 	var fields []string
 	for _, attr := range attrs {
 		if attr.key == "fields" {
@@ -178,13 +178,13 @@ func (h *pulseConsoleHandler) formatSecretsWarning(attrs []consoleAttr) string {
 	b.WriteString(" undefined secrets are left empty for local development only.")
 	b.WriteByte('\n')
 	b.WriteString(h.palette.Dim("see "))
-	b.WriteString(h.palette.Dim("https://pulse.dev/docs/primitives/secrets"))
+	b.WriteString(h.palette.Dim("https://onlava.com/docs/primitives/secrets"))
 	b.WriteString(h.palette.Dim(" for more information"))
 	b.WriteByte('\n')
 	return b.String()
 }
 
-func (h *pulseConsoleHandler) levelLabel(level slog.Level) string {
+func (h *onlavaConsoleHandler) levelLabel(level slog.Level) string {
 	switch {
 	case level <= levelTrace:
 		return h.palette.Blue("TRC")

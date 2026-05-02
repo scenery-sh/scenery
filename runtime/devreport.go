@@ -20,10 +20,10 @@ import (
 	"syscall"
 	"time"
 
-	"pulse.dev/errs"
-	"pulse.dev/internal/devdash"
-	"pulse.dev/internal/redact"
-	"pulse.dev/runtime/shared"
+	"onlava.com/errs"
+	"onlava.com/internal/devdash"
+	"onlava.com/internal/redact"
+	"onlava.com/runtime/shared"
 )
 
 type traceSpan struct {
@@ -66,9 +66,9 @@ var globalReporter *devReporter
 
 func startDevelopmentReporting(cfg AppConfig) func() {
 	_ = cfg
-	url := stringsTrim(osGetenv("PULSE_DEV_REPORT_URL"))
-	token := stringsTrim(osGetenv("PULSE_DEV_REPORT_TOKEN"))
-	appID := stringsTrim(osGetenv("PULSE_APP_ID"))
+	url := stringsTrim(osGetenv("ONLAVA_DEV_REPORT_URL"))
+	token := stringsTrim(osGetenv("ONLAVA_DEV_REPORT_TOKEN"))
+	appID := stringsTrim(osGetenv("ONLAVA_APP_ID"))
 	if url == "" || token == "" || appID == "" {
 		return func() {}
 	}
@@ -120,7 +120,7 @@ func startDevelopmentReporting(cfg AppConfig) func() {
 
 func reportingBaseHandler(prev slog.Handler) slog.Handler {
 	_ = prev
-	return newPulseConsoleHandler(osStderr())
+	return newOnlavaConsoleHandler(osStderr())
 }
 
 func activeReporter() *devReporter {
@@ -144,7 +144,7 @@ func (r *devReporter) loop() {
 					r.disabled.Store(true)
 					return
 				}
-				fmt.Fprintf(osStderr(), "pulse: dev report failed: %v\n", err)
+				fmt.Fprintf(osStderr(), "onlava: dev report failed: %v\n", err)
 			}
 		}
 	}

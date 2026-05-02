@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"pulse.dev/errs"
-	"pulse.dev/runtime/shared"
+	"onlava.com/errs"
+	"onlava.com/runtime/shared"
 )
 
 const (
-	pulseCronExecutionHeader = "X-Pulse-Cron-Execution"
-	maxCronScheduleHorizon   = 5 * 366 * 24 * time.Hour
+	onlavaCronExecutionHeader = "X-Onlava-Cron-Execution"
+	maxCronScheduleHorizon    = 5 * 366 * 24 * time.Hour
 )
 
 type cronScheduler struct {
@@ -128,7 +128,7 @@ func startCronScheduler(parent context.Context) *cronScheduler {
 			defer wg.Done()
 			runCronJobLoop(ctx, job)
 		}(job)
-		slog.Info("pulse cron job scheduled", "id", job.ID, "title", job.Title, "schedule", cronScheduleSummary(job))
+		slog.Info("onlava cron job scheduled", "id", job.ID, "title", job.Title, "schedule", cronScheduleSummary(job))
 	}
 	go func() {
 		wg.Wait()
@@ -154,7 +154,7 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 	for {
 		next := job.plan.Next(time.Now().UTC())
 		if next.IsZero() {
-			slog.Error("pulse cron job disabled after failing to compute next execution", "id", job.ID)
+			slog.Error("onlava cron job disabled after failing to compute next execution", "id", job.ID)
 			return
 		}
 
@@ -173,12 +173,12 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 
 		executionID, err := newCronExecutionID(job.ID, next)
 		if err != nil {
-			slog.Error("pulse cron job failed to allocate execution id", "id", job.ID, "err", err)
+			slog.Error("onlava cron job failed to allocate execution id", "id", job.ID, "err", err)
 			continue
 		}
 		callCtx := withCronInvocation(ctx, job, next, executionID)
 		if err := safeInvokeCronJob(callCtx, job); err != nil {
-			slog.Error("pulse cron job failed", "id", job.ID, "err", err)
+			slog.Error("onlava cron job failed", "id", job.ID, "err", err)
 			continue
 		}
 	}
@@ -211,7 +211,7 @@ func withCronInvocation(ctx context.Context, job *CronJob, scheduledAt time.Time
 		ctx = context.Background()
 	}
 	headers := make(http.Header)
-	headers.Set(pulseCronExecutionHeader, executionID)
+	headers.Set(onlavaCronExecutionHeader, executionID)
 	request := shared.Request{
 		Type:               shared.APICall,
 		Started:            scheduledAt,

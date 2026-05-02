@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"pulse.dev/runtime/shared"
+	"onlava.com/runtime/shared"
 )
 
 func TestNewExternalStateAppliesSeparateLogAndTraceFilters(t *testing.T) {
@@ -58,9 +58,9 @@ func TestStartRequestTraceStillCreatesSpanWhenOnlyLogsAreEnabled(t *testing.T) {
 	}
 }
 
-func TestPulseConsoleHandlerSkipsLogsForFilteredEndpoint(t *testing.T) {
+func TestOnlavaConsoleHandlerSkipsLogsForFilteredEndpoint(t *testing.T) {
 	var out bytes.Buffer
-	handler := newPulseConsoleHandler(&out)
+	handler := newOnlavaConsoleHandler(&out)
 	state := &requestState{
 		request: sharedRequest("sync", "SyncGet", "/sync"),
 		trace: &traceSpan{
@@ -100,7 +100,7 @@ func TestAuthHandlerLogsUseAuthEndpointFilter(t *testing.T) {
 
 	var out bytes.Buffer
 	prevLogger := slog.Default()
-	slog.SetDefault(slog.New(newPulseConsoleHandler(&out)))
+	slog.SetDefault(slog.New(newOnlavaConsoleHandler(&out)))
 	defer slog.SetDefault(prevLogger)
 
 	state := &requestState{
@@ -136,7 +136,7 @@ func TestAuthHandlerLogsStillWriteWhenNotFiltered(t *testing.T) {
 
 	var out bytes.Buffer
 	prevLogger := slog.Default()
-	slog.SetDefault(slog.New(newPulseConsoleHandler(&out)))
+	slog.SetDefault(slog.New(newOnlavaConsoleHandler(&out)))
 	defer slog.SetDefault(prevLogger)
 
 	state := &requestState{

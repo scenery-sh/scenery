@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"pulse.dev/errs"
-	"pulse.dev/internal/runtimeapi"
-	pulsemiddleware "pulse.dev/middleware"
-	"pulse.dev/runtime/shared"
+	"onlava.com/errs"
+	"onlava.com/internal/runtimeapi"
+	onlavamiddleware "onlava.com/middleware"
+	"onlava.com/runtime/shared"
 )
 
 type Access = runtimeapi.Access
@@ -73,7 +73,7 @@ type Endpoint struct {
 
 type Middleware struct {
 	ID     string
-	Invoke func(pulsemiddleware.Request, pulsemiddleware.Next) pulsemiddleware.Response
+	Invoke func(onlavamiddleware.Request, onlavamiddleware.Next) onlavamiddleware.Response
 }
 
 type AuthHandler struct {
@@ -143,7 +143,7 @@ func SetAppConfig(cfg AppConfig) {
 	global.meta.AppID = cfg.Name
 	global.meta.Environment = defaultEnvironment()
 	global.observability = cfg.Observability
-	if publicBaseURL := strings.TrimSpace(os.Getenv("PULSE_PUBLIC_BASE_URL")); publicBaseURL != "" {
+	if publicBaseURL := strings.TrimSpace(os.Getenv("ONLAVA_PUBLIC_BASE_URL")); publicBaseURL != "" {
 		global.meta.APIBaseURL = publicBaseURL
 		return
 	}
@@ -164,7 +164,7 @@ func Meta() *shared.AppMetadata {
 }
 
 func defaultEnvironment() shared.Environment {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("PULSE_RUNTIME_ENV")), "test") {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ONLAVA_RUNTIME_ENV")), "test") {
 		return shared.Environment{
 			Name:  "test",
 			Type:  shared.EnvTest,

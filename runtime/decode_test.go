@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"pulse.dev/errs"
+	"onlava.com/errs"
 )
 
 type plainValidationPayload struct{}

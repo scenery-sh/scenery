@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"pulse.dev/errs"
+	"onlava.com/errs"
 )
 
 type routeHandle func(http.ResponseWriter, *http.Request, routeParams)

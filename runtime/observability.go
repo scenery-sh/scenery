@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 
-	"pulse.dev/runtime/shared"
+	"onlava.com/runtime/shared"
 )
 
 type ObservabilityConfig struct {

@@ -15,21 +15,21 @@ func TestPrintRuntimeBanner(t *testing.T) {
 		APIURL:      "https://api.test.localhost",
 		ConsoleURL:  "https://console.test.localhost",
 		MCPBaseURL:  "https://mcp.test.localhost",
-		FrontendURL: "https://pulse.test.localhost",
+		FrontendURL: "https://onlava.test.localhost",
 		DBStudioURL: "http://127.0.0.1:4002",
 	})
 
 	text := out.String()
 	for _, want := range []string{
-		"Pulse development server running!",
+		"Onlava development server running!",
 		"Your API is running at:",
 		"https://api.test.localhost",
 		"Development Dashboard URL:",
 		"https://console.test.localhost",
 		"MCP SSE URL:",
 		"https://mcp.test.localhost/sse?appID=testapp",
-		"Pulse App URL:",
-		"https://pulse.test.localhost",
+		"Onlava App URL:",
+		"https://onlava.test.localhost",
 		"Drizzle Studio URL:",
 		"http://127.0.0.1:4002",
 	} {
@@ -40,7 +40,7 @@ func TestPrintRuntimeBanner(t *testing.T) {
 }
 
 func TestLaunchedBySupervisor(t *testing.T) {
-	t.Setenv("PULSE_DEV_SUPERVISOR", "1")
+	t.Setenv("ONLAVA_DEV_SUPERVISOR", "1")
 	if !launchedBySupervisor() {
 		t.Fatal("expected launchedBySupervisor to be true")
 	}
@@ -74,12 +74,12 @@ func TestSupervisorParentMonitorShouldCancel(t *testing.T) {
 }
 
 func TestSupervisorPIDFromEnv(t *testing.T) {
-	t.Setenv("PULSE_DEV_SUPERVISOR_PID", "4321")
+	t.Setenv("ONLAVA_DEV_SUPERVISOR_PID", "4321")
 	if got := supervisorPIDFromEnv(); got != 4321 {
 		t.Fatalf("supervisorPIDFromEnv() = %d, want 4321", got)
 	}
 
-	t.Setenv("PULSE_DEV_SUPERVISOR_PID", "bad")
+	t.Setenv("ONLAVA_DEV_SUPERVISOR_PID", "bad")
 	if got := supervisorPIDFromEnv(); got != 0 {
 		t.Fatalf("supervisorPIDFromEnv() with invalid value = %d, want 0", got)
 	}

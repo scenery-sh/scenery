@@ -13,7 +13,7 @@ import (
 )
 
 func TestSupervisorParentMonitorCancelsWhenWrapperDies(t *testing.T) {
-	if os.Getenv("PULSE_TEST_PARENT_MONITOR_HELPER") == "1" {
+	if os.Getenv("ONLAVA_TEST_PARENT_MONITOR_HELPER") == "1" {
 		runSupervisorParentMonitorHelper()
 		return
 	}
@@ -35,11 +35,11 @@ func TestSupervisorParentMonitorCancelsWhenWrapperDies(t *testing.T) {
 
 	helper := exec.Command(os.Args[0], "-test.run=TestSupervisorParentMonitorCancelsWhenWrapperDies")
 	helper.Env = append(os.Environ(),
-		"PULSE_TEST_PARENT_MONITOR_HELPER=1",
-		"PULSE_DEV_SUPERVISOR=1",
-		"PULSE_DEV_SUPERVISOR_PID="+strconv.Itoa(wrapper.Process.Pid),
-		"PULSE_TEST_READY="+readyPath,
-		"PULSE_TEST_DONE="+donePath,
+		"ONLAVA_TEST_PARENT_MONITOR_HELPER=1",
+		"ONLAVA_DEV_SUPERVISOR=1",
+		"ONLAVA_DEV_SUPERVISOR_PID="+strconv.Itoa(wrapper.Process.Pid),
+		"ONLAVA_TEST_READY="+readyPath,
+		"ONLAVA_TEST_DONE="+donePath,
 	)
 	helper.Stdin = nil
 	if err := helper.Start(); err != nil {
@@ -84,9 +84,9 @@ func runSupervisorParentMonitorHelper() {
 	stop := startSupervisorParentMonitor(cancel)
 	defer stop()
 
-	_ = os.WriteFile(os.Getenv("PULSE_TEST_READY"), []byte("ready"), 0o644)
+	_ = os.WriteFile(os.Getenv("ONLAVA_TEST_READY"), []byte("ready"), 0o644)
 	<-ctx.Done()
-	_ = os.WriteFile(os.Getenv("PULSE_TEST_DONE"), []byte("done"), 0o644)
+	_ = os.WriteFile(os.Getenv("ONLAVA_TEST_DONE"), []byte("done"), 0o644)
 }
 
 func waitForRuntimeTestFile(t *testing.T, path string, timeout time.Duration) {

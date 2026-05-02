@@ -46,13 +46,13 @@ func startSupervisorParentMonitor(cancel context.CancelFunc) func() {
 }
 
 func parentMonitorEnabled() bool {
-	return launchedBySupervisor() || os.Getenv("PULSE_PARENT_MONITOR") == "1"
+	return launchedBySupervisor() || os.Getenv("ONLAVA_PARENT_MONITOR") == "1"
 }
 
 func parentMonitorPIDFromEnv() int {
-	value := os.Getenv("PULSE_PARENT_MONITOR_PID")
+	value := os.Getenv("ONLAVA_PARENT_MONITOR_PID")
 	if value == "" {
-		value = os.Getenv("PULSE_DEV_SUPERVISOR_PID")
+		value = os.Getenv("ONLAVA_DEV_SUPERVISOR_PID")
 	}
 	if value == "" {
 		return 0

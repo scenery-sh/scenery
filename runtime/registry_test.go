@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"pulse.dev/runtime/shared"
+	"onlava.com/runtime/shared"
 )
 
 func TestInitializeServicesRunsInParallel(t *testing.T) {
@@ -109,7 +109,7 @@ func TestShutdownServicesRunsInReverseInitializerOrder(t *testing.T) {
 }
 
 func TestDefaultEnvironmentUsesTestMode(t *testing.T) {
-	t.Setenv("PULSE_RUNTIME_ENV", "test")
+	t.Setenv("ONLAVA_RUNTIME_ENV", "test")
 	env := defaultEnvironment()
 	if env.Name != "test" {
 		t.Fatalf("defaultEnvironment().Name = %q, want %q", env.Name, "test")
@@ -126,7 +126,7 @@ func TestSetAppConfigUsesTestEnvironment(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 
-	t.Setenv("PULSE_RUNTIME_ENV", "test")
+	t.Setenv("ONLAVA_RUNTIME_ENV", "test")
 	SetAppConfig(AppConfig{Name: "testapp", ListenAddr: "127.0.0.1:4000"})
 	meta := Meta()
 	if meta.Environment.Type != shared.EnvTest {

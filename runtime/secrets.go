@@ -10,7 +10,7 @@ import (
 	"sync"
 	"unicode"
 
-	"pulse.dev/internal/envfile"
+	"onlava.com/internal/envfile"
 )
 
 var (
@@ -106,11 +106,11 @@ func logMissingSecrets(missing []missingSecret) {
 	if len(fields) == 0 || !emitNow {
 		return
 	}
-	slog.Warn("pulse secrets missing", "fields", fields, "env_keys", keys, "source", ".env")
+	slog.Warn("onlava secrets missing", "fields", fields, "env_keys", keys, "source", ".env")
 }
 
 func strictSecretsRequired() bool {
-	for _, key := range []string{"PULSE_RUNTIME_ENV", "PULSE_ENV"} {
+	for _, key := range []string{"ONLAVA_RUNTIME_ENV", "ONLAVA_ENV"} {
 		if strings.EqualFold(strings.TrimSpace(os.Getenv(key)), "production") {
 			return true
 		}
@@ -161,7 +161,7 @@ func FlushMissingSecretsWarnings() {
 	if !ok {
 		return
 	}
-	slog.Warn("pulse secrets missing", "fields", fields, "env_keys", keys, "source", ".env")
+	slog.Warn("onlava secrets missing", "fields", fields, "env_keys", keys, "source", ".env")
 }
 
 func collectMissingSecretsLocked() (fields []string, keys []string, ok bool) {

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"pulse.dev/errs"
-	"pulse.dev/internal/wire"
+	"onlava.com/errs"
+	"onlava.com/internal/wire"
 )
 
 func TestWireCapabilitiesAndBinaryCall(t *testing.T) {
@@ -66,7 +66,7 @@ func TestWireCapabilitiesAndBinaryCall(t *testing.T) {
 		"schema_hash": "hash-hello",
 		"method":      http.MethodPost,
 		"path_params": map[string]any{"id": 42},
-		"payload":     map[string]any{"name": "pulse"},
+		"payload":     map[string]any{"name": "onlava"},
 	})
 	if err != nil {
 		t.Fatalf("wire.Encode() error = %v", err)
@@ -98,7 +98,7 @@ func TestWireCapabilitiesAndBinaryCall(t *testing.T) {
 	}
 	envelope := decoded.(map[string]any)
 	result := envelope["result"].(map[string]any)
-	if result["message"] != "pulse:42" {
+	if result["message"] != "onlava:42" {
 		t.Fatalf("wire result = %#v", result)
 	}
 
@@ -112,7 +112,7 @@ func TestWireCapabilitiesAndBinaryCall(t *testing.T) {
 		t.Fatalf("decode recovery: %v", err)
 	}
 	recoveredResult := recovered.Result.(map[string]any)
-	if recoveredResult["message"] != "pulse:42" {
+	if recoveredResult["message"] != "onlava:42" {
 		t.Fatalf("recovered result = %#v", recovered.Result)
 	}
 }

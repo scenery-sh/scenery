@@ -16,15 +16,15 @@ type encodeResponse struct {
 	Name   string `json:"name"`
 	Hidden string `json:"-"`
 	Empty  string `json:"empty,omitempty"`
-	Header string `header:"X-Pulse-Test"`
-	Status int    `pulse:"httpstatus"`
+	Header string `header:"X-Onlava-Test"`
+	Status int    `onlava:"httpstatus"`
 }
 
 func TestEncodeResponseHonorsJSONTagsWhenShapingResponse(t *testing.T) {
 	rec := httptest.NewRecorder()
 	resp := encodeResponse{
 		EncodeEmbedded: EncodeEmbedded{Embedded: "yes"},
-		Name:           "pulse",
+		Name:           "onlava",
 		Hidden:         "secret",
 		Header:         "header-value",
 		Status:         http.StatusCreated,
@@ -35,14 +35,14 @@ func TestEncodeResponseHonorsJSONTagsWhenShapingResponse(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusCreated)
 	}
-	if got := rec.Header().Get("X-Pulse-Test"); got != "header-value" {
+	if got := rec.Header().Get("X-Onlava-Test"); got != "header-value" {
 		t.Fatalf("header = %q", got)
 	}
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
 	}
-	if body["name"] != "pulse" || body["embedded"] != "yes" {
+	if body["name"] != "onlava" || body["embedded"] != "yes" {
 		t.Fatalf("body = %#v", body)
 	}
 	if _, ok := body["-"]; ok {

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"sync"
 
-	"pulse.dev/internal/dbstudio"
-	"pulse.dev/internal/localproxy"
-	"pulse.dev/runtime"
+	"onlava.com/internal/dbstudio"
+	"onlava.com/internal/localproxy"
+	"onlava.com/runtime"
 )
 
 func init() {
@@ -108,7 +108,7 @@ func startStandaloneDev(ctx context.Context, cfg runtime.AppConfig) (runtime.Sta
 }
 
 func standaloneDevEnabled() bool {
-	return os.Getenv("PULSE_STANDALONE_DEV") == "1"
+	return os.Getenv("ONLAVA_STANDALONE_DEV") == "1"
 }
 
 func startLocalHTTPSProxy(cfg runtime.AppConfig) (*localproxy.Proxy, error) {
@@ -126,7 +126,7 @@ func startLocalHTTPSProxy(cfg runtime.AppConfig) (*localproxy.Proxy, error) {
 		MCPHost:           cfg.ProxyMCPHost,
 		FrontendHost:      cfg.ProxyFrontendHost,
 		APIUpstream:       cfg.ListenAddr,
-		DashboardUpstream: strings.TrimSpace(os.Getenv("PULSE_DEV_DASHBOARD_ADDR")),
+		DashboardUpstream: strings.TrimSpace(os.Getenv("ONLAVA_DEV_DASHBOARD_ADDR")),
 		FrontendUpstream:  localproxy.DiscoverFrontendUpstream(mustGetwd()),
 	})
 	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
@@ -136,7 +136,7 @@ func startLocalHTTPSProxy(cfg runtime.AppConfig) (*localproxy.Proxy, error) {
 }
 
 func standaloneLocalProxyDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("PULSE_LOCAL_PROXY"))) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ONLAVA_LOCAL_PROXY"))) {
 	case "0", "false", "no", "off":
 		return true
 	default:
@@ -150,7 +150,7 @@ func mustGetwd() string {
 }
 
 func appRootFromEnvOrCWD() string {
-	if root := strings.TrimSpace(os.Getenv("PULSE_APP_ROOT")); root != "" {
+	if root := strings.TrimSpace(os.Getenv("ONLAVA_APP_ROOT")); root != "" {
 		return root
 	}
 	return mustGetwd()

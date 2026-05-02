@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"pulse.dev/errs"
+	"onlava.com/errs"
 )
 
 func convertScalar(kind ParamKind, value string) (any, error) {

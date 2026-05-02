@@ -121,7 +121,7 @@ func TestPopulateSecretsLogsMissingFields(t *testing.T) {
 	}
 	FlushMissingSecretsWarnings()
 	gotLogs := logs.String()
-	for _, want := range []string{"pulse secrets missing", "MissingSecret", "MISSING_SECRET"} {
+	for _, want := range []string{"onlava secrets missing", "MissingSecret", "MISSING_SECRET"} {
 		if !strings.Contains(gotLogs, want) {
 			t.Fatalf("logs %q do not contain %q", gotLogs, want)
 		}
@@ -133,7 +133,7 @@ func TestPopulateSecretsFailsForMissingProductionSecrets(t *testing.T) {
 
 	prevDir, restoreDir := chdirRuntimeTest(t, dir)
 	defer restoreDir(prevDir)
-	t.Setenv("PULSE_RUNTIME_ENV", "production")
+	t.Setenv("ONLAVA_RUNTIME_ENV", "production")
 	resetSecretsEnvCache()
 
 	var secrets struct {
@@ -178,7 +178,7 @@ func TestFlushMissingSecretsWarningsCombinesFields(t *testing.T) {
 	FlushMissingSecretsWarnings()
 
 	gotLogs := logs.String()
-	if strings.Count(gotLogs, "pulse secrets missing") != 1 {
+	if strings.Count(gotLogs, "onlava secrets missing") != 1 {
 		t.Fatalf("expected single warning, got logs %q", gotLogs)
 	}
 	for _, want := range []string{"ResendAPIKey", "ElectricURL"} {

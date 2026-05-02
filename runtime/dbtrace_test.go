@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"pulse.dev/internal/devdash"
-	"pulse.dev/runtime/shared"
+	"onlava.com/internal/devdash"
+	"onlava.com/runtime/shared"
 )
 
 func TestTraceDBQueryRecordsChildSpan(t *testing.T) {

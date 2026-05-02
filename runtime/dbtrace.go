@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode"
 
-	"pulse.dev/internal/devdash"
-	"pulse.dev/runtime/shared"
+	"onlava.com/internal/devdash"
+	"onlava.com/runtime/shared"
 )
 
 type dbQueryTraceKey struct{}

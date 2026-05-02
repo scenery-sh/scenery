@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"pulse.dev/internal/runtimeapi"
+	"onlava.com/internal/runtimeapi"
 )
 
 var processStartedAt = time.Now()
