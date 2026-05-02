@@ -210,7 +210,9 @@ func TestRunConsoleJSONPhaseAndBanner(t *testing.T) {
 		API:       "https://api.jsonapp.localhost",
 		Dashboard: "https://console.jsonapp.localhost/jsonapp",
 		MCP:       "https://mcp.jsonapp.localhost/sse?appID=jsonapp",
-		Frontend:  "https://onlava.jsonapp.localhost",
+		Frontends: map[string]string{
+			"pulse": "https://pulse.jsonapp.localhost",
+		},
 	})
 
 	lines := bytes.Split(bytes.TrimSpace(out.Bytes()), []byte("\n"))

@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -385,7 +386,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			API:       s.apiURL(),
 			Dashboard: s.dashboardURL(),
 			MCP:       s.mcpURL(),
-			Frontend:  s.frontendURL(),
+			Frontends: s.frontendURLs(),
 			DBStudio:  s.dbStudioURL,
 			Victoria:  s.victoria.URLs(),
 		})
@@ -712,11 +713,11 @@ func (s *devSupervisor) mcpURL() string {
 	return "http://" + devdash.ListenAddr() + "/sse?appID=" + url.QueryEscape(s.cfg.Name)
 }
 
-func (s *devSupervisor) frontendURL() string {
+func (s *devSupervisor) frontendURLs() map[string]string {
 	if s.proxy != nil {
-		return s.proxy.Routes().FrontendURL
+		return frontendURLs(s.proxy.Routes())
 	}
-	return ""
+	return nil
 }
 
 func (s *devSupervisor) startDBStudio(ctx context.Context) error {
@@ -777,10 +778,9 @@ func (s *devSupervisor) startLocalProxy() error {
 		APIHost:           s.cfg.Proxy.APIHost,
 		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
 		MCPHost:           s.cfg.Proxy.MCPHost,
-		FrontendHost:      s.cfg.Proxy.FrontendHost,
 		APIUpstream:       s.addr,
 		DashboardUpstream: devdash.ListenAddr(),
-		FrontendUpstream:  localproxy.DiscoverFrontendUpstream(s.root),
+		Frontends:         localproxy.ResolveFrontends(s.root, localProxyFrontends(s.cfg.Proxy.Frontends)),
 		Verbose:           s.console != nil && s.console.verbose,
 	})
 	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
@@ -792,6 +792,41 @@ func (s *devSupervisor) startLocalProxy() error {
 	}
 	s.proxy = proxy
 	return nil
+}
+
+func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.FrontendConfig {
+	names := make([]string, 0, len(frontends))
+	for name := range frontends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	resolved := make([]localproxy.FrontendConfig, 0, len(names))
+	for _, name := range names {
+		frontend := frontends[name]
+		resolved = append(resolved, localproxy.FrontendConfig{
+			Name:     name,
+			Host:     frontend.Host,
+			Root:     frontend.Root,
+			Upstream: frontend.Upstream,
+		})
+	}
+	return resolved
+}
+
+func frontendURLs(routes localproxy.Routes) map[string]string {
+	if len(routes.Frontends) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(routes.Frontends))
+	for name := range routes.Frontends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	urls := make(map[string]string, len(names))
+	for _, name := range names {
+		urls[name] = routes.Frontends[name].URL
+	}
+	return urls
 }
 
 func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEncoding json.RawMessage, err error) error {

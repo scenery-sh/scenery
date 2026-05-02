@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +27,7 @@ type runURLs struct {
 	API       string
 	Dashboard string
 	MCP       string
-	Frontend  string
+	Frontends map[string]string
 	DBStudio  string
 	Victoria  map[string]string
 }
@@ -132,7 +133,7 @@ func (c *runConsole) Banner(urls runURLs) {
 			"api_url":       urls.API,
 			"dashboard_url": urls.Dashboard,
 			"mcp_url":       urls.MCP,
-			"frontend_url":  urls.Frontend,
+			"frontend_urls": urls.Frontends,
 			"db_studio_url": urls.DBStudio,
 		}
 		if c.verbose {
@@ -143,8 +144,8 @@ func (c *runConsole) Banner(urls runURLs) {
 	}
 	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("onlava development server running!"))
 	width := len("Development Dashboard URL:")
-	if len("onlava App URL:") > width {
-		width = len("onlava App URL:")
+	if len("Frontend URL:") > width {
+		width = len("Frontend URL:")
 	}
 	if c.verbose && len("VictoriaMetrics URL:") > width {
 		width = len("VictoriaMetrics URL:")
@@ -152,8 +153,8 @@ func (c *runConsole) Banner(urls runURLs) {
 	c.printf(c.out, "  %-*s  %s\n", width, "Your API is running at:", urls.API)
 	c.printf(c.out, "  %-*s  %s\n", width, "Development Dashboard URL:", urls.Dashboard)
 	c.printf(c.out, "  %-*s  %s\n", width, "MCP SSE URL:", urls.MCP)
-	if urls.Frontend != "" {
-		c.printf(c.out, "  %-*s  %s\n", width, "onlava App URL:", urls.Frontend)
+	for _, name := range sortedKeys(urls.Frontends) {
+		c.printf(c.out, "  %-*s  %s\n", width, frontendLabel(name), urls.Frontends[name])
 	}
 	if urls.DBStudio != "" {
 		c.printf(c.out, "  %-*s  %s\n", width, "Drizzle Studio URL:", urls.DBStudio)
@@ -173,6 +174,26 @@ func (c *runConsole) Banner(urls runURLs) {
 		}
 	}
 	c.printf(c.out, "\n")
+}
+
+func sortedKeys(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func frontendLabel(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "Frontend URL:"
+	}
+	return "Frontend " + name + " URL:"
 }
 
 func (c *runConsole) printError(label string, err error) {

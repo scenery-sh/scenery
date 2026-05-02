@@ -10,6 +10,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
@@ -230,13 +231,40 @@ func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
 	if cfg.Proxy.MCPHost != "" {
 		fields = append(fields, fmt.Sprintf("ProxyMCPHost: %q", cfg.Proxy.MCPHost))
 	}
-	if cfg.Proxy.FrontendHost != "" {
-		fields = append(fields, fmt.Sprintf("ProxyFrontendHost: %q", cfg.Proxy.FrontendHost))
+	if literal := proxyFrontendsLiteral(cfg.Proxy.Frontends); literal != "" {
+		fields = append(fields, "ProxyFrontends: "+literal)
 	}
 	if literal := observabilityConfigLiteral(cfg.Observability); literal != "" {
 		fields = append(fields, "Observability: "+literal)
 	}
 	return "onlavaruntime.AppConfig{" + strings.Join(fields, ", ") + "}"
+}
+
+func proxyFrontendsLiteral(frontends map[string]appcfg.FrontendConfig) string {
+	if len(frontends) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(frontends))
+	for name := range frontends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	entries := make([]string, 0, len(names))
+	for _, name := range names {
+		frontend := frontends[name]
+		fields := []string{}
+		if frontend.Host != "" {
+			fields = append(fields, fmt.Sprintf("Host: %q", frontend.Host))
+		}
+		if frontend.Root != "" {
+			fields = append(fields, fmt.Sprintf("Root: %q", frontend.Root))
+		}
+		if frontend.Upstream != "" {
+			fields = append(fields, fmt.Sprintf("Upstream: %q", frontend.Upstream))
+		}
+		entries = append(entries, fmt.Sprintf("%q: {%s}", name, strings.Join(fields, ", ")))
+	}
+	return "map[string]onlavaruntime.ProxyFrontendConfig{" + strings.Join(entries, ", ") + "}"
 }
 
 func observabilityConfigLiteral(cfg appcfg.ObservabilityConfig) string {

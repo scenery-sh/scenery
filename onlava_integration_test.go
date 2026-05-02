@@ -452,7 +452,7 @@ func TestOnlavaDevServesHTTPSHostnames(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), "basic")
 	copyDir(t, sourceAppDir, appDir)
 	rewriteFixtureReplace(t, filepath.Join(appDir, "go.mod"), repo)
-	writeOnlavaApp(t, appDir, `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontend_host":"onlava.acme.localhost"}}`)
+	writeOnlavaApp(t, appDir, `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontends":{"pulse":{"host":"pulse.acme.localhost"}}}}`)
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
 	dashAddr := "127.0.0.1:" + freePort(t)
@@ -518,7 +518,7 @@ func TestOnlavaDevServesHTTPSHostnames(t *testing.T) {
 		t.Fatalf("unexpected mcp status %d", resp.StatusCode)
 	}
 
-	frontendURL := "https://onlava.acme.localhost:" + httpsPort + "/"
+	frontendURL := "https://pulse.acme.localhost:" + httpsPort + "/"
 	waitForURL(t, client, frontendURL)
 	resp, err = client.Get(frontendURL)
 	if err != nil {
@@ -539,7 +539,7 @@ func TestOnlavaBuiltBinaryIsHeadlessByDefault(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), "basic")
 	copyDir(t, sourceAppDir, appDir)
 	rewriteFixtureReplace(t, filepath.Join(appDir, "go.mod"), repo)
-	writeOnlavaApp(t, appDir, `{"name":"basicapp","proxy":{"api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontend_host":"onlava.acme.localhost"}}`)
+	writeOnlavaApp(t, appDir, `{"name":"basicapp","proxy":{"api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontends":{"pulse":{"host":"pulse.acme.localhost"}}}}`)
 	onlavaBinary := buildOnlavaBinary(t, repo)
 	outputPath := filepath.Join(t.TempDir(), "basic-app")
 	cacheDir := filepath.Join(t.TempDir(), "cache")

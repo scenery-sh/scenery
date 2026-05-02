@@ -17,7 +17,10 @@
         "api_host": { "type": "string" },
         "console_host": { "type": "string" },
         "mcp_host": { "type": "string" },
-        "frontend_host": { "type": "string" }
+        "frontends": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/frontend" }
+        }
       },
       "additionalProperties": false
     },
@@ -48,6 +51,16 @@
           "items": { "type": "string" }
         }
       },
+      "additionalProperties": false
+    },
+    "frontend": {
+      "type": "object",
+      "properties": {
+        "host": { "type": "string" },
+        "root": { "type": "string" },
+        "upstream": { "type": "string" }
+      },
+      "required": ["host"],
       "additionalProperties": false
     }
   }

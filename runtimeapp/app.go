@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -72,7 +73,7 @@ func startStandaloneDev(ctx context.Context, cfg runtime.AppConfig) (runtime.Sta
 			info.APIURL = routes.APIURL
 			info.ConsoleURL = routes.ConsoleURL
 			info.MCPBaseURL = routes.MCPBaseURL
-			info.FrontendURL = routes.FrontendURL
+			info.FrontendURLs = standaloneFrontendURLs(routes)
 		}
 	}
 
@@ -124,15 +125,49 @@ func startLocalHTTPSProxy(cfg runtime.AppConfig) (*localproxy.Proxy, error) {
 		APIHost:           cfg.ProxyAPIHost,
 		ConsoleHost:       cfg.ProxyConsoleHost,
 		MCPHost:           cfg.ProxyMCPHost,
-		FrontendHost:      cfg.ProxyFrontendHost,
 		APIUpstream:       cfg.ListenAddr,
 		DashboardUpstream: strings.TrimSpace(os.Getenv("ONLAVA_DEV_DASHBOARD_ADDR")),
-		FrontendUpstream:  localproxy.DiscoverFrontendUpstream(mustGetwd()),
+		Frontends:         localproxy.ResolveFrontends(mustGetwd(), runtimeProxyFrontends(cfg.ProxyFrontends)),
 	})
 	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
 		return nil, nil
 	}
 	return localproxy.Start(proxyCfg)
+}
+
+func runtimeProxyFrontends(frontends map[string]runtime.ProxyFrontendConfig) []localproxy.FrontendConfig {
+	names := make([]string, 0, len(frontends))
+	for name := range frontends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	resolved := make([]localproxy.FrontendConfig, 0, len(names))
+	for _, name := range names {
+		frontend := frontends[name]
+		resolved = append(resolved, localproxy.FrontendConfig{
+			Name:     name,
+			Host:     frontend.Host,
+			Root:     frontend.Root,
+			Upstream: frontend.Upstream,
+		})
+	}
+	return resolved
+}
+
+func standaloneFrontendURLs(routes localproxy.Routes) map[string]string {
+	if len(routes.Frontends) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(routes.Frontends))
+	for name := range routes.Frontends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	urls := make(map[string]string, len(names))
+	for _, name := range names {
+		urls[name] = routes.Frontends[name].URL
+	}
+	return urls
 }
 
 func standaloneLocalProxyDisabled() bool {

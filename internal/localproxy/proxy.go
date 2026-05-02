@@ -29,25 +29,36 @@ type Config struct {
 	APIHost           string
 	ConsoleHost       string
 	MCPHost           string
-	FrontendHost      string
+	Frontends         []FrontendConfig
 	APIUpstream       string
 	DashboardUpstream string
-	FrontendUpstream  string
 	HTTPPort          int
 	HTTPSPort         int
 	SkipInstallTrust  bool
 	Verbose           bool
 }
 
+type FrontendConfig struct {
+	Name     string
+	Host     string
+	Root     string
+	Upstream string
+}
+
 type Routes struct {
-	APIHost      string
-	ConsoleHost  string
-	MCPHost      string
-	FrontendHost string
-	APIURL       string
-	ConsoleURL   string
-	MCPBaseURL   string
-	FrontendURL  string
+	APIHost     string
+	ConsoleHost string
+	MCPHost     string
+	Frontends   map[string]FrontendRoute
+	APIURL      string
+	ConsoleURL  string
+	MCPBaseURL  string
+}
+
+type FrontendRoute struct {
+	Name string
+	Host string
+	URL  string
 }
 
 type Proxy struct {
@@ -80,8 +91,8 @@ func SkipInstallTrust() bool {
 	return envBool("ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL", true)
 }
 
-func FrontendOverride() string {
-	value := strings.TrimSpace(os.Getenv("ONLAVA_FRONTEND_ADDR"))
+func FrontendOverride(name string) string {
+	value := strings.TrimSpace(os.Getenv("ONLAVA_FRONTEND_" + frontendEnvName(name) + "_ADDR"))
 	if value == "" {
 		return ""
 	}
@@ -96,22 +107,25 @@ func DiscoverWorkspace(root, fallback string) string {
 	return sanitizeLabel(fallback)
 }
 
-func DiscoverFrontendUpstream(root string) string {
+func DiscoverFrontendUpstream(appRoot string, frontend FrontendConfig) string {
 	if envBool("ONLAVA_DISABLE_FRONTEND_PROXY", false) {
 		return ""
 	}
-	if override := FrontendOverride(); override != "" {
+	if override := FrontendOverride(frontend.Name); override != "" {
 		return override
 	}
-	root = strings.TrimSpace(root)
-	if root == "" {
+	if upstream := normalizeUpstream(frontend.Upstream); upstream != "" {
+		return upstream
+	}
+	frontendRoot := frontendRootPath(appRoot, frontend)
+	if frontendRoot == "" {
 		return ""
 	}
 	viteCandidates := []string{
-		filepath.Join(root, "apps", "onlava", "vite.config.ts"),
-		filepath.Join(root, "apps", "onlava", "vite.config.js"),
-		filepath.Join(root, "apps", "onlava", "vite.config.mts"),
-		filepath.Join(root, "apps", "onlava", "vite.config.mjs"),
+		filepath.Join(frontendRoot, "vite.config.ts"),
+		filepath.Join(frontendRoot, "vite.config.js"),
+		filepath.Join(frontendRoot, "vite.config.mts"),
+		filepath.Join(frontendRoot, "vite.config.mjs"),
 	}
 	for _, path := range viteCandidates {
 		data, err := os.ReadFile(path)
@@ -127,10 +141,48 @@ func DiscoverFrontendUpstream(root string) string {
 	return ""
 }
 
+func ResolveFrontends(appRoot string, frontends []FrontendConfig) []FrontendConfig {
+	resolved := make([]FrontendConfig, 0, len(frontends))
+	for _, frontend := range frontends {
+		frontend.Name = sanitizeLabel(frontend.Name)
+		frontend.Host = normalizeHost(frontend.Host)
+		frontend.Root = strings.TrimSpace(frontend.Root)
+		frontend.Upstream = DiscoverFrontendUpstream(appRoot, frontend)
+		if frontend.Upstream == "" {
+			continue
+		}
+		resolved = append(resolved, frontend)
+	}
+	return resolved
+}
+
+func frontendRootPath(appRoot string, frontend FrontendConfig) string {
+	appRoot = strings.TrimSpace(appRoot)
+	root := strings.TrimSpace(frontend.Root)
+	if root == "" && frontend.Name != "" {
+		root = filepath.Join("apps", frontend.Name)
+	}
+	if root == "" {
+		return ""
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root)
+	}
+	if appRoot == "" {
+		return filepath.Clean(root)
+	}
+	return filepath.Join(appRoot, root)
+}
+
 func BuildConfig(cfg Config) Config {
 	cfg.APIUpstream = normalizeUpstream(cfg.APIUpstream)
 	cfg.DashboardUpstream = normalizeUpstream(cfg.DashboardUpstream)
-	cfg.FrontendUpstream = normalizeUpstream(cfg.FrontendUpstream)
+	for i := range cfg.Frontends {
+		cfg.Frontends[i].Name = sanitizeLabel(cfg.Frontends[i].Name)
+		cfg.Frontends[i].Host = normalizeHost(cfg.Frontends[i].Host)
+		cfg.Frontends[i].Root = strings.TrimSpace(cfg.Frontends[i].Root)
+		cfg.Frontends[i].Upstream = normalizeUpstream(cfg.Frontends[i].Upstream)
+	}
 	cfg.HTTPPort = HTTPPort()
 	cfg.HTTPSPort = HTTPSPort()
 	cfg.SkipInstallTrust = SkipInstallTrust()
@@ -149,8 +201,10 @@ func Start(cfg Config) (*Proxy, error) {
 	if cfg.DashboardUpstream != "" && (routes.ConsoleHost == "" || routes.MCPHost == "") {
 		return nil, fmt.Errorf("local proxy requires console and mcp hosts when dashboard routing is enabled")
 	}
-	if cfg.FrontendUpstream != "" && routes.FrontendHost == "" {
-		return nil, fmt.Errorf("local proxy requires a frontend host when frontend routing is enabled")
+	for _, frontend := range cfg.Frontends {
+		if frontend.Upstream != "" && frontend.Host == "" {
+			return nil, fmt.Errorf("local proxy requires frontend %q to define a host", frontend.Name)
+		}
 	}
 
 	routeTable, err := proxyRoutes(cfg)
@@ -304,7 +358,6 @@ func normalizeConfig(cfg Config) Config {
 	cfg.APIHost = normalizeHost(cfg.APIHost)
 	cfg.ConsoleHost = normalizeHost(cfg.ConsoleHost)
 	cfg.MCPHost = normalizeHost(cfg.MCPHost)
-	cfg.FrontendHost = normalizeHost(cfg.FrontendHost)
 	if cfg.HTTPPort <= 0 {
 		cfg.HTTPPort = defaultHTTPPort
 	}
@@ -313,7 +366,12 @@ func normalizeConfig(cfg Config) Config {
 	}
 	cfg.APIUpstream = normalizeUpstream(cfg.APIUpstream)
 	cfg.DashboardUpstream = normalizeUpstream(cfg.DashboardUpstream)
-	cfg.FrontendUpstream = normalizeUpstream(cfg.FrontendUpstream)
+	for i := range cfg.Frontends {
+		cfg.Frontends[i].Name = sanitizeLabel(cfg.Frontends[i].Name)
+		cfg.Frontends[i].Host = normalizeHost(cfg.Frontends[i].Host)
+		cfg.Frontends[i].Root = strings.TrimSpace(cfg.Frontends[i].Root)
+		cfg.Frontends[i].Upstream = normalizeUpstream(cfg.Frontends[i].Upstream)
+	}
 	return cfg
 }
 
@@ -321,12 +379,11 @@ func routesFor(cfg Config) Routes {
 	apiHost := resolvedHost(cfg.APIHost, cfg.Workspace, "api")
 	consoleHost := resolvedHost(cfg.ConsoleHost, cfg.Workspace, "console")
 	mcpHost := resolvedHost(cfg.MCPHost, cfg.Workspace, "mcp")
-	frontendHost := resolvedHost(cfg.FrontendHost, cfg.Workspace, "onlava")
 	routes := Routes{
-		APIHost:      apiHost,
-		ConsoleHost:  consoleHost,
-		MCPHost:      mcpHost,
-		FrontendHost: frontendHost,
+		APIHost:     apiHost,
+		ConsoleHost: consoleHost,
+		MCPHost:     mcpHost,
+		Frontends:   map[string]FrontendRoute{},
 	}
 	if apiHost != "" {
 		routes.APIURL = hostURL(apiHost, cfg.HTTPSPort)
@@ -339,12 +396,35 @@ func routesFor(cfg Config) Routes {
 			routes.MCPBaseURL = hostURL(mcpHost, cfg.HTTPSPort)
 		}
 	}
-	if cfg.FrontendUpstream != "" {
-		if frontendHost != "" {
-			routes.FrontendURL = hostURL(frontendHost, cfg.HTTPSPort)
+	for _, frontend := range cfg.Frontends {
+		if frontend.Host == "" || frontend.Upstream == "" {
+			continue
+		}
+		routes.Frontends[frontend.Name] = FrontendRoute{
+			Name: frontend.Name,
+			Host: frontend.Host,
+			URL:  hostURL(frontend.Host, cfg.HTTPSPort),
 		}
 	}
 	return routes
+}
+
+func frontendEnvName(name string) string {
+	name = strings.ToUpper(strings.TrimSpace(name))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range name {
+		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 func hostURL(host string, httpsPort int) string {

@@ -24,7 +24,6 @@ func proxyRoutes(cfg Config) (routeTable, error) {
 	apiHost := resolvedHost(cfg.APIHost, cfg.Workspace, "api")
 	consoleHost := resolvedHost(cfg.ConsoleHost, cfg.Workspace, "console")
 	mcpHost := resolvedHost(cfg.MCPHost, cfg.Workspace, "mcp")
-	frontendHost := resolvedHost(cfg.FrontendHost, cfg.Workspace, "onlava")
 
 	var routes routeTable
 	appendRoute := func(host, upstream string, rewriteHost bool, path string) error {
@@ -49,13 +48,16 @@ func proxyRoutes(cfg Config) (routeTable, error) {
 			return nil, err
 		}
 	}
-	if cfg.FrontendUpstream != "" {
+	for _, frontend := range cfg.Frontends {
+		if frontend.Host == "" || frontend.Upstream == "" {
+			continue
+		}
 		if cfg.APIUpstream != "" {
-			if err := appendRoute(frontendHost, cfg.APIUpstream, false, "/__onlava/config"); err != nil {
+			if err := appendRoute(frontend.Host, cfg.APIUpstream, false, "/__onlava/config"); err != nil {
 				return nil, err
 			}
 		}
-		if err := appendRoute(frontendHost, cfg.FrontendUpstream, true, ""); err != nil {
+		if err := appendRoute(frontend.Host, frontend.Upstream, true, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -155,8 +157,10 @@ func routeSubjects(cfg Config) []string {
 		add(resolvedHost(cfg.ConsoleHost, cfg.Workspace, "console"))
 		add(resolvedHost(cfg.MCPHost, cfg.Workspace, "mcp"))
 	}
-	if cfg.FrontendUpstream != "" {
-		add(resolvedHost(cfg.FrontendHost, cfg.Workspace, "onlava"))
+	for _, frontend := range cfg.Frontends {
+		if frontend.Upstream != "" {
+			add(frontend.Host)
+		}
 	}
 	return subjects
 }

@@ -95,15 +95,21 @@ type CronJob struct {
 }
 
 type AppConfig struct {
-	Name              string
-	Workspace         string
-	ListenAddr        string
-	EnableDBStudio    bool
-	ProxyAPIHost      string
-	ProxyConsoleHost  string
-	ProxyMCPHost      string
-	ProxyFrontendHost string
-	Observability     ObservabilityConfig
+	Name             string
+	Workspace        string
+	ListenAddr       string
+	EnableDBStudio   bool
+	ProxyAPIHost     string
+	ProxyConsoleHost string
+	ProxyMCPHost     string
+	ProxyFrontends   map[string]ProxyFrontendConfig
+	Observability    ObservabilityConfig
+}
+
+type ProxyFrontendConfig struct {
+	Host     string
+	Root     string
+	Upstream string
 }
 
 type serviceShutdown struct {

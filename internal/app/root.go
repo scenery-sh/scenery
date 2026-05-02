@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -17,11 +18,17 @@ type Config struct {
 }
 
 type ProxyConfig struct {
-	Workspace    string `json:"workspace"`
-	APIHost      string `json:"api_host"`
-	ConsoleHost  string `json:"console_host"`
-	MCPHost      string `json:"mcp_host"`
-	FrontendHost string `json:"frontend_host"`
+	Workspace   string                    `json:"workspace"`
+	APIHost     string                    `json:"api_host"`
+	ConsoleHost string                    `json:"console_host"`
+	MCPHost     string                    `json:"mcp_host"`
+	Frontends   map[string]FrontendConfig `json:"frontends"`
+}
+
+type FrontendConfig struct {
+	Host     string `json:"host"`
+	Root     string `json:"root"`
+	Upstream string `json:"upstream"`
 }
 
 type ObservabilityConfig struct {
@@ -43,7 +50,9 @@ func DiscoverRoot(start string) (string, Config, error) {
 		path := filepath.Join(dir, ".onlava.json")
 		if data, err := os.ReadFile(path); err == nil {
 			var cfg Config
-			if err := json.Unmarshal(data, &cfg); err != nil {
+			dec := json.NewDecoder(bytes.NewReader(data))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&cfg); err != nil {
 				return "", Config{}, err
 			}
 			if cfg.Name == "" {

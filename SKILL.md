@@ -176,7 +176,7 @@ onlava dev --port 4000 --listen 127.0.0.1
 
 Use `onlava dev --json` for machine-readable JSONL events. Child stdout/stderr are emitted as structured process output events.
 
-`onlava dev` prints the API URL, dashboard URL, MCP SSE URL, DB Studio URL when enabled, and Victoria URLs when sidecars are running. Use those printed URLs as the source of truth for the current run.
+`onlava dev` prints the API URL, dashboard URL, MCP SSE URL, and DB Studio URL when enabled. Use `-v` or `--verbose` when you also need Victoria sidecar URLs and sidecar lifecycle output.
 
 Use `onlava dev --proxy` for local HTTPS/frontend domains from `.onlava.json` proxy config:
 
@@ -188,7 +188,12 @@ Use `onlava dev --proxy` for local HTTPS/frontend domains from `.onlava.json` pr
     "api_host": "api.acme.localhost",
     "console_host": "console.acme.localhost",
     "mcp_host": "mcp.acme.localhost",
-    "frontend_host": "app.acme.localhost"
+    "frontends": {
+      "app": {
+        "host": "app.acme.localhost",
+        "root": "apps/app"
+      }
+    }
   }
 }
 ```

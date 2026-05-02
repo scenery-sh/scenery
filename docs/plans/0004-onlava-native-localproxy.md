@@ -91,9 +91,10 @@ The public package surface to preserve is:
     HTTPPort() int
     HTTPSPort() int
     SkipInstallTrust() bool
-    FrontendOverride() string
+    FrontendOverride(name string) string
     DiscoverWorkspace(root, fallback string) string
-    DiscoverFrontendUpstream(root string) string
+    DiscoverFrontendUpstream(root string, frontend FrontendConfig) string
+    ResolveFrontends(root string, frontends []FrontendConfig) []FrontendConfig
     BuildConfig(cfg Config) Config
     Start(cfg Config) (*Proxy, error)
     (*Proxy).Close() error
@@ -101,14 +102,14 @@ The public package surface to preserve is:
     ConsoleAppURL(routes Routes, appID string) string
     MCPSSEURL(routes Routes, appID string) string
 
-`Config` fields must remain `Workspace`, `APIHost`, `ConsoleHost`, `MCPHost`, `FrontendHost`, `APIUpstream`, `DashboardUpstream`, `FrontendUpstream`, `HTTPPort`, `HTTPSPort`, `SkipInstallTrust`, and `Verbose`. `Routes` fields must remain `APIHost`, `ConsoleHost`, `MCPHost`, `FrontendHost`, `APIURL`, `ConsoleURL`, `MCPBaseURL`, and `FrontendURL`.
+`Config` fields now use named `Frontends` instead of a single frontend host/upstream pair. `Routes` fields expose `Frontends` as a named map alongside `APIHost`, `ConsoleHost`, `MCPHost`, `APIURL`, `ConsoleURL`, and `MCPBaseURL`.
 
 Main call sites are:
 
 - `cmd/onlava/dev_supervisor.go`: starts the proxy before launching the child app, sets `ONLAVA_LOCAL_PROXY=0` in the child, and sets `ONLAVA_PUBLIC_BASE_URL` when a proxy exists.
 - `runtimeapp/app.go`: starts the standalone local HTTPS proxy when the runtime was not launched by the supervisor.
 
-Existing helpers in `internal/localproxy/proxy.go` define important normalization behavior. Preserve `normalizeUpstream`, `normalizeHost`, `sanitizeLabel`, `DiscoverWorkspace`, `DiscoverFrontendUpstream`, `BuildConfig`, `routesFor`, `routeSubjects`, `hostURL`, `ConsoleAppURL`, and `MCPSSEURL` behavior unless this plan records a deliberate decision to change an environment default.
+Existing helpers in `internal/localproxy/proxy.go` define important normalization behavior. Preserve `normalizeUpstream`, `normalizeHost`, `sanitizeLabel`, `DiscoverWorkspace`, `DiscoverFrontendUpstream`, `ResolveFrontends`, `BuildConfig`, `routesFor`, `routeSubjects`, `hostURL`, `ConsoleAppURL`, and `MCPSSEURL` behavior unless this plan records a deliberate decision to change an environment default.
 
 ## Milestones
 
@@ -168,7 +169,7 @@ Finally update the call sites only as needed. `cmd/onlava/dev_supervisor.go` sho
         TestHTTPRedirectKnownHost
         TestCloseIsIdempotentAndReleasesPorts
 
-10. Update environment tests for `ONLAVA_LOCAL_PROXY`, `ONLAVA_LOCAL_PROXY_HTTP_PORT`, `ONLAVA_LOCAL_PROXY_HTTPS_PORT`, `ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL`, `ONLAVA_FRONTEND_ADDR`, and `ONLAVA_DISABLE_FRONTEND_PROXY`.
+10. Update environment tests for `ONLAVA_LOCAL_PROXY`, `ONLAVA_LOCAL_PROXY_HTTP_PORT`, `ONLAVA_LOCAL_PROXY_HTTPS_PORT`, `ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL`, named `ONLAVA_FRONTEND_<NAME>_ADDR`, and `ONLAVA_DISABLE_FRONTEND_PROXY`.
 11. Delete `internal/localproxy/caddyimports.go`.
 12. Remove direct Caddy requirement by running `go mod tidy`; do not manually remove unrelated dependencies.
 13. Update `docs/plans/0004-onlava-native-localproxy.md` progress and discoveries as each milestone lands.
@@ -235,8 +236,8 @@ Route behavior to preserve:
 - API host routes to `APIUpstream`, preserves incoming `Host`, and exposes `Routes.APIURL`.
 - Console host routes to `DashboardUpstream`, preserves incoming `Host`, and exposes `Routes.ConsoleURL` only when dashboard routing is enabled.
 - MCP host routes to `DashboardUpstream`, preserves incoming `Host`, and exposes `Routes.MCPBaseURL` only when dashboard routing is enabled.
-- Frontend host routes exact path `/__onlava/config` to `APIUpstream` and preserves incoming `Host`.
-- Frontend host routes all other paths to `FrontendUpstream`, rewrites `Host` to the frontend upstream host:port, and exposes `Routes.FrontendURL` only when frontend routing is enabled.
+- Each configured frontend host routes exact path `/__onlava/config` to `APIUpstream` and preserves incoming `Host`.
+- Each configured frontend host routes all other paths to its named upstream, rewrites `Host` to the frontend upstream host:port, and exposes `Routes.Frontends[name].URL` only when that frontend routing is enabled.
 
 Exact startup validation errors to preserve:
 
@@ -278,7 +279,7 @@ Environment variables to preserve:
     ONLAVA_LOCAL_PROXY_HTTP_PORT
     ONLAVA_LOCAL_PROXY_HTTPS_PORT
     ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL
-    ONLAVA_FRONTEND_ADDR
+    ONLAVA_FRONTEND_<NAME>_ADDR
     ONLAVA_DISABLE_FRONTEND_PROXY
     ONLAVA_DEV_CACHE_DIR
 

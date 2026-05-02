@@ -77,12 +77,12 @@ func TestEnvironmentParsing(t *testing.T) {
 	if HTTPSPort() != 9443 {
 		t.Fatalf("HTTPSPort() = %d", HTTPSPort())
 	}
-	t.Setenv("ONLAVA_FRONTEND_ADDR", "http://0.0.0.0:5178")
-	if got := FrontendOverride(); got != "127.0.0.1:5178" {
+	t.Setenv("ONLAVA_FRONTEND_PULSE_ADDR", "http://0.0.0.0:5178")
+	if got := FrontendOverride("pulse"); got != "127.0.0.1:5178" {
 		t.Fatalf("FrontendOverride() = %q", got)
 	}
 	t.Setenv("ONLAVA_DISABLE_FRONTEND_PROXY", "1")
-	if got := DiscoverFrontendUpstream(t.TempDir()); got != "" {
+	if got := DiscoverFrontendUpstream(t.TempDir(), FrontendConfig{Name: "pulse"}); got != "" {
 		t.Fatalf("DiscoverFrontendUpstream disabled = %q", got)
 	}
 }
@@ -110,8 +110,10 @@ func TestRoutesFor(t *testing.T) {
 		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
-		FrontendUpstream:  "127.0.0.1:5178",
-		HTTPSPort:         9443,
+		Frontends: []FrontendConfig{
+			{Name: "pulse", Host: "pulse.acme.localhost", Upstream: "127.0.0.1:5178"},
+		},
+		HTTPSPort: 9443,
 	})
 	if routes.APIURL != "https://api.acme.localhost:9443" {
 		t.Fatalf("APIURL = %q", routes.APIURL)
@@ -122,8 +124,8 @@ func TestRoutesFor(t *testing.T) {
 	if routes.MCPBaseURL != "https://mcp.acme.localhost:9443" {
 		t.Fatalf("MCPBaseURL = %q", routes.MCPBaseURL)
 	}
-	if routes.FrontendURL != "https://onlava.acme.localhost:9443" {
-		t.Fatalf("FrontendURL = %q", routes.FrontendURL)
+	if routes.Frontends["pulse"].URL != "https://pulse.acme.localhost:9443" {
+		t.Fatalf("FrontendURL = %q", routes.Frontends["pulse"].URL)
 	}
 	if got := ConsoleAppURL(routes, "demoapp-dev"); got != "https://console.acme.localhost:9443/demoapp-dev" {
 		t.Fatalf("ConsoleAppURL = %q", got)
@@ -138,11 +140,12 @@ func TestRoutesForExplicitHosts(t *testing.T) {
 		APIHost:           "api.custom.localhost",
 		ConsoleHost:       "console.custom.localhost",
 		MCPHost:           "mcp.custom.localhost",
-		FrontendHost:      "onlava.custom.localhost",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
-		FrontendUpstream:  "127.0.0.1:5178",
-		HTTPSPort:         9443,
+		Frontends: []FrontendConfig{
+			{Name: "pulse", Host: "pulse.custom.localhost", Upstream: "127.0.0.1:5178"},
+		},
+		HTTPSPort: 9443,
 	})
 	if routes.APIURL != "https://api.custom.localhost:9443" {
 		t.Fatalf("APIURL = %q", routes.APIURL)
@@ -153,8 +156,8 @@ func TestRoutesForExplicitHosts(t *testing.T) {
 	if routes.MCPBaseURL != "https://mcp.custom.localhost:9443" {
 		t.Fatalf("MCPBaseURL = %q", routes.MCPBaseURL)
 	}
-	if routes.FrontendURL != "https://onlava.custom.localhost:9443" {
-		t.Fatalf("FrontendURL = %q", routes.FrontendURL)
+	if routes.Frontends["pulse"].URL != "https://pulse.custom.localhost:9443" {
+		t.Fatalf("FrontendURL = %q", routes.Frontends["pulse"].URL)
 	}
 }
 
@@ -163,7 +166,10 @@ func TestRouteTableIncludesExpectedHosts(t *testing.T) {
 		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
-		FrontendUpstream:  "127.0.0.1:5178",
+		Frontends: []FrontendConfig{
+			{Name: "blog", Host: "blog.acme.localhost", Upstream: "127.0.0.1:5179"},
+			{Name: "pulse", Host: "pulse.acme.localhost", Upstream: "127.0.0.1:5178"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("proxyRoutes() error = %v", err)
@@ -172,8 +178,10 @@ func TestRouteTableIncludesExpectedHosts(t *testing.T) {
 		{host: "api.acme.localhost", upstream: "127.0.0.1:4000"},
 		{host: "console.acme.localhost", upstream: "127.0.0.1:9401"},
 		{host: "mcp.acme.localhost", upstream: "127.0.0.1:9401"},
-		{host: "onlava.acme.localhost", path: "/__onlava/config", upstream: "127.0.0.1:4000"},
-		{host: "onlava.acme.localhost", upstream: "127.0.0.1:5178", rewriteHost: true},
+		{host: "blog.acme.localhost", path: "/__onlava/config", upstream: "127.0.0.1:4000"},
+		{host: "blog.acme.localhost", upstream: "127.0.0.1:5179", rewriteHost: true},
+		{host: "pulse.acme.localhost", path: "/__onlava/config", upstream: "127.0.0.1:4000"},
+		{host: "pulse.acme.localhost", upstream: "127.0.0.1:5178", rewriteHost: true},
 	}
 	if len(table) != len(want) {
 		t.Fatalf("route count = %d, want %d", len(table), len(want))
@@ -191,13 +199,17 @@ func TestCertificateSubjects(t *testing.T) {
 		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
-		FrontendUpstream:  "127.0.0.1:5178",
+		Frontends: []FrontendConfig{
+			{Name: "blog", Host: "blog.acme.localhost", Upstream: "127.0.0.1:5179"},
+			{Name: "pulse", Host: "pulse.acme.localhost", Upstream: "127.0.0.1:5178"},
+		},
 	})
 	want := []string{
 		"api.acme.localhost",
 		"console.acme.localhost",
 		"mcp.acme.localhost",
-		"onlava.acme.localhost",
+		"blog.acme.localhost",
+		"pulse.acme.localhost",
 	}
 	if strings.Join(subjects, ",") != strings.Join(want, ",") {
 		t.Fatalf("routeSubjects() = %#v, want %#v", subjects, want)
@@ -227,8 +239,8 @@ func TestStartRejectsInvalidConfig(t *testing.T) {
 		},
 		{
 			name: "missing frontend host",
-			cfg:  Config{APIHost: "api.custom.localhost", APIUpstream: "127.0.0.1:4000", FrontendUpstream: "127.0.0.1:5178"},
-			want: "local proxy requires a frontend host when frontend routing is enabled",
+			cfg:  Config{APIHost: "api.custom.localhost", APIUpstream: "127.0.0.1:4000", Frontends: []FrontendConfig{{Name: "pulse", Upstream: "127.0.0.1:5178"}}},
+			want: `local proxy requires frontend "pulse" to define a host`,
 		},
 	}
 	for _, tt := range tests {
@@ -265,14 +277,14 @@ func TestDiscoverFrontendUpstreamFromWorkspace(t *testing.T) {
 	t.Cleanup(func() { netDialTimeout = oldDial })
 
 	root := t.TempDir()
-	vitePath := filepath.Join(root, "apps", "onlava", "vite.config.ts")
+	vitePath := filepath.Join(root, "apps", "pulse", "vite.config.ts")
 	if err := os.MkdirAll(filepath.Dir(vitePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(vitePath, []byte("export default { server: { port: 5178 } }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := DiscoverFrontendUpstream(root); got != "localhost:5178" {
+	if got := DiscoverFrontendUpstream(root, FrontendConfig{Name: "pulse"}); got != "localhost:5178" {
 		t.Fatalf("DiscoverFrontendUpstream() = %q, want %q", got, "localhost:5178")
 	}
 }
@@ -333,10 +345,12 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 
 	api := newEchoServer(t, "api")
 	dashboard := newEchoServer(t, "dashboard")
-	frontend := newEchoServer(t, "frontend")
+	pulseFrontend := newEchoServer(t, "pulse")
+	blogFrontend := newEchoServer(t, "blog")
 	defer api.Close()
 	defer dashboard.Close()
-	defer frontend.Close()
+	defer pulseFrontend.Close()
+	defer blogFrontend.Close()
 
 	httpPort := freeTCPPort(t)
 	httpsPort := freeTCPPort(t)
@@ -344,10 +358,13 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 		Workspace:         "acme",
 		APIUpstream:       api.URL,
 		DashboardUpstream: dashboard.URL,
-		FrontendUpstream:  frontend.URL,
-		HTTPPort:          httpPort,
-		HTTPSPort:         httpsPort,
-		SkipInstallTrust:  true,
+		Frontends: []FrontendConfig{
+			{Name: "blog", Host: "blog.acme.localhost", Upstream: blogFrontend.URL},
+			{Name: "pulse", Host: "pulse.acme.localhost", Upstream: pulseFrontend.URL},
+		},
+		HTTPPort:         httpPort,
+		HTTPSPort:        httpsPort,
+		SkipInstallTrust: true,
 	})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -372,16 +389,20 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 		t.Fatalf("mcp echo = %+v", mcpEcho)
 	}
 
-	configEcho := getEcho(t, client, fmt.Sprintf("https://onlava.acme.localhost:%d/__onlava/config", httpsPort))
-	if configEcho.Server != "api" || configEcho.Host != fmt.Sprintf("onlava.acme.localhost:%d", httpsPort) {
+	configEcho := getEcho(t, client, fmt.Sprintf("https://pulse.acme.localhost:%d/__onlava/config", httpsPort))
+	if configEcho.Server != "api" || configEcho.Host != fmt.Sprintf("pulse.acme.localhost:%d", httpsPort) {
 		t.Fatalf("frontend config echo = %+v", configEcho)
 	}
-	frontendEcho := getEcho(t, client, fmt.Sprintf("https://onlava.acme.localhost:%d/app", httpsPort))
-	if frontendEcho.Server != "frontend" || frontendEcho.Host != normalizeUpstream(frontend.URL) {
+	frontendEcho := getEcho(t, client, fmt.Sprintf("https://pulse.acme.localhost:%d/app", httpsPort))
+	if frontendEcho.Server != "pulse" || frontendEcho.Host != normalizeUpstream(pulseFrontend.URL) {
 		t.Fatalf("frontend echo = %+v", frontendEcho)
 	}
-	if frontendEcho.ForwardedHost != fmt.Sprintf("onlava.acme.localhost:%d", httpsPort) {
+	if frontendEcho.ForwardedHost != fmt.Sprintf("pulse.acme.localhost:%d", httpsPort) {
 		t.Fatalf("frontend forwarded host = %q", frontendEcho.ForwardedHost)
+	}
+	blogEcho := getEcho(t, client, fmt.Sprintf("https://blog.acme.localhost:%d/post", httpsPort))
+	if blogEcho.Server != "blog" || blogEcho.Host != normalizeUpstream(blogFrontend.URL) {
+		t.Fatalf("blog frontend echo = %+v", blogEcho)
 	}
 
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://api.acme.localhost:%d/nope", httpsPort), nil)
@@ -622,7 +643,7 @@ func TestLocalCertificatesIncludeExpectedSANsAndReuseCA(t *testing.T) {
 		t.Fatalf("leaf serial changed despite same subjects")
 	}
 
-	third, err := prepareLocalCertificates([]string{"api.acme.localhost", "onlava.acme.localhost"})
+	third, err := prepareLocalCertificates([]string{"api.acme.localhost", "pulse.acme.localhost"})
 	if err != nil {
 		t.Fatalf("third prepareLocalCertificates() error = %v", err)
 	}
@@ -632,7 +653,7 @@ func TestLocalCertificatesIncludeExpectedSANsAndReuseCA(t *testing.T) {
 	if third.Leaf.Leaf.SerialNumber.String() == leafSerial {
 		t.Fatalf("leaf serial did not change after SAN set changed")
 	}
-	if err := third.Leaf.Leaf.VerifyHostname("onlava.acme.localhost"); err != nil {
+	if err := third.Leaf.Leaf.VerifyHostname("pulse.acme.localhost"); err != nil {
 		t.Fatalf("regenerated leaf does not cover frontend host: %v", err)
 	}
 

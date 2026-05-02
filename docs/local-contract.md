@@ -104,7 +104,12 @@ Current shape:
     "api_host": "api.acme.localhost",
     "console_host": "console.acme.localhost",
     "mcp_host": "mcp.acme.localhost",
-    "frontend_host": "app.acme.localhost"
+    "frontends": {
+      "app": {
+        "host": "app.acme.localhost",
+        "root": "apps/app"
+      }
+    }
   },
   "observability": {
     "logs": {
@@ -124,7 +129,8 @@ Rules:
 - If `name` is empty, onlava falls back to `id`.
 - `proxy` is optional.
 - `observability` is optional.
-- Unknown fields are currently ignored by Go JSON decoding, but they are not part of the frozen contract.
+- Unknown fields are rejected.
+- `proxy.frontends` is a map keyed by frontend name. Each frontend requires `host`; `root` defaults to `apps/<name>`; `upstream` is optional and overrides Vite port discovery.
 
 ## CLI Grammar
 
@@ -407,7 +413,12 @@ Schema rules:
       "api_host": "api.billing.localhost",
       "console_host": "console.billing.localhost",
       "mcp_host": "mcp.billing.localhost",
-      "frontend_host": "onlava.billing.localhost"
+      "frontends": {
+        "web": {
+          "host": "web.billing.localhost",
+          "root": "apps/web"
+        }
+      }
     },
     "observability": {
       "logs": {

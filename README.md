@@ -156,7 +156,17 @@ Example proxy config:
     "api_host": "api.myteam.localhost",
     "console_host": "console.myteam.localhost",
     "mcp_host": "mcp.myteam.localhost",
-    "frontend_host": "app.myteam.localhost"
+    "frontends": {
+      "pulse": {
+        "host": "pulse.myteam.localhost",
+        "root": "apps/pulse"
+      },
+      "blog": {
+        "host": "blog.myteam.localhost",
+        "root": "apps/blog",
+        "upstream": "127.0.0.1:5174"
+      }
+    }
   }
 }
 ```

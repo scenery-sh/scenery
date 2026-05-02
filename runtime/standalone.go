@@ -3,11 +3,11 @@ package runtime
 import "context"
 
 type StandaloneDevInfo struct {
-	APIURL      string
-	ConsoleURL  string
-	MCPBaseURL  string
-	FrontendURL string
-	DBStudioURL string
+	APIURL       string
+	ConsoleURL   string
+	MCPBaseURL   string
+	FrontendURLs map[string]string
+	DBStudioURL  string
 }
 
 type StandaloneDevSession interface {

@@ -8,7 +8,7 @@ import (
 
 func TestDiscoverRootAcceptsLegacyID(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"id":"legacy-app","proxy":{"workspace":"acme","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontend_host":"onlava.acme.localhost"},"observability":{"logs":{"exclude_endpoints":["sync.*"]},"tracing":{"include_endpoints":["tenants.Config"]}}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"id":"legacy-app","proxy":{"workspace":"acme","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontends":{"pulse":{"host":"pulse.acme.localhost","root":"apps/pulse","upstream":"127.0.0.1:5173"}}},"observability":{"logs":{"exclude_endpoints":["sync.*"]},"tracing":{"include_endpoints":["tenants.Config"]}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -28,6 +28,9 @@ func TestDiscoverRootAcceptsLegacyID(t *testing.T) {
 	if cfg.Proxy.APIHost != "api.acme.localhost" {
 		t.Fatalf("cfg.Proxy.APIHost = %q, want %q", cfg.Proxy.APIHost, "api.acme.localhost")
 	}
+	if cfg.Proxy.Frontends["pulse"].Host != "pulse.acme.localhost" {
+		t.Fatalf("cfg.Proxy.Frontends[pulse].Host = %q, want %q", cfg.Proxy.Frontends["pulse"].Host, "pulse.acme.localhost")
+	}
 	if len(cfg.Observability.Logs.ExcludeEndpoints) != 1 || cfg.Observability.Logs.ExcludeEndpoints[0] != "sync.*" {
 		t.Fatalf("cfg.Observability.Logs.ExcludeEndpoints = %v", cfg.Observability.Logs.ExcludeEndpoints)
 	}
@@ -38,7 +41,7 @@ func TestDiscoverRootAcceptsLegacyID(t *testing.T) {
 
 func TestDiscoverRootRequiresNameOrID(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"build":{"cgo_enabled":false}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"proxy":{}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,6 +50,21 @@ func TestDiscoverRootRequiresNameOrID(t *testing.T) {
 		t.Fatal("DiscoverRoot returned nil error")
 	}
 	if got, want := err.Error(), ".onlava.json must define a non-empty name or id"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
+func TestDiscoverRootRejectsUnknownFields(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"app","proxy":{"extra":"value"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := DiscoverRoot(dir)
+	if err == nil {
+		t.Fatal("DiscoverRoot returned nil error")
+	}
+	if got, want := err.Error(), `json: unknown field "extra"`; got != want {
 		t.Fatalf("error = %q, want %q", got, want)
 	}
 }

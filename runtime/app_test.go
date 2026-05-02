@@ -12,10 +12,12 @@ func TestPrintRuntimeBanner(t *testing.T) {
 
 	var out bytes.Buffer
 	printRuntimeBanner(&out, "127.0.0.1:4000", StandaloneDevInfo{
-		APIURL:      "https://api.test.localhost",
-		ConsoleURL:  "https://console.test.localhost",
-		MCPBaseURL:  "https://mcp.test.localhost",
-		FrontendURL: "https://onlava.test.localhost",
+		APIURL:     "https://api.test.localhost",
+		ConsoleURL: "https://console.test.localhost",
+		MCPBaseURL: "https://mcp.test.localhost",
+		FrontendURLs: map[string]string{
+			"pulse": "https://pulse.test.localhost",
+		},
 		DBStudioURL: "http://127.0.0.1:4002",
 	})
 
@@ -28,8 +30,8 @@ func TestPrintRuntimeBanner(t *testing.T) {
 		"https://console.test.localhost",
 		"MCP SSE URL:",
 		"https://mcp.test.localhost/sse?appID=testapp",
-		"onlava App URL:",
-		"https://onlava.test.localhost",
+		"Frontend pulse URL:",
+		"https://pulse.test.localhost",
 		"Drizzle Studio URL:",
 		"http://127.0.0.1:4002",
 	} {
