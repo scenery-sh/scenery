@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible problem in Onlava.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Clear reproduction steps help us fix issues faster.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: Onlava failed to...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include commands, files, and URLs when relevant.
+      placeholder: |
+        1. Create an app with...
+        2. Run `onlava ...`
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error output, logs, or screenshots if useful.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Paste the output of `onlava version --json` and include OS/architecture.
+      render: json
+      placeholder: |
+        {
+          "schema_version": "onlava.version.v1",
+          "version": "...",
+          "go_version": "...",
+          "module_version": "..."
+        }
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: If possible, include relevant `onlava check --json`, `onlava inspect ... --json`, or `onlava logs` output.
+      render: shell
+    validations:
+      required: false
