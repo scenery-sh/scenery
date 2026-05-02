@@ -20,26 +20,26 @@ import (
 )
 
 func TestDiscoverWorkspace(t *testing.T) {
-	got := DiscoverWorkspace("/tmp/Onlv Repo", "fallback")
-	if got != "onlv-repo" {
-		t.Fatalf("DiscoverWorkspace() = %q, want %q", got, "onlv-repo")
+	got := DiscoverWorkspace("/tmp/Acme Repo", "fallback")
+	if got != "acme-repo" {
+		t.Fatalf("DiscoverWorkspace() = %q, want %q", got, "acme-repo")
 	}
-	if got := DiscoverWorkspace("", "Onlv Next"); got != "onlv-next" {
-		t.Fatalf("DiscoverWorkspace fallback = %q, want %q", got, "onlv-next")
+	if got := DiscoverWorkspace("", "Acme Next"); got != "acme-next" {
+		t.Fatalf("DiscoverWorkspace fallback = %q, want %q", got, "acme-next")
 	}
 }
 
 func TestProxyAndTrustDefaultsAreOptIn(t *testing.T) {
-	t.Setenv("PULSE_LOCAL_PROXY", "")
-	t.Setenv("PULSE_LOCAL_PROXY_SKIP_TRUST_INSTALL", "")
+	t.Setenv("ONLAVA_LOCAL_PROXY", "")
+	t.Setenv("ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL", "")
 	if Enabled() {
 		t.Fatal("local proxy enabled by default")
 	}
 	if !SkipInstallTrust() {
 		t.Fatal("trust installation should be skipped by default")
 	}
-	t.Setenv("PULSE_LOCAL_PROXY", "1")
-	t.Setenv("PULSE_LOCAL_PROXY_SKIP_TRUST_INSTALL", "0")
+	t.Setenv("ONLAVA_LOCAL_PROXY", "1")
+	t.Setenv("ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL", "0")
 	if !Enabled() {
 		t.Fatal("local proxy not enabled by explicit env")
 	}
@@ -50,38 +50,38 @@ func TestProxyAndTrustDefaultsAreOptIn(t *testing.T) {
 
 func TestEnvironmentParsing(t *testing.T) {
 	for _, value := range []string{"0", "false", "no", "off"} {
-		t.Setenv("PULSE_LOCAL_PROXY", value)
+		t.Setenv("ONLAVA_LOCAL_PROXY", value)
 		if Enabled() {
 			t.Fatalf("Enabled() = true for %q", value)
 		}
-		t.Setenv("PULSE_LOCAL_PROXY_SKIP_TRUST_INSTALL", value)
+		t.Setenv("ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL", value)
 		if SkipInstallTrust() {
 			t.Fatalf("SkipInstallTrust() = true for %q", value)
 		}
 	}
 	for _, value := range []string{"1", "true", "yes", "on"} {
-		t.Setenv("PULSE_LOCAL_PROXY", value)
+		t.Setenv("ONLAVA_LOCAL_PROXY", value)
 		if !Enabled() {
 			t.Fatalf("Enabled() = false for %q", value)
 		}
-		t.Setenv("PULSE_LOCAL_PROXY_SKIP_TRUST_INSTALL", value)
+		t.Setenv("ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL", value)
 		if !SkipInstallTrust() {
 			t.Fatalf("SkipInstallTrust() = false for %q", value)
 		}
 	}
-	t.Setenv("PULSE_LOCAL_PROXY_HTTP_PORT", "9080")
-	t.Setenv("PULSE_LOCAL_PROXY_HTTPS_PORT", "9443")
+	t.Setenv("ONLAVA_LOCAL_PROXY_HTTP_PORT", "9080")
+	t.Setenv("ONLAVA_LOCAL_PROXY_HTTPS_PORT", "9443")
 	if HTTPPort() != 9080 {
 		t.Fatalf("HTTPPort() = %d", HTTPPort())
 	}
 	if HTTPSPort() != 9443 {
 		t.Fatalf("HTTPSPort() = %d", HTTPSPort())
 	}
-	t.Setenv("PULSE_FRONTEND_ADDR", "http://0.0.0.0:5178")
+	t.Setenv("ONLAVA_FRONTEND_ADDR", "http://0.0.0.0:5178")
 	if got := FrontendOverride(); got != "127.0.0.1:5178" {
 		t.Fatalf("FrontendOverride() = %q", got)
 	}
-	t.Setenv("PULSE_DISABLE_FRONTEND_PROXY", "1")
+	t.Setenv("ONLAVA_DISABLE_FRONTEND_PROXY", "1")
 	if got := DiscoverFrontendUpstream(t.TempDir()); got != "" {
 		t.Fatalf("DiscoverFrontendUpstream disabled = %q", got)
 	}
@@ -107,28 +107,28 @@ func TestNormalizeUpstream(t *testing.T) {
 
 func TestRoutesFor(t *testing.T) {
 	routes := routesFor(Config{
-		Workspace:         "onlv",
+		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
 		FrontendUpstream:  "127.0.0.1:5178",
 		HTTPSPort:         9443,
 	})
-	if routes.APIURL != "https://api.onlv.localhost:9443" {
+	if routes.APIURL != "https://api.acme.localhost:9443" {
 		t.Fatalf("APIURL = %q", routes.APIURL)
 	}
-	if routes.ConsoleURL != "https://console.onlv.localhost:9443" {
+	if routes.ConsoleURL != "https://console.acme.localhost:9443" {
 		t.Fatalf("ConsoleURL = %q", routes.ConsoleURL)
 	}
-	if routes.MCPBaseURL != "https://mcp.onlv.localhost:9443" {
+	if routes.MCPBaseURL != "https://mcp.acme.localhost:9443" {
 		t.Fatalf("MCPBaseURL = %q", routes.MCPBaseURL)
 	}
-	if routes.FrontendURL != "https://pulse.onlv.localhost:9443" {
+	if routes.FrontendURL != "https://onlava.acme.localhost:9443" {
 		t.Fatalf("FrontendURL = %q", routes.FrontendURL)
 	}
-	if got := ConsoleAppURL(routes, "onlvnext-o5o2"); got != "https://console.onlv.localhost:9443/onlvnext-o5o2" {
+	if got := ConsoleAppURL(routes, "demoapp-dev"); got != "https://console.acme.localhost:9443/demoapp-dev" {
 		t.Fatalf("ConsoleAppURL = %q", got)
 	}
-	if got := MCPSSEURL(routes, "onlvnext-o5o2"); got != "https://mcp.onlv.localhost:9443/sse?appID=onlvnext-o5o2" {
+	if got := MCPSSEURL(routes, "demoapp-dev"); got != "https://mcp.acme.localhost:9443/sse?appID=demoapp-dev" {
 		t.Fatalf("MCPSSEURL = %q", got)
 	}
 }
@@ -138,7 +138,7 @@ func TestRoutesForExplicitHosts(t *testing.T) {
 		APIHost:           "api.custom.localhost",
 		ConsoleHost:       "console.custom.localhost",
 		MCPHost:           "mcp.custom.localhost",
-		FrontendHost:      "pulse.custom.localhost",
+		FrontendHost:      "onlava.custom.localhost",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
 		FrontendUpstream:  "127.0.0.1:5178",
@@ -153,14 +153,14 @@ func TestRoutesForExplicitHosts(t *testing.T) {
 	if routes.MCPBaseURL != "https://mcp.custom.localhost:9443" {
 		t.Fatalf("MCPBaseURL = %q", routes.MCPBaseURL)
 	}
-	if routes.FrontendURL != "https://pulse.custom.localhost:9443" {
+	if routes.FrontendURL != "https://onlava.custom.localhost:9443" {
 		t.Fatalf("FrontendURL = %q", routes.FrontendURL)
 	}
 }
 
 func TestRouteTableIncludesExpectedHosts(t *testing.T) {
 	table, err := proxyRoutes(Config{
-		Workspace:         "onlv",
+		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
 		FrontendUpstream:  "127.0.0.1:5178",
@@ -169,11 +169,11 @@ func TestRouteTableIncludesExpectedHosts(t *testing.T) {
 		t.Fatalf("proxyRoutes() error = %v", err)
 	}
 	want := []proxyRoute{
-		{host: "api.onlv.localhost", upstream: "127.0.0.1:4000"},
-		{host: "console.onlv.localhost", upstream: "127.0.0.1:9401"},
-		{host: "mcp.onlv.localhost", upstream: "127.0.0.1:9401"},
-		{host: "pulse.onlv.localhost", path: "/__pulse/config", upstream: "127.0.0.1:4000"},
-		{host: "pulse.onlv.localhost", upstream: "127.0.0.1:5178", rewriteHost: true},
+		{host: "api.acme.localhost", upstream: "127.0.0.1:4000"},
+		{host: "console.acme.localhost", upstream: "127.0.0.1:9401"},
+		{host: "mcp.acme.localhost", upstream: "127.0.0.1:9401"},
+		{host: "onlava.acme.localhost", path: "/__onlava/config", upstream: "127.0.0.1:4000"},
+		{host: "onlava.acme.localhost", upstream: "127.0.0.1:5178", rewriteHost: true},
 	}
 	if len(table) != len(want) {
 		t.Fatalf("route count = %d, want %d", len(table), len(want))
@@ -188,16 +188,16 @@ func TestRouteTableIncludesExpectedHosts(t *testing.T) {
 
 func TestCertificateSubjects(t *testing.T) {
 	subjects := routeSubjects(Config{
-		Workspace:         "onlv",
+		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
 		DashboardUpstream: "127.0.0.1:9401",
 		FrontendUpstream:  "127.0.0.1:5178",
 	})
 	want := []string{
-		"api.onlv.localhost",
-		"console.onlv.localhost",
-		"mcp.onlv.localhost",
-		"pulse.onlv.localhost",
+		"api.acme.localhost",
+		"console.acme.localhost",
+		"mcp.acme.localhost",
+		"onlava.acme.localhost",
 	}
 	if strings.Join(subjects, ",") != strings.Join(want, ",") {
 		t.Fatalf("routeSubjects() = %#v, want %#v", subjects, want)
@@ -212,7 +212,7 @@ func TestStartRejectsInvalidConfig(t *testing.T) {
 	}{
 		{
 			name: "missing api upstream",
-			cfg:  Config{Workspace: "onlv"},
+			cfg:  Config{Workspace: "acme"},
 			want: "local proxy requires an API upstream",
 		},
 		{
@@ -246,9 +246,9 @@ func TestNormalizeHost(t *testing.T) {
 		input string
 		want  string
 	}{
-		{input: "api.onlv.localhost", want: "api.onlv.localhost"},
-		{input: "HTTPS://API.ONLV.LOCALHOST/path", want: "api.onlv.localhost"},
-		{input: "api.onlv.localhost:443", want: "api.onlv.localhost"},
+		{input: "api.acme.localhost", want: "api.acme.localhost"},
+		{input: "HTTPS://API.ACME.LOCALHOST/path", want: "api.acme.localhost"},
+		{input: "api.acme.localhost:443", want: "api.acme.localhost"},
 	}
 	for _, tt := range tests {
 		if got := normalizeHost(tt.input); got != tt.want {
@@ -265,7 +265,7 @@ func TestDiscoverFrontendUpstreamFromWorkspace(t *testing.T) {
 	t.Cleanup(func() { netDialTimeout = oldDial })
 
 	root := t.TempDir()
-	vitePath := filepath.Join(root, "apps", "pulse", "vite.config.ts")
+	vitePath := filepath.Join(root, "apps", "onlava", "vite.config.ts")
 	if err := os.MkdirAll(filepath.Dir(vitePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestDiscoverReachableLoopbackUpstream(t *testing.T) {
 
 func TestProxyRoutesAndRedirects(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 
 	api := newEchoServer(t, "api")
 	dashboard := newEchoServer(t, "dashboard")
@@ -341,7 +341,7 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 	httpPort := freeTCPPort(t)
 	httpsPort := freeTCPPort(t)
 	proxy, err := Start(Config{
-		Workspace:         "onlv",
+		Workspace:         "acme",
 		APIUpstream:       api.URL,
 		DashboardUpstream: dashboard.URL,
 		FrontendUpstream:  frontend.URL,
@@ -355,40 +355,40 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 	defer proxy.Close()
 
 	client := newProxyClient(t, cacheDir)
-	apiEcho := getEcho(t, client, fmt.Sprintf("https://api.onlv.localhost:%d/v1?x=1", httpsPort))
-	if apiEcho.Server != "api" || apiEcho.Host != fmt.Sprintf("api.onlv.localhost:%d", httpsPort) || apiEcho.Path != "/v1" || apiEcho.RawQuery != "x=1" {
+	apiEcho := getEcho(t, client, fmt.Sprintf("https://api.acme.localhost:%d/v1?x=1", httpsPort))
+	if apiEcho.Server != "api" || apiEcho.Host != fmt.Sprintf("api.acme.localhost:%d", httpsPort) || apiEcho.Path != "/v1" || apiEcho.RawQuery != "x=1" {
 		t.Fatalf("api echo = %+v", apiEcho)
 	}
-	if apiEcho.ForwardedHost != fmt.Sprintf("api.onlv.localhost:%d", httpsPort) || apiEcho.ForwardedProto != "https" {
+	if apiEcho.ForwardedHost != fmt.Sprintf("api.acme.localhost:%d", httpsPort) || apiEcho.ForwardedProto != "https" {
 		t.Fatalf("api forwarded headers = %+v", apiEcho)
 	}
 
-	consoleEcho := getEcho(t, client, fmt.Sprintf("https://console.onlv.localhost:%d/dashboard", httpsPort))
-	if consoleEcho.Server != "dashboard" || consoleEcho.Host != fmt.Sprintf("console.onlv.localhost:%d", httpsPort) {
+	consoleEcho := getEcho(t, client, fmt.Sprintf("https://console.acme.localhost:%d/dashboard", httpsPort))
+	if consoleEcho.Server != "dashboard" || consoleEcho.Host != fmt.Sprintf("console.acme.localhost:%d", httpsPort) {
 		t.Fatalf("console echo = %+v", consoleEcho)
 	}
-	mcpEcho := getEcho(t, client, fmt.Sprintf("https://mcp.onlv.localhost:%d/sse", httpsPort))
-	if mcpEcho.Server != "dashboard" || mcpEcho.Host != fmt.Sprintf("mcp.onlv.localhost:%d", httpsPort) {
+	mcpEcho := getEcho(t, client, fmt.Sprintf("https://mcp.acme.localhost:%d/sse", httpsPort))
+	if mcpEcho.Server != "dashboard" || mcpEcho.Host != fmt.Sprintf("mcp.acme.localhost:%d", httpsPort) {
 		t.Fatalf("mcp echo = %+v", mcpEcho)
 	}
 
-	configEcho := getEcho(t, client, fmt.Sprintf("https://pulse.onlv.localhost:%d/__pulse/config", httpsPort))
-	if configEcho.Server != "api" || configEcho.Host != fmt.Sprintf("pulse.onlv.localhost:%d", httpsPort) {
+	configEcho := getEcho(t, client, fmt.Sprintf("https://onlava.acme.localhost:%d/__onlava/config", httpsPort))
+	if configEcho.Server != "api" || configEcho.Host != fmt.Sprintf("onlava.acme.localhost:%d", httpsPort) {
 		t.Fatalf("frontend config echo = %+v", configEcho)
 	}
-	frontendEcho := getEcho(t, client, fmt.Sprintf("https://pulse.onlv.localhost:%d/app", httpsPort))
+	frontendEcho := getEcho(t, client, fmt.Sprintf("https://onlava.acme.localhost:%d/app", httpsPort))
 	if frontendEcho.Server != "frontend" || frontendEcho.Host != normalizeUpstream(frontend.URL) {
 		t.Fatalf("frontend echo = %+v", frontendEcho)
 	}
-	if frontendEcho.ForwardedHost != fmt.Sprintf("pulse.onlv.localhost:%d", httpsPort) {
+	if frontendEcho.ForwardedHost != fmt.Sprintf("onlava.acme.localhost:%d", httpsPort) {
 		t.Fatalf("frontend forwarded host = %q", frontendEcho.ForwardedHost)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://api.onlv.localhost:%d/nope", httpsPort), nil)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://api.acme.localhost:%d/nope", httpsPort), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Host = fmt.Sprintf("unknown.onlv.localhost:%d", httpsPort)
+	req.Host = fmt.Sprintf("unknown.acme.localhost:%d", httpsPort)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("unknown host request error = %v", err)
@@ -398,7 +398,7 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 		t.Fatalf("unknown host status = %d", resp.StatusCode)
 	}
 
-	resp, err = client.Get(fmt.Sprintf("http://api.onlv.localhost:%d/v1?x=1", httpPort))
+	resp, err = client.Get(fmt.Sprintf("http://api.acme.localhost:%d/v1?x=1", httpPort))
 	if err != nil {
 		t.Fatalf("http redirect request error = %v", err)
 	}
@@ -406,7 +406,7 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 	if resp.StatusCode != http.StatusPermanentRedirect {
 		t.Fatalf("redirect status = %d", resp.StatusCode)
 	}
-	wantLocation := fmt.Sprintf("https://api.onlv.localhost:%d/v1?x=1", httpsPort)
+	wantLocation := fmt.Sprintf("https://api.acme.localhost:%d/v1?x=1", httpsPort)
 	if got := resp.Header.Get("Location"); got != wantLocation {
 		t.Fatalf("redirect Location = %q, want %q", got, wantLocation)
 	}
@@ -414,7 +414,7 @@ func TestProxyRoutesAndRedirects(t *testing.T) {
 
 func TestProxyServesHTTP2(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 
 	api := newEchoServer(t, "api")
 	defer api.Close()
@@ -422,7 +422,7 @@ func TestProxyServesHTTP2(t *testing.T) {
 	httpPort := freeTCPPort(t)
 	httpsPort := freeTCPPort(t)
 	proxy, err := Start(Config{
-		Workspace:        "onlv",
+		Workspace:        "acme",
 		APIUpstream:      api.URL,
 		HTTPPort:         httpPort,
 		HTTPSPort:        httpsPort,
@@ -434,7 +434,7 @@ func TestProxyServesHTTP2(t *testing.T) {
 	defer proxy.Close()
 
 	client := newProxyClient(t, cacheDir)
-	resp, err := client.Get(fmt.Sprintf("https://api.onlv.localhost:%d/v1", httpsPort))
+	resp, err := client.Get(fmt.Sprintf("https://api.acme.localhost:%d/v1", httpsPort))
 	if err != nil {
 		t.Fatalf("HTTP/2 proxy request error = %v", err)
 	}
@@ -446,14 +446,14 @@ func TestProxyServesHTTP2(t *testing.T) {
 
 func TestCloseIsIdempotentAndReleasesPorts(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	api := newEchoServer(t, "api")
 	defer api.Close()
 
 	httpPort := freeTCPPort(t)
 	httpsPort := freeTCPPort(t)
 	proxy, err := Start(Config{
-		Workspace:        "onlv",
+		Workspace:        "acme",
 		APIUpstream:      api.URL,
 		HTTPPort:         httpPort,
 		HTTPSPort:        httpsPort,
@@ -479,7 +479,7 @@ func TestCloseIsIdempotentAndReleasesPorts(t *testing.T) {
 
 func TestStartContinuesWhenHTTPRedirectPortUnavailable(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	api := newEchoServer(t, "api")
 	defer api.Close()
 
@@ -492,7 +492,7 @@ func TestStartContinuesWhenHTTPRedirectPortUnavailable(t *testing.T) {
 	httpsPort := freeTCPPort(t)
 
 	proxy, err := Start(Config{
-		Workspace:        "onlv",
+		Workspace:        "acme",
 		APIUpstream:      api.URL,
 		HTTPPort:         httpPort,
 		HTTPSPort:        httpsPort,
@@ -504,7 +504,7 @@ func TestStartContinuesWhenHTTPRedirectPortUnavailable(t *testing.T) {
 	defer proxy.Close()
 
 	client := newProxyClient(t, cacheDir)
-	echo := getEcho(t, client, fmt.Sprintf("https://api.onlv.localhost:%d/v1", httpsPort))
+	echo := getEcho(t, client, fmt.Sprintf("https://api.acme.localhost:%d/v1", httpsPort))
 	if echo.Server != "api" {
 		t.Fatalf("echo server = %q, want api", echo.Server)
 	}
@@ -512,7 +512,7 @@ func TestStartContinuesWhenHTTPRedirectPortUnavailable(t *testing.T) {
 
 func TestStartInstallsTrustWhenNotSkipped(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	api := newEchoServer(t, "api")
 	defer api.Close()
 
@@ -538,7 +538,7 @@ func TestStartInstallsTrustWhenNotSkipped(t *testing.T) {
 	})
 
 	proxy, err := Start(Config{
-		Workspace:        "onlv",
+		Workspace:        "acme",
 		APIUpstream:      api.URL,
 		HTTPPort:         freeTCPPort(t),
 		HTTPSPort:        freeTCPPort(t),
@@ -555,7 +555,7 @@ func TestStartInstallsTrustWhenNotSkipped(t *testing.T) {
 
 func TestStartSkipsTrustInstallerWhenAlreadyTrusted(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	api := newEchoServer(t, "api")
 	defer api.Close()
 
@@ -579,7 +579,7 @@ func TestStartSkipsTrustInstallerWhenAlreadyTrusted(t *testing.T) {
 	})
 
 	proxy, err := Start(Config{
-		Workspace:        "onlv",
+		Workspace:        "acme",
 		APIUpstream:      api.URL,
 		HTTPPort:         freeTCPPort(t),
 		HTTPSPort:        freeTCPPort(t),
@@ -596,22 +596,22 @@ func TestStartSkipsTrustInstallerWhenAlreadyTrusted(t *testing.T) {
 
 func TestLocalCertificatesIncludeExpectedSANsAndReuseCA(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 
-	first, err := prepareLocalCertificates([]string{"api.onlv.localhost", "console.onlv.localhost"})
+	first, err := prepareLocalCertificates([]string{"api.acme.localhost", "console.acme.localhost"})
 	if err != nil {
 		t.Fatalf("prepareLocalCertificates() error = %v", err)
 	}
-	if err := first.Leaf.Leaf.VerifyHostname("api.onlv.localhost"); err != nil {
+	if err := first.Leaf.Leaf.VerifyHostname("api.acme.localhost"); err != nil {
 		t.Fatalf("leaf does not cover api host: %v", err)
 	}
-	if err := first.Leaf.Leaf.VerifyHostname("console.onlv.localhost"); err != nil {
+	if err := first.Leaf.Leaf.VerifyHostname("console.acme.localhost"); err != nil {
 		t.Fatalf("leaf does not cover console host: %v", err)
 	}
 	caSerial := first.CACert.SerialNumber.String()
 	leafSerial := first.Leaf.Leaf.SerialNumber.String()
 
-	second, err := prepareLocalCertificates([]string{"console.onlv.localhost", "api.onlv.localhost"})
+	second, err := prepareLocalCertificates([]string{"console.acme.localhost", "api.acme.localhost"})
 	if err != nil {
 		t.Fatalf("second prepareLocalCertificates() error = %v", err)
 	}
@@ -622,7 +622,7 @@ func TestLocalCertificatesIncludeExpectedSANsAndReuseCA(t *testing.T) {
 		t.Fatalf("leaf serial changed despite same subjects")
 	}
 
-	third, err := prepareLocalCertificates([]string{"api.onlv.localhost", "pulse.onlv.localhost"})
+	third, err := prepareLocalCertificates([]string{"api.acme.localhost", "onlava.acme.localhost"})
 	if err != nil {
 		t.Fatalf("third prepareLocalCertificates() error = %v", err)
 	}
@@ -632,7 +632,7 @@ func TestLocalCertificatesIncludeExpectedSANsAndReuseCA(t *testing.T) {
 	if third.Leaf.Leaf.SerialNumber.String() == leafSerial {
 		t.Fatalf("leaf serial did not change after SAN set changed")
 	}
-	if err := third.Leaf.Leaf.VerifyHostname("pulse.onlv.localhost"); err != nil {
+	if err := third.Leaf.Leaf.VerifyHostname("onlava.acme.localhost"); err != nil {
 		t.Fatalf("regenerated leaf does not cover frontend host: %v", err)
 	}
 
@@ -678,7 +678,7 @@ func newEchoServer(t *testing.T, name string) *httptest.Server {
 
 func newProxyClient(t *testing.T, cacheDir string) *http.Client {
 	t.Helper()
-	caPEM, err := os.ReadFile(filepath.Join(cacheDir, "pulse", "localproxy", localProxyCACertFile))
+	caPEM, err := os.ReadFile(filepath.Join(cacheDir, "onlava", "localproxy", localProxyCACertFile))
 	if err != nil {
 		t.Fatalf("read local CA: %v", err)
 	}

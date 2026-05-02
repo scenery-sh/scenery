@@ -25,13 +25,13 @@ set -eu
 trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; exit 0' INT TERM
 sleep 30 &
 child=$!
-echo "$child" > "$PULSE_TEST_GRANDCHILD"
-echo ready > "$PULSE_TEST_READY"
+echo "$child" > "$ONLAVA_TEST_GRANDCHILD"
+echo ready > "$ONLAVA_TEST_READY"
 wait "$child"
 `)
 	cmd.Env = append(os.Environ(),
-		"PULSE_TEST_READY="+readyPath,
-		"PULSE_TEST_GRANDCHILD="+grandchildPath,
+		"ONLAVA_TEST_READY="+readyPath,
+		"ONLAVA_TEST_GRANDCHILD="+grandchildPath,
 	)
 	cmd.Stdin = nil
 	if err := cmd.Start(); err != nil {

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"pulse.dev/internal/envfile"
+	"onlava.com/internal/envfile"
 )
 
 const DefaultPort = 4002
@@ -300,7 +300,7 @@ func writeWorkspacePackageJSON(workspace, dialect string) error {
 		deps[dep] = "latest"
 	}
 	data, err := json.MarshalIndent(map[string]any{
-		"name":         "pulse-dbstudio",
+		"name":         "onlava-dbstudio",
 		"private":      true,
 		"dependencies": deps,
 	}, "", "  ")
@@ -416,7 +416,7 @@ func waitForReady(ctx context.Context, port int, done <-chan error, verbose bool
 }
 
 func workspaceDir(appRoot, appID string) (string, error) {
-	cacheRoot, err := pulseCacheRoot()
+	cacheRoot, err := onlavaCacheRoot()
 	if err != nil {
 		return "", err
 	}
@@ -432,15 +432,15 @@ func workspaceDir(appRoot, appID string) (string, error) {
 	return filepath.Join(cacheRoot, "dbstudio", name+"-"+hex.EncodeToString(sum[:8])), nil
 }
 
-func pulseCacheRoot() (string, error) {
-	if root := strings.TrimSpace(os.Getenv("PULSE_DEV_CACHE_DIR")); root != "" {
+func onlavaCacheRoot() (string, error) {
+	if root := strings.TrimSpace(os.Getenv("ONLAVA_DEV_CACHE_DIR")); root != "" {
 		return root, nil
 	}
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "pulse"), nil
+	return filepath.Join(dir, "onlava"), nil
 }
 
 func sanitizeWorkspaceLabel(value string) string {

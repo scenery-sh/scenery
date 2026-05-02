@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	localProxyCACertFile   = "pulse-local-ca.crt.pem"
-	localProxyCAKeyFile    = "pulse-local-ca.key.pem"
-	localProxyLeafCertFile = "pulse-local-leaf.crt.pem"
-	localProxyLeafKeyFile  = "pulse-local-leaf.key.pem"
+	localProxyCACertFile   = "onlava-local-ca.crt.pem"
+	localProxyCAKeyFile    = "onlava-local-ca.key.pem"
+	localProxyLeafCertFile = "onlava-local-leaf.crt.pem"
+	localProxyLeafKeyFile  = "onlava-local-leaf.key.pem"
 )
 
 type localCertificates struct {
@@ -71,7 +71,7 @@ type certificatePaths struct {
 }
 
 func localProxyCacheDir() (string, error) {
-	root := os.Getenv("PULSE_DEV_CACHE_DIR")
+	root := os.Getenv("ONLAVA_DEV_CACHE_DIR")
 	if root == "" {
 		var err error
 		root, err = os.UserCacheDir()
@@ -79,7 +79,7 @@ func localProxyCacheDir() (string, error) {
 			return "", fmt.Errorf("locate user cache directory: %w", err)
 		}
 	}
-	return filepath.Join(root, "pulse", "localproxy"), nil
+	return filepath.Join(root, "onlava", "localproxy"), nil
 }
 
 func loadOrCreateCA(paths certificatePaths) (*x509.Certificate, crypto.Signer, error) {
@@ -98,7 +98,7 @@ func loadOrCreateCA(paths certificatePaths) (*x509.Certificate, crypto.Signer, e
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: "Pulse Development Local Proxy CA",
+			CommonName: "Onlava Development Local Proxy CA",
 		},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(10 * 365 * 24 * time.Hour),
@@ -156,7 +156,7 @@ func loadOrCreateLeaf(paths certificatePaths, caCert *x509.Certificate, caKey cr
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: "Pulse Local Proxy",
+			CommonName: "Onlava Local Proxy",
 		},
 		NotBefore:   now.Add(-time.Hour),
 		NotAfter:    now.Add(90 * 24 * time.Hour),

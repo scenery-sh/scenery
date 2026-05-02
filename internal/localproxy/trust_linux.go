@@ -22,7 +22,7 @@ func installLocalCATrustOS(certPath string) error {
 		return nil
 	}
 	if path, err := exec.LookPath("update-ca-certificates"); err == nil {
-		target := filepath.Join("/usr/local/share/ca-certificates", "pulse-localproxy-ca.crt")
+		target := filepath.Join("/usr/local/share/ca-certificates", "onlava-localproxy-ca.crt")
 		if err := copyCertificate(certPath, target); err != nil {
 			return fmt.Errorf("copy local CA for update-ca-certificates: %w", err)
 		}
@@ -33,7 +33,7 @@ func installLocalCATrustOS(certPath string) error {
 		return nil
 	}
 	if path, err := exec.LookPath("update-ca-trust"); err == nil {
-		target := filepath.Join("/etc/pki/ca-trust/source/anchors", "pulse-localproxy-ca.crt")
+		target := filepath.Join("/etc/pki/ca-trust/source/anchors", "onlava-localproxy-ca.crt")
 		if err := copyCertificate(certPath, target); err != nil {
 			return fmt.Errorf("copy local CA for update-ca-trust: %w", err)
 		}

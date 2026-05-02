@@ -65,23 +65,23 @@ type Proxy struct {
 }
 
 func Enabled() bool {
-	return envBool("PULSE_LOCAL_PROXY", false)
+	return envBool("ONLAVA_LOCAL_PROXY", false)
 }
 
 func HTTPPort() int {
-	return envInt("PULSE_LOCAL_PROXY_HTTP_PORT", defaultHTTPPort)
+	return envInt("ONLAVA_LOCAL_PROXY_HTTP_PORT", defaultHTTPPort)
 }
 
 func HTTPSPort() int {
-	return envInt("PULSE_LOCAL_PROXY_HTTPS_PORT", defaultHTTPSPort)
+	return envInt("ONLAVA_LOCAL_PROXY_HTTPS_PORT", defaultHTTPSPort)
 }
 
 func SkipInstallTrust() bool {
-	return envBool("PULSE_LOCAL_PROXY_SKIP_TRUST_INSTALL", true)
+	return envBool("ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL", true)
 }
 
 func FrontendOverride() string {
-	value := strings.TrimSpace(os.Getenv("PULSE_FRONTEND_ADDR"))
+	value := strings.TrimSpace(os.Getenv("ONLAVA_FRONTEND_ADDR"))
 	if value == "" {
 		return ""
 	}
@@ -97,7 +97,7 @@ func DiscoverWorkspace(root, fallback string) string {
 }
 
 func DiscoverFrontendUpstream(root string) string {
-	if envBool("PULSE_DISABLE_FRONTEND_PROXY", false) {
+	if envBool("ONLAVA_DISABLE_FRONTEND_PROXY", false) {
 		return ""
 	}
 	if override := FrontendOverride(); override != "" {
@@ -108,10 +108,10 @@ func DiscoverFrontendUpstream(root string) string {
 		return ""
 	}
 	viteCandidates := []string{
-		filepath.Join(root, "apps", "pulse", "vite.config.ts"),
-		filepath.Join(root, "apps", "pulse", "vite.config.js"),
-		filepath.Join(root, "apps", "pulse", "vite.config.mts"),
-		filepath.Join(root, "apps", "pulse", "vite.config.mjs"),
+		filepath.Join(root, "apps", "onlava", "vite.config.ts"),
+		filepath.Join(root, "apps", "onlava", "vite.config.js"),
+		filepath.Join(root, "apps", "onlava", "vite.config.mts"),
+		filepath.Join(root, "apps", "onlava", "vite.config.mjs"),
 	}
 	for _, path := range viteCandidates {
 		data, err := os.ReadFile(path)
@@ -321,7 +321,7 @@ func routesFor(cfg Config) Routes {
 	apiHost := resolvedHost(cfg.APIHost, cfg.Workspace, "api")
 	consoleHost := resolvedHost(cfg.ConsoleHost, cfg.Workspace, "console")
 	mcpHost := resolvedHost(cfg.MCPHost, cfg.Workspace, "mcp")
-	frontendHost := resolvedHost(cfg.FrontendHost, cfg.Workspace, "pulse")
+	frontendHost := resolvedHost(cfg.FrontendHost, cfg.Workspace, "onlava")
 	routes := Routes{
 		APIHost:      apiHost,
 		ConsoleHost:  consoleHost,

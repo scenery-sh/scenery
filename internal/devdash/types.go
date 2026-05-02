@@ -8,12 +8,12 @@ import (
 
 const (
 	DashboardAddr = "127.0.0.1:9401"
-	WebSocketPath = "/__pulse"
-	ReportPath    = "/__pulse/report"
+	WebSocketPath = "/__onlava"
+	ReportPath    = "/__onlava/report"
 )
 
 func ListenAddr() string {
-	if value := os.Getenv("PULSE_DEV_DASHBOARD_ADDR"); value != "" {
+	if value := os.Getenv("ONLAVA_DEV_DASHBOARD_ADDR"); value != "" {
 		return value
 	}
 	return DashboardAddr
