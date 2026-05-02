@@ -252,4 +252,71 @@ func TestRunConsoleJSONPhaseAndBanner(t *testing.T) {
 	if third.Type != "run.ready" || third.Data["api_url"] != "https://api.jsonapp.localhost" {
 		t.Fatalf("third event = %+v", third)
 	}
+	if _, ok := third.Data["victoria_urls"]; ok {
+		t.Fatalf("third event unexpectedly included victoria URLs: %+v", third)
+	}
+}
+
+func TestRunConsoleHidesVictoriaUnlessVerbose(t *testing.T) {
+	urls := runURLs{
+		API:       "https://api.jsonapp.localhost",
+		Dashboard: "https://console.jsonapp.localhost/jsonapp",
+		MCP:       "https://mcp.jsonapp.localhost/sse?appID=jsonapp",
+		Victoria: map[string]string{
+			"metrics": "http://127.0.0.1:8428",
+			"logs":    "http://127.0.0.1:9428",
+			"traces":  "http://127.0.0.1:10428",
+		},
+	}
+
+	var quietOut bytes.Buffer
+	quiet := newRunConsole(&quietOut, &quietOut, false, false, "jsonapp", "/repo/jsonapp")
+	quiet.Banner(urls)
+	if bytes.Contains(quietOut.Bytes(), []byte("Victoria")) || bytes.Contains(quietOut.Bytes(), []byte("8428")) {
+		t.Fatalf("quiet banner included Victoria details:\n%s", quietOut.String())
+	}
+
+	var verboseOut bytes.Buffer
+	verbose := newRunConsole(&verboseOut, &verboseOut, true, false, "jsonapp", "/repo/jsonapp")
+	verbose.Banner(urls)
+	if !bytes.Contains(verboseOut.Bytes(), []byte("VictoriaMetrics URL:")) || !bytes.Contains(verboseOut.Bytes(), []byte("http://127.0.0.1:8428")) {
+		t.Fatalf("verbose banner missing Victoria details:\n%s", verboseOut.String())
+	}
+}
+
+func TestRunConsoleJSONHidesVictoriaUnlessVerbose(t *testing.T) {
+	urls := runURLs{
+		API:       "https://api.jsonapp.localhost",
+		Dashboard: "https://console.jsonapp.localhost/jsonapp",
+		MCP:       "https://mcp.jsonapp.localhost/sse?appID=jsonapp",
+		Victoria: map[string]string{
+			"metrics": "http://127.0.0.1:8428",
+		},
+	}
+
+	var quietOut bytes.Buffer
+	quiet := newRunConsole(&quietOut, &quietOut, false, true, "jsonapp", "/repo/jsonapp")
+	quiet.Banner(urls)
+	var quietEvent struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(quietOut.Bytes()), &quietEvent); err != nil {
+		t.Fatalf("json.Unmarshal(quiet): %v\n%s", err, quietOut.String())
+	}
+	if _, ok := quietEvent.Data["victoria_urls"]; ok {
+		t.Fatalf("quiet JSON banner included Victoria URLs: %+v", quietEvent)
+	}
+
+	var verboseOut bytes.Buffer
+	verbose := newRunConsole(&verboseOut, &verboseOut, true, true, "jsonapp", "/repo/jsonapp")
+	verbose.Banner(urls)
+	var verboseEvent struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(verboseOut.Bytes()), &verboseEvent); err != nil {
+		t.Fatalf("json.Unmarshal(verbose): %v\n%s", err, verboseOut.String())
+	}
+	if _, ok := verboseEvent.Data["victoria_urls"]; !ok {
+		t.Fatalf("verbose JSON banner missing Victoria URLs: %+v", verboseEvent)
+	}
 }

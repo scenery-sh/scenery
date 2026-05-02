@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://onlava.com/schemas/onlava.harness.self.v1.schema.json",
-  "title": "Onlava self harness result",
+  "title": "onlava self harness result",
   "type": "object",
   "required": ["schema_version", "ok", "generated_at", "repo", "knowledge", "steps", "artifacts"],
   "properties": {

@@ -198,7 +198,7 @@ external_app_smoke() {
     return
   fi
   [[ -d "$EXTERNAL_APP_ROOT" ]] || die "ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT does not exist: $EXTERNAL_APP_ROOT"
-  [[ -f "$EXTERNAL_APP_ROOT/.onlava.json" ]] || die "ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT is not an Onlava app: $EXTERNAL_APP_ROOT"
+  [[ -f "$EXTERNAL_APP_ROOT/.onlava.json" ]] || die "ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT is not an onlava app: $EXTERNAL_APP_ROOT"
   run "$ONLAVA_BIN" inspect app --json --app-root "$EXTERNAL_APP_ROOT"
   run "$ONLAVA_BIN" check --json --app-root "$EXTERNAL_APP_ROOT"
 }
@@ -286,7 +286,7 @@ main() {
   need curl
   need python3
 
-  printf 'Onlava release gate\nroot: %s\nlogs: %s\n' "$ROOT" "$LOG_DIR"
+  printf 'onlava release gate\nroot: %s\nlogs: %s\n' "$ROOT" "$LOG_DIR"
 
   step "full go tests" full_go_tests
   step "race tests" race_tests

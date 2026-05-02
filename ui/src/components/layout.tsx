@@ -250,7 +250,7 @@ function statusTooltip(
   connected: boolean,
 ): string {
   if (!connected) {
-    return "Disconnected from Onlava. Attempting to reconnect.";
+    return "Disconnected from onlava. Attempting to reconnect.";
   }
   if (compiling) {
     return "Compiling...";

@@ -1,8 +1,8 @@
-# Onlava Local Contract
+# onlava Local Contract
 
-This document freezes the local developer and agent-facing contract for Onlava v0.
+This document freezes the local developer and agent-facing contract for onlava v0.
 
-The goal is to make Onlava deterministic and inspectable:
+The goal is to make onlava deterministic and inspectable:
 - app shape is explicit
 - CLI grammar is explicit
 - machine-readable JSON outputs have versioned schemas
@@ -85,8 +85,8 @@ Dev-only or beta surface:
 - migration compatibility for older app shapes
 
 Compatibility posture:
-- Onlava-native syntax and imports are the stable API.
-- Non-Onlava directives/imports are not part of the v0 API.
+- onlava-native syntax and imports are the stable API.
+- Non-onlava directives/imports are not part of the v0 API.
 
 ## `.onlava.json`
 
@@ -121,7 +121,7 @@ Current shape:
 
 Rules:
 - `name` or `id` must be non-empty.
-- If `name` is empty, Onlava falls back to `id`.
+- If `name` is empty, onlava falls back to `id`.
 - `proxy` is optional.
 - `observability` is optional.
 - Unknown fields are currently ignored by Go JSON decoding, but they are not part of the frozen contract.
@@ -158,15 +158,15 @@ onlava psql [--app-root <path>] [psql args...]
 Inspect rules:
 - `onlava inspect` requires a subject.
 - `onlava inspect` currently requires `--json`.
-- `--app-root` is optional. When omitted, Onlava walks upward from the current working directory to find `.onlava.json`.
+- `--app-root` is optional. When omitted, onlava walks upward from the current working directory to find `.onlava.json`.
 - Stable inspect subjects for v0 are `app`, `routes`, `services`, `endpoints`, `wire`, `build`, `paths`, and `docs`.
-- `traces` and `metrics` are beta diagnostic subjects. They prefer local VictoriaTraces reads when those sidecars are available, and fall back to the Onlava dashboard SQLite store. If no local state exists, they return valid JSON with a warning and empty result sets.
+- `traces` and `metrics` are beta diagnostic subjects. They prefer local VictoriaTraces reads when those sidecars are available, and fall back to the onlava dashboard SQLite store. If no local state exists, they return valid JSON with a warning and empty result sets.
 - The `onlava.inspect.traces.v1` and `onlava.inspect.metrics.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable v0 API yet.
 - `--since` accepts Go duration strings such as `15m`, `1h`, or `24h`.
 - `--min-duration-ms` filters root traces by duration in milliseconds.
 - `--status` accepts `ok` or `error`.
 - `metrics` defaults to `--since 24h` and `--limit 10000` so agents get useful local summaries without scanning unbounded history.
-- `docs` inspects the Onlava repo knowledge base, not a target Onlava app. It accepts `--repo-root` and otherwise walks upward to the `module github.com/pbrazdil/onlava` repo root.
+- `docs` inspects the onlava repo knowledge base, not a target onlava app. It accepts `--repo-root` and otherwise walks upward to the `module github.com/pbrazdil/onlava` repo root.
 
 Command split:
 
@@ -187,8 +187,8 @@ Runtime safety:
 
 Local observability:
 
-- Onlava keeps SQLite observability writes active in `onlava dev`.
-- When Victoria sidecars are available, Onlava also exports OTLP protobuf to:
+- onlava keeps SQLite observability writes active in `onlava dev`.
+- When Victoria sidecars are available, onlava also exports OTLP protobuf to:
   - VictoriaMetrics: `/opentelemetry/v1/metrics`
   - VictoriaLogs: `/insert/opentelemetry/v1/logs`
   - VictoriaTraces: `/insert/opentelemetry/v1/traces`
@@ -253,7 +253,7 @@ onlava harness self --json --write
 
 - output is a single JSON document
 - output conforms to `onlava.harness.self.v1`
-- it validates the Onlava repo itself instead of a target app
+- it validates the onlava repo itself instead of a target app
 - it runs docs knowledge validation, `onlava inspect docs --json`, architecture checks, Go package tests for the CLI, dev dashboard store, and runtime, dashboard UI typecheck/build, DB Studio UI typecheck/build, UI freshness checks, `go install ./cmd/onlava`, and installed binary freshness checks
 - architecture checks fail on unapproved direct dependencies, forbidden framework imports, CLI package boundary violations, missing generated/vendored ignore markers, and non-generated source files over 2500 lines
 - architecture checks warn on non-generated source files over 1000 lines, cgo imports, `.DS_Store` artifacts, and compatibility imports outside known migration paths
@@ -267,7 +267,7 @@ scripts/release-gate.sh
 
 - this is the high-signal pre-release gate, not the normal inner-loop developer check
 - it runs full Go tests, race tests, `golangci-lint`, dashboard UI and DB Studio typecheck/build, installed self-harness, clean source-copy install, fixture smoke, optional external app smoke, public-router safety checks, production secrets checks, and artifact hygiene checks
-- `ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT` may point at a read-only Onlava app for the optional external app smoke
+- `ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT` may point at a read-only onlava app for the optional external app smoke
 - `ONLAVA_RELEASE_GATE_LOG_DIR` may override the log directory; otherwise logs are written under `.onlava/release-gate/`
 - artifact hygiene is intentionally strict and fails on local release artifacts such as `.DS_Store` and `__MACOSX`
 
@@ -293,7 +293,7 @@ onlava admin <subcommand> --json ...
 Implemented `admin --json` rules:
 - current supported commands are `traces clear` and `pubsub clear`
 - output conforms to `onlava.admin.result.v1`
-- `pubsub clear` requires a running Onlava dashboard/supervisor because it tunnels through the supervisor RPC surface
+- `pubsub clear` requires a running onlava dashboard/supervisor because it tunnels through the supervisor RPC surface
 - admin commands are dev/admin beta for v0; their existence does not make Pub/Sub, cron, trace clearing, or queue deletion semantics stable
 
 Any additional admin subcommands are reserved contract surfaces and should produce versioned JSON when implemented.
@@ -304,7 +304,7 @@ Any additional admin subcommands are reserved contract surfaces and should produ
 
 Use `onlava inspect paths --json` as the source of truth.
 
-Today Onlava uses:
+Today onlava uses:
 - app config: `<app-root>/.onlava.json`
 - cache root:
   - `$ONLAVA_DEV_CACHE_DIR`, if set
@@ -348,7 +348,7 @@ Rules:
 - `manifest.json` ties the generated inspect artifacts to schema versions, stable artifact paths, and deterministic content hashes
 - `build/latest.json` is the stable repo-local pointer to the latest prepared or compiled build workspace
 - `harness/latest.json` is the stable repo-local pointer to the latest agent validation run
-- `harness/self-latest.json` is the stable repo-local pointer to the latest Onlava repo validation run
+- `harness/self-latest.json` is the stable repo-local pointer to the latest onlava repo validation run
 - agents can use either `onlava inspect ... --json` or the corresponding `.onlava/gen/*.json` files
 - future implementation should conform to these locations instead of inventing a different layout
 
@@ -646,8 +646,8 @@ Example output:
   "documents": [
     {
       "path": "docs/local-contract.md",
-      "title": "Onlava Local Contract",
-      "owner": "Onlava runtime",
+      "title": "onlava Local Contract",
+      "owner": "onlava runtime",
       "status": "active",
       "quality": "A",
       "freshness": "current",

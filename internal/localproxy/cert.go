@@ -98,7 +98,7 @@ func loadOrCreateCA(paths certificatePaths) (*x509.Certificate, crypto.Signer, e
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: "Onlava Development Local Proxy CA",
+			CommonName: "onlava Development Local Proxy CA",
 		},
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.Add(10 * 365 * 24 * time.Hour),
@@ -156,7 +156,7 @@ func loadOrCreateLeaf(paths certificatePaths, caCert *x509.Certificate, caKey cr
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName: "Onlava Local Proxy",
+			CommonName: "onlava Local Proxy",
 		},
 		NotBefore:   now.Add(-time.Hour),
 		NotAfter:    now.Add(90 * 24 * time.Hour),

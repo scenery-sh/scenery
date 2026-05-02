@@ -166,7 +166,7 @@ Structured log stream for automation.
 
 onlava test
 
-Runs Onlava-aware tests.
+Runs onlava-aware tests.
 
 onlava gen client
 
@@ -185,7 +185,7 @@ Best for serious deployments.
 onlava build --out dist/server
 dist/server
 
-This is the cleanest production story because the runtime machine does not need the full Onlava CLI, source tree, dashboard assets, or build toolchain.
+This is the cleanest production story because the runtime machine does not need the full onlava CLI, source tree, dashboard assets, or build toolchain.
 
 Model B: onlava run in production
 

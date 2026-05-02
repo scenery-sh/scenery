@@ -219,8 +219,12 @@ func startVictoriaComponent(ctx context.Context, root, binDir string, spec victo
 	configureChildProcess(cmd)
 	configureCommandCancellation(cmd, 5*time.Second)
 	cmd.Dir = root
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
+	output := io.Writer(io.Discard)
+	if console != nil && console.verbose {
+		output = os.Stderr
+	}
+	cmd.Stdout = output
+	cmd.Stderr = output
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -230,7 +234,7 @@ func startVictoriaComponent(ctx context.Context, root, binDir string, spec victo
 		component.done <- cmd.Wait()
 		close(component.done)
 	}()
-	if console != nil {
+	if console != nil && console.verbose {
 		console.Event("victoria.start", map[string]any{
 			"component":    spec.Name,
 			"url":          component.baseURL,
@@ -538,8 +542,10 @@ func waitOrKillVictoriaComponent(component *victoriaComponent, grace time.Durati
 
 func warnVictoria(console *runConsole, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	if console != nil {
+	if console != nil && console.verbose {
 		console.Event("victoria.warn", map[string]any{"message": msg})
+		if !console.json {
+			fmt.Fprintf(os.Stderr, "onlava: %s\n", msg)
+		}
 	}
-	fmt.Fprintf(os.Stderr, "onlava: %s\n", msg)
 }

@@ -1,6 +1,6 @@
-# Contributing To Onlava
+# Contributing To onlava
 
-Thanks for helping improve Onlava. Keep changes small, explicit, and easy to validate.
+Thanks for helping improve onlava. Keep changes small, explicit, and easy to validate.
 
 ## Setup
 

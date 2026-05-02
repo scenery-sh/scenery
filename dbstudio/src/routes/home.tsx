@@ -10,7 +10,7 @@ export function HomeRoute() {
       {!loaded ? (
         <div className="loading-overlay" role="status" aria-live="polite">
           <div className="loading-card">
-            <div className="loading-eyebrow">Onlava DB Studio</div>
+            <div className="loading-eyebrow">onlava DB Studio</div>
             <h1>Loading Drizzle Studio</h1>
             <p>
               Proxy target: <code>{target.host}</code>

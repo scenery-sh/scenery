@@ -206,7 +206,7 @@ func discoverOnlavaRepoRoot(start string) (string, error) {
 	if found, ok := findOnlavaRepoRoot(root); ok {
 		return found, nil
 	}
-	return "", fmt.Errorf("no Onlava repo root found from %s", root)
+	return "", fmt.Errorf("no onlava repo root found from %s", root)
 }
 
 func findOnlavaRepoRoot(start string) (string, bool) {
@@ -330,7 +330,7 @@ func runHarnessOnlavaBinaryStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         step.Error,
-			SuggestedAction: "Run `go install ./cmd/onlava` from the Onlava repo and ensure your Go bin directory is in PATH.",
+			SuggestedAction: "Run `go install ./cmd/onlava` from the onlava repo and ensure your Go bin directory is in PATH.",
 		}}
 		return step
 	}
@@ -359,7 +359,7 @@ func runHarnessOnlavaBinaryStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         "installed onlava binary is older than repo sources",
-			SuggestedAction: "Run `go install ./cmd/onlava` from the Onlava repo.",
+			SuggestedAction: "Run `go install ./cmd/onlava` from the onlava repo.",
 		}}
 	} else {
 		step.OK = true
@@ -564,7 +564,7 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 			Severity:        "error",
 			File:            filepath.ToSlash(standardPath),
 			Message:         err.Error(),
-			SuggestedAction: "Create PLANS.md with the Onlava ExecPlan contract.",
+			SuggestedAction: "Create PLANS.md with the onlava ExecPlan contract.",
 		})
 	} else {
 		diagnostics = append(diagnostics, validateExecPlanSections(repoRoot, "PLANS.md", string(standardData), true)...)
@@ -609,8 +609,8 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 
 func validateExecPlanSections(repoRoot, relPath, text string, standard bool) []checkDiagnostic {
 	var diagnostics []checkDiagnostic
-	if standard && !strings.Contains(text, "Onlava Execution Plans") {
-		diagnostics = append(diagnostics, execPlanDiagnostic(repoRoot, relPath, 1, "PLANS.md does not identify itself as the Onlava ExecPlan standard", "Keep PLANS.md as the canonical Onlava ExecPlan contract."))
+	if standard && !strings.Contains(text, "onlava Execution Plans") {
+		diagnostics = append(diagnostics, execPlanDiagnostic(repoRoot, relPath, 1, "PLANS.md does not identify itself as the onlava ExecPlan standard", "Keep PLANS.md as the canonical onlava ExecPlan contract."))
 	}
 	for _, section := range requiredExecPlanSections {
 		if strings.Contains(text, section) {

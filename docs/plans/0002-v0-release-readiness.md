@@ -1,4 +1,4 @@
-# Onlava v0 Release Readiness
+# onlava v0 Release Readiness
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
@@ -6,7 +6,7 @@ This plan follows the standard in [../../PLANS.md](../../PLANS.md). It is based 
 
 ## Purpose / Big Picture
 
-Onlava is close to being a useful local-first runtime, but the current repository mixes stable app runtime behavior with development-platform behavior. The first production-ready release should be intentionally smaller, more boring, and easier to validate.
+onlava is close to being a useful local-first runtime, but the current repository mixes stable app runtime behavior with development-platform behavior. The first production-ready release should be intentionally smaller, more boring, and easier to validate.
 
 The goal of this plan is to freeze a reliable v0 contract. Stable v0 should include the app config file, runtime commands, build artifacts, typed/raw HTTP endpoints, auth handler, service initialization and shutdown, private/internal calls, secrets from environment and `.env`, basic logs/traces, and machine-readable CLI outputs. Development conveniences such as dashboard, DB Studio, local HTTPS proxy, trust-store installation, MCP, Pub/Sub UI, and cron UI should be labeled dev-only or beta until their contracts are hardened.
 
@@ -20,7 +20,7 @@ The outcome should be observable from a clean checkout. A contributor should be 
 - [x] (2026-04-27 17:36Z) Confirmed current checkout has `ui/dist` and `dbstudio/dist`, added `onlava version --json`, and added `onlava.version.v1` schema.
 - [x] (2026-04-27 17:36Z) Gated dev/admin/pprof endpoints behind explicit dev endpoint mode instead of registering them on the public app router by default.
 - [x] (2026-04-27 17:36Z) Made local HTTPS proxy and trust-store installation opt-in through `onlava dev --proxy` and `onlava dev --proxy --trust`.
-- [x] (2026-04-27 17:36Z) Documented Onlava-native behavior as stable.
+- [x] (2026-04-27 17:36Z) Documented onlava-native behavior as stable.
 - [x] (2026-04-27 15:48Z) Centralized `.env` parsing in `internal/envfile`, wired runtime secrets, dev supervisor child env, dashboard DB discovery, and DB Studio discovery through it, and documented precedence.
 - [x] (2026-04-27 17:36Z) Restricted build workspace copying so `.env`, `.env.*`, `.git`, `.onlava`, `node_modules`, `.DS_Store`, `__MACOSX`, and `coverage` are not persisted in build caches.
 - [x] (2026-04-27 17:36Z) Added response JSON semantics tests for `json:"-"`, `omitempty`, embedded structs, headers, `onlava:"httpstatus"`, and custom marshalers.
@@ -38,7 +38,7 @@ Known audit findings from the PRD:
 - Generated app binaries could carry dev-platform behavior through `github.com/pbrazdil/onlava/runtimeapp`.
 - `runtime/server.go` mounted dev/admin/platform/pprof endpoints on the app router.
 - Local HTTPS proxy and trust-store behavior were enabled by default in development paths.
-- The repo had conflicting guidance about strict Onlava-only behavior versus migration compatibility support.
+- The repo had conflicting guidance about strict onlava-only behavior versus migration compatibility support.
 - The build workspace copied arbitrary app files, which risks copying `.env` and other local files into cache.
 - Response encoding did not fully match normal `encoding/json` semantics for tags such as `json:"-"` and `omitempty`.
 
@@ -63,8 +63,8 @@ Implementation discoveries:
   Rationale: `onlava dev` versus headless `onlava run` is the highest-leverage boundary and already has its own detailed ExecPlan.
   Date/Author: 2026-04-27 / Codex
 
-- Decision: Stable v0 should prefer Onlava-native behavior, with any migration tooling kept explicit and separate.
-  Rationale: Hidden compatibility makes APIs harder to freeze and contradicts the repository’s strict Onlava naming goal.
+- Decision: Stable v0 should prefer onlava-native behavior, with any migration tooling kept explicit and separate.
+  Rationale: Hidden compatibility makes APIs harder to freeze and contradicts the repository’s strict onlava naming goal.
   Date/Author: 2026-04-27 / Codex
 
 - Decision: Dev/admin features should not live on the public app listener by default.
@@ -218,7 +218,7 @@ Run the full validation gate:
 
     scripts/release-gate.sh
 
-The script also runs `go install ./cmd/onlava`, `onlava harness self --json --write`, dashboard UI and DB Studio builds, a clean source-copy install, fixture smoke, optional external app smoke, public-router safety checks, production secrets checks, and artifact hygiene checks. Set `ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT` to include a read-only external Onlava app in the gate.
+The script also runs `go install ./cmd/onlava`, `onlava harness self --json --write`, dashboard UI and DB Studio builds, a clean source-copy install, fixture smoke, optional external app smoke, public-router safety checks, production secrets checks, and artifact hygiene checks. Set `ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT` to include a read-only external onlava app in the gate.
 
 Record exact command results in `Outcomes & Retrospective` before marking this plan complete.
 
@@ -305,7 +305,7 @@ Dev-only or beta candidates:
 
 ## Interfaces and Dependencies
 
-No new external dependency is expected for this plan. Prefer the Go standard library and existing Onlava packages.
+No new external dependency is expected for this plan. Prefer the Go standard library and existing onlava packages.
 
 Expected CLI interfaces to freeze:
 

@@ -1,12 +1,12 @@
-# Onlava Agent-First Harness Plan
+# onlava Agent-First Harness Plan
 
 Source: [OpenAI Harness Engineering](https://openai.com/index/harness-engineering/), read on 2026-04-27.
 
-This plan translates the article's agent-first engineering ideas into concrete Onlava work. It is intentionally repo-local because agent-visible knowledge must live in the repository, not in chat history.
+This plan translates the article's agent-first engineering ideas into concrete onlava work. It is intentionally repo-local because agent-visible knowledge must live in the repository, not in chat history.
 
 ## Operating Model
 
-Onlava should optimize for agent legibility and fast feedback loops:
+onlava should optimize for agent legibility and fast feedback loops:
 
 - Humans set direction, constraints, and acceptance criteria.
 - Agents execute implementation and verification.
@@ -34,7 +34,7 @@ Goal: make dashboard and UI behavior directly legible to agents, not only humans
 Deliverables:
 
 - Add `onlava harness ui --json [--repo-root <path>] [--app-root <path>] [--headed]`.
-- Start or reuse a local Onlava app fixture.
+- Start or reuse a local onlava app fixture.
 - Visit core dashboard routes: home, API Explorer, traces, trace details, Pub/Sub, DB Explorer, Cron, and docs/help surfaces if present.
 - Assert stable DOM markers rather than brittle visual-only selectors.
 - Capture screenshots into `.onlava/harness/ui/`.
@@ -71,7 +71,7 @@ Goal: schemas should not just be valid JSON; CLI outputs should conform to them.
 Deliverables:
 
 - Validate representative command outputs for `onlava inspect ... --json`, `onlava check --json`, `onlava harness --json`, `onlava harness self --json`, `onlava logs --jsonl`, and `onlava admin ... --json`.
-- Prefer a small internal validator for the subset of JSON Schema used by Onlava before adding a new dependency.
+- Prefer a small internal validator for the subset of JSON Schema used by onlava before adding a new dependency.
 - If a dependency becomes necessary, document the concrete payoff in the architecture allowlist.
 
 Acceptance:

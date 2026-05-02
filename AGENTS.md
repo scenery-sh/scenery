@@ -4,7 +4,7 @@ Keep dependencies minimal. Prefer the Go standard library unless an external dep
 
 # Workflow
 
-- After every repository change, rebuild any binaries from this repo that are expected to be available in `PATH`. For Onlava, run `go install ./cmd/onlava` before finishing the task.
+- After every repository change, rebuild any binaries from this repo that are expected to be available in `PATH`. For onlava, run `go install ./cmd/onlava` before finishing the task.
 - For substantial repo changes, run `onlava harness self --json --write` when practical so agents and humans have one stable validation snapshot at `.onlava/harness/self-latest.json`.
 - For substantial target-app changes, run `onlava harness --json --write` from that app root when practical.
 
@@ -19,7 +19,7 @@ For complex features, multi-hour tasks, migrations, or significant refactors, cr
 
 # Summary
 
-Build an Onlava-native Go-only local runtime that makes `onlava run` start a single HTTP server for Onlava services, with strict Onlava naming and no compatibility layer for non-Onlava syntax. Use `onlava dev` for the full local development platform with dashboard, proxy, DB Studio, and live reload.
+Build an onlava-native Go-only local runtime that makes `onlava run` start a single HTTP server for onlava services, with strict onlava naming and no compatibility layer for non-onlava syntax. Use `onlava dev` for the full local development platform with dashboard, proxy, DB Studio, and live reload.
 
 # Public Surface
 
@@ -44,7 +44,7 @@ Build an Onlava-native Go-only local runtime that makes `onlava run` start a sin
   - `github.com/pbrazdil/onlava/errs` with coded errors and HTTP status mapping.
 - Struct tag surface for typed endpoints/auth params:
   - Request decoding: `json`, `header`, `query`, `qs`, `cookie`.
-  - Onlava tags: `onlava:"optional"` and `onlava:"httpstatus"`.
+  - onlava tags: `onlava:"optional"` and `onlava:"httpstatus"`.
 
 # Implementation Changes
 
@@ -57,21 +57,21 @@ Create a new Go module rooted at `github.com/pbrazdil/onlava` with three main ar
 ## App Discovery And Service Model
 
 - `onlava run` walks upward to `.onlava.json`, then loads the Go module from that root.
-- Service discovery follows Onlava rules:
-  - A service is defined by Onlava APIs, an Onlava service struct, or an Onlava auth handler.
+- Service discovery follows onlava rules:
+  - A service is defined by onlava APIs, an onlava service struct, or an onlava auth handler.
   - Nested services are invalid.
   - Service names come from the root package name and must be unique.
 
 ## Parser Behavior
 
-- Support typed handlers with Onlava endpoint signatures: `func(context.Context, [path params...], [payload]) ([resp], error)`.
+- Support typed handlers with onlava endpoint signatures: `func(context.Context, [path params...], [payload]) ([resp], error)`.
 - Support raw handlers: `func(http.ResponseWriter, *http.Request)`.
 - Support `//onlava:service` methods plus optional `init<Type>() (*Type, error)` service initialization.
 - Support `//onlava:authhandler` as either a package function or service method.
 - Allow both token-string auth and structured auth params from `header`, `query`, `qs`, and `cookie` tags.
 - Allow optional auth-data return struct.
 
-## Preserve Onlava Route Defaults
+## Preserve onlava Route Defaults
 
 - Default path: `/<service>.<Endpoint>`.
 - Typed endpoint default methods:
@@ -105,7 +105,7 @@ Create a new Go module rooted at `github.com/pbrazdil/onlava` with three main ar
 
 # Test Plan
 
-Maintain a small Onlava-named fixture set as the acceptance suite for phase 1.
+Maintain a small onlava-named fixture set as the acceptance suite for phase 1.
 
 Add parser/unit tests for:
 
@@ -131,12 +131,12 @@ Add integration tests that run `onlava run` against sample apps and verify:
 - Raw endpoint routing plus `onlava.CurrentRequest().PathParams`.
 - `onlava:"httpstatus"` and coded error responses.
 
-Gate phase 1 on `go test ./...` and a lint/format pass for the new Onlava code.
+Gate phase 1 on `go test ./...` and a lint/format pass for the new onlava code.
 
 # Assumptions And Defaults
 
 - Go only in phase 1. TypeScript is out of scope.
-- Strict Onlava naming only. No non-Onlava app markers, imports, or directives in this milestone.
+- Strict onlava naming only. No non-onlava app markers, imports, or directives in this milestone.
 - No infra generation, DB management/migrations, Pub/Sub, cron, middleware, dashboard, cloud features, namespaces, or live-reload/watch mode.
-- No automatic source migration command in phase 1; migrated apps are expected to adopt Onlava syntax directly.
+- No automatic source migration command in phase 1; migrated apps are expected to adopt onlava syntax directly.
 - Single-process local runtime only. No remote service hosting or distributed local orchestration in this phase.

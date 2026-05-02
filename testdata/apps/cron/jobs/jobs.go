@@ -6,7 +6,7 @@ import (
 )
 
 var _ = cron.NewJob("onlava-tick", cron.JobConfig{
-	Title:    "Onlava Tick",
+	Title:    "onlava Tick",
 	Every:    1,
 	Endpoint: service.Run,
 })

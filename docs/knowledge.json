@@ -1,7 +1,7 @@
 {
   "schema_version": "onlava.docs.index.v1",
   "generated_at": "2026-04-27T00:00:00Z",
-  "owner_default": "Onlava maintainers",
+  "owner_default": "onlava maintainers",
   "freshness_policy": {
     "default_review_days": 30,
     "quality_grades": ["A", "B", "C", "D"],
@@ -10,8 +10,8 @@
   "documents": [
     {
       "path": "docs/index.md",
-      "title": "Onlava Documentation Index",
-      "owner": "Onlava maintainers",
+      "title": "onlava Documentation Index",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -22,8 +22,8 @@
     },
     {
       "path": "docs/knowledge.json",
-      "title": "Onlava Docs Knowledge Index",
-      "owner": "Onlava maintainers",
+      "title": "onlava Docs Knowledge Index",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -35,20 +35,20 @@
     },
     {
       "path": "PLAN.md",
-      "title": "Onlava Agent-First Harness Plan",
-      "owner": "Onlava maintainers",
+      "title": "onlava Agent-First Harness Plan",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-04-27",
       "review_after": "2026-05-27",
-      "summary": "Root plan translating OpenAI harness engineering ideas into Onlava implementation priorities.",
+      "summary": "Root plan translating OpenAI harness engineering ideas into onlava implementation priorities.",
       "tags": ["plans", "harness", "agents", "roadmap"]
     },
     {
       "path": "PLANS.md",
-      "title": "Onlava Execution Plans Standard",
-      "owner": "Onlava maintainers",
+      "title": "onlava Execution Plans Standard",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -59,8 +59,8 @@
     },
     {
       "path": "ARCHITECTURE.md",
-      "title": "Onlava Architecture",
-      "owner": "Onlava maintainers",
+      "title": "onlava Architecture",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -71,20 +71,20 @@
     },
     {
       "path": "docs/local-contract.md",
-      "title": "Onlava Local Contract",
-      "owner": "Onlava runtime",
+      "title": "onlava Local Contract",
+      "owner": "onlava runtime",
       "status": "active",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-04-27",
       "review_after": "2026-05-27",
-      "summary": "Frozen local developer and agent-facing contract for Onlava CLI, JSON schemas, and generated artifacts.",
+      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, and generated artifacts.",
       "tags": ["contract", "cli", "agents", "schemas"]
     },
     {
       "path": "docs/harness-engineering.md",
-      "title": "Onlava Harness Engineering",
-      "owner": "Onlava runtime",
+      "title": "onlava Harness Engineering",
+      "owner": "onlava runtime",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -96,7 +96,7 @@
     {
       "path": "docs/PRD-1-pubsub.md",
       "title": "Pub/Sub PRD",
-      "owner": "Onlava runtime",
+      "owner": "onlava runtime",
       "status": "reference",
       "quality": "B",
       "freshness": "current",
@@ -108,7 +108,7 @@
     {
       "path": "docs/PRD-2-proto.md",
       "title": "Proto/Wire PRD",
-      "owner": "Onlava runtime",
+      "owner": "onlava runtime",
       "status": "reference",
       "quality": "B",
       "freshness": "current",
@@ -120,19 +120,19 @@
     {
       "path": "docs/PRD-3-release.md",
       "title": "Release Readiness PRD",
-      "owner": "Onlava runtime",
+      "owner": "onlava runtime",
       "status": "reference",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-04-27",
       "review_after": "2026-05-27",
-      "summary": "Audit and recommendations for freezing a smaller production-ready Onlava v0.",
+      "summary": "Audit and recommendations for freezing a smaller production-ready onlava v0.",
       "tags": ["release", "runtime", "security", "contract"]
     },
     {
       "path": "docs/PRD-4-devrun.md",
       "title": "Dev/Run Command Split PRD",
-      "owner": "Onlava runtime",
+      "owner": "onlava runtime",
       "status": "reference",
       "quality": "B",
       "freshness": "current",
@@ -144,7 +144,7 @@
     {
       "path": "docs/plans/0001-devrun-command-split.md",
       "title": "Split onlava dev From Headless onlava run",
-      "owner": "Onlava runtime",
+      "owner": "onlava runtime",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -155,8 +155,8 @@
     },
     {
       "path": "docs/plans/0002-v0-release-readiness.md",
-      "title": "Onlava v0 Release Readiness",
-      "owner": "Onlava runtime",
+      "title": "onlava v0 Release Readiness",
+      "owner": "onlava runtime",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -168,7 +168,7 @@
     {
       "path": "docs/plans/0003-victoria-observability-sidecars.md",
       "title": "Victoria Observability Sidecars",
-      "owner": "Onlava runtime",
+      "owner": "onlava runtime",
       "status": "completed",
       "quality": "A",
       "freshness": "current",
@@ -180,7 +180,7 @@
     {
       "path": "docs/plans/active.md",
       "title": "Active Plans",
-      "owner": "Onlava maintainers",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "B",
       "freshness": "current",
@@ -192,7 +192,7 @@
     {
       "path": "docs/plans/completed.md",
       "title": "Completed Plans",
-      "owner": "Onlava maintainers",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "B",
       "freshness": "current",
@@ -204,7 +204,7 @@
     {
       "path": "docs/tech-debt.md",
       "title": "Tech Debt",
-      "owner": "Onlava maintainers",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "B",
       "freshness": "current",

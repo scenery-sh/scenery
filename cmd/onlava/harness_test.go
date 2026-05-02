@@ -224,7 +224,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 	writeTestAppFile(t, root, "docs/knowledge.json", `{
   "schema_version": "onlava.docs.index.v1",
   "generated_at": "2026-04-27T00:00:00Z",
-  "owner_default": "Onlava maintainers",
+  "owner_default": "onlava maintainers",
   "freshness_policy": {
     "default_review_days": 30,
     "quality_grades": ["A", "B", "C", "D"],
@@ -234,7 +234,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
     {
       "path": "docs/index.md",
       "title": "Index",
-      "owner": "Onlava maintainers",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -246,7 +246,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
     {
       "path": "docs/local-contract.md",
       "title": "Contract",
-      "owner": "Onlava maintainers",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",
@@ -268,7 +268,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 
 func validExecPlanStandardForTest() string {
 	var b strings.Builder
-	b.WriteString("# Onlava Execution Plans\n\n")
+	b.WriteString("# onlava Execution Plans\n\n")
 	b.WriteString("## Required Sections\n\n")
 	for _, section := range requiredExecPlanSections {
 		b.WriteString("- `")

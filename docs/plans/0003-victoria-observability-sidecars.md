@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-Onlava currently keeps local development traces, logs, and metrics in its own dashboard store. That is useful for agent-visible JSON and dashboard parity, but it is not the long-term storage/query engine we want.
+onlava currently keeps local development traces, logs, and metrics in its own dashboard store. That is useful for agent-visible JSON and dashboard parity, but it is not the long-term storage/query engine we want.
 
 This plan prepares `onlava dev` to supervise the VictoriaMetrics observability stack locally:
 
@@ -12,7 +12,7 @@ This plan prepares `onlava dev` to supervise the VictoriaMetrics observability s
 - VictoriaLogs for OTLP logs
 - VictoriaMetrics for OTLP metrics
 
-The first milestone keeps SQLite parity. Onlava continues writing and reading its current SQLite-backed dashboard data while `onlava dev` starts local Victoria sidecars by default and passes OTLP endpoint URLs to the app process. Runtime dual-write and dashboard read migration happen later.
+The first milestone keeps SQLite parity. onlava continues writing and reading its current SQLite-backed dashboard data while `onlava dev` starts local Victoria sidecars by default and passes OTLP endpoint URLs to the app process. Runtime dual-write and dashboard read migration happen later.
 
 ## Progress
 
@@ -25,19 +25,19 @@ The first milestone keeps SQLite parity. Onlava continues writing and reading it
 - [x] (2026-04-27 18:31Z) Add Victoria-backed query adapters for dashboard and `onlava inspect` while keeping SQLite fallback.
 - [x] (2026-04-27 18:31Z) Harden binary download with checksum verification when release checksum assets are available.
 - [x] (2026-04-27 18:31Z) Document the Victoria-plus-SQLite architecture in `ARCHITECTURE.md` and `docs/local-contract.md`.
-- [x] (2026-04-27 18:52Z) Switch Onlava-owned Victoria export to OTLP protobuf for traces, logs, and metrics.
+- [x] (2026-04-27 18:52Z) Switch onlava-owned Victoria export to OTLP protobuf for traces, logs, and metrics.
 
 ## Surprises & Discoveries
 
 - VictoriaTraces is designed as a binary/server, not a clean in-process Go library. Its single-node main wires package globals, command-line flags, process-level logging, metrics, HTTP serving, and signal handling. Treating it as a sidecar is the safer boundary.
-- The first dual-write can live in the dashboard report path instead of the generated app runtime. This preserves the existing Onlava report envelope, keeps SQLite parity exact, and lets Victoria export fail independently of app request handling.
-- VictoriaTraces exposes enough Jaeger-compatible query surface for first-pass dashboard and inspect reads. Onlava still keeps SQLite fallback because Victoria clear/delete semantics and full event reconstruction need more hardening.
-- Victoria OTLP insert endpoints reject or partially reject JSON payloads. Onlava needs to send protobuf-encoded OTLP envelopes even for its small built-in trace/log/metric export.
+- The first dual-write can live in the dashboard report path instead of the generated app runtime. This preserves the existing onlava report envelope, keeps SQLite parity exact, and lets Victoria export fail independently of app request handling.
+- VictoriaTraces exposes enough Jaeger-compatible query surface for first-pass dashboard and inspect reads. onlava still keeps SQLite fallback because Victoria clear/delete semantics and full event reconstruction need more hardening.
+- Victoria OTLP insert endpoints reject or partially reject JSON payloads. onlava needs to send protobuf-encoded OTLP envelopes even for its small built-in trace/log/metric export.
 
 ## Decision Log
 
 - Decision: Run Victoria components as supervised local sidecar processes, not imported Go libraries.
-  Rationale: Victoria binaries expose stable HTTP/OTLP contracts, while importing the server packages would couple Onlava to global flags, process lifecycle, and a large dependency graph.
+  Rationale: Victoria binaries expose stable HTTP/OTLP contracts, while importing the server packages would couple onlava to global flags, process lifecycle, and a large dependency graph.
   Date/Author: 2026-04-27 / Codex
 
 - Decision: Keep SQLite trace/log/metric parity during the first integration.
@@ -56,7 +56,7 @@ The first milestone keeps SQLite parity. Onlava continues writing and reading it
   Rationale: This exercises the intended backend by default while preserving existing dashboard and CLI contracts during migration.
   Date/Author: 2026-04-27 / Codex
 
-- Decision: Use minimal standard-library OTLP protobuf encoding for Onlava's built-in Victoria dual-write.
+- Decision: Use minimal standard-library OTLP protobuf encoding for onlava's built-in Victoria dual-write.
   Rationale: The exported envelope is tiny, and avoiding generated OTLP dependencies keeps the default sidecar integration aligned with the repo's minimal-dependency posture.
   Date/Author: 2026-04-27 / Codex
 
@@ -65,14 +65,14 @@ The first milestone keeps SQLite parity. Onlava continues writing and reading it
 Implemented. `onlava dev` now attempts VictoriaMetrics, VictoriaLogs, and
 VictoriaTraces by default, stores their local data under `.onlava/victoria/`,
 exports endpoint URLs to the app process, writes SQLite first for parity, and
-best-effort exports Onlava trace/log/metric reports to Victoria over OTLP
+best-effort exports onlava trace/log/metric reports to Victoria over OTLP
 protobuf. Dashboard and inspect trace reads prefer VictoriaTraces with SQLite
 fallback. A live smoke verified sidecar startup, endpoint export, Victoria trace
 and metric ingestion, VictoriaLogs query output, and graceful sidecar shutdown.
 
 ## Context and Orientation
 
-Current local observability flows through `runtime/devreport.go`, `runtime/dbtrace.go`, `runtime/consolelog.go`, `cmd/onlava/dashboard.go`, and `internal/devdash`. Runtime emits Onlava-specific report envelopes. The dashboard server receives them at `devdash.ReportPath`, stores summaries/events/logs in SQLite, and notifies the dashboard UI.
+Current local observability flows through `runtime/devreport.go`, `runtime/dbtrace.go`, `runtime/consolelog.go`, `cmd/onlava/dashboard.go`, and `internal/devdash`. Runtime emits onlava-specific report envelopes. The dashboard server receives them at `devdash.ReportPath`, stores summaries/events/logs in SQLite, and notifies the dashboard UI.
 
 The new sidecar orchestration belongs in `cmd/onlava` next to `devSupervisor`, DB Studio, and local proxy lifecycle. App runtime should only receive endpoint configuration for now. Later, runtime can add an OTLP exporter that uses the same endpoint environment variables.
 
@@ -101,7 +101,7 @@ When sidecars are active, append OTLP endpoint environment variables to the gene
 - `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
 - `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
-- Onlava-specific mirrors under `ONLAVA_VICTORIA_*`
+- onlava-specific mirrors under `ONLAVA_VICTORIA_*`
 
 Do not remove or bypass `ONLAVA_DEV_REPORT_URL`. SQLite parity remains active.
 
@@ -149,7 +149,7 @@ Downloaded binaries are stored under `.onlava/victoria/bin` and reused on later 
 
 Storage directories are stable per app and per component. Re-running `onlava dev --victoria` should reuse existing local data.
 
-If a default port is already in use, Onlava may treat the component as externally running at that address and still export endpoint variables. It must not kill processes it did not start.
+If a default port is already in use, onlava may treat the component as externally running at that address and still export endpoint variables. It must not kill processes it did not start.
 
 ## Artifacts and Notes
 

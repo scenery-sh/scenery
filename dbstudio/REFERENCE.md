@@ -1,6 +1,6 @@
 # Drizzle Studio Reference
 
-This workspace is the editable Onlava-hosted rebuild of `https://local.drizzle.studio`.
+This workspace is the editable onlava-hosted rebuild of `https://local.drizzle.studio`.
 
 The canonical visual and behavioral reference currently lives in:
 

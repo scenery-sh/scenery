@@ -195,7 +195,7 @@ func App(root, name string) (*model.App, error) {
 		errs = append(errs, "only one onlava:authhandler is supported per application")
 	}
 	if !foundDirective {
-		errs = append(errs, "no Onlava directives found in application")
+		errs = append(errs, "no onlava directives found in application")
 	}
 	if len(authHandlers) == 1 {
 		authHandlers[0].Service.AuthHandler = authHandlers[0]

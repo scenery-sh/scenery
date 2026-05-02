@@ -235,7 +235,7 @@ func (s *dashboardServer) mcpToolDefinitions() []mcpToolDefinition {
 			return map[string]any{
 				"supported": false,
 				"tool":      name,
-				"reason":    "unsupported in Onlava",
+				"reason":    "unsupported in onlava",
 			}, false, nil
 		}
 	}
@@ -263,7 +263,7 @@ func (s *dashboardServer) mcpToolDefinitions() []mcpToolDefinition {
 		},
 		{
 			Name:        "call_endpoint",
-			Description: "Invoke an Onlava endpoint through the local dev runtime.",
+			Description: "Invoke an onlava endpoint through the local dev runtime.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -279,17 +279,17 @@ func (s *dashboardServer) mcpToolDefinitions() []mcpToolDefinition {
 		},
 		{
 			Name:        "get_services",
-			Description: "List Onlava services and endpoints from the current app metadata.",
+			Description: "List onlava services and endpoints from the current app metadata.",
 			Call:        s.mcpGetServices,
 		},
 		{
 			Name:        "get_middleware",
-			Description: "List registered Onlava middleware definitions.",
+			Description: "List registered onlava middleware definitions.",
 			Call:        s.mcpGetMiddleware,
 		},
 		{
 			Name:        "get_auth_handlers",
-			Description: "List registered Onlava auth handlers.",
+			Description: "List registered onlava auth handlers.",
 			Call:        s.mcpGetAuthHandlers,
 		},
 		{
@@ -321,12 +321,12 @@ func (s *dashboardServer) mcpToolDefinitions() []mcpToolDefinition {
 		},
 		{
 			Name:        "get_metadata",
-			Description: "Return the full Onlava metadata snapshot used by the dashboard.",
+			Description: "Return the full onlava metadata snapshot used by the dashboard.",
 			Call:        s.mcpGetMetadata,
 		},
 		{
 			Name:        "get_src_files",
-			Description: "Read source files from the active Onlava app.",
+			Description: "Read source files from the active onlava app.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -341,7 +341,7 @@ func (s *dashboardServer) mcpToolDefinitions() []mcpToolDefinition {
 		},
 		{
 			Name:        "get_pubsub",
-			Description: "Return Onlava Pub/Sub topics, subscriptions, queue depth, worker counts, and processing stats.",
+			Description: "Return onlava Pub/Sub topics, subscriptions, queue depth, worker counts, and processing stats.",
 			Call:        s.mcpGetPubSub,
 		},
 		{
@@ -371,7 +371,7 @@ func (s *dashboardServer) mcpToolDefinitions() []mcpToolDefinition {
 		},
 		{
 			Name:        "get_secrets",
-			Description: "List secrets referenced by the app and whether Onlava discovered a value for them.",
+			Description: "List secrets referenced by the app and whether onlava discovered a value for them.",
 			Call:        s.mcpGetSecrets,
 		},
 		{

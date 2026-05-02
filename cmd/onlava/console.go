@@ -128,43 +128,48 @@ func (c *runConsole) RebuildFailed(err error) {
 
 func (c *runConsole) Banner(urls runURLs) {
 	if c.json {
-		c.Event("run.ready", map[string]any{
+		data := map[string]any{
 			"api_url":       urls.API,
 			"dashboard_url": urls.Dashboard,
 			"mcp_url":       urls.MCP,
 			"frontend_url":  urls.Frontend,
 			"db_studio_url": urls.DBStudio,
-			"victoria_urls": urls.Victoria,
-		})
+		}
+		if c.verbose {
+			data["victoria_urls"] = urls.Victoria
+		}
+		c.Event("run.ready", data)
 		return
 	}
-	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("Onlava development server running!"))
+	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("onlava development server running!"))
 	width := len("Development Dashboard URL:")
-	if len("Onlava App URL:") > width {
-		width = len("Onlava App URL:")
+	if len("onlava App URL:") > width {
+		width = len("onlava App URL:")
 	}
-	if len("VictoriaMetrics URL:") > width {
+	if c.verbose && len("VictoriaMetrics URL:") > width {
 		width = len("VictoriaMetrics URL:")
 	}
 	c.printf(c.out, "  %-*s  %s\n", width, "Your API is running at:", urls.API)
 	c.printf(c.out, "  %-*s  %s\n", width, "Development Dashboard URL:", urls.Dashboard)
 	c.printf(c.out, "  %-*s  %s\n", width, "MCP SSE URL:", urls.MCP)
 	if urls.Frontend != "" {
-		c.printf(c.out, "  %-*s  %s\n", width, "Onlava App URL:", urls.Frontend)
+		c.printf(c.out, "  %-*s  %s\n", width, "onlava App URL:", urls.Frontend)
 	}
 	if urls.DBStudio != "" {
 		c.printf(c.out, "  %-*s  %s\n", width, "Drizzle Studio URL:", urls.DBStudio)
 	}
-	for _, item := range []struct {
-		label string
-		key   string
-	}{
-		{label: "VictoriaMetrics URL:", key: "metrics"},
-		{label: "VictoriaLogs URL:", key: "logs"},
-		{label: "VictoriaTraces URL:", key: "traces"},
-	} {
-		if url := urls.Victoria[item.key]; url != "" {
-			c.printf(c.out, "  %-*s  %s\n", width, item.label, url)
+	if c.verbose {
+		for _, item := range []struct {
+			label string
+			key   string
+		}{
+			{label: "VictoriaMetrics URL:", key: "metrics"},
+			{label: "VictoriaLogs URL:", key: "logs"},
+			{label: "VictoriaTraces URL:", key: "traces"},
+		} {
+			if url := urls.Victoria[item.key]; url != "" {
+				c.printf(c.out, "  %-*s  %s\n", width, item.label, url)
+			}
 		}
 	}
 	c.printf(c.out, "\n")

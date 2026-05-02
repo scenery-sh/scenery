@@ -1,22 +1,22 @@
-# Onlava
+# onlava
 
 **One CLI for building, running, and inspecting Go services — built for humans and AI agents.**
 
-Onlava is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
+onlava is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
-Applications mark their root with `.onlava.json`, declare endpoints with `//onlava:` directives, and run as one local HTTP server. Onlava handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, and TypeScript client generation.
+Applications mark their root with `.onlava.json`, declare endpoints with `//onlava:` directives, and run as one local HTTP server. onlava handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, and TypeScript client generation.
 
-Onlava is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, DB Studio, MCP endpoint, Victoria observability sidecars, local HTTPS proxy, Pub/Sub UI, and cron UI are development-focused companion tools.
+onlava is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, DB Studio, MCP endpoint, Victoria observability sidecars, local HTTPS proxy, Pub/Sub UI, and cron UI are development-focused companion tools.
 
-## Why Onlava?
+## Why onlava?
 
 - **Go source is the app model.** Services, APIs, auth handlers, middleware, Pub/Sub handlers, and cron jobs are discovered from Go code.
 - **One local app server.** `onlava run` builds once and starts a headless, production-like HTTP server.
 - **Full local dev loop.** `onlava dev` adds file watching, rebuild/restart supervision, dashboard, API explorer, DB Studio, logs, traces, metrics, and optional HTTPS local domains.
-- **Typed HTTP by default.** Onlava decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
+- **Typed HTTP by default.** onlava decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
 - **Inspectable by tools and agents.** `onlava inspect`, `onlava check`, `onlava logs`, and `onlava harness` expose machine-readable JSON contracts.
-- **Generated clients.** Onlava can generate a TypeScript client with JSON and local wire-format support.
+- **Generated clients.** onlava can generate a TypeScript client with JSON and local wire-format support.
 
 ## Status
 
@@ -69,13 +69,13 @@ onlava version --json
 
 ## Agent Skill
 
-Onlava includes an installable agent skill for using Onlava apps:
+onlava includes an installable agent skill for using onlava apps:
 
 ```sh
 npx skills add https://github.com/pbrazdil/onlava
 ```
 
-The skill teaches agents the Onlava app model, directives, local development workflow, debugging commands, observability, `psql`, and TypeScript client generation.
+The skill teaches agents the onlava app model, directives, local development workflow, debugging commands, observability, `psql`, and TypeScript client generation.
 
 ## A Minimal App
 
@@ -144,7 +144,7 @@ onlava dev --proxy
 onlava dev --proxy --trust
 ```
 
-`--proxy` enables local HTTPS/frontend domains from `.onlava.json` proxy config. `--trust` allows Onlava to install the local development CA into the OS trust store. Without `--trust`, Onlava skips trust-store changes.
+`--proxy` enables local HTTPS/frontend domains from `.onlava.json` proxy config. `--trust` allows onlava to install the local development CA into the OS trust store. Without `--trust`, onlava skips trust-store changes.
 
 Example proxy config:
 
@@ -189,7 +189,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - `github.com/pbrazdil/onlava/middleware` exposes middleware request/response types.
 - `github.com/pbrazdil/onlava/pubsub` exposes local Pub/Sub declarations and runtime integration.
 - `github.com/pbrazdil/onlava/cron` exposes cron job declarations.
-- `github.com/pbrazdil/onlava/pgxpool` wraps `pgxpool` with Onlava DB tracing.
+- `github.com/pbrazdil/onlava/pgxpool` wraps `pgxpool` with onlava DB tracing.
 - `github.com/pbrazdil/onlava/et` exposes endpoint/service mocking helpers for tests.
 
 ## TypeScript Client Generation
@@ -202,7 +202,7 @@ The generated client understands the app's route model and local wire capabiliti
 
 ## Observability And Inspection
 
-Onlava writes local development logs and traces, and `onlava dev` can run VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars for richer local inspection.
+onlava writes local development logs and traces, and `onlava dev` can run VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars for richer local inspection.
 
 Useful commands:
 
@@ -244,7 +244,7 @@ benchmarks/json-wire/run.sh
 
 ## Contributing
 
-Onlava prefers small, explicit changes and minimal dependencies. When adding behavior, keep the parsed app model as the source of truth and add tests at stable boundaries: parser validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
+onlava prefers small, explicit changes and minimal dependencies. When adding behavior, keep the parsed app model as the source of truth and add tests at stable boundaries: parser validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull request guidance.
 
@@ -267,4 +267,4 @@ Please do not open public issues for vulnerabilities. Report security issues to 
 
 ## License
 
-Onlava is licensed under the [Apache License 2.0](LICENSE).
+onlava is licensed under the [Apache License 2.0](LICENSE).

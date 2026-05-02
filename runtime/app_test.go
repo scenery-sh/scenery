@@ -21,14 +21,14 @@ func TestPrintRuntimeBanner(t *testing.T) {
 
 	text := out.String()
 	for _, want := range []string{
-		"Onlava development server running!",
+		"onlava development server running!",
 		"Your API is running at:",
 		"https://api.test.localhost",
 		"Development Dashboard URL:",
 		"https://console.test.localhost",
 		"MCP SSE URL:",
 		"https://mcp.test.localhost/sse?appID=testapp",
-		"Onlava App URL:",
+		"onlava App URL:",
 		"https://onlava.test.localhost",
 		"Drizzle Studio URL:",
 		"http://127.0.0.1:4002",

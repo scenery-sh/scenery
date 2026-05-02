@@ -112,8 +112,8 @@ func Hello(ctx context.Context) error { return nil }
 `)
 
 	_, err := parse.App(dir, "otherdirective")
-	if err == nil || !strings.Contains(err.Error(), "no Onlava directives found in application") {
-		t.Fatalf("expected no Onlava directives error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no onlava directives found in application") {
+		t.Fatalf("expected no onlava directives error, got %v", err)
 	}
 }
 
@@ -191,8 +191,8 @@ func Helper() {}
 `)
 
 	_, err := parse.App(dir, "noonlava")
-	if err == nil || !strings.Contains(err.Error(), "no Onlava directives found in application") {
-		t.Fatalf("expected no Onlava directives error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no onlava directives found in application") {
+		t.Fatalf("expected no onlava directives error, got %v", err)
 	}
 }
 

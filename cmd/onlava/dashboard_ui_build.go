@@ -40,8 +40,8 @@ func prepareDashboardUIDir(ctx context.Context, console *runConsole) (string, er
 	return prepareUIDir(ctx, console, uiBuildSpec{
 		envVar:       "ONLAVA_DEV_DASHBOARD_UI_DIR",
 		root:         filepath.Join(app.RepoRoot(), "ui"),
-		installTitle: "Installing Onlava dashboard UI packages",
-		buildTitle:   "Building Onlava dashboard UI",
+		installTitle: "Installing onlava dashboard UI packages",
+		buildTitle:   "Building onlava dashboard UI",
 		sourcePaths:  dashboardUISourcePaths,
 	})
 }

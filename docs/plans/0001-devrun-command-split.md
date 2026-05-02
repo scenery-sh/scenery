@@ -6,7 +6,7 @@ This plan follows the standard in [../../PLANS.md](../../PLANS.md). It is based 
 
 ## Purpose / Big Picture
 
-Onlava currently treats `onlava run` as the local development command. It starts the app plus development-only systems such as the dashboard, local HTTPS proxy, frontend proxy, MCP server, DB Studio, file watching, rebuild/restart supervision, and relaxed local defaults. That is convenient for development, but it makes `onlava run` ambiguous and risky as the production-like command.
+onlava currently treats `onlava run` as the local development command. It starts the app plus development-only systems such as the dashboard, local HTTPS proxy, frontend proxy, MCP server, DB Studio, file watching, rebuild/restart supervision, and relaxed local defaults. That is convenient for development, but it makes `onlava run` ambiguous and risky as the production-like command.
 
 After this change, developers get a clear command split. `onlava dev` starts the full local development platform. `onlava run` starts the application in a headless, production-like mode with one deterministic startup, no dashboard, no proxy, no file watching, no DB Studio, no local certificate mutation, strict signal handling, and predictable logs. `onlava build` remains the preferred deployment artifact path.
 
@@ -20,7 +20,7 @@ The result is observable from the command line. Running `onlava dev --app-root /
 - [x] (2026-04-27 14:25Z) Implement a new headless `onlava run` path that builds once and starts the app without dev services.
 - [x] (2026-04-27 14:25Z) Update generated app/runtime behavior so built binaries and headless run do not start dev-only services by default.
 - [x] (2026-04-27 14:29Z) Update CLI docs, local contract, help text, and tests.
-- [x] (2026-04-27 14:31Z) Validate against fixture apps and an optional read-only external Onlava app.
+- [x] (2026-04-27 14:31Z) Validate against fixture apps and an optional read-only external onlava app.
 
 ## Surprises & Discoveries
 
@@ -35,7 +35,7 @@ The result is observable from the command line. Running `onlava dev --app-root /
   Date/Author: 2026-04-27 / Codex
 
 - Decision: `onlava run` should be production-like and headless, but `onlava build` remains the preferred deployment primitive.
-  Rationale: A built binary is the cleanest production artifact because the deployment machine does not need the Onlava CLI, source tree, dashboard UI, Bun, or build tooling.
+  Rationale: A built binary is the cleanest production artifact because the deployment machine does not need the onlava CLI, source tree, dashboard UI, Bun, or build tooling.
   Date/Author: 2026-04-27 / Codex
 
 - Decision: The initial migration should preserve today’s developer behavior through `onlava dev` before changing `onlava run`.
@@ -85,7 +85,7 @@ Terminology used in this plan:
 
 Milestone 1 preserves current behavior under `onlava dev`. At the end of this milestone, `onlava dev` should accept the same flags as today’s `onlava run` and call the existing `runWithWatch` path. `onlava run` can still temporarily behave as before until Milestone 2 lands. The acceptance proof is `onlava dev --app-root <fixture-or-external-app-root>` starting the dashboard/proxy/app exactly like current `onlava run`.
 
-Milestone 2 introduces a headless runtime path for `onlava run`. At the end of this milestone, `onlava run` should compile once and start the generated app binary without starting `devSupervisor`, dashboard, local proxy, DB Studio, MCP, file watching, or dashboard UI package installation. The acceptance proof is that `onlava run --app-root <fixture> --listen 127.0.0.1:4080` serves endpoints and exits cleanly on SIGINT/SIGTERM while dashboard port `9401`, DB Studio port `4002`, and local HTTPS proxy domains are not bound by Onlava.
+Milestone 2 introduces a headless runtime path for `onlava run`. At the end of this milestone, `onlava run` should compile once and start the generated app binary without starting `devSupervisor`, dashboard, local proxy, DB Studio, MCP, file watching, or dashboard UI package installation. The acceptance proof is that `onlava run --app-root <fixture> --listen 127.0.0.1:4080` serves endpoints and exits cleanly on SIGINT/SIGTERM while dashboard port `9401`, DB Studio port `4002`, and local HTTPS proxy domains are not bound by onlava.
 
 Milestone 3 hardens production-like behavior. At the end of this milestone, `onlava run` should support strict secret validation, stable exit codes, structured log options, `PORT`/listen behavior, and health/readiness behavior if those primitives exist. The acceptance proof is a test fixture and a documented command transcript showing missing required secrets fail fast in production mode while local development remains forgiving under `onlava dev`.
 
@@ -204,7 +204,7 @@ The expected artifact is:
 
 ## Interfaces and Dependencies
 
-No new external dependency is expected. Use the Go standard library and existing Onlava packages.
+No new external dependency is expected. Use the Go standard library and existing onlava packages.
 
 Expected public CLI interface:
 

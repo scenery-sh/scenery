@@ -1,6 +1,6 @@
-# Onlava Harness Engineering
+# onlava Harness Engineering
 
-Onlava treats agent support as a runtime feature, not as prompt folklore.
+onlava treats agent support as a runtime feature, not as prompt folklore.
 
 The harness contract gives Codex and other agents a short feedback loop:
 
@@ -51,7 +51,7 @@ JSON output conforms to:
 
 - [onlava.harness.result.v1.schema.json](schemas/onlava.harness.result.v1.schema.json)
 
-When `--write` is present, Onlava writes:
+When `--write` is present, onlava writes:
 
 ```text
 <app-root>/.onlava/harness/latest.json
@@ -59,13 +59,13 @@ When `--write` is present, Onlava writes:
 
 That file is intentionally stable. Agents should use it as the latest local validation snapshot instead of guessing from cache directories or parsing human logs.
 
-For the Onlava repo itself, `onlava harness self --json --write` writes:
+For the onlava repo itself, `onlava harness self --json --write` writes:
 
 ```text
 <repo-root>/.onlava/harness/self-latest.json
 ```
 
-The self harness validates the local Onlava development loop:
+The self harness validates the local onlava development loop:
 
 - `go test ./cmd/onlava ./internal/devdash ./runtime`
 - docs knowledge base integrity through `docs/knowledge.json`

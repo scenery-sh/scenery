@@ -1,6 +1,6 @@
-# Onlava Architecture
+# onlava Architecture
 
-This document is a stable map of the Onlava repository. It should help a new
+This document is a stable map of the onlava repository. It should help a new
 contributor answer two questions quickly: where does a change belong, and which
 boundaries should the change preserve?
 
@@ -10,10 +10,10 @@ the names mentioned here.
 
 ## Bird's Eye View
 
-Onlava is a Go-native local runtime and toolchain for applications that declare
+onlava is a Go-native local runtime and toolchain for applications that declare
 services with `//onlava:` directives and a `.onlava.json` root marker.
 
-At a high level, Onlava does four things:
+At a high level, onlava does four things:
 
 - discovers an app root and parses Go packages into an app model
 - generates a transient build workspace and synthetic runtime entrypoint
@@ -42,9 +42,9 @@ generated workspace + github.com/pbrazdil/onlava/runtime
 single local server + dev/inspect/harness tooling
 ```
 
-Architecture invariant: the public Onlava surface is Onlava-named. User apps
+Architecture invariant: the public onlava surface is onlava-named. User apps
 should depend on `github.com/pbrazdil/onlava/...` packages and `//onlava:` directives, without
-legacy compatibility packages, daemon layers, cloud layers, or non-Onlava syntax.
+legacy compatibility packages, daemon layers, cloud layers, or non-onlava syntax.
 
 Architecture invariant: app semantics should be captured as data in
 `internal/model` before code generation or runtime wiring. Avoid duplicating
@@ -68,7 +68,7 @@ logic belongs in `internal/` or a public package, depending on whether user apps
 need it.
 
 Architecture invariant: the CLI stays hand-rolled unless a new dependency has a
-clear payoff. The command grammar is part of Onlava's local contract and should
+clear payoff. The command grammar is part of onlava's local contract and should
 remain easy to audit.
 
 ### `internal/app`
@@ -77,7 +77,7 @@ remain easy to audit.
 `.onlava.json`, decodes app config, and provides repo-root helpers for self-harness
 work.
 
-Architecture invariant: `.onlava.json` is the app root marker for Onlava apps. App
+Architecture invariant: `.onlava.json` is the app root marker for onlava apps. App
 loading should fail clearly when the marker is missing or invalid.
 
 ### `internal/parse`
@@ -119,7 +119,7 @@ wrappers and registration over runtime reflection when the parser already knows
 the shape of the app.
 
 Architecture invariant: endpoint-to-endpoint calls should go through generated
-Onlava call helpers when Onlava semantics matter. Direct user function calls must
+onlava call helpers when onlava semantics matter. Direct user function calls must
 not bypass auth context, private access rules, routing metadata, or internal
 transport behavior.
 
@@ -205,7 +205,7 @@ headless execution path.
 
 ### `ui` and `dbstudio`
 
-`ui` is the Onlava dashboard frontend. `dbstudio` is the DB Studio frontend
+`ui` is the onlava dashboard frontend. `dbstudio` is the DB Studio frontend
 wrapper. Both are TypeScript/React applications that are built and embedded for
 local development use.
 
@@ -228,15 +228,15 @@ Architecture invariant: substantial implementation plans live under
 `testdata` contains fixture apps and golden generated files. It is the acceptance
 corpus for parser, codegen, runtime, and CLI behavior.
 
-Architecture invariant: fixture apps should speak Onlava syntax directly. Use
+Architecture invariant: fixture apps should speak onlava syntax directly. Use
 Historical reference material only as a corpus when porting behavior into
-Onlava-native tests.
+onlava-native tests.
 
 ## Cross-Cutting Concerns
 
 ### Dependencies
 
-Onlava prefers the Go standard library. Direct Go dependencies are allowlisted by
+onlava prefers the Go standard library. Direct Go dependencies are allowlisted by
 the self-harness with a concrete rationale. New dependencies should be rare and
 should solve a specific maintenance, correctness, or interoperability problem.
 
@@ -280,7 +280,7 @@ the stable boundary is HTTP/OTLP, not Go library imports.
 
 ### File Size And Placement
 
-Onlava favors code that can be found quickly. Keep related concepts adjacent in
+onlava favors code that can be found quickly. Keep related concepts adjacent in
 the tree, split very large files before they become hard to review, and prefer a
 flat package map over deeply nested internal hierarchies unless a boundary earns
 the extra structure.

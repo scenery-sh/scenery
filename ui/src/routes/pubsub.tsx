@@ -271,7 +271,7 @@ export function PubSubPage() {
             <div>
               <h1 className="text-lg font-medium">Pub/Sub</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Live local queue and worker metrics from Onlava&apos;s embedded NATS runtime.
+                Live local queue and worker metrics from onlava&apos;s embedded NATS runtime.
               </p>
             </div>
             <div className="flex flex-col items-end gap-3">

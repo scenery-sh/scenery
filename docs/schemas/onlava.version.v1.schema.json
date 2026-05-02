@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://onlava.com/schemas/onlava.version.v1.schema.json",
-  "title": "Onlava version",
+  "title": "onlava version",
   "type": "object",
   "required": ["schema_version", "version", "go_version"],
   "additionalProperties": false,

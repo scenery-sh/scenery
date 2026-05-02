@@ -6,17 +6,17 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
-## Onlava Go Runner Phase 1
+## onlava Go Runner Phase 1
 
 - Status: completed
-- Owner: Onlava runtime
+- Owner: onlava runtime
 - Completed: 2026-04-27
 - Quality: B
 
 Shipped:
 
 - `onlava run`, `onlava build`, `onlava test`, `onlava check`, `onlava logs`, and beta `onlava psql`
-- Onlava API parser/codegen/runtime for common Go service behavior
+- onlava API parser/codegen/runtime for common Go service behavior
 - Secrets from `.env`
 - local HTTPS proxy support
 - cron, middleware, Pub/Sub, tracing, logging, DB query tracing, and dashboard support
@@ -24,7 +24,7 @@ Shipped:
 ## Stable Inspect And Harness Contracts
 
 - Status: completed
-- Owner: Onlava runtime
+- Owner: onlava runtime
 - Completed: 2026-04-27
 - Quality: A
 
@@ -40,7 +40,7 @@ Shipped:
 ## Queryable Observability
 
 - Status: completed
-- Owner: Onlava observability
+- Owner: onlava observability
 - Completed: 2026-04-27
 - Quality: B
 
@@ -53,7 +53,7 @@ Shipped:
 ## Victoria Observability Sidecars
 
 - Status: completed
-- Owner: Onlava runtime
+- Owner: onlava runtime
 - Completed: 2026-04-27
 - Quality: A
 - ExecPlan: [0003 Victoria Observability Sidecars](0003-victoria-observability-sidecars.md)
@@ -62,20 +62,20 @@ Shipped:
 
 - `onlava dev` starts VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars by default while preserving SQLite observability writes.
 - Sidecars use loopback ports, `.onlava/victoria/` storage, automatic binary resolution/download, and graceful shutdown with the dev supervisor.
-- Onlava exports built-in trace, log, and request-duration metric reports to Victoria over OTLP protobuf.
+- onlava exports built-in trace, log, and request-duration metric reports to Victoria over OTLP protobuf.
 - Dashboard and inspect trace reads prefer VictoriaTraces with SQLite fallback.
 
-## Onlava-Native Local HTTPS Proxy
+## onlava-Native Local HTTPS Proxy
 
 - Status: completed
-- Owner: Onlava runtime
+- Owner: onlava runtime
 - Completed: 2026-04-27
 - Quality: B
-- ExecPlan: [0004 Onlava-Native Local HTTPS Proxy](0004-onlava-native-localproxy.md)
+- ExecPlan: [0004 onlava-Native Local HTTPS Proxy](0004-onlava-native-localproxy.md)
 
 Shipped:
 
 - Replaced embedded Caddy local HTTPS proxying with a standard-library route table, TLS certificate cache, trust installer hooks, HTTPS reverse proxy, and optional HTTP redirect listener.
-- Preserved `internal/localproxy` public API names and the existing Onlava local URL shape.
+- Preserved `internal/localproxy` public API names and the existing onlava local URL shape.
 - Removed `internal/localproxy/caddyimports.go` plus Caddy, CertMagic, and ZeroSSL module dependencies.
 - Added behavior tests for routing, frontend config/catch-all handling, Host rewriting, redirects, certificate SANs and reuse, trust installer injection, and lifecycle cleanup.

@@ -2,19 +2,19 @@ Below is a copy-pasteable PRD/implementation prompt for a coding agent.
 
 ---
 
-# PRD Prompt: Hidden Binary Generated-Client Transport for Onlava
+# PRD Prompt: Hidden Binary Generated-Client Transport for onlava
 
-You are working on **Onlava**, a local-first Go framework/runtime/codegen tool. Onlava currently exposes developer-authored APIs through normal Go functions and `//onlava:api` directives, with JSON/HTTP behavior and generated clients.
+You are working on **onlava**, a local-first Go framework/runtime/codegen tool. onlava currently exposes developer-authored APIs through normal Go functions and `//onlava:api` directives, with JSON/HTTP behavior and generated clients.
 
 Implement a new **hidden binary generated-client transport**.
 
-The product goal is **faster generated-client communication** without requiring Onlava developers to know anything about protobuf, proto files, gRPC, Connect, schemas, field numbers, descriptors, or RPC services.
+The product goal is **faster generated-client communication** without requiring onlava developers to know anything about protobuf, proto files, gRPC, Connect, schemas, field numbers, descriptors, or RPC services.
 
-Developers should continue writing normal Onlava APIs exactly as they do for JSON.
+Developers should continue writing normal onlava APIs exactly as they do for JSON.
 
 ## Core product principle
 
-Onlava should expose **one logical API model** and multiple wire formats.
+onlava should expose **one logical API model** and multiple wire formats.
 
 Developer-facing model:
 
@@ -28,7 +28,7 @@ func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
 Generated client model:
 
 ```ts
-const api = createOnlavaClient({
+const api = createonlavaClient({
   baseUrl: "http://localhost:4000",
   transport: "auto",
 });
@@ -48,7 +48,7 @@ Binary wire:
   generated-client optimized
   faster serialization/deserialization
   implemented internally using generated protobuf/Connect-like machinery if appropriate
-  never exposed as a concept to normal Onlava developers
+  never exposed as a concept to normal onlava developers
 ```
 
 Do **not** create a public “protobuf API” or “RPC API” concept.
@@ -83,7 +83,7 @@ JSON is the compatibility escape hatch.
 
 ## Required behavior
 
-Onlava should serve JSON and binary at the same time.
+onlava should serve JSON and binary at the same time.
 
 Developers should see one endpoint:
 
@@ -171,7 +171,7 @@ transport: "auto"
 Expected call shape:
 
 ```ts
-const api = createOnlavaClient({
+const api = createonlavaClient({
   baseUrl: "http://localhost:4000",
 });
 
@@ -203,14 +203,14 @@ api/_wire/*
 
 ## Binary schema generation
 
-Onlava should generate binary schemas automatically from the existing Onlava endpoint/type IR.
+onlava should generate binary schemas automatically from the existing onlava endpoint/type IR.
 
 Source of truth:
 
 ```text
 Go endpoint functions
 Go request/response structs
-Onlava parser/codegen metadata
+onlava parser/codegen metadata
 ```
 
 Not source of truth:
@@ -226,8 +226,8 @@ Pipeline:
 
 ```text
 Go source
-  -> Onlava parser
-  -> Onlava endpoint/type IR
+  -> onlava parser
+  -> onlava endpoint/type IR
   -> generated JSON adapters
   -> generated binary schema
   -> generated binary server adapters
@@ -249,7 +249,7 @@ They should be treated as ephemeral/generated artifacts.
 
 Do not implement long-term protobuf field-number compatibility.
 
-For now, assign binary field numbers deterministically from the current Onlava IR.
+For now, assign binary field numbers deterministically from the current onlava IR.
 
 Acceptable strategies:
 
@@ -323,7 +323,7 @@ The generated client should fall back to JSON when:
 - binary request decoding fails on server before handler invocation
 - binary protocol negotiation fails
 - binary response decoding fails
-- binary route returns an Onlava wire/decode/protocol error
+- binary route returns an onlava wire/decode/protocol error
 ```
 
 Do not fall back to JSON for normal application errors.
@@ -335,7 +335,7 @@ Examples that should **not** trigger fallback:
 - permission denied
 - validation error from user handler
 - business logic error
-- normal 4xx/5xx mapped from Onlava errs
+- normal 4xx/5xx mapped from onlava errs
 ```
 
 Those errors should be returned to the caller identically across JSON and binary transports.
@@ -351,7 +351,7 @@ Required approach:
 Each generated-client binary call should send a unique call ID:
 
 ```http
-X-Onlava-Call-ID: <uuid-or-random-id>
+X-onlava-Call-ID: <uuid-or-random-id>
 ```
 
 Runtime should maintain a short-lived in-memory recovery store for generated-client calls.
@@ -386,7 +386,7 @@ If recovery is missing:
 
 ```text
 - for safe/idempotent endpoints, retry the normal JSON endpoint
-- for non-idempotent endpoints, return a clear OnlavaWireFallbackError
+- for non-idempotent endpoints, return a clear onlavaWireFallbackError
 ```
 
 Safe/idempotent defaults:
@@ -461,7 +461,7 @@ Do not fail the whole app because one endpoint cannot be encoded as binary.
 
 ## Error model
 
-Keep one Onlava error model.
+Keep one onlava error model.
 
 Developer writes:
 
@@ -469,7 +469,7 @@ Developer writes:
 return GetUserResponse{}, errs.NotFound("user not found")
 ```
 
-JSON transport returns an Onlava JSON error.
+JSON transport returns an onlava JSON error.
 
 Binary transport returns the equivalent internal wire error.
 
@@ -483,7 +483,7 @@ Client-side behavior:
 try {
   await api.users.getUser({ id });
 } catch (err) {
-  if (isOnlavaError(err, "not_found")) {
+  if (isonlavaError(err, "not_found")) {
     ...
   }
 }
@@ -550,7 +550,7 @@ Prefer Connect-Go internally if it fits the implementation.
 However:
 
 ```text
-- do not expose Connect types to Onlava app developers
+- do not expose Connect types to onlava app developers
 - do not expose Connect concepts in public CLI/dashboard/docs
 - do not require app developers to import connectrpc packages
 - do not require app developers to define services
@@ -559,7 +559,7 @@ However:
 
 Connect/protobuf can be an implementation detail inside generated server/client code.
 
-Public Onlava code should remain ordinary Go.
+Public onlava code should remain ordinary Go.
 
 ## CLI requirements
 
@@ -646,7 +646,7 @@ Wire formats:
 
 For binary requests captured in logs/traces, decode and display the logical JSON-shaped request/response in the dashboard.
 
-Chrome devtools may show binary as opaque; Onlava dashboard should make binary calls understandable.
+Chrome devtools may show binary as opaque; onlava dashboard should make binary calls understandable.
 
 ## File/layout guidance
 
@@ -674,7 +674,7 @@ web/src/api/
 Public import:
 
 ```ts
-import { createOnlavaClient } from "./api";
+import { createonlavaClient } from "./api";
 ```
 
 Private/internal imports may reference:
@@ -692,7 +692,7 @@ Add tests for at least the following.
 
 ### 1. JSON still works
 
-Given a normal Onlava endpoint, the existing JSON route still behaves as before.
+Given a normal onlava endpoint, the existing JSON route still behaves as before.
 
 ### 2. Binary works for supported endpoint
 
@@ -759,7 +759,7 @@ Endpoint returns `errs.NotFound`.
 Expected:
 
 ```text
-- generated client returns Onlava not_found error
+- generated client returns onlava not_found error
 - no JSON fallback retry caused by normal app error
 ```
 
@@ -880,7 +880,7 @@ This feature is done when:
 
 ```text
 1. A developer can write a normal //onlava:api endpoint with Go structs.
-2. Onlava automatically generates binary wire internals.
+2. onlava automatically generates binary wire internals.
 3. The developer never writes or edits proto files.
 4. The generated client can call the endpoint using binary transport.
 5. The same generated client can use JSON transport.
@@ -922,7 +922,7 @@ descriptor
 buf
 ```
 
-Advanced/internal comments may mention implementation details, but the default developer experience must remain Onlava-native.
+Advanced/internal comments may mention implementation details, but the default developer experience must remain onlava-native.
 
 ## Design summary
 
@@ -936,7 +936,7 @@ func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
 ```
 
 ```ts
-const api = createOnlavaClient({ baseUrl });
+const api = createonlavaClient({ baseUrl });
 
 const result = await api.users.getUser({ id: "u_123" });
 ```

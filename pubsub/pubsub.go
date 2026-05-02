@@ -326,7 +326,7 @@ func StartLocalRuntime(ctx context.Context, cfg LocalRuntimeConfig) (func(contex
 	}
 	for _, topic := range topics {
 		if topic.cfg.DeliveryGuarantee == ExactlyOnce {
-			return nil, fmt.Errorf("pubsub: topic %q uses ExactlyOnce, which is not supported in Onlava v1", topic.name)
+			return nil, fmt.Errorf("pubsub: topic %q uses ExactlyOnce, which is not supported in onlava v1", topic.name)
 		}
 	}
 

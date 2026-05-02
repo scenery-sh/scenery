@@ -1,4 +1,4 @@
-My verdict: do not freeze the current feature set as-is. Freeze a smaller, boring, reliable v0. Onlava is close to having a strong local-first developer runtime, but right now the app runtime, dev supervisor, dashboard, local HTTPS proxy, DB Studio, Pub/Sub, cron, and MCP are interwoven. That is the main production-readiness risk.
+My verdict: do not freeze the current feature set as-is. Freeze a smaller, boring, reliable v0. onlava is close to having a strong local-first developer runtime, but right now the app runtime, dev supervisor, dashboard, local HTTPS proxy, DB Studio, Pub/Sub, cron, and MCP are interwoven. That is the main production-readiness risk.
 
 I could not run the full Go test suite here because go.mod requires Go 1.26.0 and this container has Go 1.23.2; Go attempted to auto-download 1.26.0, but network/DNS is blocked. So the findings below are from static source audit, not a green test run.
 
@@ -6,7 +6,7 @@ What you should focus on first
 
 1. Freeze a narrower v0 contract
 
-The best first production-ready Onlava should be:
+The best first production-ready onlava should be:
 
 Stable v0:
   .onlava.json
@@ -141,7 +141,7 @@ explicit:
 
 Trust-store mutation is especially sensitive. Users should never be surprised by it.
 
-3. Keep Onlava-native syntax strict
+3. Keep onlava-native syntax strict
 
 The repo should expose one app model: `.onlava.json`, `github.com/pbrazdil/onlava/...` imports, and `//onlava:` directives. Migration tooling, if added later, should be explicit and separate from the runtime/parser path.
 
@@ -151,7 +151,7 @@ Codegen mutates user endpoint declarations:
 
 * internal/codegen/generator.go:103-109 renames endpoint declarations.
 * internal/codegen/generator.go:528-548 emits wrappers with the original function names.
-* Those wrappers call onlavaruntime.CallEndpoint, so a normal-looking Go call can behave like an Onlava runtime call.
+* Those wrappers call onlavaruntime.CallEndpoint, so a normal-looking Go call can behave like an onlava runtime call.
 
 That is powerful, but it is also surprising. It makes debugging harder because source code, rewritten build code, stack traces, and runtime behavior diverge.
 
@@ -159,7 +159,7 @@ For v0, I would prefer:
 
 // Direct Go call means normal Go call.
 resp, err := Foo(ctx, req)
-// Onlava RPC semantics use an explicit generated client.
+// onlava RPC semantics use an explicit generated client.
 resp, err := clients.MyService.Foo(ctx, req)
 
 If you keep the rewrite model, make it inspectable:
@@ -209,7 +209,7 @@ include:
   go.sum
   Go source files
   known assets required by the app
-  generated Onlava files
+  generated onlava files
 exclude:
   .env
   .env.*
@@ -243,7 +243,7 @@ header fields
 onlava:"httpstatus"
 custom marshalers
 
-Then either fully honor encoding/json behavior or clearly document Onlava’s custom response-shaping semantics.
+Then either fully honor encoding/json behavior or clearly document onlava’s custom response-shaping semantics.
 
 Other issues I found
 
@@ -373,7 +373,7 @@ Contract:
   one canonical local contract doc
   CLI usage matches docs
   docs match implementation
-  Onlava-native syntax and imports documented explicitly
+  onlava-native syntax and imports documented explicitly
   stable vs beta features labeled clearly
 
 The highest-priority fixes
@@ -384,6 +384,6 @@ If I had to reduce this to the top five:
 2. Split onlava run and onlava dev: make onlava run headless and deterministic.
 3. Move dev/admin/pprof endpoints off the app router.
 4. Make local HTTPS proxy and trust-store installation opt-in.
-5. Keep Onlava-native syntax and imports strict before freezing APIs.
+5. Keep onlava-native syntax and imports strict before freezing APIs.
 
 The core idea is solid. The risky part is not lack of features; it is that too many features are currently considered normal runtime behavior. Freeze the smallest useful local runtime, mark the rest as dev/beta, and make the release boring, buildable, testable, and inspectable.

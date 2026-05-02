@@ -146,9 +146,9 @@ func printRuntimeBanner(out io.Writer, listenAddr string, info StandaloneDevInfo
 		apiURL = info.APIURL
 	}
 
-	title := "Onlava server running!"
+	title := "onlava server running!"
 	if info.APIURL != "" || info.ConsoleURL != "" || info.MCPBaseURL != "" || info.FrontendURL != "" || info.DBStudioURL != "" {
-		title = "Onlava development server running!"
+		title = "onlava development server running!"
 	}
 
 	lines := []string{
@@ -164,7 +164,7 @@ func printRuntimeBanner(out io.Writer, listenAddr string, info StandaloneDevInfo
 		lines = append(lines, fmt.Sprintf("  %-26s  %s", "MCP SSE URL:", info.MCPBaseURL+"/sse?appID="+Meta().AppID))
 	}
 	if info.FrontendURL != "" {
-		lines = append(lines, fmt.Sprintf("  %-26s  %s", "Onlava App URL:", info.FrontendURL))
+		lines = append(lines, fmt.Sprintf("  %-26s  %s", "onlava App URL:", info.FrontendURL))
 	}
 	if info.DBStudioURL != "" {
 		lines = append(lines, fmt.Sprintf("  %-26s  %s", "Drizzle Studio URL:", info.DBStudioURL))

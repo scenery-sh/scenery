@@ -22,7 +22,7 @@ const (
 var allowedDirectGoDeps = map[string]string{
 	"github.com/fsnotify/fsnotify":      "file watching for onlava dev live rebuilds",
 	"github.com/gorilla/websocket":      "dashboard JSON-RPC websocket transport",
-	"github.com/jackc/pgx/v5":           "Postgres pgxpool compatibility wrapper for Onlava apps",
+	"github.com/jackc/pgx/v5":           "Postgres pgxpool compatibility wrapper for onlava apps",
 	"github.com/lib/pq":                 "Postgres database explorer and psql URL handling",
 	"github.com/nats-io/nats-server/v2": "embedded local NATS server for the Pub/Sub runtime",
 	"github.com/nats-io/nats.go":        "NATS client for the Pub/Sub runtime",
@@ -32,11 +32,11 @@ var allowedDirectGoDeps = map[string]string{
 }
 
 var forbiddenSourceImports = map[string]string{
-	"github.com/julienschmidt/httprouter": "Onlava uses the standard-library router/runtime routing instead of httprouter.",
-	"github.com/spf13/cobra":              "Onlava CLI intentionally stays hand-rolled to avoid framework surface area.",
-	"github.com/urfave/cli":               "Onlava CLI intentionally stays hand-rolled to avoid framework surface area.",
-	"github.com/fatih/color":              "Onlava terminal styling uses internal/termstyle instead of a color dependency.",
-	"github.com/charmbracelet/lipgloss":   "Onlava terminal styling uses internal/termstyle instead of a UI framework dependency.",
+	"github.com/julienschmidt/httprouter": "onlava uses the standard-library router/runtime routing instead of httprouter.",
+	"github.com/spf13/cobra":              "onlava CLI intentionally stays hand-rolled to avoid framework surface area.",
+	"github.com/urfave/cli":               "onlava CLI intentionally stays hand-rolled to avoid framework surface area.",
+	"github.com/fatih/color":              "onlava terminal styling uses internal/termstyle instead of a color dependency.",
+	"github.com/charmbracelet/lipgloss":   "onlava terminal styling uses internal/termstyle instead of a UI framework dependency.",
 }
 
 func runHarnessArchitectureStep(repoRoot string) harnessStep {
@@ -204,7 +204,7 @@ func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {
 				Severity:        "error",
 				File:            filepath.ToSlash(path),
 				Message:         "forbidden import " + importPath + ": " + reason,
-				SuggestedAction: "Use the existing Onlava standard-library/internal implementation instead.",
+				SuggestedAction: "Use the existing onlava standard-library/internal implementation instead.",
 			})
 		}
 		if importPath == "C" {

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" role="img" aria-label="Onlava">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" role="img" aria-label="onlava">
     <style type="text/css">
         .wordmark {
             fill: #111111;
@@ -11,5 +11,5 @@
             .wordmark { fill: #EEEEE1; }
         }
     </style>
-    <text x="0" y="46" class="wordmark">Onlava</text>
+    <text x="0" y="46" class="wordmark">onlava</text>
 </svg>

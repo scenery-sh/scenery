@@ -180,7 +180,7 @@ func (s *dashboardServer) dispatchGraphQL(ctx context.Context, operation string,
 			},
 		}, nil
 	default:
-		return nil, errors.New("unsupported in Onlava dashboard local GraphQL: " + operation)
+		return nil, errors.New("unsupported in onlava dashboard local GraphQL: " + operation)
 	}
 }
 

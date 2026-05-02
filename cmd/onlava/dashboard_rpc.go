@@ -258,7 +258,7 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		return "ok", nil
 	default:
 		if strings.HasPrefix(method, "ai/") {
-			return nil, fmt.Errorf("%s is unsupported in Onlava", method)
+			return nil, fmt.Errorf("%s is unsupported in onlava", method)
 		}
 		return nil, fmt.Errorf("method not found: %s", method)
 	}

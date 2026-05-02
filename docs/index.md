@@ -1,6 +1,6 @@
-# Onlava Documentation Index
+# onlava Documentation Index
 
-This is the human entry point for Onlava's local knowledge base.
+This is the human entry point for onlava's local knowledge base.
 
 For agents, the machine-readable source of truth is [knowledge.json](knowledge.json). Validate it with:
 

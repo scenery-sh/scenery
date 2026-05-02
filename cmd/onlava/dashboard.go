@@ -226,7 +226,7 @@ func (s *dashboardServer) indexHTML(appID string) string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Onlava Dev Dashboard</title>
+    <title>onlava Dev Dashboard</title>
     <style>
       body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; background: #0e1411; color: #ebf1ea; }
       main { max-width: 900px; margin: 0 auto; padding: 48px 24px; }
@@ -237,9 +237,9 @@ func (s *dashboardServer) indexHTML(appID string) string {
   </head>
 	<body>
     <main>
-      <h1>Onlava Dev Dashboard</h1>
+      <h1>onlava Dev Dashboard</h1>
       <p>The dashboard server is running for <code>` + appID + `</code>, but the dashboard UI build is not available.</p>
-      <p>Build it from the Onlava repo with <code>bun run build</code> inside <code>ui/</code>.</p>
+      <p>Build it from the onlava repo with <code>bun run build</code> inside <code>ui/</code>.</p>
       <p>WebSocket endpoint: <code>ws://` + devdash.ListenAddr() + devdash.WebSocketPath + `</code></p>
     </main>
   </body>

@@ -34,7 +34,7 @@ export function CronPage() {
           <div>
             <h1 className="text-lg font-medium">Cron</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Scheduled Onlava jobs discovered from the current app graph, with recent local executions matched from traces.
+              Scheduled onlava jobs discovered from the current app graph, with recent local executions matched from traces.
             </p>
           </div>
 

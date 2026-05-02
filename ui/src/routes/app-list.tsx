@@ -75,7 +75,7 @@ export function AppListPage() {
                   ? "/assets/img/wordmark.svg"
                   : "/assets/branding/logo/logo-no-padding.svg"
               }
-              alt="Onlava Logo"
+              alt="onlava Logo"
             />
           </div>
         </div>

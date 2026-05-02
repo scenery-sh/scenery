@@ -8,7 +8,7 @@ This file tracks known project debt that should be visible to agents before they
 
 - Area: dashboard
 - Severity: medium
-- Owner: Onlava dashboard
+- Owner: onlava dashboard
 - Created: 2026-04-27
 - Review after: 2026-05-27
 
@@ -18,7 +18,7 @@ The editable dashboard source exists, but parity should continue to be verified 
 
 - Area: harness
 - Severity: medium
-- Owner: Onlava runtime
+- Owner: onlava runtime
 - Created: 2026-04-27
 - Review after: 2026-05-27
 
@@ -28,7 +28,7 @@ The self harness validates CLI, schemas, docs, and builds, but it does not yet r
 
 - Area: harness
 - Severity: low
-- Owner: Onlava runtime
+- Owner: onlava runtime
 - Created: 2026-04-27
 - Review after: 2026-05-27
 
@@ -38,7 +38,7 @@ The self harness now enforces the first architecture checks: dependency allowlis
 
 - Area: tests
 - Severity: low
-- Owner: Onlava runtime
+- Owner: onlava runtime
 - Created: 2026-04-27
 - Review after: 2026-05-27
 

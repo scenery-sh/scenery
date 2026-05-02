@@ -238,7 +238,7 @@ func buildOTLPMetricProto(summary *devdash.TraceSummary) []byte {
 	}
 	gauge := protoMessage(1, point)
 	metric := protoString(1, "onlava.request.duration")
-	metric = append(metric, protoString(2, "Onlava request duration")...)
+	metric = append(metric, protoString(2, "onlava request duration")...)
 	metric = append(metric, protoString(3, "s")...)
 	metric = append(metric, protoMessage(5, gauge)...)
 	scopeMetrics := protoMessage(1, protoInstrumentationScope())

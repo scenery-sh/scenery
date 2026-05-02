@@ -51,8 +51,8 @@ func prepareDBStudioUIDir(ctx context.Context, console *runConsole) (string, err
 	return prepareUIDir(ctx, console, uiBuildSpec{
 		envVar:       "ONLAVA_DEV_DBSTUDIO_UI_DIR",
 		root:         filepath.Join(app.RepoRoot(), "dbstudio"),
-		installTitle: "Installing Onlava DB Studio UI packages",
-		buildTitle:   "Building Onlava DB Studio UI",
+		installTitle: "Installing onlava DB Studio UI packages",
+		buildTitle:   "Building onlava DB Studio UI",
 		sourcePaths:  dbStudioUISourcePaths,
 	})
 }
@@ -118,7 +118,7 @@ func (s *dbStudioUIServer) handle(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, `<html><body><p>Onlava DB Studio UI build is not available. Run <code>bun run build</code> inside <code>dbstudio/</code>.</p></body></html>`)
+		_, _ = io.WriteString(w, `<html><body><p>onlava DB Studio UI build is not available. Run <code>bun run build</code> inside <code>dbstudio/</code>.</p></body></html>`)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

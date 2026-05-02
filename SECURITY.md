@@ -6,7 +6,7 @@ Please do not report security vulnerabilities through public GitHub issues.
 
 Email vulnerability reports to security@onlava.com. Include:
 
-- affected Onlava version or commit SHA
+- affected onlava version or commit SHA
 - operating system and architecture
 - reproduction steps or proof of concept
 - impact and affected features
@@ -16,9 +16,9 @@ We will acknowledge reports as soon as possible and coordinate disclosure with t
 
 ## Scope
 
-Security issues in the Onlava CLI, generated runtime, local proxy, dashboard, client generation, and repository release artifacts are in scope.
+Security issues in the onlava CLI, generated runtime, local proxy, dashboard, client generation, and repository release artifacts are in scope.
 
-Issues in third-party services or applications built with Onlava may be out of scope unless they demonstrate a vulnerability in Onlava itself.
+Issues in third-party services or applications built with onlava may be out of scope unless they demonstrate a vulnerability in onlava itself.
 
 ## Public Discussion
 

@@ -40,7 +40,7 @@ func TestValidateDocsKnowledgeReportsMissingDocument(t *testing.T) {
 	writeTestAppFile(t, root, "docs/knowledge.json", `{
   "schema_version": "onlava.docs.index.v1",
   "generated_at": "2026-04-27T00:00:00Z",
-  "owner_default": "Onlava maintainers",
+  "owner_default": "onlava maintainers",
   "freshness_policy": {
     "default_review_days": 30,
     "quality_grades": ["A", "B", "C", "D"],
@@ -50,7 +50,7 @@ func TestValidateDocsKnowledgeReportsMissingDocument(t *testing.T) {
     {
       "path": "docs/missing.md",
       "title": "Missing",
-      "owner": "Onlava maintainers",
+      "owner": "onlava maintainers",
       "status": "active",
       "quality": "A",
       "freshness": "current",

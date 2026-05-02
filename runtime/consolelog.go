@@ -22,7 +22,7 @@ const levelTrace = slog.Level(-8)
 func init() {
 	stdlog.Install(osStderr())
 	log.SetFlags(log.LstdFlags)
-	// Install the Onlava console logger before generated package init code runs.
+	// Install the onlava console logger before generated package init code runs.
 	slog.SetDefault(slog.New(newOnlavaConsoleHandler(osStderr())))
 }
 

@@ -5,9 +5,9 @@
   "display": "standalone",
   "scope": "",
   "start_url": "https://onlava.com",
-  "name": "Onlava",
-  "short_name": "Onlava",
-  "description": "Onlava Development Dashboard",
+  "name": "onlava",
+  "short_name": "onlava",
+  "description": "onlava Development Dashboard",
   "categories": [
     "developer",
     "productivity",

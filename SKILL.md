@@ -1,24 +1,24 @@
 ---
 name: onlava
-description: Use when building, running, debugging, inspecting, or generating clients for Onlava applications. Onlava is a Go-native service runtime and CLI using .onlava.json, //onlava directives, typed endpoints, local dev supervision, logs, traces, metrics, DB Studio, psql, and TypeScript client generation.
+description: Use when building, running, debugging, inspecting, or generating clients for onlava applications. onlava is a Go-native service runtime and CLI using .onlava.json, //onlava directives, typed endpoints, local dev supervision, logs, traces, metrics, DB Studio, psql, and TypeScript client generation.
 ---
 
-# Onlava
+# onlava
 
-Onlava is a Go-native service runtime and CLI. Applications are ordinary Go modules with a `.onlava.json` file at the app root and `//onlava:` directives in Go source.
+onlava is a Go-native service runtime and CLI. Applications are ordinary Go modules with a `.onlava.json` file at the app root and `//onlava:` directives in Go source.
 
-This skill is for using Onlava in applications. Install it with:
+This skill is for using onlava in applications. Install it with:
 
 ```sh
 npx skills add https://github.com/pbrazdil/onlava
 ```
 
-This installs the agent skill, not the Onlava CLI. The `onlava` binary must also be available on `PATH`. If it is missing, install it from the Onlava source checkout as described in the repository README.
+This installs the agent skill, not the onlava CLI. The `onlava` binary must also be available on `PATH`. If it is missing, install it from the onlava source checkout as described in the repository README.
 
 ## Mental Model
 
 - `.onlava.json` marks the app root and names the app.
-- Go source is the app model. Onlava discovers services, APIs, auth handlers, middleware, Pub/Sub handlers, and cron jobs from code.
+- Go source is the app model. onlava discovers services, APIs, auth handlers, middleware, Pub/Sub handlers, and cron jobs from code.
 - `onlava run` builds once and starts one headless local HTTP server.
 - `onlava dev` starts the full local development platform: app process, file watching, rebuild/restart supervision, dashboard, API explorer, MCP endpoint, DB Studio, logs, traces, metrics, and optional HTTPS local domains.
 - Public and auth endpoints are reachable over external HTTP. Private endpoints are internal-only and called through generated helpers.
@@ -98,7 +98,7 @@ Route defaults:
 Struct tags:
 
 - Request decoding: `json`, `header`, `query`, `qs`, `cookie`.
-- Onlava tags: `onlava:"optional"` and `onlava:"httpstatus"`.
+- onlava tags: `onlava:"optional"` and `onlava:"httpstatus"`.
 
 ## Public Go Packages
 
@@ -108,7 +108,7 @@ Struct tags:
 - `github.com/pbrazdil/onlava/middleware`: middleware request/response types.
 - `github.com/pbrazdil/onlava/pubsub`: local Pub/Sub declarations and runtime integration.
 - `github.com/pbrazdil/onlava/cron`: cron job declarations.
-- `github.com/pbrazdil/onlava/pgxpool`: pgx pool wrapper with Onlava DB tracing.
+- `github.com/pbrazdil/onlava/pgxpool`: pgx pool wrapper with onlava DB tracing.
 - `github.com/pbrazdil/onlava/et`: endpoint and service mocking helpers for tests.
 
 ## Auth
@@ -143,7 +143,7 @@ func initService() (*Service, error) {
 }
 ```
 
-Onlava initializes service structs and wraps methods so endpoint calls still pass through runtime semantics.
+onlava initializes service structs and wraps methods so endpoint calls still pass through runtime semantics.
 
 ## Errors And Responses
 
@@ -193,7 +193,7 @@ Use `onlava dev --proxy` for local HTTPS/frontend domains from `.onlava.json` pr
 }
 ```
 
-Use `onlava dev --proxy --trust` only when installing or updating the local development CA. Once trusted, Onlava should not need trust-store permission on every startup.
+Use `onlava dev --proxy --trust` only when installing or updating the local development CA. Once trusted, onlava should not need trust-store permission on every startup.
 
 ## Debugging
 
@@ -277,7 +277,7 @@ onlava inspect wire --json
 
 ## Pub/Sub, Cron, Middleware
 
-Onlava discovers Pub/Sub handlers, cron jobs, and middleware from Go source. Treat local Pub/Sub and cron dev/admin UI affordances as beta until lifecycle, retry, scheduling, and clear/delete semantics are frozen for the app you are working on.
+onlava discovers Pub/Sub handlers, cron jobs, and middleware from Go source. Treat local Pub/Sub and cron dev/admin UI affordances as beta until lifecycle, retry, scheduling, and clear/delete semantics are frozen for the app you are working on.
 
 When changing these areas, validate with:
 

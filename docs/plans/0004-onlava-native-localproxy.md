@@ -1,18 +1,18 @@
-# Onlava-Native Local HTTPS Proxy
+# onlava-Native Local HTTPS Proxy
 
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
 ## Purpose / Big Picture
 
-Onlava currently uses embedded Caddy modules in `internal/localproxy` to serve local HTTPS reverse-proxy routes for `onlava dev` and standalone `onlava run`. The goal is to replace that embedded Caddy dependency with a small Onlava-native Go implementation that preserves the current public `localproxy` API and user-visible behavior.
+onlava currently uses embedded Caddy modules in `internal/localproxy` to serve local HTTPS reverse-proxy routes for `onlava dev` and standalone `onlava run`. The goal is to replace that embedded Caddy dependency with a small onlava-native Go implementation that preserves the current public `localproxy` API and user-visible behavior.
 
 When this plan is complete, `onlava dev` and standalone runtime development mode still expose HTTPS URLs such as `https://api.<workspace>.localhost`, `https://console.<workspace>.localhost`, `https://mcp.<workspace>.localhost`, and `https://onlava.<workspace>.localhost`, but the implementation uses only the Go standard library for routing, TLS certificates, trust installation, reverse proxying, and lifecycle management. Caddy imports and Caddy-only dependencies are removed from the repository.
 
 ## Progress
 
 - [x] (2026-04-27 17:06Z) Created this ExecPlan and assigned historical ID 0004.
-- [x] (2026-04-27 17:19Z) Replaced Caddy-backed route/config generation with an Onlava-native route table.
-- [x] (2026-04-27 17:19Z) Implemented Onlava local CA, leaf certificate generation, and SAN validation.
+- [x] (2026-04-27 17:19Z) Replaced Caddy-backed route/config generation with an onlava-native route table.
+- [x] (2026-04-27 17:19Z) Implemented onlava local CA, leaf certificate generation, and SAN validation.
 - [x] (2026-04-27 17:19Z) Implemented injectable OS trust installation without Caddy or global process mutation.
 - [x] (2026-04-27 17:19Z) Implemented HTTPS reverse proxy serving and optional HTTP-to-HTTPS redirect serving.
 - [x] (2026-04-27 17:19Z) Updated call sites and tests while preserving public `internal/localproxy` API names and URL behavior.
@@ -32,7 +32,7 @@ When this plan is complete, `onlava dev` and standalone runtime development mode
 - After the first native-proxy pass, `onlava dev` without `--proxy` still printed loopback URLs because the CLI only enabled `ONLAVA_LOCAL_PROXY` from the explicit flag. `onlava dev` now enables the proxy by default while preserving an environment opt-out.
 - Binding the HTTP redirect port can fail on machines where port 80 is occupied or restricted. The native proxy now treats redirect startup as optional and still starts the HTTPS server so the primary local domains appear.
 - After domains appeared in the banner, Chromium still showed `ERR_CERT_AUTHORITY_INVALID` because `onlava dev` was setting `ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL=1` by default. The CLI now defaults that env var to `0` for `onlava dev`.
-- The Darwin `security add-trusted-cert` invocation imported the CA into the login keychain, but `security dump-trust-settings` showed no Onlava CA user trust settings. Removing `-d` and adding explicit `-p ssl -p basic` records user trust and makes system certificate verification accept the local domains.
+- The Darwin `security add-trusted-cert` invocation imported the CA into the login keychain, but `security dump-trust-settings` showed no onlava CA user trust settings. Removing `-d` and adding explicit `-p ssl -p basic` records user trust and makes system certificate verification accept the local domains.
 
 ## Decision Log
 
@@ -57,14 +57,14 @@ When this plan is complete, `onlava dev` and standalone runtime development mode
   Date/Author: 2026-04-27 / Codex
 
 - Decision: Enable the local HTTPS proxy by default for `onlava dev`, while keeping `internal/localproxy.Enabled()` opt-in for library callers and respecting `ONLAVA_LOCAL_PROXY=0`, `false`, `no`, or `off` as a dev opt-out.
-  Rationale: `onlava dev` is the full local development platform and should surface the Onlava local domains without requiring `--proxy`; the package-level default remains conservative for non-CLI callers.
+  Rationale: `onlava dev` is the full local development platform and should surface the onlava local domains without requiring `--proxy`; the package-level default remains conservative for non-CLI callers.
   Date/Author: 2026-04-27 / Codex
 
 - Decision: Install local CA trust by default for `onlava dev`, while respecting `ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL=1` as an opt-out and keeping `--trust` as an explicit force-on flag.
-  Rationale: Local HTTPS domains are only useful in the browser when the generated Onlava CA is trusted. The package-level default remains conservative, but `onlava dev` should provide the complete local development platform.
+  Rationale: Local HTTPS domains are only useful in the browser when the generated onlava CA is trusted. The package-level default remains conservative, but `onlava dev` should provide the complete local development platform.
   Date/Author: 2026-04-27 / Codex
 
-- Decision: On Darwin, install Onlava's local CA as a user trust root with explicit SSL and basic X.509 policies.
+- Decision: On Darwin, install onlava's local CA as a user trust root with explicit SSL and basic X.509 policies.
   Rationale: Importing the certificate alone is not enough for Chromium or system verification; user trust settings must be recorded for the CA.
   Date/Author: 2026-04-27 / Codex
 
@@ -74,7 +74,7 @@ When this plan is complete, `onlava dev` and standalone runtime development mode
 
 ## Outcomes & Retrospective
 
-Completed on 2026-04-27. Onlava local HTTPS proxying now uses a small standard-library implementation for route matching, TLS certificate generation, trust installation hooks, reverse proxying, redirects, and lifecycle cleanup. Caddy, CertMagic, and ZeroSSL are no longer present in `go.mod`, `go.sum`, `go list -m all`, or `internal/localproxy` imports.
+Completed on 2026-04-27. onlava local HTTPS proxying now uses a small standard-library implementation for route matching, TLS certificate generation, trust installation hooks, reverse proxying, redirects, and lifecycle cleanup. Caddy, CertMagic, and ZeroSSL are no longer present in `go.mod`, `go.sum`, `go list -m all`, or `internal/localproxy` imports.
 
 Validation passed with `go test ./internal/localproxy`, `go test ./runtimeapp ./cmd/onlava`, `go test ./...`, `go install ./cmd/onlava`, and `onlava harness self --json --write`. The self harness still reports the pre-existing `.DS_Store` warning, but no errors.
 
@@ -114,7 +114,7 @@ Existing helpers in `internal/localproxy/proxy.go` define important normalizatio
 
 Milestone 1 introduces a Caddy-independent route table. This is complete when tests can inspect resolved API, console, MCP, frontend, and `/__onlava/config` routes without building Caddy JSON.
 
-Milestone 2 implements local certificate storage. This is complete when the package can generate or reuse an Onlava development CA, generate a leaf certificate with the expected SAN DNS names, store private keys with `0600`, store directories with `0700`, and regenerate leaf certificates when missing, expired, near expiry, not covered by SANs, or signed by a changed CA.
+Milestone 2 implements local certificate storage. This is complete when the package can generate or reuse an onlava development CA, generate a leaf certificate with the expected SAN DNS names, store private keys with `0600`, store directories with `0700`, and regenerate leaf certificates when missing, expired, near expiry, not covered by SANs, or signed by a changed CA.
 
 Milestone 3 implements trust installation. This is complete when trust installation is injectable for tests and has OS-specific files for Darwin, Linux, Windows, and other platforms. Trust installation should be idempotent, should not mutate Go global process state, and should warn clearly when unsupported or unsuccessful.
 
@@ -126,7 +126,7 @@ Milestone 5 removes Caddy. This is complete when `internal/localproxy` imports n
 
 Start by carving the route model out of the Caddy JSON model. Replace `configJSON`, `proxyRoutes`, and `proxyRoute` with small route structs such as `proxyRoute{host, path, upstream string, rewriteHost bool}` and a route table that matches host case-insensitively after stripping any port from `req.Host`. The frontend host must register the exact `/__onlava/config` route before the catch-all frontend route so API config routing wins.
 
-Next add certificate code under `internal/localproxy/cert.go`. Use `ONLAVA_DEV_CACHE_DIR` when set, otherwise `os.UserCacheDir()`, and store files under an Onlava-specific directory like `<cache-root>/onlava/localproxy/`. Generate an ECDSA P-256 or RSA 2048 CA certificate, a matching CA key, a leaf certificate, and a leaf key. Keep the CA long-lived, keep the leaf shorter-lived, and expose small internal helpers so tests can load the generated CA into an `http.Client` root pool without touching the system trust store.
+Next add certificate code under `internal/localproxy/cert.go`. Use `ONLAVA_DEV_CACHE_DIR` when set, otherwise `os.UserCacheDir()`, and store files under an onlava-specific directory like `<cache-root>/onlava/localproxy/`. Generate an ECDSA P-256 or RSA 2048 CA certificate, a matching CA key, a leaf certificate, and a leaf key. Keep the CA long-lived, keep the leaf shorter-lived, and expose small internal helpers so tests can load the generated CA into an `http.Client` root pool without touching the system trust store.
 
 Add trust installers under:
 
@@ -207,7 +207,7 @@ Acceptance criteria:
 - `go.mod` no longer directly requires `github.com/caddyserver/caddy/v2`.
 - Existing normalization, route URL, workspace, and frontend discovery tests pass.
 - New integration tests prove HTTPS reverse proxy parity for API, console, MCP, frontend, `/__onlava/config`, frontend `Host` rewrite, unknown host `404`, HTTP redirect, and `Close` lifecycle.
-- TLS certificates contain the expected SAN DNS names and work with clients that trust the generated Onlava local CA.
+- TLS certificates contain the expected SAN DNS names and work with clients that trust the generated onlava local CA.
 - Trust installation is implemented and testable through mocks without modifying the real system trust store.
 - `go test ./...` and `go install ./cmd/onlava` pass.
 

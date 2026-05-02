@@ -1,20 +1,20 @@
-# Onlava Pub/Sub
+# onlava Pub/Sub
 
-This document describes how Onlava pub/sub works today, how to define topics and subscriptions, and what runtime behavior to expect.
+This document describes how onlava pub/sub works today, how to define topics and subscriptions, and what runtime behavior to expect.
 
-Onlava pub/sub is currently a local, embedded runtime intended to preserve a compact local development flow while keeping the implementation small and predictable.
+onlava pub/sub is currently a local, embedded runtime intended to preserve a compact local development flow while keeping the implementation small and predictable.
 
 ## Summary
 
 - Package: `github.com/pbrazdil/onlava/pubsub`
 - Runtime transport: embedded NATS JetStream
 - Message encoding: JSON
-- Delivery guarantee supported in Onlava v1: `AtLeastOnce`
-- `ExactlyOnce`: declared in the API, rejected at runtime in Onlava v1
-- Local persistence: yes, JetStream file storage under the Onlava cache directory
+- Delivery guarantee supported in onlava v1: `AtLeastOnce`
+- `ExactlyOnce`: declared in the API, rejected at runtime in onlava v1
+- Local persistence: yes, JetStream file storage under the onlava cache directory
 - Separate broker setup: not required
 
-When your app starts through Onlava runtime startup, Onlava automatically starts the local pub/sub runtime if the app has any registered topics or subscriptions.
+When your app starts through onlava runtime startup, onlava automatically starts the local pub/sub runtime if the app has any registered topics or subscriptions.
 
 ## Developer API
 
@@ -88,7 +88,7 @@ _, err := WelcomeEmails.Publish(ctx, &WelcomeEmail{
 
 ## Service Method Handlers
 
-If you want a subscription handler implemented as a method on an Onlava service struct, use `pubsub.MethodHandler`.
+If you want a subscription handler implemented as a method on an onlava service struct, use `pubsub.MethodHandler`.
 
 Example:
 
@@ -121,9 +121,9 @@ func (s *Service) HandleInvoiceCreated(ctx context.Context, msg *InvoiceCreated)
 }
 ```
 
-Onlava codegen automatically registers a service accessor for `//onlava:service` structs, so method handlers can resolve the initialized service instance at runtime.
+onlava codegen automatically registers a service accessor for `//onlava:service` structs, so method handlers can resolve the initialized service instance at runtime.
 
-If you use `pubsub.MethodHandler` outside that generated Onlava service flow, you must register the accessor yourself with:
+If you use `pubsub.MethodHandler` outside that generated onlava service flow, you must register the accessor yourself with:
 
 ```go
 pubsub.RegisterServiceAccessorFor[*MyService](func() (any, error) {
@@ -150,15 +150,15 @@ type Event struct {
 }
 ```
 
-Because the wire format is JSON, Onlava pub/sub does not currently use protobuf for message transport.
+Because the wire format is JSON, onlava pub/sub does not currently use protobuf for message transport.
 
 ## Delivery Semantics
 
-Onlava v1 supports:
+onlava v1 supports:
 
 - `pubsub.AtLeastOnce`
 
-Onlava v1 does not support:
+onlava v1 does not support:
 
 - `pubsub.ExactlyOnce`
 
@@ -205,7 +205,7 @@ That last point matters: the implementation counts deliveries, not just retries.
 
 ## Dead-Letter Behavior
 
-When a message can no longer be processed, Onlava writes it to a DLQ stream in JetStream.
+When a message can no longer be processed, onlava writes it to a DLQ stream in JetStream.
 
 Dead-lettered payloads include:
 
@@ -218,7 +218,7 @@ Dead-lettered payloads include:
 
 Current DLQ retention is `7d`.
 
-At the moment, Onlava exposes this as internal broker state rather than a polished developer-facing DLQ API. The important practical point is that failed messages are not silently discarded once retry policy is exhausted.
+At the moment, onlava exposes this as internal broker state rather than a polished developer-facing DLQ API. The important practical point is that failed messages are not silently discarded once retry policy is exhausted.
 
 ## Ack Deadline
 
@@ -246,11 +246,11 @@ This means if one subscription asks for a longer retention window, the topic str
 
 ## Concurrency
 
-`MaxConcurrency` limits how many handler goroutines Onlava runs concurrently for a specific subscription.
+`MaxConcurrency` limits how many handler goroutines onlava runs concurrently for a specific subscription.
 
 Behavior:
 
-- `MaxConcurrency > 0`: Onlava enforces that maximum in the app process
+- `MaxConcurrency > 0`: onlava enforces that maximum in the app process
 - `MaxConcurrency <= 0`: no application-level semaphore is applied
 
 Important detail:
@@ -267,7 +267,7 @@ Names must be non-empty and unique:
 - duplicate topic names panic at initialization time
 - duplicate subscription names on the same topic panic at initialization time
 
-Internally, Onlava sanitizes names for stream and subject usage, but you should still choose stable, human-readable names.
+Internally, onlava sanitizes names for stream and subject usage, but you should still choose stable, human-readable names.
 
 Recommended style:
 
@@ -276,7 +276,7 @@ Recommended style:
 
 ## Ordering
 
-`TopicConfig.OrderingAttribute` exists in the public API, but Onlava v1 does not currently enforce ordered delivery based on it.
+`TopicConfig.OrderingAttribute` exists in the public API, but onlava v1 does not currently enforce ordered delivery based on it.
 
 Treat it as reserved for future compatibility for now.
 
@@ -285,17 +285,17 @@ If you need stable ordering today:
 - keep `MaxConcurrency: 1`
 - design the handler to tolerate retries and occasional reordering
 
-Do not assume `OrderingAttribute` is active until Onlava explicitly documents support for it.
+Do not assume `OrderingAttribute` is active until onlava explicitly documents support for it.
 
 ## Storage and Persistence
 
-Onlava stores JetStream data on disk.
+onlava stores JetStream data on disk.
 
 By default the local store lives under:
 
 - `$ONLAVA_DEV_CACHE_DIR/pubsub/<app>`
 
-If `ONLAVA_DEV_CACHE_DIR` is not set, Onlava uses the OS user cache directory and stores data under:
+If `ONLAVA_DEV_CACHE_DIR` is not set, onlava uses the OS user cache directory and stores data under:
 
 - `<user-cache>/onlava/pubsub/<app>`
 
@@ -315,7 +315,7 @@ The local pub/sub runtime:
 
 Only one local pub/sub runtime instance is started per app process.
 
-If the runtime is already started, Onlava returns an error instead of silently starting a second copy.
+If the runtime is already started, onlava returns an error instead of silently starting a second copy.
 
 ## Error Handling
 
@@ -335,10 +335,10 @@ Design guidance:
 
 ## Build and Runtime Scope
 
-Current Onlava pub/sub is a local runtime feature. It is designed for:
+Current onlava pub/sub is a local runtime feature. It is designed for:
 
 - `onlava run`
-- locally run Onlava-built binaries
+- locally run onlava-built binaries
 
 It is not yet documented as a distributed or cloud-managed pub/sub platform.
 
@@ -349,7 +349,7 @@ The current implementation keeps things simple:
 - JSON payloads
 - local persistence
 
-That is intentional for Onlava v1.
+That is intentional for onlava v1.
 
 ## Common Caveats
 
@@ -367,7 +367,7 @@ Do not configure:
 DeliveryGuarantee: pubsub.ExactlyOnce
 ```
 
-Onlava v1 rejects it on startup.
+onlava v1 rejects it on startup.
 
 ### Ordering is not active yet
 
@@ -441,7 +441,7 @@ var _ = pubsub.NewSubscription(UserCreatedTopic, "send-welcome-email", pubsub.Su
 })
 ```
 
-## Current Onlava v1 Guarantees
+## Current onlava v1 Guarantees
 
 You can rely on:
 
@@ -451,7 +451,7 @@ You can rely on:
 - at-least-once delivery
 - retries with exponential backoff
 - dead-lettering after retry exhaustion
-- service method handlers via generated accessors for Onlava service structs
+- service method handlers via generated accessors for onlava service structs
 
 You should not rely on yet:
 

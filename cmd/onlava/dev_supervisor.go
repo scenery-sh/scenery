@@ -254,7 +254,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		err         error
 	)
 	graphFingerprint := snapshotFingerprint(snapshot)
-	if err := s.console.Phase("Building Onlava application graph", func() error {
+	if err := s.console.Phase("Building onlava application graph", func() error {
 		cached, _, err = build.LoadCachedGraph(s.root, s.cfg.Name, graphFingerprint)
 		if err != nil {
 			return err
@@ -331,7 +331,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 
 	previous := s.currentApp()
 	var current *runningApp
-	if err := s.console.Phase("Starting Onlava application", func() error {
+	if err := s.console.Phase("Starting onlava application", func() error {
 		if previous != nil {
 			if err := previous.stop(); err != nil {
 				return err

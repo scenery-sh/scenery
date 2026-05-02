@@ -217,7 +217,7 @@ func suggestedActionForDiagnostic(stage, message string) string {
 	case strings.Contains(message, "updates to go.mod needed"):
 		return "Run `go mod tidy` in the app and rerun `onlava check --json`."
 	case stage == "parse":
-		return "Fix the source or Onlava directive error, then rerun `onlava check --json`."
+		return "Fix the source or onlava directive error, then rerun `onlava check --json`."
 	case stage == "prepare":
 		return "Fix the generated workspace or dependency setup issue, then rerun `onlava check --json`."
 	default:
