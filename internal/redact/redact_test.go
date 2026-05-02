@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-func TestValueRedactsPulseSensitiveFields(t *testing.T) {
+func TestValueRedactsOnlavaSensitiveFields(t *testing.T) {
 	type nested struct {
-		Token string `json:"token" pulse:"sensitive"`
+		Token string `json:"token" onlava:"sensitive"`
 	}
 	type payload struct {
-		Password string `json:"password" pulse:"sensitive"`
+		Password string `json:"password" onlava:"sensitive"`
 		Nested   nested `json:"nested"`
 		Name     string `json:"name"`
 	}

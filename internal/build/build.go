@@ -16,12 +16,12 @@ import (
 
 	"golang.org/x/mod/modfile"
 
-	"pulse.dev/internal/app"
-	"pulse.dev/internal/codegen"
-	inspectdata "pulse.dev/internal/inspect"
-	"pulse.dev/internal/model"
-	"pulse.dev/internal/parse"
-	"pulse.dev/internal/wiremodel"
+	"onlava.com/internal/app"
+	"onlava.com/internal/codegen"
+	inspectdata "onlava.com/internal/inspect"
+	"onlava.com/internal/model"
+	"onlava.com/internal/parse"
+	"onlava.com/internal/wiremodel"
 )
 
 type Result struct {
@@ -51,7 +51,7 @@ type buildState struct {
 }
 
 const (
-	buildStateFile    = ".pulse-build-state.json"
+	buildStateFile    = ".onlava-build-state.json"
 	buildStateVersion = "2"
 )
 
@@ -198,7 +198,7 @@ func Prepare(appRoot string, model *model.App, cfg app.Config, opts PrepareOptio
 		return nil, err
 	}
 	needsTidy := state.DependencyFingerprint != depFingerprint
-	binary := filepath.Join(workspaceDir, "pulse-app")
+	binary := filepath.Join(workspaceDir, "onlava-app")
 	result := &Result{
 		AppRoot:               appRoot,
 		AppName:               cfg.Name,
@@ -227,7 +227,7 @@ func writeGeneratedInspectArtifacts(appRoot string, cfg app.Config, appModel *mo
 		Endpoints:        inspectdata.BuildEndpointsResponse(appRoot, cfg, appModel),
 		WireCapabilities: wiremodel.AppCapabilities(appModel),
 	}
-	genDir := filepath.Join(appRoot, ".pulse", "gen")
+	genDir := filepath.Join(appRoot, ".onlava", "gen")
 	files := map[string]*[]byte{
 		"app.json":               &artifacts.AppJSON,
 		"routes.json":            &artifacts.RoutesJSON,
@@ -261,24 +261,24 @@ func writeGeneratedManifest(appRoot string, artifacts *generatedInspectArtifacts
 		return fmt.Errorf("nil generated inspect artifacts")
 	}
 	manifest := GeneratedManifest{
-		SchemaVersion: "pulse.gen.manifest.v1",
+		SchemaVersion: "onlava.gen.manifest.v1",
 		App:           artifacts.App.App,
 		Counts:        artifacts.App.Counts,
 		Artifacts: GeneratedManifestPaths{
-			App:              ".pulse/gen/app.json",
-			Routes:           ".pulse/gen/routes.json",
-			Services:         ".pulse/gen/services.json",
-			Endpoints:        ".pulse/gen/endpoints.json",
-			WireCapabilities: ".pulse/gen/wire/capabilities.json",
-			BuildLatest:      ".pulse/build/latest.json",
+			App:              ".onlava/gen/app.json",
+			Routes:           ".onlava/gen/routes.json",
+			Services:         ".onlava/gen/services.json",
+			Endpoints:        ".onlava/gen/endpoints.json",
+			WireCapabilities: ".onlava/gen/wire/capabilities.json",
+			BuildLatest:      ".onlava/build/latest.json",
 		},
 		Schemas: GeneratedManifestSchema{
 			App:              artifacts.App.SchemaVersion,
 			Routes:           artifacts.Routes.SchemaVersion,
 			Services:         artifacts.Services.SchemaVersion,
 			Endpoints:        artifacts.Endpoints.SchemaVersion,
-			WireCapabilities: "pulse.wire.capabilities.v1",
-			BuildLatest:      "pulse.build.latest.v1",
+			WireCapabilities: "onlava.wire.capabilities.v1",
+			BuildLatest:      "onlava.build.latest.v1",
 		},
 		Hashes: GeneratedManifestHashes{
 			App:              sha256Hex(artifacts.AppJSON),
@@ -293,7 +293,7 @@ func writeGeneratedManifest(appRoot string, artifacts *generatedInspectArtifacts
 		return err
 	}
 	data = append(data, '\n')
-	return writeFileIfChanged(filepath.Join(appRoot, ".pulse", "gen"), "manifest.json", data)
+	return writeFileIfChanged(filepath.Join(appRoot, ".onlava", "gen"), "manifest.json", data)
 }
 
 func Compile(result *Result) error {
@@ -343,7 +343,7 @@ func CompileContext(ctx context.Context, result *Result) error {
 	if err := PrimeWorkspaceContext(ctx, result); err != nil {
 		return err
 	}
-	if err := runGoContext(ctx, result.Dir, "build", "-o", result.Binary, "./pulse_internal_main"); err != nil {
+	if err := runGoContext(ctx, result.Dir, "build", "-o", result.Binary, "./onlava_internal_main"); err != nil {
 		return err
 	}
 	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
@@ -496,7 +496,7 @@ func shouldSkipDir(rel string) bool {
 		return true
 	}
 	switch base {
-	case "node_modules", "pulse_internal_main", "__MACOSX", "coverage":
+	case "node_modules", "onlava_internal_main", "__MACOSX", "coverage":
 		return true
 	default:
 		return false
@@ -534,7 +534,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	if filepath.Ext(src) == ".go" {
-		data, err = rewritePulseImports(src, data)
+		data, err = rewriteOnlavaImports(src, data)
 		if err != nil {
 			return err
 		}
@@ -552,7 +552,7 @@ func sourceFileData(path, rel string) ([]byte, error) {
 		return patchGoModData(data, app.RepoRoot())
 	}
 	if filepath.Ext(rel) == ".go" {
-		return rewritePulseImports(path, data)
+		return rewriteOnlavaImports(path, data)
 	}
 	return data, nil
 }
@@ -577,11 +577,11 @@ func patchGoModData(data []byte, repoRoot string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := file.AddRequire("pulse.dev", "v0.0.0"); err != nil && !strings.Contains(err.Error(), "already exists") {
+	if err := file.AddRequire("onlava.com", "v0.0.0"); err != nil && !strings.Contains(err.Error(), "already exists") {
 		return nil, err
 	}
-	_ = file.DropReplace("pulse.dev", "")
-	if err := file.AddReplace("pulse.dev", "", repoRoot, ""); err != nil {
+	_ = file.DropReplace("onlava.com", "")
+	if err := file.AddReplace("onlava.com", "", repoRoot, ""); err != nil {
 		return nil, err
 	}
 	formatted, err := file.Format()
@@ -602,7 +602,7 @@ func runGoContext(ctx context.Context, dir string, args ...string) error {
 }
 
 func workspaceDir(appRoot, appName string) (string, error) {
-	cacheRoot, err := pulseCacheRoot()
+	cacheRoot, err := onlavaCacheRoot()
 	if err != nil {
 		return "", err
 	}
@@ -618,19 +618,19 @@ func workspaceDir(appRoot, appName string) (string, error) {
 	return filepath.Join(cacheRoot, "build", name+"-"+hex.EncodeToString(sum[:8])), nil
 }
 
-func pulseCacheRoot() (string, error) {
-	if root := strings.TrimSpace(os.Getenv("PULSE_DEV_CACHE_DIR")); root != "" {
+func onlavaCacheRoot() (string, error) {
+	if root := strings.TrimSpace(os.Getenv("ONLAVA_DEV_CACHE_DIR")); root != "" {
 		return root, nil
 	}
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "pulse"), nil
+	return filepath.Join(dir, "onlava"), nil
 }
 
 func CacheRoot() (string, error) {
-	return pulseCacheRoot()
+	return onlavaCacheRoot()
 }
 
 func WorkspaceDir(appRoot, appName string) (string, error) {
@@ -646,7 +646,7 @@ func BuildStatePath(appRoot, appName string) (string, error) {
 }
 
 func LatestBuildPath(appRoot string) string {
-	return filepath.Join(appRoot, ".pulse", "build", "latest.json")
+	return filepath.Join(appRoot, ".onlava", "build", "latest.json")
 }
 
 type StateInfo struct {
@@ -716,12 +716,12 @@ func WriteLatestBuildManifest(result *Result, phase string) error {
 		return err
 	}
 	manifest := LatestBuildManifest{
-		SchemaVersion: "pulse.build.latest.v1",
+		SchemaVersion: "onlava.build.latest.v1",
 		App: LatestBuildManifestApp{
 			Name:       result.AppName,
 			ID:         result.AppID,
 			Root:       result.AppRoot,
-			ConfigPath: filepath.Join(result.AppRoot, "pulse.app"),
+			ConfigPath: filepath.Join(result.AppRoot, ".onlava.json"),
 		},
 		Build: LatestBuildManifestRecord{
 			Phase:                 phase,
@@ -792,7 +792,7 @@ func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []s
 			dir = filepath.Dir(dir)
 		}
 	}
-	keepFiles["pulse-app"] = struct{}{}
+	keepFiles["onlava-app"] = struct{}{}
 	keepFiles[buildStateFile] = struct{}{}
 	keepFiles["go.sum"] = struct{}{}
 

@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"pulse.dev/internal/model"
-	"pulse.dev/internal/runtimeapi"
-	"pulse.dev/internal/wiremodel"
+	"onlava.com/internal/model"
+	"onlava.com/internal/runtimeapi"
+	"onlava.com/internal/wiremodel"
 )
 
 type TypeScriptOptions struct {
@@ -95,6 +95,18 @@ func (g *tsGenerator) renderEndpointMethod(namespace string, ep *model.Endpoint)
 		return g.renderRawMethod(pathExpr, ep)
 	}
 
+	regular, err := g.renderTypedMethod(namespace, ep, pathExpr, false)
+	if err != nil {
+		return "", err
+	}
+	withMeta, err := g.renderTypedMethod(namespace, ep, pathExpr, true)
+	if err != nil {
+		return "", err
+	}
+	return regular + "\n\n" + withMeta, nil
+}
+
+func (g *tsGenerator) renderTypedMethod(namespace string, ep *model.Endpoint, pathExpr string, withMeta bool) (string, error) {
 	methodName := preferredHTTPMethod(ep.Methods)
 	params := make([]string, 0, len(ep.PathParams)+1)
 	for _, pathParam := range ep.PathParams {
@@ -119,6 +131,8 @@ func (g *tsGenerator) renderEndpointMethod(namespace string, ep *model.Endpoint)
 			return "", err
 		}
 	}
+
+	params = append(params, "options?: CallParameters")
 
 	var lines []string
 	if ep.Payload != nil && ep.Payload.Type != nil {
@@ -181,22 +195,34 @@ func (g *tsGenerator) renderEndpointMethod(namespace string, ep *model.Endpoint)
 			}
 
 			optionsExpr := renderCallOptions(len(queryLines) > 0, len(headerLines) > 0 || len(cookieLines) > 0)
-			lines = append(lines, renderTypedEndpointCall(ep, methodName, pathExpr, bodyExpr, optionsExpr, ep.Payload != nil))
+			lines = append(lines, renderTypedEndpointCall(ep, methodName, pathExpr, bodyExpr, optionsExpr, ep.Payload != nil, withMeta))
 		} else {
-			lines = append(lines, renderTypedEndpointCall(ep, methodName, pathExpr, "JSON.stringify(params)", "", true))
+			lines = append(lines, renderTypedEndpointCall(ep, methodName, pathExpr, "JSON.stringify(params)", "options", true, withMeta))
 		}
 	} else {
-		lines = append(lines, renderTypedEndpointCall(ep, methodName, pathExpr, "undefined", "", false))
+		lines = append(lines, renderTypedEndpointCall(ep, methodName, pathExpr, "undefined", "options", false, withMeta))
 	}
 
-	if responseType == "void" {
+	if withMeta {
+		if responseType == "void" {
+			lines = append(lines, "return typedVoidAPIResponse(resp)")
+		} else {
+			lines = append(lines, fmt.Sprintf("return await decodeTypedAPIResponse(resp) as APIResponse<%s>", responseType))
+		}
+	} else if responseType == "void" {
 		lines[len(lines)-1] = strings.Replace(lines[len(lines)-1], "const resp = await ", "await ", 1)
 	} else {
 		lines = append(lines, fmt.Sprintf("return await decodeTypedResponse(resp) as %s", responseType))
 	}
 
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("public async %s(%s): Promise<%s> {\n", ep.Name, strings.Join(params, ", "), responseType))
+	name := ep.Name
+	returnType := responseType
+	if withMeta {
+		name += "WithMeta"
+		returnType = fmt.Sprintf("APIResponse<%s>", responseType)
+	}
+	buf.WriteString(fmt.Sprintf("public async %s(%s): Promise<%s> {\n", name, strings.Join(params, ", "), returnType))
 	for _, line := range lines {
 		buf.WriteString("    " + line + "\n")
 	}
@@ -538,17 +564,17 @@ func canPassPayloadAsJSON(fields []requestField) bool {
 func renderCallOptions(hasQuery, hasHeaders bool) string {
 	switch {
 	case hasQuery && hasHeaders:
-		return "{ query, headers }"
+		return "mergeCallParameters(options, { query, headers })"
 	case hasQuery:
-		return "{ query }"
+		return "mergeCallParameters(options, { query })"
 	case hasHeaders:
-		return "{ headers }"
+		return "mergeCallParameters(options, { headers })"
 	default:
-		return ""
+		return "options"
 	}
 }
 
-func renderTypedEndpointCall(ep *model.Endpoint, methodName, pathExpr, jsonBodyExpr, optionsExpr string, hasPayload bool) string {
+func renderTypedEndpointCall(ep *model.Endpoint, methodName, pathExpr, jsonBodyExpr, optionsExpr string, hasPayload bool, withMeta bool) string {
 	wireInfo := wiremodel.Endpoint(ep)
 	pathParams := "{}"
 	includePathParams := len(ep.PathParams) > 0
@@ -588,7 +614,11 @@ func renderTypedEndpointCall(ep *model.Endpoint, methodName, pathExpr, jsonBodyE
 	if optionsExpr != "" {
 		fields = append(fields, "params: "+optionsExpr)
 	}
-	return "const resp = await this.baseClient.callTypedEndpoint({ " + strings.Join(fields, ", ") + " })"
+	callMethod := "callTypedEndpoint"
+	if withMeta {
+		callMethod = "callTypedEndpointWithMeta"
+	}
+	return "const resp = await this.baseClient." + callMethod + "({ " + strings.Join(fields, ", ") + " })"
 }
 
 func methodNameFromRendered(method string) string {
@@ -596,6 +626,23 @@ func methodNameFromRendered(method string) string {
 	method = strings.TrimPrefix(method, "public async ")
 	name, _, _ := strings.Cut(method, "(")
 	return strings.TrimSpace(name)
+}
+
+func methodNamesFromRendered(method string) []string {
+	matches := regexp.MustCompile(`(?m)^\s*public async\s+([A-Za-z_$][A-Za-z0-9_$]*)\(`).FindAllStringSubmatch(method, -1)
+	if len(matches) == 0 {
+		if name := methodNameFromRendered(method); name != "" {
+			return []string{name}
+		}
+		return nil
+	}
+	names := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) > 1 && match[1] != "" {
+			names = append(names, match[1])
+		}
+	}
+	return names
 }
 
 func namespaceForNamed(obj *types.TypeName) string {
@@ -723,6 +770,9 @@ func indentBlock(value string, depth int) string {
 	prefix := strings.Repeat("    ", depth)
 	lines := strings.Split(value, "\n")
 	for i, line := range lines {
+		if line == "" {
+			continue
+		}
 		lines[i] = prefix + line
 	}
 	return strings.Join(lines, "\n")

@@ -12,10 +12,10 @@ import (
 	"slices"
 	"strings"
 
-	appcfg "pulse.dev/internal/app"
-	"pulse.dev/internal/model"
-	"pulse.dev/internal/runtimeapi"
-	"pulse.dev/internal/wiremodel"
+	appcfg "onlava.com/internal/app"
+	"onlava.com/internal/model"
+	"onlava.com/internal/runtimeapi"
+	"onlava.com/internal/wiremodel"
 )
 
 type Output struct {
@@ -58,9 +58,9 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 				return nil, err
 			}
 			if len(data) > 0 {
-				rel := filepath.ToSlash(filepath.Join(pkg.RelDir, "00_pulse_config.gen.go"))
+				rel := filepath.ToSlash(filepath.Join(pkg.RelDir, "00_onlava_config.gen.go"))
 				if pkg.RelDir == "." {
-					rel = "00_pulse_config.gen.go"
+					rel = "00_onlava_config.gen.go"
 				}
 				out.Generated[rel] = data
 			}
@@ -70,9 +70,9 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 			return nil, err
 		}
 		if len(data) > 0 {
-			rel := filepath.ToSlash(filepath.Join(pkg.RelDir, "pulse.gen.go"))
+			rel := filepath.ToSlash(filepath.Join(pkg.RelDir, "onlava.gen.go"))
 			if pkg.RelDir == "." {
-				rel = "pulse.gen.go"
+				rel = "onlava.gen.go"
 			}
 			out.Generated[rel] = data
 		}
@@ -82,19 +82,19 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 	if err != nil {
 		return nil, err
 	}
-	out.Generated["pulse_internal_main/main.go"] = mainFile
+	out.Generated["onlava_internal_main/main.go"] = mainFile
 	return out, nil
 }
 
 func generateEarlyConfigFile(pkg *model.Package, hasSecrets bool) ([]byte, error) {
 	var buf strings.Builder
 	fmt.Fprintf(&buf, "package %s\n\n", pkg.Name)
-	buf.WriteString("import pulseruntime \"pulse.dev/runtime\"\n\n")
-	buf.WriteString("var pulseInternalDotEnvInitialized = pulseruntime.MustLoadDotEnvIntoEnv()\n")
+	buf.WriteString("import onlavaruntime \"onlava.com/runtime\"\n\n")
+	buf.WriteString("var onlavaInternalDotEnvInitialized = onlavaruntime.MustLoadDotEnvIntoEnv()\n")
 	if hasSecrets {
 		buf.WriteString("\n")
-		buf.WriteString("var pulseInternalSecretsInitialized = func() bool {\n")
-		buf.WriteString("\tpulseruntime.MustPopulateSecrets(&secrets)\n")
+		buf.WriteString("var onlavaInternalSecretsInitialized = func() bool {\n")
+		buf.WriteString("\tonlavaruntime.MustPopulateSecrets(&secrets)\n")
 		buf.WriteString("\treturn true\n")
 		buf.WriteString("}()\n")
 	}
@@ -152,15 +152,15 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 	})
 
 	im := newImports(pkg.ImportPath)
-	im.use("pulseruntime", "pulse.dev/runtime")
+	im.use("onlavaruntime", "onlava.com/runtime")
 	if needsContextImport(pkgEndpoints, authHandler, serviceStruct) {
 		im.use("context", "context")
 	}
 	if len(pkgMiddleware) > 0 {
-		im.use("pulsemiddleware", "pulse.dev/middleware")
+		im.use("onlavamiddleware", "onlava.com/middleware")
 	}
 	if serviceStruct != nil {
-		im.use("pulsepubsub", "pulse.dev/pubsub")
+		im.use("onlavapubsub", "onlava.com/pubsub")
 		im.use("sync", "sync")
 		im.use("time", "time")
 	}
@@ -189,9 +189,9 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"os\"\n")
-	buf.WriteString("\tpulseruntime \"pulse.dev/runtime\"\n")
+	buf.WriteString("\tonlavaruntime \"onlava.com/runtime\"\n")
 	if cfg.EnableDBStudio {
-		buf.WriteString("\t_ \"pulse.dev/runtimeapp\"\n")
+		buf.WriteString("\t_ \"onlava.com/runtimeapp\"\n")
 	}
 	for _, pkg := range appModel.Packages {
 		if hasResources(pkg) {
@@ -200,8 +200,8 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 	}
 	buf.WriteString(")\n\n")
 	buf.WriteString("func main() {\n")
-	fmt.Fprintf(&buf, "\tif err := pulseruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel, cfg))
-	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"pulse: %v\\n\", err)\n")
+	fmt.Fprintf(&buf, "\tif err := onlavaruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel, cfg))
+	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"onlava: %v\\n\", err)\n")
 	buf.WriteString("\t\tos.Exit(1)\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n")
@@ -216,7 +216,7 @@ func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
 	fields := []string{
 		fmt.Sprintf("Name: %q", appModel.Name),
 		fmt.Sprintf("Workspace: %q", workspace),
-		"ListenAddr: pulseruntime.ListenAddrFromEnv()",
+		"ListenAddr: onlavaruntime.ListenAddrFromEnv()",
 	}
 	if cfg.EnableDBStudio {
 		fields = append(fields, "EnableDBStudio: true")
@@ -236,7 +236,7 @@ func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
 	if literal := observabilityConfigLiteral(cfg.Observability); literal != "" {
 		fields = append(fields, "Observability: "+literal)
 	}
-	return "pulseruntime.AppConfig{" + strings.Join(fields, ", ") + "}"
+	return "onlavaruntime.AppConfig{" + strings.Join(fields, ", ") + "}"
 }
 
 func observabilityConfigLiteral(cfg appcfg.ObservabilityConfig) string {
@@ -250,7 +250,7 @@ func observabilityConfigLiteral(cfg appcfg.ObservabilityConfig) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	return "pulseruntime.ObservabilityConfig{" + strings.Join(fields, ", ") + "}"
+	return "onlavaruntime.ObservabilityConfig{" + strings.Join(fields, ", ") + "}"
 }
 
 func endpointFilterConfigLiteral(cfg appcfg.EndpointFilterConfig) string {
@@ -264,7 +264,7 @@ func endpointFilterConfigLiteral(cfg appcfg.EndpointFilterConfig) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	return "pulseruntime.EndpointFilterConfig{" + strings.Join(fields, ", ") + "}"
+	return "onlavaruntime.EndpointFilterConfig{" + strings.Join(fields, ", ") + "}"
 }
 
 func stringSliceLiteral(values []string) string {
@@ -341,7 +341,7 @@ func pubsubImportAliases(file *ast.File) map[string]bool {
 	aliases := make(map[string]bool)
 	for _, imp := range file.Imports {
 		switch strings.Trim(imp.Path.Value, "\"") {
-		case "pulse.dev/pubsub":
+		case "onlava.com/pubsub":
 		default:
 			continue
 		}
@@ -388,7 +388,7 @@ func cronImportAliases(file *ast.File) map[string]bool {
 	aliases := make(map[string]bool)
 	for _, imp := range file.Imports {
 		switch strings.Trim(imp.Path.Value, "\"") {
-		case "pulse.dev/cron":
+		case "onlava.com/cron":
 		default:
 			continue
 		}
@@ -462,7 +462,7 @@ func writeImports(buf *strings.Builder, im *imports) {
 func writeServiceStruct(buf *strings.Builder, im *imports, ss *model.ServiceStruct) {
 	fmt.Fprintf(buf, "var %s struct {\n\tonce sync.Once\n\tsvc *%s\n\terr error\n}\n\n", ss.InstanceVar, ss.TypeName)
 	fmt.Fprintf(buf, "func %s() (*%s, error) {\n", ss.GetterName, ss.TypeName)
-	fmt.Fprintf(buf, "\tif mock, ok, err := pulseruntime.LookupServiceMock(pulseruntime.TypeOf[*%s]()); ok || err != nil {\n", ss.TypeName)
+	fmt.Fprintf(buf, "\tif mock, ok, err := onlavaruntime.LookupServiceMock(onlavaruntime.TypeOf[*%s]()); ok || err != nil {\n", ss.TypeName)
 	buf.WriteString("\t\tif err != nil {\n")
 	buf.WriteString("\t\t\treturn nil, err\n")
 	buf.WriteString("\t\t}\n")
@@ -478,10 +478,10 @@ func writeServiceStruct(buf *strings.Builder, im *imports, ss *model.ServiceStru
 	}
 	if ss.Shutdown != "" {
 		fmt.Fprintf(buf, "\t\tif %s.err == nil && %s.svc != nil {\n", ss.InstanceVar, ss.InstanceVar)
-		fmt.Fprintf(buf, "\t\t\tpulseruntime.MarkServiceInitialized(%q, func(force context.Context) { %s.svc.%s(force) })\n", ss.Service.Name, ss.InstanceVar, ss.Shutdown)
+		fmt.Fprintf(buf, "\t\t\tonlavaruntime.MarkServiceInitialized(%q, func(force context.Context) { %s.svc.%s(force) })\n", ss.Service.Name, ss.InstanceVar, ss.Shutdown)
 		buf.WriteString("\t\t}\n")
 	}
-	fmt.Fprintf(buf, "\t\tpulseruntime.RecordServiceInit(%q, time.Since(started), %s.err)\n", ss.Service.Name, ss.InstanceVar)
+	fmt.Fprintf(buf, "\t\tonlavaruntime.RecordServiceInit(%q, time.Since(started), %s.err)\n", ss.Service.Name, ss.InstanceVar)
 	buf.WriteString("\t})\n")
 	fmt.Fprintf(buf, "\treturn %s.svc, %s.err\n", ss.InstanceVar, ss.InstanceVar)
 	buf.WriteString("}\n\n")
@@ -498,7 +498,7 @@ func writeEndpoint(buf *strings.Builder, im *imports, ep *model.Endpoint, ss *mo
 }
 
 func writeInternalHelper(buf *strings.Builder, im *imports, ep *model.Endpoint) {
-	fmt.Fprintf(buf, "func pulseInternalCall%s(%s)%s {\n", ep.Name, renderParams(im, ep.Params), renderResults(im, ep.Results))
+	fmt.Fprintf(buf, "func onlavaInternalCall%s(%s)%s {\n", ep.Name, renderParams(im, ep.Params), renderResults(im, ep.Results))
 
 	ctxName := generatedFieldName(ep.Params[0], 0)
 	pathArgs := "nil"
@@ -514,13 +514,13 @@ func writeInternalHelper(buf *strings.Builder, im *imports, ep *model.Endpoint) 
 		payload = generatedFieldName(*ep.Payload, len(ep.Params)-1)
 	}
 	if ep.Response == nil {
-		fmt.Fprintf(buf, "\t_, err := pulseruntime.CallEndpoint(%s, %q, %q, %s, %s)\n", ctxName, ep.Service.Name, ep.Name, pathArgs, payload)
+		fmt.Fprintf(buf, "\t_, err := onlavaruntime.CallEndpoint(%s, %q, %q, %s, %s)\n", ctxName, ep.Service.Name, ep.Name, pathArgs, payload)
 		buf.WriteString("\tif err != nil {\n\t\treturn err\n\t}\n")
 		buf.WriteString("\treturn nil\n")
 		buf.WriteString("}\n\n")
 		return
 	}
-	fmt.Fprintf(buf, "\tresp, err := pulseruntime.CallEndpoint(%s, %q, %q, %s, %s)\n", ctxName, ep.Service.Name, ep.Name, pathArgs, payload)
+	fmt.Fprintf(buf, "\tresp, err := onlavaruntime.CallEndpoint(%s, %q, %q, %s, %s)\n", ctxName, ep.Service.Name, ep.Name, pathArgs, payload)
 	respType := im.typeExpr(ep.Response.Type)
 	fmt.Fprintf(buf, "\tif err != nil {\n\t\tvar zero %s\n\t\treturn zero, err\n\t}\n", respType)
 	fmt.Fprintf(buf, "\tif resp == nil {\n\t\tvar zero %s\n\t\treturn zero, nil\n\t}\n", respType)
@@ -541,7 +541,7 @@ func writePackageWrapper(buf *strings.Builder, im *imports, ep *model.Endpoint, 
 		buf.WriteString("}\n\n")
 		return
 	}
-	call := fmt.Sprintf("pulseInternalCall%s(%s)", ep.Name, joinParamNames(ep.Params))
+	call := fmt.Sprintf("onlavaInternalCall%s(%s)", ep.Name, joinParamNames(ep.Params))
 	if ep.Response == nil {
 		fmt.Fprintf(buf, "\treturn %s\n", call)
 	} else {
@@ -557,21 +557,21 @@ func writeMethodWrapper(buf *strings.Builder, im *imports, ep *model.Endpoint) {
 		buf.WriteString("}\n\n")
 		return
 	}
-	fmt.Fprintf(buf, "\treturn pulseInternalCall%s(%s)\n", ep.Name, joinParamNames(ep.Params))
+	fmt.Fprintf(buf, "\treturn onlavaInternalCall%s(%s)\n", ep.Name, joinParamNames(ep.Params))
 	buf.WriteString("}\n\n")
 }
 
 func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.Endpoint, middlewares []*model.Middleware, authHandler *model.AuthHandler, ss *model.ServiceStruct, hasSecrets bool) {
 	buf.WriteString("func init() {\n")
 	if hasSecrets {
-		buf.WriteString("\tpulseruntime.MustPopulateSecrets(&secrets)\n")
+		buf.WriteString("\tonlavaruntime.MustPopulateSecrets(&secrets)\n")
 	}
 	if ss != nil {
-		fmt.Fprintf(buf, "\tpulseruntime.RegisterServiceInitializer(%q, func() error {\n", ss.Service.Name)
+		fmt.Fprintf(buf, "\tonlavaruntime.RegisterServiceInitializer(%q, func() error {\n", ss.Service.Name)
 		fmt.Fprintf(buf, "\t\t_, err := %s()\n", ss.GetterName)
 		buf.WriteString("\t\treturn err\n")
 		buf.WriteString("\t})\n")
-		fmt.Fprintf(buf, "\tpulsepubsub.RegisterServiceAccessorFor[*%s](func() (any, error) {\n", ss.TypeName)
+		fmt.Fprintf(buf, "\tonlavapubsub.RegisterServiceAccessorFor[*%s](func() (any, error) {\n", ss.TypeName)
 		fmt.Fprintf(buf, "\t\treturn %s()\n", ss.GetterName)
 		buf.WriteString("\t})\n")
 	}
@@ -579,7 +579,7 @@ func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.En
 		writeMiddlewareRegistration(buf, im, mw, ss)
 	}
 	for _, ep := range endpoints {
-		fmt.Fprintf(buf, "\tpulseruntime.RegisterEndpointFunc(%s, %q, %q)\n", ep.Name, ep.Service.Name, ep.Name)
+		fmt.Fprintf(buf, "\tonlavaruntime.RegisterEndpointFunc(%s, %q, %q)\n", ep.Name, ep.Service.Name, ep.Name)
 		writeEndpointRegistration(buf, im, ep, ss)
 	}
 	if authHandler != nil {
@@ -590,10 +590,10 @@ func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.En
 
 func writeEndpointRegistration(buf *strings.Builder, im *imports, ep *model.Endpoint, ss *model.ServiceStruct) {
 	wireInfo := wiremodel.Endpoint(ep)
-	fmt.Fprintf(buf, "\tpulseruntime.RegisterEndpoint(&pulseruntime.Endpoint{\n")
+	fmt.Fprintf(buf, "\tonlavaruntime.RegisterEndpoint(&onlavaruntime.Endpoint{\n")
 	fmt.Fprintf(buf, "\t\tService: %q,\n", ep.Service.Name)
 	fmt.Fprintf(buf, "\t\tName: %q,\n", ep.Name)
-	fmt.Fprintf(buf, "\t\tAccess: pulseruntime.%s,\n", exportAccess(ep.Access))
+	fmt.Fprintf(buf, "\t\tAccess: onlavaruntime.%s,\n", exportAccess(ep.Access))
 	fmt.Fprintf(buf, "\t\tRaw: %t,\n", ep.Raw)
 	fmt.Fprintf(buf, "\t\tPath: %q,\n", ep.Path)
 	fmt.Fprintf(buf, "\t\tMethods: %s,\n", renderMethodLiteral(ep.Methods))
@@ -602,12 +602,12 @@ func writeEndpointRegistration(buf *strings.Builder, im *imports, ep *model.Endp
 	}
 	fmt.Fprintf(buf, "\t\tPathParams: %s,\n", renderParamSpecs(ep.PathParams))
 	if ep.Payload != nil {
-		fmt.Fprintf(buf, "\t\tPayloadType: pulseruntime.TypeOf[%s](),\n", im.typeExpr(ep.Payload.Type))
+		fmt.Fprintf(buf, "\t\tPayloadType: onlavaruntime.TypeOf[%s](),\n", im.typeExpr(ep.Payload.Type))
 	} else {
 		buf.WriteString("\t\tPayloadType: nil,\n")
 	}
 	if ep.Response != nil {
-		fmt.Fprintf(buf, "\t\tResponseType: pulseruntime.TypeOf[%s](),\n", im.typeExpr(ep.Response.Type))
+		fmt.Fprintf(buf, "\t\tResponseType: onlavaruntime.TypeOf[%s](),\n", im.typeExpr(ep.Response.Type))
 	} else {
 		buf.WriteString("\t\tResponseType: nil,\n")
 	}
@@ -649,13 +649,13 @@ func writeEndpointRegistration(buf *strings.Builder, im *imports, ep *model.Endp
 }
 
 func writeMiddlewareRegistration(buf *strings.Builder, im *imports, mw *model.Middleware, ss *model.ServiceStruct) {
-	fmt.Fprintf(buf, "\tpulseruntime.RegisterMiddleware(&pulseruntime.Middleware{\n")
+	fmt.Fprintf(buf, "\tonlavaruntime.RegisterMiddleware(&onlavaruntime.Middleware{\n")
 	fmt.Fprintf(buf, "\t\tID: %q,\n", middlewareID(mw))
-	buf.WriteString("\t\tInvoke: func(req pulsemiddleware.Request, next pulsemiddleware.Next) pulsemiddleware.Response {\n")
+	buf.WriteString("\t\tInvoke: func(req onlavamiddleware.Request, next onlavamiddleware.Next) onlavamiddleware.Response {\n")
 	callTarget := mw.Name
 	if mw.Receiver != nil && ss != nil {
 		fmt.Fprintf(buf, "\t\t\tservice, err := %s()\n", ss.GetterName)
-		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn pulsemiddleware.Response{Err: err}\n\t\t\t}\n")
+		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn onlavamiddleware.Response{Err: err}\n\t\t\t}\n")
 		callTarget = "service." + mw.Name
 	}
 	fmt.Fprintf(buf, "\t\t\treturn %s(req, next)\n", callTarget)
@@ -695,31 +695,31 @@ func hasSecretsVar(pkg *model.Package) bool {
 }
 
 func writeAuthRegistration(buf *strings.Builder, im *imports, ah *model.AuthHandler, ss *model.ServiceStruct) {
-	fmt.Fprintf(buf, "\tpulseruntime.RegisterAuthHandler(&pulseruntime.AuthHandler{\n")
+	fmt.Fprintf(buf, "\tonlavaruntime.RegisterAuthHandler(&onlavaruntime.AuthHandler{\n")
 	fmt.Fprintf(buf, "\t\tName: %q,\n", ah.Name)
 	fmt.Fprintf(buf, "\t\tService: %q,\n", ah.Service.Name)
-	fmt.Fprintf(buf, "\t\tParamType: pulseruntime.TypeOf[%s](),\n", im.typeExpr(ah.Param.Type))
+	fmt.Fprintf(buf, "\t\tParamType: onlavaruntime.TypeOf[%s](),\n", im.typeExpr(ah.Param.Type))
 	if ah.AuthData != nil {
-		fmt.Fprintf(buf, "\t\tAuthDataType: pulseruntime.TypeOf[%s](),\n", im.typeExpr(ah.AuthData.Type))
+		fmt.Fprintf(buf, "\t\tAuthDataType: onlavaruntime.TypeOf[%s](),\n", im.typeExpr(ah.AuthData.Type))
 	} else {
 		buf.WriteString("\t\tAuthDataType: nil,\n")
 	}
-	buf.WriteString("\t\tAuthenticate: func(ctx context.Context, param any) (pulseruntime.AuthInfo, error) {\n")
+	buf.WriteString("\t\tAuthenticate: func(ctx context.Context, param any) (onlavaruntime.AuthInfo, error) {\n")
 	callTarget := ah.Name
 	if ah.Receiver != nil && ss != nil {
 		fmt.Fprintf(buf, "\t\t\tservice, err := %s()\n", ss.GetterName)
-		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn pulseruntime.AuthInfo{}, err\n\t\t\t}\n")
+		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn onlavaruntime.AuthInfo{}, err\n\t\t\t}\n")
 		callTarget = "service." + ah.Name
 	}
 	argExpr := "param.(" + im.typeExpr(ah.Param.Type) + ")"
 	if ah.AuthData != nil {
 		fmt.Fprintf(buf, "\t\t\tuid, data, err := %s(ctx, %s)\n", callTarget, argExpr)
-		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn pulseruntime.AuthInfo{}, err\n\t\t\t}\n")
-		buf.WriteString("\t\t\treturn pulseruntime.AuthInfo{UID: string(uid), Data: data}, nil\n")
+		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn onlavaruntime.AuthInfo{}, err\n\t\t\t}\n")
+		buf.WriteString("\t\t\treturn onlavaruntime.AuthInfo{UID: string(uid), Data: data}, nil\n")
 	} else {
 		fmt.Fprintf(buf, "\t\t\tuid, err := %s(ctx, %s)\n", callTarget, argExpr)
-		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn pulseruntime.AuthInfo{}, err\n\t\t\t}\n")
-		buf.WriteString("\t\t\treturn pulseruntime.AuthInfo{UID: string(uid)}, nil\n")
+		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn onlavaruntime.AuthInfo{}, err\n\t\t\t}\n")
+		buf.WriteString("\t\t\treturn onlavaruntime.AuthInfo{UID: string(uid)}, nil\n")
 	}
 	buf.WriteString("\t\t},\n")
 	buf.WriteString("\t})\n")
@@ -780,7 +780,7 @@ func renderWireInvokeCall(im *imports, ep *model.Endpoint, ss *model.ServiceStru
 		buf.WriteString("\t\t\t\t\treturn nil, err\n")
 		buf.WriteString("\t\t\t\t}\n")
 		buf.WriteString("\t\t\t}\n")
-		buf.WriteString("\t\t\tpulseruntime.SetCurrentRequestPayload(ctx, payload)\n")
+		buf.WriteString("\t\t\tonlavaruntime.SetCurrentRequestPayload(ctx, payload)\n")
 		args = append(args, "payload")
 	}
 
@@ -820,7 +820,7 @@ func renderWireInvokeJSONCall(im *imports, ep *model.Endpoint, ss *model.Service
 		buf.WriteString("\t\t\t\t\treturn nil, err\n")
 		buf.WriteString("\t\t\t\t}\n")
 		buf.WriteString("\t\t\t}\n")
-		buf.WriteString("\t\t\tpulseruntime.SetCurrentRequestPayload(ctx, payload)\n")
+		buf.WriteString("\t\t\tonlavaruntime.SetCurrentRequestPayload(ctx, payload)\n")
 		args = append(args, "payload")
 	}
 
@@ -862,7 +862,7 @@ func joinParamNames(fields []model.Field) string {
 
 func generatedFieldName(field model.Field, index int) string {
 	if field.Name == "" || field.Name == "_" {
-		return fmt.Sprintf("pulseArg%d", index)
+		return fmt.Sprintf("onlavaArg%d", index)
 	}
 	return field.Name
 }
@@ -910,9 +910,9 @@ func renderParamSpecs(params []model.Param) string {
 	}
 	parts := make([]string, 0, len(params))
 	for _, param := range params {
-		parts = append(parts, fmt.Sprintf("pulseruntime.ParamSpec{Name: %q, Kind: pulseruntime.%s}", param.Name, exportParamKind(param.Kind)))
+		parts = append(parts, fmt.Sprintf("onlavaruntime.ParamSpec{Name: %q, Kind: onlavaruntime.%s}", param.Name, exportParamKind(param.Kind)))
 	}
-	return "[]pulseruntime.ParamSpec{" + strings.Join(parts, ", ") + "}"
+	return "[]onlavaruntime.ParamSpec{" + strings.Join(parts, ", ") + "}"
 }
 
 func exportParamKind(kind runtimeapi.ParamKind) string {

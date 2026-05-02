@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"pulse.dev/internal/parse"
+	"onlava.com/internal/parse"
 )
 
 func TestParseBasicApp(t *testing.T) {
@@ -58,18 +58,18 @@ func TestParseBasicApp(t *testing.T) {
 
 func TestParseRejectsRawEndpointCalls(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/rawcall\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"rawcall"}`)
+	writeFile(t, dir, "go.mod", "module example.com/rawcall\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"rawcall"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import (
 	"net/http"
 )
 
-//pulse:api public raw
+//onlava:api public raw
 func Raw(w http.ResponseWriter, req *http.Request) {}
 
-//pulse:api public
+//onlava:api public
 func Call(w http.ResponseWriter, req *http.Request) {
 	Raw(w, req)
 }
@@ -83,13 +83,13 @@ func Call(w http.ResponseWriter, req *http.Request) {
 
 func TestParseRejectsPathParamMismatch(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/pathmismatch\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"pathmismatch"}`)
+	writeFile(t, dir, "go.mod", "module example.com/pathmismatch\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"pathmismatch"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api public path=/hello/:name
+//onlava:api public path=/hello/:name
 func Hello(ctx context.Context, wrong string) error { return nil }
 `)
 
@@ -99,10 +99,10 @@ func Hello(ctx context.Context, wrong string) error { return nil }
 	}
 }
 
-func TestParseRejectsNonPulseDirectives(t *testing.T) {
+func TestParseRejectsNonOnlavaDirectives(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/otherdirective\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"otherdirective"}`)
+	writeFile(t, dir, "go.mod", "module example.com/otherdirective\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"otherdirective"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
@@ -112,36 +112,36 @@ func Hello(ctx context.Context) error { return nil }
 `)
 
 	_, err := parse.App(dir, "otherdirective")
-	if err == nil || !strings.Contains(err.Error(), "no Pulse directives found in application") {
-		t.Fatalf("expected no Pulse directives error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no Onlava directives found in application") {
+		t.Fatalf("expected no Onlava directives error, got %v", err)
 	}
 }
 
 func TestParseMiddlewareTargetsAndTags(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/middlewareapp\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"middlewareapp"}`)
+	writeFile(t, dir, "go.mod", "module example.com/middlewareapp\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"middlewareapp"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api public tag:foo
+//onlava:api public tag:foo
 func Hello(ctx context.Context) error { return nil }
 `)
 	writeFile(t, dir, "svc/mw/mw.go", `package mw
 
-import "pulse.dev/middleware"
+import "onlava.com/middleware"
 
-//pulse:middleware target=tag:foo
+//onlava:middleware target=tag:foo
 func ServiceTag(req middleware.Request, next middleware.Next) middleware.Response {
 	return next(req)
 }
 `)
 	writeFile(t, dir, "globalmw/mw.go", `package globalmw
 
-import "pulse.dev/middleware"
+import "onlava.com/middleware"
 
-//pulse:middleware global target=all
+//onlava:middleware global target=all
 func Global(req middleware.Request, next middleware.Next) middleware.Response {
 	return next(req)
 }
@@ -181,35 +181,35 @@ func Global(req middleware.Request, next middleware.Next) middleware.Response {
 	}
 }
 
-func TestParseRejectsAppsWithoutPulseDirectives(t *testing.T) {
+func TestParseRejectsAppsWithoutOnlavaDirectives(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/nopulse\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"nopulse"}`)
+	writeFile(t, dir, "go.mod", "module example.com/noonlava\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"noonlava"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 func Helper() {}
 `)
 
-	_, err := parse.App(dir, "nopulse")
-	if err == nil || !strings.Contains(err.Error(), "no Pulse directives found in application") {
-		t.Fatalf("expected no Pulse directives error, got %v", err)
+	_, err := parse.App(dir, "noonlava")
+	if err == nil || !strings.Contains(err.Error(), "no Onlava directives found in application") {
+		t.Fatalf("expected no Onlava directives error, got %v", err)
 	}
 }
 
 func TestParseRejectsInvalidServiceShutdownSignature(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/badshutdown\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"badshutdown"}`)
+	writeFile(t, dir, "go.mod", "module example.com/badshutdown\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"badshutdown"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:service
+//onlava:service
 type Service struct{}
 
 func (s *Service) Shutdown() {}
 
-//pulse:api public
+//onlava:api public
 func (s *Service) Hello(ctx context.Context) error { return nil }
 `)
 

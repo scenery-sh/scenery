@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"pulse.dev/internal/runtimeapi"
+	"onlava.com/internal/runtimeapi"
 )
 
 type App struct {

@@ -16,16 +16,16 @@ import (
 )
 
 const (
-	ContentType       = "application/vnd.pulse.wire+bin"
-	JSONContentType   = "application/vnd.pulse.wire+json"
+	ContentType       = "application/vnd.onlava.wire+bin"
+	JSONContentType   = "application/vnd.onlava.wire+json"
 	CapabilitiesPath  = "/_wire/capabilities"
 	CallPathPrefix    = "/_wire/"
 	RecoverPathPrefix = "/_wire/recover/"
-	CallIDHeader      = "X-Pulse-Call-ID"
-	FallbackHeader    = "X-Pulse-Wire-Fallback"
-	SchemaHashHeader  = "X-Pulse-Wire-Schema-Hash"
-	MethodHeader      = "X-Pulse-Wire-Method"
-	PathParamsHeader  = "X-Pulse-Wire-Path-Params"
+	CallIDHeader      = "X-Onlava-Call-ID"
+	FallbackHeader    = "X-Onlava-Wire-Fallback"
+	SchemaHashHeader  = "X-Onlava-Wire-Schema-Hash"
+	MethodHeader      = "X-Onlava-Wire-Method"
+	PathParamsHeader  = "X-Onlava-Wire-Path-Params"
 )
 
 type Endpoint struct {
@@ -64,7 +64,7 @@ func NewCapabilities(schemaHash string, endpoints []Endpoint) Capabilities {
 		items[ep.ID] = ep
 	}
 	return Capabilities{
-		SchemaVersion: "pulse.wire.capabilities.v1",
+		SchemaVersion: "onlava.wire.capabilities.v1",
 		SchemaHash:    schemaHash,
 		ContentType:   ContentType,
 		Endpoints:     items,
@@ -160,7 +160,7 @@ func Encode(value any) ([]byte, error) {
 
 func Decode(data []byte) (any, error) {
 	if len(data) < len(magic) || !bytes.Equal(data[:len(magic)], magic) {
-		return nil, fmt.Errorf("invalid pulse wire payload")
+		return nil, fmt.Errorf("invalid onlava wire payload")
 	}
 	dec := decoder{data: data[len(magic):]}
 	value, err := dec.readValue()
@@ -168,7 +168,7 @@ func Decode(data []byte) (any, error) {
 		return nil, err
 	}
 	if dec.pos != len(dec.data) {
-		return nil, fmt.Errorf("trailing pulse wire data")
+		return nil, fmt.Errorf("trailing onlava wire data")
 	}
 	return value, nil
 }
@@ -201,7 +201,7 @@ func DecodeRequestFrame(data []byte) (RequestFrame, bool, error) {
 		return RequestFrame{}, true, err
 	}
 	if dec.pos != len(dec.data) {
-		return RequestFrame{}, true, fmt.Errorf("trailing pulse wire frame data")
+		return RequestFrame{}, true, fmt.Errorf("trailing onlava wire frame data")
 	}
 	return RequestFrame{
 		SchemaHash:     string(schemaHash),
@@ -245,7 +245,7 @@ func DecodeResponseFrame(data []byte) (ResponseFrame, bool, error) {
 		return ResponseFrame{}, true, err
 	}
 	if dec.pos != len(dec.data) {
-		return ResponseFrame{}, true, fmt.Errorf("trailing pulse wire frame data")
+		return ResponseFrame{}, true, fmt.Errorf("trailing onlava wire frame data")
 	}
 	return ResponseFrame{
 		Status:      int(status),
@@ -634,7 +634,7 @@ func (d *decoder) readValue() (any, error) {
 		}
 		return obj, nil
 	default:
-		return nil, fmt.Errorf("unknown pulse wire tag %d", tag)
+		return nil, fmt.Errorf("unknown onlava wire tag %d", tag)
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"pulse.dev/internal/codegen"
+	"onlava.com/internal/codegen"
 )
 
 func dependencyFingerprintFromWorkspace(root string) (string, error) {
@@ -119,14 +119,14 @@ func LoadCachedGraph(appRoot, appName, graphFingerprint string) (*CachedGraph, b
 	if state.GraphFingerprint == "" || state.GraphFingerprint != graphFingerprint {
 		return nil, false, nil
 	}
-	if _, err := os.Stat(filepath.Join(root, "pulse_internal_main", "main.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "onlava_internal_main", "main.go")); err != nil {
 		return nil, false, nil
 	}
 	result := &Result{
 		AppRoot:               appRoot,
 		AppName:               appName,
 		Dir:                   root,
-		Binary:                filepath.Join(root, "pulse-app"),
+		Binary:                filepath.Join(root, "onlava-app"),
 		NeedsTidy:             false,
 		DependencyFingerprint: state.DependencyFingerprint,
 		GraphFingerprint:      state.GraphFingerprint,
@@ -188,7 +188,7 @@ func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceF
 		rel = filepath.ToSlash(rel)
 		if filepath.Ext(rel) == ".go" {
 			var err error
-			data, err = rewritePulseImports(filepath.Join(appRoot, rel), data)
+			data, err = rewriteOnlavaImports(filepath.Join(appRoot, rel), data)
 			if err != nil {
 				return nil, err
 			}
@@ -238,7 +238,7 @@ func sortedKeys(set map[string]struct{}) []string {
 	return paths
 }
 
-func rewritePulseImports(path string, src []byte) ([]byte, error) {
+func rewriteOnlavaImports(path string, src []byte) ([]byte, error) {
 	text := string(src)
 	needsPGXPoolRewrite := strings.Contains(text, "github.com/jackc/pgx/v5/pgxpool")
 	if !needsPGXPoolRewrite {
@@ -252,7 +252,7 @@ func rewritePulseImports(path string, src []byte) ([]byte, error) {
 	}
 
 	changed := false
-	if rewriteImportPath(file, "github.com/jackc/pgx/v5/pgxpool", "pulse.dev/pgxpool", "") {
+	if rewriteImportPath(file, "github.com/jackc/pgx/v5/pgxpool", "onlava.com/pgxpool", "") {
 		changed = true
 	}
 

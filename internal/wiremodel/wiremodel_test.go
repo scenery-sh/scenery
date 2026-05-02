@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	appcfg "pulse.dev/internal/app"
-	"pulse.dev/internal/parse"
+	appcfg "onlava.com/internal/app"
+	"onlava.com/internal/parse"
 )
 
 func TestAppCapabilitiesMarksUnsupportedEndpointJSONOnly(t *testing.T) {
 	root := t.TempDir()
-	writeWireModelTestFile(t, root, "go.mod", "module example.com/wiretest\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+appcfg.RepoRoot()+"\n")
-	writeWireModelTestFile(t, root, "pulse.app", `{"name":"wiretest"}`)
+	writeWireModelTestFile(t, root, "go.mod", "module example.com/wiretest\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+appcfg.RepoRoot()+"\n")
+	writeWireModelTestFile(t, root, ".onlava.json", `{"name":"wiretest"}`)
 	writeWireModelTestFile(t, root, "svc/api.go", `package svc
 
 import "context"
@@ -25,12 +25,12 @@ type UnsupportedResponse struct {
 	Meta map[string]any `+"`json:\"meta\"`"+`
 }
 
-//pulse:api public
+//onlava:api public
 func Supported(ctx context.Context, req *SupportedRequest) (*SupportedRequest, error) {
 	return req, nil
 }
 
-//pulse:api public
+//onlava:api public
 func Unsupported(ctx context.Context) (*UnsupportedResponse, error) {
 	return &UnsupportedResponse{}, nil
 }

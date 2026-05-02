@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	appcfg "pulse.dev/internal/app"
-	"pulse.dev/internal/codegen"
-	"pulse.dev/internal/parse"
+	appcfg "onlava.com/internal/app"
+	"onlava.com/internal/codegen"
+	"onlava.com/internal/parse"
 )
 
 func TestCopyTreeSkipsHiddenDirsAndBrokenSymlinks(t *testing.T) {
@@ -90,8 +90,8 @@ func Open(conn string) (*pgxpool.Pool, error) {
 	if strings.Contains(got, `"github.com/jackc/pgx/v5/pgxpool"`) {
 		t.Fatalf("expected pgxpool import to be rewritten, got:\n%s", got)
 	}
-	if !strings.Contains(got, `"pulse.dev/pgxpool"`) {
-		t.Fatalf("expected pulse.dev/pgxpool import to be present, got:\n%s", got)
+	if !strings.Contains(got, `"onlava.com/pgxpool"`) {
+		t.Fatalf("expected onlava.com/pgxpool import to be present, got:\n%s", got)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 		".DS_Store",
 		"__MACOSX/junk",
 		"node_modules/pkg/index.js",
-		".pulse/state.json",
+		".onlava/state.json",
 		".git/config",
 		"coverage/out.txt",
 	} {
@@ -124,7 +124,7 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 			t.Fatalf("source files missing %s: %v", want, files)
 		}
 	}
-	for _, unwanted := range []string{".env", ".env.local", ".DS_Store", "__MACOSX", "node_modules", ".pulse", ".git", "coverage"} {
+	for _, unwanted := range []string{".env", ".env.local", ".DS_Store", "__MACOSX", "node_modules", ".onlava", ".git", "coverage"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("source files included %s: %v", unwanted, files)
 		}
@@ -134,25 +134,25 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 func TestPrepareWritesInspectArtifacts(t *testing.T) {
 	appDir := t.TempDir()
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 
-	writeBuildTestFile(t, appDir, "pulse.app", `{"name":"inspectartifacts","id":"inspect-id"}`)
+	writeBuildTestFile(t, appDir, ".onlava.json", `{"name":"inspectartifacts","id":"inspect-id"}`)
 	writeBuildTestFile(t, appDir, "go.mod", "module example.com/inspectartifacts\n\ngo 1.26.0\n")
 	writeBuildTestFile(t, appDir, "users/api.go", `package users
 
 import "context"
 
-//pulse:service
+//onlava:service
 type Service struct{}
 
-//pulse:api public
+//onlava:api public
 func (*Service) Profile(context.Context) error { return nil }
 `)
 	writeBuildTestFile(t, appDir, "tenants/api.go", `package tenants
 
 import "context"
 
-//pulse:api private path=/tenants/config method=GET
+//onlava:api private path=/tenants/config method=GET
 func Config(context.Context) error { return nil }
 `)
 
@@ -165,12 +165,12 @@ func Config(context.Context) error { return nil }
 	}
 
 	for rel, schema := range map[string]string{
-		".pulse/gen/app.json":               `"schema_version": "pulse.inspect.app.v1"`,
-		".pulse/gen/routes.json":            `"schema_version": "pulse.inspect.routes.v1"`,
-		".pulse/gen/services.json":          `"schema_version": "pulse.inspect.services.v1"`,
-		".pulse/gen/endpoints.json":         `"schema_version": "pulse.inspect.endpoints.v1"`,
-		".pulse/gen/wire/capabilities.json": `"schema_version": "pulse.wire.capabilities.v1"`,
-		".pulse/gen/manifest.json":          `"schema_version": "pulse.gen.manifest.v1"`,
+		".onlava/gen/app.json":               `"schema_version": "onlava.inspect.app.v1"`,
+		".onlava/gen/routes.json":            `"schema_version": "onlava.inspect.routes.v1"`,
+		".onlava/gen/services.json":          `"schema_version": "onlava.inspect.services.v1"`,
+		".onlava/gen/endpoints.json":         `"schema_version": "onlava.inspect.endpoints.v1"`,
+		".onlava/gen/wire/capabilities.json": `"schema_version": "onlava.wire.capabilities.v1"`,
+		".onlava/gen/manifest.json":          `"schema_version": "onlava.gen.manifest.v1"`,
 	} {
 		data, err := os.ReadFile(filepath.Join(appDir, filepath.FromSlash(rel)))
 		if err != nil {
@@ -181,7 +181,7 @@ func Config(context.Context) error { return nil }
 		}
 	}
 
-	appJSON, err := os.ReadFile(filepath.Join(appDir, ".pulse", "gen", "app.json"))
+	appJSON, err := os.ReadFile(filepath.Join(appDir, ".onlava", "gen", "app.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func Config(context.Context) error { return nil }
 		t.Fatalf("app payload = %+v", payload.App)
 	}
 
-	manifestJSON, err := os.ReadFile(filepath.Join(appDir, ".pulse", "gen", "manifest.json"))
+	manifestJSON, err := os.ReadFile(filepath.Join(appDir, ".onlava", "gen", "manifest.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,10 +230,10 @@ func Config(context.Context) error { return nil }
 	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
 		t.Fatalf("json.Unmarshal(manifest.json): %v", err)
 	}
-	if manifest.Artifacts.App != ".pulse/gen/app.json" || manifest.Artifacts.Endpoints != ".pulse/gen/endpoints.json" || manifest.Artifacts.WireCapabilities != ".pulse/gen/wire/capabilities.json" || manifest.Artifacts.BuildLatest != ".pulse/build/latest.json" {
+	if manifest.Artifacts.App != ".onlava/gen/app.json" || manifest.Artifacts.Endpoints != ".onlava/gen/endpoints.json" || manifest.Artifacts.WireCapabilities != ".onlava/gen/wire/capabilities.json" || manifest.Artifacts.BuildLatest != ".onlava/build/latest.json" {
 		t.Fatalf("manifest artifacts = %+v", manifest.Artifacts)
 	}
-	if manifest.Schemas.App != "pulse.inspect.app.v1" || manifest.Schemas.Endpoints != "pulse.inspect.endpoints.v1" || manifest.Schemas.WireCapabilities != "pulse.wire.capabilities.v1" || manifest.Schemas.BuildLatest != "pulse.build.latest.v1" {
+	if manifest.Schemas.App != "onlava.inspect.app.v1" || manifest.Schemas.Endpoints != "onlava.inspect.endpoints.v1" || manifest.Schemas.WireCapabilities != "onlava.wire.capabilities.v1" || manifest.Schemas.BuildLatest != "onlava.build.latest.v1" {
 		t.Fatalf("manifest schemas = %+v", manifest.Schemas)
 	}
 	if manifest.Hashes.App == "" || manifest.Hashes.Routes == "" || manifest.Hashes.Services == "" || manifest.Hashes.Endpoints == "" || manifest.Hashes.WireCapabilities == "" {
@@ -243,7 +243,7 @@ func Config(context.Context) error { return nil }
 
 func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -262,7 +262,7 @@ func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 	if !ok {
 		t.Fatal("expected latest build manifest after prepare")
 	}
-	if manifest.SchemaVersion != "pulse.build.latest.v1" {
+	if manifest.SchemaVersion != "onlava.build.latest.v1" {
 		t.Fatalf("schema_version = %q", manifest.SchemaVersion)
 	}
 	if manifest.Build.Phase != "prepared" {
@@ -295,7 +295,7 @@ func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 
 func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -335,7 +335,7 @@ func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 
 func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -377,7 +377,7 @@ func TestSyncWorkspaceRemovesStaleFiles(t *testing.T) {
 	root := t.TempDir()
 	writeBuildTestFile(t, root, "go.mod", "module example.com/test\n")
 	writeBuildTestFile(t, root, "svc/api.go", "package svc\n")
-	if err := removeUnexpectedFilesFromLists(root, []string{"go.mod", "svc/api.go"}, []string{"pulse_internal_main/x"}); err != nil {
+	if err := removeUnexpectedFilesFromLists(root, []string{"go.mod", "svc/api.go"}, []string{"onlava_internal_main/x"}); err != nil {
 		t.Fatalf("first cleanup: %v", err)
 	}
 	stalePath := filepath.Join(root, "svc", "stale.go")
@@ -385,7 +385,7 @@ func TestSyncWorkspaceRemovesStaleFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := removeUnexpectedFilesFromLists(root, []string{"go.mod", "svc/api.go"}, []string{"pulse_internal_main/x"}); err != nil {
+	if err := removeUnexpectedFilesFromLists(root, []string{"go.mod", "svc/api.go"}, []string{"onlava_internal_main/x"}); err != nil {
 		t.Fatalf("second cleanup: %v", err)
 	}
 	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
@@ -395,7 +395,7 @@ func TestSyncWorkspaceRemovesStaleFiles(t *testing.T) {
 
 func TestLoadCachedGraph(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -436,7 +436,7 @@ func TestLoadCachedGraph(t *testing.T) {
 
 func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -481,7 +481,7 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 
 func TestLoadCachedGraphRejectsOldBuildStateVersion(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -526,7 +526,7 @@ func TestLoadCachedGraphRejectsOldBuildStateVersion(t *testing.T) {
 
 func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -580,7 +580,7 @@ func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 
 func TestRefreshCachedWorkspaceMarksNeedsTidyWhenImportsChange(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -623,7 +623,7 @@ import _ "rsc.io/quote"
 
 func TestRefreshCachedWorkspaceFallsBackWhenGeneratedFileMissing(t *testing.T) {
 	cacheDir := t.TempDir()
-	t.Setenv("PULSE_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -639,7 +639,7 @@ func TestRefreshCachedWorkspaceFallsBackWhenGeneratedFileMissing(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	target := filepath.Join(result.Dir, "svc", "pulse.gen.go")
+	target := filepath.Join(result.Dir, "svc", "onlava.gen.go")
 	if err := os.Remove(target); err != nil {
 		t.Fatalf("remove generated file: %v", err)
 	}
@@ -724,13 +724,13 @@ func TestSyncGeneratedFilesKeepsPathsThatAreNowRegularSourceFiles(t *testing.T) 
 func newBuildTestApp(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeBuildTestFile(t, root, "go.mod", "module example.com/buildtest\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeBuildTestFile(t, root, "pulse.app", `{"name":"buildtest"}`)
+	writeBuildTestFile(t, root, "go.mod", "module example.com/buildtest\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeBuildTestFile(t, root, ".onlava.json", `{"name":"buildtest"}`)
 	writeBuildTestFile(t, root, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api public
+//onlava:api public
 func Hello(ctx context.Context) error { return nil }
 `)
 	return root

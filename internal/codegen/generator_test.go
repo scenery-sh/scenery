@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	appcfg "pulse.dev/internal/app"
-	"pulse.dev/internal/codegen"
-	"pulse.dev/internal/parse"
+	appcfg "onlava.com/internal/app"
+	"onlava.com/internal/codegen"
+	"onlava.com/internal/parse"
 )
 
 func TestGenerateBasicGolden(t *testing.T) {
@@ -22,19 +22,19 @@ func TestGenerateBasicGolden(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	assertGolden(t, filepath.Join(repoRoot(t), "testdata", "golden", "basic_service_pulse.gen.go"), out.Generated["service/pulse.gen.go"])
-	assertGolden(t, filepath.Join(repoRoot(t), "testdata", "golden", "basic_main.go"), out.Generated["pulse_internal_main/main.go"])
+	assertGolden(t, filepath.Join(repoRoot(t), "testdata", "golden", "basic_service_onlava.gen.go"), out.Generated["service/onlava.gen.go"])
+	assertGolden(t, filepath.Join(repoRoot(t), "testdata", "golden", "basic_main.go"), out.Generated["onlava_internal_main/main.go"])
 }
 
 func TestGenerateSanitizesBlankIdentifiers(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/blankident\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"blankident"}`)
+	writeFile(t, dir, "go.mod", "module example.com/blankident\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"blankident"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api public
+//onlava:api public
 func Hello(_ context.Context) error { return nil }
 `)
 
@@ -47,27 +47,27 @@ func Hello(_ context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["svc/pulse.gen.go"])
-	if !strings.Contains(got, "pulseArg0 context.Context") {
+	got := string(out.Generated["svc/onlava.gen.go"])
+	if !strings.Contains(got, "onlavaArg0 context.Context") {
 		t.Fatalf("expected sanitized context param, got:\n%s", got)
 	}
 	if strings.Contains(got, "CallEndpoint(_,") {
 		t.Fatalf("expected blank identifier to be sanitized, got:\n%s", got)
 	}
-	if !strings.Contains(got, "pulseInternalImplHello(ctx)") {
+	if !strings.Contains(got, "onlavaInternalImplHello(ctx)") {
 		t.Fatalf("expected invoke closure to use ctx, got:\n%s", got)
 	}
 }
 
 func TestGenerateRawOnlyPackageOmitsContextImport(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/rawonly\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"rawonly"}`)
+	writeFile(t, dir, "go.mod", "module example.com/rawonly\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"rawonly"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "net/http"
 
-//pulse:api public raw
+//onlava:api public raw
 func Hook(w http.ResponseWriter, req *http.Request) {}
 `)
 
@@ -80,7 +80,7 @@ func Hook(w http.ResponseWriter, req *http.Request) {}
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["svc/pulse.gen.go"])
+	got := string(out.Generated["svc/onlava.gen.go"])
 	if strings.Contains(got, "\"context\"") {
 		t.Fatalf("expected raw-only package to omit context import, got:\n%s", got)
 	}
@@ -88,8 +88,8 @@ func Hook(w http.ResponseWriter, req *http.Request) {}
 
 func TestGeneratePopulatesSecretsBeforePackageVarInitializers(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/earlysecrets\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"earlysecrets"}`)
+	writeFile(t, dir, "go.mod", "module example.com/earlysecrets\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"earlysecrets"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
@@ -100,7 +100,7 @@ var secrets struct {
 
 var maxConcurrency = secrets.TestQueueConcurrency
 
-//pulse:api public
+//onlava:api public
 func Hello(ctx context.Context) error { return nil }
 `)
 
@@ -113,11 +113,11 @@ func Hello(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["svc/00_pulse_config.gen.go"])
+	got := string(out.Generated["svc/00_onlava_config.gen.go"])
 	for _, want := range []string{
-		`var pulseInternalDotEnvInitialized = pulseruntime.MustLoadDotEnvIntoEnv()`,
-		`var pulseInternalSecretsInitialized = func() bool {`,
-		`pulseruntime.MustPopulateSecrets(&secrets)`,
+		`var onlavaInternalDotEnvInitialized = onlavaruntime.MustLoadDotEnvIntoEnv()`,
+		`var onlavaInternalSecretsInitialized = func() bool {`,
+		`onlavaruntime.MustPopulateSecrets(&secrets)`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected early secrets file to contain %q, got:\n%s", want, got)
@@ -127,20 +127,20 @@ func Hello(ctx context.Context) error { return nil }
 
 func TestGenerateRegistersMiddlewareAndEndpointLinks(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/middlewaregen\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"middlewaregen"}`)
+	writeFile(t, dir, "go.mod", "module example.com/middlewaregen\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"middlewaregen"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api public tag:foo
+//onlava:api public tag:foo
 func Hello(ctx context.Context) error { return nil }
 `)
 	writeFile(t, dir, "svc/mw.go", `package svc
 
-import "pulse.dev/middleware"
+import "onlava.com/middleware"
 
-//pulse:middleware target=tag:foo
+//onlava:middleware target=tag:foo
 func Apply(req middleware.Request, next middleware.Next) middleware.Response {
 	return next(req)
 }
@@ -155,8 +155,8 @@ func Apply(req middleware.Request, next middleware.Next) middleware.Response {
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["svc/pulse.gen.go"])
-	if !strings.Contains(got, "RegisterMiddleware(&pulseruntime.Middleware") {
+	got := string(out.Generated["svc/onlava.gen.go"])
+	if !strings.Contains(got, "RegisterMiddleware(&onlavaruntime.Middleware") {
 		t.Fatalf("expected middleware registration, got:\n%s", got)
 	}
 	if !strings.Contains(got, `MiddlewareIDs:`) || !strings.Contains(got, `[]string{"example.com/middlewaregen/svc.Apply"}`) {
@@ -166,18 +166,18 @@ func Apply(req middleware.Request, next middleware.Next) middleware.Response {
 
 func TestGenerateRegistersServiceInitializer(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/serviceinit\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"serviceinit"}`)
+	writeFile(t, dir, "go.mod", "module example.com/serviceinit\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"serviceinit"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:service
+//onlava:service
 type Service struct{}
 
 func initService() (*Service, error) { return &Service{}, nil }
 
-//pulse:api public
+//onlava:api public
 func (s *Service) Hello(ctx context.Context) error { return nil }
 `)
 
@@ -190,31 +190,31 @@ func (s *Service) Hello(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["svc/pulse.gen.go"])
-	if !strings.Contains(got, `pulseruntime.RegisterServiceInitializer("svc", func() error {`) {
+	got := string(out.Generated["svc/onlava.gen.go"])
+	if !strings.Contains(got, `onlavaruntime.RegisterServiceInitializer("svc", func() error {`) {
 		t.Fatalf("expected service initializer registration, got:\n%s", got)
 	}
-	if !strings.Contains(got, "_, err := pulseInternalGetService()") {
+	if !strings.Contains(got, "_, err := onlavaInternalGetService()") {
 		t.Fatalf("expected service initializer to call generated getter, got:\n%s", got)
 	}
 }
 
 func TestGenerateRegistersServiceShutdownAndMockLookup(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/serviceshutdown\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"serviceshutdown"}`)
+	writeFile(t, dir, "go.mod", "module example.com/serviceshutdown\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"serviceshutdown"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:service
+//onlava:service
 type Service struct{}
 
 func initService() (*Service, error) { return &Service{}, nil }
 
 func (s *Service) Shutdown(force context.Context) {}
 
-//pulse:api public
+//onlava:api public
 func (s *Service) Hello(ctx context.Context) error { return nil }
 `)
 
@@ -227,11 +227,11 @@ func (s *Service) Hello(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["svc/pulse.gen.go"])
+	got := string(out.Generated["svc/onlava.gen.go"])
 	for _, want := range []string{
-		`pulseruntime.LookupServiceMock(pulseruntime.TypeOf[*Service]())`,
-		`pulseruntime.MarkServiceInitialized("svc", func(force context.Context) { pulseInternalServiceService.svc.Shutdown(force) })`,
-		`pulseruntime.RegisterEndpointFunc(Hello, "svc", "Hello")`,
+		`onlavaruntime.LookupServiceMock(onlavaruntime.TypeOf[*Service]())`,
+		`onlavaruntime.MarkServiceInitialized("svc", func(force context.Context) { onlavaInternalServiceService.svc.Shutdown(force) })`,
+		`onlavaruntime.RegisterEndpointFunc(Hello, "svc", "Hello")`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected generated file to contain %q, got:\n%s", want, got)
@@ -241,20 +241,20 @@ func (s *Service) Hello(ctx context.Context) error { return nil }
 
 func TestGenerateMainImportsCronOnlyPackages(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/cronapp\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"cronapp"}`)
+	writeFile(t, dir, "go.mod", "module example.com/cronapp\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"cronapp"}`)
 	writeFile(t, dir, "service/api.go", `package service
 
 import "context"
 
-//pulse:api private
+//onlava:api private
 func Run(ctx context.Context) error { return nil }
 `)
 	writeFile(t, dir, "jobs/jobs.go", `package jobs
 
 import (
 	"example.com/cronapp/service"
-	"pulse.dev/cron"
+	"onlava.com/cron"
 )
 
 var _ = cron.NewJob("tick", cron.JobConfig{
@@ -273,7 +273,7 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["pulse_internal_main/main.go"])
+	got := string(out.Generated["onlava_internal_main/main.go"])
 	if !strings.Contains(got, `_ "example.com/cronapp/jobs"`) {
 		t.Fatalf("expected generated main to import cron package, got:\n%s", got)
 	}
@@ -281,20 +281,20 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 
 func TestGenerateMainImportsPubSubOnlyPackages(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/pubsubapp\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"pubsubapp"}`)
+	writeFile(t, dir, "go.mod", "module example.com/pubsubapp\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"pubsubapp"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api private
+//onlava:api private
 func Run(ctx context.Context) error { return nil }
 `)
 	writeFile(t, dir, "events/events.go", `package events
 
 import (
 	"context"
-	"pulse.dev/pubsub"
+	"onlava.com/pubsub"
 )
 
 type Event struct { Value string }
@@ -317,7 +317,7 @@ var _ = pubsub.NewSubscription(Topic, "events-sub", pubsub.SubscriptionConfig[*E
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["pulse_internal_main/main.go"])
+	got := string(out.Generated["onlava_internal_main/main.go"])
 	if !strings.Contains(got, `_ "example.com/pubsubapp/events"`) {
 		t.Fatalf("expected generated main to import pubsub package, got:\n%s", got)
 	}
@@ -325,11 +325,11 @@ var _ = pubsub.NewSubscription(Topic, "events-sub", pubsub.SubscriptionConfig[*E
 
 func TestGenerateRegistersPubSubServiceAccessor(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/pubsubsvc\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"pubsubsvc"}`)
+	writeFile(t, dir, "go.mod", "module example.com/pubsubsvc\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"pubsubsvc"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
-//pulse:service
+//onlava:service
 type Service struct{}
 `)
 
@@ -342,21 +342,21 @@ type Service struct{}
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["svc/pulse.gen.go"])
-	if !strings.Contains(got, `pulsepubsub.RegisterServiceAccessorFor[*Service](func() (any, error) {`) {
+	got := string(out.Generated["svc/onlava.gen.go"])
+	if !strings.Contains(got, `onlavapubsub.RegisterServiceAccessorFor[*Service](func() (any, error) {`) {
 		t.Fatalf("expected generated service accessor registration, got:\n%s", got)
 	}
 }
 
 func TestGenerateMainEnablesDBStudioWhenConfigured(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/dbstudioapp\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"dbstudioapp"}`)
+	writeFile(t, dir, "go.mod", "module example.com/dbstudioapp\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"dbstudioapp"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api private
+//onlava:api private
 func Run(ctx context.Context) error { return nil }
 `)
 
@@ -369,8 +369,8 @@ func Run(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["pulse_internal_main/main.go"])
-	if !strings.Contains(got, `_ "pulse.dev/runtimeapp"`) {
+	got := string(out.Generated["onlava_internal_main/main.go"])
+	if !strings.Contains(got, `_ "onlava.com/runtimeapp"`) {
 		t.Fatalf("expected generated main to import runtimeapp for db studio, got:\n%s", got)
 	}
 	if !strings.Contains(got, "EnableDBStudio: true") {
@@ -380,13 +380,13 @@ func Run(ctx context.Context) error { return nil }
 
 func TestGenerateMainOmitsRuntimeAppByDefault(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/headlessapp\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"headlessapp","proxy":{"api_host":"api.onlv.localhost"}}`)
+	writeFile(t, dir, "go.mod", "module example.com/headlessapp\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"headlessapp","proxy":{"api_host":"api.acme.localhost"}}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api public
+//onlava:api public
 func Run(ctx context.Context) error { return nil }
 `)
 
@@ -399,21 +399,21 @@ func Run(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["pulse_internal_main/main.go"])
-	if strings.Contains(got, `pulse.dev/runtimeapp`) {
+	got := string(out.Generated["onlava_internal_main/main.go"])
+	if strings.Contains(got, `onlava.com/runtimeapp`) {
 		t.Fatalf("generated main imported runtimeapp by default:\n%s", got)
 	}
 }
 
 func TestGenerateMainIncludesObservabilityFiltersWhenConfigured(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/obsapp\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+repoRoot(t)+"\n")
-	writeFile(t, dir, "pulse.app", `{"name":"obsapp"}`)
+	writeFile(t, dir, "go.mod", "module example.com/obsapp\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"obsapp"}`)
 	writeFile(t, dir, "svc/api.go", `package svc
 
 import "context"
 
-//pulse:api public
+//onlava:api public
 func Run(ctx context.Context) error { return nil }
 `)
 
@@ -435,11 +435,11 @@ func Run(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["pulse_internal_main/main.go"])
+	got := string(out.Generated["onlava_internal_main/main.go"])
 	for _, want := range []string{
-		`Observability: pulseruntime.ObservabilityConfig{`,
-		`Logs: pulseruntime.EndpointFilterConfig{ExcludeEndpoints: []string{"sync.*"}}`,
-		`Tracing: pulseruntime.EndpointFilterConfig{IncludeEndpoints: []string{"tenants.Config"}}`,
+		`Observability: onlavaruntime.ObservabilityConfig{`,
+		`Logs: onlavaruntime.EndpointFilterConfig{ExcludeEndpoints: []string{"sync.*"}}`,
+		`Tracing: onlavaruntime.EndpointFilterConfig{IncludeEndpoints: []string{"tenants.Config"}}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected generated main to contain %q, got:\n%s", want, got)

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	appcfg "pulse.dev/internal/app"
-	"pulse.dev/internal/parse"
+	appcfg "onlava.com/internal/app"
+	"onlava.com/internal/parse"
 )
 
 func TestGenerateTypeScriptIncludesStructuredRequestHandling(t *testing.T) {
@@ -25,20 +25,26 @@ func TestGenerateTypeScriptIncludesStructuredRequestHandling(t *testing.T) {
 
 	for _, want := range []string{
 		`export namespace service {`,
-		`public async Echo(name: string, params: EchoRequest): Promise<EchoResponse> {`,
+		`public async Echo(name: string, params: EchoRequest, options?: CallParameters): Promise<EchoResponse> {`,
+		`public async EchoWithMeta(name: string, params: EchoRequest, options?: CallParameters): Promise<APIResponse<EchoResponse>> {`,
+		`this.EchoWithMeta = this.EchoWithMeta.bind(this)`,
 		`title: encodeQueryValue(params.Title),`,
 		`"X-Echo": encodeHeaderValue(params.Header),`,
 		`body: encodeQueryValue(params.body),`,
-		`transport?: PulseTransport`,
-		`export type PulseTransport = "auto" | "json" | "binary" | "binary-strict" | "wire-json" | "wire-json-strict"`,
-		`const PULSE_WIRE_SCHEMA_HASH = `,
+		`transport?: OnlavaTransport`,
+		`export type CallParameters = Omit<RequestInit, "method" | "body" | "headers"> & {`,
+		`export interface APIResponse<T> {`,
+		`export type OnlavaTransport = "auto" | "json" | "binary" | "binary-strict" | "wire-json" | "wire-json-strict"`,
+		`const ONLAVA_WIRE_SCHEMA_HASH = `,
 		`const resp = await this.baseClient.callTypedEndpoint({ endpointID: "service.Echo"`,
+		`const resp = await this.baseClient.callTypedEndpointWithMeta({ endpointID: "service.Echo"`,
 		`wirePath: "/_wire/service.Echo"`,
 		"path: `/echo/${encodeURIComponent(String(name))}`",
 		`payload: params`,
 		`payloadJSON: JSON.stringify(params)`,
 		`jsonBody: undefined`,
-		`params: { query, headers }`,
+		`params: mergeCallParameters(options, { query, headers })`,
+		`return await decodeTypedAPIResponse(resp) as APIResponse<EchoResponse>`,
 		`public async Raw(rest: string, method: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {`,
 		"return await this.baseClient.callAPI(method, `/raw/${encodePathWildcard(String(rest))}`, body, options)",
 		`export interface EchoResponse {`,
@@ -66,8 +72,8 @@ func TestGenerateTypeScriptIncludesNamedAliases(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeFile("go.mod", "module example.com/clientapp\n\ngo 1.26.0\n\nrequire pulse.dev v0.0.0\n\nreplace pulse.dev => "+appcfg.RepoRoot()+"\n")
-	writeFile("pulse.app", `{"name":"clientapp"}`)
+	writeFile("go.mod", "module example.com/clientapp\n\ngo 1.26.0\n\nrequire onlava.com v0.0.0\n\nreplace onlava.com => "+appcfg.RepoRoot()+"\n")
+	writeFile(".onlava.json", `{"name":"clientapp"}`)
 	writeFile("point/point.go", `package point
 
 type Point3 struct {
@@ -91,7 +97,7 @@ type Response struct {
 	Point  point.Point3 `+"`json:\"point\"`"+`
 }
 
-//pulse:api public
+//onlava:api public
 func Get(ctx context.Context) (*Response, error) {
 	return &Response{}, nil
 }

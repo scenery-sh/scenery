@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"pulse.dev/internal/model"
+	"onlava.com/internal/model"
 )
 
 func TestBuildMetadataSnapshotIncludesPlatformStats(t *testing.T) {

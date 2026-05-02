@@ -8,10 +8,10 @@ import (
 	"slices"
 	"sort"
 
-	appcfg "pulse.dev/internal/app"
-	"pulse.dev/internal/model"
-	"pulse.dev/internal/wire"
-	"pulse.dev/internal/wiremodel"
+	appcfg "onlava.com/internal/app"
+	"onlava.com/internal/model"
+	"onlava.com/internal/wire"
+	"onlava.com/internal/wiremodel"
 )
 
 type AppRef struct {
@@ -129,7 +129,7 @@ type WireInfo struct {
 
 func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResponse {
 	resp := AppResponse{
-		SchemaVersion: "pulse.inspect.app.v1",
+		SchemaVersion: "onlava.inspect.app.v1",
 		App:           appInfo(appRoot, cfg, app),
 		Config:        cfg,
 		Counts: AppCounts{
@@ -190,7 +190,7 @@ func BuildServicesResponse(appRoot string, cfg appcfg.Config, app *model.App) Se
 		return services[i].Name < services[j].Name
 	})
 	return ServicesResponse{
-		SchemaVersion: "pulse.inspect.services.v1",
+		SchemaVersion: "onlava.inspect.services.v1",
 		App:           appInfo(appRoot, cfg, app),
 		Services:      services,
 	}
@@ -240,7 +240,7 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 		return routes[i].Path < routes[j].Path
 	})
 	return RoutesResponse{
-		SchemaVersion: "pulse.inspect.routes.v1",
+		SchemaVersion: "onlava.inspect.routes.v1",
 		App:           appInfo(appRoot, cfg, app),
 		Routes:        routes,
 	}
@@ -284,7 +284,7 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 		return endpoints[i].Endpoint < endpoints[j].Endpoint
 	})
 	return EndpointsResponse{
-		SchemaVersion: "pulse.inspect.endpoints.v1",
+		SchemaVersion: "onlava.inspect.endpoints.v1",
 		App:           appInfo(appRoot, cfg, app),
 		Endpoints:     endpoints,
 		Wire: WireSummary{
@@ -300,7 +300,7 @@ func appInfo(appRoot string, cfg appcfg.Config, app *model.App) AppRef {
 		Name:       cfg.Name,
 		ID:         cfg.ID,
 		Root:       appRoot,
-		ConfigPath: filepath.Join(appRoot, "pulse.app"),
+		ConfigPath: filepath.Join(appRoot, ".onlava.json"),
 	}
 	if app != nil {
 		ref.ModulePath = app.ModulePath
@@ -317,23 +317,23 @@ func relOrSelf(root, target string) string {
 }
 
 func GeneratedAppPath(appRoot string) string {
-	return filepath.Join(appRoot, ".pulse", "gen", "app.json")
+	return filepath.Join(appRoot, ".onlava", "gen", "app.json")
 }
 
 func GeneratedRoutesPath(appRoot string) string {
-	return filepath.Join(appRoot, ".pulse", "gen", "routes.json")
+	return filepath.Join(appRoot, ".onlava", "gen", "routes.json")
 }
 
 func GeneratedServicesPath(appRoot string) string {
-	return filepath.Join(appRoot, ".pulse", "gen", "services.json")
+	return filepath.Join(appRoot, ".onlava", "gen", "services.json")
 }
 
 func GeneratedEndpointsPath(appRoot string) string {
-	return filepath.Join(appRoot, ".pulse", "gen", "endpoints.json")
+	return filepath.Join(appRoot, ".onlava", "gen", "endpoints.json")
 }
 
 func GeneratedWireCapabilitiesPath(appRoot string) string {
-	return filepath.Join(appRoot, ".pulse", "gen", "wire", "capabilities.json")
+	return filepath.Join(appRoot, ".onlava", "gen", "wire", "capabilities.json")
 }
 
 func ReadGeneratedApp(appRoot string) (*AppResponse, bool, error) {

@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"pulse.dev/internal/model"
-	"pulse.dev/internal/runtimeapi"
-	"pulse.dev/internal/wire"
+	"onlava.com/internal/model"
+	"onlava.com/internal/runtimeapi"
+	"onlava.com/internal/wire"
 )
 
 func AppCapabilities(app *model.App) wire.Capabilities {
