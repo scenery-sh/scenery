@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.harness.self.v1.schema.json",
-  "title": "Pulse self harness result",
+  "$id": "https://onlava.com/schemas/onlava.harness.self.v1.schema.json",
+  "title": "Onlava self harness result",
   "type": "object",
   "required": ["schema_version", "ok", "generated_at", "repo", "knowledge", "steps", "artifacts"],
   "properties": {
     "schema_version": {
-      "const": "pulse.harness.self.v1"
+      "const": "onlava.harness.self.v1"
     },
     "ok": {
       "type": "boolean"
@@ -19,7 +19,7 @@
       "required": ["root", "module_path", "go_mod_path"],
       "properties": {
         "root": { "type": "string" },
-        "module_path": { "const": "pulse.dev" },
+        "module_path": { "const": "onlava.com" },
         "go_mod_path": { "type": "string" }
       },
       "additionalProperties": false

@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.inspect.build.v1.schema.json",
-  "title": "pulse.inspect.build.v1",
+  "$id": "https://onlava.com/schemas/onlava.inspect.build.v1.schema.json",
+  "title": "onlava.inspect.build.v1",
   "type": "object",
   "required": ["schema_version", "app", "build"],
   "properties": {
-    "schema_version": { "const": "pulse.inspect.build.v1" },
+    "schema_version": { "const": "onlava.inspect.build.v1" },
     "app": { "$ref": "#/$defs/appRef" },
     "build": {
       "type": "object",

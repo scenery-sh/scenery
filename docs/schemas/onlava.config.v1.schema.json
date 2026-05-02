@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.app.v1.schema.json",
-  "title": "pulse.app.v1",
+  "$id": "https://onlava.com/schemas/onlava.config.v1.schema.json",
+  "title": "onlava.config.v1",
   "type": "object",
   "properties": {
     "name": {

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.logs.event.v1.schema.json",
-  "title": "pulse.logs.event.v1",
-  "description": "Schema for `pulse logs --jsonl` and `pulse logs --json` output lines.",
+  "$id": "https://onlava.com/schemas/onlava.logs.event.v1.schema.json",
+  "title": "onlava.logs.event.v1",
+  "description": "Schema for `onlava logs --jsonl` and `onlava logs --json` output lines.",
   "type": "object",
   "required": ["schema_version", "app", "id", "pid", "stream", "output", "created_at"],
   "properties": {
-    "schema_version": { "const": "pulse.logs.event.v1" },
+    "schema_version": { "const": "onlava.logs.event.v1" },
     "app": {
       "type": "object",
       "required": ["name", "root"],

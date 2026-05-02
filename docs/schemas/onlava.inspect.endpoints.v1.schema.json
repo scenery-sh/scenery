@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.inspect.endpoints.v1.schema.json",
-  "title": "pulse.inspect.endpoints.v1",
+  "$id": "https://onlava.com/schemas/onlava.inspect.endpoints.v1.schema.json",
+  "title": "onlava.inspect.endpoints.v1",
   "type": "object",
   "required": ["schema_version", "app", "endpoints", "wire"],
   "properties": {
-    "schema_version": { "const": "pulse.inspect.endpoints.v1" },
+    "schema_version": { "const": "onlava.inspect.endpoints.v1" },
     "app": { "$ref": "#/$defs/appRef" },
     "endpoints": {
       "type": "array",

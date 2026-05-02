@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.check.result.v1.schema.json",
-  "title": "pulse.check.result.v1",
-  "description": "Schema for `pulse check --json` responses.",
+  "$id": "https://onlava.com/schemas/onlava.check.result.v1.schema.json",
+  "title": "onlava.check.result.v1",
+  "description": "Schema for `onlava check --json` responses.",
   "type": "object",
   "required": ["schema_version", "ok", "app", "diagnostics"],
   "properties": {
-    "schema_version": { "const": "pulse.check.result.v1" },
+    "schema_version": { "const": "onlava.check.result.v1" },
     "ok": { "type": "boolean" },
     "app": {
       "type": "object",

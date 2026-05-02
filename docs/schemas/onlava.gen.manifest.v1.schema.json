@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.gen.manifest.v1.schema.json",
-  "title": "pulse.gen.manifest.v1",
+  "$id": "https://onlava.com/schemas/onlava.gen.manifest.v1.schema.json",
+  "title": "onlava.gen.manifest.v1",
   "type": "object",
   "required": ["schema_version", "app", "counts", "artifacts", "schemas", "hashes"],
   "properties": {
-    "schema_version": { "const": "pulse.gen.manifest.v1" },
+    "schema_version": { "const": "onlava.gen.manifest.v1" },
     "app": {
       "type": "object",
       "required": ["name", "root", "config_path"],

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.version.v1.schema.json",
-  "title": "Pulse version",
+  "$id": "https://onlava.com/schemas/onlava.version.v1.schema.json",
+  "title": "Onlava version",
   "type": "object",
   "required": ["schema_version", "version", "go_version"],
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": "pulse.version.v1"
+      "const": "onlava.version.v1"
     },
     "version": {
       "type": "string",

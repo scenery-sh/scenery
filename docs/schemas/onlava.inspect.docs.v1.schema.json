@@ -1,17 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.inspect.docs.v1.schema.json",
-  "title": "pulse.inspect.docs.v1",
+  "$id": "https://onlava.com/schemas/onlava.inspect.docs.v1.schema.json",
+  "title": "onlava.inspect.docs.v1",
   "type": "object",
   "required": ["schema_version", "repo", "summary", "documents", "plans", "tech_debt"],
   "properties": {
-    "schema_version": { "const": "pulse.inspect.docs.v1" },
+    "schema_version": { "const": "onlava.inspect.docs.v1" },
     "repo": {
       "type": "object",
       "required": ["root", "module_path", "go_mod_path"],
       "properties": {
         "root": { "type": "string" },
-        "module_path": { "const": "pulse.dev" },
+        "module_path": { "const": "onlava.com" },
         "go_mod_path": { "type": "string" }
       },
       "additionalProperties": false

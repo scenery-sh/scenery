@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.inspect.app.v1.schema.json",
-  "title": "pulse.inspect.app.v1",
+  "$id": "https://onlava.com/schemas/onlava.inspect.app.v1.schema.json",
+  "title": "onlava.inspect.app.v1",
   "type": "object",
   "required": ["schema_version", "app", "config", "counts", "services"],
   "properties": {
-    "schema_version": { "const": "pulse.inspect.app.v1" },
+    "schema_version": { "const": "onlava.inspect.app.v1" },
     "app": { "$ref": "#/$defs/appRef" },
-    "config": { "$ref": "pulse.app.v1.schema.json" },
+    "config": { "$ref": "onlava.config.v1.schema.json" },
     "counts": {
       "type": "object",
       "required": ["packages", "services", "endpoints", "middleware", "auth_handler"],

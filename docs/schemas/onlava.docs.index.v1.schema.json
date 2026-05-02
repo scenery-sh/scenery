@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.docs.index.v1.schema.json",
-  "title": "pulse.docs.index.v1",
+  "$id": "https://onlava.com/schemas/onlava.docs.index.v1.schema.json",
+  "title": "onlava.docs.index.v1",
   "type": "object",
   "required": ["schema_version", "generated_at", "owner_default", "freshness_policy", "documents", "plans", "tech_debt"],
   "properties": {
-    "schema_version": { "const": "pulse.docs.index.v1" },
+    "schema_version": { "const": "onlava.docs.index.v1" },
     "generated_at": { "type": "string" },
     "owner_default": { "type": "string" },
     "freshness_policy": {

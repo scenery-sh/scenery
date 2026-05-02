@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.inspect.traces.v1.schema.json",
-  "title": "pulse.inspect.traces.v1",
+  "$id": "https://onlava.com/schemas/onlava.inspect.traces.v1.schema.json",
+  "title": "onlava.inspect.traces.v1",
   "type": "object",
   "required": ["schema_version", "app", "query", "traces"],
   "properties": {
-    "schema_version": { "const": "pulse.inspect.traces.v1" },
+    "schema_version": { "const": "onlava.inspect.traces.v1" },
     "app": {
       "type": "object",
       "required": ["name", "root", "config_path"],

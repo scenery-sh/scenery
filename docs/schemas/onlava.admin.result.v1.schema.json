@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.admin.result.v1.schema.json",
-  "title": "pulse.admin.result.v1",
-  "description": "Reserved schema for future `pulse admin ... --json` responses.",
+  "$id": "https://onlava.com/schemas/onlava.admin.result.v1.schema.json",
+  "title": "onlava.admin.result.v1",
+  "description": "Reserved schema for future `onlava admin ... --json` responses.",
   "type": "object",
   "required": ["schema_version", "ok", "command"],
   "properties": {
-    "schema_version": { "const": "pulse.admin.result.v1" },
+    "schema_version": { "const": "onlava.admin.result.v1" },
     "ok": { "type": "boolean" },
     "command": { "type": "string" },
     "app": {

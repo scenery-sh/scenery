@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pulse.dev/schemas/pulse.wire.capabilities.v1.schema.json",
-  "title": "pulse.wire.capabilities.v1",
+  "$id": "https://onlava.com/schemas/onlava.wire.capabilities.v1.schema.json",
+  "title": "onlava.wire.capabilities.v1",
   "type": "object",
   "required": ["schema_version", "wire_schema_hash", "content_type", "endpoints"],
   "properties": {
-    "schema_version": { "const": "pulse.wire.capabilities.v1" },
+    "schema_version": { "const": "onlava.wire.capabilities.v1" },
     "wire_schema_hash": { "type": "string" },
-    "content_type": { "const": "application/vnd.pulse.wire+bin" },
+    "content_type": { "const": "application/vnd.onlava.wire+bin" },
     "endpoints": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/endpoint" }
