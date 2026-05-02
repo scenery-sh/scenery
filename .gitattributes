@@ -1,4 +1,4 @@
-cmd/pulse/devdash_static/** -diff linguist-generated=true linguist-vendored=true
+cmd/onlava/devdash_static/** -diff linguist-generated=true linguist-vendored=true
 dbstudio/reference/original/** -diff linguist-generated=true linguist-vendored=true
 dbstudio/reference/pretty/** -diff linguist-generated=true linguist-vendored=true
 ui/public/assets/** -diff linguist-generated=true linguist-vendored=true
