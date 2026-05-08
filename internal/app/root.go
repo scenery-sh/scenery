@@ -13,6 +13,7 @@ type Config struct {
 	Name           string              `json:"name"`
 	ID             string              `json:"id"`
 	Proxy          ProxyConfig         `json:"proxy"`
+	Auth           AuthConfig          `json:"auth"`
 	Observability  ObservabilityConfig `json:"observability"`
 	EnableDBStudio bool                `json:"-"`
 }
@@ -29,6 +30,32 @@ type FrontendConfig struct {
 	Host     string `json:"host"`
 	Root     string `json:"root"`
 	Upstream string `json:"upstream"`
+}
+
+type AuthConfig struct {
+	Enabled               bool             `json:"enabled"`
+	DatabaseURLEnv        string           `json:"database_url_env"`
+	JWTSecretEnv          string           `json:"jwt_secret_env"`
+	RefreshCookieName     string           `json:"refresh_cookie_name"`
+	AuthCookieDomainEnv   string           `json:"auth_cookie_domain_env"`
+	PublicAppURLEnv       string           `json:"public_app_url_env"`
+	APIBaseURLEnv         string           `json:"api_base_url_env"`
+	EmailFromEnv          string           `json:"email_from_env"`
+	AutoBootstrapDatabase bool             `json:"auto_bootstrap_database"`
+	GoogleOAuth           AuthGoogleConfig `json:"google_oauth"`
+	DevBootstrap          AuthDevBootstrap `json:"dev_bootstrap"`
+}
+
+type AuthGoogleConfig struct {
+	Enabled         bool   `json:"enabled"`
+	ClientIDEnv     string `json:"client_id_env"`
+	ClientSecretEnv string `json:"client_secret_env"`
+}
+
+type AuthDevBootstrap struct {
+	Enabled         bool   `json:"enabled"`
+	DefaultUserID   string `json:"default_user_id"`
+	DefaultTenantID string `json:"default_tenant_id"`
 }
 
 type ObservabilityConfig struct {

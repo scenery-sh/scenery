@@ -190,6 +190,9 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 	buf.WriteString("import (\n")
 	buf.WriteString("\t\"fmt\"\n")
 	buf.WriteString("\t\"os\"\n")
+	if cfg.Auth.Enabled {
+		buf.WriteString("\tonlavaauth \"github.com/pbrazdil/onlava/auth\"\n")
+	}
 	buf.WriteString("\tonlavaruntime \"github.com/pbrazdil/onlava/runtime\"\n")
 	if cfg.EnableDBStudio {
 		buf.WriteString("\t_ \"github.com/pbrazdil/onlava/runtimeapp\"\n")
@@ -201,12 +204,87 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 	}
 	buf.WriteString(")\n\n")
 	buf.WriteString("func main() {\n")
+	if cfg.Auth.Enabled {
+		fmt.Fprintf(&buf, "\tif err := onlavaauth.RegisterStandard(%s); err != nil {\n", authConfigLiteral(cfg.Auth))
+		buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"onlava: %v\\n\", err)\n")
+		buf.WriteString("\t\tos.Exit(1)\n")
+		buf.WriteString("\t}\n")
+	}
 	fmt.Fprintf(&buf, "\tif err := onlavaruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel, cfg))
 	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"onlava: %v\\n\", err)\n")
 	buf.WriteString("\t\tos.Exit(1)\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("}\n")
 	return format.Source([]byte(buf.String()))
+}
+
+func authConfigLiteral(cfg appcfg.AuthConfig) string {
+	fields := []string{"Enabled: true"}
+	if cfg.DatabaseURLEnv != "" {
+		fields = append(fields, fmt.Sprintf("DatabaseURLEnv: %q", cfg.DatabaseURLEnv))
+	}
+	if cfg.JWTSecretEnv != "" {
+		fields = append(fields, fmt.Sprintf("JWTSecretEnv: %q", cfg.JWTSecretEnv))
+	}
+	if cfg.RefreshCookieName != "" {
+		fields = append(fields, fmt.Sprintf("RefreshCookieName: %q", cfg.RefreshCookieName))
+	}
+	if cfg.AuthCookieDomainEnv != "" {
+		fields = append(fields, fmt.Sprintf("AuthCookieDomainEnv: %q", cfg.AuthCookieDomainEnv))
+	}
+	if cfg.PublicAppURLEnv != "" {
+		fields = append(fields, fmt.Sprintf("PublicAppURLEnv: %q", cfg.PublicAppURLEnv))
+	}
+	if cfg.APIBaseURLEnv != "" {
+		fields = append(fields, fmt.Sprintf("APIBaseURLEnv: %q", cfg.APIBaseURLEnv))
+	}
+	if cfg.EmailFromEnv != "" {
+		fields = append(fields, fmt.Sprintf("EmailFromEnv: %q", cfg.EmailFromEnv))
+	}
+	if cfg.AutoBootstrapDatabase {
+		fields = append(fields, "AutoBootstrapDatabase: true")
+	}
+	if literal := authGoogleConfigLiteral(cfg.GoogleOAuth); literal != "" {
+		fields = append(fields, "GoogleOAuth: "+literal)
+	}
+	if literal := authDevBootstrapConfigLiteral(cfg.DevBootstrap); literal != "" {
+		fields = append(fields, "DevBootstrap: "+literal)
+	}
+	return "onlavaauth.StandardConfig{" + strings.Join(fields, ", ") + "}"
+}
+
+func authGoogleConfigLiteral(cfg appcfg.AuthGoogleConfig) string {
+	fields := make([]string, 0, 3)
+	if cfg.Enabled {
+		fields = append(fields, "Enabled: true")
+	}
+	if cfg.ClientIDEnv != "" {
+		fields = append(fields, fmt.Sprintf("ClientIDEnv: %q", cfg.ClientIDEnv))
+	}
+	if cfg.ClientSecretEnv != "" {
+		fields = append(fields, fmt.Sprintf("ClientSecretEnv: %q", cfg.ClientSecretEnv))
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return "onlavaauth.GoogleOAuthConfig{" + strings.Join(fields, ", ") + "}"
+}
+
+func authDevBootstrapConfigLiteral(cfg appcfg.AuthDevBootstrap) string {
+	fields := make([]string, 0, 3)
+	if cfg.Enabled {
+		fields = append(fields, "Enabled: true")
+	}
+	if cfg.DefaultUserID != "" {
+		fields = append(fields, fmt.Sprintf("DefaultUserID: %q", cfg.DefaultUserID))
+	}
+	if cfg.DefaultTenantID != "" {
+		fields = append(fields, fmt.Sprintf("DefaultTenantID: %q", cfg.DefaultTenantID))
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return "onlavaauth.DevBootstrapConfig{" + strings.Join(fields, ", ") + "}"
 }
 
 func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {

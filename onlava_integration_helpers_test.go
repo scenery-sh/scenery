@@ -427,6 +427,32 @@ func postJSON(t *testing.T, url string, body any, headers map[string]string, wan
 	assertJSONResponse(t, req, wantStatus, want)
 }
 
+func postJSONForString(t *testing.T, url string, body any, field string) string {
+	t.Helper()
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		got, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST %s status %d: %s", url, resp.StatusCode, got)
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	value, _ := payload[field].(string)
+	if strings.TrimSpace(value) == "" {
+		t.Fatalf("POST %s response missing string field %q: %#v", url, field, payload)
+	}
+	return value
+}
+
 func getJSON(t *testing.T, url string, headers map[string]string, wantStatus int, want map[string]any) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, url, nil)

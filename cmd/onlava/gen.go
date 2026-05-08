@@ -62,7 +62,8 @@ func genClientCommand(args []string) error {
 		return err
 	}
 	output, err := clientgen.GenerateTypeScript(model, clientgen.TypeScriptOptions{
-		AppSlug: firstNonEmpty(cfg.ID, cfg.Name),
+		AppSlug:      firstNonEmpty(cfg.ID, cfg.Name),
+		StandardAuth: cfg.Auth.Enabled,
 	})
 	if err != nil {
 		return err

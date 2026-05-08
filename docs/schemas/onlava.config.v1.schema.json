@@ -24,6 +24,23 @@
       },
       "additionalProperties": false
     },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "database_url_env": { "type": "string" },
+        "jwt_secret_env": { "type": "string" },
+        "refresh_cookie_name": { "type": "string" },
+        "auth_cookie_domain_env": { "type": "string" },
+        "public_app_url_env": { "type": "string" },
+        "api_base_url_env": { "type": "string" },
+        "email_from_env": { "type": "string" },
+        "auto_bootstrap_database": { "type": "boolean" },
+        "google_oauth": { "$ref": "#/$defs/authGoogleOAuth" },
+        "dev_bootstrap": { "$ref": "#/$defs/authDevBootstrap" }
+      },
+      "additionalProperties": false
+    },
     "observability": {
       "type": "object",
       "properties": {
@@ -61,6 +78,24 @@
         "upstream": { "type": "string" }
       },
       "required": ["host"],
+      "additionalProperties": false
+    },
+    "authGoogleOAuth": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "client_id_env": { "type": "string" },
+        "client_secret_env": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "authDevBootstrap": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "default_user_id": { "type": "string" },
+        "default_tenant_id": { "type": "string" }
+      },
       "additionalProperties": false
     }
   }

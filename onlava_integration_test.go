@@ -73,6 +73,43 @@ func TestOnlavaRunBasicApp(t *testing.T) {
 	assertCORSActual(t, "http://"+addr+"/service.AuthEcho")
 }
 
+func TestOnlavaRunStandardAuthDevBootstrap(t *testing.T) {
+	t.Parallel()
+
+	repo := repoRoot(t)
+	appDir := copyFixtureApp(t, repo, "standard-auth")
+	port := freePort(t)
+	addr := "127.0.0.1:" + port
+	dashAddr := "127.0.0.1:" + freePort(t)
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+	binary := buildOnlavaBinary(t, repo)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
+	cmd.Env = onlavaRunEnv(repo, dashAddr, cacheDir)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	cmd.Stdin = nil
+	cmd.Dir = appDir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start onlava run: %v", err)
+	}
+	defer stopOnlavaProcess(t, cancel, cmd)
+
+	waitForHTTP(t, "http://"+addr+"/users/dev-bootstrap")
+	token := postJSONForString(t, "http://"+addr+"/users/dev-bootstrap", map[string]string{
+		"user_id":   "user-123",
+		"tenant_id": "00000000-0000-0000-0000-000000000123",
+	}, "token")
+	getJSON(t, "http://"+addr+"/whoami", map[string]string{"Authorization": "Bearer " + token}, http.StatusOK, map[string]any{
+		"user_id":   "user-123",
+		"tenant_id": "00000000-0000-0000-0000-000000000123",
+	})
+}
+
 func TestOnlavaDevReloadsOnGoChanges(t *testing.T) {
 	t.Parallel()
 

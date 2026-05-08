@@ -24,6 +24,11 @@ func Data() any {
 	return info.Data
 }
 
+func CurrentAuthData() (*AuthData, bool) {
+	data, ok := Data().(*AuthData)
+	return data, ok && data != nil
+}
+
 func WithContext(ctx context.Context, uid UID, data any) context.Context {
 	return runtime.WithAuthContext(ctx, runtime.AuthInfo{
 		UID:  string(uid),

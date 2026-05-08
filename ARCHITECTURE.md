@@ -161,7 +161,9 @@ requests.
 The public packages at the module root are what user apps import:
 
 - `github.com/pbrazdil/onlava` exposes `Meta` and `CurrentRequest`
-- `github.com/pbrazdil/onlava/auth` exposes request auth state helpers
+- `github.com/pbrazdil/onlava/auth` exposes request auth state helpers and the
+  standard auth module surface (`AuthData`, token helpers, standard auth
+  registration, and pluggable email delivery)
 - `github.com/pbrazdil/onlava/errs` exposes coded errors and HTTP status mapping
 - `github.com/pbrazdil/onlava/middleware` exposes middleware types
 - `github.com/pbrazdil/onlava/data` exposes the beta native dynamic data

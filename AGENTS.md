@@ -30,6 +30,7 @@ Build an onlava-native Go-only local runtime that makes `onlava run` start a sin
 - App root marker:
   - `.onlava.json`, JSON, required for `onlava run`.
   - Phase 1 only needs `"name"`; no cloud/linking fields.
+  - Standard auth can be enabled with `"auth": {"enabled": true}`. It registers the built-in auth handler plus `/auth/*` and `/users/dev-bootstrap` endpoints, stores DB-backed state in PostgreSQL schema `onlava_auth`, and exposes request data as `*auth.AuthData`.
 - Source directives:
 
   ```go
@@ -40,7 +41,7 @@ Build an onlava-native Go-only local runtime that makes `onlava run` start a sin
 
 - Public Go packages:
   - `github.com/pbrazdil/onlava` with `Meta()` and `CurrentRequest()`.
-  - `github.com/pbrazdil/onlava/auth` with `UserID()` and `Data()`.
+  - `github.com/pbrazdil/onlava/auth` with `UserID()`, `Data()`, `CurrentAuthData()`, and the standard auth module.
   - `github.com/pbrazdil/onlava/errs` with coded errors and HTTP status mapping.
 - Struct tag surface for typed endpoints/auth params:
   - Request decoding: `json`, `header`, `query`, `qs`, `cookie`.

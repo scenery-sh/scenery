@@ -40,6 +40,9 @@ func (g *tsGenerator) render() ([]byte, error) {
 
 	serviceNames := make([]string, 0, len(g.namespaces))
 	serviceNames = append(serviceNames, namespaceNamesWithMethods(g.namespaces)...)
+	if g.opts.StandardAuth {
+		serviceNames = appendMissing(serviceNames, "auth", "users")
+	}
 	sort.Strings(serviceNames)
 
 	buf.WriteString("export default class Client {\n")
@@ -123,6 +126,9 @@ func (g *tsGenerator) render() ([]byte, error) {
 			buf.WriteString("\n    }\n")
 		}
 		buf.WriteString("}\n\n")
+	}
+	if g.opts.StandardAuth {
+		writeStandardAuthNamespaces(&buf)
 	}
 
 	buf.WriteString("export type JSONValue = string | number | boolean | null | JSONValue[] | {[key: string]: JSONValue}\n\n")

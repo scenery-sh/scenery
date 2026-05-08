@@ -1,0 +1,9 @@
+{
+  "name": "standardauthapp",
+  "auth": {
+    "enabled": true,
+    "dev_bootstrap": {
+      "enabled": true
+    }
+  }
+}

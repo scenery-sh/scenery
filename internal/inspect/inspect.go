@@ -10,6 +10,7 @@ import (
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/model"
+	"github.com/pbrazdil/onlava/internal/standardauthmeta"
 	"github.com/pbrazdil/onlava/internal/wire"
 	"github.com/pbrazdil/onlava/internal/wiremodel"
 )
@@ -146,6 +147,11 @@ func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResp
 			resp.AuthHandler = &AuthBriefInfo{Service: svc.Name, Name: svc.AuthHandler.Name}
 		}
 	}
+	if cfg.Auth.Enabled {
+		resp.Services, resp.Counts.Services, resp.Counts.Endpoints = appendStandardAuthSummary(resp.Services, resp.Counts.Services, resp.Counts.Endpoints)
+		resp.Counts.AuthHandler = 1
+		resp.AuthHandler = &AuthBriefInfo{Service: "auth", Name: "AuthHandler"}
+	}
 	sort.Strings(resp.Services)
 	return resp
 }
@@ -185,6 +191,9 @@ func BuildServicesResponse(appRoot string, cfg appcfg.Config, app *model.App) Se
 			}
 		}
 		services = append(services, item)
+	}
+	if cfg.Auth.Enabled {
+		services = append(services, standardAuthServiceDetails()...)
 	}
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Name < services[j].Name
@@ -228,6 +237,23 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 				item.Receiver = ep.Receiver.TypeName
 			}
 			routes = append(routes, item)
+		}
+	}
+	if cfg.Auth.Enabled {
+		for _, ep := range standardauthmeta.Endpoints() {
+			routes = append(routes, RouteRecord{
+				ID:         ep.Service + "." + ep.Name,
+				Service:    ep.Service,
+				Endpoint:   ep.Name,
+				Package:    "github.com/pbrazdil/onlava/auth",
+				File:       "github.com/pbrazdil/onlava/auth",
+				Access:     string(ep.Access),
+				Raw:        ep.Raw,
+				Path:       ep.Path,
+				Methods:    append([]string(nil), ep.Methods...),
+				HasPayload: ep.HasPayload,
+				Wire:       WireInfo{Available: false, UnsupportedReason: "standard auth endpoints use JSON transport"},
+			})
 		}
 	}
 	sort.Slice(routes, func(i, j int) bool {
@@ -277,6 +303,22 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 			})
 		}
 	}
+	if cfg.Auth.Enabled {
+		for _, ep := range standardauthmeta.Endpoints() {
+			unsupported++
+			endpoints = append(endpoints, EndpointRecord{
+				ID:         ep.Service + "." + ep.Name,
+				Service:    ep.Service,
+				Endpoint:   ep.Name,
+				Access:     string(ep.Access),
+				Raw:        ep.Raw,
+				Path:       ep.Path,
+				Methods:    append([]string(nil), ep.Methods...),
+				HasPayload: ep.HasPayload,
+				Wire:       WireInfo{Available: false, UnsupportedReason: "standard auth endpoints use JSON transport"},
+			})
+		}
+	}
 	sort.Slice(endpoints, func(i, j int) bool {
 		if endpoints[i].Service != endpoints[j].Service {
 			return endpoints[i].Service < endpoints[j].Service
@@ -293,6 +335,53 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 			Unsupported: unsupported,
 		},
 	}
+}
+
+func appendStandardAuthSummary(services []string, serviceCount int, endpointCount int) ([]string, int, int) {
+	seen := make(map[string]bool, len(services)+2)
+	for _, service := range services {
+		seen[service] = true
+	}
+	for _, service := range []string{"auth", "users"} {
+		if !seen[service] {
+			services = append(services, service)
+			serviceCount++
+		}
+	}
+	endpointCount += len(standardauthmeta.Endpoints())
+	return services, serviceCount, endpointCount
+}
+
+func standardAuthServiceDetails() []ServiceDetails {
+	byService := map[string]*ServiceDetails{
+		"auth": {
+			Name:       "auth",
+			RootRelDir: "github.com/pbrazdil/onlava/auth",
+			RootAbsDir: "github.com/pbrazdil/onlava/auth",
+			PackageDirs: []string{
+				"github.com/pbrazdil/onlava/auth",
+			},
+			AuthHandler: &AuthHandlerRef{Name: "AuthHandler", Package: "github.com/pbrazdil/onlava/auth"},
+		},
+		"users": {
+			Name:       "users",
+			RootRelDir: "github.com/pbrazdil/onlava/auth",
+			RootAbsDir: "github.com/pbrazdil/onlava/auth",
+			PackageDirs: []string{
+				"github.com/pbrazdil/onlava/auth",
+			},
+		},
+	}
+	for _, ep := range standardauthmeta.Endpoints() {
+		item := byService[ep.Service]
+		item.Endpoints = append(item.Endpoints, ep.Name)
+	}
+	out := make([]ServiceDetails, 0, len(byService))
+	for _, item := range byService {
+		sort.Strings(item.Endpoints)
+		out = append(out, *item)
+	}
+	return out
 }
 
 func appInfo(appRoot string, cfg appcfg.Config, app *model.App) AppRef {

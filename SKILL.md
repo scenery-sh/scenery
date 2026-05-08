@@ -103,7 +103,7 @@ Struct tags:
 ## Public Go Packages
 
 - `github.com/pbrazdil/onlava`: app metadata and `CurrentRequest()`.
-- `github.com/pbrazdil/onlava/auth`: request auth helpers such as `UserID()` and `Data()`.
+- `github.com/pbrazdil/onlava/auth`: request auth helpers such as `UserID()`, `Data()`, `CurrentAuthData()`, and the standard auth module.
 - `github.com/pbrazdil/onlava/errs`: coded errors and HTTP status mapping.
 - `github.com/pbrazdil/onlava/middleware`: middleware request/response types.
 - `github.com/pbrazdil/onlava/pubsub`: local Pub/Sub declarations and runtime integration.
@@ -117,6 +117,21 @@ Use `//onlava:authhandler` for request authentication. Auth handlers may be pack
 
 Token-style auth handlers can accept a token string. Structured auth handlers can decode auth params from `header`, `query`, `qs`, and `cookie` tags.
 
+For the built-in standard auth module, enable auth in `.onlava.json`:
+
+```json
+{
+  "name": "hello",
+  "auth": {
+    "enabled": true,
+    "database_url_env": "DatabaseURL",
+    "dev_bootstrap": { "enabled": true }
+  }
+}
+```
+
+Standard auth registers `/auth/*` endpoints plus local `/users/dev-bootstrap`, stores DB-backed state in PostgreSQL schema `onlava_auth`, and returns `*auth.AuthData` from `auth.CurrentAuthData()`.
+
 Inside auth-protected endpoints, use:
 
 ```go
@@ -124,6 +139,7 @@ import "github.com/pbrazdil/onlava/auth"
 
 userID := auth.UserID()
 data := auth.Data()
+standardData, ok := auth.CurrentAuthData()
 ```
 
 Use `//onlava:api auth` for endpoints that require auth. Use `//onlava:api private` for internal-only endpoints.
