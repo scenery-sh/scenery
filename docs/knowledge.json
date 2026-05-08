@@ -145,24 +145,24 @@
       "path": "docs/plans/0001-devrun-command-split.md",
       "title": "Split onlava dev From Headless onlava run",
       "owner": "onlava runtime",
-      "status": "active",
+      "status": "completed",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-04-27",
       "review_after": "2026-05-27",
-      "summary": "ExecPlan for moving the current development supervisor behavior to onlava dev and making onlava run headless.",
+      "summary": "Completed ExecPlan for moving the development supervisor behavior to onlava dev and making onlava run headless.",
       "tags": ["plans", "execplans", "cli", "runtime"]
     },
     {
       "path": "docs/plans/0002-v0-release-readiness.md",
       "title": "onlava v0 Release Readiness",
       "owner": "onlava runtime",
-      "status": "active",
+      "status": "completed",
       "quality": "A",
       "freshness": "current",
       "last_reviewed": "2026-04-27",
       "review_after": "2026-05-27",
-      "summary": "ExecPlan for hardening a narrow production-ready v0 contract.",
+      "summary": "Completed ExecPlan for hardening a narrow production-ready v0 contract.",
       "tags": ["plans", "execplans", "release", "runtime"]
     },
     {
@@ -200,6 +200,18 @@
       "review_after": "2026-05-27",
       "summary": "Completed milestones and shipped behavior.",
       "tags": ["plans", "history", "agents"]
+    },
+    {
+      "path": "docs/runbooks/standard-auth-migration.md",
+      "title": "Standard Auth Production Migration Runbook",
+      "owner": "onlava runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-05-08",
+      "review_after": "2026-06-07",
+      "summary": "Operator checklist and SQL template for preserving existing app-owned auth data when moving to onlava standard auth.",
+      "tags": ["runbook", "auth", "migration", "postgres"]
     },
     {
       "path": "docs/tech-debt.md",

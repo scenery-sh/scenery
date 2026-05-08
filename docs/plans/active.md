@@ -7,9 +7,7 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-1. [0005 onlava Data Platform](0005-onlava-data-platform.md): implement a narrow native dynamic data/CRM vertical slice with PostgreSQL metadata, real tables/columns, outbox events, and SSE live updates.
-2. [0001 Split `onlava dev` From Headless `onlava run`](0001-devrun-command-split.md): turn the PRD-4 command split into an executable implementation plan.
-3. [0002 onlava v0 Release Readiness](0002-v0-release-readiness.md): convert the release-readiness audit into a staged hardening plan for a narrow, boring v0.
+None.
 
 ## Agent-Friendly Local Runtime
 

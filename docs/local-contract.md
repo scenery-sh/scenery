@@ -34,6 +34,7 @@ same as the stable v0 support surface.
 - `onlava inspect paths --json`
 - `onlava inspect traces --json`
 - `onlava inspect metrics --json`
+- `onlava inspect data --json`
 - `onlava inspect docs --json`
 - `onlava logs --jsonl`
 - `.onlava/gen/app.json`
@@ -72,6 +73,7 @@ Dev-only or beta surface:
 - `onlava dev`
 - `onlava psql`
 - `onlava inspect traces|metrics --json`
+- `onlava inspect data --json`
 - `onlava admin traces clear --json`
 - `onlava admin pubsub clear --json`
 - dashboard and API Explorer
@@ -113,6 +115,23 @@ Current shape:
       }
     }
   },
+  "auth": {
+    "enabled": true,
+    "database_url_env": "DatabaseURL",
+    "jwt_secret_env": "JWTSecret",
+    "refresh_cookie_name": "onlv_refresh",
+    "auto_bootstrap_database": true,
+    "google_oauth": {
+      "enabled": false,
+      "client_id_env": "GoogleOAuthClientID",
+      "client_secret_env": "GoogleOAuthClientSecret"
+    },
+    "dev_bootstrap": {
+      "enabled": true,
+      "default_user_id": "dev-mcp",
+      "default_tenant_id": "00000000-0000-0000-0000-000000000001"
+    }
+  },
   "observability": {
     "logs": {
       "include_endpoints": [],
@@ -130,9 +149,14 @@ Rules:
 - `name` or `id` must be non-empty.
 - If `name` is empty, onlava falls back to `id`.
 - `proxy` is optional.
+- `auth` is optional. When `auth.enabled` is true, onlava registers the built-in standard auth handler and auth endpoints.
 - `observability` is optional.
 - Unknown fields are rejected.
 - `proxy.frontends` is a map keyed by frontend name. Each frontend requires `host`; `root` defaults to `apps/<name>`; `upstream` is optional and overrides Vite port discovery.
+- Standard auth uses the `github.com/pbrazdil/onlava/auth` top surface and stores DB-backed auth state in PostgreSQL schema `onlava_auth`.
+- Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, Google OAuth raw endpoints, and local `/users/dev-bootstrap`.
+- Standard auth endpoints appear in `onlava inspect routes|services|endpoints --json` and in generated TypeScript clients.
+- `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
 
 ## CLI Grammar
 
@@ -147,6 +171,7 @@ onlava check [--app-root <path>] [--json]
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
 onlava inspect app|routes|services|endpoints|wire|build|paths|traces|metrics --json [--app-root <path>]
+onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]
 onlava inspect docs --json [--repo-root <path>]
 onlava inspect traces --json [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 onlava inspect metrics --json [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
@@ -218,13 +243,28 @@ Secrets and environment:
 Beta dynamic data platform:
 
 - Apps may import `github.com/pbrazdil/onlava/data` and open a store with a pgx-compatible pool.
+- The data package exposes small query helpers such as `data.EQ`, `data.GTE`, `data.Contains`, `data.And`, `data.Or`, `data.Not`, `data.Asc`, and `data.Desc`.
 - The first slice stores metadata and outbox rows in `onlava_data` and physical dynamic record tables in `onlava_data_records`.
 - Objects and scalar/composite fields are metadata-defined and backed by real PostgreSQL tables and columns.
 - User-managed select and multi-select fields use `text` and `text[]` plus metadata options, not PostgreSQL enum types.
 - Record queries are compiled from metadata to parameterized SQL; user input must not become SQL identifiers.
 - Record mutations write outbox events in the same transaction.
 - Live updates use SSE over ordinary raw onlava endpoints plus the PostgreSQL outbox sequence for reconnect/replay.
-- Direct SQL or DB Studio writes to physical record tables do not guarantee outbox rows or live updates in this first slice. Trigger-backed outbox support is reserved for a later design.
+- Apps may call `store.EnableOutboxTriggers(ctx, actor, tenantKey, objectName)` to enable per-object trigger-backed outbox rows for direct SQL or DB Studio changes.
+- Explicit onlava record mutations still write precise outbox events themselves; trigger-backed outbox skips those transactions to avoid duplicate events.
+- Trigger-backed direct SQL events use logical field names in `before`, `after`, `diff`, and `changed_fields` where field metadata exists. Actor IDs come from transaction-local `onlava.actor_id` when set, otherwise they are empty.
+- `onlava inspect data --json --database-url <postgres-url>` reports data tenants, objects, fields, migration state, and outbox state without dumping user records.
+- `onlava inspect data --json --database-url <postgres-url> --tenant <tenant-key> --object <object-name>` filters the same infrastructure view to one data tenant/object.
+
+Standard auth:
+
+- Apps may enable the built-in standard auth module from `.onlava.json` instead of writing a `//onlava:authhandler`.
+- Auth-protected app code can use `auth.UserID()`, `auth.Data()`, or `auth.CurrentAuthData()` from `github.com/pbrazdil/onlava/auth`.
+- Access tokens are HMAC JWTs with required expiration and `tenant_id` claims.
+- Refresh sessions are stored in PostgreSQL and rotate by hashing refresh tokens. The refresh cookie name defaults to `onlv_refresh` for ONLV compatibility and is configurable.
+- Email delivery is a pluggable `auth.EmailSender`; the default sender is a no-op.
+- `/users/dev-bootstrap` is local-only and can mint a development token without opening PostgreSQL.
+- DB-backed auth endpoints require a database URL from `auth.database_url_env`, `DATABASE_URL`, or `ONLAVA_AUTH_DATABASE_URL`.
 
 Implemented `dev --json` rules:
 
@@ -380,6 +420,7 @@ Implemented now:
 - [onlava.inspect.endpoints.v1.schema.json](schemas/onlava.inspect.endpoints.v1.schema.json)
 - [onlava.inspect.traces.v1.schema.json](schemas/onlava.inspect.traces.v1.schema.json)
 - [onlava.inspect.metrics.v1.schema.json](schemas/onlava.inspect.metrics.v1.schema.json)
+- [onlava.inspect.data.v1.schema.json](schemas/onlava.inspect.data.v1.schema.json)
 - [onlava.inspect.docs.v1.schema.json](schemas/onlava.inspect.docs.v1.schema.json)
 - [onlava.docs.index.v1.schema.json](schemas/onlava.docs.index.v1.schema.json)
 - [onlava.wire.capabilities.v1.schema.json](schemas/onlava.wire.capabilities.v1.schema.json)

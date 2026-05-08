@@ -23,6 +23,10 @@ onlava harness self --json
 - [Completed Plans](plans/completed.md): shipped milestones and acceptance notes.
 - [Tech Debt](tech-debt.md): known cleanup, risk, and follow-up items.
 
+## Runbooks
+
+- [Standard Auth Production Migration](runbooks/standard-auth-migration.md): operator checklist and SQL template for preserving existing users, tenants, memberships, password hashes, and sessions when moving an app to onlava standard auth.
+
 ## PRDs
 
 - [Pub/Sub PRD](PRD-1-pubsub.md): embedded NATS-backed Pub/Sub behavior and developer API.
@@ -41,5 +45,6 @@ Start with:
 - [onlava.harness.result.v1](schemas/onlava.harness.result.v1.schema.json)
 - [onlava.harness.self.v1](schemas/onlava.harness.self.v1.schema.json)
 - [onlava.inspect.docs.v1](schemas/onlava.inspect.docs.v1.schema.json)
+- [onlava.inspect.data.v1](schemas/onlava.inspect.data.v1.schema.json)
 - [onlava.docs.index.v1](schemas/onlava.docs.index.v1.schema.json)
 - [onlava.version.v1](schemas/onlava.version.v1.schema.json)
