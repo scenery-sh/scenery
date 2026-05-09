@@ -207,3 +207,21 @@ Shipped:
 - Transaction-local actor context and explicit-mutation skip flag to avoid duplicate events.
 - SSE polling/replay compatibility for trigger-created events.
 - Inspect output for trigger enablement and physical trigger presence.
+
+## Data Platform Indexes and Cursor Pagination
+
+- Status: completed
+- Owner: onlava data platform
+- Completed: 2026-05-09
+- Quality: B+
+- ExecPlan: [0010 Data Platform Indexes and Cursor Pagination](0010-data-platform-indexes-and-pagination.md)
+
+Shipped:
+
+- Metadata-backed logical indexes in `onlava_data.indexes` and `onlava_data.index_fields`.
+- Public `data.Store.CreateIndex` and `data.Store.ListIndexes` APIs.
+- Migration-managed deterministic physical PostgreSQL indexes with advisory locks, migration rows, and catalog verification.
+- Btree scalar and compound index support plus explicit GIN indexes for multi-select and JSON/raw JSON fields.
+- `onlava inspect data --json` index reporting with physical presence/drift state.
+- Keyset cursor pagination for `QueryRecords` and opaque `RecordPage.NextCursor` values.
+- Fixture app endpoints and README examples for index creation/listing and cursor pagination.
