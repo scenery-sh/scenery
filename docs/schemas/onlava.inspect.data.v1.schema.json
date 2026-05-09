@@ -74,7 +74,7 @@
     },
     "field": {
       "type": "object",
-      "required": ["name", "label", "type", "columns"],
+      "required": ["name", "label", "type", "columns", "searchable"],
       "properties": {
         "name": { "type": "string" },
         "label": { "type": "string" },
@@ -83,6 +83,8 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "searchable": { "type": "boolean" },
+        "search_weight": { "type": "string" },
         "relation": { "$ref": "#/$defs/relation" }
       },
       "additionalProperties": false

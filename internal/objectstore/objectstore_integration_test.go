@@ -50,13 +50,15 @@ func TestPostgresVerticalSlice(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateObject: %v", err)
 	}
-	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "name", Type: FieldText}); err != nil {
+	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "name", Type: FieldText, Searchable: true, SearchWeight: "A"}); err != nil {
 		t.Fatalf("CreateField(name): %v", err)
 	}
 	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{
-		TenantKey: tenantKey,
-		Name:      "stage",
-		Type:      FieldSelect,
+		TenantKey:    tenantKey,
+		Name:         "stage",
+		Type:         FieldSelect,
+		Searchable:   true,
+		SearchWeight: "B",
 		Options: []FieldOptionRequest{
 			{Value: "lead", Label: "Lead"},
 			{Value: "won", Label: "Won"},
@@ -67,7 +69,7 @@ func TestPostgresVerticalSlice(t *testing.T) {
 	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "arr", Type: FieldNumeric}); err != nil {
 		t.Fatalf("CreateField(arr): %v", err)
 	}
-	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "full_name", Type: FieldFullName}); err != nil {
+	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "full_name", Type: FieldFullName, Searchable: true}); err != nil {
 		t.Fatalf("CreateField(full_name): %v", err)
 	}
 
@@ -117,6 +119,22 @@ func TestPostgresVerticalSlice(t *testing.T) {
 	if fullName["first_name"] != "Ada" || fullName["last_name"] != "Lovelace" {
 		t.Fatalf("full_name = %#v", page.Records[0]["full_name"])
 	}
+	searchPage, err := store.QueryRecords(ctx, actor, "company", QueryRecordsRequest{
+		TenantKey: tenantKey,
+		Query: Query{
+			Select: []string{"name", "stage"},
+			Filter: &Filter{Op: "search", Value: "lovelace"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("QueryRecords(search): %v", err)
+	}
+	if len(searchPage.Records) != 1 || searchPage.Records[0]["name"] != "Acme" {
+		t.Fatalf("search records = %#v", searchPage.Records)
+	}
+	if got := countRows(t, pool, `select count(*) from `+qualifiedIdent(MetadataSchema, "search_documents")+` where tenant_id = $1`, created.Event.TenantID); got != 1 {
+		t.Fatalf("search documents count = %d, want 1", got)
+	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = store.ServeEvents(r.Context(), actor, w, r)
@@ -152,6 +170,19 @@ func TestPostgresVerticalSlice(t *testing.T) {
 	}
 	if updated.Event == nil || updated.Event.Action != "updated" {
 		t.Fatalf("updated event = %#v", updated.Event)
+	}
+	updatedSearch, err := store.QueryRecords(ctx, actor, "company", QueryRecordsRequest{
+		TenantKey: tenantKey,
+		Query: Query{
+			Select: []string{"name"},
+			Filter: &Filter{Op: "search", Value: "labs"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("QueryRecords(search after update): %v", err)
+	}
+	if len(updatedSearch.Records) != 1 || updatedSearch.Records[0]["name"] != "Acme Labs" {
+		t.Fatalf("updated search records = %#v", updatedSearch.Records)
 	}
 
 	eventName, eventData, _, err := readSSEEvent(reader)

@@ -107,6 +107,8 @@ type Field struct {
 	IsNullable       bool             `json:"is_nullable"`
 	IsUnique         bool             `json:"is_unique"`
 	IsArray          bool             `json:"is_array"`
+	IsSearchable     bool             `json:"is_searchable"`
+	SearchWeight     string           `json:"search_weight,omitempty"`
 	RelationObjectID string           `json:"relation_object_id,omitempty"`
 	Settings         map[string]any   `json:"settings,omitempty"`
 	Columns          []PhysicalColumn `json:"columns"`
@@ -196,6 +198,8 @@ type CreateFieldRequest struct {
 	Nullable       *bool                `json:"nullable,omitempty"`
 	Unique         bool                 `json:"unique,omitempty"`
 	Array          bool                 `json:"array,omitempty"`
+	Searchable     bool                 `json:"searchable,omitempty"`
+	SearchWeight   string               `json:"search_weight,omitempty"`
 	RelationObject string               `json:"relation_object,omitempty"`
 	Relation       RelationSettings     `json:"relation,omitempty"`
 	Settings       map[string]any       `json:"settings,omitempty"`

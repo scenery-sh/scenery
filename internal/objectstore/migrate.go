@@ -146,11 +146,15 @@ func (s *Store) CreateField(ctx context.Context, actor Actor, objectName string,
 		if err := s.perms.CanWriteField(ctx, actor, fieldRef(state, existing)); err != nil {
 			return nil, err
 		}
+		searchable, searchWeight, err := searchConfig(fieldType, req)
+		if err != nil {
+			return nil, err
+		}
 		settings, relationObjectID, _, err := s.fieldSettings(ctx, state, existing.ID, fieldType, nullable, req)
 		if err != nil {
 			return nil, err
 		}
-		if err := fieldMatchesRequest(existing, req, fieldType, settings, relationObjectID); err != nil {
+		if err := fieldMatchesRequest(existing, req, fieldType, settings, relationObjectID, searchable, searchWeight); err != nil {
 			return nil, err
 		}
 		if err := s.verifyFieldColumns(ctx, s.db, state.Object.TableName, existing.Columns); err != nil {
@@ -166,6 +170,10 @@ func (s *Store) CreateField(ctx context.Context, actor Actor, objectName string,
 		return nil, err
 	}
 	columns, err := fieldColumns(req.Name, fieldID, fieldType, nullable)
+	if err != nil {
+		return nil, err
+	}
+	searchable, searchWeight, err := searchConfig(fieldType, req)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +196,8 @@ func (s *Store) CreateField(ctx context.Context, actor Actor, objectName string,
 		IsNullable:       nullable,
 		IsUnique:         req.Unique,
 		IsArray:          req.Array,
+		IsSearchable:     searchable,
+		SearchWeight:     searchWeight,
 		RelationObjectID: relationObjectID,
 		Settings:         settings,
 		Columns:          columns,
@@ -231,10 +241,11 @@ func (s *Store) CreateField(ctx context.Context, actor Actor, objectName string,
 		if _, err := tx.Exec(ctx, `
 			insert into `+qualifiedIdent(MetadataSchema, "fields")+` (
 				id, tenant_id, object_id, name, label, type, is_custom, is_system,
-				is_nullable, is_unique, is_array, relation_object_id, settings,
+				is_nullable, is_unique, is_array, is_searchable, search_weight,
+				relation_object_id, settings,
 				storage_columns, created_at, updated_at
-			) values ($1, $2, $3, $4, $5, $6, true, false, $7, $8, $9, $10, $11, $12, $13, $13)
-		`, field.ID, field.TenantID, field.ObjectID, field.Name, field.Label, string(field.Type), field.IsNullable, field.IsUnique, field.IsArray, nullableUUID(field.RelationObjectID), string(settingsData), string(columnsData), field.CreatedAt); err != nil {
+			) values ($1, $2, $3, $4, $5, $6, true, false, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+		`, field.ID, field.TenantID, field.ObjectID, field.Name, field.Label, string(field.Type), field.IsNullable, field.IsUnique, field.IsArray, field.IsSearchable, field.SearchWeight, nullableUUID(field.RelationObjectID), string(settingsData), string(columnsData), field.CreatedAt); err != nil {
 			return fmt.Errorf("insert field metadata %s.%s: %w", state.Object.NameSingular, field.Name, err)
 		}
 		for index, optionReq := range req.Options {
@@ -285,8 +296,9 @@ func (s *Store) CreateField(ctx context.Context, actor Actor, objectName string,
 		if isUniqueViolation(err) {
 			if freshState, loadErr := s.loadState(ctx, req.TenantKey, objectName); loadErr == nil {
 				if existing := freshState.Fields[req.Name]; existing != nil {
+					searchable, searchWeight, searchErr := searchConfig(fieldType, req)
 					settings, relationObjectID, _, settingsErr := s.fieldSettings(ctx, freshState, existing.ID, fieldType, nullable, req)
-					if permErr := s.perms.CanWriteField(ctx, actor, fieldRef(freshState, existing)); settingsErr == nil && permErr == nil && fieldMatchesRequest(existing, req, fieldType, settings, relationObjectID) == nil {
+					if permErr := s.perms.CanWriteField(ctx, actor, fieldRef(freshState, existing)); searchErr == nil && settingsErr == nil && permErr == nil && fieldMatchesRequest(existing, req, fieldType, settings, relationObjectID, searchable, searchWeight) == nil {
 						if verifyErr := s.verifyFieldColumns(ctx, s.db, freshState.Object.TableName, existing.Columns); verifyErr == nil && s.verifyRelationField(ctx, s.db, freshState.Object.TableName, existing) == nil {
 							_ = s.finishMigration(ctx, migrationID, "skipped", "field already exists")
 							return existing, nil
@@ -517,7 +529,7 @@ func objectMatchesRequest(existing *Object, req CreateObjectRequest) error {
 	return nil
 }
 
-func fieldMatchesRequest(existing *Field, req CreateFieldRequest, fieldType FieldType, settings map[string]any, relationObjectID string) error {
+func fieldMatchesRequest(existing *Field, req CreateFieldRequest, fieldType FieldType, settings map[string]any, relationObjectID string, searchable bool, searchWeight string) error {
 	if existing == nil {
 		return fmt.Errorf("field metadata is missing")
 	}
@@ -537,6 +549,10 @@ func fieldMatchesRequest(existing *Field, req CreateFieldRequest, fieldType Fiel
 		return fmt.Errorf("field %s already exists with unique=%v, not %v", existing.Name, existing.IsUnique, req.Unique)
 	case existing.IsArray != req.Array:
 		return fmt.Errorf("field %s already exists with array=%v, not %v", existing.Name, existing.IsArray, req.Array)
+	case existing.IsSearchable != searchable:
+		return fmt.Errorf("field %s already exists with searchable=%v, not %v", existing.Name, existing.IsSearchable, searchable)
+	case existing.SearchWeight != searchWeight:
+		return fmt.Errorf("field %s already exists with search_weight=%s, not %s", existing.Name, existing.SearchWeight, searchWeight)
 	case existing.RelationObjectID != relationObjectID:
 		return fmt.Errorf("field %s already exists with different relation object", existing.Name)
 	case !jsonEqual(existing.Settings, settings):

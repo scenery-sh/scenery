@@ -59,11 +59,13 @@ type ObjectSummary struct {
 }
 
 type FieldSummary struct {
-	Name     string           `json:"name"`
-	Label    string           `json:"label"`
-	Type     string           `json:"type"`
-	Columns  []string         `json:"columns"`
-	Relation *RelationSummary `json:"relation,omitempty"`
+	Name         string           `json:"name"`
+	Label        string           `json:"label"`
+	Type         string           `json:"type"`
+	Columns      []string         `json:"columns"`
+	Searchable   bool             `json:"searchable"`
+	SearchWeight string           `json:"search_weight,omitempty"`
+	Relation     *RelationSummary `json:"relation,omitempty"`
 }
 
 type RelationSummary struct {
@@ -200,7 +202,7 @@ func schemasReady(ctx context.Context, db db) (bool, []string, error) {
 	if !records {
 		warnings = append(warnings, "records schema onlava_data_records does not exist")
 	}
-	for _, table := range []string{"tenants", "objects", "fields", "indexes", "index_fields", "views", "view_fields", "schema_migrations", "outbox_events"} {
+	for _, table := range []string{"tenants", "objects", "fields", "indexes", "index_fields", "views", "view_fields", "search_documents", "schema_migrations", "outbox_events"} {
 		exists, err := tableExists(ctx, db, objectstore.MetadataSchema, table)
 		if err != nil {
 			return false, nil, err
@@ -303,7 +305,7 @@ func loadObjects(ctx context.Context, db db, opts Options) ([]ObjectSummary, err
 	}
 	fieldRows, err := db.Query(ctx, `
 		select f.object_id::text, f.name, f.label, f.type, f.storage_columns,
-		       coalesce(ro.name_singular, ''), f.settings
+		       f.is_searchable, f.search_weight, coalesce(ro.name_singular, ''), f.settings
 		from onlava_data.fields f
 		join onlava_data.objects o on o.id = f.object_id
 		join onlava_data.tenants t on t.id = f.tenant_id
@@ -322,7 +324,7 @@ func loadObjects(ctx context.Context, db db, opts Options) ([]ObjectSummary, err
 		var columnsJSON []byte
 		var relationObject string
 		var settingsJSON []byte
-		if err := fieldRows.Scan(&objectID, &field.Name, &field.Label, &field.Type, &columnsJSON, &relationObject, &settingsJSON); err != nil {
+		if err := fieldRows.Scan(&objectID, &field.Name, &field.Label, &field.Type, &columnsJSON, &field.Searchable, &field.SearchWeight, &relationObject, &settingsJSON); err != nil {
 			return nil, err
 		}
 		field.Columns = columnNames(columnsJSON)

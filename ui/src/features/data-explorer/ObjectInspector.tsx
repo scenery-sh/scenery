@@ -44,6 +44,11 @@ export function ObjectInspector({
                 <code className="text-xs text-muted-foreground">{field.type}</code>
               </div>
               <div className="mt-2 text-xs text-muted-foreground">{field.columns.join(", ") || "no columns"}</div>
+              {field.searchable ? (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  searchable · weight {field.search_weight || "D"}
+                </div>
+              ) : null}
             </div>
           ))}
         </CardContent>

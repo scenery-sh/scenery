@@ -5,7 +5,7 @@ import { Button } from "@/components/primitives/Button";
 import { Card, CardContent } from "@/components/primitives/Card";
 import { Input, Select, Textarea } from "@/components/primitives/Input";
 import { useDashboard } from "@/lib/dashboard-context";
-import { createDataExplorerClient, parseFilterInput, type DataExplorerClient } from "./dataExplorerClient";
+import { andFilters, createDataExplorerClient, parseFilterInput, type DataExplorerClient } from "./dataExplorerClient";
 import type { DataInspectResponse, DataObjectSummary, DataOutboxEvent, DataRecord } from "./dataExplorerClient";
 import { ObjectInspector } from "./ObjectInspector";
 import { ObjectList } from "./ObjectList";
@@ -32,6 +32,7 @@ export function DataExplorerView({
   const [records, setRecords] = useState<DataRecord[]>([]);
   const [events, setEvents] = useState<DataOutboxEvent[]>([]);
   const [filterText, setFilterText] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [limitText, setLimitText] = useState("50");
   const [inspectError, setInspectError] = useState<string | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
@@ -86,14 +87,16 @@ export function DataExplorerView({
     setRecordsLoading(true);
     setRecordError(null);
     try {
-      const filter = parseFilterInput(filterText);
+      const explicitFilter = parseFilterInput(filterText);
+      const searchFilter = searchText.trim() ? { op: "search", value: searchText.trim() } : undefined;
+      const filter = andFilters(explicitFilter ?? selectedView?.filter, searchFilter);
       const limit = Math.max(1, Math.min(250, Number.parseInt(limitText, 10) || 50));
       const page = await client.queryRecords({
         tenant_key: selectedTenantKey,
         object: selectedObject.name,
         query: {
           select: selectedView?.columns?.length ? selectedView.columns : selectedObject.fields.map((field) => field.name),
-          filter: filter ?? selectedView?.filter,
+          filter,
           sort: selectedView?.sort,
           limit: selectedView?.limit ?? limit,
         },
@@ -105,7 +108,7 @@ export function DataExplorerView({
     } finally {
       setRecordsLoading(false);
     }
-  }, [client, filterText, limitText, selectedObject, selectedTenantKey, selectedView]);
+  }, [client, filterText, limitText, searchText, selectedObject, selectedTenantKey, selectedView]);
 
   const loadEvents = useCallback(async () => {
     if (!client) {
@@ -141,6 +144,7 @@ export function DataExplorerView({
       filterText={filterText}
       limitText={limitText}
       loading={inspectLoading || recordsLoading}
+      searchText={searchText}
       selectedViewName={selectedViewName}
       views={selectedObject?.views ?? []}
       onFilterTextChange={setFilterText}
@@ -151,6 +155,7 @@ export function DataExplorerView({
         void loadEvents();
       }}
       onRunQuery={() => void queryRecords()}
+      onSearchTextChange={setSearchText}
       onViewChange={setSelectedViewName}
     />
   );
@@ -203,24 +208,28 @@ function DataToolbar({
   filterText,
   limitText,
   loading,
+  searchText,
   selectedViewName,
   views,
   onFilterTextChange,
   onLimitTextChange,
   onRefresh,
   onRunQuery,
+  onSearchTextChange,
   onViewChange,
 }: {
   appId: string;
   filterText: string;
   limitText: string;
   loading: boolean;
+  searchText: string;
   selectedViewName: string;
   views: Array<{ name: string; type: string }>;
   onFilterTextChange: (value: string) => void;
   onLimitTextChange: (value: string) => void;
   onRefresh: () => void;
   onRunQuery: () => void;
+  onSearchTextChange: (value: string) => void;
   onViewChange: (value: string) => void;
 }) {
   return (
@@ -228,7 +237,7 @@ function DataToolbar({
       secondaryActions={[{ label: "Refresh", onClick: onRefresh, disabled: loading }]}
       primaryAction={{ label: loading ? "Running" : "Run", onClick: onRunQuery, disabled: loading }}
     >
-      <div className="grid min-w-80 grid-cols-[80px_140px_minmax(180px,1fr)] gap-2">
+      <div className="grid min-w-80 grid-cols-[80px_140px_160px_minmax(180px,1fr)] gap-2">
         <Input
           aria-label="Record limit"
           value={limitText}
@@ -243,6 +252,12 @@ function DataToolbar({
             </option>
           ))}
         </Select>
+        <Input
+          aria-label="Search records"
+          value={searchText}
+          placeholder="Search"
+          onChange={(event) => onSearchTextChange(event.target.value)}
+        />
         <Textarea
           aria-label={`Filter for ${appId}`}
           value={filterText}

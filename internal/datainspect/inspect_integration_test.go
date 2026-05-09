@@ -47,9 +47,11 @@ func TestBuildWithPostgres(t *testing.T) {
 		t.Fatalf("CreateObject: %v", err)
 	}
 	if _, err := store.CreateField(ctx, actor, "company", objectstore.CreateFieldRequest{
-		TenantKey: tenantKey,
-		Name:      "name",
-		Type:      objectstore.FieldText,
+		TenantKey:    tenantKey,
+		Name:         "name",
+		Type:         objectstore.FieldText,
+		Searchable:   true,
+		SearchWeight: "A",
 	}); err != nil {
 		t.Fatalf("CreateField: %v", err)
 	}
@@ -93,13 +95,20 @@ func TestBuildWithPostgres(t *testing.T) {
 		t.Fatalf("objects = %#v", resp.Objects)
 	}
 	var relation *RelationSummary
+	var searchableName bool
 	for _, field := range resp.Objects[0].Fields {
 		if field.Name == "parent" {
 			relation = field.Relation
 		}
+		if field.Name == "name" && field.Searchable && field.SearchWeight == "A" {
+			searchableName = true
+		}
 	}
 	if relation == nil || relation.Object != "company" || relation.Kind != string(objectstore.RelationManyToOne) {
 		t.Fatalf("relation inspect = %#v", relation)
+	}
+	if !searchableName {
+		t.Fatalf("searchable field inspect missing: %#v", resp.Objects[0].Fields)
 	}
 	if len(resp.Objects[0].Indexes) != 1 || resp.Objects[0].Indexes[0].Name != "company_name" || !resp.Objects[0].Indexes[0].Physical.Exists || resp.Objects[0].Indexes[0].Physical.Drift {
 		t.Fatalf("indexes = %#v", resp.Objects[0].Indexes)

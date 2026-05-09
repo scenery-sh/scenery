@@ -23,8 +23,8 @@ const inspectFixture: DataInspectResponse = {
     outbox_trigger_name: "outbox__abcd",
     outbox_trigger_present: true,
     fields: [
-      { name: "name", label: "Name", type: "text", columns: ["name"] },
-      { name: "stage", label: "Stage", type: "select", columns: ["stage"] },
+      { name: "name", label: "Name", type: "text", columns: ["name"], searchable: true, search_weight: "A" },
+      { name: "stage", label: "Stage", type: "select", columns: ["stage"], searchable: false },
     ],
     indexes: [{
       name: "company_stage",

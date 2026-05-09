@@ -305,6 +305,42 @@ func TestCompileQueryRejectsInvalidOperatorForType(t *testing.T) {
 	}
 }
 
+func TestCompileQuerySearchUsesIndexedDocuments(t *testing.T) {
+	state := testState()
+	compiled, err := compileQuery(state, Query{
+		Filter: &Filter{Op: "search", Value: "Acme Labs"},
+		Limit:  25,
+	})
+	if err != nil {
+		t.Fatalf("compileQuery() error = %v", err)
+	}
+	for _, want := range []string{
+		`from "onlava_data"."search_documents" sd`,
+		`sd.object_id = $2::uuid`,
+		`websearch_to_tsquery('simple', $3::text)`,
+		`limit $4`,
+	} {
+		if !strings.Contains(compiled.SQL, want) {
+			t.Fatalf("compileQuery SQL missing %q:\n%s", want, compiled.SQL)
+		}
+	}
+	if strings.Contains(compiled.SQL, "Acme") {
+		t.Fatalf("compileQuery interpolated search value into SQL:\n%s", compiled.SQL)
+	}
+	if len(compiled.Args) != 4 || compiled.Args[1] != state.Object.ID || compiled.Args[2] != "Acme Labs" {
+		t.Fatalf("compileQuery args = %#v", compiled.Args)
+	}
+}
+
+func TestCompileQuerySearchRejectsObjectsWithoutSearchableFields(t *testing.T) {
+	state := testState()
+	state.Fields["name"].IsSearchable = false
+	_, err := compileQuery(state, Query{Filter: &Filter{Op: "search", Value: "Acme"}})
+	if err == nil || !strings.Contains(err.Error(), "no searchable fields") {
+		t.Fatalf("compileQuery error = %v, want no searchable fields", err)
+	}
+}
+
 func TestEventMatchingAgainstQuerySubscription(t *testing.T) {
 	event := &Event{
 		TenantID: "tenant-1",
@@ -342,6 +378,7 @@ func TestEventMatchingAgainstQuerySubscription(t *testing.T) {
 func TestEventMatchingUsesBeforeAfterByAction(t *testing.T) {
 	sub := &liveSubscription{
 		tenantID: "tenant-1",
+		state:    testState(),
 		request: SubscriptionRequest{
 			QueryID: "won-companies",
 			Object:  "company",
@@ -400,6 +437,32 @@ func TestEventMatchingUsesBeforeAfterByAction(t *testing.T) {
 				t.Fatalf("eventForSubscription delivered = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEventMatchingSupportsSearchFilters(t *testing.T) {
+	sub := &liveSubscription{
+		tenantID: "tenant-1",
+		state:    testState(),
+		request: SubscriptionRequest{
+			QueryID: "search",
+			Object:  "company",
+			Filter:  &Filter{Op: "search", Value: "acme"},
+		},
+	}
+	event := &Event{
+		TenantID: "tenant-1",
+		Object:   "company",
+		Action:   "updated",
+		Before:   Record{"name": "Beta"},
+		After:    Record{"name": "Acme Labs"},
+	}
+	if got := eventForSubscription(event, sub); got == nil {
+		t.Fatal("eventForSubscription search filter returned nil")
+	}
+	event.After = Record{"name": "Beta Labs"}
+	if got := eventForSubscription(event, sub); got != nil {
+		t.Fatalf("eventForSubscription nonmatching search = %#v, want nil", got)
 	}
 }
 
@@ -502,11 +565,13 @@ func testState() *metadataState {
 		Object: &Object{ID: "00000000-0000-0000-0000-000000000002", TenantID: "00000000-0000-0000-0000-000000000001", NameSingular: "company", TableName: "company__000000000000", SchemaVersion: 3},
 		Fields: map[string]*Field{
 			"name": {
-				ID:         "field-name",
-				Name:       "name",
-				Type:       FieldText,
-				IsNullable: true,
-				Columns:    []PhysicalColumn{{Name: "name__fieldname", SQLType: "text", Nullable: true}},
+				ID:           "field-name",
+				Name:         "name",
+				Type:         FieldText,
+				IsNullable:   true,
+				IsSearchable: true,
+				SearchWeight: "A",
+				Columns:      []PhysicalColumn{{Name: "name__fieldname", SQLType: "text", Nullable: true}},
 			},
 			"stage": {
 				ID:         "field-stage",

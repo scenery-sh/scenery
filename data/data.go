@@ -220,6 +220,10 @@ func Contains(field string, value any) *Filter {
 	return &Filter{Op: "contains", Field: field, Value: value}
 }
 
+func Search(value string) *Filter {
+	return &Filter{Op: "search", Value: value}
+}
+
 func In(field string, values ...any) *Filter {
 	return &Filter{Op: "in", Field: field, Values: values}
 }

@@ -63,6 +63,9 @@ func (s *Store) CreateRecord(ctx context.Context, actor Actor, objectName string
 	if err != nil {
 		return nil, err
 	}
+	if err := s.upsertSearchDocument(ctx, tx, state, id, after); err != nil {
+		return nil, err
+	}
 	event, err = s.insertOutbox(ctx, tx, outboxDraft{
 		TenantID:      state.Tenant.ID,
 		ObjectID:      state.Object.ID,
@@ -139,6 +142,9 @@ func (s *Store) UpdateRecord(ctx context.Context, actor Actor, objectName, id st
 	if err != nil {
 		return nil, err
 	}
+	if err := s.upsertSearchDocument(ctx, tx, state, id, after); err != nil {
+		return nil, err
+	}
 	event, err := s.insertOutbox(ctx, tx, outboxDraft{
 		TenantID:      state.Tenant.ID,
 		ObjectID:      state.Object.ID,
@@ -191,6 +197,9 @@ func (s *Store) DeleteRecord(ctx context.Context, actor Actor, objectName, id st
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, fmt.Errorf("record %s does not exist on object %s", id, objectName)
+	}
+	if err := deleteSearchDocument(ctx, tx, state, id); err != nil {
+		return nil, err
 	}
 	event, err := s.insertOutbox(ctx, tx, outboxDraft{
 		TenantID:      state.Tenant.ID,

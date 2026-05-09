@@ -73,6 +73,8 @@ func (s *Store) bootstrap(ctx context.Context) error {
 			is_nullable boolean not null,
 			is_unique boolean not null,
 			is_array boolean not null,
+			is_searchable boolean not null default false,
+			search_weight text not null default 'D',
 			relation_object_id uuid null,
 			settings jsonb not null default '{}'::jsonb,
 			storage_columns jsonb not null default '[]'::jsonb,
@@ -80,6 +82,8 @@ func (s *Store) bootstrap(ctx context.Context) error {
 			updated_at timestamptz not null,
 			unique (tenant_id, object_id, name)
 		)`,
+		`alter table ` + qualifiedIdent(MetadataSchema, "fields") + ` add column if not exists is_searchable boolean not null default false`,
+		`alter table ` + qualifiedIdent(MetadataSchema, "fields") + ` add column if not exists search_weight text not null default 'D'`,
 		`create table if not exists ` + qualifiedIdent(MetadataSchema, "field_options") + ` (
 			id uuid primary key,
 			tenant_id uuid not null references ` + qualifiedIdent(MetadataSchema, "tenants") + `(id) on delete cascade,
@@ -145,6 +149,16 @@ func (s *Store) bootstrap(ctx context.Context) error {
 			unique (tenant_id, view_id, position),
 			unique (tenant_id, view_id, field_name)
 		)`,
+		`create table if not exists ` + qualifiedIdent(MetadataSchema, "search_documents") + ` (
+			tenant_id uuid not null references ` + qualifiedIdent(MetadataSchema, "tenants") + `(id) on delete cascade,
+			object_id uuid not null references ` + qualifiedIdent(MetadataSchema, "objects") + `(id) on delete cascade,
+			record_id uuid not null,
+			document tsvector not null,
+			updated_at timestamptz not null,
+			primary key (tenant_id, object_id, record_id)
+		)`,
+		`create index if not exists search_documents_lookup_idx on ` + qualifiedIdent(MetadataSchema, "search_documents") + ` (tenant_id, object_id, record_id)`,
+		`create index if not exists search_documents_document_idx on ` + qualifiedIdent(MetadataSchema, "search_documents") + ` using gin (document)`,
 		`create table if not exists ` + qualifiedIdent(MetadataSchema, "schema_migrations") + ` (
 			id uuid primary key,
 			tenant_id uuid not null,
@@ -317,6 +331,7 @@ func (s *Store) loadFields(ctx context.Context, tenantID, objectID string) (map[
 	rows, err := s.db.Query(ctx, `
 		select id::text, tenant_id::text, object_id::text, name, label, type,
 		       is_custom, is_system, is_nullable, is_unique, is_array,
+		       is_searchable, search_weight,
 		       coalesce(relation_object_id::text, ''), settings, storage_columns,
 		       created_at, updated_at
 		from `+qualifiedIdent(MetadataSchema, "fields")+`
@@ -339,6 +354,7 @@ func (s *Store) loadFields(ctx context.Context, tenantID, objectID string) (map[
 		if err := rows.Scan(
 			&field.ID, &field.TenantID, &field.ObjectID, &field.Name, &field.Label, &fieldType,
 			&field.IsCustom, &field.IsSystem, &field.IsNullable, &field.IsUnique, &field.IsArray,
+			&field.IsSearchable, &field.SearchWeight,
 			&field.RelationObjectID, &settingsData, &columnsData,
 			&field.CreatedAt, &field.UpdatedAt,
 		); err != nil {

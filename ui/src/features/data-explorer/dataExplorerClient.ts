@@ -41,6 +41,8 @@ export type DataFieldSummary = {
   label: string;
   type: string;
   columns: string[];
+  searchable: boolean;
+  search_weight?: string;
   relation?: DataRelationSummary;
 };
 
@@ -199,6 +201,17 @@ export function parseFilterInput(value: string): DataFilter | undefined {
     throw new Error("Filter must be a JSON object with an op string.");
   }
   return parsed;
+}
+
+export function andFilters(...filters: Array<DataFilter | undefined>): DataFilter | undefined {
+  const items = filters.filter((filter): filter is DataFilter => Boolean(filter));
+  if (items.length === 0) {
+    return undefined;
+  }
+  if (items.length === 1) {
+    return items[0];
+  }
+  return { op: "and", filters: items };
 }
 
 export function recordColumns(object: DataObjectSummary | null, records: DataRecord[]): string[] {

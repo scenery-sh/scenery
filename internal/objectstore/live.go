@@ -20,6 +20,7 @@ type liveSubscription struct {
 	request  SubscriptionRequest
 	tenantID string
 	actor    Actor
+	state    *metadataState
 	ch       chan *Event
 }
 
@@ -105,6 +106,7 @@ func (s *Store) resolveSubscription(ctx context.Context, actor Actor, req Subscr
 		request:  req,
 		tenantID: state.Tenant.ID,
 		actor:    actor,
+		state:    state,
 		ch:       make(chan *Event, 32),
 	}, nil
 }
@@ -116,7 +118,7 @@ func eventForSubscription(event *Event, sub *liveSubscription) *Event {
 	if event.TenantID != sub.tenantID || event.Object != sub.request.Object {
 		return nil
 	}
-	if sub.request.Filter != nil && !eventMatchesFilter(event, sub.request.Filter) {
+	if sub.request.Filter != nil && !eventMatchesFilter(sub.state, event, sub.request.Filter) {
 		return nil
 	}
 	deliver := cloneEvent(event)
@@ -125,20 +127,20 @@ func eventForSubscription(event *Event, sub *liveSubscription) *Event {
 	return deliver
 }
 
-func eventMatchesFilter(event *Event, filter *Filter) bool {
+func eventMatchesFilter(state *metadataState, event *Event, filter *Filter) bool {
 	switch event.Action {
 	case "created":
-		return evalFilter(filter, event.After)
+		return evalFilter(state, filter, event.After)
 	case "updated":
-		return evalFilter(filter, event.After) || evalFilter(filter, event.Before)
+		return evalFilter(state, filter, event.After) || evalFilter(state, filter, event.Before)
 	case "deleted":
-		return evalFilter(filter, event.Before)
+		return evalFilter(state, filter, event.Before)
 	default:
 		return true
 	}
 }
 
-func evalFilter(filter *Filter, record Record) bool {
+func evalFilter(state *metadataState, filter *Filter, record Record) bool {
 	if filter == nil {
 		return true
 	}
@@ -146,20 +148,22 @@ func evalFilter(filter *Filter, record Record) bool {
 	switch op {
 	case "", "and":
 		for i := range filter.Filters {
-			if !evalFilter(&filter.Filters[i], record) {
+			if !evalFilter(state, &filter.Filters[i], record) {
 				return false
 			}
 		}
 		return true
 	case "or":
 		for i := range filter.Filters {
-			if evalFilter(&filter.Filters[i], record) {
+			if evalFilter(state, &filter.Filters[i], record) {
 				return true
 			}
 		}
 		return false
 	case "not":
-		return len(filter.Filters) == 1 && !evalFilter(&filter.Filters[0], record)
+		return len(filter.Filters) == 1 && !evalFilter(state, &filter.Filters[0], record)
+	case "search":
+		return state != nil && recordMatchesSearch(state, record, filter.Value)
 	case "eq":
 		return fmt.Sprint(record[filter.Field]) == fmt.Sprint(filter.Value)
 	case "neq":

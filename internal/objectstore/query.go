@@ -277,6 +277,8 @@ func compileFilter(state *metadataState, filter *Filter, args *[]any) (string, e
 			return "", err
 		}
 		return "not (" + part + ")", nil
+	case "search":
+		return compileSearchFilter(state, filter, args)
 	}
 
 	column, field, err := filterColumn(state, filter.Field)
