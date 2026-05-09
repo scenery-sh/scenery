@@ -26,6 +26,7 @@ var (
 
 func TestOnlavaRunBasicApp(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := copyFixtureApp(t, repo, "basic")
@@ -75,6 +76,7 @@ func TestOnlavaRunBasicApp(t *testing.T) {
 
 func TestOnlavaRunStandardAuthDevBootstrap(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := copyFixtureApp(t, repo, "standard-auth")
@@ -112,6 +114,7 @@ func TestOnlavaRunStandardAuthDevBootstrap(t *testing.T) {
 
 func TestOnlavaDevReloadsOnGoChanges(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	sourceAppDir := filepath.Join(repo, "testdata", "apps", "basic")
@@ -161,6 +164,7 @@ func TestOnlavaDevReloadsOnGoChanges(t *testing.T) {
 
 func TestOnlavaRunLoadsSecretsFromDotEnv(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := copyFixtureApp(t, repo, "secrets")
@@ -194,6 +198,7 @@ func TestOnlavaRunLoadsSecretsFromDotEnv(t *testing.T) {
 
 func TestOnlavaRunProductionFailsForMissingSecrets(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := copyFixtureApp(t, repo, "secrets")
@@ -233,6 +238,7 @@ func TestOnlavaRunProductionFailsForMissingSecrets(t *testing.T) {
 
 func TestOnlavaRunPopulatesSecretsBeforePubSubPackageDeclarations(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := filepath.Join(t.TempDir(), "pubsubsecrets")
@@ -320,6 +326,7 @@ func Concurrency(ctx context.Context) (*Response, error) {
 
 func TestOnlavaRunInitializesServiceStructsAtStartup(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := filepath.Join(t.TempDir(), "serviceinit")
@@ -375,6 +382,7 @@ func (s *Service) Hello(ctx context.Context) error { return nil }
 
 func TestOnlavaRunMiddlewareApp(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := copyFixtureApp(t, repo, "middleware")
@@ -412,6 +420,7 @@ func TestOnlavaRunMiddlewareApp(t *testing.T) {
 
 func TestOnlavaRunExecutesCronJobs(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := copyFixtureApp(t, repo, "cron")
@@ -442,6 +451,7 @@ func TestOnlavaRunExecutesCronJobs(t *testing.T) {
 
 func TestOnlavaBuildProducesRunnableBinary(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := copyFixtureApp(t, repo, "basic")
@@ -483,6 +493,7 @@ func TestOnlavaBuildProducesRunnableBinary(t *testing.T) {
 
 func TestOnlavaDevServesHTTPSHostnames(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	sourceAppDir := filepath.Join(repo, "testdata", "apps", "basic")
@@ -570,6 +581,7 @@ func TestOnlavaDevServesHTTPSHostnames(t *testing.T) {
 
 func TestOnlavaBuiltBinaryIsHeadlessByDefault(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	sourceAppDir := filepath.Join(repo, "testdata", "apps", "basic")
@@ -626,6 +638,7 @@ func TestOnlavaBuiltBinaryIsHeadlessByDefault(t *testing.T) {
 
 func TestOnlavaDevDashboardNotificationsAndMCP(t *testing.T) {
 	t.Parallel()
+	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	sourceAppDir := filepath.Join(repo, "testdata", "apps", "basic")

@@ -22,6 +22,18 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var onlavaProcessSlots = make(chan struct{}, 2)
+
+func limitOnlavaProcessConcurrency(t *testing.T) {
+	t.Helper()
+	select {
+	case onlavaProcessSlots <- struct{}{}:
+		t.Cleanup(func() { <-onlavaProcessSlots })
+	case <-time.After(2 * time.Minute):
+		t.Fatal("timed out waiting for onlava integration process slot")
+	}
+}
+
 func buildOnlavaBinary(t *testing.T, repo string) string {
 	t.Helper()
 	buildOnlavaBinaryOnce.Do(func() {
@@ -332,7 +344,7 @@ func waitForHTTP(t *testing.T, url string) {
 
 func waitForURL(t *testing.T, client *http.Client, url string) {
 	t.Helper()
-	deadline := time.Now().Add(40 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url)
 		if err == nil {
