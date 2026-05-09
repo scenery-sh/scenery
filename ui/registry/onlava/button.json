@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "button",
+  "type": "registry:component",
+  "title": "Button",
+  "description": "Stable onlava button primitive. Ported from ONLV's approved shadcn-derived button semantics into an onlava-owned API.",
+  "files": [
+    {
+      "path": "ui/src/components/primitives/Button.tsx",
+      "source": "../../src/components/primitives/Button.tsx",
+      "type": "registry:component",
+      "target": "@components/primitives/Button.tsx"
+    }
+  ]
+}

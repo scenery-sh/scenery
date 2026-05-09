@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "input",
+  "type": "registry:component",
+  "title": "Input",
+  "description": "Stable onlava input, textarea, and select primitives.",
+  "files": [
+    {
+      "path": "ui/src/components/primitives/Input.tsx",
+      "source": "../../src/components/primitives/Input.tsx",
+      "type": "registry:component",
+      "target": "@components/primitives/Input.tsx"
+    }
+  ]
+}

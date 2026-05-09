@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "filter-pill",
+  "type": "registry:component",
+  "title": "Filter Pill",
+  "description": "Port of ONLV's filter pill into an onlava-owned primitive.",
+  "files": [
+    {
+      "path": "ui/src/components/primitives/FilterPill.tsx",
+      "source": "../../src/components/primitives/FilterPill.tsx",
+      "type": "registry:component",
+      "target": "@components/primitives/FilterPill.tsx"
+    }
+  ]
+}

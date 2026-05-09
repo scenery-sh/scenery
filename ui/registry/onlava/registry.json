@@ -1,0 +1,61 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "onlava",
+  "homepage": "https://onlava.com",
+  "items": [
+    {
+      "name": "button",
+      "type": "registry:component",
+      "title": "Button",
+      "description": "Stable onlava button primitive."
+    },
+    {
+      "name": "dialog",
+      "type": "registry:component",
+      "title": "Dialog",
+      "description": "Stable onlava dialog primitive."
+    },
+    {
+      "name": "card",
+      "type": "registry:component",
+      "title": "Card",
+      "description": "Stable onlava card primitive."
+    },
+    {
+      "name": "input",
+      "type": "registry:component",
+      "title": "Input",
+      "description": "Stable onlava input, textarea, and select primitives."
+    },
+    {
+      "name": "dashboard-page",
+      "type": "registry:block",
+      "title": "Dashboard Page",
+      "description": "Slot-based dashboard page layout."
+    },
+    {
+      "name": "data-explorer-layout",
+      "type": "registry:block",
+      "title": "Data Explorer Layout",
+      "description": "Slot-based layout for dynamic object data explorers."
+    },
+    {
+      "name": "product-surface",
+      "type": "registry:block",
+      "title": "Product Surface",
+      "description": "Ported ONLV product surface layout primitives."
+    },
+    {
+      "name": "filter-pill",
+      "type": "registry:component",
+      "title": "Filter Pill",
+      "description": "Ported ONLV filter primitive."
+    },
+    {
+      "name": "sidebar-item",
+      "type": "registry:component",
+      "title": "Sidebar Item",
+      "description": "Ported ONLV sidebar item helpers."
+    }
+  ]
+}

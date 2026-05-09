@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "sidebar-item",
+  "type": "registry:component",
+  "title": "Sidebar Item",
+  "description": "Port of ONLV's sidebar item helpers into onlava-owned primitive helpers.",
+  "files": [
+    {
+      "path": "ui/src/components/primitives/SidebarItem.tsx",
+      "source": "../../src/components/primitives/SidebarItem.tsx",
+      "type": "registry:component",
+      "target": "@components/primitives/SidebarItem.tsx"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "data-explorer-layout",
+  "type": "registry:block",
+  "title": "Data Explorer Layout",
+  "description": "Slot-based layout for data platform object lists, record tables, inspectors, and event streams.",
+  "files": [
+    {
+      "path": "ui/src/components/layouts/DataExplorerLayout.tsx",
+      "source": "../../src/components/layouts/DataExplorerLayout.tsx",
+      "type": "registry:block",
+      "target": "@components/layouts/DataExplorerLayout.tsx"
+    }
+  ]
+}

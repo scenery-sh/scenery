@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "product-surface",
+  "type": "registry:block",
+  "title": "Product Surface",
+  "description": "Port of ONLV product surface primitives into onlava-owned layout names.",
+  "files": [
+    {
+      "path": "ui/src/components/layouts/ProductSurface.tsx",
+      "source": "../../src/components/layouts/ProductSurface.tsx",
+      "type": "registry:block",
+      "target": "@components/layouts/ProductSurface.tsx"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "card",
+  "type": "registry:component",
+  "title": "Card",
+  "description": "Stable onlava card primitive for bordered dashboard surfaces.",
+  "files": [
+    {
+      "path": "ui/src/components/primitives/Card.tsx",
+      "source": "../../src/components/primitives/Card.tsx",
+      "type": "registry:component",
+      "target": "@components/primitives/Card.tsx"
+    }
+  ]
+}

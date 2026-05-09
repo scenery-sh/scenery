@@ -57,10 +57,14 @@ function DashboardShell({ appId }: { appId: string }) {
 
   return (
     <div
+      data-onlava-ui="AppShell"
       className="h-screen overflow-hidden bg-background text-foreground"
       style={{ "--header-height": "52px" } as CSSProperties}
     >
-      <header className="fixed top-0 z-50 flex w-full items-center border-b border-topnav-border bg-topnav text-topnav-foreground">
+      <header
+        data-slot="topbar"
+        className="fixed top-0 z-50 flex w-full items-center border-b border-topnav-border bg-topnav text-topnav-foreground"
+      >
         <div className="flex w-full items-center gap-3 px-3" style={{ height: "var(--header-height)" }}>
           <div className="flex min-w-0 items-center gap-4">
             <div className="relative flex min-w-0 text-left" ref={menuRef}>
@@ -173,7 +177,7 @@ function DashboardShell({ appId }: { appId: string }) {
           </div>
         </div>
       </header>
-      <div style={{ height: "100vh", overflow: "hidden", paddingTop: "var(--header-height)" }}>
+      <div data-slot="body" style={{ height: "100vh", overflow: "hidden", paddingTop: "var(--header-height)" }}>
         {status?.compileError ? (
           <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">
             <strong>Compile error</strong> {status.compileError}

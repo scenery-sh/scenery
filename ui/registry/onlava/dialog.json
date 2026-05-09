@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "dialog",
+  "type": "registry:component",
+  "title": "Dialog",
+  "description": "Stable onlava dialog primitive. Use this instead of importing Radix or shadcn dialog directly in screens.",
+  "registryDependencies": [
+    "@onlava/button"
+  ],
+  "files": [
+    {
+      "path": "ui/src/components/primitives/Dialog.tsx",
+      "source": "../../src/components/primitives/Dialog.tsx",
+      "type": "registry:component",
+      "target": "@components/primitives/Dialog.tsx"
+    }
+  ]
+}

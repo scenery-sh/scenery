@@ -12,6 +12,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "types": ["vitest/globals"]
   },
   "include": ["src"]
