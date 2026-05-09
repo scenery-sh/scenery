@@ -2,10 +2,51 @@ package devdash
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
+
+func TestOpenStoreConfiguresSQLiteForConcurrentDevReaders(t *testing.T) {
+	t.Parallel()
+
+	cacheRoot := t.TempDir()
+	store, err := OpenStore(cacheRoot)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	db, err := sql.Open("sqlite", storeSQLiteDSN(filepath.Join(cacheRoot, "dev.db")))
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	var journalMode string
+	if err := db.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if journalMode != "wal" {
+		t.Fatalf("journal_mode = %q, want wal", journalMode)
+	}
+
+	var busyTimeout int
+	if err := db.QueryRowContext(context.Background(), "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("query busy_timeout: %v", err)
+	}
+	if busyTimeout != sqliteBusyTimeoutMS {
+		t.Fatalf("busy_timeout = %d, want %d", busyTimeout, sqliteBusyTimeoutMS)
+	}
+}
 
 func TestStoreStoredRequestsCRUD(t *testing.T) {
 	t.Parallel()

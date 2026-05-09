@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ import (
 type Store struct {
 	db *sql.DB
 }
+
+const sqliteBusyTimeoutMS = 5_000
 
 func OpenStore(cacheRoot string) (*Store, error) {
 	if cacheRoot == "" {
@@ -30,7 +33,7 @@ func OpenStore(cacheRoot string) (*Store, error) {
 	}
 
 	dbPath := filepath.Join(cacheRoot, "dev.db")
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", storeSQLiteDSN(dbPath))
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +45,14 @@ func OpenStore(cacheRoot string) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func storeSQLiteDSN(dbPath string) string {
+	return fmt.Sprintf(
+		"file:%s?_pragma=busy_timeout%%3d%d&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
+		filepath.ToSlash(dbPath),
+		sqliteBusyTimeoutMS,
+	)
 }
 
 func (s *Store) Close() error {
