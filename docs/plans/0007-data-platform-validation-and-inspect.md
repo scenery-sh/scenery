@@ -39,7 +39,7 @@ The inspection command should report metadata, physical schema state, migration 
 
 ## Surprises & Discoveries
 
-- Go module boundaries mean `go test ./testdata/...` from the repository root matches no packages because `testdata/apps/data-platform` is its own module. The CI job now runs the DB-backed datastore package tests directly and separately runs `onlava check --app-root testdata/apps/data-platform --json` to validate the fixture app.
+- Go module boundaries mean `go test ./testdata/...` from the repository root matches no packages because `testdata/apps/data-platform` is its own module. The CI job now runs the DB-backed objectstore package tests directly and separately runs `onlava check --app-root testdata/apps/data-platform --json` to validate the fixture app.
 - `onlava inspect data` needs to be safe against empty databases. It returns a valid JSON document with warnings when the onlava data schemas/tables are absent instead of bootstrapping or failing.
 - Real PostgreSQL validation caught two issues the skipped test path had hidden: test cleanup was registered after the pool close, and the SSE test subscribed from seq 0 so replayed old metadata outbox rows before the `ready` event. Cleanup now keeps the pool alive, and the SSE test uses the record query watermark it means to subscribe from.
 - Empty inspect collections initially rendered as `null`; they now render as stable empty arrays.
@@ -76,7 +76,7 @@ Completed on 2026-05-08. Revised on 2026-05-08 22:20Z to use `testcontainers-go`
 
 Shipped:
 
-- Added `testcontainers-go` PostgreSQL startup for DB-backed datastore and data-inspect tests, with `ONLAVA_TEST_DATABASE_URL` retained as an override.
+- Added `testcontainers-go` PostgreSQL startup for DB-backed objectstore and data-inspect tests, with `ONLAVA_TEST_DATABASE_URL` retained as an override.
 - Folded data-platform validation back into the normal Go CI job instead of a separate PostgreSQL service job.
 - Made PostgreSQL integration cleanup safe for reruns against the same database by using unique tenant keys and test-owned table cleanup before closing the pool.
 - Added `internal/datainspect` and `onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]`.
@@ -86,11 +86,11 @@ Shipped:
 Validation run:
 
 ```sh
-go test ./internal/datainspect ./cmd/onlava ./internal/datastore
+go test ./internal/datainspect ./cmd/onlava ./internal/objectstore
 go test ./...
 go run ./cmd/onlava check --app-root testdata/apps/data-platform --json
-go test ./internal/datastore -count=1
-go test ./internal/datastore -count=1
+go test ./internal/objectstore -count=1
+go test ./internal/objectstore -count=1
 go install ./cmd/onlava
 onlava harness self --json --write
 ```
@@ -105,9 +105,9 @@ This plan continues the completed first data-platform slice in `docs/plans/0005-
 
 Relevant files in the onlava repository:
 
-- `internal/datastore/*`: metadata bootstrap, migrations, query compiler, mutation layer, outbox, live routing, and SSE.
-- `data/data.go`: public facade currently exposing aliases around `internal/datastore`.
-- `internal/datastore/datastore_integration_test.go`: PostgreSQL integration test backed by `testcontainers-go`, with `ONLAVA_TEST_DATABASE_URL` override support.
+- `internal/objectstore/*`: metadata bootstrap, migrations, query compiler, mutation layer, outbox, live routing, and SSE.
+- `data/data.go`: public facade currently exposing aliases around `internal/objectstore`.
+- `internal/objectstore/objectstore_integration_test.go`: PostgreSQL integration test backed by `testcontainers-go`, with `ONLAVA_TEST_DATABASE_URL` override support.
 - `testdata/apps/data-platform`: fixture app proving ordinary onlava services can use the data platform.
 - `.github/workflows/ci.yml`: current CI workflow. It runs `go test ./...`, data-platform fixture checks, UI checks, and self-harness.
 - `internal/inspect/inspect.go`: existing inspect command response types.
@@ -133,7 +133,7 @@ Milestone 1: CI PostgreSQL integration.
 Run PostgreSQL coverage in CI through `testcontainers-go`. `ONLAVA_TEST_DATABASE_URL` remains available as an override for developers or CI experiments that want an existing database. Run a focused command such as:
 
 ```sh
-go test ./internal/datastore -count=1
+go test ./internal/objectstore -count=1
 go run ./cmd/onlava check --app-root testdata/apps/data-platform --json
 ```
 
@@ -176,8 +176,8 @@ Then update the integration tests. The current test should be examined for fixed
 Make the DB-backed test run twice in CI. A simple CI sequence is:
 
 ```sh
-go test ./internal/datastore -count=1
-go test ./internal/datastore -count=1
+go test ./internal/objectstore -count=1
+go test ./internal/objectstore -count=1
 go run ./cmd/onlava check --app-root testdata/apps/data-platform --json
 ```
 
@@ -232,7 +232,7 @@ Do not add dashboard UI in this plan. Do not add trigger-backed outbox or index 
 
 ## Concrete Steps
 
-1. Read `.github/workflows/ci.yml`, `internal/datastore/datastore_integration_test.go`, `internal/datastore/metadata.go`, `internal/datastore/migrate.go`, `internal/datastore/outbox.go`, `internal/inspect/inspect.go`, and `cmd/onlava` inspect command wiring.
+1. Read `.github/workflows/ci.yml`, `internal/objectstore/objectstore_integration_test.go`, `internal/objectstore/metadata.go`, `internal/objectstore/migrate.go`, `internal/objectstore/outbox.go`, `internal/inspect/inspect.go`, and `cmd/onlava` inspect command wiring.
 2. Add CI PostgreSQL coverage through `testcontainers-go`, retaining `ONLAVA_TEST_DATABASE_URL` as an override.
 3. In that job, run the focused DB integration command twice against the same database.
 4. Update integration tests to use unique tenant/object keys and reliable cleanup.
@@ -250,8 +250,8 @@ Required local validation:
 
 ```sh
 go test ./...
-go test ./internal/datastore -count=1
-go test ./internal/datastore -count=1
+go test ./internal/objectstore -count=1
+go test ./internal/objectstore -count=1
 go run ./cmd/onlava check --app-root testdata/apps/data-platform --json
 go install ./cmd/onlava
 onlava harness self --json --write
@@ -293,7 +293,7 @@ If CI PostgreSQL startup flakes, prefer adjusting the testcontainer wait strateg
 Expected changed files:
 
 - `.github/workflows/ci.yml`
-- `internal/datastore/datastore_integration_test.go`
+- `internal/objectstore/objectstore_integration_test.go`
 - `internal/inspect` or a new `internal/datainspect` package
 - `cmd/onlava` inspect command wiring
 - `docs/schemas/onlava.inspect.data.v1.schema.json`

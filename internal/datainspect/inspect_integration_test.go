@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pbrazdil/onlava/internal/datastore"
+	"github.com/pbrazdil/onlava/internal/objectstore"
 	"github.com/pbrazdil/onlava/internal/testpostgres"
 )
 
@@ -32,13 +32,13 @@ func TestBuildWithPostgres(t *testing.T) {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	store, err := datastore.Open(ctx, pool, datastore.Options{})
+	store, err := objectstore.Open(ctx, pool, objectstore.Options{})
 	if err != nil {
-		t.Fatalf("datastore.Open: %v", err)
+		t.Fatalf("objectstore.Open: %v", err)
 	}
 	tenantKey := fmt.Sprintf("inspect_tenant_%d", time.Now().UnixNano())
-	actor := datastore.Actor{ID: "inspector"}
-	if _, err := store.CreateObject(ctx, actor, datastore.CreateObjectRequest{
+	actor := objectstore.Actor{ID: "inspector"}
+	if _, err := store.CreateObject(ctx, actor, objectstore.CreateObjectRequest{
 		TenantKey:    tenantKey,
 		TenantName:   "Inspect Tenant",
 		NameSingular: "company",
@@ -46,17 +46,17 @@ func TestBuildWithPostgres(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateObject: %v", err)
 	}
-	if _, err := store.CreateField(ctx, actor, "company", datastore.CreateFieldRequest{
+	if _, err := store.CreateField(ctx, actor, "company", objectstore.CreateFieldRequest{
 		TenantKey: tenantKey,
 		Name:      "name",
-		Type:      datastore.FieldText,
+		Type:      objectstore.FieldText,
 	}); err != nil {
 		t.Fatalf("CreateField: %v", err)
 	}
-	if _, err := store.CreateIndex(ctx, actor, "company", datastore.CreateIndexRequest{
+	if _, err := store.CreateIndex(ctx, actor, "company", objectstore.CreateIndexRequest{
 		TenantKey: tenantKey,
 		Name:      "company_name",
-		Fields:    []datastore.IndexField{{Field: "name"}},
+		Fields:    []objectstore.IndexField{{Field: "name"}},
 	}); err != nil {
 		t.Fatalf("CreateIndex: %v", err)
 	}

@@ -123,7 +123,7 @@ Shipped:
 
 Shipped:
 
-- `github.com/pbrazdil/onlava/data` public facade and `internal/datastore` implementation.
+- `github.com/pbrazdil/onlava/data` public facade and `internal/objectstore` implementation.
 - PostgreSQL metadata bootstrap, real object tables, real field columns, schema migration rows, advisory locks, and physical schema verification.
 - Metadata-validated SQL query compiler, transactional record mutations, transactional outbox rows, in-process query-aware live routing, and SSE replay/fanout.
 - `testdata/apps/data-platform` fixture app using ordinary onlava services and raw SSE.
@@ -162,7 +162,7 @@ Shipped:
 
 Shipped:
 
-- `testcontainers-go` PostgreSQL coverage in the regular Go CI job, with DB-backed datastore and data-inspect tests.
+- `testcontainers-go` PostgreSQL coverage in the regular Go CI job, with DB-backed objectstore and data-inspect tests.
 - `onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]`.
 - Data inspect JSON schema, docs, self-harness schema tracking, and fixture README.
 - More reliable PostgreSQL integration cleanup and explicit SSE watermark usage in the live test.

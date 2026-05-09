@@ -17,7 +17,7 @@ onlava data.Store public API
 metadata-backed index request + query request
         |
         v
-internal/datastore validates object, fields, field types, sort shape, and permissions
+internal/objectstore validates object, fields, field types, sort shape, and permissions
         |
         v
 schema migration history + advisory lock + deterministic CREATE INDEX
@@ -104,13 +104,13 @@ This plan follows completed data-platform plans:
 Relevant files and packages:
 
 - `data/data.go`: public data package facade.
-- `internal/datastore/types.go`: internal request/response and metadata types.
-- `internal/datastore/metadata.go`: bootstrap, tenants, objects, fields, metadata reads.
-- `internal/datastore/migrate.go`: migration transactions, advisory locks, DDL verification.
-- `internal/datastore/ident.go`: identifier validation, safe names, quoting.
-- `internal/datastore/query.go`: query compiler, filter compiler, record matching helpers.
-- `internal/datastore/mutate.go`: record mutations and outbox writes.
-- `internal/datastore/live.go`: subscription resolution and event matching.
+- `internal/objectstore/types.go`: internal request/response and metadata types.
+- `internal/objectstore/metadata.go`: bootstrap, tenants, objects, fields, metadata reads.
+- `internal/objectstore/migrate.go`: migration transactions, advisory locks, DDL verification.
+- `internal/objectstore/ident.go`: identifier validation, safe names, quoting.
+- `internal/objectstore/query.go`: query compiler, filter compiler, record matching helpers.
+- `internal/objectstore/mutate.go`: record mutations and outbox writes.
+- `internal/objectstore/live.go`: subscription resolution and event matching.
 - `internal/datainspect`: inspect data JSON builder.
 - `cmd/onlava`: inspect command wiring.
 - `testdata/apps/data-platform`: fixture app and README walkthrough.
@@ -223,7 +223,7 @@ Update `testdata/apps/data-platform` to expose index creation/listing if needed.
 
 Start by reading the current metadata bootstrap and migration helpers. Reuse the existing schema naming style, advisory lock helpers, migration row recording, and physical verification style. Index DDL should be another migration-managed operation, not a standalone best-effort `CREATE INDEX` call hidden inside query code.
 
-Define public types in `data/data.go` and internal types in `internal/datastore` before writing DDL. The app-facing API should be small:
+Define public types in `data/data.go` and internal types in `internal/objectstore` before writing DDL. The app-facing API should be small:
 
 ```text
 CreateIndexRequest
@@ -256,10 +256,10 @@ Live updates should continue to work with paginated queries. The first version d
 
 ## Concrete Steps
 
-1. Read `internal/datastore/metadata.go`, `migrate.go`, `ident.go`, `query.go`, `data/data.go`, and `internal/datainspect`.
+1. Read `internal/objectstore/metadata.go`, `migrate.go`, `ident.go`, `query.go`, `data/data.go`, and `internal/datainspect`.
 2. Add index metadata types and bootstrap DDL for `onlava_data.indexes` and `onlava_data.index_fields`.
 3. Add deterministic index physical-name derivation and unit tests for long names, duplicate names, reserved words, and malicious names.
-4. Add internal `CreateIndex` and `ListIndexes` methods in `internal/datastore`.
+4. Add internal `CreateIndex` and `ListIndexes` methods in `internal/objectstore`.
 5. Wire public wrapper methods and types in `data/data.go`.
 6. Add DDL generation for scalar btree indexes and compound btree indexes.
 7. Add migration row recording, advisory locking, failed migration behavior, and PostgreSQL catalog verification.
@@ -285,7 +285,7 @@ onlava harness self --json --write
 PostgreSQL-specific validation should run through the existing testcontainers or `ONLAVA_TEST_DATABASE_URL` path:
 
 ```sh
-go test ./internal/datastore ./internal/datainspect -count=1
+go test ./internal/objectstore ./internal/datainspect -count=1
 onlava check --app-root testdata/apps/data-platform --json
 ```
 
@@ -396,7 +396,7 @@ Public package changes:
 
 Internal package changes:
 
-- `internal/datastore`
+- `internal/objectstore`
   - metadata bootstrap for index tables
   - metadata loading for index definitions
   - DDL generation and verification for physical indexes

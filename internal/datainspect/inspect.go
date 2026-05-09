@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pbrazdil/onlava/internal/datastore"
+	"github.com/pbrazdil/onlava/internal/objectstore"
 )
 
 const schemaVersion = "onlava.inspect.data.v1"
@@ -131,8 +131,8 @@ func BuildFromDB(ctx context.Context, db db, opts Options) (Response, error) {
 	resp := Response{
 		SchemaVersion: schemaVersion,
 		Schemas: Schemas{
-			Metadata: datastore.MetadataSchema,
-			Records:  datastore.RecordsSchema,
+			Metadata: objectstore.MetadataSchema,
+			Records:  objectstore.RecordsSchema,
 		},
 		Tenants: []TenantSummary{},
 		Objects: []ObjectSummary{},
@@ -165,14 +165,14 @@ func BuildFromDB(ctx context.Context, db db, opts Options) (Response, error) {
 
 func schemasReady(ctx context.Context, db db) (bool, []string, error) {
 	var warnings []string
-	metadata, err := schemaExists(ctx, db, datastore.MetadataSchema)
+	metadata, err := schemaExists(ctx, db, objectstore.MetadataSchema)
 	if err != nil {
 		return false, nil, err
 	}
 	if !metadata {
 		return false, []string{"metadata schema onlava_data does not exist"}, nil
 	}
-	records, err := schemaExists(ctx, db, datastore.RecordsSchema)
+	records, err := schemaExists(ctx, db, objectstore.RecordsSchema)
 	if err != nil {
 		return false, nil, err
 	}
@@ -180,7 +180,7 @@ func schemasReady(ctx context.Context, db db) (bool, []string, error) {
 		warnings = append(warnings, "records schema onlava_data_records does not exist")
 	}
 	for _, table := range []string{"tenants", "objects", "fields", "indexes", "index_fields", "schema_migrations", "outbox_events"} {
-		exists, err := tableExists(ctx, db, datastore.MetadataSchema, table)
+		exists, err := tableExists(ctx, db, objectstore.MetadataSchema, table)
 		if err != nil {
 			return false, nil, err
 		}
@@ -253,7 +253,7 @@ func loadObjects(ctx context.Context, db db, opts Options) ([]ObjectSummary, err
 		where ($1::text = '' or t.key = $1)
 		  and ($2::text = '' or o.name_singular = $2)
 		order by t.key, o.name_singular
-	`, strings.TrimSpace(opts.TenantKey), strings.TrimSpace(opts.ObjectName), datastore.RecordsSchema)
+	`, strings.TrimSpace(opts.TenantKey), strings.TrimSpace(opts.ObjectName), objectstore.RecordsSchema)
 	if err != nil {
 		return nil, fmt.Errorf("inspect data objects: %w", err)
 	}
@@ -325,7 +325,7 @@ func loadObjects(ctx context.Context, db db, opts Options) ([]ObjectSummary, err
 		where ($1::text = '' or t.key = $1)
 		  and ($2::text = '' or o.name_singular = $2)
 		order by t.key, o.name_singular, i.name
-	`, strings.TrimSpace(opts.TenantKey), strings.TrimSpace(opts.ObjectName), datastore.RecordsSchema)
+	`, strings.TrimSpace(opts.TenantKey), strings.TrimSpace(opts.ObjectName), objectstore.RecordsSchema)
 	if err != nil {
 		return nil, fmt.Errorf("inspect data indexes: %w", err)
 	}

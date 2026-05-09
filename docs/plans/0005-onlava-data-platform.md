@@ -15,7 +15,7 @@ ordinary onlava app service
 github.com/pbrazdil/onlava/data
         |
         v
-internal/datastore
+internal/objectstore
         |
         v
 PostgreSQL metadata + real record tables + transactional outbox
@@ -30,7 +30,7 @@ When this plan is complete, a fixture app under `testdata/apps/data-platform` ca
 
 - [x] (2026-05-08 19:37Z) Created this ExecPlan and assigned historical ID 0005.
 - [x] (2026-05-08 19:37Z) Read `ARCHITECTURE.md`, `docs/local-contract.md`, `PLANS.md`, roadmap context from `PLAN.md`, `go.mod`, and representative runtime, pgxpool, pubsub, cron, inspect, devdash, dbstudio, localproxy, codegen, build, and testdata files.
-- [x] (2026-05-08 20:08Z) Defined `github.com/pbrazdil/onlava/data` as the small app-facing facade and `internal/datastore` as the implementation boundary.
+- [x] (2026-05-08 20:08Z) Defined `github.com/pbrazdil/onlava/data` as the small app-facing facade and `internal/objectstore` as the implementation boundary.
 - [x] (2026-05-08 20:08Z) Implemented metadata bootstrap, object table creation, field column creation, migration rows, advisory locks, and physical schema verification.
 - [x] (2026-05-08 20:08Z) Implemented metadata-resolved SQL query compilation with parameterized values, quoted metadata identifiers, filter validation, sort, selected fields, and permission row-filter merge.
 - [x] (2026-05-08 20:08Z) Implemented create/update/delete/query record operations with explicit transactions and same-transaction outbox rows.
@@ -49,7 +49,7 @@ When this plan is complete, a fixture app under `testdata/apps/data-platform` ca
 
 ## Decision Log
 
-- Decision: Put the core implementation in `internal/datastore` and expose a deliberately small public package at `github.com/pbrazdil/onlava/data`.
+- Decision: Put the core implementation in `internal/objectstore` and expose a deliberately small public package at `github.com/pbrazdil/onlava/data`.
   Rationale: User apps need ordinary onlava Go APIs and fixture endpoint types, but parser/build/codegen should not learn dynamic CRM metadata. Keeping implementation internal preserves room to change storage and query internals.
   Date/Author: 2026-05-08 / Codex
 
@@ -85,7 +85,7 @@ When this plan is complete, a fixture app under `testdata/apps/data-platform` ca
   Rationale: Dedicated onlava-owned schemas avoid collisions with user app tables while still creating real PostgreSQL tables and columns. The exact table-name derivation must be deterministic, validated, and recorded in object metadata.
   Date/Author: 2026-05-08 / Codex
 
-- Decision: Expose the public package mainly through aliases to `internal/datastore` types for this first slice.
+- Decision: Expose the public package mainly through aliases to `internal/objectstore` types for this first slice.
   Rationale: The public API is intentionally small and closely mirrors the internal boundary while the feature is beta. This keeps app code ergonomic without duplicating request/response structs.
   Date/Author: 2026-05-08 / Codex
 
@@ -97,7 +97,7 @@ When this plan is complete, a fixture app under `testdata/apps/data-platform` ca
 
 Completed on 2026-05-08 as a narrow first vertical slice.
 
-Implemented `github.com/pbrazdil/onlava/data` and `internal/datastore` with PostgreSQL metadata bootstrap, real object tables, real field columns, conservative schema migrations with advisory locks and verification, metadata-validated SQL query compilation, transactional record mutations, outbox events, in-process query-aware live routing, and SSE replay/fanout.
+Implemented `github.com/pbrazdil/onlava/data` and `internal/objectstore` with PostgreSQL metadata bootstrap, real object tables, real field columns, conservative schema migrations with advisory locks and verification, metadata-validated SQL query compilation, transactional record mutations, outbox events, in-process query-aware live routing, and SSE replay/fanout.
 
 Added `testdata/apps/data-platform`, which exposes ordinary onlava services for object/field/record APIs and a raw auth SSE endpoint. `onlava check --app-root testdata/apps/data-platform --json` passes, proving no new directives or runtime server model were needed.
 
@@ -139,7 +139,7 @@ Terminology:
 
 ## Milestones
 
-Milestone 1 defines boundaries and public API. This is complete when `data` exposes the small request/response, actor, permission, record, query, and store facade needed by a fixture app, and `internal/datastore` contains the implementation skeleton with unit tests for validation helpers.
+Milestone 1 defines boundaries and public API. This is complete when `data` exposes the small request/response, actor, permission, record, query, and store facade needed by a fixture app, and `internal/objectstore` contains the implementation skeleton with unit tests for validation helpers.
 
 Milestone 2 creates metadata and physical schema. This is complete when opening or initializing the store creates `onlava_data` metadata tables, creates `onlava_data_records`, can create a data tenant, can create an object with a physical table, can create fields with physical columns, records every DDL operation in `onlava_data.schema_migrations`, uses PostgreSQL advisory locks, verifies the resulting schema, and bumps `schema_version` only after verification.
 
@@ -157,20 +157,20 @@ Milestone 7 updates contracts only for stable surfaces. This is complete when `A
 
 Start with the API shape, not DDL. Add the smallest public `data` package that a normal onlava service can use without knowing internal package names. The public package should define `Store`, `Options`, `Actor`, `Permissions`, `Record`, `Object`, `Field`, `Query`, `Filter`, `Sort`, `RecordPage`, and request/response structs that fixture endpoints can reuse. `Store` should be created from an explicit pgx pool or connection interface supplied by app code.
 
-Then implement `internal/datastore` in small files with clear boundaries:
+Then implement `internal/objectstore` in small files with clear boundaries:
 
 ```text
-internal/datastore/types.go
-internal/datastore/ident.go
-internal/datastore/fields.go
-internal/datastore/metadata.go
-internal/datastore/migrate.go
-internal/datastore/query.go
-internal/datastore/mutate.go
-internal/datastore/outbox.go
-internal/datastore/live.go
-internal/datastore/sse.go
-internal/datastore/permissions.go
+internal/objectstore/types.go
+internal/objectstore/ident.go
+internal/objectstore/fields.go
+internal/objectstore/metadata.go
+internal/objectstore/migrate.go
+internal/objectstore/query.go
+internal/objectstore/mutate.go
+internal/objectstore/outbox.go
+internal/objectstore/live.go
+internal/objectstore/sse.go
+internal/objectstore/permissions.go
 ```
 
 Keep SQL generation deterministic. DDL generation should return structured migration records before execution, and execution should write those records with status transitions. Advisory locks should be scoped by data tenant and object when possible. Schema verification should read PostgreSQL catalogs and compare expected tables/columns/indexes to actual state.
@@ -246,8 +246,8 @@ If adding `onlava inspect data --json` becomes necessary, keep it narrow and sta
 ## Concrete Steps
 
 1. Re-read `ARCHITECTURE.md`, `docs/local-contract.md`, `PLANS.md`, `go.mod`, `pgxpool/pgxpool.go`, `runtime/server.go`, `runtime/current.go`, `internal/inspect/inspect.go`, `internal/build/build.go`, and `testdata/apps/basic/service/api.go` before coding.
-2. Create `internal/datastore` and `data` packages with only type definitions, validation helpers, and package-level docs. Add unit tests for object names, field names, physical identifier derivation, and error messages.
-3. Implement identifier quoting and SQL builder helpers in `internal/datastore/ident.go`. Tests must include malicious names and values such as quotes, semicolons, comments, mixed case, and reserved words.
+2. Create `internal/objectstore` and `data` packages with only type definitions, validation helpers, and package-level docs. Add unit tests for object names, field names, physical identifier derivation, and error messages.
+3. Implement identifier quoting and SQL builder helpers in `internal/objectstore/ident.go`. Tests must include malicious names and values such as quotes, semicolons, comments, mixed case, and reserved words.
 4. Implement field type mapping and composite expansion in `fields.go`. Add tests for every first-pass field type, including select/multi-select text storage and one composite field round trip shape.
 5. Implement metadata bootstrap in `metadata.go`: create schemas and metadata tables with deterministic SQL. Include metadata tables for data tenants, objects, fields, field options, schema migrations, and outbox events.
 6. Implement object and field migrations in `migrate.go`: advisory lock, migration row with status, apply DDL, verify catalogs, bump schema version, finish migration, and record error on failure.
@@ -266,7 +266,7 @@ If adding `onlava inspect data --json` becomes necessary, keep it narrow and sta
 Fast validation during implementation:
 
 ```sh
-go test ./internal/datastore ./data
+go test ./internal/objectstore ./data
 go test ./runtime ./pgxpool
 go test ./internal/codegen ./internal/build
 ```
@@ -274,13 +274,13 @@ go test ./internal/codegen ./internal/build
 PostgreSQL integration validation, when a local database is available:
 
 ```sh
-ONLAVA_TEST_DATABASE_URL='postgres://...' go test ./internal/datastore ./testdata/...
+ONLAVA_TEST_DATABASE_URL='postgres://...' go test ./internal/objectstore ./testdata/...
 ```
 
 Full repository validation before finishing:
 
 ```sh
-gofmt -w data/*.go internal/datastore/*.go
+gofmt -w data/*.go internal/objectstore/*.go
 go test ./...
 go install ./cmd/onlava
 onlava harness self --json --write
@@ -293,7 +293,7 @@ Acceptance criteria for the first PR:
 - No public Twenty-named packages, imports, commands, directives, or generated app syntax are added.
 - No dynamic ORM, GraphQL layer, Redis, external broker, migration framework, or TypeScript UI is added.
 - `github.com/pbrazdil/onlava/data` remains small and app-facing.
-- `internal/datastore` owns metadata, migrations, SQL compilation, mutations, outbox, permissions, and live routing.
+- `internal/objectstore` owns metadata, migrations, SQL compilation, mutations, outbox, permissions, and live routing.
 - Dynamic metadata is stored in PostgreSQL and not in transient build artifacts.
 - Creating an object creates metadata and a real PostgreSQL table.
 - Creating a scalar field creates metadata and a real column.

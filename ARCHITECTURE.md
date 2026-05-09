@@ -207,15 +207,15 @@ Architecture invariant: development services should be optional around the app
 runtime. They can improve local ergonomics, but `onlava run` must remain a
 headless execution path.
 
-### `internal/datastore`
+### `internal/objectstore`
 
-`internal/datastore` implements the beta dynamic data platform behind
+`internal/objectstore` implements the beta dynamic data platform behind
 `github.com/pbrazdil/onlava/data`. It owns runtime metadata tables, deterministic
 physical table/column DDL, metadata-validated SQL query compilation,
 transactional record mutations, outbox event rows, permission hooks, and
 single-process SSE live fanout.
 
-Architecture invariant: dynamic data metadata is runtime data stored in
+Architecture invariant: dynamic data metadata is runtime object stored in
 PostgreSQL. It is not parsed onlava app semantics and should not be added to
 `internal/model` unless a future source directive explicitly requires it.
 

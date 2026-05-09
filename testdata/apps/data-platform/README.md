@@ -20,7 +20,7 @@ From the onlava repo root:
 
 ```sh
 onlava check --app-root testdata/apps/data-platform --json
-go test ./internal/datastore ./internal/datainspect -count=1
+go test ./internal/objectstore ./internal/datainspect -count=1
 ```
 
 ## Run

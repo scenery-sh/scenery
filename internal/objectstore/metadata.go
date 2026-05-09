@@ -1,4 +1,4 @@
-package datastore
+package objectstore
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 func Open(ctx context.Context, db DB, opts Options) (*Store, error) {
 	if db == nil {
-		return nil, fmt.Errorf("data store requires a database")
+		return nil, fmt.Errorf("object store requires a database")
 	}
 	now := opts.Now
 	if now == nil {

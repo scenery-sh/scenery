@@ -35,7 +35,7 @@ Success means the migration layer fails clearly and recovers predictably, live u
 - [x] (2026-05-08 22:14Z) Harden live event matching for created/updated/deleted before/after semantics.
 - [x] (2026-05-08 22:25Z) Add permission, selected-field, reconnect, heartbeat, fanout, cleanup, and slow-client live tests.
 - [x] (2026-05-08 22:25Z) Add first public `data` query/filter/sort helpers.
-- [x] (2026-05-08 22:25Z) Wrap the public `data.Store` so app code no longer aliases `internal/datastore.Store` directly.
+- [x] (2026-05-08 22:25Z) Wrap the public `data.Store` so app code no longer aliases `internal/objectstore.Store` directly.
 - [x] (2026-05-08 22:33Z) Finish public `data` API cleanup before it hardens accidentally.
 - [x] (2026-05-08 22:33Z) Validate and update Outcomes & Retrospective.
 
@@ -61,7 +61,7 @@ Success means the migration layer fails clearly and recovers predictably, live u
   Date/Author: 2026-05-08 / Codex
 
 - Decision: Public `data` API ergonomics belong in this hardening window.
-  Rationale: The first slice exposed aliases close to `internal/datastore`. That was acceptable for a vertical slice, but now is the right time to simplify the app-facing surface before users depend on awkward internals.
+  Rationale: The first slice exposed aliases close to `internal/objectstore`. That was acceptable for a vertical slice, but now is the right time to simplify the app-facing surface before users depend on awkward internals.
   Date/Author: 2026-05-08 / Codex
 
 - Decision: Use readable physical identifiers with stable short-ID suffixes.
@@ -76,8 +76,8 @@ Success means the migration layer fails clearly and recovers predictably, live u
   Rationale: Helpers such as `data.EQ`, `data.GTE`, `data.And`, and `data.Desc` make user code app-facing without forcing a large wrapper refactor while migration/live correctness is still being hardened.
   Date/Author: 2026-05-08 / Codex
 
-- Decision: Make `data.Store` an app-facing wrapper over `internal/datastore.Store`.
-  Rationale: The public package should not make the internal store type itself part of the API. The wrapper preserves the current method surface for fixture code while keeping implementation ownership inside `internal/datastore`.
+- Decision: Make `data.Store` an app-facing wrapper over `internal/objectstore.Store`.
+  Rationale: The public package should not make the internal store type itself part of the API. The wrapper preserves the current method surface for fixture code while keeping implementation ownership inside `internal/objectstore`.
   Date/Author: 2026-05-08 / Codex
 
 ## Outcomes & Retrospective
@@ -108,16 +108,16 @@ This plan depends on `0007-data-platform-validation-and-inspect.md` because real
 
 Relevant files:
 
-- `internal/datastore/ident.go`: identifier validation, safe names, quoting.
-- `internal/datastore/fields.go`: field type mapping and composite expansion.
-- `internal/datastore/metadata.go`: metadata bootstrap and metadata reads.
-- `internal/datastore/migrate.go`: object and field DDL, advisory locks, schema verification, migration history.
-- `internal/datastore/mutate.go`: record mutations and outbox writes.
-- `internal/datastore/query.go`: filter compiler and record matching helpers.
-- `internal/datastore/live.go`: subscriptions and event matching.
-- `internal/datastore/sse.go`: SSE replay, heartbeats, and disconnect handling.
-- `internal/datastore/datastore_test.go`: focused unit tests.
-- `internal/datastore/datastore_integration_test.go`: PostgreSQL integration tests.
+- `internal/objectstore/ident.go`: identifier validation, safe names, quoting.
+- `internal/objectstore/fields.go`: field type mapping and composite expansion.
+- `internal/objectstore/metadata.go`: metadata bootstrap and metadata reads.
+- `internal/objectstore/migrate.go`: object and field DDL, advisory locks, schema verification, migration history.
+- `internal/objectstore/mutate.go`: record mutations and outbox writes.
+- `internal/objectstore/query.go`: filter compiler and record matching helpers.
+- `internal/objectstore/live.go`: subscriptions and event matching.
+- `internal/objectstore/sse.go`: SSE replay, heartbeats, and disconnect handling.
+- `internal/objectstore/objectstore_test.go`: focused unit tests.
+- `internal/objectstore/objectstore_integration_test.go`: PostgreSQL integration tests.
 - `data/data.go`: public package facade.
 - `testdata/apps/data-platform`: fixture app.
 
@@ -223,7 +223,7 @@ Do not expose migration internals, raw DDL structs, SQL compiler internals, outb
 ## Concrete Steps
 
 1. Read `0007-data-platform-validation-and-inspect.md` outcomes. If CI PostgreSQL validation and inspect data are not complete, pause and finish or consciously reprioritize.
-2. Update `internal/datastore/ident.go` with final physical name derivation.
+2. Update `internal/objectstore/ident.go` with final physical name derivation.
 3. Add tests for identifier derivation, max length, reserved words, malicious names, collision resistance, and rename stability.
 4. Update object and field metadata creation to persist final physical names.
 5. Add migration idempotence tests for repeated bootstrap/object/field calls.
@@ -244,7 +244,7 @@ Required validation:
 
 ```sh
 go test ./...
-go test ./internal/datastore -count=1
+go test ./internal/objectstore -count=1
 go run ./cmd/onlava check --app-root testdata/apps/data-platform --json
 go install ./cmd/onlava
 onlava harness self --json --write
@@ -269,7 +269,7 @@ Focused test acceptance:
 Public API acceptance:
 
 - `github.com/pbrazdil/onlava/data` exposes app-facing concepts, not implementation internals.
-- Fixture app code reads cleanly and uses the public package rather than `internal/datastore`.
+- Fixture app code reads cleanly and uses the public package rather than `internal/objectstore`.
 - Physical names remain available through inspect output, not as primary public API.
 
 ## Idempotence and Recovery
@@ -286,12 +286,12 @@ If a hardening test exposes a real design flaw that requires a larger change, up
 
 Expected changed files:
 
-- `internal/datastore/ident.go`
-- `internal/datastore/migrate.go`
-- `internal/datastore/live.go`
-- `internal/datastore/query.go`
-- `internal/datastore/datastore_test.go`
-- `internal/datastore/datastore_integration_test.go`
+- `internal/objectstore/ident.go`
+- `internal/objectstore/migrate.go`
+- `internal/objectstore/live.go`
+- `internal/objectstore/query.go`
+- `internal/objectstore/objectstore_test.go`
+- `internal/objectstore/objectstore_integration_test.go`
 - `data/data.go`
 - `testdata/apps/data-platform/*`
 - `docs/local-contract.md` if public API or inspect behavior changes

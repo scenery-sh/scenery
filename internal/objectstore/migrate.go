@@ -1,4 +1,4 @@
-package datastore
+package objectstore
 
 import (
 	"context"
@@ -299,7 +299,7 @@ func (s *Store) withMigrationTx(ctx context.Context, tenantID, objectID, migrati
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, advisoryLockKey("datastore", tenantID, objectID)); err != nil {
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, advisoryLockKey("objectstore", tenantID, objectID)); err != nil {
 		return err
 	}
 	if err := fn(tx); err != nil {

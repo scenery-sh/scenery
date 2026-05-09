@@ -6,77 +6,77 @@ import (
 	"net/http"
 
 	onlavaauth "github.com/pbrazdil/onlava/auth"
-	"github.com/pbrazdil/onlava/internal/datastore"
+	"github.com/pbrazdil/onlava/internal/objectstore"
 )
 
 type (
-	DB                   = datastore.DB
-	Options              = datastore.Options
-	Tenant               = datastore.Tenant
-	Object               = datastore.Object
-	Field                = datastore.Field
-	FieldType            = datastore.FieldType
-	PhysicalColumn       = datastore.PhysicalColumn
-	FieldOption          = datastore.FieldOption
-	FieldOptionRequest   = datastore.FieldOptionRequest
-	IndexMethod          = datastore.IndexMethod
-	Index                = datastore.Index
-	IndexField           = datastore.IndexField
-	CreateIndexRequest   = datastore.CreateIndexRequest
-	ListIndexesRequest   = datastore.ListIndexesRequest
-	Actor                = datastore.Actor
-	CreateObjectRequest  = datastore.CreateObjectRequest
-	CreateFieldRequest   = datastore.CreateFieldRequest
-	CreateRecordRequest  = datastore.CreateRecordRequest
-	UpdateRecordRequest  = datastore.UpdateRecordRequest
-	DeleteRecordRequest  = datastore.DeleteRecordRequest
-	QueryRecordsRequest  = datastore.QueryRecordsRequest
-	Record               = datastore.Record
-	RecordResponse       = datastore.RecordResponse
-	DeleteRecordResponse = datastore.DeleteRecordResponse
-	RecordPage           = datastore.RecordPage
-	Query                = datastore.Query
-	Filter               = datastore.Filter
-	Sort                 = datastore.Sort
-	SubscriptionRequest  = datastore.SubscriptionRequest
-	Event                = datastore.Event
-	Permissions          = datastore.Permissions
-	AllowAllPermissions  = datastore.AllowAllPermissions
-	ObjectRef            = datastore.ObjectRef
-	FieldRef             = datastore.FieldRef
+	DB                   = objectstore.DB
+	Options              = objectstore.Options
+	Tenant               = objectstore.Tenant
+	Object               = objectstore.Object
+	Field                = objectstore.Field
+	FieldType            = objectstore.FieldType
+	PhysicalColumn       = objectstore.PhysicalColumn
+	FieldOption          = objectstore.FieldOption
+	FieldOptionRequest   = objectstore.FieldOptionRequest
+	IndexMethod          = objectstore.IndexMethod
+	Index                = objectstore.Index
+	IndexField           = objectstore.IndexField
+	CreateIndexRequest   = objectstore.CreateIndexRequest
+	ListIndexesRequest   = objectstore.ListIndexesRequest
+	Actor                = objectstore.Actor
+	CreateObjectRequest  = objectstore.CreateObjectRequest
+	CreateFieldRequest   = objectstore.CreateFieldRequest
+	CreateRecordRequest  = objectstore.CreateRecordRequest
+	UpdateRecordRequest  = objectstore.UpdateRecordRequest
+	DeleteRecordRequest  = objectstore.DeleteRecordRequest
+	QueryRecordsRequest  = objectstore.QueryRecordsRequest
+	Record               = objectstore.Record
+	RecordResponse       = objectstore.RecordResponse
+	DeleteRecordResponse = objectstore.DeleteRecordResponse
+	RecordPage           = objectstore.RecordPage
+	Query                = objectstore.Query
+	Filter               = objectstore.Filter
+	Sort                 = objectstore.Sort
+	SubscriptionRequest  = objectstore.SubscriptionRequest
+	Event                = objectstore.Event
+	Permissions          = objectstore.Permissions
+	AllowAllPermissions  = objectstore.AllowAllPermissions
+	ObjectRef            = objectstore.ObjectRef
+	FieldRef             = objectstore.FieldRef
 )
 
 type Store struct {
-	inner *datastore.Store
+	inner *objectstore.Store
 }
 
 const (
-	FieldText        = datastore.FieldText
-	FieldRichText    = datastore.FieldRichText
-	FieldNumber      = datastore.FieldNumber
-	FieldNumeric     = datastore.FieldNumeric
-	FieldCurrency    = datastore.FieldCurrency
-	FieldBoolean     = datastore.FieldBoolean
-	FieldDate        = datastore.FieldDate
-	FieldDatetime    = datastore.FieldDatetime
-	FieldUUID        = datastore.FieldUUID
-	FieldSelect      = datastore.FieldSelect
-	FieldMultiSelect = datastore.FieldMultiSelect
-	FieldRating      = datastore.FieldRating
-	FieldJSON        = datastore.FieldJSON
-	FieldRawJSON     = datastore.FieldRawJSON
-	FieldFiles       = datastore.FieldFiles
-	FieldFullName    = datastore.FieldFullName
-	FieldAddress     = datastore.FieldAddress
-	FieldEmails      = datastore.FieldEmails
-	FieldPhones      = datastore.FieldPhones
-	FieldRelation    = datastore.FieldRelation
-	IndexMethodBTree = datastore.IndexMethodBTree
-	IndexMethodGIN   = datastore.IndexMethodGIN
+	FieldText        = objectstore.FieldText
+	FieldRichText    = objectstore.FieldRichText
+	FieldNumber      = objectstore.FieldNumber
+	FieldNumeric     = objectstore.FieldNumeric
+	FieldCurrency    = objectstore.FieldCurrency
+	FieldBoolean     = objectstore.FieldBoolean
+	FieldDate        = objectstore.FieldDate
+	FieldDatetime    = objectstore.FieldDatetime
+	FieldUUID        = objectstore.FieldUUID
+	FieldSelect      = objectstore.FieldSelect
+	FieldMultiSelect = objectstore.FieldMultiSelect
+	FieldRating      = objectstore.FieldRating
+	FieldJSON        = objectstore.FieldJSON
+	FieldRawJSON     = objectstore.FieldRawJSON
+	FieldFiles       = objectstore.FieldFiles
+	FieldFullName    = objectstore.FieldFullName
+	FieldAddress     = objectstore.FieldAddress
+	FieldEmails      = objectstore.FieldEmails
+	FieldPhones      = objectstore.FieldPhones
+	FieldRelation    = objectstore.FieldRelation
+	IndexMethodBTree = objectstore.IndexMethodBTree
+	IndexMethodGIN   = objectstore.IndexMethodGIN
 )
 
 func Open(ctx context.Context, db DB, opts Options) (*Store, error) {
-	inner, err := datastore.Open(ctx, db, opts)
+	inner, err := objectstore.Open(ctx, db, opts)
 	if err != nil {
 		return nil, err
 	}

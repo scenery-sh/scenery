@@ -99,12 +99,12 @@ This plan depends on the data-platform foundation:
 
 Relevant files after those plans:
 
-- `internal/datastore/migrate.go`: object/field DDL and schema verification.
-- `internal/datastore/outbox.go`: explicit outbox writes.
-- `internal/datastore/mutate.go`: transaction boundaries and actor context.
-- `internal/datastore/live.go`: event matching and routing.
-- `internal/datastore/sse.go`: replay and SSE delivery.
-- `internal/datastore/datastore_integration_test.go`: PostgreSQL tests.
+- `internal/objectstore/migrate.go`: object/field DDL and schema verification.
+- `internal/objectstore/outbox.go`: explicit outbox writes.
+- `internal/objectstore/mutate.go`: transaction boundaries and actor context.
+- `internal/objectstore/live.go`: event matching and routing.
+- `internal/objectstore/sse.go`: replay and SSE delivery.
+- `internal/objectstore/objectstore_integration_test.go`: PostgreSQL tests.
 - `internal/datainspect` or equivalent inspect package from `0007`.
 
 Trigger-backed outbox should use the same `onlava_data.outbox_events` table and existing live routing. It should not introduce Redis, NATS, Kafka, or an external broker.
@@ -188,7 +188,7 @@ Required validation:
 
 ```sh
 go test ./...
-go test ./internal/datastore -count=1
+go test ./internal/objectstore -count=1
 go run ./cmd/onlava check --app-root testdata/apps/data-platform --json
 go install ./cmd/onlava
 onlava harness self --json --write
@@ -219,11 +219,11 @@ Direct SQL tests should use unique tenants and objects and should not drop share
 
 Expected changed files:
 
-- `internal/datastore/migrate.go`
-- `internal/datastore/outbox.go`
-- `internal/datastore/mutate.go`
-- `internal/datastore/metadata.go`
-- `internal/datastore/datastore_integration_test.go`
+- `internal/objectstore/migrate.go`
+- `internal/objectstore/outbox.go`
+- `internal/objectstore/mutate.go`
+- `internal/objectstore/metadata.go`
+- `internal/objectstore/objectstore_integration_test.go`
 - data inspect output/tests from `0007`
 - `docs/local-contract.md`
 - `testdata/apps/data-platform/README.md`
