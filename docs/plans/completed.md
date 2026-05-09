@@ -6,6 +6,25 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## UI Guardrail Hardening
+
+- Status: completed
+- Owner: onlava dashboard
+- Completed: 2026-05-09
+- Quality: A-
+- ExecPlan: [0012 UI Guardrail Hardening](0012-ui-guardrail-hardening.md)
+
+Shipped:
+
+- Pinned, stricter `bun run shadcn:add @onlava/<item>` wrapper that rejects unsupported flags, non-onlava items, unsafe overwrite, and occupied registry port.
+- UI static validation for registry item source and target declarations.
+- Stronger UI import scanning for multiline imports, re-exports, dynamic imports, and CommonJS requires.
+- Stronger className drift warnings for `cn(...)`, template literal, and conditional literal forms.
+- Fixture tests for UI static guardrail bypasses.
+- Explicit `tailwindcss` UI devDependency.
+- `PageToolbar` layout and `@onlava/page-toolbar` registry item.
+- Optional sidebar/inspector/event-stream slots no longer create empty fixed-width layout columns.
+
 ## onlava UI Registry and Agent Guardrails
 
 - Status: completed

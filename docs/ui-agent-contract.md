@@ -34,7 +34,7 @@ bun run shadcn:add @onlava/button
 bun run shadcn:add @onlava/data-explorer-layout
 ```
 
-The wrapper accepts only `@onlava/*` items, starts the local onlava registry server for the command, runs shadcn with `--dry-run` first, rejects URLs and local paths, and refuses overwrite unless `ONLAVA_SHADCN_OVERWRITE=1` is set.
+The wrapper accepts only `@onlava/*` items, starts the local onlava registry server for the command, runs shadcn with `--dry-run` first, rejects URLs, local paths, unsupported flags, and an occupied registry port, pins the shadcn CLI to `shadcn@4.7.0` by default, and refuses overwrite unless `ONLAVA_SHADCN_OVERWRITE=1` is set.
 
 Forbidden examples:
 
@@ -152,4 +152,3 @@ Not allowed: direct @radix-ui/react-dialog imports in routes
 ## Enforcement
 
 `onlava harness self --json --write` runs UI static architecture checks. The first checks hard-fail direct shadcn/script/registry/import boundary violations. Existing className-heavy dashboard code is reported as warnings while it is migrated into layouts and primitives; new work should reduce those warnings, not add to them.
-
