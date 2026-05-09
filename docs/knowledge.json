@@ -94,6 +94,18 @@
       "tags": ["harness", "agents", "testing"]
     },
     {
+      "path": "docs/data-platform.md",
+      "title": "onlava Data Platform",
+      "owner": "onlava data platform",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-05-09",
+      "review_after": "2026-06-08",
+      "summary": "Beta public data package usage for dynamic objects, fields, records, indexes, relations, saved views, live events, and errors.",
+      "tags": ["data", "postgres", "objects", "relations", "saved-views"]
+    },
+    {
       "path": "docs/ui-agent-contract.md",
       "title": "onlava UI Agent Contract",
       "owner": "onlava dashboard",

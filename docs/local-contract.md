@@ -23,6 +23,7 @@ same as the stable v0 support surface.
 - `onlava psql`
 - `onlava harness --json`
 - `onlava harness self --json`
+- `onlava harness ui --json`
 - `onlava admin traces clear --json`
 - `onlava admin pubsub clear --json`
 - `onlava inspect app --json`
@@ -76,7 +77,9 @@ Dev-only or beta surface:
 - `onlava inspect data --json`
 - `onlava admin traces clear --json`
 - `onlava admin pubsub clear --json`
+- `onlava harness ui --json`
 - dashboard and API Explorer
+- dashboard Data Explorer
 - DB Studio
 - MCP server
 - local HTTPS/frontend proxy
@@ -170,6 +173,7 @@ onlava build [--app-root <path>] [-o <path>] [--db-studio]
 onlava check [--app-root <path>] [--json]
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
+onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 onlava inspect app|routes|services|endpoints|wire|build|paths|traces|metrics --json [--app-root <path>]
 onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]
 onlava inspect docs --json [--repo-root <path>]
@@ -210,6 +214,7 @@ Command split:
 - `onlava run` builds once and starts the app runtime headlessly. It does not start the dashboard, MCP server, local proxy, DB Studio, frontend proxy, or file watcher.
 - `onlava build` produces the deployable binary and remains the preferred deployment artifact path.
 - Generated app binaries are headless by default. `onlava build --db-studio` is an explicit opt-in for the DB Studio integration.
+- `onlava harness ui --json` is an optional browser-backed dashboard check. It starts a temporary `onlava dev` process unless `--dashboard-url` points at an existing dashboard, visits core dashboard routes, checks stable `data-onlava-ui` markers, captures screenshots, and writes console/network artifacts under `.onlava/harness/ui/`.
 
 Runtime safety:
 
@@ -248,15 +253,20 @@ Beta dynamic data platform:
 - Objects and scalar/composite fields are metadata-defined and backed by real PostgreSQL tables and columns.
 - User-managed select and multi-select fields use `text` and `text[]` plus metadata options, not PostgreSQL enum types.
 - Apps may call `store.CreateIndex(ctx, actor, objectName, data.CreateIndexRequest{...})` and `store.ListIndexes(ctx, actor, objectName, data.ListIndexesRequest{...})` for metadata-backed PostgreSQL indexes. The first index surface supports btree scalar indexes, compound btree indexes, and explicit GIN indexes for multi-select and JSON fields.
+- Relation fields can target another object through `data.RelationSettings`. `many_to_one` relations create a real UUID column plus PostgreSQL foreign key. `many_to_many` relations create a physical join table; record-level many-to-many mutation helpers are not stable yet.
+- Apps may create, update, list, delete, and query saved views with `store.CreateView`, `store.UpdateView`, `store.ListViews`, `store.DeleteView`, and `store.QueryView`. The first view surface stores table-style columns, filter, sort, limit, visibility, owner ID, and layout metadata.
+- Public data methods wrap failures in `*data.Error` where possible. Use `data.CodeOf(err)` for coarse handling of `object_not_found`, `field_not_found`, `invalid_filter`, `permission_denied`, `migration_failed`, `schema_drift`, and `invalid_cursor`.
 - Record queries are compiled from metadata to parameterized SQL; user input must not become SQL identifiers.
+- Record queries can filter, sort, and select one-hop `many_to_one` relation paths such as `company.name`; deeper paths and many-to-many path queries remain future work.
 - Record queries use keyset cursor pagination when `query.cursor` is set. `RecordPage.NextCursor` is a base64url-encoded opaque cursor tied to the object, schema version, and effective sort shape; callers must reuse the same sort shape when fetching the next page.
 - Record mutations write outbox events in the same transaction.
 - Live updates use SSE over ordinary raw onlava endpoints plus the PostgreSQL outbox sequence for reconnect/replay.
 - Apps may call `store.EnableOutboxTriggers(ctx, actor, tenantKey, objectName)` to enable per-object trigger-backed outbox rows for direct SQL or DB Studio changes.
 - Explicit onlava record mutations still write precise outbox events themselves; trigger-backed outbox skips those transactions to avoid duplicate events.
 - Trigger-backed direct SQL events use logical field names in `before`, `after`, `diff`, and `changed_fields` where field metadata exists. Actor IDs come from transaction-local `onlava.actor_id` when set, otherwise they are empty.
-- `onlava inspect data --json --database-url <postgres-url>` reports data tenants, objects, fields, indexes, migration state, and outbox state without dumping user records.
+- `onlava inspect data --json --database-url <postgres-url>` reports data tenants, objects, fields, relation metadata, indexes, saved views, migration state, and outbox state without dumping user records.
 - `onlava inspect data --json --database-url <postgres-url> --tenant <tenant-key> --object <object-name>` filters the same infrastructure view to one data tenant/object.
+- The dashboard Data Explorer is a dev-only view over the same data platform concepts. It can inspect data tenants/objects, query selected object records through the objectstore query path, and tail outbox events for debugging local apps.
 
 Standard auth:
 
@@ -321,6 +331,7 @@ onlava harness self --json --write
 - UI static architecture checks fail on raw shadcn install scripts, non-`@onlava` registries, unsafe registry item source/target declarations, legacy `components/ui` imports, direct vendor shadcn imports from screens, and direct Radix/styling utility imports outside onlava primitives/layouts/vendor
 - UI static architecture checks scan multiline imports, re-exports, dynamic imports, and CommonJS requires for forbidden UI boundary bypasses
 - UI static architecture checks warn on long or advanced `className` literals and common expression forms such as `cn(...)`, template literals, and conditional literals outside onlava primitives/layouts/vendor while the dashboard is migrated into the stricter slot-layout model
+- `onlava harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation.
 - `--write` persists the same result to `.onlava/harness/self-latest.json`
 
 Release gate:
