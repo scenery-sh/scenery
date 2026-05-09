@@ -184,6 +184,21 @@ func TestPhysicalNamesRespectPostgresIdentifierLength(t *testing.T) {
 	}
 }
 
+func TestValidateIndexFieldRejectsOpClass(t *testing.T) {
+	field := &Field{
+		Name:    "payload",
+		Type:    FieldJSON,
+		Columns: []PhysicalColumn{{Name: "payload__fieldpayload", SQLType: "jsonb", Nullable: true}},
+	}
+	err := validateIndexField(IndexMethodGIN, field, IndexField{
+		Field:   "payload",
+		OpClass: `jsonb_path_ops); drop table "onlava_data"."objects"; --`,
+	})
+	if err == nil || !strings.Contains(err.Error(), "opclass") {
+		t.Fatalf("validateIndexField error = %v, want opclass rejection", err)
+	}
+}
+
 func TestCompileQueryParameterizesValuesAndQuotesMetadataIdentifiers(t *testing.T) {
 	state := testState()
 	filter := &Filter{
@@ -217,6 +232,7 @@ func TestCompileQueryParameterizesValuesAndQuotesMetadataIdentifiers(t *testing.
 
 func TestCompileQueryAppliesKeysetCursor(t *testing.T) {
 	state := testState()
+	state.Fields["arr"].IsNullable = false
 	cursor, err := encodeCursor(cursorPayload{
 		Version:       1,
 		Object:        "company",
@@ -248,6 +264,24 @@ func TestCompileQueryAppliesKeysetCursor(t *testing.T) {
 	}
 	if compiled.Limit != 10 || len(compiled.CursorColumns) != 2 {
 		t.Fatalf("compiled cursor metadata = %#v", compiled)
+	}
+}
+
+func TestCompileQueryRejectsCursorOnNullableSortField(t *testing.T) {
+	state := testState()
+	cursor, err := encodeCursor(cursorPayload{
+		Version:       1,
+		Object:        "company",
+		SchemaVersion: state.Object.SchemaVersion,
+		Sort:          []Sort{{Field: "name"}, {Field: "id"}},
+		Values:        []any{"Acme", "record-1"},
+	})
+	if err != nil {
+		t.Fatalf("encodeCursor: %v", err)
+	}
+	_, err = compileQuery(state, Query{Sort: []Sort{{Field: "name"}}, Cursor: cursor})
+	if err == nil || !strings.Contains(err.Error(), "nullable sort field") {
+		t.Fatalf("compileQuery error = %v, want nullable sort field rejection", err)
 	}
 }
 

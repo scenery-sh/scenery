@@ -130,10 +130,11 @@ func buildInspectTracesResponse(ctx context.Context, appRoot string, cfg appcfg.
 	if opts.Limit <= 0 {
 		opts.Limit = 100
 	}
+	appID := cfg.AppID()
 	resp := inspectTracesResponse{
 		SchemaVersion: inspectTracesSchema,
 		App:           inspectAppInfo(appRoot, cfg, nil),
-		Query:         buildInspectTraceQueryRecord(cfg.Name, opts),
+		Query:         buildInspectTraceQueryRecord(appID, opts),
 		Traces:        []inspectTraceRecord{},
 	}
 
@@ -144,7 +145,7 @@ func buildInspectTracesResponse(ctx context.Context, appRoot string, cfg appcfg.
 	defer store.Close()
 	resp.Warnings = warnings
 
-	query := inspectTraceQuery(cfg.Name, opts)
+	query := inspectTraceQuery(appID, opts)
 	items, usingVictoria := queryVictoriaTraceSummaries(ctx, query)
 	if !usingVictoria {
 		items, err = store.QueryTraceSummaries(ctx, query)
@@ -168,10 +169,11 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	if opts.Limit <= 0 {
 		opts.Limit = 10000
 	}
+	appID := cfg.AppID()
 	resp := inspectMetricsResponse{
 		SchemaVersion: inspectMetricsSchema,
 		App:           inspectAppInfo(appRoot, cfg, nil),
-		Query:         buildInspectTraceQueryRecord(cfg.Name, opts),
+		Query:         buildInspectTraceQueryRecord(appID, opts),
 		Services:      []inspectTraceMetric{},
 		Endpoints:     []inspectTraceMetric{},
 		Logs:          []devdash.LogLevelCount{},
@@ -187,7 +189,7 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	defer store.Close()
 	resp.Warnings = warnings
 
-	query := inspectTraceQuery(cfg.Name, opts)
+	query := inspectTraceQuery(appID, opts)
 	items, usingVictoria := queryVictoriaTraceSummaries(ctx, query)
 	if !usingVictoria {
 		items, err = store.QueryTraceMetrics(ctx, query)
@@ -198,12 +200,12 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	resp.Summary = buildInspectMetricsSummary(items)
 	resp.Services = buildInspectTraceMetrics(items, "service")
 	resp.Endpoints = buildInspectTraceMetrics(items, "endpoint")
-	eventCount, err := store.CountTraceEvents(ctx, cfg.Name, query.Since)
+	eventCount, err := store.CountTraceEvents(ctx, appID, query.Since)
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
 	resp.Summary.EventCount = eventCount
-	logs, err := store.CountLogsByLevel(ctx, cfg.Name, query.Since)
+	logs, err := store.CountLogsByLevel(ctx, appID, query.Since)
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
@@ -219,18 +221,19 @@ func openObservabilityStore(ctx context.Context, appRoot string, cfg appcfg.Conf
 	if err != nil {
 		return nil, nil, err
 	}
+	appID := cfg.AppID()
 	var warnings []string
-	record, err := store.GetApp(ctx, cfg.Name)
+	record, err := store.GetApp(ctx, appID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			warnings = append(warnings, "no local observability state found for "+cfg.Name+"; run `onlava run` first")
+			warnings = append(warnings, "no local observability state found for "+appID+"; run `onlava run` first")
 			return store, warnings, nil
 		}
 		_ = store.Close()
 		return nil, nil, err
 	}
 	if record.Root != "" && record.Root != appRoot {
-		warnings = append(warnings, "local observability state for "+cfg.Name+" belongs to "+record.Root+", not "+appRoot)
+		warnings = append(warnings, "local observability state for "+appID+" belongs to "+record.Root+", not "+appRoot)
 	}
 	return store, warnings, nil
 }

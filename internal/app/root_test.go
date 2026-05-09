@@ -39,6 +39,17 @@ func TestDiscoverRootAcceptsLegacyID(t *testing.T) {
 	}
 }
 
+func TestConfigAppIDPrefersExplicitID(t *testing.T) {
+	cfg := Config{Name: "display-name", ID: "stable-id"}
+	if got, want := cfg.AppID(), "stable-id"; got != want {
+		t.Fatalf("AppID() = %q, want %q", got, want)
+	}
+	cfg.ID = ""
+	if got, want := cfg.AppID(), "display-name"; got != want {
+		t.Fatalf("AppID() fallback = %q, want %q", got, want)
+	}
+}
+
 func TestDiscoverRootRequiresNameOrID(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"proxy":{}}`), 0o644); err != nil {

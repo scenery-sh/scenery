@@ -59,6 +59,7 @@ func runOnlavaAdmin(ctx context.Context, args []string, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
+	appID := cfg.AppID()
 
 	resp := adminResponse{
 		SchemaVersion: "onlava.admin.result.v1",
@@ -77,15 +78,15 @@ func runOnlavaAdmin(ctx context.Context, args []string, stdout io.Writer) error 
 			return err
 		}
 		defer store.Close()
-		if err := store.ClearTraces(ctx, cfg.Name); err != nil {
+		if err := store.ClearTraces(ctx, appID); err != nil {
 			return err
 		}
 		resp.Data = map[string]any{
-			"app_id":  cfg.Name,
+			"app_id":  appID,
 			"cleared": "traces",
 		}
 	case "pubsub/clear":
-		result, err := callDashboardRPC(ctx, "pubsub/clear", map[string]any{"app_id": cfg.Name})
+		result, err := callDashboardRPC(ctx, "pubsub/clear", map[string]any{"app_id": appID})
 		if err != nil {
 			return err
 		}

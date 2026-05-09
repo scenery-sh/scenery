@@ -53,6 +53,7 @@ func runOnlavaLogs(ctx context.Context, stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
+	appID := cfg.AppID()
 
 	store, err := devdash.OpenStore(os.Getenv("ONLAVA_DEV_CACHE_DIR"))
 	if err != nil {
@@ -60,15 +61,15 @@ func runOnlavaLogs(ctx context.Context, stdout io.Writer, args []string) error {
 	}
 	defer store.Close()
 
-	record, err := store.GetApp(ctx, cfg.Name)
+	record, err := store.GetApp(ctx, appID)
 	if err != nil {
-		return fmt.Errorf("no local logs found for %q; run `onlava run` first", cfg.Name)
+		return fmt.Errorf("no local logs found for %q; run `onlava run` first", appID)
 	}
 	if record.Root != "" && record.Root != appRoot {
-		return fmt.Errorf("local logs for %q belong to %s, not %s", cfg.Name, record.Root, appRoot)
+		return fmt.Errorf("local logs for %q belong to %s, not %s", appID, record.Root, appRoot)
 	}
 
-	items, err := store.ListProcessOutput(ctx, cfg.Name, opts.Limit)
+	items, err := store.ListProcessOutput(ctx, appID, opts.Limit)
 	if err != nil {
 		return err
 	}
@@ -78,7 +79,7 @@ func runOnlavaLogs(ctx context.Context, stdout io.Writer, args []string) error {
 			lastID = item.ID
 		}
 		if streamAllowed(opts.Stream, item.Stream) {
-			if err := writeProcessOutput(stdout, cfg.Name, appRoot, item, opts.JSONL); err != nil {
+			if err := writeProcessOutput(stdout, appID, appRoot, item, opts.JSONL); err != nil {
 				return err
 			}
 		}
@@ -96,7 +97,7 @@ func runOnlavaLogs(ctx context.Context, stdout io.Writer, args []string) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			items, err := store.ListProcessOutputSince(ctx, cfg.Name, lastID, 200)
+			items, err := store.ListProcessOutputSince(ctx, appID, lastID, 200)
 			if err != nil {
 				return err
 			}
@@ -105,7 +106,7 @@ func runOnlavaLogs(ctx context.Context, stdout io.Writer, args []string) error {
 					lastID = item.ID
 				}
 				if streamAllowed(opts.Stream, item.Stream) {
-					if err := writeProcessOutput(stdout, cfg.Name, appRoot, item, opts.JSONL); err != nil {
+					if err := writeProcessOutput(stdout, appID, appRoot, item, opts.JSONL); err != nil {
 						return err
 					}
 				}

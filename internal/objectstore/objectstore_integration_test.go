@@ -386,7 +386,8 @@ func TestPostgresCreateIndexAndCursorPagination(t *testing.T) {
 	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "stage", Type: FieldSelect, Options: []FieldOptionRequest{{Value: "lead"}, {Value: "won"}}}); err != nil {
 		t.Fatalf("CreateField(stage): %v", err)
 	}
-	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "arr", Type: FieldNumeric}); err != nil {
+	nullableFalse := false
+	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "arr", Type: FieldNumeric, Nullable: &nullableFalse}); err != nil {
 		t.Fatalf("CreateField(arr): %v", err)
 	}
 	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "tags", Type: FieldMultiSelect}); err != nil {
@@ -639,6 +640,15 @@ func TestPostgresSavedViews(t *testing.T) {
 	if _, err := store.CreateField(ctx, actor, "company", CreateFieldRequest{TenantKey: tenantKey, Name: "stage", Type: FieldSelect, Options: []FieldOptionRequest{{Value: "lead"}, {Value: "won"}}}); err != nil {
 		t.Fatalf("CreateField(stage): %v", err)
 	}
+	store.perms = denyWriteObjectPermissions{}
+	if _, err := store.CreateView(ctx, actor, "company", CreateViewRequest{
+		TenantKey: tenantKey,
+		Name:      "denied_view",
+		Columns:   []string{"name"},
+	}); err == nil || !strings.Contains(err.Error(), "write denied") {
+		t.Fatalf("CreateView(write denied) error = %v, want write denied", err)
+	}
+	store.perms = AllowAllPermissions{}
 	if _, err := store.CreateView(ctx, actor, "company", CreateViewRequest{
 		TenantKey:  tenantKey,
 		Name:       "won_companies",
@@ -688,6 +698,14 @@ func TestPostgresSavedViews(t *testing.T) {
 	if len(page.Records) != 1 || page.Records[0]["name"] != "Acme" {
 		t.Fatalf("QueryView page = %#v", page)
 	}
+	store.perms = denyWriteObjectPermissions{}
+	if _, err := store.UpdateView(ctx, actor, "company", "won_companies", UpdateViewRequest{
+		TenantKey: tenantKey,
+		Columns:   []string{"name"},
+	}); err == nil || !strings.Contains(err.Error(), "write denied") {
+		t.Fatalf("UpdateView(write denied) error = %v, want write denied", err)
+	}
+	store.perms = AllowAllPermissions{}
 	updated, err := store.UpdateView(ctx, actor, "company", "won_companies", UpdateViewRequest{
 		TenantKey: tenantKey,
 		Name:      "all_companies",
@@ -700,6 +718,11 @@ func TestPostgresSavedViews(t *testing.T) {
 	if updated.Name != "all_companies" || len(updated.Columns) != 1 {
 		t.Fatalf("updated view = %#v", updated)
 	}
+	store.perms = denyWriteObjectPermissions{}
+	if err := store.DeleteView(ctx, actor, "company", "all_companies", DeleteViewRequest{TenantKey: tenantKey}); err == nil || !strings.Contains(err.Error(), "write denied") {
+		t.Fatalf("DeleteView(write denied) error = %v, want write denied", err)
+	}
+	store.perms = AllowAllPermissions{}
 	if err := store.DeleteView(ctx, actor, "company", "all_companies", DeleteViewRequest{TenantKey: tenantKey}); err != nil {
 		t.Fatalf("DeleteView: %v", err)
 	}
@@ -1169,6 +1192,14 @@ func stringInSlice(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+type denyWriteObjectPermissions struct {
+	AllowAllPermissions
+}
+
+func (denyWriteObjectPermissions) CanWriteObject(context.Context, Actor, ObjectRef) error {
+	return errors.New("write denied")
 }
 
 func cleanupPostgresTenant(ctx context.Context, pool *pgxpool.Pool, tenantKey string) error {

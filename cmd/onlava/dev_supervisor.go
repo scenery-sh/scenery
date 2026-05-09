@@ -77,6 +77,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, addr str
 		_ = store.Close()
 		return nil, err
 	}
+	appID := cfg.AppID()
 
 	s := &devSupervisor{
 		ctx:         supervisorCtx,
@@ -86,9 +87,9 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, addr str
 		addr:        addr,
 		store:       store,
 		reportToken: token,
-		console:     newRunConsole(os.Stdout, os.Stderr, verbose, jsonMode, cfg.Name, root),
+		console:     newRunConsole(os.Stdout, os.Stderr, verbose, jsonMode, appID, root),
 		status: devdash.AppRecord{
-			ID:         cfg.Name,
+			ID:         appID,
 			Name:       cfg.Name,
 			Root:       root,
 			ListenAddr: addr,
@@ -230,6 +231,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		return s.handleCompileError(ctx, nil, nil, err)
 	} else {
 		s.cfg = cfg
+		s.setAppIdentity(cfg)
 	}
 	s.setCompiling(true, "")
 	if err := s.persistStatus(ctx); err != nil {
@@ -239,7 +241,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		Method: "process/compile-start",
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.cfg.Name, "compile-start", s.appStatus())
+	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "compile-start", s.appStatus())
 	if s.console != nil {
 		s.console.Event("process.compile-start", map[string]any{
 			"initial": initial,
@@ -354,13 +356,13 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		return err
 	}
 	clearedAt := time.Now().UTC()
-	if err := s.store.MarkPubSubMessagesCleared(ctx, s.cfg.Name, clearedAt); err != nil {
+	if err := s.store.MarkPubSubMessagesCleared(ctx, s.activeAppID(), clearedAt); err != nil {
 		return err
 	}
 	s.dashboard.notify(&devdash.Notification{
 		Method: "pubsub/messages/cleared",
 		Params: map[string]any{
-			"app_id":     s.cfg.Name,
+			"app_id":     s.activeAppID(),
 			"updated_at": clearedAt,
 		},
 	})
@@ -373,7 +375,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		Method: method,
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.cfg.Name, method, s.appStatus())
+	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), method, s.appStatus())
 	if s.console != nil {
 		s.console.Event(method, map[string]any{
 			"pid":         current.pid,
@@ -418,7 +420,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		baseEnv,
 		s.console != nil && s.console.palette.Enabled(),
 		"ONLAVA_LISTEN_ADDR="+s.addr,
-		"ONLAVA_APP_ID="+s.cfg.Name,
+		"ONLAVA_APP_ID="+s.activeAppID(),
 		"ONLAVA_APP_ROOT="+s.root,
 		"ONLAVA_DEV_SUPERVISOR=1",
 		"ONLAVA_DEV_ENDPOINTS=1",
@@ -472,7 +474,7 @@ func (s *devSupervisor) captureOutput(ctx context.Context, pid, stream string, s
 			}
 			plain := stripANSI(chunk)
 			output := devdash.ProcessOutput{
-				AppID:     s.cfg.Name,
+				AppID:     s.activeAppID(),
 				PID:       pid,
 				Stream:    stream,
 				Output:    plain,
@@ -482,7 +484,7 @@ func (s *devSupervisor) captureOutput(ctx context.Context, pid, stream string, s
 			s.dashboard.notify(&devdash.Notification{
 				Method: "process/output",
 				Params: map[string]any{
-					"appID":      s.cfg.Name,
+					"appID":      s.activeAppID(),
 					"pid":        pid,
 					"stream":     stream,
 					"output":     output.Output,
@@ -559,7 +561,7 @@ func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
 		Method: "process/stop",
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.cfg.Name, "process-stop", s.appStatus())
+	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "process-stop", s.appStatus())
 	if s.console != nil {
 		s.console.Event("process.stop", map[string]any{
 			"pid": app.pid,
@@ -701,16 +703,16 @@ func (s *devSupervisor) apiURL() string {
 
 func (s *devSupervisor) dashboardURL() string {
 	if s.proxy != nil && s.proxy.Routes().ConsoleURL != "" {
-		return localproxy.ConsoleAppURL(s.proxy.Routes(), s.cfg.Name)
+		return localproxy.ConsoleAppURL(s.proxy.Routes(), s.activeAppID())
 	}
-	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.cfg.Name)
+	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.activeAppID())
 }
 
 func (s *devSupervisor) mcpURL() string {
 	if s.proxy != nil && s.proxy.Routes().MCPBaseURL != "" {
-		return localproxy.MCPSSEURL(s.proxy.Routes(), s.cfg.Name)
+		return localproxy.MCPSSEURL(s.proxy.Routes(), s.activeAppID())
 	}
-	return "http://" + devdash.ListenAddr() + "/sse?appID=" + url.QueryEscape(s.cfg.Name)
+	return "http://" + devdash.ListenAddr() + "/sse?appID=" + url.QueryEscape(s.activeAppID())
 }
 
 func (s *devSupervisor) frontendURLs() map[string]string {
@@ -740,7 +742,7 @@ func (s *devSupervisor) startDBStudio(ctx context.Context) error {
 	go func() {
 		inst, startErr := dbstudio.Start(ctx, dbstudio.Options{
 			AppRoot: s.root,
-			AppID:   s.cfg.Name,
+			AppID:   s.activeAppID(),
 			Config:  cfg,
 			Port:    dbstudio.DefaultPort,
 			Verbose: s.console != nil && s.console.verbose,
@@ -762,7 +764,15 @@ func (s *devSupervisor) startDBStudio(ctx context.Context) error {
 }
 
 func (s *devSupervisor) activeAppID() string {
-	return s.cfg.Name
+	return s.cfg.AppID()
+}
+
+func (s *devSupervisor) setAppIdentity(cfg app.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.ID = cfg.AppID()
+	s.status.Name = cfg.Name
+	s.status.UpdatedAt = time.Now().UTC()
 }
 
 func (s *devSupervisor) startLocalProxy() error {
@@ -771,7 +781,7 @@ func (s *devSupervisor) startLocalProxy() error {
 	}
 	workspace := s.cfg.Proxy.Workspace
 	if workspace == "" {
-		workspace = localproxy.DiscoverWorkspace(s.root, s.cfg.Name)
+		workspace = localproxy.DiscoverWorkspace(s.root, s.activeAppID())
 	}
 	proxyCfg := localproxy.BuildConfig(localproxy.Config{
 		Workspace:         workspace,
@@ -839,7 +849,7 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 		Method: "process/compile-error",
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.cfg.Name, "compile-error", map[string]any{"error": err.Error()})
+	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "compile-error", map[string]any{"error": err.Error()})
 	if s.console != nil {
 		s.console.Event("process.compile-error", map[string]any{
 			"error": err.Error(),
@@ -889,7 +899,7 @@ func (s *devSupervisor) listApps(ctx context.Context) ([]map[string]any, error) 
 
 func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {
 	if appID == "" {
-		appID = s.cfg.Name
+		appID = s.activeAppID()
 	}
 	app, err := s.store.GetApp(ctx, appID)
 	if err != nil {

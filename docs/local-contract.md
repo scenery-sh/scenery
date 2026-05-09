@@ -151,6 +151,7 @@ Current shape:
 Rules:
 - `name` or `id` must be non-empty.
 - If `name` is empty, onlava falls back to `id`.
+- App identity for runtime environment, dashboard routes, local logs, browser harness routes, and local observability is `id` when present, otherwise `name`. `name` remains the display name and source/build package identity.
 - `proxy` is optional.
 - `auth` is optional. When `auth.enabled` is true, onlava registers the built-in standard auth handler and auth endpoints.
 - `observability` is optional.
@@ -258,7 +259,7 @@ Beta dynamic data platform:
 - Public data methods wrap failures in `*data.Error` where possible. Use `data.CodeOf(err)` for coarse handling of `object_not_found`, `field_not_found`, `invalid_filter`, `permission_denied`, `migration_failed`, `schema_drift`, and `invalid_cursor`.
 - Record queries are compiled from metadata to parameterized SQL; user input must not become SQL identifiers.
 - Record queries can filter, sort, and select one-hop `many_to_one` relation paths such as `company.name`; deeper paths and many-to-many path queries remain future work.
-- Record queries use keyset cursor pagination when `query.cursor` is set. `RecordPage.NextCursor` is a base64url-encoded opaque cursor tied to the object, schema version, and effective sort shape; callers must reuse the same sort shape when fetching the next page.
+- Record queries use keyset cursor pagination when `query.cursor` is set. `RecordPage.NextCursor` is a base64url-encoded opaque cursor tied to the object, schema version, and effective sort shape; callers must reuse the same sort shape when fetching the next page. Cursor pagination currently rejects nullable and relation sort fields because null-aware keyset semantics are not stable yet.
 - Record mutations write outbox events in the same transaction.
 - Live updates use SSE over ordinary raw onlava endpoints plus the PostgreSQL outbox sequence for reconnect/replay.
 - Apps may call `store.EnableOutboxTriggers(ctx, actor, tenantKey, objectName)` to enable per-object trigger-backed outbox rows for direct SQL or DB Studio changes.

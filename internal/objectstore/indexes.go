@@ -194,6 +194,9 @@ func (s *Store) buildIndexSpec(ctx context.Context, actor Actor, state *metadata
 }
 
 func validateIndexField(method IndexMethod, field *Field, spec IndexField) error {
+	if strings.TrimSpace(spec.OpClass) != "" {
+		return fmt.Errorf("index opclass is not supported in the public API yet")
+	}
 	if isCompositeField(field.Type) || len(field.Columns) != 1 {
 		return fmt.Errorf("field %s is composite and cannot be indexed in this version", field.Name)
 	}
@@ -230,9 +233,6 @@ func createIndexDDL(tableName string, index *Index, fields map[string]*Field) (s
 		part := quoteIdent(field.Columns[0].Name)
 		if index.Method == IndexMethodBTree {
 			part += " " + normalizedIndexDirection(item)
-		}
-		if strings.TrimSpace(item.OpClass) != "" {
-			part += " " + strings.TrimSpace(item.OpClass)
 		}
 		parts = append(parts, part)
 	}

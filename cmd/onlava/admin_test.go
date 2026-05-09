@@ -44,7 +44,7 @@ func TestRunOnlavaAdminClearTraces(t *testing.T) {
 
 	endpoint := "Ping"
 	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-		AppID:         "adminapp",
+		AppID:         "admin-id",
 		TraceID:       "trace-1",
 		SpanID:        "span-1",
 		Type:          "RPC",
@@ -79,10 +79,10 @@ func TestRunOnlavaAdminClearTraces(t *testing.T) {
 	if payload.SchemaVersion != "onlava.admin.result.v1" || !payload.OK || payload.Command != "onlava admin traces clear" {
 		t.Fatalf("payload = %+v", payload)
 	}
-	if payload.Data.AppID != "adminapp" || payload.Data.Cleared != "traces" {
+	if payload.Data.AppID != "admin-id" || payload.Data.Cleared != "traces" {
 		t.Fatalf("data = %+v", payload.Data)
 	}
-	list, err := store.ListTraceSummaries(context.Background(), "adminapp", 10, "")
+	list, err := store.ListTraceSummaries(context.Background(), "admin-id", 10, "")
 	if err != nil {
 		t.Fatalf("ListTraceSummaries() error = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestRunOnlavaAdminClearPubSubViaDashboardRPC(t *testing.T) {
 			JSONRPC: "2.0",
 			ID:      rpcReq.ID,
 			Result: json.RawMessage(`{
-				"app_id":"adminapp",
+				"app_id":"admin-id",
 				"topics":[],
 				"updated_at":"2026-04-23T10:00:00Z"
 			}`),
@@ -148,7 +148,7 @@ func TestRunOnlavaAdminClearPubSubViaDashboardRPC(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal(admin pubsub): %v\n%s", err, out.String())
 	}
-	if !payload.OK || payload.Data.AppID != "adminapp" {
+	if !payload.OK || payload.Data.AppID != "admin-id" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }

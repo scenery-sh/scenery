@@ -18,6 +18,13 @@ type Config struct {
 	EnableDBStudio bool                `json:"-"`
 }
 
+func (c Config) AppID() string {
+	if c.ID != "" {
+		return c.ID
+	}
+	return c.Name
+}
+
 type ProxyConfig struct {
 	Workspace   string                    `json:"workspace"`
 	APIHost     string                    `json:"api_host"`

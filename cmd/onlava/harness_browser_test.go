@@ -11,7 +11,7 @@ import (
 
 func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".onlava.json"), []byte(`{"name":"harnessapp"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".onlava.json"), []byte(`{"name":"harnessapp","id":"harness-dev"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	prev := runHarnessUIBrowserChecksFunc
@@ -20,7 +20,7 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 		if headed {
 			t.Fatal("headed should be false")
 		}
-		if len(routes) == 0 || routes[0].Path != "http://127.0.0.1:9401/harnessapp" {
+		if len(routes) == 0 || routes[0].Path != "http://127.0.0.1:9401/harness-dev" {
 			t.Fatalf("routes = %#v", routes)
 		}
 		return harnessUIBrowserResult{
@@ -38,7 +38,7 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 	var out bytes.Buffer
 	err := runOnlavaHarnessUI(context.Background(), &out, []string{
 		"--app-root", root,
-		"--dashboard-url", "http://127.0.0.1:9401/harnessapp",
+		"--dashboard-url", "http://127.0.0.1:9401/harness-dev",
 		"--json",
 		"--write",
 	})

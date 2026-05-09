@@ -148,7 +148,7 @@ func runOnlavaHarnessUI(ctx context.Context, stdout io.Writer, args []string) er
 	resp.DashboardURL = dashboardURL
 
 	artifactRoot := filepath.Join(appRoot, ".onlava", "harness", "ui")
-	routes := buildHarnessUIRoutes(appDashboardURL(dashboardURL, cfg.Name))
+	routes := buildHarnessUIRoutes(appDashboardURL(dashboardURL, cfg.AppID()))
 	result, err := runHarnessUIBrowserChecksFunc(ctx, routes, artifactRoot, opts.Headed)
 	if err != nil {
 		resp.OK = false

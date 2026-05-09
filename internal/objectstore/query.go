@@ -132,6 +132,11 @@ func compileQuery(state *metadataState, query Query) (*compiledQuery, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cursor != nil {
+		if err := validateCursorSorts(state, effectiveSort); err != nil {
+			return nil, err
+		}
+	}
 	args := []any{state.Tenant.ID}
 	var cols []string
 	var resultCols []resultColumn
@@ -471,6 +476,27 @@ func cursorColumns(state *metadataState, sorts []Sort) ([]string, error) {
 		out = append(out, column)
 	}
 	return out, nil
+}
+
+func validateCursorSorts(state *metadataState, sorts []Sort) error {
+	for _, sortSpec := range sorts {
+		fieldName := strings.TrimSpace(sortSpec.Field)
+		switch fieldName {
+		case "id", "created_at", "updated_at":
+			continue
+		}
+		if strings.Contains(fieldName, ".") {
+			return fmt.Errorf("cursor pagination does not support relation sort field %q yet", fieldName)
+		}
+		_, field, err := filterColumn(state, fieldName)
+		if err != nil {
+			return err
+		}
+		if field != nil && field.IsNullable {
+			return fmt.Errorf("cursor pagination does not support nullable sort field %q yet", fieldName)
+		}
+	}
+	return nil
 }
 
 func cursorResultColumns(sorts []Sort) []resultColumn {

@@ -128,7 +128,7 @@ func startHeadlessApp(root string, cfg app.Config, binary, addr string, opts run
 	}
 	overrides := []string{
 		"ONLAVA_LISTEN_ADDR=" + addr,
-		"ONLAVA_APP_ID=" + cfg.Name,
+		"ONLAVA_APP_ID=" + cfg.AppID(),
 		"ONLAVA_APP_ROOT=" + root,
 		"ONLAVA_LOCAL_PROXY=0",
 		"ONLAVA_LOG_FORMAT=" + opts.LogFormat,

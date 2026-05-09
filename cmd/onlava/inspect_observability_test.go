@@ -20,7 +20,7 @@ func TestRunOnlavaInspectTracesWithFilters(t *testing.T) {
 	endpoint := "SyncGet"
 	now := time.Now().UTC()
 	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-		AppID:         "obsapp",
+		AppID:         "obs-id",
 		TraceID:       "trace-fast",
 		SpanID:        "span-fast",
 		Type:          "RPC",
@@ -33,7 +33,7 @@ func TestRunOnlavaInspectTracesWithFilters(t *testing.T) {
 		t.Fatalf("append fast trace: %v", err)
 	}
 	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-		AppID:         "obsapp",
+		AppID:         "obs-id",
 		TraceID:       "trace-slow",
 		SpanID:        "span-slow",
 		Type:          "RPC",
@@ -92,7 +92,7 @@ func TestRunOnlavaInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 		{id: "trace-3", duration: 300 * time.Millisecond},
 	} {
 		if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-			AppID:         "obsapp",
+			AppID:         "obs-id",
 			TraceID:       item.id,
 			SpanID:        item.id + "-span",
 			Type:          "RPC",
@@ -107,7 +107,7 @@ func TestRunOnlavaInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 		}
 	}
 	if err := store.AppendTraceEvent(context.Background(), &devdash.TraceEvent{
-		AppID:     "obsapp",
+		AppID:     "obs-id",
 		TraceID:   "trace-1",
 		SpanID:    "trace-1-span",
 		EventID:   1,
@@ -117,7 +117,7 @@ func TestRunOnlavaInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 		t.Fatalf("append trace event: %v", err)
 	}
 	if err := store.WriteLogEvent(context.Background(), &devdash.LogEvent{
-		AppID:     "obsapp",
+		AppID:     "obs-id",
 		Level:     "ERR",
 		Message:   "failed",
 		Timestamp: now,
@@ -167,7 +167,7 @@ func openTestObservabilityStore(t *testing.T, cacheRoot, appRoot string) *devdas
 		_ = store.Close()
 	})
 	if err := store.UpsertApp(context.Background(), devdash.AppRecord{
-		ID:   "obsapp",
+		ID:   "obs-id",
 		Name: "obsapp",
 		Root: appRoot,
 	}); err != nil {

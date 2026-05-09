@@ -77,7 +77,7 @@ export function DataExplorerView({
     } finally {
       setInspectLoading(false);
     }
-  }, [client, selectedObjectName, selectedTenantKey]);
+  }, [client, selectedObjectName, selectedTenantKey, selectedViewName]);
 
   const queryRecords = useCallback(async () => {
     if (!client || !selectedTenantKey || !selectedObject) {

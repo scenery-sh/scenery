@@ -15,7 +15,7 @@ func (s *Store) CreateView(ctx context.Context, actor Actor, objectName string, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.perms.CanReadObject(ctx, actor, objectRef(state)); err != nil {
+	if err := s.perms.CanWriteObject(ctx, actor, objectRef(state)); err != nil {
 		return nil, err
 	}
 	view, err := s.buildView(ctx, state, req)
@@ -62,7 +62,7 @@ func (s *Store) UpdateView(ctx context.Context, actor Actor, objectName string, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.perms.CanReadObject(ctx, actor, objectRef(state)); err != nil {
+	if err := s.perms.CanWriteObject(ctx, actor, objectRef(state)); err != nil {
 		return nil, err
 	}
 	existing, err := s.loadView(ctx, state.Tenant.ID, state.Object.ID, viewName)
@@ -159,7 +159,7 @@ func (s *Store) DeleteView(ctx context.Context, actor Actor, objectName string, 
 	if err != nil {
 		return err
 	}
-	if err := s.perms.CanReadObject(ctx, actor, objectRef(state)); err != nil {
+	if err := s.perms.CanWriteObject(ctx, actor, objectRef(state)); err != nil {
 		return err
 	}
 	tag, err := s.db.Exec(ctx, `

@@ -112,7 +112,7 @@ func TestListAppsReturnsOnlyActiveSupervisorApp(t *testing.T) {
 	for _, rec := range []devdash.AppRecord{
 		{ID: "basicapp", Name: "basicapp", Root: "/tmp/basicapp", UpdatedAt: now.Add(-2 * time.Minute)},
 		{ID: "cronapp", Name: "cronapp", Root: "/tmp/cronapp", UpdatedAt: now.Add(-1 * time.Minute)},
-		{ID: "demoapp-dev", Name: "demoapp-dev", Root: "/tmp/demoapp", Running: true, UpdatedAt: now},
+		{ID: "demoapp-dev", Name: "demoapp", Root: "/tmp/demoapp", Running: true, UpdatedAt: now},
 	} {
 		if err := store.UpsertApp(ctx, rec); err != nil {
 			t.Fatal(err)
@@ -120,11 +120,11 @@ func TestListAppsReturnsOnlyActiveSupervisorApp(t *testing.T) {
 	}
 
 	s := &devSupervisor{
-		cfg:   app.Config{Name: "demoapp-dev"},
+		cfg:   app.Config{Name: "demoapp", ID: "demoapp-dev"},
 		store: store,
 		status: devdash.AppRecord{
 			ID:      "demoapp-dev",
-			Name:    "demoapp-dev",
+			Name:    "demoapp",
 			Root:    "/tmp/demoapp",
 			Running: true,
 		},
