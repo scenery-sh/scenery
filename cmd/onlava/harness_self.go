@@ -430,6 +430,11 @@ func runHarnessKnowledgeStep(repoRoot string) harnessStep {
 	for key, value := range docsSummary {
 		step.Summary[key] = value
 	}
+	skillDiagnostics, skillSummary := validateSkillCoverage(repoRoot)
+	diagnostics = append(diagnostics, skillDiagnostics...)
+	for key, value := range skillSummary {
+		step.Summary[key] = value
+	}
 	execPlanDiagnostics, execPlanSummary := validateExecPlanContract(repoRoot)
 	diagnostics = append(diagnostics, execPlanDiagnostics...)
 	for key, value := range execPlanSummary {
@@ -608,6 +613,52 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 	return diagnostics, summary
 }
 
+var requiredSkillMentions = []string{
+	"onlava harness ui --json",
+	"onlava inspect data --json",
+	"github.com/pbrazdil/onlava/data",
+	"docs/data-platform.md",
+	"docs/ui-agent-contract.md",
+	"@onlava registry",
+	"bun run shadcn:add @onlava/",
+	"onlava harness self --json --write",
+}
+
+func validateSkillCoverage(repoRoot string) ([]checkDiagnostic, map[string]any) {
+	summary := map[string]any{
+		"skill_required_mentions": len(requiredSkillMentions),
+	}
+	path := filepath.Join(repoRoot, "SKILL.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return []checkDiagnostic{{
+			Stage:           "knowledge contract",
+			Severity:        "error",
+			File:            filepath.ToSlash(path),
+			Message:         err.Error(),
+			SuggestedAction: "Restore SKILL.md so installed agents have a current entrypoint.",
+		}}, summary
+	}
+	text := string(data)
+	missing := 0
+	var diagnostics []checkDiagnostic
+	for _, mention := range requiredSkillMentions {
+		if strings.Contains(text, mention) {
+			continue
+		}
+		missing++
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "knowledge contract",
+			Severity:        "error",
+			File:            filepath.ToSlash(path),
+			Message:         "SKILL.md is missing required capability mention: " + mention,
+			SuggestedAction: "Update SKILL.md so installed agents learn the current onlava workflow.",
+		})
+	}
+	summary["skill_missing_mentions"] = missing
+	return diagnostics, summary
+}
+
 func validateExecPlanSections(repoRoot, relPath, text string, standard bool) []checkDiagnostic {
 	var diagnostics []checkDiagnostic
 	if standard && !strings.Contains(text, "onlava Execution Plans") {
@@ -674,12 +725,17 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 	entrypoints := []string{
 		"AGENTS.md",
+		"SKILL.md",
 		"PLAN.md",
 		"PLANS.md",
 		"docs/index.md",
 		"docs/knowledge.json",
 		"docs/harness-engineering.md",
 		"docs/local-contract.md",
+		"docs/data-platform.md",
+		"docs/app-development-cookbook.md",
+		"docs/data-platform-runbook.md",
+		"docs/ui-agent-contract.md",
 		"docs/plans/active.md",
 		"docs/plans/completed.md",
 		"docs/tech-debt.md",

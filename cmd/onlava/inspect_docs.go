@@ -240,7 +240,21 @@ func validateDocsKnowledge(repoRoot string) ([]checkDiagnostic, map[string]any) 
 			diagnostics = append(diagnostics, docsIndexDiagnostic(repoRoot, relPath, "knowledge base path does not exist: "+relPath, "Create the referenced file or update docs/knowledge.json."))
 		}
 	}
+	for _, relPath := range importantKnowledgeDocuments {
+		if _, ok := seen[relPath]; ok {
+			continue
+		}
+		diagnostics = append(diagnostics, docsIndexDiagnostic(repoRoot, "docs/knowledge.json", "important document is not indexed: "+relPath, "Add "+relPath+" to docs/knowledge.json so agents can discover it."))
+	}
 	return diagnostics, summary
+}
+
+var importantKnowledgeDocuments = []string{
+	"SKILL.md",
+	"docs/app-development-cookbook.md",
+	"docs/data-platform-runbook.md",
+	"docs/ui-agent-contract.md",
+	"docs/local-contract.md",
 }
 
 func docsIndexDiagnostic(repoRoot, relPath, message, action string) checkDiagnostic {

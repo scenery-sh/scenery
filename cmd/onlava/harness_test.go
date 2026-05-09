@@ -112,6 +112,23 @@ func TestRunHarnessKnowledgeStepReportsInvalidExecPlan(t *testing.T) {
 	}
 }
 
+func TestRunHarnessKnowledgeStepReportsStaleSkill(t *testing.T) {
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+	writeTestAppFile(t, root, "SKILL.md", "---\nname: onlava\n---\n\n# onlava\n\nOld skill.\n")
+
+	step := runHarnessKnowledgeStep(root)
+	if step.OK {
+		t.Fatalf("step ok = true, want false")
+	}
+	messages := make([]string, 0, len(step.Diagnostics))
+	for _, diag := range step.Diagnostics {
+		messages = append(messages, diag.Message)
+	}
+	if !strings.Contains(strings.Join(messages, "\n"), "SKILL.md is missing required capability mention") {
+		t.Fatalf("diagnostics did not include stale SKILL.md: %+v", step.Diagnostics)
+	}
+}
+
 func TestRunOnlavaHarnessJSONSuccessWritesLatest(t *testing.T) {
 	root := t.TempDir()
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
@@ -188,10 +205,15 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 	root := t.TempDir()
 	writeTestAppFile(t, root, "go.mod", "module github.com/pbrazdil/onlava\n\ngo 1.26.0\n")
 	writeTestAppFile(t, root, "AGENTS.md", "See [harness](docs/harness-engineering.md).\n")
+	writeTestAppFile(t, root, "SKILL.md", strings.Join(requiredSkillMentions, "\n")+"\n")
 	writeTestAppFile(t, root, "PLAN.md", "See [docs](docs/index.md).\n")
 	writeTestAppFile(t, root, "PLANS.md", validExecPlanStandardForTest())
 	writeTestAppFile(t, root, "docs/index.md", "See [local](local-contract.md), [plans](plans/active.md), and [debt](tech-debt.md).\n")
 	writeTestAppFile(t, root, "docs/local-contract.md", "Contract.\n")
+	writeTestAppFile(t, root, "docs/data-platform.md", "Data platform.\n")
+	writeTestAppFile(t, root, "docs/app-development-cookbook.md", "Cookbook.\n")
+	writeTestAppFile(t, root, "docs/data-platform-runbook.md", "Runbook.\n")
+	writeTestAppFile(t, root, "docs/ui-agent-contract.md", "UI contract.\n")
 	writeTestAppFile(t, root, "docs/harness-engineering.md", "Harness.\n")
 	writeTestAppFile(t, root, "docs/plans/active.md", "Active.\n")
 	writeTestAppFile(t, root, "docs/plans/completed.md", "Completed.\n")
@@ -235,6 +257,18 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
   },
   "documents": [
     {
+      "path": "SKILL.md",
+      "title": "Skill",
+      "owner": "onlava maintainers",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-04-27",
+      "review_after": "2026-05-27",
+      "summary": "Skill.",
+      "tags": ["skill"]
+    },
+    {
       "path": "docs/index.md",
       "title": "Index",
       "owner": "onlava maintainers",
@@ -245,6 +279,42 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
       "review_after": "2026-05-27",
       "summary": "Index.",
       "tags": ["docs"]
+    },
+    {
+      "path": "docs/app-development-cookbook.md",
+      "title": "Cookbook",
+      "owner": "onlava maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-04-27",
+      "review_after": "2026-05-27",
+      "summary": "Cookbook.",
+      "tags": ["cookbook"]
+    },
+    {
+      "path": "docs/data-platform-runbook.md",
+      "title": "Data runbook",
+      "owner": "onlava maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-04-27",
+      "review_after": "2026-05-27",
+      "summary": "Runbook.",
+      "tags": ["data"]
+    },
+    {
+      "path": "docs/ui-agent-contract.md",
+      "title": "UI contract",
+      "owner": "onlava maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-04-27",
+      "review_after": "2026-05-27",
+      "summary": "UI.",
+      "tags": ["ui"]
     },
     {
       "path": "docs/local-contract.md",

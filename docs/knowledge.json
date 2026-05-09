@@ -34,6 +34,18 @@
       "schema_refs": ["docs/schemas/onlava.docs.index.v1.schema.json"]
     },
     {
+      "path": "SKILL.md",
+      "title": "onlava Installable Agent Skill",
+      "owner": "onlava maintainers",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-05-09",
+      "review_after": "2026-06-08",
+      "summary": "Concise installed-skill entrypoint for building, inspecting, debugging, validating, and using current onlava apps.",
+      "tags": ["skill", "agents", "onboarding"]
+    },
+    {
       "path": "PLAN.md",
       "title": "onlava Agent-First Harness Plan",
       "owner": "onlava maintainers",
@@ -104,6 +116,30 @@
       "review_after": "2026-06-08",
       "summary": "Beta public data package usage for dynamic objects, fields, records, indexes, relations, saved views, auth tenant permissions, import/export, live events, and errors.",
       "tags": ["data", "postgres", "objects", "relations", "saved-views", "import-export"]
+    },
+    {
+      "path": "docs/app-development-cookbook.md",
+      "title": "onlava App Development Cookbook",
+      "owner": "onlava runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-05-09",
+      "review_after": "2026-06-08",
+      "summary": "Practical recipes for building onlava apps, endpoints, auth, middleware, Pub/Sub, cron, generated clients, proxy config, and validation workflows.",
+      "tags": ["cookbook", "apps", "agents", "runtime"]
+    },
+    {
+      "path": "docs/data-platform-runbook.md",
+      "title": "onlava Data Platform Developer Runbook",
+      "owner": "onlava data platform",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-05-09",
+      "review_after": "2026-06-08",
+      "summary": "Operational guide for using and debugging the beta data platform, including migrations, inspect data, live events, import/export, auth tenant permissions, and drift recovery.",
+      "tags": ["data", "runbook", "postgres", "agents"]
     },
     {
       "path": "docs/ui-agent-contract.md",

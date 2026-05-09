@@ -432,3 +432,60 @@ Shipped:
 - Transactional import through existing mutation paths, with new record IDs and `record_id_map` reconciliation.
 - Fixture app export/import endpoints and `company-export.json` fixture data.
 - PostgreSQL-backed round-trip coverage for metadata, records, indexes, saved views, and ID remapping.
+
+## Skill Refresh and Agent Onboarding
+
+- Status: completed
+- Owner: onlava maintainers
+- Completed: 2026-05-09
+- Quality: B+
+- ExecPlan: [0027 Skill Refresh and Agent Onboarding](0027-skill-refresh-and-agent-onboarding.md)
+
+Shipped:
+
+- Refreshed `SKILL.md` for current onlava workflows.
+- Added current coverage for the data platform, standard auth tenant permissions, dashboard Data Explorer, browser UI harness, UI registry guardrails, ONLV layout migration expectations, and validation command matrices.
+- Linked the skill to the local contract, app cookbook, data-platform overview/runbook, UI agent contract, and active plans.
+
+## onlava App Development Cookbook
+
+- Status: completed
+- Owner: onlava runtime
+- Completed: 2026-05-09
+- Quality: B+
+- ExecPlan: [0028 onlava App Development Cookbook](0028-onlava-app-development-cookbook.md)
+
+Shipped:
+
+- `docs/app-development-cookbook.md` with practical recipes for building onlava apps.
+- Recipes for typed endpoints, auth endpoints, private calls, service initialization, middleware, request tags, status responses, coded errors, Pub/Sub, cron, pgxpool tracing, TypeScript clients, local proxy config, debugging, harness workflows, and common mistakes.
+- Docs index and knowledge index entries for agent discovery.
+
+## Data Platform Developer Runbook
+
+- Status: completed
+- Owner: onlava data platform
+- Completed: 2026-05-09
+- Quality: B+
+- ExecPlan: [0029 Data Platform Developer Runbook](0029-data-platform-developer-runbook.md)
+
+Shipped:
+
+- `docs/data-platform-runbook.md` for operational data-platform workflows.
+- Runbook coverage for object/field creation, options, composites, relations, indexes, saved views, CRUD, queries/cursors/search, SSE, trigger-backed outbox, import/export, standard-auth permissions, inspect output, migration recovery, drift debugging, DB Studio caveats, performance notes, and beta limitations.
+- Docs index and knowledge index entries for agent discovery.
+
+## Documentation Drift Harness
+
+- Status: completed
+- Owner: onlava maintainers
+- Completed: 2026-05-09
+- Quality: B+
+- ExecPlan: [0030 Documentation Drift Harness](0030-documentation-drift-harness.md)
+
+Shipped:
+
+- `SKILL.md` is now a self-harness knowledge entrypoint.
+- Self-harness checks required installed-skill capability mentions such as `onlava inspect data --json`, `onlava harness ui --json`, `github.com/pbrazdil/onlava/data`, the `@onlava` registry, and `onlava harness self --json --write`.
+- `docs/knowledge.json` is checked for important docs including `SKILL.md`, the app cookbook, the data-platform runbook, the UI agent contract, and the local contract.
+- Regression coverage for stale `SKILL.md` detection.
