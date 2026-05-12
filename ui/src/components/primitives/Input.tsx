@@ -5,7 +5,7 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return (
     <input
       data-onlava-ui="Input"
-      className={cn("h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring", className)}
+      className={cn("h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-[#3161f4] focus:ring-2 focus:ring-ring", className)}
       {...props}
     />
   );
@@ -15,7 +15,7 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
   return (
     <textarea
       data-onlava-ui="Textarea"
-      className={cn("min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring", className)}
+      className={cn("min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-[#3161f4] focus:ring-2 focus:ring-ring", className)}
       {...props}
     />
   );
@@ -25,7 +25,7 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return (
     <select
       data-onlava-ui="Select"
-      className={cn("h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring", className)}
+      className={cn("h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-[#3161f4] focus:ring-2 focus:ring-ring", className)}
       {...props}
     />
   );
