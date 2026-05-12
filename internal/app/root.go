@@ -60,9 +60,10 @@ type AuthGoogleConfig struct {
 }
 
 type AuthDevBootstrap struct {
-	Enabled         bool   `json:"enabled"`
-	DefaultUserID   string `json:"default_user_id"`
-	DefaultTenantID string `json:"default_tenant_id"`
+	Enabled          bool   `json:"enabled"`
+	DefaultUserEmail string `json:"default_user_email"`
+	DefaultUserID    string `json:"default_user_id"`
+	DefaultTenantID  string `json:"default_tenant_id"`
 }
 
 type ObservabilityConfig struct {

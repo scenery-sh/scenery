@@ -275,6 +275,9 @@ func authDevBootstrapConfigLiteral(cfg appcfg.AuthDevBootstrap) string {
 	if cfg.Enabled {
 		fields = append(fields, "Enabled: true")
 	}
+	if cfg.DefaultUserEmail != "" {
+		fields = append(fields, fmt.Sprintf("DefaultUserEmail: %q", cfg.DefaultUserEmail))
+	}
 	if cfg.DefaultUserID != "" {
 		fields = append(fields, fmt.Sprintf("DefaultUserID: %q", cfg.DefaultUserID))
 	}

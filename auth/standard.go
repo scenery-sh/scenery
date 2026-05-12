@@ -41,10 +41,11 @@ type GoogleOAuthConfig struct {
 }
 
 type DevBootstrapConfig struct {
-	Enabled         bool
-	DefaultUserID   string
-	DefaultTenantID string
-	TokenTTL        time.Duration
+	Enabled          bool
+	DefaultUserEmail string
+	DefaultUserID    string
+	DefaultTenantID  string
+	TokenTTL         time.Duration
 }
 
 type EmailMessage struct {
