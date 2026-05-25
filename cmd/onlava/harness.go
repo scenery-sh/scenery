@@ -288,7 +288,6 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 	entrypoints := []string{
 		"AGENTS.md",
 		"docs/local-contract.md",
-		"docs/PRD-1-pubsub.md",
 		"docs/PRD-2-proto.md",
 	}
 	schemas := []string{
@@ -305,6 +304,7 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/onlava.wire.capabilities.v1.schema.json",
 		"docs/schemas/onlava.inspect.build.v1.schema.json",
 		"docs/schemas/onlava.inspect.paths.v1.schema.json",
+		"docs/schemas/onlava.inspect.temporal.v1.schema.json",
 	}
 	return harnessKnowledge{
 		Entrypoints: harnessKnowledgeFiles(appRoot, entrypoints),

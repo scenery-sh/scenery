@@ -60,6 +60,7 @@ func TestRunHarnessKnowledgeStepSuccess(t *testing.T) {
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 	writeTestAppFile(t, root, "docs/local-contract.md", "[self](harness-engineering.md)\n")
 	writeTestAppFile(t, root, "docs/harness-engineering.md", "[schema](schemas/onlava.harness.self.v1.schema.json)\n")
+	writeTestAppFile(t, root, "docs/grafana.md", "Grafana.\n")
 
 	step := runHarnessKnowledgeStep(root)
 	if !step.OK {
@@ -236,12 +237,14 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/onlava.inspect.endpoints.v1.schema.json",
 		"docs/schemas/onlava.inspect.metrics.v1.schema.json",
 		"docs/schemas/onlava.inspect.paths.v1.schema.json",
+		"docs/schemas/onlava.inspect.temporal.v1.schema.json",
 		"docs/schemas/onlava.inspect.routes.v1.schema.json",
 		"docs/schemas/onlava.inspect.services.v1.schema.json",
 		"docs/schemas/onlava.inspect.traces.v1.schema.json",
 		"docs/schemas/onlava.logs.event.v1.schema.json",
 		"docs/schemas/onlava.run.event.v1.schema.json",
 		"docs/schemas/onlava.version.v1.schema.json",
+		"docs/schemas/onlava.worker.manifest.v1.schema.json",
 		"docs/schemas/onlava.wire.capabilities.v1.schema.json",
 	} {
 		writeTestAppFile(t, root, path, schema)

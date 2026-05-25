@@ -30,12 +30,9 @@ const APP_NAV_ITEMS: readonly DashboardNavItem[] = [
     label: "Service Catalog",
     icon: IconNodes,
   },
-  // { kind: "ghost", label: "Infra", icon: IconLayers },
-  // { kind: "ghost", label: "Flow", icon: IconFlow },
   { kind: "route", to: "/$appId/data", label: "Data", icon: IconDataObjects },
   { kind: "route", to: "/$appId/db", label: "DB Explorer", icon: IconDatabase },
-  { kind: "route", to: "/$appId/pubsub", label: "Pub/Sub", icon: IconFlow },
-  // { kind: "ghost", label: "Snippets", icon: IconSnippets },
+  { kind: "route", to: "/$appId/observability", label: "Observability", icon: IconLayers },
 ];
 
 export function DashboardRouteShell({ appId }: { appId: string }) {
@@ -291,21 +288,6 @@ function IconLayers({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-function IconFlow({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className}>
-      <path
-        d="M5 4h5a2 2 0 1 1 0 4H6a2 2 0 1 0 0 4h5"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-      />
-      <circle cx="4" cy="4" r="1.5" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
     </svg>
   );
 }

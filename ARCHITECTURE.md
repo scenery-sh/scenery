@@ -140,12 +140,12 @@ agents and humans to diagnose drift without scraping terminal output.
 ### `github.com/pbrazdil/onlava/runtime`
 
 `runtime` is linked into generated app binaries. It registers generated
-endpoints, service initializers, middleware, auth handlers, Pub/Sub handlers,
+endpoints, service initializers, middleware, auth handlers, Temporal workers,
 cron jobs, and wire endpoints, then starts one local HTTP server.
 
 Important runtime concerns include route matching, request decode/encode, auth
 context, current request metadata, structured error responses, middleware,
-observability reports, secrets, DB tracing, Pub/Sub, cron, and graceful shutdown.
+observability reports, secrets, DB tracing, Temporal workers, cron, and graceful shutdown.
 
 Architecture invariant: there is one local app server per generated app process.
 `onlava dev` may run extra development services around it, but app API execution
@@ -168,7 +168,7 @@ The public packages at the module root are what user apps import:
 - `github.com/pbrazdil/onlava/middleware` exposes middleware types
 - `github.com/pbrazdil/onlava/data` exposes the beta native dynamic data
   platform facade for metadata-defined PostgreSQL-backed objects and records
-- `github.com/pbrazdil/onlava/pubsub`, `github.com/pbrazdil/onlava/cron`, `github.com/pbrazdil/onlava/pgxpool`, and related small
+- `github.com/pbrazdil/onlava/temporal`, `github.com/pbrazdil/onlava/cron`, `github.com/pbrazdil/onlava/pgxpool`, and related small
   packages expose local runtime integrations
 
 Architecture invariant: public packages are boundaries. Keep them small,
@@ -200,8 +200,10 @@ These packages support the local development platform around a running app.
 
 `internal/devdash` stores dashboard-visible state and observability data.
 `internal/localproxy` owns the local proxy layer. `internal/dbstudio` manages DB
-Studio process lifecycle. The dashboard server and UI embedding are orchestrated
-from `cmd/onlava`.
+Studio process lifecycle. Victoria sidecars and Grafana are supervised from
+`cmd/onlava` as local development companions, with generated Grafana
+configuration and provisioning rooted under `.onlava/grafana/`. The dashboard
+server and UI embedding are orchestrated from `cmd/onlava`.
 
 Architecture invariant: development services should be optional around the app
 runtime. They can improve local ergonomics, but `onlava run` must remain a

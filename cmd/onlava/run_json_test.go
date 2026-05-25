@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/pbrazdil/onlava/internal/app"
 )
 
 func TestParseRunArgs(t *testing.T) {
@@ -196,6 +198,101 @@ func TestRunCommandUsesHeadlessPath(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("expected headless path to be called")
+	}
+}
+
+func TestHeadlessRuntimeRoleUsesAPI(t *testing.T) {
+	for _, cfg := range []app.Config{
+		{},
+		{Temporal: app.TemporalConfig{Enabled: true}},
+	} {
+		if got := headlessRuntimeRole(cfg); got != "api" {
+			t.Fatalf("role = %q, want api", got)
+		}
+	}
+}
+
+func TestParseWorkerArgs(t *testing.T) {
+	opts, err := parseWorkerArgs([]string{"--app-root", "/tmp/app", "--env", "production", "--log-format", "json", "--task-queue", "onlava.app.worker.go"})
+	if err != nil {
+		t.Fatalf("parseWorkerArgs returned error: %v", err)
+	}
+	if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.LogFormat != "json" || opts.TaskQueue != "onlava.app.worker.go" {
+		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestParseWorkerArgsRejectsServerFlags(t *testing.T) {
+	for _, flag := range []string{"--port", "--listen", "--verbose", "--json", "--watch", "--dashboard", "--db-studio", "--proxy"} {
+		if _, err := parseWorkerArgs([]string{flag}); err == nil {
+			t.Fatalf("parseWorkerArgs(%q) returned nil error", flag)
+		}
+	}
+}
+
+func TestWorkerCommandUsesWorkerPath(t *testing.T) {
+	prev := runWorkerFunc
+	defer func() { runWorkerFunc = prev }()
+
+	called := false
+	runWorkerFunc = func(opts workerOptions) error {
+		called = true
+		if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.LogFormat != "json" || opts.TaskQueue != "onlava.app.worker.go" {
+			t.Fatalf("worker opts = %+v", opts)
+		}
+		return nil
+	}
+
+	if err := workerCommand([]string{"--app-root", "/tmp/app", "--env", "production", "--log-format", "json", "--task-queue", "onlava.app.worker.go"}); err != nil {
+		t.Fatalf("workerCommand returned error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected worker path to be called")
+	}
+}
+
+func TestParseWorkerBindingsArgs(t *testing.T) {
+	opts, err := parseWorkerBindingsArgs([]string{"--app-root", "/tmp/app", "--out", "/tmp/out", "--json"})
+	if err != nil {
+		t.Fatalf("parseWorkerBindingsArgs returned error: %v", err)
+	}
+	if opts.AppRoot != "/tmp/app" || opts.OutDir != "/tmp/out" || !opts.JSON {
+		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestRunWorkerBindingsWritesFiles(t *testing.T) {
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"orders"}`)
+	writeTestAppFile(t, root, ".onlava/workers/email.json", `{
+  "schema_version": "onlava.worker.manifest.v1",
+  "app": "orders",
+  "language": "python",
+  "build_id": "sha-python",
+  "payload_codec": "onlava-json-v1",
+  "temporal": {"namespace": "default", "task_queues": ["onlava.orders.activity.email.python"]},
+  "activities": [{"name": "email.SendWelcome/v1", "input": "WelcomeEmail", "output": "Void"}]
+}`)
+	outDir := root + "/bindings"
+
+	var out bytes.Buffer
+	if err := runWorkerBindings(workerBindingsOptions{AppRoot: root, OutDir: outDir, JSON: true}, &out); err != nil {
+		t.Fatalf("runWorkerBindings returned error: %v", err)
+	}
+	var payload struct {
+		OK    bool `json:"ok"`
+		Files []struct {
+			Path string `json:"path"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal returned error: %v\n%s", err, out.String())
+	}
+	if !payload.OK || len(payload.Files) != 1 {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if _, err := os.Stat(outDir + "/email/onlava_worker.py"); err != nil {
+		t.Fatalf("expected generated python binding: %v", err)
 	}
 }
 

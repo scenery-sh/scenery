@@ -35,7 +35,7 @@ Deliverables:
 
 - Add `onlava harness ui --json [--repo-root <path>] [--app-root <path>] [--headed]`.
 - Start or reuse a local onlava app fixture.
-- Visit core dashboard routes: home, API Explorer, traces, trace details, Pub/Sub, DB Explorer, Cron, and docs/help surfaces if present.
+- Visit core dashboard routes: home, API Explorer, traces, trace details, DB Explorer, Data Explorer, Cron, and docs/help surfaces if present.
 - Assert stable DOM markers rather than brittle visual-only selectors.
 - Capture screenshots into `.onlava/harness/ui/`.
 - Capture browser console errors, failed network requests, and route timing.
@@ -87,7 +87,7 @@ Goal: keep speed without architectural drift.
 Deliverables:
 
 - Extend architecture checks with package dependency direction rules.
-- Define allowed imports for public packages (`auth`, `errs`, `cron`, `middleware`, `pubsub`, `pgxpool`, `rlog`) versus internal packages.
+- Define allowed imports for public packages (`auth`, `errs`, `cron`, `middleware`, `temporal`, `pgxpool`, `rlog`) versus internal packages.
 - Add source ownership metadata for major areas: CLI, parser/build/codegen, runtime, dashboard UI, DB Studio UI, docs, fixtures.
 - Detect repeated local helper patterns that should be centralized.
 

@@ -37,6 +37,8 @@ func run(args []string) error {
 		return devCommand(args[1:])
 	case "run":
 		return runCommand(args[1:])
+	case "worker":
+		return workerCommand(args[1:])
 	case "version":
 		return versionCommand(args[1:])
 	case "build":
@@ -67,19 +69,20 @@ func usageError() error {
   stable/dev commands:
     onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust]
     onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
+    onlava worker [--task-queue <name>] [--app-root <path>] [--env <name>] [--log-format text|json]
+    onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
     onlava version [--json]
     onlava build [--app-root <path>] [-o <path>] [--db-studio]
     onlava check [--app-root <path>] [--json]
     onlava harness [--app-root <path>] [--json] [--write]
     onlava harness self [--repo-root <path>] [--json] [--write]
     onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-    onlava inspect app|routes|services|endpoints|wire|build|paths|traces|metrics --json [--app-root <path>]
+    onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
     onlava inspect docs --json [--repo-root <path>]
     onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]
     onlava inspect traces --json [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
     onlava inspect metrics --json [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
     onlava admin traces clear --json [--app-root <path>]
-    onlava admin pubsub clear --json [--app-root <path>]
     onlava logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [-f|--follow] [--jsonl|--json]
     onlava test [--app-root <path>] [go test flags/packages...]
     onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]

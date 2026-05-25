@@ -13,8 +13,31 @@ export interface AppStatus {
   meta?: DashboardMeta;
   addr?: string;
   apiEncoding?: APIEncoding;
+  grafana?: GrafanaState;
   compiling: boolean;
   compileError?: string;
+}
+
+export interface GrafanaState {
+  enabled: boolean;
+  status: string;
+  url?: string;
+  overview_url?: string;
+  logs_url?: string;
+  endpoint_url?: string;
+  config_path?: string;
+  provisioning_path?: string;
+  dashboards_path?: string;
+  datasources?: Record<string, string>;
+  datasource_status?: Record<string, string>;
+  dashboards?: GrafanaDashboard[];
+  message?: string;
+}
+
+export interface GrafanaDashboard {
+  uid: string;
+  title: string;
+  url: string;
 }
 
 export interface DashboardMeta {
@@ -22,7 +45,6 @@ export interface DashboardMeta {
   svcs: ServiceMeta[];
   cron_jobs: CronJob[];
   middleware: MiddlewareMeta[];
-  pubsub_topics?: unknown[];
   sql_databases: DatabaseMeta[];
   auth_handler?: AuthHandlerMeta;
 }
@@ -146,95 +168,6 @@ export interface ProcessOutput {
   stream: string;
   output: string;
   created_at: string;
-}
-
-export interface PubSubSnapshot {
-  app_id: string;
-  topics: PubSubTopic[];
-  updated_at?: string;
-  period?: string;
-  history?: PubSubHistoryPoint[];
-}
-
-export interface PubSubMessagesResponse {
-  app_id: string;
-  period?: string;
-  topic_name?: string;
-  queue_name?: string;
-  status?: string;
-  messages: PubSubMessage[];
-}
-
-export interface PubSubHistoryPoint {
-  topics: PubSubTopic[];
-  updated_at?: string;
-}
-
-export interface PubSubMessage {
-  app_id: string;
-  message_id: string;
-  topic_name: string;
-  subscription_name: string;
-  service_name?: string;
-  status: string;
-  trace_id?: string;
-  attempt?: number;
-  payload?: unknown;
-  result?: unknown;
-  error?: string;
-  deliveries: number;
-  inserted_at: string;
-  picked_up_at?: string;
-  finished_at?: string;
-  duration_ms?: number;
-}
-
-export interface PubSubMessageAttempt {
-  app_id: string;
-  message_id: string;
-  topic_name: string;
-  subscription_name: string;
-  service_name?: string;
-  status: string;
-  trace_id?: string;
-  attempt: number;
-  payload?: unknown;
-  result?: unknown;
-  error?: string;
-  deliveries: number;
-  inserted_at: string;
-  picked_up_at?: string;
-  finished_at?: string;
-  duration_ms?: number;
-}
-
-export interface PubSubTopic {
-  name: string;
-  stream?: string;
-  subject?: string;
-  delivery?: string;
-  ordering_key?: string;
-  published: number;
-  pending: number;
-  subscriptions: PubSubSubscription[];
-}
-
-export interface PubSubSubscription {
-  name: string;
-  service_name?: string;
-  max_workers: number;
-  max_ack_pending?: number;
-  ack_deadline_ms?: number;
-  message_retention_s?: number;
-  pending: number;
-  ack_pending: number;
-  redelivered: number;
-  picked_up: number;
-  completed: number;
-  failed: number;
-  dead_lettered: number;
-  in_flight: number;
-  avg_duration_ms: number;
 }
 
 export interface DashboardNotification {

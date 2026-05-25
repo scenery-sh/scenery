@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -88,67 +85,5 @@ func TestRunOnlavaAdminClearTraces(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("expected traces cleared, got %d summaries", len(list))
-	}
-}
-
-func TestRunOnlavaAdminClearPubSubViaDashboardRPC(t *testing.T) {
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".onlava.json", `{"name":"adminapp","id":"admin-id"}`)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != devdash.WebSocketPath {
-			http.NotFound(w, req)
-			return
-		}
-		conn, err := dashboardUpgrader.Upgrade(w, req, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		var rpcReq rpcRequest
-		if err := conn.ReadJSON(&rpcReq); err != nil {
-			return
-		}
-		if rpcReq.Method != "pubsub/clear" {
-			_ = conn.WriteJSON(rpcResponse{
-				JSONRPC: "2.0",
-				ID:      rpcReq.ID,
-				Error:   &rpcError{Code: -32000, Message: "unexpected method"},
-			})
-			return
-		}
-		_ = conn.WriteJSON(rpcResponse{
-			JSONRPC: "2.0",
-			ID:      rpcReq.ID,
-			Result: json.RawMessage(`{
-				"app_id":"admin-id",
-				"topics":[],
-				"updated_at":"2026-04-23T10:00:00Z"
-			}`),
-		})
-	}))
-	defer server.Close()
-
-	t.Setenv("ONLAVA_DEV_DASHBOARD_ADDR", strings.TrimPrefix(server.URL, "http://"))
-
-	restore := chdirForTest(t, root)
-	defer restore()
-
-	var out bytes.Buffer
-	if err := runOnlavaAdmin(context.Background(), []string{"pubsub", "clear", "--json"}, &out); err != nil {
-		t.Fatalf("runOnlavaAdmin(pubsub clear) error = %v", err)
-	}
-	var payload struct {
-		OK   bool `json:"ok"`
-		Data struct {
-			AppID string `json:"app_id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal(admin pubsub): %v\n%s", err, out.String())
-	}
-	if !payload.OK || payload.Data.AppID != "admin-id" {
-		t.Fatalf("payload = %+v", payload)
 	}
 }

@@ -286,14 +286,8 @@ func traceSummaryAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
 	if summary.EndpointName != nil {
 		attrs = append(attrs, otlpAttribute{Key: "onlava.endpoint", Value: *summary.EndpointName})
 	}
-	if summary.TopicName != nil {
-		attrs = append(attrs, otlpAttribute{Key: "onlava.pubsub.topic", Value: *summary.TopicName})
-	}
-	if summary.SubscriptionName != nil {
-		attrs = append(attrs, otlpAttribute{Key: "onlava.pubsub.subscription", Value: *summary.SubscriptionName})
-	}
 	if summary.MessageID != nil {
-		attrs = append(attrs, otlpAttribute{Key: "onlava.pubsub.message_id", Value: *summary.MessageID})
+		attrs = append(attrs, otlpAttribute{Key: "onlava.message_id", Value: *summary.MessageID})
 	}
 	return attrs
 }

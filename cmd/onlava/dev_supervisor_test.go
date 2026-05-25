@@ -13,6 +13,7 @@ import (
 
 	"github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/devdash"
+	onlavaruntime "github.com/pbrazdil/onlava/runtime"
 )
 
 func TestAppChildEnvForcesColorWhenRequested(t *testing.T) {
@@ -69,6 +70,54 @@ func TestAppEnvWithDotEnvCanLoadLocalOverride(t *testing.T) {
 	}
 	if !containsString(env, "C=from-local") {
 		t.Fatalf("env missing .env.local value: %v", env)
+	}
+}
+
+func TestTemporalDevHelpers(t *testing.T) {
+	host, port, err := splitTemporalAddress("127.0.0.1:7233")
+	if err != nil {
+		t.Fatalf("splitTemporalAddress: %v", err)
+	}
+	if host != "127.0.0.1" || port != 7233 {
+		t.Fatalf("host/port = %s/%d", host, port)
+	}
+	if _, _, err := splitTemporalAddress("not-a-host-port"); err == nil {
+		t.Fatal("expected invalid address error")
+	}
+
+	root := t.TempDir()
+	if got, want := temporalLocalDBPath(root, ".onlava/temporal/dev.sqlite"), filepath.Join(root, ".onlava/temporal/dev.sqlite"); got != want {
+		t.Fatalf("temporalLocalDBPath = %q, want %q", got, want)
+	}
+
+	cfg := app.TemporalConfig{
+		Enabled:    true,
+		AddressEnv: "CUSTOM_TEMPORAL_ADDRESS",
+		Namespace:  "orders",
+		Local: app.TemporalLocalConfig{
+			AutoStart:  true,
+			DBFilename: ".onlava/temporal/dev.sqlite",
+		},
+	}
+	rtCfg := temporalRuntimeConfigFromApp(cfg)
+	if !rtCfg.Enabled || rtCfg.AddressEnv != "CUSTOM_TEMPORAL_ADDRESS" || rtCfg.Namespace != "orders" || !rtCfg.Local.AutoStart {
+		t.Fatalf("runtime temporal config = %+v", rtCfg)
+	}
+
+	server := &temporalDevServer{info: onlavaRuntimeInfoForTest()}
+	env := server.Env()
+	if !containsString(env, "CUSTOM_TEMPORAL_ADDRESS=127.0.0.1:7233") || !containsString(env, "TEMPORAL_NAMESPACE=orders") {
+		t.Fatalf("temporal env = %+v", env)
+	}
+}
+
+func onlavaRuntimeInfoForTest() onlavaruntime.TemporalRuntimeInfo {
+	return onlavaruntime.TemporalRuntimeInfo{
+		Enabled:         true,
+		Address:         "127.0.0.1:7233",
+		AddressEnv:      "CUSTOM_TEMPORAL_ADDRESS",
+		Namespace:       "orders",
+		TaskQueuePrefix: "onlava.orders",
 	}
 }
 

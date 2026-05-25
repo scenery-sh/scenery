@@ -53,7 +53,7 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 
 	for _, pkg := range appModel.Packages {
 		hasSecrets := hasSecretsVar(pkg)
-		if hasSecrets || hasPubSub(pkg) {
+		if hasSecrets {
 			data, err := generateEarlyConfigFile(pkg, hasSecrets)
 			if err != nil {
 				return nil, err
@@ -161,7 +161,7 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 		im.use("onlavamiddleware", "github.com/pbrazdil/onlava/middleware")
 	}
 	if serviceStruct != nil {
-		im.use("onlavapubsub", "github.com/pbrazdil/onlava/pubsub")
+		im.use("onlavatemporal", "github.com/pbrazdil/onlava/temporal")
 		im.use("sync", "sync")
 		im.use("time", "time")
 	}
@@ -318,7 +318,35 @@ func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
 	if literal := observabilityConfigLiteral(cfg.Observability); literal != "" {
 		fields = append(fields, "Observability: "+literal)
 	}
+	if literal := temporalConfigLiteral(effectiveTemporalConfig(appModel, cfg)); literal != "" {
+		fields = append(fields, "Temporal: "+literal)
+	}
 	return "onlavaruntime.AppConfig{" + strings.Join(fields, ", ") + "}"
+}
+
+func effectiveTemporalConfig(appModel *model.App, cfg appcfg.Config) appcfg.TemporalConfig {
+	temporal := cfg.Temporal
+	if appUsesTemporalRuntime(appModel) {
+		temporal.Enabled = true
+	}
+	return temporal
+}
+
+func appUsesTemporalRuntime(appModel *model.App) bool {
+	if appModel == nil {
+		return false
+	}
+	for _, decl := range appModel.Runtime {
+		switch decl.Kind {
+		case model.RuntimeDeclarationTemporalWorkflow, model.RuntimeDeclarationTemporalActivity, model.RuntimeDeclarationCronJob:
+			return true
+		}
+	}
+	return false
+}
+
+func AppUsesTemporalRuntime(appModel *model.App) bool {
+	return appUsesTemporalRuntime(appModel)
 }
 
 func proxyFrontendsLiteral(frontends map[string]appcfg.FrontendConfig) string {
@@ -362,6 +390,46 @@ func observabilityConfigLiteral(cfg appcfg.ObservabilityConfig) string {
 	return "onlavaruntime.ObservabilityConfig{" + strings.Join(fields, ", ") + "}"
 }
 
+func temporalConfigLiteral(cfg appcfg.TemporalConfig) string {
+	fields := make([]string, 0, 7)
+	if cfg.Enabled {
+		fields = append(fields, "Enabled: true")
+	}
+	if cfg.Mode != "" {
+		fields = append(fields, fmt.Sprintf("Mode: %q", cfg.Mode))
+	}
+	if cfg.Namespace != "" {
+		fields = append(fields, fmt.Sprintf("Namespace: %q", cfg.Namespace))
+	}
+	if cfg.AddressEnv != "" {
+		fields = append(fields, fmt.Sprintf("AddressEnv: %q", cfg.AddressEnv))
+	}
+	if cfg.TaskQueuePrefix != "" {
+		fields = append(fields, fmt.Sprintf("TaskQueuePrefix: %q", cfg.TaskQueuePrefix))
+	}
+	if literal := temporalLocalConfigLiteral(cfg.Local); literal != "" {
+		fields = append(fields, "Local: "+literal)
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return "onlavaruntime.TemporalConfig{" + strings.Join(fields, ", ") + "}"
+}
+
+func temporalLocalConfigLiteral(cfg appcfg.TemporalLocalConfig) string {
+	fields := make([]string, 0, 2)
+	if cfg.AutoStart {
+		fields = append(fields, "AutoStart: true")
+	}
+	if cfg.DBFilename != "" {
+		fields = append(fields, fmt.Sprintf("DBFilename: %q", cfg.DBFilename))
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return "onlavaruntime.TemporalLocalConfig{" + strings.Join(fields, ", ") + "}"
+}
+
 func endpointFilterConfigLiteral(cfg appcfg.EndpointFilterConfig) string {
 	fields := make([]string, 0, 2)
 	if len(cfg.IncludeEndpoints) > 0 {
@@ -385,10 +453,7 @@ func stringSliceLiteral(values []string) string {
 }
 
 func hasResources(pkg *model.Package) bool {
-	if hasPubSub(pkg) {
-		return true
-	}
-	if hasCronJobs(pkg) {
+	if len(pkg.Runtime) > 0 {
 		return true
 	}
 	if hasSecretsVar(pkg) {
@@ -411,103 +476,6 @@ func hasResources(pkg *model.Package) bool {
 		}
 	}
 	return false
-}
-
-func hasPubSub(pkg *model.Package) bool {
-	for _, file := range pkg.Files {
-		aliases := pubsubImportAliases(file.AST)
-		if len(aliases) == 0 {
-			continue
-		}
-		found := false
-		ast.Inspect(file.AST, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			if sel.Sel.Name != "NewTopic" && sel.Sel.Name != "NewSubscription" {
-				return true
-			}
-			ident, ok := sel.X.(*ast.Ident)
-			if ok && aliases[ident.Name] {
-				found = true
-				return false
-			}
-			return true
-		})
-		if found {
-			return true
-		}
-	}
-	return false
-}
-
-func pubsubImportAliases(file *ast.File) map[string]bool {
-	aliases := make(map[string]bool)
-	for _, imp := range file.Imports {
-		switch strings.Trim(imp.Path.Value, "\"") {
-		case "github.com/pbrazdil/onlava/pubsub":
-		default:
-			continue
-		}
-		if imp.Name != nil && imp.Name.Name != "." {
-			aliases[imp.Name.Name] = true
-			continue
-		}
-		aliases["pubsub"] = true
-	}
-	return aliases
-}
-
-func hasCronJobs(pkg *model.Package) bool {
-	for _, file := range pkg.Files {
-		cronAliases := cronImportAliases(file.AST)
-		if len(cronAliases) == 0 {
-			continue
-		}
-		found := false
-		ast.Inspect(file.AST, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "NewJob" {
-				return true
-			}
-			ident, ok := sel.X.(*ast.Ident)
-			if ok && cronAliases[ident.Name] {
-				found = true
-				return false
-			}
-			return true
-		})
-		if found {
-			return true
-		}
-	}
-	return false
-}
-
-func cronImportAliases(file *ast.File) map[string]bool {
-	aliases := make(map[string]bool)
-	for _, imp := range file.Imports {
-		switch strings.Trim(imp.Path.Value, "\"") {
-		case "github.com/pbrazdil/onlava/cron":
-		default:
-			continue
-		}
-		if imp.Name != nil && imp.Name.Name != "." {
-			aliases[imp.Name.Name] = true
-			continue
-		}
-		aliases["cron"] = true
-	}
-	return aliases
 }
 
 func hasRaw(endpoints []*model.Endpoint) bool {
@@ -680,7 +648,7 @@ func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.En
 		fmt.Fprintf(buf, "\t\t_, err := %s()\n", ss.GetterName)
 		buf.WriteString("\t\treturn err\n")
 		buf.WriteString("\t})\n")
-		fmt.Fprintf(buf, "\tonlavapubsub.RegisterServiceAccessorFor[*%s](func() (any, error) {\n", ss.TypeName)
+		fmt.Fprintf(buf, "\tonlavatemporal.RegisterServiceAccessorFor[*%s](func() (any, error) {\n", ss.TypeName)
 		fmt.Fprintf(buf, "\t\treturn %s()\n", ss.GetterName)
 		buf.WriteString("\t})\n")
 	}

@@ -48,6 +48,39 @@ func TestLaunchedBySupervisor(t *testing.T) {
 	}
 }
 
+func TestRuntimeRoleFromEnv(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  runtimeRole
+	}{
+		{name: "default", want: runtimeRoleAll},
+		{name: "all", value: "all", want: runtimeRoleAll},
+		{name: "api", value: "api", want: runtimeRoleAPI},
+		{name: "worker", value: "worker", want: runtimeRoleWorker},
+		{name: "trimmed uppercase", value: " WORKER ", want: runtimeRoleWorker},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("ONLAVA_ROLE", tt.value)
+			got, err := runtimeRoleFromEnv()
+			if err != nil {
+				t.Fatalf("runtimeRoleFromEnv() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("runtimeRoleFromEnv() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRuntimeRoleFromEnvRejectsUnknown(t *testing.T) {
+	t.Setenv("ONLAVA_ROLE", "web")
+	if _, err := runtimeRoleFromEnv(); err == nil {
+		t.Fatal("expected unsupported role error")
+	}
+}
+
 func TestSupervisorParentMonitorShouldCancel(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -87,33 +120,16 @@ func TestSupervisorPIDFromEnv(t *testing.T) {
 	}
 }
 
-func TestStartLocalPubSubRuntimeNoopWhenUnregistered(t *testing.T) {
-	prev := localPubSubStarter
-	localPubSubStarter = nil
-	defer func() { localPubSubStarter = prev }()
-
-	stop, err := startLocalPubSubRuntime(context.Background(), AppConfig{Name: "testapp"})
-	if err != nil {
-		t.Fatalf("startLocalPubSubRuntime() error = %v", err)
-	}
-	if stop == nil {
-		t.Fatal("startLocalPubSubRuntime() returned nil stop function")
-	}
-	if err := stop(context.Background()); err != nil {
-		t.Fatalf("stop() error = %v", err)
-	}
-}
-
-func TestStartLocalPubSubRuntimeUsesRegisteredStarter(t *testing.T) {
-	prev := localPubSubStarter
-	defer func() { localPubSubStarter = prev }()
+func TestStartTemporalWorkerRuntimeUsesRegisteredStarter(t *testing.T) {
+	prev := temporalWorkerStarter
+	defer func() { temporalWorkerStarter = prev }()
 
 	called := false
 	stopped := false
-	localPubSubStarter = func(ctx context.Context, cfg AppConfig) (func(context.Context) error, error) {
+	temporalWorkerStarter = func(ctx context.Context, cfg AppConfig) (func(context.Context) error, error) {
 		called = true
-		if cfg.Name != "testapp" {
-			t.Fatalf("starter cfg.Name = %q, want testapp", cfg.Name)
+		if cfg.Role != "worker" {
+			t.Fatalf("starter cfg.Role = %q, want worker", cfg.Role)
 		}
 		return func(context.Context) error {
 			stopped = true
@@ -121,9 +137,9 @@ func TestStartLocalPubSubRuntimeUsesRegisteredStarter(t *testing.T) {
 		}, nil
 	}
 
-	stop, err := startLocalPubSubRuntime(context.Background(), AppConfig{Name: "testapp"})
+	stop, err := startTemporalWorkerRuntime(context.Background(), AppConfig{Name: "testapp", Role: "worker"})
 	if err != nil {
-		t.Fatalf("startLocalPubSubRuntime() error = %v", err)
+		t.Fatalf("startTemporalWorkerRuntime() error = %v", err)
 	}
 	if !called {
 		t.Fatal("expected registered starter to be called")

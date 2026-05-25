@@ -249,18 +249,9 @@ standard, ok := auth.CurrentAuthData()
 
 Common failure: relying on globals outside request handling. Pass context or actor values explicitly to lower layers.
 
-## Pub/Sub Handler
+## Temporal Workflow Or Activity
 
-Use `github.com/pbrazdil/onlava/pubsub` and start from `docs/PRD-1-pubsub.md` plus existing fixture apps. Treat local Pub/Sub lifecycle/admin UI as beta.
-
-Validate:
-
-```sh
-onlava check --json
-onlava harness --json --write
-```
-
-Common failure: assuming external broker semantics. The first local runtime is single-process and embedded.
+Use `github.com/pbrazdil/onlava/temporal` for beta workflow and activity declarations. Packages that call `temporal.NewWorkflow` or `temporal.NewActivity` are imported by generated main so worker processes can register them. Enable `temporal.enabled` in `.onlava.json`, use `onlava dev` for local combined API/worker execution, and use `onlava worker` for worker-only processes. Set `ActivityConfig.MaxConcurrency` when a dedicated task queue should cap concurrent activity executions for resource-heavy work.
 
 ## Cron Job
 

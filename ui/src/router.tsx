@@ -7,7 +7,7 @@ import { ApiPage } from "./routes/api";
 import { ServicesPage } from "./routes/services";
 import { DatabasePage } from "./routes/db";
 import { CronPage } from "./routes/cron";
-import { PubSubPage } from "./routes/pubsub";
+import { ObservabilityPage } from "./routes/observability";
 import { DataExplorerPage } from "./features/data-explorer/DataExplorerPage";
 
 const rootRoute = createRootRoute({
@@ -110,10 +110,10 @@ const cronRoute = createRoute({
   component: CronPage,
 });
 
-const pubsubRoute = createRoute({
+const observabilityRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "pubsub",
-  component: PubSubPage,
+  path: "observability",
+  component: ObservabilityPage,
 });
 
 const legacyTracesRoute = createRoute({
@@ -166,8 +166,8 @@ const routeTree = rootRoute.addChildren([
     dataRoute,
     dbRoute,
     dbDetailRoute,
-    pubsubRoute,
     cronRoute,
+    observabilityRoute,
     legacyTracesRoute,
     legacyTraceDetailRoute,
     legacyServicesRoute,

@@ -18,6 +18,7 @@ same as the stable v0 support surface.
 - `.onlava.json`
 - `onlava dev --json`
 - `onlava run`
+- `onlava worker`
 - `onlava version --json`
 - `onlava check --json`
 - `onlava psql`
@@ -25,7 +26,6 @@ same as the stable v0 support surface.
 - `onlava harness self --json`
 - `onlava harness ui --json`
 - `onlava admin traces clear --json`
-- `onlava admin pubsub clear --json`
 - `onlava inspect app --json`
 - `onlava inspect routes --json`
 - `onlava inspect services --json`
@@ -33,6 +33,7 @@ same as the stable v0 support surface.
 - `onlava inspect wire --json`
 - `onlava inspect build --json`
 - `onlava inspect paths --json`
+- `onlava inspect temporal --json`
 - `onlava inspect traces --json`
 - `onlava inspect metrics --json`
 - `onlava inspect data --json`
@@ -50,7 +51,7 @@ same as the stable v0 support surface.
 - `github.com/pbrazdil/onlava/data` beta dynamic data platform package
 
 Reserved by contract, implementation pending:
-- other `onlava admin ... --json` commands beyond `traces clear` and `pubsub clear`
+- other `onlava admin ... --json` commands beyond `traces clear`
 - repo-local runtime and state manifests beyond `.onlava/build/latest.json`, `.onlava/gen/*`, and `.onlava/harness/latest.json`
 
 Stable v0 surface:
@@ -75,8 +76,9 @@ Dev-only or beta surface:
 - `onlava psql`
 - `onlava inspect traces|metrics --json`
 - `onlava inspect data --json`
+- `onlava inspect temporal --json`
+- `onlava worker`
 - `onlava admin traces clear --json`
-- `onlava admin pubsub clear --json`
 - `onlava harness ui --json`
 - dashboard and API Explorer
 - dashboard Data Explorer
@@ -84,11 +86,11 @@ Dev-only or beta surface:
 - MCP server
 - local HTTPS/frontend proxy
 - trust-store installation
-- Victoria sidecars, automatic Victoria binary downloads, and Victoria-backed local observability reads
-- Pub/Sub and cron runtime/admin affordances until their lifecycle, retry, scheduling, and clear/delete semantics are frozen
-- Pub/Sub UI and queue controls
+- Victoria sidecars, Grafana, automatic observability binary downloads, and Victoria-backed local observability reads
+- Temporal workflow/activity and cron runtime/admin affordances until their lifecycle, retry, scheduling, and clear/delete semantics are frozen
 - cron UI
 - `github.com/pbrazdil/onlava/data` dynamic data platform, including object/field metadata, record CRUD/query, indexes, saved views, relationships, beta search, and live updates
+- `github.com/pbrazdil/onlava/temporal` workflow/activity declarations and worker registration
 - migration compatibility for older app shapes
 
 Compatibility posture:
@@ -144,6 +146,17 @@ Current shape:
       "include_endpoints": [],
       "exclude_endpoints": []
     }
+  },
+  "temporal": {
+    "enabled": false,
+    "mode": "local",
+    "namespace": "default",
+    "address_env": "TEMPORAL_ADDRESS",
+    "task_queue_prefix": "onlava.myapp",
+    "local": {
+      "auto_start": false,
+      "db_filename": ".onlava/temporal/dev.sqlite"
+    }
   }
 }
 ```
@@ -155,12 +168,25 @@ Rules:
 - `proxy` is optional.
 - `auth` is optional. When `auth.enabled` is true, onlava registers the built-in standard auth handler and auth endpoints.
 - `observability` is optional.
+- `temporal` is optional. When `temporal.enabled` is true, generated app binaries try to connect to Temporal during runtime startup.
 - Unknown fields are rejected.
 - `proxy.frontends` is a map keyed by frontend name. Each frontend requires `host`; `root` defaults to `apps/<name>`; `upstream` is optional and overrides Vite port discovery.
 - Standard auth uses the `github.com/pbrazdil/onlava/auth` top surface and stores DB-backed auth state in PostgreSQL schema `onlava_auth`.
 - Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, Google OAuth raw endpoints, and local `/users/dev-bootstrap`.
 - Standard auth endpoints appear in `onlava inspect routes|services|endpoints --json` and in generated TypeScript clients.
 - `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
+- `temporal.address_env` defaults to `TEMPORAL_ADDRESS`; when that env var is unset, runtime defaults to `127.0.0.1:7233`.
+- `temporal.namespace` defaults to `TEMPORAL_NAMESPACE` when that env var is set, otherwise `default`.
+- `temporal.task_queue_prefix` defaults to `onlava.<app-name>` with unsafe task-queue characters normalized to dots.
+- Temporal worker deployment metadata is runtime-owned: `deployment_name` defaults to the task-queue prefix normalized for Temporal Worker Deployment naming and can be overridden with `ONLAVA_TEMPORAL_DEPLOYMENT_NAME`; `worker_build_id` defaults to `dev` and can be set with `ONLAVA_BUILD_ID`.
+- Temporal workers opt into Worker Deployment Versioning. `ONLAVA_TEMPORAL_VERSIONING_BEHAVIOR` accepts `pinned` or `auto_upgrade` and defaults to `pinned`.
+- onlava-managed worker processes set their `worker_build_id` as the current Temporal Worker Deployment version on startup so schedules and new workflow executions have a versioned routing target.
+- `temporal.local.auto_start` and `temporal.local.db_filename` are local development settings for supervised Temporal dev server work.
+- `ONLAVA_TEMPORAL_TASK_QUEUE` overrides the generated Temporal task queue for worker processes. `onlava worker --task-queue <name>` sets it.
+- Generated binaries accept `ONLAVA_ROLE=all|api|worker`. `onlava dev` uses the default combined role. `onlava run` uses `api`. `onlava worker` uses `worker`.
+- Packages that declare `github.com/pbrazdil/onlava/temporal` workflows or activities with `temporal.NewWorkflow` or `temporal.NewActivity` are imported into the generated main so their declarations register at startup.
+- `temporal.ActivityConfig.MaxConcurrency` maps to the Temporal worker's per-task-queue maximum concurrent activity executions. Use a dedicated task queue when different activities need different limits.
+- Optional multi-language worker manifests live under `.onlava/workers/*.json` and use `onlava.worker.manifest.v1`. They require `build_id` and `payload_codec: "onlava-json-v1"`. `onlava inspect temporal --json` validates app name, language, build ID, payload codec, namespace, task queues, activity schemas, incompatible task-queue sharing, and unknown activity names when the app declares native Temporal activities.
 
 ## CLI Grammar
 
@@ -169,19 +195,20 @@ Current implemented grammar:
 ```text
 onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust]
 onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
+onlava worker [--task-queue <name>] [--app-root <path>] [--env <name>] [--log-format text|json]
+onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
 onlava version [--json]
 onlava build [--app-root <path>] [-o <path>] [--db-studio]
 onlava check [--app-root <path>] [--json]
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
 onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-onlava inspect app|routes|services|endpoints|wire|build|paths|traces|metrics --json [--app-root <path>]
+onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
 onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]
 onlava inspect docs --json [--repo-root <path>]
 onlava inspect traces --json [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 onlava inspect metrics --json [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
 onlava admin traces clear --json [--app-root <path>]
-onlava admin pubsub clear --json [--app-root <path>]
 onlava logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [-f|--follow] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
 onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
@@ -198,7 +225,7 @@ Inspect rules:
 - `onlava inspect` currently requires `--json`.
 - `--app-root` is optional. When omitted, onlava walks upward from the current working directory to find `.onlava.json`.
 - Stable inspect subjects for v0 are `app`, `routes`, `services`, `endpoints`, `wire`, `build`, `paths`, and `docs`.
-- `traces` and `metrics` are beta diagnostic subjects. They prefer local VictoriaTraces reads when those sidecars are available, and fall back to the onlava dashboard SQLite store. If no local state exists, they return valid JSON with a warning and empty result sets.
+- `temporal`, `traces`, and `metrics` are beta diagnostic subjects. `temporal` reports effective Temporal config and, when enabled, a short connectivity check. `traces` and `metrics` prefer local VictoriaTraces reads when those sidecars are available, and fall back to the onlava dashboard SQLite store. If no local state exists, they return valid JSON with a warning and empty result sets.
 - The `onlava.inspect.traces.v1` and `onlava.inspect.metrics.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable v0 API yet.
 - `--since` accepts Go duration strings such as `15m`, `1h`, or `24h`.
 - `--min-duration-ms` filters root traces by duration in milliseconds.
@@ -209,10 +236,14 @@ Inspect rules:
 Command split:
 
 - `onlava dev` starts the local development platform: app process, dashboard, MCP endpoint, DB Studio when configured, file watching, and rebuild/restart supervision.
-- `onlava dev` also starts local VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars by default when their binaries can be found or downloaded. SQLite dashboard storage remains active for parity and fallback. This is a dev-only beta implementation detail, not a stable production API.
+- `onlava dev` also starts local VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana by default when their binaries can be found or downloaded. SQLite dashboard storage remains active for parity and fallback. This is a dev-only beta implementation detail, not a stable production API.
 - `onlava dev --proxy` enables the local HTTPS/frontend proxy.
 - `onlava dev --proxy --trust` allows local trust-store installation. Without `--trust`, the proxy skips trust installation.
 - `onlava run` builds once and starts the app runtime headlessly. It does not start the dashboard, MCP server, local proxy, DB Studio, frontend proxy, or file watcher.
+- `onlava run` starts the generated binary with `ONLAVA_ROLE=api`, so it serves HTTP APIs without registering worker-only workflow or activity handlers.
+- Cron declarations use Temporal Schedules when Temporal is enabled. `onlava run` reconciles schedules from the API role, while `onlava worker` runs the cron workflow/activity worker on `onlava.<app>.cron.go`.
+- `onlava worker` builds once and starts the app runtime in worker-only mode with no public HTTP server. In this beta implementation it runs cron and native Temporal workers; generated binaries use `ONLAVA_ROLE=worker`.
+- `onlava worker bindings` validates `.onlava/workers/*.json` manifests and writes language-specific activity starter files. Python manifests produce `onlava_worker.py`; TypeScript/JavaScript manifests produce `onlava_worker.ts`; unknown languages receive a normalized JSON binding file.
 - `onlava build` produces the deployable binary and remains the preferred deployment artifact path.
 - Generated app binaries are headless by default. `onlava build --db-studio` is an explicit opt-in for the DB Studio integration.
 - `onlava harness ui --json` is an optional browser-backed dashboard check. It starts a temporary `onlava dev` process unless `--dashboard-url` points at an existing dashboard, visits core dashboard routes, checks stable `data-onlava-ui` markers, captures screenshots, and writes console/network artifacts under `.onlava/harness/ui/`.
@@ -220,7 +251,7 @@ Command split:
 Runtime safety:
 
 - `onlava run` and generated binaries do not expose dev/admin endpoints by default.
-- Dev/admin endpoints such as `/__onlava/config`, `/__onlava/pubsub/clear`, `/platform.Stats`, and `/debug/pprof/*` are enabled only for the development child process launched by `onlava dev` or when `ONLAVA_DEV_ENDPOINTS=1` is set explicitly.
+- Dev/admin endpoints such as `/__onlava/config`, `/platform.Stats`, and `/debug/pprof/*` are enabled only for the development child process launched by `onlava dev` or when `ONLAVA_DEV_ENDPOINTS=1` is set explicitly.
 - Runtime CORS reflection is enabled in dev endpoint mode. Outside dev mode, CORS origins must be explicitly allowlisted with `ONLAVA_CORS_ALLOW_ORIGINS`.
 - Build workspaces skip local secret and machine artifacts such as `.env`, `.env.*`, `.git`, `.onlava`, `node_modules`, `.DS_Store`, `__MACOSX`, and `coverage`.
 
@@ -235,6 +266,10 @@ Local observability:
 - Victoria sidecars are supervised by `onlava dev`, store data under `.onlava/victoria/` by default, and are stopped with the dev supervisor.
 - `ONLAVA_DEV_VICTORIA=0` disables Victoria sidecars. `ONLAVA_DEV_VICTORIA_DOWNLOAD=0` disables automatic binary downloads.
 - Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta. They are documented so local development is debuggable, but they are not part of the stable v0 runtime contract.
+- Grafana is supervised by `onlava dev`, binds to loopback, stores generated config and provisioning under `.onlava/grafana/`, and is stopped with the dev supervisor when onlava started it.
+- Grafana controls are `ONLAVA_DEV_GRAFANA=auto|1|0`, `ONLAVA_DEV_GRAFANA_DOWNLOAD=1|0`, `ONLAVA_GRAFANA_BIN`, `ONLAVA_GRAFANA_VERSION`, `ONLAVA_GRAFANA_PORT`, `ONLAVA_GRAFANA_DIR`, and `ONLAVA_GRAFANA_PLUGINS_PREINSTALL_SYNC`.
+- Grafana provisioning uses datasource UIDs `onlava-victoriametrics`, `onlava-victorialogs`, and `onlava-victoriatraces-jaeger`, plus dashboard UIDs `onlava-dev-overview`, `onlava-dev-logs`, and `onlava-dev-endpoint`.
+- Missing Grafana does not stop app startup in `auto` mode. `ONLAVA_DEV_GRAFANA=1` makes Grafana startup required.
 
 Secrets and environment:
 
@@ -369,10 +404,9 @@ onlava admin <subcommand> --json ...
 ```
 
 Implemented `admin --json` rules:
-- current supported commands are `traces clear` and `pubsub clear`
+- current supported command is `traces clear`
 - output conforms to `onlava.admin.result.v1`
-- `pubsub clear` requires a running onlava dashboard/supervisor because it tunnels through the supervisor RPC surface
-- admin commands are dev/admin beta for v0; their existence does not make Pub/Sub, cron, trace clearing, or queue deletion semantics stable
+- admin commands are dev/admin beta for v0; their existence does not make cron, trace clearing, or queue deletion semantics stable
 
 Any additional admin subcommands are reserved contract surfaces and should produce versioned JSON when implemented.
 
@@ -446,6 +480,8 @@ Implemented now:
 - [onlava.wire.capabilities.v1.schema.json](schemas/onlava.wire.capabilities.v1.schema.json)
 - [onlava.inspect.build.v1.schema.json](schemas/onlava.inspect.build.v1.schema.json)
 - [onlava.inspect.paths.v1.schema.json](schemas/onlava.inspect.paths.v1.schema.json)
+- [onlava.inspect.temporal.v1.schema.json](schemas/onlava.inspect.temporal.v1.schema.json)
+- [onlava.worker.manifest.v1.schema.json](schemas/onlava.worker.manifest.v1.schema.json)
 - [onlava.gen.manifest.v1.schema.json](schemas/onlava.gen.manifest.v1.schema.json)
 - [onlava.build.latest.v1.schema.json](schemas/onlava.build.latest.v1.schema.json)
 - [onlava.run.event.v1.schema.json](schemas/onlava.run.event.v1.schema.json)
@@ -510,7 +546,8 @@ Schema rules:
     "services": 2,
     "endpoints": 7,
     "middleware": 1,
-    "auth_handler": 1
+    "auth_handler": 1,
+    "runtime_declarations": 3
   },
   "services": [
     "auth",

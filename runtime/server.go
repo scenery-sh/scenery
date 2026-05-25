@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pbrazdil/onlava/errs"
 	"github.com/pbrazdil/onlava/internal/wire"
@@ -59,7 +58,6 @@ func newServer(listenAddr string) (*http.Server, error) {
 	s.registerWire()
 	if devEndpointsEnabled() {
 		s.registerOnlavaConfig()
-		s.registerDevPubSubAdmin()
 		s.registerPlatformStats()
 		s.registerPProf()
 	}
@@ -87,30 +85,6 @@ func (s *server) registerOnlavaConfig() {
 			APIBaseURL: meta.APIBaseURL,
 		}); err != nil {
 			errs.HTTPError(w, errs.Wrap(err, "encode onlava config"))
-		}
-	})
-}
-
-func (s *server) registerDevPubSubAdmin() {
-	registerRoute(s.public, "/__onlava/pubsub/clear", []string{http.MethodPost}, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
-		token := strings.TrimSpace(osGetenv("ONLAVA_DEV_REPORT_TOKEN"))
-		if token == "" || req.Header.Get("Authorization") != "Bearer "+token {
-			errs.HTTPError(w, errs.B().Code(errs.NotFound).Msg("endpoint not found").Err())
-			return
-		}
-		topics, err := clearLocalPubSubRuntime(req.Context())
-		if err != nil {
-			errs.HTTPError(w, errs.Wrap(err, "clear pubsub queue"))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		if err := json.NewEncoder(w).Encode(map[string]any{
-			"app_id":     Meta().AppID,
-			"topics":     topics,
-			"updated_at": time.Now().UTC(),
-		}); err != nil {
-			errs.HTTPError(w, errs.Wrap(err, "encode pubsub clear response"))
 		}
 	})
 }

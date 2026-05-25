@@ -319,12 +319,6 @@ func inspectTraceRecordFromSummary(summary *devdash.TraceSummary) inspectTraceRe
 	if summary.EndpointName != nil {
 		record.Endpoint = *summary.EndpointName
 	}
-	if summary.TopicName != nil {
-		record.Topic = *summary.TopicName
-	}
-	if summary.SubscriptionName != nil {
-		record.Subscription = *summary.SubscriptionName
-	}
 	if summary.MessageID != nil {
 		record.MessageID = *summary.MessageID
 	}

@@ -217,8 +217,6 @@ router_safety() {
     status="$(curl -sS -o /dev/null -w '%{http_code}' "http://$addr$path")"
     [[ "$status" == "404" ]] || die "$path returned $status, want 404"
   done
-  status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://$addr/__onlava/pubsub/clear")"
-  [[ "$status" == "404" ]] || die "/__onlava/pubsub/clear returned $status, want 404"
 }
 
 secrets_gate() {

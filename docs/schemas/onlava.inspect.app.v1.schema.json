@@ -10,13 +10,14 @@
     "config": { "$ref": "onlava.config.v1.schema.json" },
     "counts": {
       "type": "object",
-      "required": ["packages", "services", "endpoints", "middleware", "auth_handler"],
+      "required": ["packages", "services", "endpoints", "middleware", "auth_handler", "runtime_declarations"],
       "properties": {
         "packages": { "type": "integer", "minimum": 0 },
         "services": { "type": "integer", "minimum": 0 },
         "endpoints": { "type": "integer", "minimum": 0 },
         "middleware": { "type": "integer", "minimum": 0 },
-        "auth_handler": { "type": "integer", "minimum": 0 }
+        "auth_handler": { "type": "integer", "minimum": 0 },
+        "runtime_declarations": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     },

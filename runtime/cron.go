@@ -12,6 +12,11 @@ import (
 	"sync"
 	"time"
 
+	"go.temporal.io/sdk/activity"
+	temporalclient "go.temporal.io/sdk/client"
+	temporalworker "go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
+
 	"github.com/pbrazdil/onlava/errs"
 	"github.com/pbrazdil/onlava/runtime/shared"
 )
@@ -19,11 +24,13 @@ import (
 const (
 	onlavaCronExecutionHeader = "X-Onlava-Cron-Execution"
 	maxCronScheduleHorizon    = 5 * 366 * 24 * time.Hour
+	temporalCronWorkflowName  = "onlava.cron.Invoke/v1"
 )
 
 type cronScheduler struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	stop   func(context.Context) error
 }
 
 type cronPlan interface {
@@ -108,17 +115,24 @@ func (f cronField) Has(value int) bool {
 	return f.values[value-f.min]
 }
 
-func startCronScheduler(parent context.Context) *cronScheduler {
+func startCronScheduler(parent context.Context, cfg AppConfig) (*cronScheduler, error) {
+	jobs := listCronJobs()
+	if len(jobs) == 0 {
+		done := make(chan struct{})
+		close(done)
+		return &cronScheduler{done: done}, nil
+	}
+	if cfg.Temporal.Enabled {
+		return startTemporalCronRuntime(parent, cfg, jobs)
+	}
+	return startInProcessCronScheduler(parent, jobs), nil
+}
+
+func startInProcessCronScheduler(parent context.Context, jobs []*CronJob) *cronScheduler {
 	ctx, cancel := context.WithCancel(parent)
 	s := &cronScheduler{
 		cancel: cancel,
 		done:   make(chan struct{}),
-	}
-
-	jobs := listCronJobs()
-	if len(jobs) == 0 {
-		close(s.done)
-		return s
 	}
 
 	var wg sync.WaitGroup
@@ -139,6 +153,12 @@ func startCronScheduler(parent context.Context) *cronScheduler {
 
 func (s *cronScheduler) Stop(ctx context.Context) error {
 	if s == nil {
+		return nil
+	}
+	if s.stop != nil {
+		return s.stop(ctx)
+	}
+	if s.cancel == nil {
 		return nil
 	}
 	s.cancel()
@@ -240,6 +260,265 @@ func cronScheduleSummary(job *CronJob) string {
 		return "every " + job.Every.String()
 	}
 	return job.Schedule
+}
+
+type temporalCronInput struct {
+	AppID        string
+	JobID        string
+	ActivityName string
+	TaskQueue    string
+}
+
+type temporalCronActivityInput struct {
+	AppID string
+	JobID string
+}
+
+func startTemporalCronRuntime(parent context.Context, cfg AppConfig, jobs []*CronJob) (*cronScheduler, error) {
+	client, info, ok := ActiveTemporalClient()
+	if !ok || client == nil {
+		return nil, fmt.Errorf("runtime: cron jobs require temporal.enabled and an active Temporal client")
+	}
+	taskQueue := temporalCronTaskQueue(info)
+	if shouldReconcileTemporalCronSchedules(cfg.Role) {
+		for _, job := range jobs {
+			if err := reconcileTemporalCronSchedule(parent, client, cfg, info, taskQueue, job); err != nil {
+				return nil, err
+			}
+			slog.Info("onlava cron schedule reconciled", "id", job.ID, "title", job.Title, "schedule", cronScheduleSummary(job), "backend", "temporal", "task_queue", taskQueue)
+		}
+	}
+	var worker temporalworker.Worker
+	if shouldStartTemporalCronWorker(cfg.Role) {
+		worker = temporalworker.New(client, taskQueue, TemporalWorkerOptions(info, "cron", taskQueue))
+		worker.RegisterWorkflowWithOptions(temporalCronWorkflow, workflow.RegisterOptions{Name: temporalCronWorkflowName})
+		for _, job := range jobs {
+			job := job
+			worker.RegisterActivityWithOptions(
+				func(ctx context.Context, in temporalCronActivityInput) error {
+					return runTemporalCronActivity(ctx, job, in)
+				},
+				activity.RegisterOptions{Name: temporalCronActivityName(job)},
+			)
+		}
+		if err := worker.Start(); err != nil {
+			return nil, fmt.Errorf("runtime: start temporal cron worker on %s: %w", taskQueue, err)
+		}
+		if err := EnsureTemporalWorkerDeploymentCurrentVersion(parent, client, info); err != nil {
+			worker.Stop()
+			return nil, err
+		}
+	}
+	done := make(chan struct{})
+	close(done)
+	return &cronScheduler{
+		done: done,
+		stop: func(context.Context) error {
+			if worker != nil {
+				worker.Stop()
+			}
+			return nil
+		},
+	}, nil
+}
+
+func reconcileTemporalCronSchedule(ctx context.Context, client temporalclient.Client, cfg AppConfig, info TemporalRuntimeInfo, taskQueue string, job *CronJob) error {
+	options, err := temporalCronScheduleOptions(cfg, info, taskQueue, job)
+	if err != nil {
+		return err
+	}
+	schedules := client.ScheduleClient()
+	if _, err := schedules.Create(ctx, options); err == nil {
+		return nil
+	} else if !isTemporalAlreadyExistsError(err) {
+		return fmt.Errorf("runtime: create temporal cron schedule %s: %w", options.ID, err)
+	}
+	handle := schedules.GetHandle(ctx, options.ID)
+	return handle.Update(ctx, temporalclient.ScheduleUpdateOptions{
+		DoUpdate: func(temporalclient.ScheduleUpdateInput) (*temporalclient.ScheduleUpdate, error) {
+			return &temporalclient.ScheduleUpdate{
+				Schedule: &temporalclient.Schedule{
+					Action: options.Action,
+					Spec:   &options.Spec,
+					Policy: &temporalclient.SchedulePolicies{
+						CatchupWindow: options.CatchupWindow,
+					},
+					State: &temporalclient.ScheduleState{
+						Note: options.Note,
+					},
+				},
+			}, nil
+		},
+	})
+}
+
+func temporalCronScheduleOptions(cfg AppConfig, info TemporalRuntimeInfo, taskQueue string, job *CronJob) (temporalclient.ScheduleOptions, error) {
+	spec, err := temporalCronScheduleSpec(job)
+	if err != nil {
+		return temporalclient.ScheduleOptions{}, err
+	}
+	activityName := temporalCronActivityName(job)
+	return temporalclient.ScheduleOptions{
+		ID:   temporalCronScheduleID(info, job),
+		Spec: spec,
+		Action: &temporalclient.ScheduleWorkflowAction{
+			ID:                 temporalCronWorkflowID(info, job),
+			Workflow:           temporalCronWorkflowName,
+			TaskQueue:          taskQueue,
+			VersioningOverride: TemporalWorkflowVersioningOverride(info),
+			Args: []interface{}{temporalCronInput{
+				AppID:        cfg.Name,
+				JobID:        job.ID,
+				ActivityName: activityName,
+				TaskQueue:    taskQueue,
+			}},
+			Memo: map[string]interface{}{
+				"onlava_app": cfg.Name,
+				"onlava_job": job.ID,
+			},
+		},
+		CatchupWindow: time.Minute,
+		Note:          "managed by onlava",
+		Memo: map[string]interface{}{
+			"onlava_app": cfg.Name,
+			"onlava_job": job.ID,
+		},
+	}, nil
+}
+
+func temporalCronScheduleSpec(job *CronJob) (temporalclient.ScheduleSpec, error) {
+	if job == nil {
+		return temporalclient.ScheduleSpec{}, fmt.Errorf("runtime: cron job cannot be nil")
+	}
+	if job.Every > 0 {
+		return temporalclient.ScheduleSpec{
+			Intervals: []temporalclient.ScheduleIntervalSpec{{Every: job.Every}},
+		}, nil
+	}
+	plan, ok := job.plan.(parsedCronPlan)
+	if !ok {
+		return temporalclient.ScheduleSpec{}, fmt.Errorf("runtime: cron job %s schedule was not parsed", job.ID)
+	}
+	return temporalclient.ScheduleSpec{
+		Calendars: cronCalendarSpecs(plan),
+	}, nil
+}
+
+func cronCalendarSpecs(plan parsedCronPlan) []temporalclient.ScheduleCalendarSpec {
+	base := temporalclient.ScheduleCalendarSpec{
+		Second:  []temporalclient.ScheduleRange{{Start: 0}},
+		Minute:  cronFieldRanges(plan.minute, false),
+		Hour:    cronFieldRanges(plan.hour, false),
+		Month:   cronFieldRanges(plan.month, false),
+		Comment: "onlava cron schedule",
+	}
+	if plan.dom.any || plan.dow.any {
+		base.DayOfMonth = cronFieldRanges(plan.dom, false)
+		base.DayOfWeek = cronDayOfWeekRanges(plan.dow, false)
+		return []temporalclient.ScheduleCalendarSpec{base}
+	}
+	domSpec := base
+	domSpec.DayOfMonth = cronFieldRanges(plan.dom, false)
+	domSpec.DayOfWeek = cronDayOfWeekRanges(plan.dow, true)
+	dowSpec := base
+	dowSpec.DayOfMonth = cronFieldRanges(plan.dom, true)
+	dowSpec.DayOfWeek = cronDayOfWeekRanges(plan.dow, false)
+	return []temporalclient.ScheduleCalendarSpec{domSpec, dowSpec}
+}
+
+func cronFieldRanges(field cronField, forceAny bool) []temporalclient.ScheduleRange {
+	if forceAny || field.any {
+		return []temporalclient.ScheduleRange{{Start: field.min, End: field.max, Step: 1}}
+	}
+	var ranges []temporalclient.ScheduleRange
+	for value := field.min; value <= field.max; value++ {
+		if field.Has(value) {
+			ranges = append(ranges, temporalclient.ScheduleRange{Start: value})
+		}
+	}
+	return ranges
+}
+
+func cronDayOfWeekRanges(field cronField, forceAny bool) []temporalclient.ScheduleRange {
+	if forceAny || field.any {
+		return []temporalclient.ScheduleRange{{Start: 0, End: 6, Step: 1}}
+	}
+	seen := make(map[int]bool)
+	var ranges []temporalclient.ScheduleRange
+	for value := field.min; value <= field.max; value++ {
+		if !field.Has(value) {
+			continue
+		}
+		dow := value
+		if dow == 7 {
+			dow = 0
+		}
+		if dow < 0 || dow > 6 || seen[dow] {
+			continue
+		}
+		seen[dow] = true
+		ranges = append(ranges, temporalclient.ScheduleRange{Start: dow})
+	}
+	return ranges
+}
+
+func temporalCronWorkflow(ctx workflow.Context, in temporalCronInput) error {
+	ao := workflow.ActivityOptions{
+		TaskQueue:           in.TaskQueue,
+		StartToCloseTimeout: time.Hour,
+	}
+	actCtx := workflow.WithActivityOptions(ctx, ao)
+	return workflow.ExecuteActivity(actCtx, in.ActivityName, temporalCronActivityInput{
+		AppID: in.AppID,
+		JobID: in.JobID,
+	}).Get(actCtx, nil)
+}
+
+func runTemporalCronActivity(ctx context.Context, job *CronJob, in temporalCronActivityInput) error {
+	if job == nil {
+		return fmt.Errorf("runtime: missing cron job declaration")
+	}
+	scheduledAt := time.Now().UTC()
+	executionID, err := newCronExecutionID(job.ID, scheduledAt)
+	if err != nil {
+		return err
+	}
+	return safeInvokeCronJob(withCronInvocation(ctx, job, scheduledAt, executionID), job)
+}
+
+func shouldReconcileTemporalCronSchedules(role string) bool {
+	return strings.TrimSpace(strings.ToLower(role)) != string(runtimeRoleWorker)
+}
+
+func shouldStartTemporalCronWorker(role string) bool {
+	return strings.TrimSpace(strings.ToLower(role)) != string(runtimeRoleAPI)
+}
+
+func temporalCronTaskQueue(info TemporalRuntimeInfo) string {
+	prefix := strings.TrimSpace(info.TaskQueuePrefix)
+	if prefix == "" {
+		prefix = defaultTemporalTaskQueuePart
+	}
+	return strings.TrimSuffix(prefix, ".") + ".cron.go"
+}
+
+func temporalCronScheduleID(info TemporalRuntimeInfo, job *CronJob) string {
+	return strings.TrimSuffix(defaultTemporalDeploymentName(info.TaskQueuePrefix), ".") + ".cron." + sanitizeTemporalName(job.ID)
+}
+
+func temporalCronWorkflowID(info TemporalRuntimeInfo, job *CronJob) string {
+	return temporalCronScheduleID(info, job)
+}
+
+func temporalCronActivityName(job *CronJob) string {
+	if job == nil {
+		return "onlava.cron.unknown/v1"
+	}
+	return "onlava.cron." + sanitizeTemporalName(job.ID) + "/v1"
+}
+
+func isTemporalAlreadyExistsError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "already exist")
 }
 
 func validateCronJob(job *CronJob) error {

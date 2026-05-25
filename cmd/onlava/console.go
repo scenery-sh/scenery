@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pbrazdil/onlava/internal/devdash"
 	"github.com/pbrazdil/onlava/internal/termstyle"
 )
 
@@ -29,7 +30,9 @@ type runURLs struct {
 	MCP       string
 	Frontends map[string]string
 	DBStudio  string
+	Temporal  string
 	Victoria  map[string]string
+	Grafana   *devdash.GrafanaState
 }
 
 type runEvent struct {
@@ -137,7 +140,16 @@ func (c *runConsole) Banner(urls runURLs) {
 			"db_studio_url": urls.DBStudio,
 		}
 		if c.verbose {
+			if urls.Temporal != "" {
+				data["temporal_url"] = urls.Temporal
+			}
 			data["victoria_urls"] = urls.Victoria
+		}
+		if urls.Grafana != nil {
+			data["grafana"] = urls.Grafana
+			if urls.Grafana.URL != "" {
+				data["grafana_url"] = urls.Grafana.URL
+			}
 		}
 		c.Event("run.ready", data)
 		return
@@ -159,7 +171,13 @@ func (c *runConsole) Banner(urls runURLs) {
 	if urls.DBStudio != "" {
 		c.printf(c.out, "  %-*s  %s\n", width, "Drizzle Studio URL:", urls.DBStudio)
 	}
+	if urls.Grafana != nil && urls.Grafana.URL != "" {
+		c.printf(c.out, "  %-*s  %s\n", width, "Grafana URL:", urls.Grafana.URL)
+	}
 	if c.verbose {
+		if urls.Temporal != "" {
+			c.printf(c.out, "  %-*s  %s\n", width, "Temporal UI URL:", urls.Temporal)
+		}
 		for _, item := range []struct {
 			label string
 			key   string

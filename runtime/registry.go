@@ -104,6 +104,8 @@ type AppConfig struct {
 	ProxyMCPHost     string
 	ProxyFrontends   map[string]ProxyFrontendConfig
 	Observability    ObservabilityConfig
+	Temporal         TemporalConfig
+	Role             string
 }
 
 type ProxyFrontendConfig struct {

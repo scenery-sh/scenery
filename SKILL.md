@@ -26,14 +26,15 @@ Read next when you need detail:
 ## Mental Model
 
 - `.onlava.json` marks the app root and names the app.
-- Go source is the app model. onlava discovers services, APIs, auth handlers, middleware, Pub/Sub handlers, and cron jobs from code.
-- `onlava run` builds once and starts one headless local HTTP server.
-- `onlava dev` starts the full local development platform: app process, file watching, rebuild/restart supervision, dashboard, API explorer, MCP endpoint, DB Studio, logs, traces, metrics, and optional HTTPS local domains.
+- Go source is the app model. onlava discovers services, APIs, auth handlers, middleware, Temporal declarations, and cron jobs from code.
+- `onlava run` builds once and starts one headless local HTTP server in the API role.
+- `onlava worker` builds once and starts a beta worker-only runtime process for cron and native Temporal workers. `onlava worker bindings` validates external worker manifests and writes starter activity binding files.
+- `onlava dev` starts the full local development platform: app process, file watching, rebuild/restart supervision, dashboard, API explorer, MCP endpoint, DB Studio, logs, traces, metrics, Grafana, and optional HTTPS local domains.
 - Public and auth endpoints are reachable over external HTTP. Private endpoints are internal-only and called through generated helpers.
 - Typed endpoints decode path params, query params, headers, cookies, and JSON bodies into Go values, then encode typed responses.
 - Generated internal calls preserve routing, private access, and auth context instead of bypassing the runtime.
 - The beta `github.com/pbrazdil/onlava/data` package exposes metadata-defined dynamic objects backed by real PostgreSQL tables, columns, indexes, outbox rows, and live events.
-- The local dashboard includes API Explorer, traces, metrics, DB Studio, Pub/Sub/cron surfaces, Data Explorer, and browser-harness validation hooks.
+- The local dashboard includes API Explorer, traces, metrics, DB Studio, cron surfaces, Data Explorer, and browser-harness validation hooks.
 
 ## Minimal App
 
@@ -116,7 +117,7 @@ Struct tags:
 - `github.com/pbrazdil/onlava/auth`: request auth helpers such as `UserID()`, `Data()`, `CurrentAuthData()`, and the standard auth module.
 - `github.com/pbrazdil/onlava/errs`: coded errors and HTTP status mapping.
 - `github.com/pbrazdil/onlava/middleware`: middleware request/response types.
-- `github.com/pbrazdil/onlava/pubsub`: local Pub/Sub declarations and runtime integration.
+- `github.com/pbrazdil/onlava/temporal`: beta workflow/activity declarations and start helpers for the onlava-managed Temporal runtime.
 - `github.com/pbrazdil/onlava/cron`: cron job declarations.
 - `github.com/pbrazdil/onlava/pgxpool`: pgx pool wrapper with onlava DB tracing.
 - `github.com/pbrazdil/onlava/et`: endpoint and service mocking helpers for tests.
@@ -303,6 +304,7 @@ onlava check --json
 onlava inspect app --json
 onlava inspect routes --json
 onlava inspect endpoints --json
+onlava inspect temporal --json
 onlava logs --limit 200
 onlava logs --jsonl --limit 200
 ```
@@ -338,16 +340,19 @@ If the proxy says the upstream is unavailable, confirm the app child process is 
 
 ## Observability
 
-`onlava dev` writes local logs and traces. When available, it also runs VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars for richer local inspection.
+`onlava dev` writes local logs and traces. When available, it also runs VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana for richer local inspection.
 
 Useful environment flags:
 
 ```sh
 ONLAVA_DEV_VICTORIA=0
 ONLAVA_DEV_VICTORIA_DOWNLOAD=0
+ONLAVA_DEV_GRAFANA=0
+ONLAVA_DEV_GRAFANA_DOWNLOAD=0
 ```
 
 Victoria sidecars store data under `.onlava/victoria/` by default and stop with the dev supervisor.
+Grafana generated config and dashboards live under `.onlava/grafana/`; delete that directory to reset local Grafana state.
 
 ## Secrets And Environment
 
@@ -371,7 +376,7 @@ DB Studio is available through `onlava dev` when configured.
 
 ## Dashboard And Data Explorer
 
-The local dashboard is for development and inspection, not production hosting. Use it to inspect routes, endpoint calls, traces, logs, metrics, DB Studio, Pub/Sub/cron state, and the beta Data Explorer.
+The local dashboard is for development and inspection, not production hosting. Use it to inspect routes, endpoint calls, traces, logs, metrics, DB Studio, cron state, and the beta Data Explorer.
 
 Data Explorer is a developer-facing view over `onlava inspect data` semantics: tenants, objects, fields, records, migrations, outbox, triggers, indexes, relations, saved views, and search state. Treat it as a debugging surface; app code should still use `github.com/pbrazdil/onlava/data`.
 
@@ -418,9 +423,9 @@ The generated client understands the app route model and local wire capabilities
 onlava inspect wire --json
 ```
 
-## Pub/Sub, Cron, Middleware
+## Temporal, Cron, Middleware
 
-onlava discovers Pub/Sub handlers, cron jobs, and middleware from Go source. Treat local Pub/Sub and cron dev/admin UI affordances as beta until lifecycle, retry, scheduling, and clear/delete semantics are frozen for the app you are working on.
+onlava discovers Temporal workflow/activity declarations, cron jobs, and middleware from Go source. Use dedicated Temporal task queues plus `temporal.ActivityConfig.MaxConcurrency` for resource-heavy activity limits. Treat local Temporal and cron dev/admin UI affordances as beta until lifecycle, retry, scheduling, and clear/delete semantics are frozen for the app you are working on.
 
 When changing these areas, validate with:
 
@@ -434,12 +439,13 @@ onlava harness --json --write
 ```text
 onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust]
 onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
+onlava worker [--task-queue <name>] [--app-root <path>] [--env <name>] [--log-format text|json]
 onlava version [--json]
 onlava build [--app-root <path>] [-o <path>] [--db-studio]
 onlava check [--app-root <path>] [--json]
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness ui [--app-root <path>] [--repo-root <path>] [--json] [--headed]
-onlava inspect app|routes|services|endpoints|wire|build|paths|traces|metrics --json [--app-root <path>]
+onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
 onlava inspect data --json --database-url <url> [--tenant <key>] [--object <name>]
 onlava inspect docs --json [--repo-root <path>]
 onlava logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [-f|--follow] [--jsonl|--json]

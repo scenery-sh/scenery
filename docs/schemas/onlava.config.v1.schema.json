@@ -48,6 +48,18 @@
         "tracing": { "$ref": "#/$defs/endpointFilter" }
       },
       "additionalProperties": false
+    },
+    "temporal": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string", "enum": ["local", "production"] },
+        "namespace": { "type": "string" },
+        "address_env": { "type": "string" },
+        "task_queue_prefix": { "type": "string" },
+        "local": { "$ref": "#/$defs/temporalLocal" }
+      },
+      "additionalProperties": false
     }
   },
   "anyOf": [
@@ -95,6 +107,14 @@
         "enabled": { "type": "boolean" },
         "default_user_id": { "type": "string" },
         "default_tenant_id": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "temporalLocal": {
+      "type": "object",
+      "properties": {
+        "auto_start": { "type": "boolean" },
+        "db_filename": { "type": "string" }
       },
       "additionalProperties": false
     }

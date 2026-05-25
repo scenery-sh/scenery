@@ -15,6 +15,7 @@ type Config struct {
 	Proxy          ProxyConfig         `json:"proxy"`
 	Auth           AuthConfig          `json:"auth"`
 	Observability  ObservabilityConfig `json:"observability"`
+	Temporal       TemporalConfig      `json:"temporal"`
 	EnableDBStudio bool                `json:"-"`
 }
 
@@ -74,6 +75,20 @@ type ObservabilityConfig struct {
 type EndpointFilterConfig struct {
 	IncludeEndpoints []string `json:"include_endpoints"`
 	ExcludeEndpoints []string `json:"exclude_endpoints"`
+}
+
+type TemporalConfig struct {
+	Enabled         bool                `json:"enabled"`
+	Mode            string              `json:"mode"`
+	Namespace       string              `json:"namespace"`
+	AddressEnv      string              `json:"address_env"`
+	TaskQueuePrefix string              `json:"task_queue_prefix"`
+	Local           TemporalLocalConfig `json:"local"`
+}
+
+type TemporalLocalConfig struct {
+	AutoStart  bool   `json:"auto_start"`
+	DBFilename string `json:"db_filename"`
 }
 
 func DiscoverRoot(start string) (string, Config, error) {

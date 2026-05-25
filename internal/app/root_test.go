@@ -39,6 +39,33 @@ func TestDiscoverRootAcceptsLegacyID(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootAcceptsTemporalConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"temporalapp","temporal":{"enabled":true,"mode":"local","namespace":"default","address_env":"TEMPORAL_ADDRESS","task_queue_prefix":"onlava.temporalapp","local":{"auto_start":true,"db_filename":".onlava/temporal/dev.sqlite"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, cfg, err := DiscoverRoot(dir)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if !cfg.Temporal.Enabled {
+		t.Fatal("expected temporal.enabled")
+	}
+	if cfg.Temporal.Mode != "local" || cfg.Temporal.Namespace != "default" {
+		t.Fatalf("temporal mode/namespace = %+v", cfg.Temporal)
+	}
+	if cfg.Temporal.AddressEnv != "TEMPORAL_ADDRESS" || cfg.Temporal.TaskQueuePrefix != "onlava.temporalapp" {
+		t.Fatalf("temporal env/task queue = %+v", cfg.Temporal)
+	}
+	if !cfg.Temporal.Local.AutoStart {
+		t.Fatalf("temporal booleans = %+v", cfg.Temporal)
+	}
+	if cfg.Temporal.Local.DBFilename != ".onlava/temporal/dev.sqlite" {
+		t.Fatalf("temporal local db = %q", cfg.Temporal.Local.DBFilename)
+	}
+}
+
 func TestConfigAppIDPrefersExplicitID(t *testing.T) {
 	cfg := Config{Name: "display-name", ID: "stable-id"}
 	if got, want := cfg.AppID(), "stable-id"; got != want {
@@ -68,6 +95,21 @@ func TestDiscoverRootRequiresNameOrID(t *testing.T) {
 func TestDiscoverRootRejectsUnknownFields(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"app","proxy":{"extra":"value"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := DiscoverRoot(dir)
+	if err == nil {
+		t.Fatal("DiscoverRoot returned nil error")
+	}
+	if got, want := err.Error(), `json: unknown field "extra"`; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
+func TestDiscoverRootRejectsUnknownTemporalFields(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"app","temporal":{"enabled":true,"extra":"value"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

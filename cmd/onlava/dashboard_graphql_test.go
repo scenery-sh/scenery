@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/devdash"
@@ -170,118 +168,6 @@ func TestDashboardGraphQLUnsupportedOperation(t *testing.T) {
 	errorsValue, ok := resp["errors"].([]any)
 	if !ok || len(errorsValue) != 1 {
 		t.Fatalf("expected one graphql error, got %#v", resp["errors"])
-	}
-}
-
-func TestDashboardPubSubStatusRPCAndReport(t *testing.T) {
-	server := newTestDashboardServer(t)
-	if err := server.supervisor.store.UpsertPubSubSnapshot(context.Background(), devdash.PubSubSnapshot{
-		AppID:     "app-test",
-		Topics:    json.RawMessage(`[{"name":"old-events","published":1,"pending":0,"subscriptions":[]}]`),
-		UpdatedAt: time.Now().UTC().Add(-10 * time.Minute),
-	}); err != nil {
-		t.Fatalf("seed old pubsub snapshot: %v", err)
-	}
-	body := []byte(`{"type":"pubsub","app_id":"app-test","pubsub":[{"name":"events","published":1,"pending":0,"subscriptions":[]}]}`)
-	req := httptest.NewRequest(http.MethodPost, devdash.ReportPath, bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+server.supervisor.reportToken)
-	rec := httptest.NewRecorder()
-
-	server.handleReport(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("handleReport status = %d body=%s", rec.Code, rec.Body.String())
-	}
-
-	raw, err := json.Marshal(map[string]any{"app_id": "app-test", "period": "5m"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := server.dispatchRPC(context.Background(), "pubsub/status", raw)
-	if err != nil {
-		t.Fatalf("pubsub/status: %v", err)
-	}
-	payload := result.(map[string]any)
-	topicsRaw, ok := payload["topics"].(json.RawMessage)
-	if !ok {
-		t.Fatalf("topics type = %T", payload["topics"])
-	}
-	if !bytes.Contains(topicsRaw, []byte(`"events"`)) {
-		t.Fatalf("unexpected topics: %s", topicsRaw)
-	}
-	history, ok := payload["history"].([]map[string]any)
-	if !ok || len(history) != 1 {
-		t.Fatalf("history = %#v", payload["history"])
-	}
-	raw, err = json.Marshal(map[string]any{"app_id": "app-test", "period": "15m"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err = server.dispatchRPC(context.Background(), "pubsub/status", raw)
-	if err != nil {
-		t.Fatalf("pubsub/status 15m: %v", err)
-	}
-	payload = result.(map[string]any)
-	history, ok = payload["history"].([]map[string]any)
-	if !ok || len(history) != 2 {
-		t.Fatalf("15m history = %#v", payload["history"])
-	}
-}
-
-func TestDashboardPubSubMessagesRPCAndReport(t *testing.T) {
-	server := newTestDashboardServer(t)
-	now := time.Now().UTC().Format(time.RFC3339)
-	body := []byte(fmt.Sprintf(`{"type":"pubsub-message","app_id":"app-test","pubsub_message":{"message_id":"stream:1","topic_name":"events","subscription_name":"events-sub","service_name":"events","status":"completed","trace_id":"trace-1","attempt":1,"payload":{"value":"ok"},"result":{"status":"completed"},"deliveries":1,"inserted_at":"%s","picked_up_at":"%s","finished_at":"%s","duration_ms":1000}}`, now, now, now))
-	req := httptest.NewRequest(http.MethodPost, devdash.ReportPath, bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+server.supervisor.reportToken)
-	rec := httptest.NewRecorder()
-
-	server.handleReport(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("handleReport status = %d body=%s", rec.Code, rec.Body.String())
-	}
-
-	raw, err := json.Marshal(map[string]any{
-		"app_id":     "app-test",
-		"period":     "15m",
-		"queue_name": "events-sub",
-		"status":     "completed",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := server.dispatchRPC(context.Background(), "pubsub/messages", raw)
-	if err != nil {
-		t.Fatalf("pubsub/messages: %v", err)
-	}
-	payload := result.(map[string]any)
-	messages, ok := payload["messages"].([]devdash.PubSubMessage)
-	if !ok {
-		t.Fatalf("messages type = %T", payload["messages"])
-	}
-	if len(messages) != 1 {
-		t.Fatalf("message count = %d, want 1", len(messages))
-	}
-	if messages[0].SubscriptionName != "events-sub" {
-		t.Fatalf("subscription = %q", messages[0].SubscriptionName)
-	}
-	if messages[0].Status != "completed" {
-		t.Fatalf("status = %q", messages[0].Status)
-	}
-	attemptResult, err := server.dispatchRPC(context.Background(), "pubsub/message/attempts", mustJSON(t, map[string]any{
-		"app_id":            "app-test",
-		"message_id":        "stream:1",
-		"subscription_name": "events-sub",
-	}))
-	if err != nil {
-		t.Fatalf("pubsub/message/attempts: %v", err)
-	}
-	attemptPayload := attemptResult.(map[string]any)
-	attempts, ok := attemptPayload["attempts"].([]devdash.PubSubMessageAttempt)
-	if !ok || len(attempts) != 1 {
-		t.Fatalf("attempts = %#v", attemptPayload["attempts"])
-	}
-	if attempts[0].TraceID != "trace-1" {
-		t.Fatalf("attempt trace id = %q", attempts[0].TraceID)
 	}
 }
 

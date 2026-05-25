@@ -26,6 +26,7 @@ type AppRecord struct {
 	ListenAddr   string
 	Metadata     json.RawMessage
 	APIEncoding  json.RawMessage
+	Grafana      json.RawMessage
 	Offline      bool
 	Running      bool
 	Compiling    bool
@@ -42,8 +43,31 @@ type AppStatus struct {
 	Meta         json.RawMessage `json:"meta,omitempty"`
 	Addr         string          `json:"addr,omitempty"`
 	APIEncoding  json.RawMessage `json:"apiEncoding,omitempty"`
+	Grafana      *GrafanaState   `json:"grafana,omitempty"`
 	Compiling    bool            `json:"compiling"`
 	CompileError string          `json:"compileError,omitempty"`
+}
+
+type GrafanaState struct {
+	Enabled          bool               `json:"enabled"`
+	Status           string             `json:"status"`
+	URL              string             `json:"url,omitempty"`
+	OverviewURL      string             `json:"overview_url,omitempty"`
+	LogsURL          string             `json:"logs_url,omitempty"`
+	EndpointURL      string             `json:"endpoint_url,omitempty"`
+	ConfigPath       string             `json:"config_path,omitempty"`
+	ProvisioningPath string             `json:"provisioning_path,omitempty"`
+	DashboardsPath   string             `json:"dashboards_path,omitempty"`
+	Datasources      map[string]string  `json:"datasources,omitempty"`
+	DatasourceStatus map[string]string  `json:"datasource_status,omitempty"`
+	Dashboards       []GrafanaDashboard `json:"dashboards,omitempty"`
+	Message          string             `json:"message,omitempty"`
+}
+
+type GrafanaDashboard struct {
+	UID   string `json:"uid"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
 }
 
 type ProcessOutput struct {
@@ -61,26 +85,24 @@ type Notification struct {
 }
 
 type TraceSummary struct {
-	TraceID          string    `json:"trace_id"`
-	SpanID           string    `json:"span_id"`
-	Type             string    `json:"type"`
-	IsRoot           bool      `json:"is_root"`
-	IsError          bool      `json:"is_error"`
-	DeployedCommit   string    `json:"deployed_commit,omitempty"`
-	StartedAt        time.Time `json:"started_at"`
-	DurationNanos    uint64    `json:"duration_nanos"`
-	ServiceName      string    `json:"service_name,omitempty"`
-	EndpointName     *string   `json:"endpoint_name,omitempty"`
-	TopicName        *string   `json:"topic_name,omitempty"`
-	SubscriptionName *string   `json:"subscription_name,omitempty"`
-	MessageID        *string   `json:"message_id,omitempty"`
-	TestSkipped      *bool     `json:"test_skipped,omitempty"`
-	SrcFile          *string   `json:"src_file,omitempty"`
-	SrcLine          *uint32   `json:"src_line,omitempty"`
-	ParentSpanID     *string   `json:"parent_span_id,omitempty"`
-	CallerEventID    *uint64   `json:"caller_event_id,omitempty"`
-	AppID            string    `json:"-"`
-	TestTrace        bool      `json:"-"`
+	TraceID        string    `json:"trace_id"`
+	SpanID         string    `json:"span_id"`
+	Type           string    `json:"type"`
+	IsRoot         bool      `json:"is_root"`
+	IsError        bool      `json:"is_error"`
+	DeployedCommit string    `json:"deployed_commit,omitempty"`
+	StartedAt      time.Time `json:"started_at"`
+	DurationNanos  uint64    `json:"duration_nanos"`
+	ServiceName    string    `json:"service_name,omitempty"`
+	EndpointName   *string   `json:"endpoint_name,omitempty"`
+	MessageID      *string   `json:"message_id,omitempty"`
+	TestSkipped    *bool     `json:"test_skipped,omitempty"`
+	SrcFile        *string   `json:"src_file,omitempty"`
+	SrcLine        *uint32   `json:"src_line,omitempty"`
+	ParentSpanID   *string   `json:"parent_span_id,omitempty"`
+	CallerEventID  *uint64   `json:"caller_event_id,omitempty"`
+	AppID          string    `json:"-"`
+	TestTrace      bool      `json:"-"`
 }
 
 type TraceEvent struct {
@@ -122,57 +144,11 @@ type StoredRequestData struct {
 type OnboardingState map[string]time.Time
 
 type ReportEnvelope struct {
-	Type          string          `json:"type"`
-	AppID         string          `json:"app_id"`
-	TraceSummary  *TraceSummary   `json:"trace_summary,omitempty"`
-	TraceEvent    *TraceEvent     `json:"trace_event,omitempty"`
-	LogEvent      *LogEvent       `json:"log_event,omitempty"`
-	PubSub        json.RawMessage `json:"pubsub,omitempty"`
-	PubSubMessage json.RawMessage `json:"pubsub_message,omitempty"`
-}
-
-type PubSubSnapshot struct {
-	AppID     string          `json:"app_id"`
-	Topics    json.RawMessage `json:"topics"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
-
-type PubSubMessage struct {
-	AppID            string          `json:"app_id"`
-	MessageID        string          `json:"message_id"`
-	TopicName        string          `json:"topic_name"`
-	SubscriptionName string          `json:"subscription_name"`
-	ServiceName      string          `json:"service_name,omitempty"`
-	Status           string          `json:"status"`
-	TraceID          string          `json:"trace_id,omitempty"`
-	Attempt          int             `json:"attempt,omitempty"`
-	Payload          json.RawMessage `json:"payload,omitempty"`
-	Result           json.RawMessage `json:"result,omitempty"`
-	Error            string          `json:"error,omitempty"`
-	Deliveries       int             `json:"deliveries"`
-	InsertedAt       time.Time       `json:"inserted_at"`
-	PickedUpAt       time.Time       `json:"picked_up_at,omitempty"`
-	FinishedAt       time.Time       `json:"finished_at,omitempty"`
-	DurationMS       float64         `json:"duration_ms,omitempty"`
-}
-
-type PubSubMessageAttempt struct {
-	AppID            string          `json:"app_id"`
-	MessageID        string          `json:"message_id"`
-	TopicName        string          `json:"topic_name"`
-	SubscriptionName string          `json:"subscription_name"`
-	ServiceName      string          `json:"service_name,omitempty"`
-	Status           string          `json:"status"`
-	TraceID          string          `json:"trace_id,omitempty"`
-	Attempt          int             `json:"attempt"`
-	Payload          json.RawMessage `json:"payload,omitempty"`
-	Result           json.RawMessage `json:"result,omitempty"`
-	Error            string          `json:"error,omitempty"`
-	Deliveries       int             `json:"deliveries"`
-	InsertedAt       time.Time       `json:"inserted_at"`
-	PickedUpAt       time.Time       `json:"picked_up_at,omitempty"`
-	FinishedAt       time.Time       `json:"finished_at,omitempty"`
-	DurationMS       float64         `json:"duration_ms,omitempty"`
+	Type         string        `json:"type"`
+	AppID        string        `json:"app_id"`
+	TraceSummary *TraceSummary `json:"trace_summary,omitempty"`
+	TraceEvent   *TraceEvent   `json:"trace_event,omitempty"`
+	LogEvent     *LogEvent     `json:"log_event,omitempty"`
 }
 
 type QueryRequest struct {

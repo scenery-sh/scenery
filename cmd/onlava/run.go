@@ -122,23 +122,11 @@ func startHeadlessApp(root string, cfg app.Config, binary, addr string, opts run
 
 	cmd := commandTreeContext(ctx, binary)
 	cmd.Dir = root
-	baseEnv, err := appEnvWithDotEnv(os.Environ(), root)
+	env, err := appProcessEnv(root, cfg, opts.LogFormat, opts.Env, "ONLAVA_LISTEN_ADDR="+addr, "ONLAVA_ROLE="+headlessRuntimeRole(cfg))
 	if err != nil {
 		return err
 	}
-	overrides := []string{
-		"ONLAVA_LISTEN_ADDR=" + addr,
-		"ONLAVA_APP_ID=" + cfg.AppID(),
-		"ONLAVA_APP_ROOT=" + root,
-		"ONLAVA_LOCAL_PROXY=0",
-		"ONLAVA_LOG_FORMAT=" + opts.LogFormat,
-		"ONLAVA_PARENT_MONITOR=1",
-		fmt.Sprintf("ONLAVA_PARENT_MONITOR_PID=%d", os.Getpid()),
-	}
-	if opts.Env != "" {
-		overrides = append(overrides, "ONLAVA_ENV="+opts.Env, "ONLAVA_RUNTIME_ENV="+opts.Env)
-	}
-	cmd.Env = envWithOverrides(baseEnv, overrides...)
+	cmd.Env = env
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = nil
@@ -154,6 +142,31 @@ func startHeadlessApp(root string, cfg app.Config, binary, addr string, opts run
 		return fmt.Errorf("onlava app exited: %w", err)
 	}
 	return nil
+}
+
+func headlessRuntimeRole(cfg app.Config) string {
+	_ = cfg
+	return "api"
+}
+
+func appProcessEnv(root string, cfg app.Config, logFormat string, envName string, extra ...string) ([]string, error) {
+	baseEnv, err := appEnvWithDotEnv(os.Environ(), root)
+	if err != nil {
+		return nil, err
+	}
+	overrides := []string{
+		"ONLAVA_APP_ID=" + cfg.AppID(),
+		"ONLAVA_APP_ROOT=" + root,
+		"ONLAVA_LOCAL_PROXY=0",
+		"ONLAVA_LOG_FORMAT=" + logFormat,
+		"ONLAVA_PARENT_MONITOR=1",
+		fmt.Sprintf("ONLAVA_PARENT_MONITOR_PID=%d", os.Getpid()),
+	}
+	overrides = append(overrides, extra...)
+	if envName != "" {
+		overrides = append(overrides, "ONLAVA_ENV="+envName, "ONLAVA_RUNTIME_ENV="+envName)
+	}
+	return envWithOverrides(baseEnv, overrides...), nil
 }
 
 func envWithOverrides(base []string, overrides ...string) []string {

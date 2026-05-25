@@ -138,6 +138,6 @@ Gate phase 1 on `go test ./...` and a lint/format pass for the new onlava code.
 
 - Go only in phase 1. TypeScript is out of scope.
 - Strict onlava naming only. No non-onlava app markers, imports, or directives in this milestone.
-- No infra generation, DB management/migrations, Pub/Sub, cron, middleware, dashboard, cloud features, namespaces, or live-reload/watch mode.
+- No infra generation, DB management/migrations, Temporal workers, cron, middleware, dashboard, cloud features, namespaces, or live-reload/watch mode.
 - No automatic source migration command in phase 1; migrated apps are expected to adopt onlava syntax directly.
 - Single-process local runtime only. No remote service hosting or distributed local orchestration in this phase.

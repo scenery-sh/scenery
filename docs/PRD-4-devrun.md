@@ -45,7 +45,7 @@ DB Studio
 local HTTPS proxy
 frontend proxy
 MCP server
-local Pub/Sub controls
+local Temporal worker controls
 local cron controls
 pretty logs
 .env and .env.local loading
@@ -256,7 +256,7 @@ Beta/dev:
   DB Studio
   local HTTPS proxy
   MCP
-  Pub/Sub UI
+  Temporal worker tooling
   cron UI
 
 So yes: onlava dev for development including dashboard, DB Studio, proxy, etc.; onlava run for production-like app execution; onlava build for the artifact you deploy.

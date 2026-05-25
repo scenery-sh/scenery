@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pbrazdil/onlava/internal/model"
 	"github.com/pbrazdil/onlava/internal/parse"
 )
 
@@ -53,6 +54,68 @@ func TestParseBasicApp(t *testing.T) {
 	}
 	if !foundEcho || !foundCallPrivate {
 		t.Fatalf("missing expected endpoints, Echo=%v CallPrivate=%v", foundEcho, foundCallPrivate)
+	}
+}
+
+func TestParseRuntimeDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module example.com/runtimedecls\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"runtimedecls"}`)
+	writeFile(t, dir, "svc/api.go", `package svc
+
+import "context"
+
+//onlava:api private
+func Run(ctx context.Context) error { return nil }
+`)
+	writeFile(t, dir, "jobs/runtime.go", `package jobs
+
+import (
+	"context"
+	"time"
+
+	"github.com/pbrazdil/onlava/cron"
+	"github.com/pbrazdil/onlava/temporal"
+)
+
+type In struct{ ID string }
+type Out struct{ ID string }
+
+var _ = temporal.NewWorkflow[In, Out]("orders.Fulfill/v1", temporal.WorkflowConfig{}, func(ctx temporal.WorkflowContext, in In) (Out, error) {
+	return Out{ID: in.ID}, nil
+})
+var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConfig{}, func(ctx context.Context, in In) (Out, error) {
+	return Out{ID: in.ID}, nil
+})
+var _ = cron.NewJob("tick", cron.JobConfig{
+	Every: time.Second,
+	Handler: func(context.Context) error { return nil },
+})
+`)
+
+	app, err := parse.App(dir, "runtimedecls")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	if len(app.Runtime) != 3 {
+		t.Fatalf("runtime declarations = %#v", app.Runtime)
+	}
+	got := make(map[model.RuntimeDeclarationKind]string)
+	for _, decl := range app.Runtime {
+		got[decl.Kind] = decl.Name
+		if decl.Package == nil || decl.File == nil || decl.CallName == "" {
+			t.Fatalf("incomplete runtime declaration: %#v", decl)
+		}
+	}
+	want := map[model.RuntimeDeclarationKind]string{
+		model.RuntimeDeclarationTemporalWorkflow: "orders.Fulfill/v1",
+		model.RuntimeDeclarationTemporalActivity: "orders.Capture/v1",
+		model.RuntimeDeclarationCronJob:          "tick",
+	}
+	for kind, name := range want {
+		if got[kind] != name {
+			t.Fatalf("runtime declaration %s = %q, want %q (all: %#v)", kind, got[kind], name, got)
+		}
 	}
 }
 

@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
-	onlavapubsub "github.com/pbrazdil/onlava/pubsub"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
+	onlavatemporal "github.com/pbrazdil/onlava/temporal"
 	"net/http"
 	"sync"
 	"time"
@@ -156,7 +156,7 @@ func init() {
 		_, err := onlavaInternalGetService()
 		return err
 	})
-	onlavapubsub.RegisterServiceAccessorFor[*Service](func() (any, error) {
+	onlavatemporal.RegisterServiceAccessorFor[*Service](func() (any, error) {
 		return onlavaInternalGetService()
 	})
 	onlavaruntime.RegisterEndpointFunc(AuthEcho, "service", "AuthEcho")

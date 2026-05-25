@@ -703,7 +703,6 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 		"errs",
 		"middleware",
 		"pgxpool",
-		"pubsub",
 		"rlog",
 		"ui/dist",
 	}
@@ -732,6 +731,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/knowledge.json",
 		"docs/harness-engineering.md",
 		"docs/local-contract.md",
+		"docs/grafana.md",
 		"docs/data-platform.md",
 		"docs/app-development-cookbook.md",
 		"docs/data-platform-runbook.md",
@@ -758,12 +758,14 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/onlava.inspect.endpoints.v1.schema.json",
 		"docs/schemas/onlava.inspect.metrics.v1.schema.json",
 		"docs/schemas/onlava.inspect.paths.v1.schema.json",
+		"docs/schemas/onlava.inspect.temporal.v1.schema.json",
 		"docs/schemas/onlava.inspect.routes.v1.schema.json",
 		"docs/schemas/onlava.inspect.services.v1.schema.json",
 		"docs/schemas/onlava.inspect.traces.v1.schema.json",
 		"docs/schemas/onlava.logs.event.v1.schema.json",
 		"docs/schemas/onlava.run.event.v1.schema.json",
 		"docs/schemas/onlava.version.v1.schema.json",
+		"docs/schemas/onlava.worker.manifest.v1.schema.json",
 		"docs/schemas/onlava.wire.capabilities.v1.schema.json",
 	}
 	return harnessKnowledge{

@@ -261,13 +261,7 @@ func traceSummaryFromVictoriaSpan(appID string, trace victoriaJaegerTrace, span 
 		ServiceName:   serviceName,
 		EndpointName:  endpointName,
 	}
-	if topic := stringTag(tags, "onlava.pubsub.topic"); topic != "" {
-		summary.TopicName = &topic
-	}
-	if subscription := stringTag(tags, "onlava.pubsub.subscription"); subscription != "" {
-		summary.SubscriptionName = &subscription
-	}
-	if messageID := stringTag(tags, "onlava.pubsub.message_id"); messageID != "" {
+	if messageID := stringTag(tags, "onlava.message_id"); messageID != "" {
 		summary.MessageID = &messageID
 	}
 	for _, ref := range span.References {

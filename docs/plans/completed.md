@@ -6,6 +6,25 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Grafana Dev Integration
+
+- Status: completed
+- Owner: onlava dev runtime
+- Completed: 2026-05-25
+- Quality: B+
+- ExecPlan: [0033 Grafana Dev Integration](0033-grafana-dev-integration.md)
+
+Shipped:
+
+- `onlava dev` can supervise local Grafana alongside VictoriaMetrics, VictoriaLogs, and VictoriaTraces.
+- Generated Grafana config, datasource provisioning, and dashboard JSON live under `.onlava/grafana/`.
+- Stable datasource UIDs for VictoriaMetrics, VictoriaLogs, and Jaeger-compatible VictoriaTraces.
+- Stable dashboard UIDs for overview, logs, and endpoint debugging dashboards.
+- Onlava dashboard Observability route with Grafana status, paths, datasource status, and deep links.
+- `onlava dev --json` Grafana events and `run.ready` metadata.
+- Env controls for opt-in, disable, required mode, binary resolution, download, port, root directory, version, and plugin preinstall.
+- Browser validation against a live `onlava dev` stack plus supervised shutdown and `onlava run` dev-only smoke coverage.
+
 ## UI Guardrail Hardening
 
 - Status: completed
@@ -509,3 +528,18 @@ Shipped:
 - Added `.ts` public entrypoint re-exports for migrated primitives that Vite may still request during hot reload.
 - `apps/app/scripts/check-onlava-ui-registry.mjs`, wired into `bun run typecheck`, to prevent future drift back to local raw shadcn imports.
 - ONLV app visual harness remained stable with 24/24 snapshots passing.
+
+## Remove Pub/Sub Package
+
+- Status: completed
+- Owner: onlava runtime
+- Completed: 2026-05-25
+- Quality: B+
+- ExecPlan: [0034 Remove Pub/Sub Package](0034-remove-pubsub-package.md)
+
+Shipped:
+
+- Removed the public `github.com/pbrazdil/onlava/pubsub` package, runtime hooks, dashboard/admin surfaces, schemas, and current docs.
+- Moved service-method background handler support to `github.com/pbrazdil/onlava/temporal`.
+- Migrated ONLV async jobs in `codexsvc`, `jobs`, `house`, and `maps` to native Temporal workflows and activities.
+- Validation passed for onlava; ONLV validation is blocked only by the native house `torch/torch.h` environment prerequisite.

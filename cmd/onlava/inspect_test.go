@@ -225,6 +225,62 @@ func Config(context.Context) error { return nil }
 			t.Fatalf("paths = %+v", payload.Paths)
 		}
 	})
+
+	t.Run("temporal", func(t *testing.T) {
+		var out bytes.Buffer
+		if err := runOnlavaInspect([]string{"temporal", "--json"}, &out); err != nil {
+			t.Fatalf("runOnlavaInspect(temporal) error = %v", err)
+		}
+		var payload struct {
+			SchemaVersion string `json:"schema_version"`
+			Temporal      struct {
+				Enabled          bool   `json:"enabled"`
+				Mode             string `json:"mode"`
+				Address          string `json:"address"`
+				Namespace        string `json:"namespace"`
+				TaskQueuePrefix  string `json:"task_queue_prefix"`
+				DeploymentName   string `json:"deployment_name"`
+				WorkerBuildID    string `json:"worker_build_id"`
+				WorkerBuildIDSet bool   `json:"worker_build_id_set"`
+				Versioning       string `json:"versioning"`
+			} `json:"temporal"`
+			Connectivity struct {
+				Checked bool `json:"checked"`
+			} `json:"connectivity"`
+			WorkerManifests struct {
+				Checked bool `json:"checked"`
+				OK      bool `json:"ok"`
+				Count   int  `json:"count"`
+			} `json:"worker_manifests"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal(temporal) error = %v\n%s", err, out.String())
+		}
+		if payload.SchemaVersion != "onlava.inspect.temporal.v1" {
+			t.Fatalf("schema_version = %q", payload.SchemaVersion)
+		}
+		if payload.Temporal.Enabled {
+			t.Fatalf("temporal unexpectedly enabled: %+v", payload.Temporal)
+		}
+		if payload.Temporal.Mode != "local" || payload.Temporal.Address != "127.0.0.1:7233" || payload.Temporal.Namespace != "default" {
+			t.Fatalf("temporal defaults = %+v", payload.Temporal)
+		}
+		if payload.Temporal.TaskQueuePrefix != "onlava.inspectapp" {
+			t.Fatalf("task_queue_prefix = %q", payload.Temporal.TaskQueuePrefix)
+		}
+		if payload.Temporal.DeploymentName != "onlava-inspectapp" || payload.Temporal.WorkerBuildID != "dev" || payload.Temporal.WorkerBuildIDSet {
+			t.Fatalf("worker metadata = %+v", payload.Temporal)
+		}
+		if payload.Temporal.Versioning != "pinned" {
+			t.Fatalf("versioning = %q", payload.Temporal.Versioning)
+		}
+		if payload.Connectivity.Checked {
+			t.Fatalf("connectivity checked while disabled: %+v", payload.Connectivity)
+		}
+		if !payload.WorkerManifests.Checked || !payload.WorkerManifests.OK || payload.WorkerManifests.Count != 0 {
+			t.Fatalf("worker_manifests = %+v", payload.WorkerManifests)
+		}
+	})
 }
 
 func TestRunOnlavaInspectExcludesUnrelatedPackages(t *testing.T) {

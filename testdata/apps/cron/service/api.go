@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"sync"
 
 	onlava "github.com/pbrazdil/onlava"
@@ -25,17 +27,47 @@ func Run(ctx context.Context) error {
 
 	cronMu.Lock()
 	defer cronMu.Unlock()
-	cronState.Count++
-	cronState.Cron = req.CronIdempotencyKey
-	cronState.Type = string(req.Type)
-	cronState.Path = req.Path
-	return nil
+	state := readCronState()
+	state.Count++
+	state.Cron = req.CronIdempotencyKey
+	state.Type = string(req.Type)
+	state.Path = req.Path
+	cronState = state
+	return writeCronState(state)
+}
+
+func readCronState() StatusResponse {
+	path := os.Getenv("ONLAVA_CRON_STATE_PATH")
+	if path == "" {
+		return cronState
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return StatusResponse{}
+	}
+	var state StatusResponse
+	if err := json.Unmarshal(data, &state); err != nil {
+		return StatusResponse{}
+	}
+	return state
+}
+
+func writeCronState(state StatusResponse) error {
+	path := os.Getenv("ONLAVA_CRON_STATE_PATH")
+	if path == "" {
+		return nil
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 //onlava:api public path=/cron/status method=GET
 func Status(ctx context.Context) (*StatusResponse, error) {
 	cronMu.Lock()
 	defer cronMu.Unlock()
-	resp := cronState
+	resp := readCronState()
 	return &resp, nil
 }

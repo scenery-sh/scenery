@@ -29,7 +29,6 @@ func BuildMetadataSnapshot(app *model.App) (json.RawMessage, error) {
 		"svcs":                buildServices(app),
 		"cron_jobs":           buildCronJobs(app),
 		"middleware":          buildMiddleware(app),
-		"pubsub_topics":       []any{},
 		"cache_clusters":      []any{},
 		"experiments":         []any{},
 		"metrics":             []any{},

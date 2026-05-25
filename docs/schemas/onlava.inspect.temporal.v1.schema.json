@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.inspect.temporal.v1.schema.json",
+  "title": "onlava.inspect.temporal.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "temporal", "connectivity", "worker_manifests"],
+  "properties": {
+    "schema_version": { "const": "onlava.inspect.temporal.v1" },
+    "app": { "$ref": "#/$defs/appRef" },
+    "temporal": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "mode",
+        "address",
+        "address_env",
+        "address_env_set",
+        "namespace",
+        "namespace_env_set",
+        "task_queue_prefix",
+        "deployment_name",
+        "deployment_env",
+        "deployment_env_set",
+        "worker_build_id",
+        "worker_build_id_env",
+        "worker_build_id_set",
+        "versioning",
+        "versioning_env",
+        "versioning_env_set",
+        "local_auto_start",
+        "local_db_filename",
+        "connect_timeout_ms"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string" },
+        "address": { "type": "string" },
+        "address_env": { "type": "string" },
+        "address_env_set": { "type": "boolean" },
+        "namespace": { "type": "string" },
+        "namespace_env_set": { "type": "boolean" },
+        "task_queue_prefix": { "type": "string" },
+        "deployment_name": { "type": "string" },
+        "deployment_env": { "type": "string" },
+        "deployment_env_set": { "type": "boolean" },
+        "worker_build_id": { "type": "string" },
+        "worker_build_id_env": { "type": "string" },
+        "worker_build_id_set": { "type": "boolean" },
+        "versioning": { "type": "string" },
+        "versioning_env": { "type": "string" },
+        "versioning_env_set": { "type": "boolean" },
+        "local_auto_start": { "type": "boolean" },
+        "local_db_filename": { "type": "string" },
+        "connect_timeout_ms": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "connectivity": {
+      "type": "object",
+      "required": ["checked", "reachable"],
+      "properties": {
+        "checked": { "type": "boolean" },
+        "reachable": { "type": "boolean" },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "worker_manifests": {
+      "type": "object",
+      "required": ["checked", "ok", "count", "manifests"],
+      "properties": {
+        "checked": { "type": "boolean" },
+        "ok": { "type": "boolean" },
+        "count": { "type": "integer", "minimum": 0 },
+        "manifests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "app", "language", "build_id", "payload_codec", "namespace", "task_queues", "activities"],
+            "properties": {
+              "path": { "type": "string" },
+              "app": { "type": "string" },
+              "language": { "type": "string" },
+              "build_id": { "type": "string" },
+              "payload_codec": { "type": "string" },
+              "namespace": { "type": "string" },
+              "task_queues": { "type": "array", "items": { "type": "string" } },
+              "activities": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["message"],
+            "properties": {
+              "path": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": ["name", "root", "config_path"],
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "type": "string" },
+        "root": { "type": "string" },
+        "config_path": { "type": "string" },
+        "module_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

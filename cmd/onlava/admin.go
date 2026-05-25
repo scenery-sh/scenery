@@ -5,12 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"strings"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/devdash"
@@ -36,8 +31,6 @@ type adminAppRef struct {
 	Name string `json:"name"`
 	Root string `json:"root"`
 }
-
-var dashboardWSDialer = websocket.DefaultDialer
 
 func adminCommand(args []string) error {
 	return runOnlavaAdmin(context.Background(), args, os.Stdout)
@@ -85,16 +78,6 @@ func runOnlavaAdmin(ctx context.Context, args []string, stdout io.Writer) error 
 			"app_id":  appID,
 			"cleared": "traces",
 		}
-	case "pubsub/clear":
-		result, err := callDashboardRPC(ctx, "pubsub/clear", map[string]any{"app_id": appID})
-		if err != nil {
-			return err
-		}
-		data, err := rpcResultMap(result)
-		if err != nil {
-			return err
-		}
-		resp.Data = data
 	default:
 		return fmt.Errorf("unsupported admin command %q", opts.Domain+" "+opts.Action)
 	}
@@ -104,7 +87,7 @@ func runOnlavaAdmin(ctx context.Context, args []string, stdout io.Writer) error 
 
 func parseAdminArgs(args []string) (adminOptions, error) {
 	if len(args) < 2 {
-		return adminOptions{}, fmt.Errorf("usage: onlava admin traces clear --json [--app-root <path>] | onlava admin pubsub clear --json [--app-root <path>]")
+		return adminOptions{}, fmt.Errorf("usage: onlava admin traces clear --json [--app-root <path>]")
 	}
 	opts := adminOptions{
 		Domain: args[0],
@@ -131,55 +114,4 @@ func writeAdminJSON(w io.Writer, payload adminResponse) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(payload)
-}
-
-func callDashboardRPC(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	wsURL := url.URL{Scheme: "ws", Host: devdash.ListenAddr(), Path: devdash.WebSocketPath}
-	conn, resp, err := dashboardWSDialer.DialContext(ctx, wsURL.String(), http.Header{})
-	if err != nil {
-		if resp != nil {
-			return nil, fmt.Errorf("onlava dashboard RPC unavailable: %s", resp.Status)
-		}
-		return nil, fmt.Errorf("onlava dashboard RPC unavailable: %w", err)
-	}
-	defer conn.Close()
-
-	req := rpcRequest{
-		JSONRPC: "2.0",
-		ID:      "onlava-admin",
-		Method:  method,
-	}
-	if params != nil {
-		raw, err := json.Marshal(params)
-		if err != nil {
-			return nil, err
-		}
-		req.Params = raw
-	}
-	if err := conn.WriteJSON(req); err != nil {
-		return nil, err
-	}
-	var respMsg rpcResponse
-	if err := conn.ReadJSON(&respMsg); err != nil {
-		return nil, err
-	}
-	if respMsg.Error != nil {
-		return nil, fmt.Errorf("%s", strings.TrimSpace(respMsg.Error.Message))
-	}
-	data, err := json.Marshal(respMsg.Result)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(data), nil
-}
-
-func rpcResultMap(raw json.RawMessage) (map[string]any, error) {
-	if len(raw) == 0 {
-		return map[string]any{}, nil
-	}
-	var data map[string]any
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return nil, err
-	}
-	return data, nil
 }

@@ -1,4 +1,4 @@
-My verdict: do not freeze the current feature set as-is. Freeze a smaller, boring, reliable v0. onlava is close to having a strong local-first developer runtime, but right now the app runtime, dev supervisor, dashboard, local HTTPS proxy, DB Studio, Pub/Sub, cron, and MCP are interwoven. That is the main production-readiness risk.
+My verdict: do not freeze the current feature set as-is. Freeze a smaller, boring, reliable v0. onlava is close to having a strong local-first developer runtime, but right now the app runtime, dev supervisor, dashboard, local HTTPS proxy, DB Studio, Temporal workers, cron, and MCP are interwoven. That is the main production-readiness risk.
 
 I could not run the full Go test suite here because go.mod requires Go 1.26.0 and this container has Go 1.23.2; Go attempted to auto-download 1.26.0, but network/DNS is blocked. So the findings below are from static source audit, not a green test run.
 
@@ -31,7 +31,7 @@ Beta / dev-only:
   DB Studio
   local HTTPS proxy
   trust-store installation
-  Pub/Sub UI
+  Temporal worker tooling
   cron UI
   MCP server
   psql helper
@@ -98,11 +98,10 @@ Things that need to be redone or reworked
 runtime/server.go mounts dev/admin/platform endpoints on the same public router as user APIs:
 
 * /__onlava/config at runtime/server.go:67-79
-* /__onlava/pubsub/clear at runtime/server.go:81-103
 * /platform.Stats at runtime/server.go:105-114
 * /debug/pprof/* at runtime/server.go:116-140
 
-The Pub/Sub clear endpoint has a token check, but it still lives on the app listener. platform.Stats and pprof are not obviously protected. CORS also reflects arbitrary origins and allows credentials in runtime/server.go:153-160.
+platform.Stats and pprof are not obviously protected. CORS also reflects arbitrary origins and allows credentials in runtime/server.go:153-160.
 
 For v0, the app listener should serve only user APIs. Dev/admin operations should be on a supervisor-owned local listener, local socket, or CLI-only path:
 
@@ -112,7 +111,6 @@ admin/dev listener:
   /v0/status
   /v0/routes
   /v0/traces
-  /v0/pubsub/clear
   /v0/pprof/* only when explicitly enabled
 
 This matters a lot if users run with --listen 0.0.0.0:....
@@ -342,7 +340,7 @@ DB Studio
 local HTTPS proxy
 trust-store installation
 MCP
-Pub/Sub unless its lifecycle/backpressure/retry semantics are fully specified
+Temporal worker orchestration unless its lifecycle/backpressure/retry semantics are fully specified
 cron unless scheduling/missed-run semantics are fully specified
 source rewrite/direct-call behavior unless documented as public contract
 

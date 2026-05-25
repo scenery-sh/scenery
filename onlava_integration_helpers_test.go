@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	temporalclient "go.temporal.io/sdk/client"
 )
 
 var onlavaProcessSlots = make(chan struct{}, 2)
@@ -72,6 +73,7 @@ func onlavaDevEnv(repo, dashboardAddr, cacheDir string) []string {
 		"ONLAVA_DEV_DASHBOARD_ADDR="+dashboardAddr,
 		"ONLAVA_DEV_CACHE_DIR="+cacheDir,
 		"ONLAVA_DEV_DASHBOARD_UI_DIR="+filepath.Join(repo, "ui", "dist"),
+		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_LOCAL_PROXY=0",
 	)
 }
@@ -82,6 +84,7 @@ func onlavaDevProxyEnv(repo, dashboardAddr, cacheDir, httpPort, httpsPort, front
 		"ONLAVA_DEV_DASHBOARD_ADDR="+dashboardAddr,
 		"ONLAVA_DEV_CACHE_DIR="+cacheDir,
 		"ONLAVA_DEV_DASHBOARD_UI_DIR="+filepath.Join(repo, "ui", "dist"),
+		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_LOCAL_PROXY_HTTP_PORT="+httpPort,
 		"ONLAVA_LOCAL_PROXY_HTTPS_PORT="+httpsPort,
 		"ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL=1",
@@ -90,6 +93,71 @@ func onlavaDevProxyEnv(repo, dashboardAddr, cacheDir, httpPort, httpsPort, front
 		env = append(env, "ONLAVA_FRONTEND_WEB_ADDR="+frontendAddr)
 	}
 	return env
+}
+
+func startTemporalDevServerForTest(t *testing.T, cacheDir string) string {
+	t.Helper()
+	path, err := exec.LookPath("temporal")
+	if err != nil {
+		t.Skipf("temporal CLI not found in PATH: %v", err)
+	}
+	port := freePort(t)
+	uiPort := freePort(t)
+	address := "127.0.0.1:" + port
+	dbPath := filepath.Join(cacheDir, "temporal", "test.sqlite")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, path,
+		"server",
+		"start-dev",
+		"--ip", "127.0.0.1",
+		"--port", port,
+		"--ui-ip", "127.0.0.1",
+		"--ui-port", uiPort,
+		"--db-filename", dbPath,
+		"--log-level", "warn",
+	)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatalf("start temporal dev server: %v", err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	})
+	waitForTemporalAddress(t, address, &output)
+	return address
+}
+
+func waitForTemporalAddress(t *testing.T, address string, output *bytes.Buffer) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		client, err := temporalclient.DialContext(ctx, temporalclient.Options{
+			HostPort:  address,
+			Namespace: "default",
+		})
+		cancel()
+		if err == nil {
+			client.Close()
+			return
+		}
+		lastErr = err
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("temporal dev server did not become reachable at %s: %v\n%s", address, lastErr, output.String())
 }
 
 func stopOnlavaProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
@@ -340,6 +408,28 @@ func waitForHTTP(t *testing.T, url string) {
 	t.Helper()
 	client := &http.Client{Timeout: time.Second}
 	waitForURL(t, client, url)
+}
+
+func waitForHTTPWithProcessOutput(t *testing.T, url string, outputs ...fmt.Stringer) {
+	t.Helper()
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	var detail strings.Builder
+	for i, output := range outputs {
+		if output == nil {
+			continue
+		}
+		fmt.Fprintf(&detail, "\nprocess %d output:\n%s", i+1, output.String())
+	}
+	t.Fatalf("server did not start: %s%s", url, detail.String())
 }
 
 func waitForURL(t *testing.T, client *http.Client, url string) {

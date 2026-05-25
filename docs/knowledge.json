@@ -94,6 +94,18 @@
       "tags": ["contract", "cli", "agents", "schemas"]
     },
     {
+      "path": "docs/grafana.md",
+      "title": "Grafana Dev Integration",
+      "owner": "onlava runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-05-25",
+      "review_after": "2026-06-24",
+      "summary": "Dev-only Grafana supervision, provisioning paths, stable datasource/dashboard UIDs, and environment controls.",
+      "tags": ["grafana", "observability", "dev", "victoria"]
+    },
+    {
       "path": "docs/harness-engineering.md",
       "title": "onlava Harness Engineering",
       "owner": "onlava runtime",
@@ -126,7 +138,7 @@
       "freshness": "current",
       "last_reviewed": "2026-05-09",
       "review_after": "2026-06-08",
-      "summary": "Practical recipes for building onlava apps, endpoints, auth, middleware, Pub/Sub, cron, generated clients, proxy config, and validation workflows.",
+      "summary": "Practical recipes for building onlava apps, endpoints, auth, middleware, Temporal workers, cron, generated clients, proxy config, and validation workflows.",
       "tags": ["cookbook", "apps", "agents", "runtime"]
     },
     {
@@ -152,18 +164,6 @@
       "review_after": "2026-06-08",
       "summary": "Rules for composing dashboard and app UI from onlava-owned primitives, layouts, and the @onlava registry instead of direct shadcn usage.",
       "tags": ["ui", "agents", "shadcn", "registry", "guardrails"]
-    },
-    {
-      "path": "docs/PRD-1-pubsub.md",
-      "title": "Pub/Sub PRD",
-      "owner": "onlava runtime",
-      "status": "reference",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Embedded NATS-backed Pub/Sub design and developer API.",
-      "tags": ["pubsub", "nats", "runtime"]
     },
     {
       "path": "docs/PRD-2-proto.md",

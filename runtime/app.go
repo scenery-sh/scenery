@@ -23,9 +23,14 @@ func ListenAddrFromEnv() string {
 }
 
 func Main(cfg AppConfig) error {
+	role, err := runtimeRoleFromEnv()
+	if err != nil {
+		return err
+	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
 	}
+	cfg.Role = string(role)
 	SetAppConfig(cfg)
 	stopReporting := startDevelopmentReporting(cfg)
 	defer stopReporting()
@@ -36,18 +41,45 @@ func Main(cfg AppConfig) error {
 	stopSupervisorMonitor := startSupervisorParentMonitor(cancelRun)
 	defer stopSupervisorMonitor()
 
-	server, err := newServer(cfg.ListenAddr)
-	if err != nil {
-		return err
-	}
 	if err := InitializeServices(); err != nil {
 		return err
 	}
-	stopPubSub, err := startLocalPubSubRuntime(runCtx, cfg)
+	stopTemporal, err := StartTemporalRuntime(runCtx, cfg)
 	if err != nil {
 		return err
 	}
-	scheduler := startCronScheduler(runCtx)
+	stopTemporalWorkers, err := startTemporalWorkerRuntime(runCtx, cfg)
+	if err != nil {
+		_ = stopTemporal(context.Background())
+		return err
+	}
+	scheduler, err := startCronScheduler(runCtx, cfg)
+	if err != nil {
+		_ = stopTemporalWorkers(context.Background())
+		_ = stopTemporal(context.Background())
+		return err
+	}
+
+	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	go func() {
+		<-sigCtx.Done()
+		stopSignals()
+		cancelRun()
+	}()
+
+	if role == runtimeRoleWorker {
+		logTrace(context.Background(), "worker runtime started")
+		<-runCtx.Done()
+		cancelRun()
+		return shutdownRuntime(nil, stopTemporalWorkers, stopTemporal, scheduler)
+	}
+
+	server, err := newServer(cfg.ListenAddr)
+	if err != nil {
+		cancelRun()
+		return shutdownRuntime(nil, stopTemporalWorkers, stopTemporal, scheduler)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -77,21 +109,13 @@ func Main(cfg AppConfig) error {
 	logTrace(context.Background(), fmt.Sprintf("registered %d API endpoints", len(listEndpoints())))
 	logTrace(context.Background(), "listening for incoming HTTP requests")
 
-	sigCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
-	go func() {
-		<-sigCtx.Done()
-		stopSignals()
-		cancelRun()
-	}()
-
 	select {
 	case <-runCtx.Done():
 		cancelRun()
-		return shutdownRuntime(server, stopPubSub, scheduler)
+		return shutdownRuntime(server, stopTemporalWorkers, stopTemporal, scheduler)
 	case err := <-errCh:
 		cancelRun()
-		stopErr := shutdownRuntime(server, stopPubSub, scheduler)
+		stopErr := shutdownRuntime(server, stopTemporalWorkers, stopTemporal, scheduler)
 		if errors.Is(err, http.ErrServerClosed) {
 			return stopErr
 		}
@@ -99,7 +123,29 @@ func Main(cfg AppConfig) error {
 	}
 }
 
-func shutdownRuntime(server *http.Server, stopPubSub func(context.Context) error, scheduler *cronScheduler) error {
+type runtimeRole string
+
+const (
+	runtimeRoleAll    runtimeRole = "all"
+	runtimeRoleAPI    runtimeRole = "api"
+	runtimeRoleWorker runtimeRole = "worker"
+)
+
+func runtimeRoleFromEnv() (runtimeRole, error) {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("ONLAVA_ROLE")))
+	switch value {
+	case "", string(runtimeRoleAll):
+		return runtimeRoleAll, nil
+	case string(runtimeRoleAPI):
+		return runtimeRoleAPI, nil
+	case string(runtimeRoleWorker):
+		return runtimeRoleWorker, nil
+	default:
+		return "", fmt.Errorf("runtime: unsupported ONLAVA_ROLE %q", value)
+	}
+}
+
+func shutdownRuntime(server *http.Server, stopTemporalWorkers func(context.Context) error, stopTemporal func(context.Context) error, scheduler *cronScheduler) error {
 	var shutdownErrs []error
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -110,18 +156,26 @@ func shutdownRuntime(server *http.Server, stopPubSub func(context.Context) error
 		}
 	}
 
-	pubsubCtx, pubsubCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer pubsubCancel()
-	if stopPubSub != nil {
-		if err := stopPubSub(pubsubCtx); err != nil && !errors.Is(err, context.Canceled) {
-			shutdownErrs = append(shutdownErrs, err)
-		}
-	}
-
 	cronCtx, cronCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cronCancel()
 	if scheduler != nil {
 		if err := scheduler.Stop(cronCtx); err != nil && !errors.Is(err, context.Canceled) {
+			shutdownErrs = append(shutdownErrs, err)
+		}
+	}
+
+	temporalWorkersCtx, temporalWorkersCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer temporalWorkersCancel()
+	if stopTemporalWorkers != nil {
+		if err := stopTemporalWorkers(temporalWorkersCtx); err != nil && !errors.Is(err, context.Canceled) {
+			shutdownErrs = append(shutdownErrs, err)
+		}
+	}
+
+	temporalCtx, temporalCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer temporalCancel()
+	if stopTemporal != nil {
+		if err := stopTemporal(temporalCtx); err != nil && !errors.Is(err, context.Canceled) {
 			shutdownErrs = append(shutdownErrs, err)
 		}
 	}

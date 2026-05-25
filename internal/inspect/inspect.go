@@ -33,11 +33,12 @@ type AppResponse struct {
 }
 
 type AppCounts struct {
-	Packages    int `json:"packages"`
-	Services    int `json:"services"`
-	Endpoints   int `json:"endpoints"`
-	Middleware  int `json:"middleware"`
-	AuthHandler int `json:"auth_handler"`
+	Packages            int `json:"packages"`
+	Services            int `json:"services"`
+	Endpoints           int `json:"endpoints"`
+	Middleware          int `json:"middleware"`
+	AuthHandler         int `json:"auth_handler"`
+	RuntimeDeclarations int `json:"runtime_declarations"`
 }
 
 type AuthBriefInfo struct {
@@ -134,8 +135,9 @@ func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResp
 		App:           appInfo(appRoot, cfg, app),
 		Config:        cfg,
 		Counts: AppCounts{
-			Packages:   len(relevantAppPackageDirs(app)),
-			Middleware: len(app.Middleware),
+			Packages:            len(relevantAppPackageDirs(app)),
+			Middleware:          len(app.Middleware),
+			RuntimeDeclarations: len(app.Runtime),
 		},
 	}
 	for _, svc := range filteredModelServices(app.Services) {

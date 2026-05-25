@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/printer"
 	"go/token"
 	"go/types"
@@ -93,6 +94,10 @@ func App(root, name string) (*model.App, error) {
 	slices.SortFunc(app.Packages, func(a, b *model.Package) int {
 		return strings.Compare(a.RelDir, b.RelDir)
 	})
+	for _, pkg := range app.Packages {
+		pkg.Runtime = discoverRuntimeDeclarations(pkg)
+		app.Runtime = append(app.Runtime, pkg.Runtime...)
+	}
 
 	var rawEndpoints []*model.Endpoint
 	var authHandlers []*model.AuthHandler
@@ -848,6 +853,129 @@ func parseMiddlewareTargets(value string) ([]model.Selector, error) {
 		}
 	}
 	return targets, nil
+}
+
+func discoverRuntimeDeclarations(pkg *model.Package) []*model.RuntimeDeclaration {
+	if pkg == nil || pkg.GoPkg == nil {
+		return nil
+	}
+	var decls []*model.RuntimeDeclaration
+	for _, file := range pkg.Files {
+		aliases := runtimeImportAliases(file.AST)
+		if len(aliases) == 0 {
+			continue
+		}
+		ast.Inspect(file.AST, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := selectorFromRuntimeCall(call.Fun)
+			if !ok {
+				return true
+			}
+			ident, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			importPath, ok := aliases[ident.Name]
+			if !ok {
+				return true
+			}
+			kind, nameArg, ok := runtimeDeclarationKind(importPath, sel.Sel.Name)
+			if !ok {
+				return true
+			}
+			decls = append(decls, &model.RuntimeDeclaration{
+				Package:  pkg,
+				File:     file,
+				Kind:     kind,
+				Name:     runtimeDeclarationName(pkg, call, nameArg),
+				CallName: sel.Sel.Name,
+				TokenPos: call.Lparen,
+			})
+			return true
+		})
+	}
+	slices.SortFunc(decls, func(a, b *model.RuntimeDeclaration) int {
+		if cmp := strings.Compare(a.File.Path, b.File.Path); cmp != 0 {
+			return cmp
+		}
+		if a.TokenPos < b.TokenPos {
+			return -1
+		}
+		if a.TokenPos > b.TokenPos {
+			return 1
+		}
+		return 0
+	})
+	return decls
+}
+
+func runtimeImportAliases(file *ast.File) map[string]string {
+	aliases := make(map[string]string)
+	if file == nil {
+		return aliases
+	}
+	for _, imp := range file.Imports {
+		importPath := strings.Trim(imp.Path.Value, "\"")
+		defaultAlias := ""
+		switch importPath {
+		case "github.com/pbrazdil/onlava/temporal":
+			defaultAlias = "temporal"
+		case "github.com/pbrazdil/onlava/cron":
+			defaultAlias = "cron"
+		default:
+			continue
+		}
+		if imp.Name != nil && imp.Name.Name != "." {
+			aliases[imp.Name.Name] = importPath
+			continue
+		}
+		aliases[defaultAlias] = importPath
+	}
+	return aliases
+}
+
+func runtimeDeclarationKind(importPath, callName string) (model.RuntimeDeclarationKind, int, bool) {
+	switch importPath {
+	case "github.com/pbrazdil/onlava/temporal":
+		switch callName {
+		case "NewWorkflow":
+			return model.RuntimeDeclarationTemporalWorkflow, 0, true
+		case "NewActivity":
+			return model.RuntimeDeclarationTemporalActivity, 0, true
+		}
+	case "github.com/pbrazdil/onlava/cron":
+		if callName == "NewJob" {
+			return model.RuntimeDeclarationCronJob, 0, true
+		}
+	}
+	return "", 0, false
+}
+
+func runtimeDeclarationName(pkg *model.Package, call *ast.CallExpr, arg int) string {
+	if pkg == nil || pkg.GoPkg == nil || call == nil || arg < 0 || arg >= len(call.Args) {
+		return ""
+	}
+	tv, ok := pkg.GoPkg.TypesInfo.Types[call.Args[arg]]
+	if !ok || tv.Value == nil || tv.Value.Kind() != constant.String {
+		return ""
+	}
+	return constant.StringVal(tv.Value)
+}
+
+func selectorFromRuntimeCall(expr ast.Expr) (*ast.SelectorExpr, bool) {
+	switch v := expr.(type) {
+	case *ast.SelectorExpr:
+		return v, true
+	case *ast.IndexExpr:
+		return selectorFromRuntimeCall(v.X)
+	case *ast.IndexListExpr:
+		return selectorFromRuntimeCall(v.X)
+	default:
+		return nil, false
+	}
 }
 
 func sortMiddleware(root string, middlewares []*model.Middleware) {

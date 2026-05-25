@@ -236,50 +236,47 @@ func TestOnlavaRunProductionFailsForMissingSecrets(t *testing.T) {
 	}
 }
 
-func TestOnlavaRunPopulatesSecretsBeforePubSubPackageDeclarations(t *testing.T) {
+func TestOnlavaRunPopulatesSecretsBeforeTemporalPackageDeclarations(t *testing.T) {
 	t.Parallel()
 	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
-	appDir := filepath.Join(t.TempDir(), "pubsubsecrets")
-	writeFile(t, filepath.Join(appDir, "go.mod"), "module example.com/pubsubsecrets\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repo+"\n")
-	writeFile(t, filepath.Join(appDir, ".onlava.json"), `{"name":"pubsubsecrets"}`)
-	writeFile(t, filepath.Join(appDir, ".env"), "TestQueueConcurrency=10\n")
+	appDir := filepath.Join(t.TempDir(), "temporalsecrets")
+	writeFile(t, filepath.Join(appDir, "go.mod"), "module example.com/temporalsecrets\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repo+"\n")
+	writeFile(t, filepath.Join(appDir, ".onlava.json"), `{"name":"temporalsecrets"}`)
+	writeFile(t, filepath.Join(appDir, ".env"), "TestActivityTimeoutSeconds=10\n")
 	writeFile(t, filepath.Join(appDir, "queue", "api.go"), `package queue
 
 import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/pbrazdil/onlava/pubsub"
+	"github.com/pbrazdil/onlava/temporal"
 )
 
 var secrets struct {
-	TestQueueConcurrency string
+	TestActivityTimeoutSeconds string
 }
 
-type Event struct {
+type Input struct {
 	ID string `+"`json:\"id\"`"+`
 }
 
 type Response struct {
-	MaxConcurrency int    `+"`json:\"max_concurrency\"`"+`
+	TimeoutSeconds int    `+"`json:\"timeout_seconds\"`"+`
 	Secret         string `+"`json:\"secret\"`"+`
 }
 
-var topic = pubsub.NewTopic[*Event]("events", pubsub.TopicConfig{
-	DeliveryGuarantee: pubsub.AtLeastOnce,
+var activity = temporal.NewActivity[*Input, temporal.Void]("queue.Handle/v1", temporal.ActivityConfig{
+	TaskQueue:    "queue.go",
+	StartToClose: time.Duration(parsePositiveInt(secrets.TestActivityTimeoutSeconds, 1)) * time.Second,
+}, func(context.Context, *Input) (temporal.Void, error) {
+	return temporal.Void{}, nil
 })
 
-var maxConcurrency = parseConcurrency(secrets.TestQueueConcurrency, 1)
-
-var sub = pubsub.NewSubscription(topic, "sub", pubsub.SubscriptionConfig[*Event]{
-	Handler: func(ctx context.Context, msg *Event) error { return nil },
-	MaxConcurrency: maxConcurrency,
-})
-
-func parseConcurrency(value string, fallback int) int {
+func parsePositiveInt(value string, fallback int) int {
 	parsed, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil || parsed <= 0 {
 		return fallback
@@ -290,8 +287,8 @@ func parseConcurrency(value string, fallback int) int {
 //onlava:api public path=/concurrency method=GET
 func Concurrency(ctx context.Context) (*Response, error) {
 	return &Response{
-		MaxConcurrency: sub.Config().MaxConcurrency,
-		Secret: secrets.TestQueueConcurrency,
+		TimeoutSeconds: int(activity.Config().StartToClose / time.Second),
+		Secret: secrets.TestActivityTimeoutSeconds,
 	}, nil
 }
 `)
@@ -300,13 +297,14 @@ func Concurrency(ctx context.Context) (*Response, error) {
 	addr := "127.0.0.1:" + port
 	dashAddr := "127.0.0.1:" + freePort(t)
 	cacheDir := filepath.Join(t.TempDir(), "cache")
+	temporalAddr := startTemporalDevServerForTest(t, cacheDir)
 	binary := buildOnlavaBinary(t, repo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = onlavaRunEnv(repo, dashAddr, cacheDir)
+	cmd.Env = append(onlavaRunEnv(repo, dashAddr, cacheDir), "TEMPORAL_ADDRESS="+temporalAddr)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	cmd.Stdin = nil
@@ -319,7 +317,7 @@ func Concurrency(ctx context.Context) (*Response, error) {
 
 	waitForHTTP(t, "http://"+addr+"/concurrency")
 	getJSON(t, "http://"+addr+"/concurrency", nil, http.StatusOK, map[string]any{
-		"max_concurrency": 10,
+		"timeout_seconds": 10,
 		"secret":          "10",
 	})
 }
@@ -427,16 +425,44 @@ func TestOnlavaRunExecutesCronJobs(t *testing.T) {
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
 	dashAddr := "127.0.0.1:" + freePort(t)
-	cacheDir := filepath.Join(t.TempDir(), "cache")
+	tmpDir := t.TempDir()
+	apiCacheDir := filepath.Join(tmpDir, "api-cache")
+	workerCacheDir := filepath.Join(tmpDir, "worker-cache")
+	temporalCacheDir := filepath.Join(tmpDir, "temporal-cache")
+	statePath := filepath.Join(tmpDir, "cron-state.json")
 	binary := buildOnlavaBinary(t, repo)
+	temporalAddr := startTemporalDevServerForTest(t, temporalCacheDir)
+	commonEnv := []string{
+		"TEMPORAL_ADDRESS=" + temporalAddr,
+		"ONLAVA_CRON_STATE_PATH=" + statePath,
+		"ONLAVA_BUILD_ID=test",
+	}
+	apiEnv := append(onlavaRunEnv(repo, dashAddr, apiCacheDir), commonEnv...)
+	workerEnv := append(onlavaRunEnv(repo, dashAddr, workerCacheDir), commonEnv...)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	var workerOutput strings.Builder
+	workerCmd := exec.CommandContext(workerCtx, binary, "worker")
+	workerCmd.Env = workerEnv
+	workerCmd.Stdout = &workerOutput
+	workerCmd.Stderr = &workerOutput
+	workerCmd.Stdin = nil
+	workerCmd.Dir = appDir
+	workerCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := workerCmd.Start(); err != nil {
+		t.Fatalf("start onlava worker: %v", err)
+	}
+	defer stopOnlavaProcess(t, workerCancel, workerCmd)
+
+	var apiOutput strings.Builder
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = onlavaRunEnv(repo, dashAddr, cacheDir)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd.Env = apiEnv
+	cmd.Stdout = &apiOutput
+	cmd.Stderr = &apiOutput
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -445,7 +471,7 @@ func TestOnlavaRunExecutesCronJobs(t *testing.T) {
 	}
 	defer stopOnlavaProcess(t, cancel, cmd)
 
-	waitForHTTP(t, "http://"+addr+"/cron/status")
+	waitForHTTPWithProcessOutput(t, "http://"+addr+"/cron/status", &apiOutput, &workerOutput)
 	waitForCronStatus(t, "http://"+addr+"/cron/status")
 }
 

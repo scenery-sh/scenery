@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/build"
@@ -15,6 +16,8 @@ import (
 	"github.com/pbrazdil/onlava/internal/model"
 	"github.com/pbrazdil/onlava/internal/parse"
 	"github.com/pbrazdil/onlava/internal/wiremodel"
+	"github.com/pbrazdil/onlava/internal/workers"
+	onlavaruntime "github.com/pbrazdil/onlava/runtime"
 )
 
 type inspectOptions struct {
@@ -62,6 +65,43 @@ type inspectPathsRecord struct {
 	WorkspaceDir   string `json:"workspace_dir"`
 	BinaryPath     string `json:"binary_path"`
 	BuildStatePath string `json:"build_state_path"`
+}
+
+type inspectTemporalResponse struct {
+	SchemaVersion   string                `json:"schema_version"`
+	App             inspectdata.AppRef    `json:"app"`
+	Temporal        inspectTemporalRecord `json:"temporal"`
+	Connectivity    temporalConnectivity  `json:"connectivity"`
+	WorkerManifests workers.Validation    `json:"worker_manifests"`
+}
+
+type inspectTemporalRecord struct {
+	Enabled          bool   `json:"enabled"`
+	Mode             string `json:"mode"`
+	Address          string `json:"address"`
+	AddressEnv       string `json:"address_env"`
+	AddressEnvSet    bool   `json:"address_env_set"`
+	Namespace        string `json:"namespace"`
+	NamespaceEnvSet  bool   `json:"namespace_env_set"`
+	TaskQueuePrefix  string `json:"task_queue_prefix"`
+	DeploymentName   string `json:"deployment_name"`
+	DeploymentEnv    string `json:"deployment_env"`
+	DeploymentEnvSet bool   `json:"deployment_env_set"`
+	WorkerBuildID    string `json:"worker_build_id"`
+	WorkerBuildIDEnv string `json:"worker_build_id_env"`
+	WorkerBuildIDSet bool   `json:"worker_build_id_set"`
+	Versioning       string `json:"versioning"`
+	VersioningEnv    string `json:"versioning_env"`
+	VersioningEnvSet bool   `json:"versioning_env_set"`
+	LocalAutoStart   bool   `json:"local_auto_start"`
+	LocalDBFilename  string `json:"local_db_filename"`
+	ConnectTimeoutMS int64  `json:"connect_timeout_ms"`
+}
+
+type temporalConnectivity struct {
+	Checked   bool   `json:"checked"`
+	Reachable bool   `json:"reachable"`
+	Error     string `json:"error,omitempty"`
 }
 
 func inspectCommand(args []string) error {
@@ -173,6 +213,9 @@ func runOnlavaInspect(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
+		return writeInspectJSON(stdout, resp)
+	case "temporal":
+		resp := buildInspectTemporalResponse(context.Background(), appRoot, cfg)
 		return writeInspectJSON(stdout, resp)
 	case "traces":
 		resp, err := buildInspectTracesResponse(context.Background(), appRoot, cfg, opts.Trace)
@@ -359,6 +402,58 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 		},
 	}
 	return resp, nil
+}
+
+func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcfg.Config) inspectTemporalResponse {
+	checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	info, status := onlavaruntime.CheckTemporalConnection(checkCtx, cfg.Name, temporalRuntimeConfigFromApp(cfg.Temporal))
+	return inspectTemporalResponse{
+		SchemaVersion: "onlava.inspect.temporal.v1",
+		App:           inspectAppInfo(appRoot, cfg, nil),
+		Temporal: inspectTemporalRecord{
+			Enabled:          info.Enabled,
+			Mode:             info.Mode,
+			Address:          info.Address,
+			AddressEnv:       info.AddressEnv,
+			AddressEnvSet:    info.AddressEnvSet,
+			Namespace:        info.Namespace,
+			NamespaceEnvSet:  info.NamespaceEnvSet,
+			TaskQueuePrefix:  info.TaskQueuePrefix,
+			DeploymentName:   info.DeploymentName,
+			DeploymentEnv:    info.DeploymentEnv,
+			DeploymentEnvSet: info.DeploymentEnvSet,
+			WorkerBuildID:    info.WorkerBuildID,
+			WorkerBuildIDEnv: info.WorkerBuildIDEnv,
+			WorkerBuildIDSet: info.WorkerBuildIDSet,
+			Versioning:       info.Versioning,
+			VersioningEnv:    info.VersioningEnv,
+			VersioningEnvSet: info.VersioningEnvSet,
+			LocalAutoStart:   info.LocalAutoStart,
+			LocalDBFilename:  info.LocalDBFilename,
+			ConnectTimeoutMS: info.ConnectTimeoutMS,
+		},
+		Connectivity: temporalConnectivity{
+			Checked:   status.Checked,
+			Reachable: status.Reachable,
+			Error:     status.Error,
+		},
+		WorkerManifests: workers.ValidateWithKnownActivities(appRoot, cfg.Name, knownTemporalActivityNames(appRoot, cfg.Name)),
+	}
+}
+
+func knownTemporalActivityNames(appRoot, appName string) []string {
+	appModel, err := parse.App(appRoot, appName)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, decl := range appModel.Runtime {
+		if decl.Kind == model.RuntimeDeclarationTemporalActivity && decl.Name != "" {
+			names = append(names, decl.Name)
+		}
+	}
+	return names
 }
 
 func inspectAppInfo(appRoot string, cfg appcfg.Config, app *model.App) inspectdata.AppRef {

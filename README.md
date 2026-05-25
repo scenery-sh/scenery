@@ -6,13 +6,13 @@ onlava is a Go-native local runtime and toolchain for building service applicati
 
 Applications mark their root with `.onlava.json`, declare endpoints with `//onlava:` directives, and run as one local HTTP server. onlava handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, and TypeScript client generation.
 
-onlava is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, DB Studio, MCP endpoint, Victoria observability sidecars, local HTTPS proxy, Pub/Sub UI, and cron UI are development-focused companion tools.
+onlava is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, DB Studio, MCP endpoint, Victoria observability sidecars, Grafana workbench, local HTTPS proxy, Temporal worker tooling, and cron UI are development-focused companion tools.
 
 ## Why onlava?
 
-- **Go source is the app model.** Services, APIs, auth handlers, middleware, Pub/Sub handlers, and cron jobs are discovered from Go code.
+- **Go source is the app model.** Services, APIs, auth handlers, middleware, Temporal workflows and activities, and cron jobs are discovered from Go code.
 - **One local app server.** `onlava run` builds once and starts a headless, production-like HTTP server.
-- **Full local dev loop.** `onlava dev` adds file watching, rebuild/restart supervision, dashboard, API explorer, DB Studio, logs, traces, metrics, and optional HTTPS local domains.
+- **Full local dev loop.** `onlava dev` adds file watching, rebuild/restart supervision, dashboard, API explorer, DB Studio, logs, traces, metrics, Grafana, and optional HTTPS local domains.
 - **Typed HTTP by default.** onlava decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
 - **Inspectable by tools and agents.** `onlava inspect`, `onlava check`, `onlava logs`, and `onlava harness` expose machine-readable JSON contracts.
@@ -32,7 +32,8 @@ Available now:
 - private/internal endpoint calls
 - secrets from environment and local `.env`
 - local logs, traces, and metrics inspection
-- Pub/Sub and cron local runtime support
+- local Grafana provisioning over Victoria observability sidecars
+- Temporal workflow/activity and cron local runtime support
 - local HTTPS/frontend proxy with optional trust-store installation
 - dashboard, API explorer, MCP endpoint, and DB Studio integration
 - TypeScript client generation
@@ -197,7 +198,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - `github.com/pbrazdil/onlava/auth` exposes request auth state helpers.
 - `github.com/pbrazdil/onlava/errs` exposes coded errors and HTTP status mapping.
 - `github.com/pbrazdil/onlava/middleware` exposes middleware request/response types.
-- `github.com/pbrazdil/onlava/pubsub` exposes local Pub/Sub declarations and runtime integration.
+- `github.com/pbrazdil/onlava/temporal` exposes workflow/activity declarations and start helpers for the onlava-managed Temporal runtime.
 - `github.com/pbrazdil/onlava/cron` exposes cron job declarations.
 - `github.com/pbrazdil/onlava/pgxpool` wraps `pgxpool` with onlava DB tracing.
 - `github.com/pbrazdil/onlava/et` exposes endpoint/service mocking helpers for tests.
@@ -212,7 +213,7 @@ The generated client understands the app's route model and local wire capabiliti
 
 ## Observability And Inspection
 
-onlava writes local development logs and traces, and `onlava dev` can run VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars for richer local inspection.
+onlava writes local development logs and traces, and `onlava dev` can run VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana for richer local inspection.
 
 Useful commands:
 
@@ -225,6 +226,8 @@ onlava inspect traces --json --since 15m --slowest
 onlava inspect metrics --json --since 1h
 onlava harness --json --write
 ```
+
+Grafana files are generated under `.onlava/grafana/`. Set `ONLAVA_DEV_GRAFANA=0` to disable it or `ONLAVA_DEV_GRAFANA=1` to require it during `onlava dev` startup.
 
 ## Development
 

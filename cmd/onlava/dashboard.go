@@ -354,36 +354,6 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 			_ = s.supervisor.store.WriteLogEvent(req.Context(), report.LogEvent)
 			go s.exportVictoriaLogEvent(report.LogEvent)
 		}
-	case "pubsub":
-		if len(report.PubSub) > 0 {
-			now := time.Now().UTC()
-			_ = s.supervisor.store.UpsertPubSubSnapshot(req.Context(), devdash.PubSubSnapshot{
-				AppID:     report.AppID,
-				Topics:    report.PubSub,
-				UpdatedAt: now,
-			})
-			s.notify(&devdash.Notification{
-				Method: "pubsub/update",
-				Params: map[string]any{
-					"app_id":     report.AppID,
-					"topics":     json.RawMessage(report.PubSub),
-					"updated_at": now,
-				},
-			})
-		}
-	case "pubsub-message":
-		if len(report.PubSubMessage) > 0 {
-			var message devdash.PubSubMessage
-			if err := json.Unmarshal(report.PubSubMessage, &message); err == nil {
-				message.AppID = firstNonEmpty(message.AppID, report.AppID)
-				_ = s.supervisor.store.UpsertPubSubMessage(req.Context(), message)
-				_ = s.supervisor.store.UpsertPubSubMessageAttempt(req.Context(), devdash.PubSubMessageAttempt(message))
-				s.notify(&devdash.Notification{
-					Method: "pubsub/message",
-					Params: message,
-				})
-			}
-		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -438,82 +408,6 @@ func (s *dashboardServer) removeClient(client *dashboardClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.clients, client)
-}
-
-func (s *dashboardServer) clearPubSub(ctx context.Context, appID string) (map[string]any, error) {
-	status, err := s.supervisor.statusFor(ctx, firstNonEmpty(appID, s.supervisor.activeAppID()))
-	if err != nil {
-		return nil, err
-	}
-	if !status.Running {
-		return nil, fmt.Errorf("app not running")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+status.Addr+"/__onlava/pubsub/clear", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+s.supervisor.reportToken)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("clear pubsub queue failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-	var out struct {
-		AppID     string          `json:"app_id"`
-		Topics    json.RawMessage `json:"topics"`
-		UpdatedAt time.Time       `json:"updated_at"`
-	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, err
-	}
-	if out.AppID == "" {
-		out.AppID = status.AppID
-	}
-	if len(out.Topics) == 0 {
-		out.Topics = json.RawMessage(`[]`)
-	}
-	if out.UpdatedAt.IsZero() {
-		out.UpdatedAt = time.Now().UTC()
-	}
-	snapshot := devdash.PubSubSnapshot{
-		AppID:     out.AppID,
-		Topics:    out.Topics,
-		UpdatedAt: out.UpdatedAt,
-	}
-	if err := s.supervisor.store.UpsertPubSubSnapshot(ctx, snapshot); err != nil {
-		return nil, err
-	}
-	if err := s.supervisor.store.MarkPubSubMessagesCleared(ctx, snapshot.AppID, snapshot.UpdatedAt); err != nil {
-		return nil, err
-	}
-	s.notify(&devdash.Notification{
-		Method: "pubsub/update",
-		Params: map[string]any{
-			"app_id":     snapshot.AppID,
-			"topics":     json.RawMessage(snapshot.Topics),
-			"updated_at": snapshot.UpdatedAt,
-		},
-	})
-	s.notify(&devdash.Notification{
-		Method: "pubsub/messages/cleared",
-		Params: map[string]any{
-			"app_id":     snapshot.AppID,
-			"updated_at": snapshot.UpdatedAt,
-		},
-	})
-	return map[string]any{
-		"app_id":     snapshot.AppID,
-		"topics":     json.RawMessage(snapshot.Topics),
-		"updated_at": snapshot.UpdatedAt,
-		"history": []map[string]any{{
-			"topics":     json.RawMessage(snapshot.Topics),
-			"updated_at": snapshot.UpdatedAt,
-		}},
-	}, nil
 }
 
 func (s *dashboardServer) apiCall(ctx context.Context, params devdash.APICallRequest) (map[string]any, error) {

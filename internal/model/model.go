@@ -17,6 +17,7 @@ type App struct {
 	Packages   []*Package
 	Services   []*Service
 	Middleware []*Middleware
+	Runtime    []*RuntimeDeclaration
 }
 
 type Service struct {
@@ -39,11 +40,29 @@ type Package struct {
 	RelDir     string
 	Files      []*File
 	Service    *Service
+	Runtime    []*RuntimeDeclaration
 }
 
 type File struct {
 	Path string
 	AST  *ast.File
+}
+
+type RuntimeDeclarationKind string
+
+const (
+	RuntimeDeclarationTemporalWorkflow RuntimeDeclarationKind = "temporal_workflow"
+	RuntimeDeclarationTemporalActivity RuntimeDeclarationKind = "temporal_activity"
+	RuntimeDeclarationCronJob          RuntimeDeclarationKind = "cron_job"
+)
+
+type RuntimeDeclaration struct {
+	Package  *Package
+	File     *File
+	Kind     RuntimeDeclarationKind
+	Name     string
+	CallName string
+	TokenPos token.Pos
 }
 
 type Receiver struct {

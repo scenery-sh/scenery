@@ -23,6 +23,7 @@ import (
 
 	"github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/build"
+	"github.com/pbrazdil/onlava/internal/codegen"
 	"github.com/pbrazdil/onlava/internal/dbstudio"
 	"github.com/pbrazdil/onlava/internal/devdash"
 	"github.com/pbrazdil/onlava/internal/devmeta"
@@ -52,7 +53,9 @@ type devSupervisor struct {
 	dbStudioUI  *dbStudioUIServer
 	dbStudioURL string
 	proxy       *localproxy.Proxy
+	temporal    *temporalDevServer
 	victoria    *victoriaStack
+	grafana     *grafanaComponent
 	reportToken string
 	console     *runConsole
 
@@ -117,6 +120,8 @@ func (s *devSupervisor) Close() error {
 		app := s.detachCurrentApp()
 		dbStudio := s.currentDBStudio()
 		victoria := s.victoria
+		grafana := s.grafana
+		temporal := s.temporal
 
 		var errs []error
 		if app != nil {
@@ -131,6 +136,16 @@ func (s *devSupervisor) Close() error {
 		}
 		if victoria != nil {
 			if err := victoria.Interrupt(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if grafana != nil {
+			if err := grafana.Interrupt(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if temporal != nil {
+			if err := temporal.Interrupt(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -193,6 +208,16 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
+		if grafana != nil {
+			if err := grafana.WaitOrKill(5 * time.Second); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if temporal != nil {
+			if err := temporal.WaitOrKill(5 * time.Second); err != nil {
+				errs = append(errs, err)
+			}
+		}
 
 		if s.store != nil {
 			if err := s.store.Close(); err != nil {
@@ -216,7 +241,13 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	if err := s.dashboard.Start(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureTemporalDevServer(ctx); err != nil {
+		return err
+	}
 	s.victoria = startVictoriaStack(s.ctx, s.root, s.console)
+	if err := s.startGrafana(s.ctx); err != nil {
+		return err
+	}
 	if err := s.startDBStudio(s.ctx); err != nil {
 		slog.Warn("db studio unavailable", "err", err)
 	}
@@ -266,7 +297,6 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			metadata = append(json.RawMessage(nil), cached.Metadata...)
 			apiEncoding = append(json.RawMessage(nil), cached.APIEncoding...)
 			result = cached.Result
-			return nil
 		}
 		model, err = parse.App(s.root, s.cfg.Name)
 		return err
@@ -287,6 +317,10 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		return s.handleCompileError(ctx, nil, nil, err)
 	}
 	if err := validateLocalSecretsFiles(s.root); err != nil {
+		return s.handleCompileError(ctx, metadata, apiEncoding, err)
+	}
+	s.cfg = effectiveDevConfigForModel(s.cfg, model)
+	if err := s.ensureTemporalDevServer(ctx); err != nil {
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
@@ -355,17 +389,6 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if err := s.persistStatus(ctx); err != nil {
 		return err
 	}
-	clearedAt := time.Now().UTC()
-	if err := s.store.MarkPubSubMessagesCleared(ctx, s.activeAppID(), clearedAt); err != nil {
-		return err
-	}
-	s.dashboard.notify(&devdash.Notification{
-		Method: "pubsub/messages/cleared",
-		Params: map[string]any{
-			"app_id":     s.activeAppID(),
-			"updated_at": clearedAt,
-		},
-	})
 
 	method := "process/start"
 	if previous != nil {
@@ -390,7 +413,9 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			MCP:       s.mcpURL(),
 			Frontends: s.frontendURLs(),
 			DBStudio:  s.dbStudioURL,
+			Temporal:  s.temporal.URL(),
 			Victoria:  s.victoria.URLs(),
+			Grafana:   s.appStatus().Grafana,
 		})
 	}
 	return nil
@@ -405,6 +430,18 @@ func (s *devSupervisor) reloadConfig() (app.Config, error) {
 		return app.Config{}, fmt.Errorf(".onlava.json moved from %s to %s", s.root, root)
 	}
 	return cfg, nil
+}
+
+func effectiveDevConfigForModel(cfg app.Config, appModel *model.App) app.Config {
+	if !codegen.AppUsesTemporalRuntime(appModel) {
+		return cfg
+	}
+	cfg.Temporal.Enabled = true
+	if strings.TrimSpace(cfg.Temporal.Mode) == "" {
+		cfg.Temporal.Mode = "local"
+	}
+	cfg.Temporal.Local.AutoStart = true
+	return cfg
 }
 
 func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage) (*runningApp, error) {
@@ -430,6 +467,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		"ONLAVA_DEV_REPORT_TOKEN="+s.reportToken,
 	)
 	cmd.Env = append(cmd.Env, s.victoria.Env()...)
+	cmd.Env = append(cmd.Env, s.temporal.Env()...)
 	if s.proxy != nil {
 		cmd.Env = append(cmd.Env, "ONLAVA_PUBLIC_BASE_URL="+s.proxy.Routes().APIURL)
 	}
@@ -668,6 +706,13 @@ func (s *devSupervisor) setRunning(pid string, metadata, apiEncoding json.RawMes
 	s.status.UpdatedAt = time.Now().UTC()
 }
 
+func (s *devSupervisor) setGrafanaState(state devdash.GrafanaState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.Grafana = encodeGrafanaState(state)
+	s.status.UpdatedAt = time.Now().UTC()
+}
+
 func (s *devSupervisor) currentApp() *runningApp {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -761,6 +806,37 @@ func (s *devSupervisor) startDBStudio(ctx context.Context) error {
 		s.mu.Unlock()
 	}()
 	return nil
+}
+
+func (s *devSupervisor) ensureTemporalDevServer(ctx context.Context) error {
+	if s == nil || s.temporal != nil {
+		return nil
+	}
+	temporal, err := startTemporalDevServer(ctx, s.root, s.cfg, s.console)
+	if err != nil {
+		return err
+	}
+	s.temporal = temporal
+	return nil
+}
+
+func (s *devSupervisor) startGrafana(ctx context.Context) error {
+	if s == nil || s.grafana != nil {
+		return nil
+	}
+	grafana, err := startGrafanaForDev(ctx, s.root, s.victoria, s.console)
+	if grafana != nil {
+		s.grafana = grafana
+		s.setGrafanaState(grafana.State())
+		_ = s.persistStatus(ctx)
+		if s.dashboard != nil {
+			s.dashboard.notify(&devdash.Notification{
+				Method: "grafana/status",
+				Params: grafana.State(),
+			})
+		}
+	}
+	return err
 }
 
 func (s *devSupervisor) activeAppID() string {
@@ -869,6 +945,7 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 		Meta:         s.status.Metadata,
 		Addr:         s.status.ListenAddr,
 		APIEncoding:  s.status.APIEncoding,
+		Grafana:      decodeGrafanaState(s.status.Grafana),
 		Compiling:    s.status.Compiling,
 		CompileError: s.status.CompileError,
 	}
@@ -913,6 +990,7 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 		Meta:         app.Metadata,
 		Addr:         app.ListenAddr,
 		APIEncoding:  app.APIEncoding,
+		Grafana:      decodeGrafanaState(app.Grafana),
 		Compiling:    app.Compiling,
 		CompileError: app.CompileError,
 	}, nil

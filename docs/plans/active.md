@@ -34,7 +34,7 @@ Current focus:
 Current focus:
 
 - Maintain editable source dashboard behavior under `ui/`.
-- Keep supported local-only surfaces first: API Explorer, traces, Pub/Sub, DB explorer, cron, service metadata.
+- Keep supported local-only surfaces first: API Explorer, traces, Data Explorer, DB explorer, cron, service metadata.
 - Avoid reintroducing cloud, Clerk, deploy, or marketing surfaces.
 
 ## Runtime Contracts

@@ -17,6 +17,7 @@ onlava harness self --json
 - [Data Platform](data-platform.md): beta dynamic data package usage, query shapes, auth tenant permissions, import/export, relations, saved views, and public error codes.
 - [App Development Cookbook](app-development-cookbook.md): practical recipes for building onlava apps.
 - [Data Platform Runbook](data-platform-runbook.md): operational guide for dynamic data, migrations, inspect data, live events, and recovery.
+- [Grafana Dev Integration](grafana.md): local Grafana provisioning and environment controls for `onlava dev`.
 - [Harness Engineering](harness-engineering.md): agent validation loop, harness outputs, and self-harness expectations.
 - [Execution Plan Standard](../PLANS.md): required structure for long-running agent-executable implementation plans.
 
@@ -33,7 +34,6 @@ onlava harness self --json
 
 ## PRDs
 
-- [Pub/Sub PRD](PRD-1-pubsub.md): embedded NATS-backed Pub/Sub behavior and developer API.
 - [Proto/Wire PRD](PRD-2-proto.md): binary wire and generated transport plan.
 - [Release Readiness PRD](PRD-3-release.md): audit and recommendations for freezing a smaller production-ready v0.
 - [Dev/Run Command Split PRD](PRD-4-devrun.md): product direction for `onlava dev`, headless `onlava run`, and `onlava build`.
@@ -49,6 +49,8 @@ Start with:
 - [onlava.harness.result.v1](schemas/onlava.harness.result.v1.schema.json)
 - [onlava.harness.self.v1](schemas/onlava.harness.self.v1.schema.json)
 - [onlava.inspect.docs.v1](schemas/onlava.inspect.docs.v1.schema.json)
+- [onlava.inspect.temporal.v1](schemas/onlava.inspect.temporal.v1.schema.json)
+- [onlava.worker.manifest.v1](schemas/onlava.worker.manifest.v1.schema.json)
 - [onlava.inspect.data.v1](schemas/onlava.inspect.data.v1.schema.json)
 - [onlava.data.export.v1](schemas/onlava.data.export.v1.schema.json)
 - [onlava.docs.index.v1](schemas/onlava.docs.index.v1.schema.json)
