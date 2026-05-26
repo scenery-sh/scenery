@@ -23,6 +23,9 @@ export interface GrafanaState {
   enabled: boolean;
   available: boolean;
   status: string;
+  server_ready?: boolean;
+  datasources_ready?: boolean;
+  dashboards_ready?: boolean;
   url?: string;
   overview_url?: string;
   logs_url?: string;

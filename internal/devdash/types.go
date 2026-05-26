@@ -52,6 +52,9 @@ type GrafanaState struct {
 	Enabled          bool               `json:"enabled"`
 	Available        bool               `json:"available"`
 	Status           string             `json:"status"`
+	ServerReady      bool               `json:"server_ready,omitempty"`
+	DatasourcesReady bool               `json:"datasources_ready,omitempty"`
+	DashboardsReady  bool               `json:"dashboards_ready,omitempty"`
 	URL              string             `json:"url,omitempty"`
 	OverviewURL      string             `json:"overview_url,omitempty"`
 	LogsURL          string             `json:"logs_url,omitempty"`

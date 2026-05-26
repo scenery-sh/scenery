@@ -484,15 +484,36 @@ func resolveGrafanaBinary(ctx context.Context, cfg grafanaConfig) (binaryPath, h
 		}
 	}
 	if path, err := exec.LookPath("grafana"); err == nil {
+		if err := verifyGrafanaPathBinaryVersion(ctx, path, cfg.Version); err != nil {
+			return "", "", err
+		}
 		return path, grafanaHomeForBinary(path, cfg.RootDir), nil
 	}
 	if path, err := exec.LookPath("grafana-server"); err == nil {
+		if err := verifyGrafanaPathBinaryVersion(ctx, path, cfg.Version); err != nil {
+			return "", "", err
+		}
 		return path, grafanaHomeForBinary(path, cfg.RootDir), nil
 	}
 	if !cfg.Download {
 		return "", "", fmt.Errorf("Grafana binary not found; set ONLAVA_GRAFANA_BIN or enable ONLAVA_DEV_GRAFANA_DOWNLOAD")
 	}
 	return "", "", err
+}
+
+func verifyGrafanaPathBinaryVersion(ctx context.Context, path, want string) error {
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(checkCtx, path, "-v")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("PATH Grafana binary %s failed version probe: %w", path, err)
+	}
+	got := strings.TrimSpace(string(output))
+	if !strings.Contains(got, want) {
+		return fmt.Errorf("PATH Grafana binary %s version %q does not match pinned version %s; set ONLAVA_GRAFANA_BIN to use it explicitly", path, got, want)
+	}
+	return nil
 }
 
 func grafanaHomeForBinary(path, root string) string {
@@ -628,7 +649,7 @@ func verifyGrafanaArchiveChecksum(ctx context.Context, archiveURL string, data [
 		return verifyGrafanaSHA256(data, value)
 	}
 	if strings.TrimSpace(os.Getenv("ONLAVA_GRAFANA_DOWNLOAD_URL")) != "" {
-		return nil
+		return fmt.Errorf("ONLAVA_GRAFANA_DOWNLOAD_SHA256 is required when ONLAVA_GRAFANA_DOWNLOAD_URL is set")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, archiveURL+".sha256", nil)
 	if err != nil {
@@ -779,6 +800,9 @@ func grafanaState(cfg grafanaConfig, status, message string) devdash.GrafanaStat
 	state := devdash.GrafanaState{
 		Enabled:          cfg.Enabled,
 		Available:        available,
+		ServerReady:      available,
+		DatasourcesReady: available,
+		DashboardsReady:  available,
 		Status:           status,
 		URL:              baseURL,
 		OverviewURL:      dashboards[0].URL,

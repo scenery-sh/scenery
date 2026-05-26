@@ -18,7 +18,7 @@ import (
 
 var victoriaExportClient = &http.Client{Timeout: time.Second}
 
-const onlavaRequestDurationMetricName = "onlava.request.duration"
+const onlavaRequestDurationMetricName = "onlava_request_duration_seconds"
 
 func (s *dashboardServer) exportVictoriaTraceSummary(ctx context.Context, summary *devdash.TraceSummary) {
 	if s == nil || s.supervisor == nil || s.supervisor.victoria == nil || summary == nil {
@@ -235,7 +235,7 @@ func buildOTLPLogProto(event *devdash.LogEvent) []byte {
 func buildOTLPMetricProto(summary *devdash.TraceSummary) []byte {
 	point := protoFixed64(3, uint64(summary.StartedAt.Add(time.Duration(summary.DurationNanos)).UTC().UnixNano()))
 	point = append(point, protoDouble(4, float64(summary.DurationNanos)/float64(time.Second))...)
-	for _, attr := range traceSummaryAttributePairs(summary) {
+	for _, attr := range metricAttributePairs(summary) {
 		point = append(point, protoMessage(7, protoKeyValue(attr.Key, attr.Value))...)
 	}
 	gauge := protoMessage(1, point)
@@ -290,6 +290,23 @@ func traceSummaryAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
 	}
 	if summary.MessageID != nil {
 		attrs = append(attrs, otlpAttribute{Key: "onlava.message_id", Value: *summary.MessageID})
+	}
+	return attrs
+}
+
+func metricAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
+	attrs := []otlpAttribute{
+		{Key: "onlava_app", Value: summary.AppID},
+		{Key: "onlava_trace_type", Value: summary.Type},
+		{Key: "onlava_is_root", Value: summary.IsRoot},
+		{Key: "onlava_is_error", Value: summary.IsError},
+		{Key: "onlava_service", Value: summary.ServiceName},
+	}
+	if summary.EndpointName != nil {
+		attrs = append(attrs, otlpAttribute{Key: "onlava_endpoint", Value: *summary.EndpointName})
+	}
+	if summary.MessageID != nil {
+		attrs = append(attrs, otlpAttribute{Key: "onlava_message_id", Value: *summary.MessageID})
 	}
 	return attrs
 }

@@ -6,6 +6,27 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Grafana Dev Hardening
+
+- Status: completed
+- Owner: onlava dev platform / observability
+- Completed: 2026-05-26
+- Quality: A-
+- ExecPlan: [0036 Grafana Dev Hardening](0036-grafana-dev-hardening.md)
+
+Shipped:
+
+- Verified Grafana readiness requires server health plus expected datasource and dashboard UIDs.
+- External Grafana reuse is verified-only; unverified external instances are degraded and do not get dashboard links.
+- Grafana upstream and browser public URLs are split, including local proxy `root_url` provisioning.
+- Managed pinned Grafana is preferred over `PATH`; `PATH` fallback is version-probed.
+- Grafana archives are checksum-verified before extraction, including custom download SHA support.
+- Child Grafana processes filter inherited `GF_*` overrides by default.
+- Datasource provisioning prunes stale datasources and includes org/version metadata.
+- Dashboard state exposes availability/readiness booleans, and the UI disables links unless Grafana is verified usable.
+- Dashboard metrics now use the emitted `onlava_request_duration_seconds` contract.
+- Fake-process, external-verification, provisioning, local-proxy URL, and optional live-smoke test coverage.
+
 ## Grafana Dev Integration
 
 - Status: completed

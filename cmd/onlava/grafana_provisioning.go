@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const grafanaRequestDurationMetricName = "onlava_request_duration"
+const grafanaRequestDurationMetricName = "onlava_request_duration_seconds"
 
 func renderGrafanaINI(cfg grafanaConfig) ([]byte, error) {
 	var buf bytes.Buffer
@@ -200,7 +200,7 @@ func grafanaEndpointDashboard(cfg grafanaConfig) map[string]any {
 	dashboard := baseGrafanaDashboard(grafanaEndpointUID, "onlava dev endpoint", []any{
 		timeSeriesPanel(1, "Endpoint latency", []any{metricTarget(fmt.Sprintf(`%s{onlava_service="$service",onlava_endpoint="$endpoint"}`, requestDuration))}, 0, 0, 12, 8),
 		timeSeriesPanel(2, "Endpoint errors", []any{metricTarget(fmt.Sprintf(`count_over_time(%s{onlava_service="$service",onlava_endpoint="$endpoint",onlava_is_error="true"}[5m])`, requestDuration))}, 12, 0, 12, 8),
-		logsPanel(3, "Endpoint logs", `{onlava_log_service="$service",onlava_log_endpoint="$endpoint"}`, 0, 8, 24, 8),
+		logsPanel(3, "Recent logs", "*", 0, 8, 24, 8),
 	})
 	dashboard["templating"] = map[string]any{
 		"list": []any{

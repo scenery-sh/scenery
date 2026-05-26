@@ -109,7 +109,7 @@ func TestGrafanaDashboardsUseExportedRequestMetric(t *testing.T) {
 	if !strings.Contains(overview, grafanaRequestDurationMetricName) {
 		t.Fatalf("overview dashboard does not query %s:\n%s", grafanaRequestDurationMetricName, overview)
 	}
-	if onlavaRequestDurationMetricName != "onlava.request.duration" || grafanaRequestDurationMetricName != "onlava_request_duration" {
+	if onlavaRequestDurationMetricName != "onlava_request_duration_seconds" || grafanaRequestDurationMetricName != "onlava_request_duration_seconds" {
 		t.Fatalf("unexpected request duration metric names: otlp=%q grafana=%q", onlavaRequestDurationMetricName, grafanaRequestDurationMetricName)
 	}
 }
@@ -165,6 +165,21 @@ func TestResolveGrafanaBinaryPrefersManagedVersionOverPath(t *testing.T) {
 	}
 }
 
+func TestResolveGrafanaBinaryRejectsWrongPathVersion(t *testing.T) {
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
+	cfg.Download = false
+	pathDir := t.TempDir()
+	pathBinary := filepath.Join(pathDir, "grafana")
+	if err := os.WriteFile(pathBinary, []byte("#!/bin/sh\necho 'Version 0.0.0'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", pathDir)
+	_, _, err := resolveGrafanaBinary(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "does not match pinned version") {
+		t.Fatalf("resolveGrafanaBinary err = %v", err)
+	}
+}
+
 func TestGrafanaChildEnvFiltersGFOverrides(t *testing.T) {
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "https://grafana.acme.localhost")
 	env := grafanaChildEnv([]string{
@@ -193,6 +208,14 @@ func TestGrafanaChecksumFromResponseAcceptsGrafanaDistNames(t *testing.T) {
 	got := grafanaChecksumFromResponse(body, "grafana-13.0.1+security-01.darwin-arm64.tar.gz")
 	if got != "16ab83288e2a95f661d1234d0ecac0e2cfc2fa5a7209b0977bbe8a5b4940c67e" {
 		t.Fatalf("checksum = %q", got)
+	}
+}
+
+func TestVerifyGrafanaArchiveChecksumRequiresCustomSHA(t *testing.T) {
+	t.Setenv("ONLAVA_GRAFANA_DOWNLOAD_URL", "https://example.test/grafana.tar.gz")
+	err := verifyGrafanaArchiveChecksum(context.Background(), "https://example.test/grafana.tar.gz", []byte("data"))
+	if err == nil || !strings.Contains(err.Error(), "ONLAVA_GRAFANA_DOWNLOAD_SHA256") {
+		t.Fatalf("verifyGrafanaArchiveChecksum err = %v", err)
 	}
 }
 
@@ -327,8 +350,8 @@ func TestStartGrafanaTreatsNonGrafanaHealthAsOccupied(t *testing.T) {
 func TestGrafanaStateIncludesStableLinks(t *testing.T) {
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	state := grafanaState(cfg, "ready", "")
-	if !state.Available {
-		t.Fatalf("state.Available = false")
+	if !state.Available || !state.ServerReady || !state.DatasourcesReady || !state.DashboardsReady {
+		t.Fatalf("ready state = %+v", state)
 	}
 	if state.Datasources["metrics"] != grafanaMetricsUID || state.Datasources["logs"] != grafanaLogsUID {
 		t.Fatalf("datasources = %+v", state.Datasources)

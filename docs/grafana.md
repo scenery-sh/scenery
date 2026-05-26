@@ -60,7 +60,7 @@ When automatic downloads are enabled, the Grafana archive is extracted under `.o
 
 Default Grafana, Grafana plugin, and Victoria sidecar versions are pinned in `internal/devtools/versions.json`. Environment variables override those pins for local testing.
 
-The starter dashboards query onlava's emitted OTLP request-duration metric (`onlava.request.duration`, exposed to Grafana/PromQL as `onlava_request_duration`) plus local VictoriaLogs labels derived from runtime log attributes.
+The starter dashboards query onlava's emitted OTLP request-duration metric, `onlava_request_duration_seconds`, with labels such as `onlava_app`, `onlava_service`, `onlava_endpoint`, `onlava_trace_type`, and `onlava_is_error`.
 
 Reset local Grafana state with:
 
