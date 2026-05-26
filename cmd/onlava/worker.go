@@ -16,10 +16,10 @@ import (
 )
 
 type workerOptions struct {
-	AppRoot   string
-	Env       string
-	LogFormat string
-	TaskQueue string
+	AppRoot    string
+	Env        string
+	LogFormat  string
+	TaskQueues []string
 }
 
 type workerBindingsOptions struct {
@@ -81,10 +81,11 @@ func parseWorkerArgs(args []string) (workerOptions, error) {
 			if i >= len(args) {
 				return workerOptions{}, fmt.Errorf("missing value for --task-queue")
 			}
-			opts.TaskQueue = strings.TrimSpace(args[i])
-			if opts.TaskQueue == "" {
+			queues := splitWorkerTaskQueues(args[i])
+			if len(queues) == 0 {
 				return workerOptions{}, fmt.Errorf("--task-queue must not be empty")
 			}
+			opts.TaskQueues = append(opts.TaskQueues, queues...)
 		case "--port", "-p", "--listen", "--verbose", "-v", "--json", "--dashboard", "--watch", "--db-studio", "--proxy":
 			return workerOptions{}, fmt.Errorf("%s is not supported by `onlava worker`", args[i])
 		default:
@@ -152,7 +153,7 @@ func runWorkerBindings(opts workerBindingsOptions, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	result, err := workers.GenerateBindingsWithKnownActivities(root, cfg.Name, opts.OutDir, knownTemporalActivityNames(root, cfg.Name))
+	result, err := workers.GenerateBindingsWithKnownActivities(root, cfg.Name, opts.OutDir, knownTemporalActivityNamesFromRoot(root, cfg.Name))
 	if opts.JSON {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -178,8 +179,8 @@ func startWorkerApp(root string, cfg app.Config, binary string, opts workerOptio
 	cmd := commandTreeContext(ctx, binary)
 	cmd.Dir = root
 	extra := []string{"ONLAVA_ROLE=worker"}
-	if opts.TaskQueue != "" {
-		extra = append(extra, "ONLAVA_TEMPORAL_TASK_QUEUE="+opts.TaskQueue)
+	if len(opts.TaskQueues) > 0 {
+		extra = append(extra, "ONLAVA_TEMPORAL_TASK_QUEUE="+strings.Join(uniqueWorkerTaskQueues(opts.TaskQueues), ","))
 	}
 	env, err := appProcessEnv(root, cfg, opts.LogFormat, opts.Env, extra...)
 	if err != nil {
@@ -201,4 +202,34 @@ func startWorkerApp(root string, cfg app.Config, binary string, opts workerOptio
 		return fmt.Errorf("onlava worker exited: %w", err)
 	}
 	return nil
+}
+
+func splitWorkerTaskQueues(value string) []string {
+	parts := strings.Split(value, ",")
+	queues := make([]string, 0, len(parts))
+	for _, part := range parts {
+		queue := strings.TrimSpace(part)
+		if queue == "" {
+			continue
+		}
+		queues = append(queues, queue)
+	}
+	return queues
+}
+
+func uniqueWorkerTaskQueues(queues []string) []string {
+	seen := make(map[string]struct{}, len(queues))
+	out := make([]string, 0, len(queues))
+	for _, queue := range queues {
+		queue = strings.TrimSpace(queue)
+		if queue == "" {
+			continue
+		}
+		if _, ok := seen[queue]; ok {
+			continue
+		}
+		seen[queue] = struct{}{}
+		out = append(out, queue)
+	}
+	return out
 }

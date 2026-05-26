@@ -50,6 +50,7 @@ type AppStatus struct {
 
 type GrafanaState struct {
 	Enabled          bool               `json:"enabled"`
+	Available        bool               `json:"available"`
 	Status           string             `json:"status"`
 	URL              string             `json:"url,omitempty"`
 	OverviewURL      string             `json:"overview_url,omitempty"`

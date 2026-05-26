@@ -432,8 +432,11 @@ func Run(ctx context.Context) error { return nil }
 			PayloadCodec:    "onlava-json-v1",
 			APIKeyEnv:       "TEMPORAL_API_KEY",
 			TLS: appcfg.TemporalTLSConfig{
-				Enabled:       true,
-				ServerNameEnv: "TEMPORAL_TLS_SERVER_NAME",
+				Enabled:           true,
+				ServerNameEnv:     "TEMPORAL_TLS_SERVER_NAME",
+				CACertFileEnv:     "TEMPORAL_TLS_CA_CERT_FILE",
+				ClientCertFileEnv: "TEMPORAL_TLS_CERT_FILE",
+				ClientKeyFileEnv:  "TEMPORAL_TLS_KEY_FILE",
 			},
 			Local: appcfg.TemporalLocalConfig{
 				AutoStart:  true,
@@ -455,7 +458,7 @@ func Run(ctx context.Context) error { return nil }
 		`TaskQueuePrefix: "onlava.temporalapp"`,
 		`PayloadCodec: "onlava-json-v1"`,
 		`APIKeyEnv: "TEMPORAL_API_KEY"`,
-		`TLS: onlavaruntime.TemporalTLSConfig{Enabled: true, ServerNameEnv: "TEMPORAL_TLS_SERVER_NAME"}`,
+		`TLS: onlavaruntime.TemporalTLSConfig{Enabled: true, ServerNameEnv: "TEMPORAL_TLS_SERVER_NAME", CACertFileEnv: "TEMPORAL_TLS_CA_CERT_FILE", ClientCertFileEnv: "TEMPORAL_TLS_CERT_FILE", ClientKeyFileEnv: "TEMPORAL_TLS_KEY_FILE"}`,
 		`Local: onlavaruntime.TemporalLocalConfig{AutoStart: true, DBFilename: ".onlava/temporal/dev.sqlite"}`,
 	} {
 		if !strings.Contains(got, want) {

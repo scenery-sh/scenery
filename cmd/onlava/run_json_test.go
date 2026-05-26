@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/pbrazdil/onlava/internal/app"
@@ -218,8 +219,22 @@ func TestParseWorkerArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseWorkerArgs returned error: %v", err)
 	}
-	if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.LogFormat != "json" || opts.TaskQueue != "onlava.app.worker.go" {
+	if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.LogFormat != "json" || !reflect.DeepEqual(opts.TaskQueues, []string{"onlava.app.worker.go"}) {
 		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestParseWorkerArgsSplitsRepeatedTaskQueues(t *testing.T) {
+	opts, err := parseWorkerArgs([]string{"--task-queue", "onlava.app.worker.go, onlava.app.email.go", "--task-queue", "onlava.app.worker.go"})
+	if err != nil {
+		t.Fatalf("parseWorkerArgs returned error: %v", err)
+	}
+	want := []string{"onlava.app.worker.go", "onlava.app.email.go", "onlava.app.worker.go"}
+	if !reflect.DeepEqual(opts.TaskQueues, want) {
+		t.Fatalf("TaskQueues = %#v, want %#v", opts.TaskQueues, want)
+	}
+	if got := uniqueWorkerTaskQueues(opts.TaskQueues); !reflect.DeepEqual(got, want[:2]) {
+		t.Fatalf("uniqueWorkerTaskQueues = %#v, want %#v", got, want[:2])
 	}
 }
 
@@ -238,7 +253,7 @@ func TestWorkerCommandUsesWorkerPath(t *testing.T) {
 	called := false
 	runWorkerFunc = func(opts workerOptions) error {
 		called = true
-		if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.LogFormat != "json" || opts.TaskQueue != "onlava.app.worker.go" {
+		if opts.AppRoot != "/tmp/app" || opts.Env != "production" || opts.LogFormat != "json" || !reflect.DeepEqual(opts.TaskQueues, []string{"onlava.app.worker.go"}) {
 			t.Fatalf("worker opts = %+v", opts)
 		}
 		return nil
@@ -259,6 +274,41 @@ func TestParseWorkerBindingsArgs(t *testing.T) {
 	}
 	if opts.AppRoot != "/tmp/app" || opts.OutDir != "/tmp/out" || !opts.JSON {
 		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestParseTemporalDeploymentArgs(t *testing.T) {
+	opts, err := parseTemporalDeploymentArgs("ramp", []string{
+		"--app-root", "/tmp/app",
+		"--deployment", "orders-api",
+		"--build-id", "sha-123",
+		"--percentage", "25",
+		"--ignore-missing-task-queues",
+		"--allow-no-pollers",
+		"--json",
+	})
+	if err != nil {
+		t.Fatalf("parseTemporalDeploymentArgs returned error: %v", err)
+	}
+	if opts.AppRoot != "/tmp/app" || opts.Deployment != "orders-api" || opts.BuildID != "sha-123" || opts.Percentage != 25 || !opts.PercentageSet || !opts.IgnoreMissingTaskQueues || !opts.AllowNoPollers || !opts.JSON {
+		t.Fatalf("opts = %+v", opts)
+	}
+	if _, err := parseTemporalDeploymentArgs("ramp", []string{"--build-id", "sha"}); err == nil {
+		t.Fatal("expected missing percentage error")
+	}
+	if _, err := parseTemporalDeploymentArgs("set-current", []string{"--percentage", "10", "--build-id", "sha"}); err == nil {
+		t.Fatal("expected percentage rejection")
+	}
+	for _, value := range []string{"NaN", "+Inf", "-Inf"} {
+		if _, err := parseTemporalDeploymentArgs("ramp", []string{"--build-id", "sha", "--percentage", value}); err == nil {
+			t.Fatalf("expected non-finite percentage %q rejection", value)
+		}
+	}
+	if _, err := parseTemporalDeploymentArgs("drain", []string{"--build-id", "sha", "--ignore-missing-task-queues"}); err == nil {
+		t.Fatal("expected ignore-missing-task-queues drain rejection")
+	}
+	if _, err := parseTemporalDeploymentArgs("drain", []string{"--build-id", "sha", "--allow-no-pollers"}); err == nil {
+		t.Fatal("expected allow-no-pollers drain rejection")
 	}
 }
 

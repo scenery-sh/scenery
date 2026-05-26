@@ -938,7 +938,7 @@ func (s *devSupervisor) startGrafana(ctx context.Context) error {
 	if s == nil || s.grafana != nil {
 		return nil
 	}
-	grafana, err := startGrafanaForDev(ctx, s.root, s.victoria, s.console)
+	grafana, err := startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
 	if grafana != nil {
 		s.grafana = grafana
 		s.setGrafanaState(grafana.State())
@@ -951,6 +951,32 @@ func (s *devSupervisor) startGrafana(ctx context.Context) error {
 		}
 	}
 	return err
+}
+
+func (s *devSupervisor) plannedGrafanaPublicURL() string {
+	if s == nil || !localproxy.Enabled() {
+		return ""
+	}
+	workspace := s.cfg.Proxy.Workspace
+	if workspace == "" {
+		workspace = localproxy.DiscoverWorkspace(s.root, s.activeAppID())
+	}
+	proxyCfg := localproxy.BuildConfig(localproxy.Config{
+		Workspace:         workspace,
+		APIHost:           s.cfg.Proxy.APIHost,
+		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
+		MCPHost:           s.cfg.Proxy.MCPHost,
+		TemporalHost:      s.cfg.Proxy.TemporalHost,
+		GrafanaHost:       s.cfg.Proxy.GrafanaHost,
+		APIUpstream:       s.addr,
+		DashboardUpstream: devdash.ListenAddr(),
+		TemporalUpstream:  temporalUIUpstreamForConfig(s.cfg),
+		GrafanaUpstream:   fmt.Sprintf("%s:%d", grafanaDefaultHost, grafanaDefaultPort),
+	})
+	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
+		return ""
+	}
+	return localproxy.PreviewRoutes(proxyCfg).GrafanaURL
 }
 
 func (s *devSupervisor) activeAppID() string {

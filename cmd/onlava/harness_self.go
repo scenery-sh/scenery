@@ -766,6 +766,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/onlava.run.event.v1.schema.json",
 		"docs/schemas/onlava.version.v1.schema.json",
 		"docs/schemas/onlava.worker.manifest.v1.schema.json",
+		"docs/schemas/onlava.worker.manifest.v2.schema.json",
 		"docs/schemas/onlava.wire.capabilities.v1.schema.json",
 	}
 	return harnessKnowledge{

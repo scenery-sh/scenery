@@ -85,13 +85,26 @@ type AuthHandler struct {
 }
 
 type CronJob struct {
-	ID       string
-	Title    string
-	Every    time.Duration
-	Schedule string
-	Invoke   func(context.Context) error
+	ID                   string
+	Title                string
+	Every                time.Duration
+	Schedule             string
+	OverlapPolicy        string
+	CatchupWindow        time.Duration
+	PauseOnFailure       bool
+	ActivityStartToClose time.Duration
+	ActivityRetryPolicy  CronRetryPolicy
+	Invoke               func(context.Context) error
 
 	plan cronPlan
+}
+
+type CronRetryPolicy struct {
+	InitialInterval        time.Duration
+	BackoffCoefficient     float64
+	MaximumInterval        time.Duration
+	MaximumAttempts        int32
+	NonRetryableErrorTypes []string
 }
 
 type AppConfig struct {

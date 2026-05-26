@@ -131,7 +131,7 @@ func bindingDataForManifest(manifest Manifest) bindingData {
 	slices.SortFunc(activities, func(a, b bindingActivity) int {
 		return strings.Compare(a.Name, b.Name)
 	})
-	taskQueues := append([]string(nil), manifest.Temporal.TaskQueues...)
+	taskQueues := manifestTaskQueueNames(manifest)
 	slices.Sort(taskQueues)
 	return bindingData{
 		App:          manifest.App,

@@ -5,8 +5,9 @@ import { cn } from "../lib/utils";
 export function ObservabilityPage() {
   const { status } = useDashboard();
   const grafana = status?.grafana;
+  const grafanaAvailable = grafana?.available === true;
   const datasourceEntries = Object.entries(grafana?.datasources ?? {});
-  const dashboards = grafana?.dashboards ?? [];
+  const dashboards = grafanaAvailable ? (grafana?.dashboards ?? []) : [];
 
   return (
     <div className="max-h-[calc(100vh-var(--header-height))] overflow-auto">
@@ -37,10 +38,10 @@ export function ObservabilityPage() {
             </div>
 
             <div className="mt-6 flex flex-wrap gap-2">
-              <GrafanaLink href={grafana?.url} label="Open Grafana" primary />
-              <GrafanaLink href={grafana?.overview_url} label="Overview" />
-              <GrafanaLink href={grafana?.logs_url} label="Logs" />
-              <GrafanaLink href={grafana?.endpoint_url} label="Endpoint Debugger" />
+              <GrafanaLink href={grafanaAvailable ? grafana?.url : undefined} label="Open Grafana" primary />
+              <GrafanaLink href={grafanaAvailable ? grafana?.overview_url : undefined} label="Overview" />
+              <GrafanaLink href={grafanaAvailable ? grafana?.logs_url : undefined} label="Logs" />
+              <GrafanaLink href={grafanaAvailable ? grafana?.endpoint_url : undefined} label="Endpoint Debugger" />
             </div>
           </section>
 
@@ -88,6 +89,17 @@ export function ObservabilityPage() {
 }
 
 function DashboardRow({ dashboard }: { dashboard: GrafanaDashboard }) {
+  if (!dashboard.url) {
+    return (
+      <div className="flex items-center justify-between gap-4 py-3 text-sm text-muted-foreground">
+        <div>
+          <div className="font-medium">{dashboard.title}</div>
+          <code className="text-xs">{dashboard.uid}</code>
+        </div>
+        <span className="text-xs">Unavailable</span>
+      </div>
+    );
+  }
   return (
     <a
       href={dashboard.url}
@@ -173,7 +185,7 @@ function grafanaStatusCopy(status?: string): string {
     case "ready":
       return "Grafana is ready with onlava datasources and dashboards.";
     case "external":
-      return "An existing Grafana instance is running on the configured port.";
+      return "A verified external Grafana instance has onlava datasources and dashboards.";
     case "starting":
       return "Grafana is starting.";
     case "disabled":

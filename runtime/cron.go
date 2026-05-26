@@ -13,9 +13,11 @@ import (
 	"sync"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/activity"
 	temporalclient "go.temporal.io/sdk/client"
+	sdktemporal "go.temporal.io/sdk/temporal"
 	temporalworker "go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
@@ -265,15 +267,19 @@ func cronScheduleSummary(job *CronJob) string {
 }
 
 type temporalCronInput struct {
-	AppID        string
-	JobID        string
-	ActivityName string
-	TaskQueue    string
+	AppID                string
+	JobID                string
+	ActivityName         string
+	TaskQueue            string
+	ActivityStartToClose time.Duration
+	ActivityRetryPolicy  CronRetryPolicy
 }
 
 type temporalCronActivityInput struct {
-	AppID string
-	JobID string
+	AppID       string
+	JobID       string
+	ScheduledAt time.Time
+	ExecutionID string
 }
 
 func startTemporalCronRuntime(parent context.Context, cfg AppConfig, jobs []*CronJob) (*cronScheduler, error) {
@@ -306,9 +312,11 @@ func startTemporalCronRuntime(parent context.Context, cfg AppConfig, jobs []*Cro
 		if err := worker.Start(); err != nil {
 			return nil, fmt.Errorf("runtime: start temporal cron worker on %s: %w", taskQueue, err)
 		}
-		if err := EnsureTemporalWorkerDeploymentCurrentVersion(parent, client, info); err != nil {
-			worker.Stop()
-			return nil, err
+		if ShouldAutoPromoteTemporalWorkerDeployment(info) {
+			if err := EnsureTemporalWorkerDeploymentCurrentVersion(parent, client, info); err != nil {
+				worker.Stop()
+				return nil, err
+			}
 		}
 	}
 	done := make(chan struct{})
@@ -343,7 +351,9 @@ func reconcileTemporalCronSchedule(ctx context.Context, client temporalclient.Cl
 					Action: options.Action,
 					Spec:   &options.Spec,
 					Policy: &temporalclient.SchedulePolicies{
-						CatchupWindow: options.CatchupWindow,
+						CatchupWindow:  options.CatchupWindow,
+						Overlap:        options.Overlap,
+						PauseOnFailure: options.PauseOnFailure,
 					},
 					State: &temporalclient.ScheduleState{
 						Note: options.Note,
@@ -360,27 +370,42 @@ func temporalCronScheduleOptions(cfg AppConfig, info TemporalRuntimeInfo, taskQu
 		return temporalclient.ScheduleOptions{}, err
 	}
 	activityName := temporalCronActivityName(job)
+	overlap, err := temporalCronOverlapPolicy(job.OverlapPolicy)
+	if err != nil {
+		return temporalclient.ScheduleOptions{}, err
+	}
+	catchupWindow := job.CatchupWindow
+	if catchupWindow == 0 {
+		catchupWindow = time.Minute
+	}
+	activityStartToClose := job.ActivityStartToClose
+	if activityStartToClose == 0 {
+		activityStartToClose = time.Hour
+	}
 	return temporalclient.ScheduleOptions{
 		ID:   temporalCronScheduleID(info, job),
 		Spec: spec,
 		Action: &temporalclient.ScheduleWorkflowAction{
-			ID:                 temporalCronWorkflowID(info, job),
-			Workflow:           temporalCronWorkflowName,
-			TaskQueue:          taskQueue,
-			VersioningOverride: TemporalWorkflowVersioningOverride(info),
+			ID:        temporalCronWorkflowID(info, job),
+			Workflow:  temporalCronWorkflowName,
+			TaskQueue: taskQueue,
 			Args: []interface{}{temporalCronInput{
-				AppID:        cfg.Name,
-				JobID:        job.ID,
-				ActivityName: activityName,
-				TaskQueue:    taskQueue,
+				AppID:                cfg.Name,
+				JobID:                job.ID,
+				ActivityName:         activityName,
+				TaskQueue:            taskQueue,
+				ActivityStartToClose: activityStartToClose,
+				ActivityRetryPolicy:  job.ActivityRetryPolicy,
 			}},
 			Memo: map[string]interface{}{
 				"onlava_app": cfg.Name,
 				"onlava_job": job.ID,
 			},
 		},
-		CatchupWindow: time.Minute,
-		Note:          "managed by onlava",
+		Overlap:        overlap,
+		CatchupWindow:  catchupWindow,
+		PauseOnFailure: job.PauseOnFailure,
+		Note:           "managed by onlava",
 		Memo: map[string]interface{}{
 			"onlava_app": cfg.Name,
 			"onlava_job": job.ID,
@@ -465,14 +490,22 @@ func cronDayOfWeekRanges(field cronField, forceAny bool) []temporalclient.Schedu
 }
 
 func temporalCronWorkflow(ctx workflow.Context, in temporalCronInput) error {
+	scheduledAt := workflow.Now(ctx).UTC()
+	startToClose := in.ActivityStartToClose
+	if startToClose == 0 {
+		startToClose = time.Hour
+	}
 	ao := workflow.ActivityOptions{
 		TaskQueue:           in.TaskQueue,
-		StartToCloseTimeout: time.Hour,
+		StartToCloseTimeout: startToClose,
+		RetryPolicy:         temporalCronRetryPolicy(in.ActivityRetryPolicy),
 	}
 	actCtx := workflow.WithActivityOptions(ctx, ao)
 	return workflow.ExecuteActivity(actCtx, in.ActivityName, temporalCronActivityInput{
-		AppID: in.AppID,
-		JobID: in.JobID,
+		AppID:       in.AppID,
+		JobID:       in.JobID,
+		ScheduledAt: scheduledAt,
+		ExecutionID: stableTemporalCronExecutionID(in.AppID, in.JobID, scheduledAt),
 	}).Get(actCtx, nil)
 }
 
@@ -480,12 +513,62 @@ func runTemporalCronActivity(ctx context.Context, job *CronJob, in temporalCronA
 	if job == nil {
 		return fmt.Errorf("runtime: missing cron job declaration")
 	}
-	scheduledAt := time.Now().UTC()
-	executionID, err := newCronExecutionID(job.ID, scheduledAt)
-	if err != nil {
-		return err
+	scheduledAt := in.ScheduledAt.UTC()
+	if scheduledAt.IsZero() {
+		scheduledAt = time.Now().UTC()
+	}
+	executionID := strings.TrimSpace(in.ExecutionID)
+	if executionID == "" {
+		var err error
+		executionID, err = newCronExecutionID(job.ID, scheduledAt)
+		if err != nil {
+			return err
+		}
 	}
 	return safeInvokeCronJob(withCronInvocation(ctx, job, scheduledAt, executionID), job)
+}
+
+func temporalCronOverlapPolicy(policy string) (enumspb.ScheduleOverlapPolicy, error) {
+	switch strings.TrimSpace(strings.ToLower(policy)) {
+	case "", "skip":
+		return enumspb.SCHEDULE_OVERLAP_POLICY_SKIP, nil
+	case "buffer_one":
+		return enumspb.SCHEDULE_OVERLAP_POLICY_BUFFER_ONE, nil
+	case "buffer_all":
+		return enumspb.SCHEDULE_OVERLAP_POLICY_BUFFER_ALL, nil
+	case "cancel_other":
+		return enumspb.SCHEDULE_OVERLAP_POLICY_CANCEL_OTHER, nil
+	case "terminate_other":
+		return enumspb.SCHEDULE_OVERLAP_POLICY_TERMINATE_OTHER, nil
+	case "allow_all":
+		return enumspb.SCHEDULE_OVERLAP_POLICY_ALLOW_ALL, nil
+	default:
+		return enumspb.SCHEDULE_OVERLAP_POLICY_UNSPECIFIED, fmt.Errorf("runtime: cron overlap policy %q is invalid", policy)
+	}
+}
+
+func temporalCronRetryPolicy(policy CronRetryPolicy) *sdktemporal.RetryPolicy {
+	if cronRetryPolicyIsZero(policy) {
+		return nil
+	}
+	if policy.InitialInterval <= 0 {
+		return nil
+	}
+	return &sdktemporal.RetryPolicy{
+		InitialInterval:        policy.InitialInterval,
+		BackoffCoefficient:     policy.BackoffCoefficient,
+		MaximumInterval:        policy.MaximumInterval,
+		MaximumAttempts:        policy.MaximumAttempts,
+		NonRetryableErrorTypes: policy.NonRetryableErrorTypes,
+	}
+}
+
+func cronRetryPolicyIsZero(policy CronRetryPolicy) bool {
+	return policy.InitialInterval == 0 &&
+		policy.BackoffCoefficient == 0 &&
+		policy.MaximumInterval == 0 &&
+		policy.MaximumAttempts == 0 &&
+		len(policy.NonRetryableErrorTypes) == 0
 }
 
 func shouldReconcileTemporalCronSchedules(role string) bool {
@@ -519,6 +602,14 @@ func temporalCronActivityName(job *CronJob) string {
 	return "onlava.cron." + sanitizeTemporalName(job.ID) + "/v1"
 }
 
+func stableTemporalCronExecutionID(appID, jobID string, scheduledAt time.Time) string {
+	appID = sanitizeTemporalName(appID)
+	if appID == "" {
+		appID = "app"
+	}
+	return fmt.Sprintf("%s-%s-%s", appID, sanitizeTemporalName(jobID), scheduledAt.UTC().Format("20060102T150405Z"))
+}
+
 func isTemporalAlreadyExistsError(err error) bool {
 	if err == nil {
 		return false
@@ -550,6 +641,18 @@ func validateCronJob(job *CronJob) error {
 	if hasEvery == hasSchedule {
 		return fmt.Errorf("runtime: cron job %s must define exactly one of Every or Schedule", job.ID)
 	}
+	if _, err := temporalCronOverlapPolicy(job.OverlapPolicy); err != nil {
+		return err
+	}
+	if job.CatchupWindow < 0 {
+		return fmt.Errorf("runtime: cron job %s CatchupWindow cannot be negative", job.ID)
+	}
+	if job.ActivityStartToClose < 0 {
+		return fmt.Errorf("runtime: cron job %s ActivityStartToClose cannot be negative", job.ID)
+	}
+	if err := validateCronRetryPolicy(job.ID, job.ActivityRetryPolicy); err != nil {
+		return err
+	}
 	if hasEvery {
 		if job.Every%time.Second != 0 {
 			return fmt.Errorf("runtime: cron job %s Every must be a whole number of seconds", job.ID)
@@ -566,6 +669,25 @@ func validateCronJob(job *CronJob) error {
 		return fmt.Errorf("runtime: cron job %s: %w", job.ID, err)
 	}
 	job.plan = plan
+	return nil
+}
+
+func validateCronRetryPolicy(jobID string, policy CronRetryPolicy) error {
+	if cronRetryPolicyIsZero(policy) {
+		return nil
+	}
+	if policy.InitialInterval <= 0 {
+		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.InitialInterval must be positive", jobID)
+	}
+	if policy.BackoffCoefficient < 0 {
+		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.BackoffCoefficient cannot be negative", jobID)
+	}
+	if policy.MaximumInterval < 0 {
+		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.MaximumInterval cannot be negative", jobID)
+	}
+	if policy.MaximumAttempts < 0 {
+		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.MaximumAttempts cannot be negative", jobID)
+	}
 	return nil
 }
 

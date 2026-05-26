@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -16,7 +16,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/activity"
 	temporalclient "go.temporal.io/sdk/client"
-	temporalerror "go.temporal.io/sdk/temporal"
+	sdktemporal "go.temporal.io/sdk/temporal"
 	temporalworker "go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
@@ -27,8 +27,6 @@ type WorkflowContext = workflow.Context
 
 type WorkflowConfig struct {
 	TaskQueue                string
-	WorkflowID               string
-	WorkflowIDPrefix         string
 	VersioningBehavior       VersioningBehavior
 	WorkflowExecutionTimeout time.Duration
 	WorkflowRunTimeout       time.Duration
@@ -42,6 +40,55 @@ type ActivityConfig struct {
 	RetryPolicy    RetryPolicy
 }
 
+type WorkflowIdentity struct {
+	id     string
+	prefix string
+}
+
+type StartWorkflowOptions struct {
+	TaskQueue                string
+	Memo                     map[string]any
+	SearchAttributes         SearchAttributes
+	WorkflowExecutionTimeout time.Duration
+	WorkflowRunTimeout       time.Duration
+	WorkflowTaskTimeout      time.Duration
+	PinnedBuildID            string
+	WorkflowIDConflictPolicy WorkflowIDConflictPolicy
+	WorkflowIDReusePolicy    WorkflowIDReusePolicy
+}
+
+type StartOption func(*StartWorkflowOptions)
+
+type (
+	SearchAttributes              = sdktemporal.SearchAttributes
+	SearchAttributeUpdate         = sdktemporal.SearchAttributeUpdate
+	SearchAttributeKeyString      = sdktemporal.SearchAttributeKeyString
+	SearchAttributeKeyKeyword     = sdktemporal.SearchAttributeKeyKeyword
+	SearchAttributeKeyBool        = sdktemporal.SearchAttributeKeyBool
+	SearchAttributeKeyInt64       = sdktemporal.SearchAttributeKeyInt64
+	SearchAttributeKeyFloat64     = sdktemporal.SearchAttributeKeyFloat64
+	SearchAttributeKeyTime        = sdktemporal.SearchAttributeKeyTime
+	SearchAttributeKeyKeywordList = sdktemporal.SearchAttributeKeyKeywordList
+)
+
+type WorkflowIDConflictPolicy string
+
+const (
+	WorkflowIDConflictDefault           WorkflowIDConflictPolicy = ""
+	WorkflowIDConflictFail              WorkflowIDConflictPolicy = "fail"
+	WorkflowIDConflictUseExisting       WorkflowIDConflictPolicy = "use_existing"
+	WorkflowIDConflictTerminateExisting WorkflowIDConflictPolicy = "terminate_existing"
+)
+
+type WorkflowIDReusePolicy string
+
+const (
+	WorkflowIDReuseDefault              WorkflowIDReusePolicy = ""
+	WorkflowIDReuseAllowDuplicate       WorkflowIDReusePolicy = "allow_duplicate"
+	WorkflowIDReuseAllowDuplicateFailed WorkflowIDReusePolicy = "allow_duplicate_failed"
+	WorkflowIDReuseRejectDuplicate      WorkflowIDReusePolicy = "reject_duplicate"
+)
+
 type RetryPolicy struct {
 	InitialInterval        time.Duration
 	BackoffCoefficient     float64
@@ -49,25 +96,6 @@ type RetryPolicy struct {
 	MaximumAttempts        int32
 	NonRetryableErrorTypes []string
 }
-
-type WorkflowIDConflictPolicy enumspb.WorkflowIdConflictPolicy
-
-const (
-	WorkflowIDConflictUnspecified       WorkflowIDConflictPolicy = WorkflowIDConflictPolicy(enumspb.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED)
-	WorkflowIDConflictFail              WorkflowIDConflictPolicy = WorkflowIDConflictPolicy(enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL)
-	WorkflowIDConflictUseExisting       WorkflowIDConflictPolicy = WorkflowIDConflictPolicy(enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING)
-	WorkflowIDConflictTerminateExisting WorkflowIDConflictPolicy = WorkflowIDConflictPolicy(enumspb.WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING)
-)
-
-type WorkflowIDReusePolicy enumspb.WorkflowIdReusePolicy
-
-const (
-	WorkflowIDReuseUnspecified              WorkflowIDReusePolicy = WorkflowIDReusePolicy(enumspb.WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED)
-	WorkflowIDReuseAllowDuplicate           WorkflowIDReusePolicy = WorkflowIDReusePolicy(enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
-	WorkflowIDReuseAllowDuplicateFailedOnly WorkflowIDReusePolicy = WorkflowIDReusePolicy(enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY)
-	WorkflowIDReuseRejectDuplicate          WorkflowIDReusePolicy = WorkflowIDReusePolicy(enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
-	WorkflowIDReuseTerminateIfRunning       WorkflowIDReusePolicy = WorkflowIDReusePolicy(enumspb.WORKFLOW_ID_REUSE_POLICY_TERMINATE_IF_RUNNING)
-)
 
 type VersioningBehavior string
 
@@ -92,28 +120,15 @@ type Activity[I, O any] struct {
 }
 
 type Run[O any] struct {
-	run temporalclient.WorkflowRun
+	run        temporalclient.WorkflowRun
+	client     temporalclient.Client
+	workflowID string
+	runID      string
+	err        error
 }
 
 type ActivityFuture[O any] struct {
 	future workflow.Future
-}
-
-type StartOption func(*startOptions)
-
-type startOptions struct {
-	id                       string
-	idPrefix                 string
-	taskQueue                string
-	memo                     map[string]any
-	searchAttributes         map[string]any
-	workflowExecutionTimeout time.Duration
-	workflowRunTimeout       time.Duration
-	workflowTaskTimeout      time.Duration
-	versioningOverride       temporalclient.VersioningOverride
-	pinnedBuildID            string
-	workflowIDConflictPolicy WorkflowIDConflictPolicy
-	workflowIDReusePolicy    WorkflowIDReusePolicy
 }
 
 type declaration interface {
@@ -225,10 +240,11 @@ func (a *Activity[I, O]) Config() ActivityConfig {
 }
 
 func (a *Activity[I, O]) taskQueue(info onlavaruntime.TemporalRuntimeInfo) string {
-	if a != nil && strings.TrimSpace(a.config.TaskQueue) != "" {
+	_ = info
+	if a != nil {
 		return strings.TrimSpace(a.config.TaskQueue)
 	}
-	return defaultWorkerTaskQueue(info)
+	return ""
 }
 
 func (a *Activity[I, O]) maxConcurrentActivityExecutions() int {
@@ -249,23 +265,24 @@ func (a *Activity[I, O]) declarationKey() string {
 	return "activity:" + a.name
 }
 
-func Start[I, O any](ctx context.Context, w *Workflow[I, O], input I, opts ...StartOption) (Run[O], error) {
+func Start[I, O any](ctx context.Context, w *Workflow[I, O], input I, identity WorkflowIdentity, opts ...StartOption) (Run[O], error) {
 	if w == nil {
 		return Run[O]{}, errors.New("temporal: nil workflow")
 	}
+	if identity.isZero() {
+		return Run[O]{}, errors.New("temporal: workflow start requires WorkflowID or WorkflowIDPrefix")
+	}
+	startOpts := applyStartOptions(w.config, opts...)
 	client, info, ok := onlavaruntime.ActiveTemporalClient()
 	if !ok || client == nil {
 		return Run[O]{}, errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
 	}
-	start, err := startWorkflowOptions(info, w, opts...)
+	sdkOpts := temporalStartWorkflowOptions(w.name, identity, startOpts, w.taskQueue(info), info)
+	run, err := client.ExecuteWorkflow(ctx, sdkOpts, w.name, input)
 	if err != nil {
 		return Run[O]{}, err
 	}
-	run, err := client.ExecuteWorkflow(ctx, start, w.name, input)
-	if err != nil {
-		return Run[O]{}, err
-	}
-	return Run[O]{run: run}, nil
+	return Run[O]{run: run, client: client, workflowID: run.GetID(), runID: run.GetRunID()}, nil
 }
 
 func ExecuteActivity[I, O any](ctx workflow.Context, a *Activity[I, O], input I) ActivityFuture[O] {
@@ -284,24 +301,10 @@ func ExecuteActivity[I, O any](ctx workflow.Context, a *Activity[I, O], input I)
 }
 
 func MethodActivity[I, SvcStruct any](handler func(s SvcStruct, ctx context.Context, input I) error) func(context.Context, I) (Void, error) {
-	serviceKey := serviceKeyForType(reflect.TypeFor[SvcStruct]())
-	return func(ctx context.Context, input I) (Void, error) {
-		serviceAccessors.mu.RLock()
-		accessor := serviceAccessors.items[serviceKey]
-		serviceAccessors.mu.RUnlock()
-		if accessor == nil {
-			return Void{}, fmt.Errorf("temporal: no service accessor registered for %s", serviceKey)
-		}
-		svcAny, err := accessor()
-		if err != nil {
-			return Void{}, err
-		}
-		svc, ok := svcAny.(SvcStruct)
-		if !ok {
-			return Void{}, fmt.Errorf("temporal: service accessor returned %T, want %s", svcAny, serviceKey)
-		}
-		return Void{}, handler(svc, ctx, input)
-	}
+	wrapped := MethodActivityResult[I, Void, SvcStruct](func(s SvcStruct, ctx context.Context, input I) (Void, error) {
+		return Void{}, handler(s, ctx, input)
+	})
+	return wrapped
 }
 
 func MethodActivityResult[I, O, SvcStruct any](handler func(s SvcStruct, ctx context.Context, input I) (O, error)) func(context.Context, I) (O, error) {
@@ -336,22 +339,141 @@ func RegisterServiceAccessorFor[T any](getter func() (any, error)) {
 	serviceAccessors.items[key] = getter
 }
 
+func WorkflowID(id string) WorkflowIdentity {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		panic("temporal: workflow id must not be empty")
+	}
+	return WorkflowIdentity{id: id}
+}
+
+func WorkflowIDPrefix(prefix string) WorkflowIdentity {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		panic("temporal: workflow id prefix must not be empty")
+	}
+	return WorkflowIdentity{prefix: prefix}
+}
+
+func WithTaskQueue(queue string) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.TaskQueue = strings.TrimSpace(queue)
+	}
+}
+
+func WithMemo(memo map[string]any) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.Memo = cloneStringAnyMap(memo)
+	}
+}
+
+func NewSearchAttributeKeyString(name string) SearchAttributeKeyString {
+	return sdktemporal.NewSearchAttributeKeyString(name)
+}
+
+func NewSearchAttributeKeyKeyword(name string) SearchAttributeKeyKeyword {
+	return sdktemporal.NewSearchAttributeKeyKeyword(name)
+}
+
+func NewSearchAttributeKeyBool(name string) SearchAttributeKeyBool {
+	return sdktemporal.NewSearchAttributeKeyBool(name)
+}
+
+func NewSearchAttributeKeyInt64(name string) SearchAttributeKeyInt64 {
+	return sdktemporal.NewSearchAttributeKeyInt64(name)
+}
+
+func NewSearchAttributeKeyFloat64(name string) SearchAttributeKeyFloat64 {
+	return sdktemporal.NewSearchAttributeKeyFloat64(name)
+}
+
+func NewSearchAttributeKeyTime(name string) SearchAttributeKeyTime {
+	return sdktemporal.NewSearchAttributeKeyTime(name)
+}
+
+func NewSearchAttributeKeyKeywordList(name string) SearchAttributeKeyKeywordList {
+	return sdktemporal.NewSearchAttributeKeyKeywordList(name)
+}
+
+func NewSearchAttributes(attributes ...SearchAttributeUpdate) SearchAttributes {
+	return sdktemporal.NewSearchAttributes(attributes...)
+}
+
+func WithSearchAttributes(attrs SearchAttributes) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.SearchAttributes = attrs
+	}
+}
+
+func WithExecutionTimeout(d time.Duration) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.WorkflowExecutionTimeout = d
+	}
+}
+
+func WithRunTimeout(d time.Duration) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.WorkflowRunTimeout = d
+	}
+}
+
+func WithTaskTimeout(d time.Duration) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.WorkflowTaskTimeout = d
+	}
+}
+
+func WithPinnedBuildID(buildID string) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.PinnedBuildID = strings.TrimSpace(buildID)
+	}
+}
+
+func WithWorkflowIDConflictPolicy(policy WorkflowIDConflictPolicy) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.WorkflowIDConflictPolicy = policy
+	}
+}
+
+func WithWorkflowIDReusePolicy(policy WorkflowIDReusePolicy) StartOption {
+	return func(opts *StartWorkflowOptions) {
+		opts.WorkflowIDReusePolicy = policy
+	}
+}
+
+func GetWorkflow[O any](ctx context.Context, workflowID, runID string) Run[O] {
+	client, _, ok := onlavaruntime.ActiveTemporalClient()
+	if !ok || client == nil {
+		return Run[O]{workflowID: workflowID, runID: runID, err: errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")}
+	}
+	workflowID = strings.TrimSpace(workflowID)
+	runID = strings.TrimSpace(runID)
+	if workflowID == "" {
+		return Run[O]{client: client, workflowID: workflowID, runID: runID, err: errors.New("temporal: workflow id must not be empty")}
+	}
+	run := client.GetWorkflow(ctx, workflowID, runID)
+	return Run[O]{run: run, client: client, workflowID: workflowID, runID: runID}
+}
+
 func (r Run[O]) ID() string {
 	if r.run == nil {
-		return ""
+		return r.workflowID
 	}
 	return r.run.GetID()
 }
 
 func (r Run[O]) RunID() string {
 	if r.run == nil {
-		return ""
+		return r.runID
 	}
 	return r.run.GetRunID()
 }
 
 func (r Run[O]) Get(ctx context.Context) (O, error) {
 	var out O
+	if r.err != nil {
+		return out, r.err
+	}
 	if r.run == nil {
 		return out, errors.New("temporal: nil workflow run")
 	}
@@ -361,107 +483,95 @@ func (r Run[O]) Get(ctx context.Context) (O, error) {
 	return out, nil
 }
 
-func GetWorkflow[O any](ctx context.Context, workflowID, runID string) (Run[O], error) {
-	_ = ctx
-	client, _, ok := onlavaruntime.ActiveTemporalClient()
-	if !ok || client == nil {
-		return Run[O]{}, errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
-	}
-	workflowID = strings.TrimSpace(workflowID)
-	if workflowID == "" {
-		return Run[O]{}, errors.New("temporal: workflow ID must not be empty")
-	}
-	return Run[O]{run: client.GetWorkflow(context.Background(), workflowID, strings.TrimSpace(runID))}, nil
-}
-
 func (r Run[O]) Cancel(ctx context.Context) error {
-	if r.run == nil {
-		return errors.New("temporal: nil workflow run")
+	if r.err != nil {
+		return r.err
 	}
-	client, _, ok := onlavaruntime.ActiveTemporalClient()
-	if !ok || client == nil {
+	client := r.client
+	if client == nil {
+		client, _, _ = onlavaruntime.ActiveTemporalClient()
+	}
+	if client == nil {
 		return errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
 	}
-	return client.CancelWorkflow(ctx, r.ID(), r.RunID())
+	workflowID := r.ID()
+	if strings.TrimSpace(workflowID) == "" {
+		return errors.New("temporal: workflow id must not be empty")
+	}
+	return client.CancelWorkflow(ctx, workflowID, r.RunID())
 }
 
-func (r Run[O]) Terminate(ctx context.Context, reason string, details ...any) error {
-	if r.run == nil {
-		return errors.New("temporal: nil workflow run")
+func (r Run[O]) Terminate(ctx context.Context, reason string) error {
+	if r.err != nil {
+		return r.err
 	}
-	client, _, ok := onlavaruntime.ActiveTemporalClient()
-	if !ok || client == nil {
+	client := r.client
+	if client == nil {
+		client, _, _ = onlavaruntime.ActiveTemporalClient()
+	}
+	if client == nil {
 		return errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
 	}
-	return client.TerminateWorkflow(ctx, r.ID(), r.RunID(), reason, details...)
+	workflowID := r.ID()
+	if strings.TrimSpace(workflowID) == "" {
+		return errors.New("temporal: workflow id must not be empty")
+	}
+	return client.TerminateWorkflow(ctx, workflowID, r.RunID(), reason)
 }
 
-func (r Run[O]) Signal(ctx context.Context, name string, arg any) error {
-	if r.run == nil {
-		return errors.New("temporal: nil workflow run")
-	}
-	client, _, ok := onlavaruntime.ActiveTemporalClient()
-	if !ok || client == nil {
-		return errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
-	}
-	return client.SignalWorkflow(ctx, r.ID(), r.RunID(), name, arg)
-}
-
-func (r Run[O]) Query(ctx context.Context, queryType string, args ...any) (any, error) {
-	if r.run == nil {
-		return nil, errors.New("temporal: nil workflow run")
-	}
-	client, _, ok := onlavaruntime.ActiveTemporalClient()
-	if !ok || client == nil {
-		return nil, errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
-	}
-	value, err := client.QueryWorkflow(ctx, r.ID(), r.RunID(), strings.TrimSpace(queryType), args...)
+func Signal[O, I any](ctx context.Context, run Run[O], name string, input I) error {
+	client, err := temporalClientForRun(run)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var out any
-	if err := value.Get(&out); err != nil {
-		return nil, err
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("temporal: signal name must not be empty")
 	}
-	return out, nil
+	return client.SignalWorkflow(ctx, run.ID(), run.RunID(), name, input)
 }
 
-func (r Run[O]) Update(ctx context.Context, updateName string, arg any) (any, error) {
-	if r.run == nil {
-		return nil, errors.New("temporal: nil workflow run")
-	}
-	client, _, ok := onlavaruntime.ActiveTemporalClient()
-	if !ok || client == nil {
-		return nil, errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
-	}
-	handle, err := client.UpdateWorkflow(ctx, temporalclient.UpdateWorkflowOptions{
-		WorkflowID:   r.ID(),
-		RunID:        r.RunID(),
-		UpdateName:   strings.TrimSpace(updateName),
-		Args:         []interface{}{arg},
-		WaitForStage: temporalclient.WorkflowUpdateStageCompleted,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var out any
-	if err := handle.Get(ctx, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func Query[O any](ctx context.Context, workflowID, runID, queryType string, args ...any) (O, error) {
+func Query[O, R any](ctx context.Context, run Run[R], name string) (O, error) {
 	var out O
-	client, _, ok := onlavaruntime.ActiveTemporalClient()
-	if !ok || client == nil {
-		return out, errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
+	client, err := temporalClientForRun(run)
+	if err != nil {
+		return out, err
 	}
-	value, err := client.QueryWorkflow(ctx, strings.TrimSpace(workflowID), strings.TrimSpace(runID), strings.TrimSpace(queryType), args...)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return out, errors.New("temporal: query name must not be empty")
+	}
+	value, err := client.QueryWorkflow(ctx, run.ID(), run.RunID(), name)
 	if err != nil {
 		return out, err
 	}
 	if err := value.Get(&out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func Update[I, O, R any](ctx context.Context, run Run[R], name string, input I) (O, error) {
+	var out O
+	client, err := temporalClientForRun(run)
+	if err != nil {
+		return out, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return out, errors.New("temporal: update name must not be empty")
+	}
+	handle, err := client.UpdateWorkflow(ctx, temporalclient.UpdateWorkflowOptions{
+		WorkflowID:   run.ID(),
+		RunID:        run.RunID(),
+		UpdateName:   name,
+		Args:         []interface{}{input},
+		WaitForStage: temporalclient.WorkflowUpdateStageCompleted,
+	})
+	if err != nil {
+		return out, err
+	}
+	if err := handle.Get(ctx, &out); err != nil {
 		return out, err
 	}
 	return out, nil
@@ -516,6 +626,10 @@ func startWorkerRuntime(ctx context.Context, cfg onlavaruntime.AppConfig) (func(
 		}
 		byQueue[queue] = append(byQueue[queue], item)
 	}
+	byQueue, err := filterDeclarationsBySelectedTaskQueues(byQueue, selectedTemporalTaskQueuesFromEnv())
+	if err != nil {
+		return nil, err
+	}
 
 	workers := make([]temporalworker.Worker, 0, len(byQueue))
 	for queue, queueItems := range byQueue {
@@ -531,179 +645,211 @@ func startWorkerRuntime(ctx context.Context, cfg onlavaruntime.AppConfig) (func(
 		}
 		workers = append(workers, worker)
 	}
-	if onlavaruntime.TemporalShouldAutoPromoteWorkers(info) {
+	if onlavaruntime.ShouldAutoPromoteTemporalWorkerDeployment(info) {
 		if err := onlavaruntime.EnsureTemporalWorkerDeploymentCurrentVersion(ctx, client, info); err != nil {
 			for _, started := range workers {
 				started.Stop()
 			}
 			return nil, err
 		}
-	} else {
-		slog.Info("temporal worker deployment auto-promotion skipped outside local mode",
-			"deployment", onlavaruntime.TemporalDeploymentName(info),
-			"build_id", onlavaruntime.TemporalWorkerBuildID(info),
-		)
 	}
 	return func(context.Context) error {
-		for _, started := range workers {
-			started.Stop()
+		for _, worker := range workers {
+			worker.Stop()
 		}
 		return nil
 	}, nil
 }
 
+func selectedTemporalTaskQueuesFromEnv() []string {
+	return splitTemporalTaskQueueList(os.Getenv("ONLAVA_TEMPORAL_TASK_QUEUE"))
+}
+
+func splitTemporalTaskQueueList(value string) []string {
+	parts := strings.Split(value, ",")
+	queues := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		queue := strings.TrimSpace(part)
+		if queue == "" {
+			continue
+		}
+		if _, ok := seen[queue]; ok {
+			continue
+		}
+		seen[queue] = struct{}{}
+		queues = append(queues, queue)
+	}
+	return queues
+}
+
+func filterDeclarationsBySelectedTaskQueues(byQueue map[string][]declaration, selected []string) (map[string][]declaration, error) {
+	selected = normalizeSelectedTaskQueues(selected)
+	if len(selected) == 0 {
+		return byQueue, nil
+	}
+	filtered := make(map[string][]declaration, len(selected))
+	var missing []string
+	for _, queue := range selected {
+		items, ok := byQueue[queue]
+		if !ok {
+			missing = append(missing, queue)
+			continue
+		}
+		filtered[queue] = items
+	}
+	if len(missing) > 0 {
+		declared := make([]string, 0, len(byQueue))
+		for queue := range byQueue {
+			declared = append(declared, queue)
+		}
+		sort.Strings(declared)
+		return nil, fmt.Errorf("temporal: selected task queue(s) not declared: %s; declared task queues: %s", strings.Join(missing, ", "), strings.Join(declared, ", "))
+	}
+	return filtered, nil
+}
+
+func normalizeSelectedTaskQueues(selected []string) []string {
+	queues := make([]string, 0, len(selected))
+	seen := make(map[string]struct{}, len(selected))
+	for _, queue := range selected {
+		queue = strings.TrimSpace(queue)
+		if queue == "" {
+			continue
+		}
+		if _, ok := seen[queue]; ok {
+			continue
+		}
+		seen[queue] = struct{}{}
+		queues = append(queues, queue)
+	}
+	return queues
+}
+
 func temporalWorkerOptionsForQueue(info onlavaruntime.TemporalRuntimeInfo, role, queue string, items []declaration) temporalworker.Options {
 	opts := onlavaruntime.TemporalWorkerOptions(info, role, queue)
-	concurrencyByActivity := make(map[int][]string)
 	for _, item := range items {
 		max := item.maxConcurrentActivityExecutions()
 		if max <= 0 {
 			continue
 		}
-		concurrencyByActivity[max] = append(concurrencyByActivity[max], item.declarationKey())
 		if opts.MaxConcurrentActivityExecutionSize == 0 || max < opts.MaxConcurrentActivityExecutionSize {
 			opts.MaxConcurrentActivityExecutionSize = max
 		}
 	}
-	if len(concurrencyByActivity) > 1 {
-		values := make([]int, 0, len(concurrencyByActivity))
-		for value := range concurrencyByActivity {
-			values = append(values, value)
-		}
-		sort.Ints(values)
-		slog.Warn("temporal task queue has multiple activity MaxConcurrency values; worker limit uses the smallest value",
-			"task_queue", queue,
-			"max_concurrency_values", values,
-			"effective_max_concurrency", opts.MaxConcurrentActivityExecutionSize,
-		)
-	}
 	return opts
 }
 
-func WorkflowID(id string) StartOption {
-	return func(opts *startOptions) {
-		opts.id = strings.TrimSpace(id)
-	}
-}
-
-func WithWorkflowID(id string) StartOption {
-	return WorkflowID(id)
-}
-
-func WorkflowIDPrefix(prefix string) StartOption {
-	return func(opts *startOptions) {
-		opts.idPrefix = strings.TrimSpace(prefix)
-	}
-}
-
-func WithWorkflowIDPrefix(prefix string) StartOption {
-	return WorkflowIDPrefix(prefix)
-}
-
-func WithTaskQueue(queue string) StartOption {
-	return func(opts *startOptions) {
-		opts.taskQueue = strings.TrimSpace(queue)
-	}
-}
-
-func WithMemo(memo map[string]any) StartOption {
-	return func(opts *startOptions) {
-		opts.memo = cloneAnyMap(memo)
-	}
-}
-
-func WithSearchAttributes(attrs map[string]any) StartOption {
-	return func(opts *startOptions) {
-		opts.searchAttributes = cloneAnyMap(attrs)
-	}
-}
-
-func WithExecutionTimeout(timeout time.Duration) StartOption {
-	return func(opts *startOptions) {
-		opts.workflowExecutionTimeout = timeout
-	}
-}
-
-func WithRunTimeout(timeout time.Duration) StartOption {
-	return func(opts *startOptions) {
-		opts.workflowRunTimeout = timeout
-	}
-}
-
-func WithTaskTimeout(timeout time.Duration) StartOption {
-	return func(opts *startOptions) {
-		opts.workflowTaskTimeout = timeout
-	}
-}
-
-func WithPinnedBuildID(buildID string) StartOption {
-	return func(opts *startOptions) {
-		opts.pinnedBuildID = strings.TrimSpace(buildID)
-	}
-}
-
-func WithWorkflowIDConflictPolicy(policy WorkflowIDConflictPolicy) StartOption {
-	return func(opts *startOptions) {
-		opts.workflowIDConflictPolicy = policy
-	}
-}
-
-func WithWorkflowIDReusePolicy(policy WorkflowIDReusePolicy) StartOption {
-	return func(opts *startOptions) {
-		opts.workflowIDReusePolicy = policy
-	}
-}
-
-func startWorkflowOptions[I, O any](info onlavaruntime.TemporalRuntimeInfo, w *Workflow[I, O], options ...StartOption) (temporalclient.StartWorkflowOptions, error) {
-	start := startOptions{
-		taskQueue:                w.taskQueue(info),
-		workflowExecutionTimeout: w.config.WorkflowExecutionTimeout,
-		workflowRunTimeout:       w.config.WorkflowRunTimeout,
-		workflowTaskTimeout:      w.config.WorkflowTaskTimeout,
-	}
-	if w.config.WorkflowID != "" {
-		start.id = strings.TrimSpace(w.config.WorkflowID)
-	}
-	if w.config.WorkflowIDPrefix != "" {
-		start.idPrefix = strings.TrimSpace(w.config.WorkflowIDPrefix)
+func applyStartOptions(cfg WorkflowConfig, options ...StartOption) StartWorkflowOptions {
+	opts := StartWorkflowOptions{
+		TaskQueue:                strings.TrimSpace(cfg.TaskQueue),
+		WorkflowExecutionTimeout: cfg.WorkflowExecutionTimeout,
+		WorkflowRunTimeout:       cfg.WorkflowRunTimeout,
+		WorkflowTaskTimeout:      cfg.WorkflowTaskTimeout,
 	}
 	for _, option := range options {
 		if option != nil {
-			option(&start)
+			option(&opts)
 		}
 	}
-	if start.pinnedBuildID != "" {
-		start.versioningOverride = &temporalclient.PinnedVersioningOverride{
+	opts.Memo = cloneStringAnyMap(opts.Memo)
+	return opts
+}
+
+func temporalStartWorkflowOptions(workflowName string, identity WorkflowIdentity, opts StartWorkflowOptions, defaultTaskQueue string, info onlavaruntime.TemporalRuntimeInfo) temporalclient.StartWorkflowOptions {
+	taskQueue := strings.TrimSpace(opts.TaskQueue)
+	if taskQueue == "" {
+		taskQueue = defaultTaskQueue
+	}
+	start := temporalclient.StartWorkflowOptions{
+		ID:                       workflowIDFromIdentity(workflowName, identity),
+		TaskQueue:                taskQueue,
+		Memo:                     cloneStringAnyMap(opts.Memo),
+		TypedSearchAttributes:    opts.SearchAttributes,
+		WorkflowExecutionTimeout: opts.WorkflowExecutionTimeout,
+		WorkflowRunTimeout:       opts.WorkflowRunTimeout,
+		WorkflowTaskTimeout:      opts.WorkflowTaskTimeout,
+		WorkflowIDConflictPolicy: workflowIDConflictPolicy(opts.WorkflowIDConflictPolicy),
+		WorkflowIDReusePolicy:    workflowIDReusePolicy(opts.WorkflowIDReusePolicy),
+	}
+	if buildID := strings.TrimSpace(opts.PinnedBuildID); buildID != "" {
+		start.VersioningOverride = &temporalclient.PinnedVersioningOverride{
 			Version: temporalworker.WorkerDeploymentVersion{
 				DeploymentName: onlavaruntime.TemporalDeploymentName(info),
-				BuildID:        start.pinnedBuildID,
+				BuildID:        buildID,
 			},
 		}
 	}
-	if start.taskQueue == "" {
-		return temporalclient.StartWorkflowOptions{}, fmt.Errorf("temporal: workflow %s task queue must not be empty", w.name)
+	return start
+}
+
+func workflowIDFromIdentity(workflowName string, identity WorkflowIdentity) string {
+	if id := strings.TrimSpace(identity.id); id != "" {
+		return id
 	}
-	id := start.id
-	if id == "" {
-		prefix := start.idPrefix
-		if prefix == "" {
-			prefix = sanitizeName(w.name)
-		}
-		id = randomWorkflowID(prefix)
+	prefix := strings.TrimSpace(identity.prefix)
+	if prefix == "" {
+		prefix = sanitizeName(workflowName)
 	}
-	opts := temporalclient.StartWorkflowOptions{
-		ID:                       id,
-		TaskQueue:                start.taskQueue,
-		WorkflowExecutionTimeout: start.workflowExecutionTimeout,
-		WorkflowRunTimeout:       start.workflowRunTimeout,
-		WorkflowTaskTimeout:      start.workflowTaskTimeout,
-		Memo:                     start.memo,
-		SearchAttributes:         start.searchAttributes,
-		VersioningOverride:       start.versioningOverride,
-		WorkflowIDConflictPolicy: enumspb.WorkflowIdConflictPolicy(start.workflowIDConflictPolicy),
-		WorkflowIDReusePolicy:    enumspb.WorkflowIdReusePolicy(start.workflowIDReusePolicy),
+	return randomWorkflowID(prefix)
+}
+
+func (identity WorkflowIdentity) isZero() bool {
+	return strings.TrimSpace(identity.id) == "" && strings.TrimSpace(identity.prefix) == ""
+}
+
+func workflowIDConflictPolicy(policy WorkflowIDConflictPolicy) enumspb.WorkflowIdConflictPolicy {
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(string(policy)), "-", "_")) {
+	case string(WorkflowIDConflictFail):
+		return enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
+	case string(WorkflowIDConflictUseExisting):
+		return enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+	case string(WorkflowIDConflictTerminateExisting):
+		return enumspb.WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING
+	default:
+		return enumspb.WORKFLOW_ID_CONFLICT_POLICY_UNSPECIFIED
 	}
-	return opts, nil
+}
+
+func workflowIDReusePolicy(policy WorkflowIDReusePolicy) enumspb.WorkflowIdReusePolicy {
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(string(policy)), "-", "_")) {
+	case string(WorkflowIDReuseAllowDuplicate):
+		return enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
+	case string(WorkflowIDReuseAllowDuplicateFailed), "allow_duplicate_failed_only":
+		return enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY
+	case string(WorkflowIDReuseRejectDuplicate):
+		return enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE
+	default:
+		return enumspb.WORKFLOW_ID_REUSE_POLICY_UNSPECIFIED
+	}
+}
+
+func temporalClientForRun[O any](run Run[O]) (temporalclient.Client, error) {
+	if run.err != nil {
+		return nil, run.err
+	}
+	client := run.client
+	if client == nil {
+		client, _, _ = onlavaruntime.ActiveTemporalClient()
+	}
+	if client == nil {
+		return nil, errors.New("temporal: runtime is not started; set temporal.enabled in .onlava.json")
+	}
+	if strings.TrimSpace(run.ID()) == "" {
+		return nil, errors.New("temporal: workflow id must not be empty")
+	}
+	return client, nil
+}
+
+func cloneStringAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func randomWorkflowID(prefix string) string {
@@ -721,11 +867,11 @@ func defaultWorkerTaskQueue(info onlavaruntime.TemporalRuntimeInfo) string {
 	return strings.TrimSuffix(prefix, ".") + ".worker.go"
 }
 
-func retryPolicy(policy RetryPolicy) *temporalerror.RetryPolicy {
+func retryPolicy(policy RetryPolicy) *sdktemporal.RetryPolicy {
 	if retryPolicyIsZero(policy) {
 		return nil
 	}
-	return &temporalerror.RetryPolicy{
+	return &sdktemporal.RetryPolicy{
 		InitialInterval:        policy.InitialInterval,
 		BackoffCoefficient:     policy.BackoffCoefficient,
 		MaximumInterval:        policy.MaximumInterval,
@@ -778,17 +924,6 @@ func validateRetryPolicy(name string, policy RetryPolicy) error {
 		return fmt.Errorf("temporal: activity %s retry BackoffCoefficient must be set when retry policy is configured", name)
 	}
 	return nil
-}
-
-func cloneAnyMap(values map[string]any) map[string]any {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make(map[string]any, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
-	return cloned
 }
 
 func serviceKeyForType(t reflect.Type) string {

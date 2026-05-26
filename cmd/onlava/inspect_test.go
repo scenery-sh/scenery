@@ -46,7 +46,7 @@ func TestRunOnlavaInspectOutputsStableJSON(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"inspectapp","id":"inspect-id"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/inspectapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRootForTest(t)+"\n")
 	writeTestAppFile(t, root, "users/api.go", `package users
 
 import "context"
@@ -65,6 +65,25 @@ import "context"
 
 //onlava:api private path=/tenants/config method=GET
 func Config(context.Context) error { return nil }
+`)
+	writeTestAppFile(t, root, "jobs/runtime.go", `package jobs
+
+import (
+	"context"
+
+	"github.com/pbrazdil/onlava/temporal"
+)
+
+type In struct{}
+type Out struct{}
+
+var wf = temporal.NewWorkflow[In, Out]("jobs.Run/v1", temporal.WorkflowConfig{}, func(ctx temporal.WorkflowContext, in In) (Out, error) {
+	return Out{}, nil
+})
+
+var act = temporal.NewActivity[In, Out]("jobs.Do/v1", temporal.ActivityConfig{TaskQueue: "inspect.jobs.activities.go"}, func(ctx context.Context, in In) (Out, error) {
+	return Out{}, nil
+})
 `)
 
 	restore := chdirForTest(t, root)
@@ -252,6 +271,14 @@ func Config(context.Context) error { return nil }
 				OK      bool `json:"ok"`
 				Count   int  `json:"count"`
 			} `json:"worker_manifests"`
+			Declarations []struct {
+				Kind              string `json:"kind"`
+				Name              string `json:"name"`
+				TaskQueue         string `json:"task_queue"`
+				TaskQueueExplicit bool   `json:"task_queue_explicit"`
+				File              string `json:"file"`
+				Line              int    `json:"line"`
+			} `json:"declarations"`
 		}
 		if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 			t.Fatalf("json.Unmarshal(temporal) error = %v\n%s", err, out.String())
@@ -276,6 +303,15 @@ func Config(context.Context) error { return nil }
 		}
 		if payload.Connectivity.Checked {
 			t.Fatalf("connectivity checked while disabled: %+v", payload.Connectivity)
+		}
+		if len(payload.Declarations) != 2 {
+			t.Fatalf("declarations = %+v", payload.Declarations)
+		}
+		if payload.Declarations[0].Kind != "temporal_workflow" || payload.Declarations[0].Name != "jobs.Run/v1" || payload.Declarations[0].TaskQueue != "onlava.inspectapp.worker.go" || payload.Declarations[0].TaskQueueExplicit {
+			t.Fatalf("workflow declaration = %+v", payload.Declarations[0])
+		}
+		if payload.Declarations[1].Kind != "temporal_activity" || payload.Declarations[1].Name != "jobs.Do/v1" || payload.Declarations[1].TaskQueue != "inspect.jobs.activities.go" || !payload.Declarations[1].TaskQueueExplicit {
+			t.Fatalf("activity declaration = %+v", payload.Declarations[1])
 		}
 		if !payload.WorkerManifests.Checked || !payload.WorkerManifests.OK || payload.WorkerManifests.Count != 0 {
 			t.Fatalf("worker_manifests = %+v", payload.WorkerManifests)
@@ -310,6 +346,7 @@ func ServiceMW(req middleware.Request, next middleware.Next) middleware.Response
 	return next(req)
 }
 `)
+
 	writeTestAppFile(t, root, "globalmw/mw.go", `package globalmw
 
 import "github.com/pbrazdil/onlava/middleware"
@@ -381,6 +418,62 @@ func Global(req middleware.Request, next middleware.Next) middleware.Response {
 			}
 		}
 	})
+}
+
+func TestInspectTemporalLeavesUnresolvedWorkflowQueueEmpty(t *testing.T) {
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"inspectapp"}`)
+	writeTestAppFile(t, root, "go.mod", "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRootForTest(t)+"\n")
+	writeTestAppFile(t, root, "svc/api.go", `package svc
+
+import "context"
+
+//onlava:api public
+func Ping(ctx context.Context) error { return nil }
+`)
+	writeTestAppFile(t, root, "jobs/runtime.go", `package jobs
+
+import "github.com/pbrazdil/onlava/temporal"
+
+type In struct{}
+type Out struct{}
+
+func workflowConfig() temporal.WorkflowConfig {
+	return temporal.WorkflowConfig{TaskQueue: "custom.worker.go"}
+}
+
+var cfg = workflowConfig()
+
+var _ = temporal.NewWorkflow[In, Out]("jobs.Run/v1", cfg, func(ctx temporal.WorkflowContext, in In) (Out, error) {
+	return Out{}, nil
+})
+`)
+
+	restore := chdirForTest(t, root)
+	defer restore()
+
+	var out bytes.Buffer
+	if err := runOnlavaInspect([]string{"temporal", "--json"}, &out); err != nil {
+		t.Fatalf("runOnlavaInspect(temporal) error = %v", err)
+	}
+	var payload struct {
+		Declarations []struct {
+			Kind              string `json:"kind"`
+			Name              string `json:"name"`
+			TaskQueue         string `json:"task_queue"`
+			TaskQueueExplicit bool   `json:"task_queue_explicit"`
+		} `json:"declarations"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal(temporal) error = %v\n%s", err, out.String())
+	}
+	if len(payload.Declarations) != 1 {
+		t.Fatalf("declarations = %+v", payload.Declarations)
+	}
+	decl := payload.Declarations[0]
+	if decl.Kind != "temporal_workflow" || decl.Name != "jobs.Run/v1" || decl.TaskQueue != "" || decl.TaskQueueExplicit {
+		t.Fatalf("workflow declaration = %+v", decl)
+	}
 }
 
 func TestRunOnlavaInspectBuildUsesLatestManifest(t *testing.T) {
