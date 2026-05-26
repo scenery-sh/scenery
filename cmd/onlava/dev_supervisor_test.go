@@ -107,7 +107,38 @@ func TestAppProcessEnvAllowsMissingDotEnvForProduction(t *testing.T) {
 	}
 }
 
+func TestAppStartupExitErrorIncludesOutput(t *testing.T) {
+	output := &safeLineTail{limit: 10}
+	output.Add("warning: something happened")
+	output.Add("fatal: database missing")
+	err := appStartupExitError(&runningApp{output: output}, os.ErrInvalid)
+	for _, want := range []string{"onlava app exited during startup", os.ErrInvalid.Error(), "fatal: database missing"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+func TestTCPAddrAcceptsConnections(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	if !tcpAddrAcceptsConnections(addr) {
+		t.Fatalf("tcpAddrAcceptsConnections(%q) = false, want true", addr)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if tcpAddrAcceptsConnections(addr) {
+		t.Fatalf("tcpAddrAcceptsConnections(%q) after close = true, want false", addr)
+	}
+}
+
 func TestTemporalDevHelpers(t *testing.T) {
+	t.Setenv(onlavaruntime.DefaultTemporalAddressEnv, "")
+
 	host, port, err := splitTemporalAddress("127.0.0.1:7233")
 	if err != nil {
 		t.Fatalf("splitTemporalAddress: %v", err)
@@ -142,6 +173,9 @@ func TestTemporalDevHelpers(t *testing.T) {
 	env := server.Env()
 	if !containsString(env, "CUSTOM_TEMPORAL_ADDRESS=127.0.0.1:7233") || !containsString(env, "TEMPORAL_NAMESPACE=orders") {
 		t.Fatalf("temporal env = %+v", env)
+	}
+	if got := temporalUIUpstreamForConfig(app.Config{Name: "test"}); got != "127.0.0.1:8233" {
+		t.Fatalf("temporal UI upstream = %q, want %q", got, "127.0.0.1:8233")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/activity"
 	temporalclient "go.temporal.io/sdk/client"
 	temporalworker "go.temporal.io/sdk/worker"
@@ -518,7 +520,15 @@ func temporalCronActivityName(job *CronJob) string {
 }
 
 func isTemporalAlreadyExistsError(err error) bool {
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), "already exist")
+	if err == nil {
+		return false
+	}
+	var alreadyExists *serviceerror.AlreadyExists
+	if errors.As(err, &alreadyExists) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already exist") || strings.Contains(message, "already registered")
 }
 
 func validateCronJob(job *CronJob) error {

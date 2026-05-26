@@ -2,8 +2,11 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
+
+	"go.temporal.io/api/serviceerror"
 )
 
 func TestEveryCronPlanAlignsToUTCGrid(t *testing.T) {
@@ -100,5 +103,19 @@ func TestTemporalCronRoleSplit(t *testing.T) {
 	}
 	if !shouldStartTemporalCronWorker("worker") || !shouldStartTemporalCronWorker("all") {
 		t.Fatal("worker/all roles should start cron worker")
+	}
+}
+
+func TestTemporalAlreadyExistsErrorDetection(t *testing.T) {
+	for _, err := range []error{
+		serviceerror.NewAlreadyExists("schedule already exists"),
+		fmt.Errorf("schedule with this ID is already registered"),
+	} {
+		if !isTemporalAlreadyExistsError(err) {
+			t.Fatalf("isTemporalAlreadyExistsError(%v) = false, want true", err)
+		}
+	}
+	if isTemporalAlreadyExistsError(fmt.Errorf("permission denied")) {
+		t.Fatal("isTemporalAlreadyExistsError returned true for unrelated error")
 	}
 }

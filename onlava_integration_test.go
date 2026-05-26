@@ -331,6 +331,7 @@ func TestOnlavaRunInitializesServiceStructsAtStartup(t *testing.T) {
 	markerPath := filepath.Join(t.TempDir(), "init.marker")
 	writeFile(t, filepath.Join(appDir, "go.mod"), "module example.com/serviceinit\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repo+"\n")
 	writeFile(t, filepath.Join(appDir, ".onlava.json"), `{"name":"serviceinit"}`)
+	writeFile(t, filepath.Join(appDir, ".env"), "# Fixture environment intentionally empty.\n")
 	writeFile(t, filepath.Join(appDir, "svc", "api.go"), `package svc
 
 import (

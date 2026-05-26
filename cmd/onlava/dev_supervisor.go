@@ -38,6 +38,7 @@ type runningApp struct {
 	done     chan error
 	buildDir string
 	pid      string
+	output   *safeLineTail
 }
 
 type devSupervisor struct {
@@ -64,6 +65,11 @@ type devSupervisor struct {
 	current   *runningApp
 	status    devdash.AppRecord
 }
+
+const (
+	appStartupTimeout      = 30 * time.Second
+	appStartupPollInterval = 50 * time.Millisecond
+)
 
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
@@ -368,6 +374,10 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	}); err != nil {
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
 	}
+	s.setMetadata(metadata, apiEncoding)
+	if err := s.persistStatus(ctx); err != nil {
+		return err
+	}
 
 	previous := s.currentApp()
 	var current *runningApp
@@ -475,6 +485,9 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 	if err != nil {
 		return nil, err
 	}
+	if err := portAvailable(s.addr); err != nil {
+		return nil, fmt.Errorf("app listen address %s is unavailable before startup: %w", s.addr, err)
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -484,20 +497,82 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		done:     make(chan error, 1),
 		buildDir: result.Dir,
 		pid:      fmt.Sprintf("%d", cmd.Process.Pid),
+		output:   &safeLineTail{limit: 80},
 	}
 
-	go s.captureOutput(ctx, app.pid, "stdout", stdout, os.Stdout)
-	go s.captureOutput(ctx, app.pid, "stderr", stderr, os.Stderr)
+	go s.captureOutput(ctx, app, "stdout", stdout, os.Stdout)
+	go s.captureOutput(ctx, app, "stderr", stderr, os.Stderr)
 	go func() {
 		app.done <- cmd.Wait()
 		close(app.done)
 		s.handleExit(context.Background(), app)
 	}()
+	if err := s.waitForAppStartup(ctx, app); err != nil {
+		return nil, err
+	}
 	return app, nil
 }
 
-func (s *devSupervisor) captureOutput(ctx context.Context, pid, stream string, src io.Reader, dst io.Writer) {
+func (s *devSupervisor) waitForAppStartup(ctx context.Context, app *runningApp) error {
+	deadline := time.NewTimer(appStartupTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(appStartupPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			_ = app.stop()
+			return ctx.Err()
+		case err, ok := <-app.done:
+			if !ok {
+				return appStartupExitError(app, nil)
+			}
+			return appStartupExitError(app, err)
+		case <-ticker.C:
+			if tcpAddrAcceptsConnections(s.addr) {
+				return nil
+			}
+		case <-deadline.C:
+			_ = app.stop()
+			return fmt.Errorf("onlava app did not listen on %s within %s", s.addr, appStartupTimeout)
+		}
+	}
+}
+
+func appStartupExitError(app *runningApp, err error) error {
+	message := "onlava app exited during startup"
+	if err != nil {
+		message += ": " + err.Error()
+	} else {
+		message += ": process exited without an error"
+	}
+	if app != nil && app.output != nil {
+		if output := strings.TrimSpace(app.output.String()); output != "" {
+			message += "\n" + output
+		}
+	}
+	return errors.New(message)
+}
+
+func tcpAddrAcceptsConnections(addr string) bool {
+	target := addr
+	if host, port, err := net.SplitHostPort(addr); err == nil && host == "" {
+		target = net.JoinHostPort("127.0.0.1", port)
+	}
+	conn, err := net.DialTimeout("tcp", target, 100*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func (s *devSupervisor) captureOutput(ctx context.Context, app *runningApp, stream string, src io.Reader, dst io.Writer) {
 	reader := bufio.NewReader(src)
+	pid := ""
+	if app != nil {
+		pid = app.pid
+	}
 	for {
 		chunk, err := reader.ReadBytes('\n')
 		if len(chunk) > 0 {
@@ -505,6 +580,9 @@ func (s *devSupervisor) captureOutput(ctx context.Context, pid, stream string, s
 				_, _ = dst.Write(chunk)
 			}
 			plain := stripANSI(chunk)
+			if app != nil && app.output != nil {
+				app.output.Add(strings.TrimRight(string(plain), "\n"))
+			}
 			output := devdash.ProcessOutput{
 				AppID:     s.activeAppID(),
 				PID:       pid,
