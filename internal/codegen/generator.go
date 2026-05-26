@@ -413,6 +413,15 @@ func temporalConfigLiteral(cfg appcfg.TemporalConfig) string {
 	if cfg.TaskQueuePrefix != "" {
 		fields = append(fields, fmt.Sprintf("TaskQueuePrefix: %q", cfg.TaskQueuePrefix))
 	}
+	if cfg.PayloadCodec != "" {
+		fields = append(fields, fmt.Sprintf("PayloadCodec: %q", cfg.PayloadCodec))
+	}
+	if cfg.APIKeyEnv != "" {
+		fields = append(fields, fmt.Sprintf("APIKeyEnv: %q", cfg.APIKeyEnv))
+	}
+	if literal := temporalTLSConfigLiteral(cfg.TLS); literal != "" {
+		fields = append(fields, "TLS: "+literal)
+	}
 	if literal := temporalLocalConfigLiteral(cfg.Local); literal != "" {
 		fields = append(fields, "Local: "+literal)
 	}
@@ -420,6 +429,29 @@ func temporalConfigLiteral(cfg appcfg.TemporalConfig) string {
 		return ""
 	}
 	return "onlavaruntime.TemporalConfig{" + strings.Join(fields, ", ") + "}"
+}
+
+func temporalTLSConfigLiteral(cfg appcfg.TemporalTLSConfig) string {
+	fields := make([]string, 0, 5)
+	if cfg.Enabled {
+		fields = append(fields, "Enabled: true")
+	}
+	if cfg.ServerNameEnv != "" {
+		fields = append(fields, fmt.Sprintf("ServerNameEnv: %q", cfg.ServerNameEnv))
+	}
+	if cfg.CACertFileEnv != "" {
+		fields = append(fields, fmt.Sprintf("CACertFileEnv: %q", cfg.CACertFileEnv))
+	}
+	if cfg.ClientCertFileEnv != "" {
+		fields = append(fields, fmt.Sprintf("ClientCertFileEnv: %q", cfg.ClientCertFileEnv))
+	}
+	if cfg.ClientKeyFileEnv != "" {
+		fields = append(fields, fmt.Sprintf("ClientKeyFileEnv: %q", cfg.ClientKeyFileEnv))
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return "onlavaruntime.TemporalTLSConfig{" + strings.Join(fields, ", ") + "}"
 }
 
 func temporalLocalConfigLiteral(cfg appcfg.TemporalLocalConfig) string {

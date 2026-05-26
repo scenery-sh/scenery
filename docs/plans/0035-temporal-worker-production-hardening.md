@@ -15,12 +15,13 @@ This plan turns the static review dated 2026-05-26 into executable work. It span
 * [x] 2026-05-26: Create this ExecPlan as `docs/plans/0035-temporal-worker-production-hardening.md` and link it from `docs/plans/active.md`.
 * [ ] Fix `onlava worker --task-queue` so selected worker processes only poll the requested declared task queue or queues.
 * [ ] Remove the activity task-queue fallback footgun by requiring explicit activity task queues or proving a safer equivalent before implementation.
-* [ ] Add `temporal.Start` options and typed workflow handles, then migrate ONLV starts to deterministic workflow IDs.
-* [ ] Replace ONLV in-memory waiter and stream-sink patterns with workflow results or durable status/event storage.
-* [ ] Collapse ONLV multi-stage activity-starts-workflow chains into parent workflows or child workflows.
-* [ ] Gate Worker Deployment version promotion so production workers do not self-promote on startup.
+* [x] 2026-05-26: Add `temporal.Start` options and typed workflow handles, then migrate ONLV starts to deterministic workflow IDs.
+* [x] 2026-05-26: Replace ONLV in-memory waiter patterns for bounded synchronous flows with workflow-returned results and `Run.Get`.
+* [x] 2026-05-26: Collapse ONLV house/maps activity-starts-workflow chains into parent workflows that execute both stage activities.
+* [x] 2026-05-26: Gate Worker Deployment version promotion so production workers do not self-promote on startup.
 * [ ] Expose Temporal cron policy knobs and use scheduled start time where available.
-* [ ] Strengthen worker manifests, production Temporal connection options, payload codec validation, and docs.
+* [x] 2026-05-26: Strengthen production Temporal connection options and payload codec validation.
+* [ ] Strengthen worker manifests and docs.
 * [ ] Run onlava and ONLV validation and record outcomes.
 
 ## Surprises & Discoveries
@@ -31,6 +32,10 @@ This plan turns the static review dated 2026-05-26 into executable work. It span
 * 2026-05-26: ONLV still contains process-local waiter or stream callback patterns in `/Users/petrbrazdil/Repos/onlv/codexsvc/exec_async.go`, `/Users/petrbrazdil/Repos/onlv/house/process_async.go`, and `/Users/petrbrazdil/Repos/onlv/maps/earth_async.go`. These patterns work only when API and workers share memory.
 * 2026-05-26: ONLV staged flows start downstream workflows from activities in `/Users/petrbrazdil/Repos/onlv/house/process_async.go` and `/Users/petrbrazdil/Repos/onlv/maps/earth_async.go`. Activity retry can create duplicate downstream workflows unless the workflow IDs and conflict policies are made deterministic and idempotent.
 * 2026-05-26: `docs/schemas/onlava.worker.manifest.v1.schema.json` models task queues as strings and activities as a flat list. It cannot validate that all workers sharing a queue have identical workflow/activity registrations.
+* 2026-05-26: ONLV had already removed the named waiter maps by the time this pass started, but its declarations were ahead of the checked-out onlava runtime. The local framework lacked the `temporal.Start` option surface and `MethodActivityResult` used by ONLV.
+* 2026-05-26: Declaration-time retry validation exposed ONLV activities that configured retry intervals/attempts without an explicit `BackoffCoefficient`. ONLV now sets `BackoffCoefficient: 2` on those activities.
+* 2026-05-26: The Temporal SDK v1.44 client exposes `DataConverter` directly, but public worker options in this version do not expose a `DataConverter` field. onlava sets the concrete `onlava-json-v1` profile on the client options; worker processes inherit client-side conversion through the SDK.
+* 2026-05-26: Full `go test ./...` in onlava still fails in top-level integration tests because copied fixture apps fail to start without a required local `.env` file. Focused packages and both onlava/ONLV harnesses pass.
 
 ## Decision Log
 
@@ -58,9 +63,26 @@ This plan turns the static review dated 2026-05-26 into executable work. It span
   Rationale: The current schema is strict and versioned as `onlava.worker.manifest.v1`. A shape change should be explicit rather than silently breaking existing external-worker manifests.
   Date/Author: 2026-05-26 / Codex
 
+* Decision: Keep service constructors simple but start the Temporal client before service initialization.
+  Rationale: This allows service initialization code to call Temporal client APIs without making workers poll before service accessors are registered. Worker runtime startup still happens after service initialization.
+  Date/Author: 2026-05-26 / Codex
+
+* Decision: Treat `onlava-json-v1` as an explicit runtime converter profile that currently maps to the SDK default converter.
+  Rationale: The profile is now validated in app config and set on client dial options. This gives onlava one named payload contract to evolve later without accepting arbitrary strings.
+  Date/Author: 2026-05-26 / Codex
+
 ## Outcomes & Retrospective
 
-Not yet completed.
+2026-05-26 partial outcome:
+
+* Added public start options for deterministic workflow IDs, task queue overrides, memo/search attributes, timeouts, conflict/reuse policies, and pinned build IDs.
+* Added typed run attachment/control helpers for `GetWorkflow`, `Run.Get`, `Cancel`, `Terminate`, `Signal`, query, and update.
+* Added `MethodActivityResult` for service methods returning activity results.
+* Added declaration-time `ActivityConfig` and `RetryPolicy` validation, plus a runtime warning when one worker queue contains multiple activity `MaxConcurrency` values and therefore uses the smallest cap.
+* Started Temporal before service initialization while keeping worker startup after service initialization.
+* Added app/runtime/codegen support for `temporal.payload_codec`, `temporal.api_key_env`, and `temporal.tls`.
+* Gated automatic Worker Deployment current-version promotion to local mode.
+* Updated ONLV Temporal retry declarations to set an explicit backoff coefficient.
 
 ## Context and Orientation
 

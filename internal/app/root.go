@@ -85,7 +85,18 @@ type TemporalConfig struct {
 	Namespace       string              `json:"namespace"`
 	AddressEnv      string              `json:"address_env"`
 	TaskQueuePrefix string              `json:"task_queue_prefix"`
+	PayloadCodec    string              `json:"payload_codec"`
+	APIKeyEnv       string              `json:"api_key_env"`
+	TLS             TemporalTLSConfig   `json:"tls"`
 	Local           TemporalLocalConfig `json:"local"`
+}
+
+type TemporalTLSConfig struct {
+	Enabled           bool   `json:"enabled"`
+	ServerNameEnv     string `json:"server_name_env"`
+	CACertFileEnv     string `json:"ca_cert_file_env"`
+	ClientCertFileEnv string `json:"client_cert_file_env"`
+	ClientKeyFileEnv  string `json:"client_key_file_env"`
 }
 
 type TemporalLocalConfig struct {

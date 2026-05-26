@@ -132,6 +132,15 @@ func temporalRuntimeConfigFromApp(cfg app.TemporalConfig) onlavaruntime.Temporal
 		Namespace:       cfg.Namespace,
 		AddressEnv:      cfg.AddressEnv,
 		TaskQueuePrefix: cfg.TaskQueuePrefix,
+		PayloadCodec:    cfg.PayloadCodec,
+		APIKeyEnv:       cfg.APIKeyEnv,
+		TLS: onlavaruntime.TemporalTLSConfig{
+			Enabled:           cfg.TLS.Enabled,
+			ServerNameEnv:     cfg.TLS.ServerNameEnv,
+			CACertFileEnv:     cfg.TLS.CACertFileEnv,
+			ClientCertFileEnv: cfg.TLS.ClientCertFileEnv,
+			ClientKeyFileEnv:  cfg.TLS.ClientKeyFileEnv,
+		},
 		Local: onlavaruntime.TemporalLocalConfig{
 			AutoStart:  cfg.Local.AutoStart,
 			DBFilename: cfg.Local.DBFilename,

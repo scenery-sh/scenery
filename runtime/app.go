@@ -41,11 +41,12 @@ func Main(cfg AppConfig) error {
 	stopSupervisorMonitor := startSupervisorParentMonitor(cancelRun)
 	defer stopSupervisorMonitor()
 
-	if err := InitializeServices(); err != nil {
-		return err
-	}
 	stopTemporal, err := StartTemporalRuntime(runCtx, cfg)
 	if err != nil {
+		return err
+	}
+	if err := InitializeServices(); err != nil {
+		_ = stopTemporal(context.Background())
 		return err
 	}
 	stopTemporalWorkers, err := startTemporalWorkerRuntime(runCtx, cfg)

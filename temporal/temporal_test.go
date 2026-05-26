@@ -3,10 +3,12 @@ package temporal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/workflow"
 
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
@@ -163,6 +165,98 @@ func TestRetryPolicyConversion(t *testing.T) {
 	policy.NonRetryableErrorTypes[0] = "mutated"
 	if retryPolicy(RetryPolicy{NonRetryableErrorTypes: []string{"bad_request"}}).NonRetryableErrorTypes[0] != "bad_request" {
 		t.Fatal("retry policy should copy non-retryable error types")
+	}
+}
+
+func TestNewActivityValidatesConfig(t *testing.T) {
+	restore := resetRegistryForTest()
+	defer restore()
+
+	for _, tt := range []struct {
+		name string
+		cfg  ActivityConfig
+		want string
+	}{
+		{
+			name: "missing task queue",
+			cfg:  ActivityConfig{},
+			want: "task queue must not be empty",
+		},
+		{
+			name: "negative timeout",
+			cfg:  ActivityConfig{TaskQueue: "orders.go", StartToClose: -time.Second},
+			want: "StartToClose cannot be negative",
+		},
+		{
+			name: "negative concurrency",
+			cfg:  ActivityConfig{TaskQueue: "orders.go", MaxConcurrency: -1},
+			want: "MaxConcurrency cannot be negative",
+		},
+		{
+			name: "missing backoff coefficient",
+			cfg: ActivityConfig{TaskQueue: "orders.go", RetryPolicy: RetryPolicy{
+				InitialInterval: time.Second,
+				MaximumAttempts: 2,
+			}},
+			want: "BackoffCoefficient must be set",
+		},
+		{
+			name: "maximum before initial",
+			cfg: ActivityConfig{TaskQueue: "orders.go", RetryPolicy: RetryPolicy{
+				InitialInterval:    time.Minute,
+				BackoffCoefficient: 2,
+				MaximumInterval:    time.Second,
+			}},
+			want: "MaximumInterval cannot be less than InitialInterval",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				got := recover()
+				if got == nil || !strings.Contains(fmt.Sprint(got), tt.want) {
+					t.Fatalf("panic = %v, want %q", got, tt.want)
+				}
+			}()
+			_ = NewActivity("orders.Invalid/v1", tt.cfg, func(context.Context, testWorkflowInput) (testWorkflowOutput, error) {
+				return testWorkflowOutput{}, nil
+			})
+		})
+	}
+}
+
+func TestStartWorkflowOptionsApplyOverrides(t *testing.T) {
+	wf := &Workflow[testWorkflowInput, testWorkflowOutput]{
+		name:   "orders.Fulfill/v1",
+		config: WorkflowConfig{TaskQueue: "orders.go", WorkflowExecutionTimeout: time.Minute},
+	}
+	opts, err := startWorkflowOptions(
+		onlavaruntime.TemporalRuntimeInfo{DeploymentName: "orders", WorkerBuildID: "api-build"},
+		wf,
+		WorkflowID("orders.123"),
+		WithTaskQueue("priority.go"),
+		WithMemo(map[string]any{"kind": "test"}),
+		WithSearchAttributes(map[string]any{"CustomKeywordField": "demo"}),
+		WithPinnedBuildID("worker-build"),
+		WithWorkflowIDConflictPolicy(WorkflowIDConflictUseExisting),
+		WithWorkflowIDReusePolicy(WorkflowIDReuseRejectDuplicate),
+	)
+	if err != nil {
+		t.Fatalf("startWorkflowOptions returned error: %v", err)
+	}
+	if opts.ID != "orders.123" || opts.TaskQueue != "priority.go" {
+		t.Fatalf("opts identity = %q/%q", opts.ID, opts.TaskQueue)
+	}
+	if opts.Memo["kind"] != "test" || opts.SearchAttributes["CustomKeywordField"] != "demo" {
+		t.Fatalf("opts metadata = %#v/%#v", opts.Memo, opts.SearchAttributes)
+	}
+	if opts.WorkflowIDConflictPolicy != enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING {
+		t.Fatalf("conflict policy = %v", opts.WorkflowIDConflictPolicy)
+	}
+	if opts.WorkflowIDReusePolicy != enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE {
+		t.Fatalf("reuse policy = %v", opts.WorkflowIDReusePolicy)
+	}
+	if opts.VersioningOverride == nil {
+		t.Fatal("expected pinned versioning override")
 	}
 }
 

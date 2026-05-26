@@ -41,6 +41,9 @@ func TestResolveTemporalConfigDefaults(t *testing.T) {
 	if info.Versioning != TemporalVersioningPinned || info.VersioningEnvSet {
 		t.Fatalf("versioning = %q/%v", info.Versioning, info.VersioningEnvSet)
 	}
+	if info.PayloadCodec != DefaultTemporalPayloadCodec {
+		t.Fatalf("payload codec = %q", info.PayloadCodec)
+	}
 	if info.LocalDBFilename != DefaultTemporalLocalDBFile {
 		t.Fatalf("local db filename = %q, want %q", info.LocalDBFilename, DefaultTemporalLocalDBFile)
 	}
@@ -85,6 +88,12 @@ func TestResolveTemporalConfigPrefersExplicitValues(t *testing.T) {
 		Namespace:       "explicit",
 		AddressEnv:      "CUSTOM_TEMPORAL_ADDRESS",
 		TaskQueuePrefix: "custom.queue",
+		PayloadCodec:    DefaultTemporalPayloadCodec,
+		APIKeyEnv:       "TEMPORAL_API_KEY",
+		TLS: TemporalTLSConfig{
+			Enabled:       true,
+			ServerNameEnv: "TEMPORAL_TLS_SERVER_NAME",
+		},
 		Local: TemporalLocalConfig{
 			AutoStart:  true,
 			DBFilename: ".state/temporal.sqlite",
@@ -102,8 +111,24 @@ func TestResolveTemporalConfigPrefersExplicitValues(t *testing.T) {
 	if info.TaskQueuePrefix != "custom.queue" || !info.LocalAutoStart {
 		t.Fatalf("info = %+v", info)
 	}
+	if info.PayloadCodec != DefaultTemporalPayloadCodec || info.APIKeyEnv != "TEMPORAL_API_KEY" {
+		t.Fatalf("temporal auth/codec = %+v", info)
+	}
+	if !info.TLSEnabled || info.TLSServerNameEnv != "TEMPORAL_TLS_SERVER_NAME" {
+		t.Fatalf("tls info = %+v", info)
+	}
 	if info.LocalDBFilename != ".state/temporal.sqlite" {
 		t.Fatalf("local db filename = %q", info.LocalDBFilename)
+	}
+}
+
+func TestValidateTemporalPayloadCodec(t *testing.T) {
+	if err := validateTemporalPayloadCodec(TemporalRuntimeInfo{PayloadCodec: DefaultTemporalPayloadCodec}); err != nil {
+		t.Fatalf("default payload codec rejected: %v", err)
+	}
+	err := validateTemporalPayloadCodec(TemporalRuntimeInfo{PayloadCodec: "bad"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported payload_codec") {
+		t.Fatalf("expected unsupported payload codec error, got %v", err)
 	}
 }
 
