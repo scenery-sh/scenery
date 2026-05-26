@@ -57,12 +57,15 @@ const (
 )
 
 type RuntimeDeclaration struct {
-	Package  *Package
-	File     *File
-	Kind     RuntimeDeclarationKind
-	Name     string
-	CallName string
-	TokenPos token.Pos
+	Package           *Package
+	File              *File
+	Kind              RuntimeDeclarationKind
+	Name              string
+	CallName          string
+	TokenPos          token.Pos
+	TaskQueue         string
+	TaskQueueExplicit bool
+	TaskQueueResolved bool
 }
 
 type Receiver struct {

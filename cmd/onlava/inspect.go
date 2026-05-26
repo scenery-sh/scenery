@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
@@ -71,6 +72,7 @@ type inspectTemporalResponse struct {
 	SchemaVersion   string                `json:"schema_version"`
 	App             inspectdata.AppRef    `json:"app"`
 	Temporal        inspectTemporalRecord `json:"temporal"`
+	Declarations    []temporalDeclaration `json:"declarations"`
 	Connectivity    temporalConnectivity  `json:"connectivity"`
 	WorkerManifests workers.Validation    `json:"worker_manifests"`
 }
@@ -84,6 +86,18 @@ type inspectTemporalRecord struct {
 	Namespace        string `json:"namespace"`
 	NamespaceEnvSet  bool   `json:"namespace_env_set"`
 	TaskQueuePrefix  string `json:"task_queue_prefix"`
+	PayloadCodec     string `json:"payload_codec"`
+	APIKeyEnv        string `json:"api_key_env"`
+	APIKeyEnvSet     bool   `json:"api_key_env_set"`
+	TLSEnabled       bool   `json:"tls_enabled"`
+	TLSServerNameEnv string `json:"tls_server_name_env"`
+	TLSServerNameSet bool   `json:"tls_server_name_env_set"`
+	TLSCACertFileEnv string `json:"tls_ca_cert_file_env"`
+	TLSCACertFileSet bool   `json:"tls_ca_cert_file_env_set"`
+	TLSCertFileEnv   string `json:"tls_cert_file_env"`
+	TLSCertFileSet   bool   `json:"tls_cert_file_env_set"`
+	TLSKeyFileEnv    string `json:"tls_key_file_env"`
+	TLSKeyFileSet    bool   `json:"tls_key_file_env_set"`
 	DeploymentName   string `json:"deployment_name"`
 	DeploymentEnv    string `json:"deployment_env"`
 	DeploymentEnvSet bool   `json:"deployment_env_set"`
@@ -102,6 +116,15 @@ type temporalConnectivity struct {
 	Checked   bool   `json:"checked"`
 	Reachable bool   `json:"reachable"`
 	Error     string `json:"error,omitempty"`
+}
+
+type temporalDeclaration struct {
+	Kind              string `json:"kind"`
+	Name              string `json:"name"`
+	TaskQueue         string `json:"task_queue"`
+	TaskQueueExplicit bool   `json:"task_queue_explicit"`
+	File              string `json:"file"`
+	Line              int    `json:"line"`
 }
 
 func inspectCommand(args []string) error {
@@ -215,7 +238,10 @@ func runOnlavaInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "temporal":
-		resp := buildInspectTemporalResponse(context.Background(), appRoot, cfg)
+		resp, err := buildInspectTemporalResponse(context.Background(), appRoot, cfg)
+		if err != nil {
+			return err
+		}
 		return writeInspectJSON(stdout, resp)
 	case "traces":
 		resp, err := buildInspectTracesResponse(context.Background(), appRoot, cfg, opts.Trace)
@@ -404,13 +430,17 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 	return resp, nil
 }
 
-func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcfg.Config) inspectTemporalResponse {
+func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcfg.Config) (inspectTemporalResponse, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	info, status := onlavaruntime.CheckTemporalConnection(checkCtx, cfg.Name, temporalRuntimeConfigFromApp(cfg.Temporal))
+	appModel, err := parse.App(appRoot, cfg.Name)
+	if err != nil {
+		return inspectTemporalResponse{}, err
+	}
 	return inspectTemporalResponse{
 		SchemaVersion: "onlava.inspect.temporal.v1",
-		App:           inspectAppInfo(appRoot, cfg, nil),
+		App:           inspectAppInfo(appRoot, cfg, appModel),
 		Temporal: inspectTemporalRecord{
 			Enabled:          info.Enabled,
 			Mode:             info.Mode,
@@ -420,6 +450,18 @@ func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcf
 			Namespace:        info.Namespace,
 			NamespaceEnvSet:  info.NamespaceEnvSet,
 			TaskQueuePrefix:  info.TaskQueuePrefix,
+			PayloadCodec:     info.PayloadCodec,
+			APIKeyEnv:        info.APIKeyEnv,
+			APIKeyEnvSet:     info.APIKeyEnvSet,
+			TLSEnabled:       info.TLSEnabled,
+			TLSServerNameEnv: info.TLSServerNameEnv,
+			TLSServerNameSet: info.TLSServerNameSet,
+			TLSCACertFileEnv: info.TLSCACertFileEnv,
+			TLSCACertFileSet: info.TLSCACertFileSet,
+			TLSCertFileEnv:   info.TLSCertFileEnv,
+			TLSCertFileSet:   info.TLSCertFileSet,
+			TLSKeyFileEnv:    info.TLSKeyFileEnv,
+			TLSKeyFileSet:    info.TLSKeyFileSet,
 			DeploymentName:   info.DeploymentName,
 			DeploymentEnv:    info.DeploymentEnv,
 			DeploymentEnvSet: info.DeploymentEnvSet,
@@ -433,18 +475,54 @@ func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcf
 			LocalDBFilename:  info.LocalDBFilename,
 			ConnectTimeoutMS: info.ConnectTimeoutMS,
 		},
+		Declarations: temporalDeclarations(appRoot, appModel, info),
 		Connectivity: temporalConnectivity{
 			Checked:   status.Checked,
 			Reachable: status.Reachable,
 			Error:     status.Error,
 		},
-		WorkerManifests: workers.ValidateWithKnownActivities(appRoot, cfg.Name, knownTemporalActivityNames(appRoot, cfg.Name)),
-	}
+		WorkerManifests: workers.ValidateWithKnownActivities(appRoot, cfg.Name, knownTemporalActivityNames(appModel)),
+	}, nil
 }
 
-func knownTemporalActivityNames(appRoot, appName string) []string {
-	appModel, err := parse.App(appRoot, appName)
-	if err != nil {
+func temporalDeclarations(appRoot string, appModel *model.App, info onlavaruntime.TemporalRuntimeInfo) []temporalDeclaration {
+	if appModel == nil {
+		return nil
+	}
+	out := make([]temporalDeclaration, 0, len(appModel.Runtime))
+	for _, decl := range appModel.Runtime {
+		if decl.Kind != model.RuntimeDeclarationTemporalWorkflow && decl.Kind != model.RuntimeDeclarationTemporalActivity {
+			continue
+		}
+		queue := decl.TaskQueue
+		explicit := decl.TaskQueueExplicit
+		if decl.Kind == model.RuntimeDeclarationTemporalWorkflow && queue == "" && decl.TaskQueueResolved {
+			queue = defaultTemporalWorkerTaskQueue(info.TaskQueuePrefix)
+			explicit = false
+		}
+		position := decl.Package.GoPkg.Fset.Position(decl.TokenPos)
+		out = append(out, temporalDeclaration{
+			Kind:              string(decl.Kind),
+			Name:              decl.Name,
+			TaskQueue:         queue,
+			TaskQueueExplicit: explicit,
+			File:              normalizeDiagnosticFile(appRoot, position.Filename),
+			Line:              position.Line,
+		})
+	}
+	return out
+}
+
+func defaultTemporalWorkerTaskQueue(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "onlava"
+	}
+	return strings.TrimSuffix(prefix, ".") + ".worker.go"
+}
+
+func knownTemporalActivityNames(appModel *model.App) []string {
+	if appModel == nil {
 		return nil
 	}
 	var names []string
@@ -454,6 +532,14 @@ func knownTemporalActivityNames(appRoot, appName string) []string {
 		}
 	}
 	return names
+}
+
+func knownTemporalActivityNamesFromRoot(appRoot, appName string) []string {
+	appModel, err := parse.App(appRoot, appName)
+	if err != nil {
+		return nil
+	}
+	return knownTemporalActivityNames(appModel)
 }
 
 func inspectAppInfo(appRoot string, cfg appcfg.Config, app *model.App) inspectdata.AppRef {

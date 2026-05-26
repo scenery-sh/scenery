@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
+	temporalclient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/workflow"
 
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
@@ -70,6 +73,20 @@ func TestTemporalDeclarationsRejectDuplicates(t *testing.T) {
 		}
 	}()
 	_ = NewWorkflow("orders.Fulfill/v1", WorkflowConfig{}, func(ctx workflow.Context, in testWorkflowInput) (testWorkflowOutput, error) {
+		return testWorkflowOutput{}, nil
+	})
+}
+
+func TestNewActivityRequiresTaskQueue(t *testing.T) {
+	restore := resetRegistryForTest()
+	defer restore()
+
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "task queue") {
+			t.Fatalf("expected task queue panic, got %v", r)
+		}
+	}()
+	_ = NewActivity("payments.Capture/v1", ActivityConfig{}, func(ctx context.Context, in testWorkflowInput) (testWorkflowOutput, error) {
 		return testWorkflowOutput{}, nil
 	})
 }
@@ -141,10 +158,180 @@ func TestStartWorkerRuntimeRequiresTemporalRuntimeForDeclarations(t *testing.T) 
 	}
 }
 
+func TestSelectedTemporalTaskQueuesFromEnv(t *testing.T) {
+	t.Setenv("ONLAVA_TEMPORAL_TASK_QUEUE", "orders.go, payments.go, orders.go,  ")
+	got := selectedTemporalTaskQueuesFromEnv()
+	want := []string{"orders.go", "payments.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("selectedTemporalTaskQueuesFromEnv = %#v, want %#v", got, want)
+	}
+}
+
+func TestFilterDeclarationsBySelectedTaskQueues(t *testing.T) {
+	restore := resetRegistryForTest()
+	defer restore()
+
+	_ = NewWorkflow("orders.Fulfill/v1", WorkflowConfig{TaskQueue: "orders.go"}, func(ctx workflow.Context, in testWorkflowInput) (testWorkflowOutput, error) {
+		return testWorkflowOutput{}, nil
+	})
+	_ = NewActivity("payments.Capture/v1", ActivityConfig{TaskQueue: "payments.go"}, func(ctx context.Context, in testWorkflowInput) (testWorkflowOutput, error) {
+		return testWorkflowOutput{}, nil
+	})
+	byQueue := declarationsByQueueForTest(onlavaruntime.TemporalRuntimeInfo{TaskQueuePrefix: "onlava.orders"})
+
+	all, err := filterDeclarationsBySelectedTaskQueues(byQueue, nil)
+	if err != nil {
+		t.Fatalf("filter without selection returned error: %v", err)
+	}
+	if got := sortedDeclarationQueues(all); !reflect.DeepEqual(got, []string{"orders.go", "payments.go"}) {
+		t.Fatalf("all queues = %#v", got)
+	}
+
+	one, err := filterDeclarationsBySelectedTaskQueues(byQueue, []string{"payments.go"})
+	if err != nil {
+		t.Fatalf("filter one returned error: %v", err)
+	}
+	if got := sortedDeclarationQueues(one); !reflect.DeepEqual(got, []string{"payments.go"}) {
+		t.Fatalf("one queue = %#v", got)
+	}
+
+	multi, err := filterDeclarationsBySelectedTaskQueues(byQueue, []string{" payments.go ", "orders.go", "payments.go"})
+	if err != nil {
+		t.Fatalf("filter multiple returned error: %v", err)
+	}
+	if got := sortedDeclarationQueues(multi); !reflect.DeepEqual(got, []string{"orders.go", "payments.go"}) {
+		t.Fatalf("multiple queues = %#v", got)
+	}
+}
+
+func TestFilterDeclarationsBySelectedTaskQueuesRejectsUnknownQueue(t *testing.T) {
+	restore := resetRegistryForTest()
+	defer restore()
+
+	_ = NewWorkflow("orders.Fulfill/v1", WorkflowConfig{TaskQueue: "orders.go"}, func(ctx workflow.Context, in testWorkflowInput) (testWorkflowOutput, error) {
+		return testWorkflowOutput{}, nil
+	})
+	byQueue := declarationsByQueueForTest(onlavaruntime.TemporalRuntimeInfo{TaskQueuePrefix: "onlava.orders"})
+
+	_, err := filterDeclarationsBySelectedTaskQueues(byQueue, []string{"missing.go"})
+	if err == nil || !strings.Contains(err.Error(), "missing.go") || !strings.Contains(err.Error(), "orders.go") {
+		t.Fatalf("expected unknown queue error with declared queues, got %v", err)
+	}
+}
+
 func TestStartRejectsNilWorkflowWithoutRuntime(t *testing.T) {
-	_, err := Start[testWorkflowInput, testWorkflowOutput](context.Background(), nil, testWorkflowInput{})
+	_, err := Start[testWorkflowInput, testWorkflowOutput](context.Background(), nil, testWorkflowInput{}, WorkflowID("orders-123"))
 	if err == nil || !strings.Contains(err.Error(), "nil workflow") {
 		t.Fatalf("expected nil workflow error, got %v", err)
+	}
+}
+
+func TestStartRejectsZeroWorkflowIdentity(t *testing.T) {
+	restore := resetRegistryForTest()
+	defer restore()
+
+	wf := NewWorkflow("orders.Fulfill/v1", WorkflowConfig{TaskQueue: "orders.go"}, func(ctx workflow.Context, in testWorkflowInput) (testWorkflowOutput, error) {
+		return testWorkflowOutput{}, nil
+	})
+	_, err := Start(context.Background(), wf, testWorkflowInput{}, WorkflowIdentity{})
+	if err == nil || !strings.Contains(err.Error(), "WorkflowID") {
+		t.Fatalf("expected explicit workflow id error, got %v", err)
+	}
+}
+
+func TestWorkflowIdentityConstructorsRejectEmptyValues(t *testing.T) {
+	for name, fn := range map[string]func(){
+		"WorkflowID":       func() { _ = WorkflowID(" ") },
+		"WorkflowIDPrefix": func() { _ = WorkflowIDPrefix(" ") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatalf("expected panic")
+				}
+			}()
+			fn()
+		})
+	}
+}
+
+func TestTemporalStartWorkflowOptions(t *testing.T) {
+	customKeyword := NewSearchAttributeKeyKeyword("CustomKeywordField")
+	opts := applyStartOptions(WorkflowConfig{
+		TaskQueue:                "cfg.go",
+		WorkflowExecutionTimeout: time.Hour,
+	}, WithTaskQueue("orders.go"), WithMemo(map[string]any{"tenant": "acme"}), WithSearchAttributes(NewSearchAttributes(customKeyword.ValueSet("orders"))), WithRunTimeout(time.Minute), WithTaskTimeout(10*time.Second), WithPinnedBuildID("build-2"), WithWorkflowIDConflictPolicy(WorkflowIDConflictUseExisting), WithWorkflowIDReusePolicy(WorkflowIDReuseRejectDuplicate))
+
+	info := onlavaruntime.TemporalRuntimeInfo{
+		TaskQueuePrefix: "onlava.orders",
+		DeploymentName:  "orders-deployment",
+	}
+	start := temporalStartWorkflowOptions("orders.Fulfill/v1", WorkflowID("orders-123"), opts, "default.go", info)
+	if start.ID != "orders-123" || start.TaskQueue != "orders.go" {
+		t.Fatalf("start identity = %q queue %q", start.ID, start.TaskQueue)
+	}
+	if start.WorkflowIDConflictPolicy != enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING || start.WorkflowIDReusePolicy != enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE {
+		t.Fatalf("workflow id policies = %s %s", start.WorkflowIDConflictPolicy, start.WorkflowIDReusePolicy)
+	}
+	if start.WorkflowExecutionTimeout != time.Hour || start.WorkflowRunTimeout != time.Minute || start.WorkflowTaskTimeout != 10*time.Second {
+		t.Fatalf("timeouts = %s %s %s", start.WorkflowExecutionTimeout, start.WorkflowRunTimeout, start.WorkflowTaskTimeout)
+	}
+	gotKeyword, ok := start.TypedSearchAttributes.GetKeyword(customKeyword)
+	if start.Memo["tenant"] != "acme" || !ok || gotKeyword != "orders" || start.SearchAttributes != nil {
+		t.Fatalf("metadata = %#v deprecated=%#v typed=%#v", start.Memo, start.SearchAttributes, start.TypedSearchAttributes.GetUntypedValues())
+	}
+	pinned, ok := start.VersioningOverride.(*temporalclient.PinnedVersioningOverride)
+	if !ok {
+		t.Fatalf("VersioningOverride = %T", start.VersioningOverride)
+	}
+	if pinned.Version.DeploymentName != "orders-deployment" || pinned.Version.BuildID != "build-2" {
+		t.Fatalf("pinned version = %#v", pinned.Version)
+	}
+
+	start.Memo["tenant"] = "mutated"
+	gotOptKeyword, ok := opts.SearchAttributes.GetKeyword(customKeyword)
+	if opts.Memo["tenant"] != "acme" || !ok || gotOptKeyword != "orders" {
+		t.Fatalf("start options should clone metadata maps")
+	}
+}
+
+func TestTemporalStartWorkflowOptionsDoNotPinByDefault(t *testing.T) {
+	opts := applyStartOptions(WorkflowConfig{TaskQueue: "cfg.go"})
+	start := temporalStartWorkflowOptions("orders.Fulfill/v1", WorkflowIDPrefix("orders"), opts, "default.go", onlavaruntime.TemporalRuntimeInfo{
+		TaskQueuePrefix: "onlava.orders",
+		DeploymentName:  "orders-deployment",
+		WorkerBuildID:   "build-1",
+	})
+	if start.TaskQueue != "cfg.go" {
+		t.Fatalf("TaskQueue = %q", start.TaskQueue)
+	}
+	if start.VersioningOverride != nil {
+		t.Fatalf("VersioningOverride = %#v, want nil", start.VersioningOverride)
+	}
+}
+
+func TestGetWorkflowWithoutRuntimeReturnsHandleError(t *testing.T) {
+	run := GetWorkflow[testWorkflowOutput](context.Background(), "orders-123", "")
+	if run.ID() != "orders-123" {
+		t.Fatalf("ID = %q", run.ID())
+	}
+	if _, err := run.Get(context.Background()); err == nil || !strings.Contains(err.Error(), "runtime is not started") {
+		t.Fatalf("expected runtime error from Get, got %v", err)
+	}
+	if err := run.Cancel(context.Background()); err == nil || !strings.Contains(err.Error(), "runtime is not started") {
+		t.Fatalf("expected runtime error from Cancel, got %v", err)
+	}
+	if err := run.Terminate(context.Background(), "test"); err == nil || !strings.Contains(err.Error(), "runtime is not started") {
+		t.Fatalf("expected runtime error from Terminate, got %v", err)
+	}
+	if err := Signal(context.Background(), run, "approve", testWorkflowInput{}); err == nil || !strings.Contains(err.Error(), "runtime is not started") {
+		t.Fatalf("expected runtime error from Signal, got %v", err)
+	}
+	if _, err := Query[testWorkflowOutput, testWorkflowOutput](context.Background(), run, "state"); err == nil || !strings.Contains(err.Error(), "runtime is not started") {
+		t.Fatalf("expected runtime error from Query, got %v", err)
+	}
+	if _, err := Update[testWorkflowInput, testWorkflowOutput, testWorkflowOutput](context.Background(), run, "update", testWorkflowInput{}); err == nil || !strings.Contains(err.Error(), "runtime is not started") {
+		t.Fatalf("expected runtime error from Update, got %v", err)
 	}
 }
 
@@ -224,42 +411,6 @@ func TestNewActivityValidatesConfig(t *testing.T) {
 	}
 }
 
-func TestStartWorkflowOptionsApplyOverrides(t *testing.T) {
-	wf := &Workflow[testWorkflowInput, testWorkflowOutput]{
-		name:   "orders.Fulfill/v1",
-		config: WorkflowConfig{TaskQueue: "orders.go", WorkflowExecutionTimeout: time.Minute},
-	}
-	opts, err := startWorkflowOptions(
-		onlavaruntime.TemporalRuntimeInfo{DeploymentName: "orders", WorkerBuildID: "api-build"},
-		wf,
-		WorkflowID("orders.123"),
-		WithTaskQueue("priority.go"),
-		WithMemo(map[string]any{"kind": "test"}),
-		WithSearchAttributes(map[string]any{"CustomKeywordField": "demo"}),
-		WithPinnedBuildID("worker-build"),
-		WithWorkflowIDConflictPolicy(WorkflowIDConflictUseExisting),
-		WithWorkflowIDReusePolicy(WorkflowIDReuseRejectDuplicate),
-	)
-	if err != nil {
-		t.Fatalf("startWorkflowOptions returned error: %v", err)
-	}
-	if opts.ID != "orders.123" || opts.TaskQueue != "priority.go" {
-		t.Fatalf("opts identity = %q/%q", opts.ID, opts.TaskQueue)
-	}
-	if opts.Memo["kind"] != "test" || opts.SearchAttributes["CustomKeywordField"] != "demo" {
-		t.Fatalf("opts metadata = %#v/%#v", opts.Memo, opts.SearchAttributes)
-	}
-	if opts.WorkflowIDConflictPolicy != enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING {
-		t.Fatalf("conflict policy = %v", opts.WorkflowIDConflictPolicy)
-	}
-	if opts.WorkflowIDReusePolicy != enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE {
-		t.Fatalf("reuse policy = %v", opts.WorkflowIDReusePolicy)
-	}
-	if opts.VersioningOverride == nil {
-		t.Fatal("expected pinned versioning override")
-	}
-}
-
 type methodActivityService struct {
 	value string
 }
@@ -324,4 +475,22 @@ func resetServiceAccessorsForTest() func() {
 		serviceAccessors.items = prev
 		serviceAccessors.mu.Unlock()
 	}
+}
+
+func declarationsByQueueForTest(info onlavaruntime.TemporalRuntimeInfo) map[string][]declaration {
+	byQueue := make(map[string][]declaration)
+	for _, item := range snapshotDeclarations() {
+		queue := item.taskQueue(info)
+		byQueue[queue] = append(byQueue[queue], item)
+	}
+	return byQueue
+}
+
+func sortedDeclarationQueues(byQueue map[string][]declaration) []string {
+	queues := make([]string, 0, len(byQueue))
+	for queue := range byQueue {
+		queues = append(queues, queue)
+	}
+	sort.Strings(queues)
+	return queues
 }

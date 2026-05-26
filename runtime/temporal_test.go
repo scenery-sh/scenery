@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	temporalclient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -15,6 +14,11 @@ func TestResolveTemporalConfigDefaults(t *testing.T) {
 	t.Setenv(DefaultTemporalBuildIDEnv, "")
 	t.Setenv(DefaultTemporalDeploymentEnv, "")
 	t.Setenv(DefaultTemporalVersioningEnv, "")
+	t.Setenv(DefaultTemporalAPIKeyEnv, "")
+	t.Setenv(DefaultTemporalTLSServerNameEnv, "")
+	t.Setenv(DefaultTemporalTLSCACertFileEnv, "")
+	t.Setenv(DefaultTemporalTLSCertFileEnv, "")
+	t.Setenv(DefaultTemporalTLSKeyFileEnv, "")
 
 	info := ResolveTemporalConfig("demo_app", TemporalConfig{})
 	if info.Enabled {
@@ -32,6 +36,9 @@ func TestResolveTemporalConfigDefaults(t *testing.T) {
 	if info.TaskQueuePrefix != "onlava.demo.app" {
 		t.Fatalf("task queue prefix = %q", info.TaskQueuePrefix)
 	}
+	if info.PayloadCodec != DefaultTemporalPayloadCodec {
+		t.Fatalf("payload codec = %q", info.PayloadCodec)
+	}
 	if info.DeploymentName != "onlava-demo-app" || info.DeploymentEnvSet {
 		t.Fatalf("deployment = %q/%v", info.DeploymentName, info.DeploymentEnvSet)
 	}
@@ -40,9 +47,6 @@ func TestResolveTemporalConfigDefaults(t *testing.T) {
 	}
 	if info.Versioning != TemporalVersioningPinned || info.VersioningEnvSet {
 		t.Fatalf("versioning = %q/%v", info.Versioning, info.VersioningEnvSet)
-	}
-	if info.PayloadCodec != DefaultTemporalPayloadCodec {
-		t.Fatalf("payload codec = %q", info.PayloadCodec)
 	}
 	if info.LocalDBFilename != DefaultTemporalLocalDBFile {
 		t.Fatalf("local db filename = %q, want %q", info.LocalDBFilename, DefaultTemporalLocalDBFile)
@@ -55,6 +59,8 @@ func TestResolveTemporalConfigUsesEnvFallbacks(t *testing.T) {
 	t.Setenv(DefaultTemporalBuildIDEnv, "git-sha")
 	t.Setenv(DefaultTemporalDeploymentEnv, "orders-api")
 	t.Setenv(DefaultTemporalVersioningEnv, "auto-upgrade")
+	t.Setenv(DefaultTemporalAPIKeyEnv, "secret")
+	t.Setenv(DefaultTemporalTLSServerNameEnv, "orders.tmprl.cloud")
 
 	info := ResolveTemporalConfig("demo", TemporalConfig{Enabled: true})
 	if !info.Enabled {
@@ -75,6 +81,9 @@ func TestResolveTemporalConfigUsesEnvFallbacks(t *testing.T) {
 	if info.Versioning != TemporalVersioningAutoUpgrade || !info.VersioningEnvSet {
 		t.Fatalf("versioning/env = %q/%v", info.Versioning, info.VersioningEnvSet)
 	}
+	if !info.APIKeyEnvSet || !info.TLSEnabled || info.TLSServerName != "orders.tmprl.cloud" || !info.TLSServerNameSet {
+		t.Fatalf("security envs = %+v", info)
+	}
 }
 
 func TestResolveTemporalConfigPrefersExplicitValues(t *testing.T) {
@@ -89,10 +98,10 @@ func TestResolveTemporalConfigPrefersExplicitValues(t *testing.T) {
 		AddressEnv:      "CUSTOM_TEMPORAL_ADDRESS",
 		TaskQueuePrefix: "custom.queue",
 		PayloadCodec:    DefaultTemporalPayloadCodec,
-		APIKeyEnv:       "TEMPORAL_API_KEY",
+		APIKeyEnv:       "CUSTOM_TEMPORAL_API_KEY",
 		TLS: TemporalTLSConfig{
 			Enabled:       true,
-			ServerNameEnv: "TEMPORAL_TLS_SERVER_NAME",
+			ServerNameEnv: "CUSTOM_TEMPORAL_TLS_SERVER_NAME",
 		},
 		Local: TemporalLocalConfig{
 			AutoStart:  true,
@@ -111,24 +120,35 @@ func TestResolveTemporalConfigPrefersExplicitValues(t *testing.T) {
 	if info.TaskQueuePrefix != "custom.queue" || !info.LocalAutoStart {
 		t.Fatalf("info = %+v", info)
 	}
-	if info.PayloadCodec != DefaultTemporalPayloadCodec || info.APIKeyEnv != "TEMPORAL_API_KEY" {
-		t.Fatalf("temporal auth/codec = %+v", info)
-	}
-	if !info.TLSEnabled || info.TLSServerNameEnv != "TEMPORAL_TLS_SERVER_NAME" {
-		t.Fatalf("tls info = %+v", info)
+	if info.APIKeyEnv != "CUSTOM_TEMPORAL_API_KEY" || !info.TLSEnabled || info.TLSServerNameEnv != "CUSTOM_TEMPORAL_TLS_SERVER_NAME" {
+		t.Fatalf("security config = %+v", info)
 	}
 	if info.LocalDBFilename != ".state/temporal.sqlite" {
 		t.Fatalf("local db filename = %q", info.LocalDBFilename)
 	}
 }
 
-func TestValidateTemporalPayloadCodec(t *testing.T) {
-	if err := validateTemporalPayloadCodec(TemporalRuntimeInfo{PayloadCodec: DefaultTemporalPayloadCodec}); err != nil {
-		t.Fatalf("default payload codec rejected: %v", err)
+func TestTemporalClientOptionsValidatePayloadCodec(t *testing.T) {
+	_, err := temporalClientOptions(TemporalRuntimeInfo{
+		Address:      DefaultTemporalAddress,
+		Namespace:    DefaultTemporalNamespace,
+		PayloadCodec: "custom",
+	})
+	if err == nil || !strings.Contains(err.Error(), "payload_codec") {
+		t.Fatalf("temporalClientOptions error = %v", err)
 	}
-	err := validateTemporalPayloadCodec(TemporalRuntimeInfo{PayloadCodec: "bad"})
-	if err == nil || !strings.Contains(err.Error(), "unsupported payload_codec") {
-		t.Fatalf("expected unsupported payload codec error, got %v", err)
+}
+
+func TestTemporalTLSConfigRequiresCertAndKeyPair(t *testing.T) {
+	t.Setenv("TEMPORAL_TEST_CERT", "/tmp/missing-cert.pem")
+	t.Setenv("TEMPORAL_TEST_KEY", "")
+	_, enabled, err := temporalTLSConfig(TemporalRuntimeInfo{
+		TLSEnabled:     true,
+		TLSCertFileEnv: "TEMPORAL_TEST_CERT",
+		TLSKeyFileEnv:  "TEMPORAL_TEST_KEY",
+	})
+	if err == nil || !strings.Contains(err.Error(), "must both be set") {
+		t.Fatalf("temporalTLSConfig enabled=%v error=%v", enabled, err)
 	}
 }
 
@@ -179,23 +199,16 @@ func TestTemporalWorkerOptionsEnableDeploymentVersioning(t *testing.T) {
 	}
 }
 
-func TestTemporalWorkflowVersioningOverride(t *testing.T) {
-	pinned := TemporalWorkflowVersioningOverride(TemporalRuntimeInfo{
-		DeploymentName: "orders.api",
-		WorkerBuildID:  "sha.123",
-		Versioning:     TemporalVersioningPinned,
-	})
-	pinnedOverride, ok := pinned.(*temporalclient.PinnedVersioningOverride)
-	if !ok {
-		t.Fatalf("pinned override = %T", pinned)
+func TestShouldAutoPromoteTemporalWorkerDeployment(t *testing.T) {
+	for _, mode := range []string{"", "local", " LOCAL "} {
+		if !ShouldAutoPromoteTemporalWorkerDeployment(TemporalRuntimeInfo{Mode: mode}) {
+			t.Fatalf("mode %q should auto-promote", mode)
+		}
 	}
-	if pinnedOverride.Version.DeploymentName != "orders-api" || pinnedOverride.Version.BuildID != "sha.123" {
-		t.Fatalf("pinned override version = %+v", pinnedOverride.Version)
-	}
-
-	auto := TemporalWorkflowVersioningOverride(TemporalRuntimeInfo{Versioning: TemporalVersioningAutoUpgrade})
-	if _, ok := auto.(*temporalclient.AutoUpgradeVersioningOverride); !ok {
-		t.Fatalf("auto override = %T", auto)
+	for _, mode := range []string{"production", "cloud"} {
+		if ShouldAutoPromoteTemporalWorkerDeployment(TemporalRuntimeInfo{Mode: mode}) {
+			t.Fatalf("mode %q should not auto-promote", mode)
+		}
 	}
 }
 

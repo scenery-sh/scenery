@@ -18,6 +18,8 @@ import (
 
 var victoriaExportClient = &http.Client{Timeout: time.Second}
 
+const onlavaRequestDurationMetricName = "onlava.request.duration"
+
 func (s *dashboardServer) exportVictoriaTraceSummary(ctx context.Context, summary *devdash.TraceSummary) {
 	if s == nil || s.supervisor == nil || s.supervisor.victoria == nil || summary == nil {
 		return
@@ -237,7 +239,7 @@ func buildOTLPMetricProto(summary *devdash.TraceSummary) []byte {
 		point = append(point, protoMessage(7, protoKeyValue(attr.Key, attr.Value))...)
 	}
 	gauge := protoMessage(1, point)
-	metric := protoString(1, "onlava.request.duration")
+	metric := protoString(1, onlavaRequestDurationMetricName)
 	metric = append(metric, protoString(2, "onlava request duration")...)
 	metric = append(metric, protoString(3, "s")...)
 	metric = append(metric, protoMessage(5, gauge)...)

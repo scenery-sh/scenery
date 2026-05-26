@@ -3,7 +3,7 @@
   "$id": "https://onlava.com/schemas/onlava.inspect.temporal.v1.schema.json",
   "title": "onlava.inspect.temporal.v1",
   "type": "object",
-  "required": ["schema_version", "app", "temporal", "connectivity", "worker_manifests"],
+  "required": ["schema_version", "app", "temporal", "declarations", "connectivity", "worker_manifests"],
   "properties": {
     "schema_version": { "const": "onlava.inspect.temporal.v1" },
     "app": { "$ref": "#/$defs/appRef" },
@@ -18,6 +18,18 @@
         "namespace",
         "namespace_env_set",
         "task_queue_prefix",
+        "payload_codec",
+        "api_key_env",
+        "api_key_env_set",
+        "tls_enabled",
+        "tls_server_name_env",
+        "tls_server_name_env_set",
+        "tls_ca_cert_file_env",
+        "tls_ca_cert_file_env_set",
+        "tls_cert_file_env",
+        "tls_cert_file_env_set",
+        "tls_key_file_env",
+        "tls_key_file_env_set",
         "deployment_name",
         "deployment_env",
         "deployment_env_set",
@@ -40,6 +52,18 @@
         "namespace": { "type": "string" },
         "namespace_env_set": { "type": "boolean" },
         "task_queue_prefix": { "type": "string" },
+        "payload_codec": { "type": "string" },
+        "api_key_env": { "type": "string" },
+        "api_key_env_set": { "type": "boolean" },
+        "tls_enabled": { "type": "boolean" },
+        "tls_server_name_env": { "type": "string" },
+        "tls_server_name_env_set": { "type": "boolean" },
+        "tls_ca_cert_file_env": { "type": "string" },
+        "tls_ca_cert_file_env_set": { "type": "boolean" },
+        "tls_cert_file_env": { "type": "string" },
+        "tls_cert_file_env_set": { "type": "boolean" },
+        "tls_key_file_env": { "type": "string" },
+        "tls_key_file_env_set": { "type": "boolean" },
         "deployment_name": { "type": "string" },
         "deployment_env": { "type": "string" },
         "deployment_env_set": { "type": "boolean" },
@@ -54,6 +78,24 @@
         "connect_timeout_ms": { "type": "integer" }
       },
       "additionalProperties": false
+    },
+    "declarations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "name", "task_queue", "task_queue_explicit", "file", "line"],
+        "properties": {
+          "kind": {
+            "enum": ["temporal_workflow", "temporal_activity"]
+          },
+          "name": { "type": "string" },
+          "task_queue": { "type": "string" },
+          "task_queue_explicit": { "type": "boolean" },
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
     },
     "connectivity": {
       "type": "object",
@@ -79,12 +121,27 @@
             "required": ["path", "app", "language", "build_id", "payload_codec", "namespace", "task_queues", "activities"],
             "properties": {
               "path": { "type": "string" },
+              "schema_version": { "type": "string" },
               "app": { "type": "string" },
               "language": { "type": "string" },
               "build_id": { "type": "string" },
               "payload_codec": { "type": "string" },
               "namespace": { "type": "string" },
               "task_queues": { "type": "array", "items": { "type": "string" } },
+              "task_queue_registrations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "registration_hash"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "activities": { "type": "array", "items": { "type": "string" } },
+                    "workflows": { "type": "array", "items": { "type": "string" } },
+                    "registration_hash": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              },
               "activities": { "type": "array", "items": { "type": "string" } }
             },
             "additionalProperties": false

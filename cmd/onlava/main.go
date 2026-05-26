@@ -39,6 +39,8 @@ func run(args []string) error {
 		return runCommand(args[1:])
 	case "worker":
 		return workerCommand(args[1:])
+	case "temporal":
+		return temporalCommand(args[1:])
 	case "version":
 		return versionCommand(args[1:])
 	case "build":
@@ -69,8 +71,11 @@ func usageError() error {
   stable/dev commands:
     onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust]
     onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
-    onlava worker [--task-queue <name>] [--app-root <path>] [--env <name>] [--log-format text|json]
+    onlava worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
+    onlava temporal deployment set-current --build-id <id> [--deployment <name>] [--app-root <path>] [--json]
+    onlava temporal deployment ramp --build-id <id> --percentage <n> [--deployment <name>] [--app-root <path>] [--json]
+    onlava temporal deployment drain --build-id <id> [--deployment <name>] [--force] [--app-root <path>] [--json]
     onlava version [--json]
     onlava build [--app-root <path>] [-o <path>] [--db-studio]
     onlava check [--app-root <path>] [--json]

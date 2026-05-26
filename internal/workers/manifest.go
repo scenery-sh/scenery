@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-const ManifestSchemaVersion = "onlava.worker.manifest.v1"
+const (
+	ManifestSchemaVersion   = "onlava.worker.manifest.v1"
+	ManifestSchemaVersionV2 = "onlava.worker.manifest.v2"
+)
 
 type Manifest struct {
 	SchemaVersion string           `json:"schema_version,omitempty"`
@@ -18,6 +21,7 @@ type Manifest struct {
 	BuildID       string           `json:"build_id"`
 	PayloadCodec  string           `json:"payload_codec"`
 	Temporal      ManifestTemporal `json:"temporal"`
+	TaskQueues    []TaskQueue      `json:"task_queues,omitempty"`
 	Activities    []Activity       `json:"activities"`
 	Path          string           `json:"-"`
 }
@@ -33,6 +37,13 @@ type Activity struct {
 	Output string `json:"output"`
 }
 
+type TaskQueue struct {
+	Name             string   `json:"name"`
+	Activities       []string `json:"activities,omitempty"`
+	Workflows        []string `json:"workflows,omitempty"`
+	RegistrationHash string   `json:"registration_hash"`
+}
+
 type Validation struct {
 	Checked     bool         `json:"checked"`
 	OK          bool         `json:"ok"`
@@ -42,14 +53,23 @@ type Validation struct {
 }
 
 type Summary struct {
-	Path         string   `json:"path"`
-	App          string   `json:"app"`
-	Language     string   `json:"language"`
-	BuildID      string   `json:"build_id"`
-	PayloadCodec string   `json:"payload_codec"`
-	Namespace    string   `json:"namespace"`
-	TaskQueues   []string `json:"task_queues"`
-	Activities   []string `json:"activities"`
+	Path                   string             `json:"path"`
+	SchemaVersion          string             `json:"schema_version,omitempty"`
+	App                    string             `json:"app"`
+	Language               string             `json:"language"`
+	BuildID                string             `json:"build_id"`
+	PayloadCodec           string             `json:"payload_codec"`
+	Namespace              string             `json:"namespace"`
+	TaskQueues             []string           `json:"task_queues"`
+	TaskQueueRegistrations []TaskQueueSummary `json:"task_queue_registrations,omitempty"`
+	Activities             []string           `json:"activities"`
+}
+
+type TaskQueueSummary struct {
+	Name             string   `json:"name"`
+	Activities       []string `json:"activities,omitempty"`
+	Workflows        []string `json:"workflows,omitempty"`
+	RegistrationHash string   `json:"registration_hash"`
 }
 
 type Diagnostic struct {
@@ -113,8 +133,9 @@ func readManifest(path string) (Manifest, error) {
 
 func validateManifest(manifest Manifest, appName string) []Diagnostic {
 	var diagnostics []Diagnostic
-	if manifest.SchemaVersion != "" && manifest.SchemaVersion != ManifestSchemaVersion {
-		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("schema_version must be %q", ManifestSchemaVersion)})
+	schemaVersion := manifestSchemaVersion(manifest)
+	if schemaVersion != ManifestSchemaVersion && schemaVersion != ManifestSchemaVersionV2 {
+		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("schema_version must be %q or %q", ManifestSchemaVersion, ManifestSchemaVersionV2)})
 	}
 	if strings.TrimSpace(manifest.App) == "" {
 		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "app must not be empty"})
@@ -135,13 +156,11 @@ func validateManifest(manifest Manifest, appName string) []Diagnostic {
 	if strings.TrimSpace(manifest.Temporal.Namespace) == "" {
 		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "temporal.namespace must not be empty"})
 	}
-	if len(manifest.Temporal.TaskQueues) == 0 {
-		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "temporal.task_queues must not be empty"})
-	}
-	for _, queue := range manifest.Temporal.TaskQueues {
-		if strings.TrimSpace(queue) == "" {
-			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "temporal.task_queues must not contain empty values"})
-		}
+	switch schemaVersion {
+	case ManifestSchemaVersion:
+		diagnostics = append(diagnostics, validateManifestV1Queues(manifest)...)
+	case ManifestSchemaVersionV2:
+		diagnostics = append(diagnostics, validateManifestV2Queues(manifest)...)
 	}
 	if len(manifest.Activities) == 0 {
 		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "activities must not be empty"})
@@ -164,13 +183,107 @@ func validateManifest(manifest Manifest, appName string) []Diagnostic {
 			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("activity %q output must not be empty", name)})
 		}
 	}
+	if schemaVersion == ManifestSchemaVersionV2 {
+		diagnostics = append(diagnostics, validateManifestV2Activities(manifest, activityNames)...)
+	}
+	return diagnostics
+}
+
+func manifestSchemaVersion(manifest Manifest) string {
+	if strings.TrimSpace(manifest.SchemaVersion) == "" {
+		return ManifestSchemaVersion
+	}
+	return strings.TrimSpace(manifest.SchemaVersion)
+}
+
+func validateManifestV1Queues(manifest Manifest) []Diagnostic {
+	var diagnostics []Diagnostic
+	if len(manifest.Temporal.TaskQueues) == 0 {
+		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "temporal.task_queues must not be empty"})
+	}
+	for _, queue := range manifest.Temporal.TaskQueues {
+		if strings.TrimSpace(queue) == "" {
+			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "temporal.task_queues must not contain empty values"})
+		}
+	}
+	return diagnostics
+}
+
+func validateManifestV2Queues(manifest Manifest) []Diagnostic {
+	var diagnostics []Diagnostic
+	if len(manifest.Temporal.TaskQueues) > 0 {
+		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "onlava.worker.manifest.v2 uses top-level task_queues, not temporal.task_queues"})
+	}
+	if len(manifest.TaskQueues) == 0 {
+		diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "task_queues must not be empty"})
+	}
+	seen := make(map[string]struct{})
+	for _, queue := range manifest.TaskQueues {
+		name := strings.TrimSpace(queue.Name)
+		if name == "" {
+			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: "task_queues.name must not be empty"})
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("duplicate task queue %q", name)})
+		}
+		seen[name] = struct{}{}
+		hash := strings.TrimSpace(queue.RegistrationHash)
+		if hash == "" {
+			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q registration_hash must not be empty", name)})
+		} else if !isRegistrationHash(hash) {
+			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q registration_hash must be sha256: followed by 64 lowercase hex characters", name)})
+		}
+	}
+	return diagnostics
+}
+
+func isRegistrationHash(hash string) bool {
+	if len(hash) != len("sha256:")+64 || !strings.HasPrefix(hash, "sha256:") {
+		return false
+	}
+	for _, ch := range hash[len("sha256:"):] {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validateManifestV2Activities(manifest Manifest, activityNames map[string]struct{}) []Diagnostic {
+	var diagnostics []Diagnostic
+	registered := make(map[string]struct{})
+	for _, queue := range manifest.TaskQueues {
+		for _, activity := range queue.Activities {
+			name := strings.TrimSpace(activity)
+			if name == "" {
+				diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q activities must not contain empty values", queue.Name)})
+				continue
+			}
+			registered[name] = struct{}{}
+			if _, ok := activityNames[name]; !ok {
+				diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q references undeclared activity %q", queue.Name, name)})
+			}
+		}
+		for _, workflow := range queue.Workflows {
+			if strings.TrimSpace(workflow) == "" {
+				diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q workflows must not contain empty values", queue.Name)})
+			}
+		}
+	}
+	for name := range activityNames {
+		if _, ok := registered[name]; !ok {
+			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("activity %q is not registered on any task queue", name)})
+		}
+	}
 	return diagnostics
 }
 
 func validateTaskQueueSharing(manifests []Summary) []Diagnostic {
 	type owner struct {
-		path     string
-		language string
+		path             string
+		language         string
+		registrationHash string
 	}
 	owners := make(map[string]owner)
 	var diagnostics []Diagnostic
@@ -180,9 +293,19 @@ func validateTaskQueueSharing(manifests []Summary) []Diagnostic {
 			if queue == "" {
 				continue
 			}
+			registrationHash := manifestRegistrationHash(manifest, queue)
 			prev, exists := owners[queue]
 			if !exists {
-				owners[queue] = owner{path: manifest.Path, language: manifest.Language}
+				owners[queue] = owner{path: manifest.Path, language: manifest.Language, registrationHash: registrationHash}
+				continue
+			}
+			if prev.registrationHash != "" && registrationHash != "" {
+				if prev.registrationHash != registrationHash {
+					diagnostics = append(diagnostics, Diagnostic{
+						Path:    manifest.Path,
+						Message: fmt.Sprintf("task queue %q registration hash %q does not match %q from %s", queue, registrationHash, prev.registrationHash, prev.path),
+					})
+				}
 				continue
 			}
 			if prev.language != manifest.Language {
@@ -194,6 +317,15 @@ func validateTaskQueueSharing(manifests []Summary) []Diagnostic {
 		}
 	}
 	return diagnostics
+}
+
+func manifestRegistrationHash(manifest Summary, queue string) string {
+	for _, registration := range manifest.TaskQueueRegistrations {
+		if registration.Name == queue {
+			return registration.RegistrationHash
+		}
+	}
+	return ""
 }
 
 func validateKnownActivities(manifests []Summary, knownActivities []string) []Diagnostic {
@@ -231,16 +363,55 @@ func summarize(manifest Manifest) Summary {
 		}
 	}
 	slices.Sort(activities)
-	queues := append([]string(nil), manifest.Temporal.TaskQueues...)
+	queues := manifestTaskQueueNames(manifest)
 	slices.Sort(queues)
+	registrations := manifestTaskQueueSummaries(manifest)
 	return Summary{
-		Path:         filepath.ToSlash(manifest.Path),
-		App:          manifest.App,
-		Language:     manifest.Language,
-		BuildID:      manifest.BuildID,
-		PayloadCodec: manifest.PayloadCodec,
-		Namespace:    manifest.Temporal.Namespace,
-		TaskQueues:   queues,
-		Activities:   activities,
+		Path:                   filepath.ToSlash(manifest.Path),
+		SchemaVersion:          manifestSchemaVersion(manifest),
+		App:                    manifest.App,
+		Language:               manifest.Language,
+		BuildID:                manifest.BuildID,
+		PayloadCodec:           manifest.PayloadCodec,
+		Namespace:              manifest.Temporal.Namespace,
+		TaskQueues:             queues,
+		TaskQueueRegistrations: registrations,
+		Activities:             activities,
 	}
+}
+
+func manifestTaskQueueNames(manifest Manifest) []string {
+	if manifestSchemaVersion(manifest) == ManifestSchemaVersionV2 {
+		queues := make([]string, 0, len(manifest.TaskQueues))
+		for _, queue := range manifest.TaskQueues {
+			if strings.TrimSpace(queue.Name) != "" {
+				queues = append(queues, queue.Name)
+			}
+		}
+		return queues
+	}
+	return append([]string(nil), manifest.Temporal.TaskQueues...)
+}
+
+func manifestTaskQueueSummaries(manifest Manifest) []TaskQueueSummary {
+	if manifestSchemaVersion(manifest) != ManifestSchemaVersionV2 {
+		return nil
+	}
+	registrations := make([]TaskQueueSummary, 0, len(manifest.TaskQueues))
+	for _, queue := range manifest.TaskQueues {
+		activities := append([]string(nil), queue.Activities...)
+		workflows := append([]string(nil), queue.Workflows...)
+		slices.Sort(activities)
+		slices.Sort(workflows)
+		registrations = append(registrations, TaskQueueSummary{
+			Name:             queue.Name,
+			Activities:       activities,
+			Workflows:        workflows,
+			RegistrationHash: queue.RegistrationHash,
+		})
+	}
+	slices.SortFunc(registrations, func(a, b TaskQueueSummary) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return registrations
 }

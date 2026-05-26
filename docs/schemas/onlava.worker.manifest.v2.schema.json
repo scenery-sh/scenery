@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.worker.manifest.v2.schema.json",
+  "title": "onlava.worker.manifest.v2",
+  "type": "object",
+  "required": ["schema_version", "app", "language", "build_id", "payload_codec", "temporal", "task_queues", "activities"],
+  "properties": {
+    "schema_version": { "const": "onlava.worker.manifest.v2" },
+    "app": { "type": "string", "minLength": 1 },
+    "language": { "type": "string", "minLength": 1 },
+    "build_id": { "type": "string", "minLength": 1 },
+    "payload_codec": { "const": "onlava-json-v1" },
+    "temporal": {
+      "type": "object",
+      "required": ["namespace"],
+      "properties": {
+        "namespace": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "task_queues": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "registration_hash"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "activities": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "workflows": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "registration_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "activities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "input", "output"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "input": { "type": "string", "minLength": 1 },
+          "output": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
