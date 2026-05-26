@@ -173,6 +173,7 @@ func ResolveTemporalConfig(appName string, cfg TemporalConfig) TemporalRuntimeIn
 		tlsKeyEnv = DefaultTemporalTLSKeyFileEnv
 	}
 	_, tlsKeySet := envValue(tlsKeyEnv)
+	tlsEnabled := cfg.TLS.Enabled || tlsServerNameSet || tlsCASet || tlsCertSet || tlsKeySet
 	deploymentName, deploymentEnvSet := envValue(DefaultTemporalDeploymentEnv)
 	if deploymentName == "" {
 		deploymentName = defaultTemporalDeploymentName(taskQueuePrefix)
@@ -204,7 +205,7 @@ func ResolveTemporalConfig(appName string, cfg TemporalConfig) TemporalRuntimeIn
 		PayloadCodec:     payloadCodec,
 		APIKeyEnv:        apiKeyEnv,
 		APIKeyEnvSet:     apiKeyEnvSet,
-		TLSEnabled:       cfg.TLS.Enabled,
+		TLSEnabled:       tlsEnabled,
 		TLSServerName:    tlsServerName,
 		TLSServerNameEnv: tlsServerNameEnv,
 		TLSServerNameSet: tlsServerNameSet,

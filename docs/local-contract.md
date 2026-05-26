@@ -208,8 +208,11 @@ Current implemented grammar:
 ```text
 onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust]
 onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
-onlava worker [--task-queue <name>] [--app-root <path>] [--env <name>] [--log-format text|json]
+onlava worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <name>] [--log-format text|json]
 onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
+onlava temporal deployment set-current --build-id <id> [--deployment <name>] [--ignore-missing-task-queues] [--allow-no-pollers] [--app-root <path>] [--json]
+onlava temporal deployment ramp --build-id <id> --percentage <0-100> [--deployment <name>] [--ignore-missing-task-queues] [--allow-no-pollers] [--app-root <path>] [--json]
+onlava temporal deployment drain --build-id <id> [--deployment <name>] [--force] [--app-root <path>] [--json]
 onlava version [--json]
 onlava build [--app-root <path>] [-o <path>] [--db-studio]
 onlava check [--app-root <path>] [--json]
@@ -499,6 +502,7 @@ Implemented now:
 - [onlava.inspect.paths.v1.schema.json](schemas/onlava.inspect.paths.v1.schema.json)
 - [onlava.inspect.temporal.v1.schema.json](schemas/onlava.inspect.temporal.v1.schema.json)
 - [onlava.worker.manifest.v1.schema.json](schemas/onlava.worker.manifest.v1.schema.json)
+- [onlava.worker.manifest.v2.schema.json](schemas/onlava.worker.manifest.v2.schema.json)
 - [onlava.gen.manifest.v1.schema.json](schemas/onlava.gen.manifest.v1.schema.json)
 - [onlava.build.latest.v1.schema.json](schemas/onlava.build.latest.v1.schema.json)
 - [onlava.run.event.v1.schema.json](schemas/onlava.run.event.v1.schema.json)

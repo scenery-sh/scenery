@@ -65,6 +65,7 @@ type RuntimeDeclaration struct {
 	TokenPos          token.Pos
 	TaskQueue         string
 	TaskQueueExplicit bool
+	TaskQueueResolved bool
 }
 
 type Receiver struct {

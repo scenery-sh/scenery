@@ -238,7 +238,10 @@ func runOnlavaInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "temporal":
-		resp := buildInspectTemporalResponse(context.Background(), appRoot, cfg)
+		resp, err := buildInspectTemporalResponse(context.Background(), appRoot, cfg)
+		if err != nil {
+			return err
+		}
 		return writeInspectJSON(stdout, resp)
 	case "traces":
 		resp, err := buildInspectTracesResponse(context.Background(), appRoot, cfg, opts.Trace)
@@ -427,11 +430,14 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 	return resp, nil
 }
 
-func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcfg.Config) inspectTemporalResponse {
+func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcfg.Config) (inspectTemporalResponse, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	info, status := onlavaruntime.CheckTemporalConnection(checkCtx, cfg.Name, temporalRuntimeConfigFromApp(cfg.Temporal))
-	appModel, _ := parse.App(appRoot, cfg.Name)
+	appModel, err := parse.App(appRoot, cfg.Name)
+	if err != nil {
+		return inspectTemporalResponse{}, err
+	}
 	return inspectTemporalResponse{
 		SchemaVersion: "onlava.inspect.temporal.v1",
 		App:           inspectAppInfo(appRoot, cfg, appModel),
@@ -476,7 +482,7 @@ func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcf
 			Error:     status.Error,
 		},
 		WorkerManifests: workers.ValidateWithKnownActivities(appRoot, cfg.Name, knownTemporalActivityNames(appModel)),
-	}
+	}, nil
 }
 
 func temporalDeclarations(appRoot string, appModel *model.App, info onlavaruntime.TemporalRuntimeInfo) []temporalDeclaration {
@@ -490,7 +496,7 @@ func temporalDeclarations(appRoot string, appModel *model.App, info onlavaruntim
 		}
 		queue := decl.TaskQueue
 		explicit := decl.TaskQueueExplicit
-		if decl.Kind == model.RuntimeDeclarationTemporalWorkflow && queue == "" {
+		if decl.Kind == model.RuntimeDeclarationTemporalWorkflow && queue == "" && decl.TaskQueueResolved {
 			queue = defaultTemporalWorkerTaskQueue(info.TaskQueuePrefix)
 			explicit = false
 		}

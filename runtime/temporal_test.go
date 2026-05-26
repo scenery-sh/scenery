@@ -81,7 +81,7 @@ func TestResolveTemporalConfigUsesEnvFallbacks(t *testing.T) {
 	if info.Versioning != TemporalVersioningAutoUpgrade || !info.VersioningEnvSet {
 		t.Fatalf("versioning/env = %q/%v", info.Versioning, info.VersioningEnvSet)
 	}
-	if !info.APIKeyEnvSet || info.TLSServerName != "orders.tmprl.cloud" || !info.TLSServerNameSet {
+	if !info.APIKeyEnvSet || !info.TLSEnabled || info.TLSServerName != "orders.tmprl.cloud" || !info.TLSServerNameSet {
 		t.Fatalf("security envs = %+v", info)
 	}
 }

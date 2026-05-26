@@ -299,6 +299,17 @@ func TestParseTemporalDeploymentArgs(t *testing.T) {
 	if _, err := parseTemporalDeploymentArgs("set-current", []string{"--percentage", "10", "--build-id", "sha"}); err == nil {
 		t.Fatal("expected percentage rejection")
 	}
+	for _, value := range []string{"NaN", "+Inf", "-Inf"} {
+		if _, err := parseTemporalDeploymentArgs("ramp", []string{"--build-id", "sha", "--percentage", value}); err == nil {
+			t.Fatalf("expected non-finite percentage %q rejection", value)
+		}
+	}
+	if _, err := parseTemporalDeploymentArgs("drain", []string{"--build-id", "sha", "--ignore-missing-task-queues"}); err == nil {
+		t.Fatal("expected ignore-missing-task-queues drain rejection")
+	}
+	if _, err := parseTemporalDeploymentArgs("drain", []string{"--build-id", "sha", "--allow-no-pollers"}); err == nil {
+		t.Fatal("expected allow-no-pollers drain rejection")
+	}
 }
 
 func TestRunWorkerBindingsWritesFiles(t *testing.T) {

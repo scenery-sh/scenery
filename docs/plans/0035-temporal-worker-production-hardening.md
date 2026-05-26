@@ -171,12 +171,12 @@ Finally harden production operations. Split local convenience behavior from prod
 ## Concrete Steps
 
 1. In `cmd/onlava/worker.go`, change `workerOptions.TaskQueue` to a slice, allow multiple `--task-queue` flags, and split comma-separated values. Preserve the current one-flag case. Pass a normalized comma-separated `ONLAVA_TEMPORAL_TASK_QUEUE` value to the app process.
-2. In `temporal/temporal.go`, add a helper like `selectedTemporalTaskQueuesFromEnv()` and a pure filtering helper that takes declaration-resolved `byQueue` data and selected queues. Use it in `startWorkerRuntime` before creating SDK workers. Return an error listing unmatched selected queues.
-3. Add tests in `temporal/temporal_test.go` for no selection, one selected queue, multiple selected queues, comma whitespace, and unknown selected queues. Add CLI parser tests in `cmd/onlava/worker_test.go` or the existing worker test file.
-4. Update `onlava inspect temporal --json` and `docs/schemas/onlava.inspect.temporal.v1.schema.json` if needed so declared queues and worker-manifest queues are visible enough for operators to choose correct `--task-queue` values.
-5. Make `ActivityConfig.TaskQueue` explicit. Prefer a `NewActivity` panic for empty task queues plus static parser diagnostics where the parser can see an empty literal config. Update tests and fixtures that currently use `temporal.ActivityConfig{}`.
-6. Update `ExecuteActivity` so it always sets the resolved activity task queue. If resolution needs runtime info that is unsafe in workflow replay, do not read process env in workflow code; instead require explicit config and use `a.config.TaskQueue` directly.
-7. Replace `temporal.Start` with a source-breaking, compile-time strict workflow identity API. Use a concrete identity value so the old three-argument call does not compile. One acceptable shape is:
+1. In `temporal/temporal.go`, add a helper like `selectedTemporalTaskQueuesFromEnv()` and a pure filtering helper that takes declaration-resolved `byQueue` data and selected queues. Use it in `startWorkerRuntime` before creating SDK workers. Return an error listing unmatched selected queues.
+1. Add tests in `temporal/temporal_test.go` for no selection, one selected queue, multiple selected queues, comma whitespace, and unknown selected queues. Add CLI parser tests in `cmd/onlava/worker_test.go` or the existing worker test file.
+1. Update `onlava inspect temporal --json` and `docs/schemas/onlava.inspect.temporal.v1.schema.json` if needed so declared queues and worker-manifest queues are visible enough for operators to choose correct `--task-queue` values.
+1. Make `ActivityConfig.TaskQueue` explicit. Prefer a `NewActivity` panic for empty task queues plus static parser diagnostics where the parser can see an empty literal config. Update tests and fixtures that currently use `temporal.ActivityConfig{}`.
+1. Update `ExecuteActivity` so it always sets the resolved activity task queue. If resolution needs runtime info that is unsafe in workflow replay, do not read process env in workflow code; instead require explicit config and use `a.config.TaskQueue` directly.
+1. Replace `temporal.Start` with a source-breaking, compile-time strict workflow identity API. Use a concrete identity value so the old three-argument call does not compile. One acceptable shape is:
 
    ```go
    type WorkflowIdentity struct { /* unexported fields */ }
@@ -186,7 +186,7 @@ Finally harden production operations. Split local convenience behavior from prod
    ```
 
    `WorkflowIdentity` constructors must reject empty strings, and `Start` must reject a zero identity defensively. Remove `WorkflowID` and `WorkflowIDPrefix` from `WorkflowConfig`; do not add them back under a different name.
-8. Keep non-identity `StartOption` support for routing, metadata, timeouts, conflict/reuse policy, and opt-in version pinning:
+1. Keep non-identity `StartOption` support for routing, metadata, timeouts, conflict/reuse policy, and opt-in version pinning:
 
    ```go
    type StartOption func(*StartWorkflowOptions)
@@ -202,7 +202,7 @@ Finally harden production operations. Split local convenience behavior from prod
    ```
 
    Define small onlava enums for conflict/reuse behavior instead of leaking raw SDK enum names into app code. At minimum support fail-on-running, use-existing-running, and reject-completed-duplicate where the SDK supports those semantics.
-9. Add typed handle support:
+1. Add typed handle support:
 
    ```go
    func GetWorkflow[O any](ctx context.Context, workflowID, runID string) Run[O]
@@ -210,7 +210,7 @@ Finally harden production operations. Split local convenience behavior from prod
    func (r Run[O]) Terminate(ctx context.Context, reason string) error
    ```
 
-10. Add typed signal, query, and update helpers unless the SDK mapping proves too large for this plan. If deferred, record a new ExecPlan or explicit follow-up issue before marking this plan complete:
+1. Add typed signal, query, and update helpers unless the SDK mapping proves too large for this plan. If deferred, record a new ExecPlan or explicit follow-up issue before marking this plan complete:
 
    ```go
    func Signal[O, I any](ctx context.Context, run Run[O], name string, input I) error
@@ -218,15 +218,15 @@ Finally harden production operations. Split local convenience behavior from prod
    func Update[I, O, R any](ctx context.Context, run Run[R], name string, input I) (O, error)
    ```
 
-11. Stop setting `VersioningOverride` on every `Start` by default once Worker Deployment promotion is operator-controlled. Keep explicit opt-in through `WithPinnedBuildID` or a similarly named option. Remove dead default-versioning helper APIs if they become unused.
-12. Update `internal/parse` and `onlava check` so literal `temporal.NewActivity(..., temporal.ActivityConfig{}, ...)` or `ActivityConfig{TaskQueue: ""}` produces a source diagnostic. Also flag bare three-argument `temporal.Start` calls once the strict start signature is in place, so agents get a direct migration message instead of only a Go type error.
-13. Update `onlava inspect temporal --json` and `docs/schemas/onlava.inspect.temporal.v1.schema.json` so declared Go workflow/activity queues are visible enough for operators to choose correct `--task-queue` values. Include declaration kind, name, resolved task queue, and whether the queue came from an explicit config or default.
-14. Migrate ONLV `temporal.Start` call sites to deterministic IDs such as `jobs.submission-attempt.<attempt_id>`, `house.process.<job_id>`, `maps.earth.generate.<job_id>`, and `codex.exec.<job_id>`. Pick a conflict policy that makes retries idempotent and document it in code comments only where the policy is not obvious.
-15. Replace ONLV waiter flows. For bounded flows, make workflows return response structs and have API handlers call `run.Get(ctx)`. For streaming or long-running flows, persist events/status in durable app storage and return IDs to clients. Remove process-local waiter maps and stream-sink maps from cross-process completion paths; tests should prove API and worker can be separate processes.
-16. Replace ONLV activity-starts-workflow chains. In house, a parent process-scene workflow should execute roofmapnet then rooftopology as activities or child workflows. In maps, generation and save should be coordinated by workflow code. Do not pass local temp directory paths across stages unless both stages are explicitly constrained to the same host; prefer durable artifact storage.
-17. Add production gating around `EnsureTemporalWorkerDeploymentCurrentVersion`. Local mode may call it automatically. Production/cloud modes should not. Add explicit CLI commands under an appropriate command group, for example `onlava temporal deployment set-current`, `onlava temporal deployment ramp`, and `onlava temporal deployment drain`.
-18. Extend Temporal cron config and docs for overlap policy, catchup window, pause-on-failure, and per-job activity timeout/retry. Use scheduled start time from Temporal schedule metadata where available instead of `time.Now()` inside `runTemporalCronActivity`.
-19. Introduce a stronger worker manifest shape, preferably as `onlava.worker.manifest.v2`, with queue-level registrations:
+1. Stop setting `VersioningOverride` on every `Start` by default once Worker Deployment promotion is operator-controlled. Keep explicit opt-in through `WithPinnedBuildID` or a similarly named option. Remove dead default-versioning helper APIs if they become unused.
+1. Update `internal/parse` and `onlava check` so literal `temporal.NewActivity(..., temporal.ActivityConfig{}, ...)` or `ActivityConfig{TaskQueue: ""}` produces a source diagnostic. Also flag bare three-argument `temporal.Start` calls once the strict start signature is in place, so agents get a direct migration message instead of only a Go type error.
+1. Update `onlava inspect temporal --json` and `docs/schemas/onlava.inspect.temporal.v1.schema.json` so declared Go workflow/activity queues are visible enough for operators to choose correct `--task-queue` values. Include declaration kind, name, resolved task queue, and whether the queue came from an explicit config or default.
+1. Migrate ONLV `temporal.Start` call sites to deterministic IDs such as `jobs.submission-attempt.<attempt_id>`, `house.process.<job_id>`, `maps.earth.generate.<job_id>`, and `codex.exec.<job_id>`. Pick a conflict policy that makes retries idempotent and document it in code comments only where the policy is not obvious.
+1. Replace ONLV waiter flows. For bounded flows, make workflows return response structs and have API handlers call `run.Get(ctx)`. For streaming or long-running flows, persist events/status in durable app storage and return IDs to clients. Remove process-local waiter maps and stream-sink maps from cross-process completion paths; tests should prove API and worker can be separate processes.
+1. Replace ONLV activity-starts-workflow chains. In house, a parent process-scene workflow should execute roofmapnet then rooftopology as activities or child workflows. In maps, generation and save should be coordinated by workflow code. Do not pass local temp directory paths across stages unless both stages are explicitly constrained to the same host; prefer durable artifact storage.
+1. Add production gating around `EnsureTemporalWorkerDeploymentCurrentVersion`. Local mode may call it automatically. Production/cloud modes should not. Add explicit CLI commands under an appropriate command group, for example `onlava temporal deployment set-current`, `onlava temporal deployment ramp`, and `onlava temporal deployment drain`.
+1. Extend Temporal cron config and docs for overlap policy, catchup window, pause-on-failure, and per-job activity timeout/retry. Use scheduled start time from Temporal schedule metadata where available instead of `time.Now()` inside `runTemporalCronActivity`.
+1. Introduce a stronger worker manifest shape, preferably as `onlava.worker.manifest.v2`, with queue-level registrations:
 
    ```json
    {
@@ -242,9 +242,9 @@ Finally harden production operations. Split local convenience behavior from prod
    ```
 
    Validate that manifests sharing a task queue have the same registration hash, external workers do not accidentally share Go queues, namespace and payload codec match the app, and every external activity is declared by onlava source.
-20. Extend Temporal connection config in `internal/app/root.go`, `runtime/temporal.go`, and docs to cover TLS/mTLS/API-key environment variables and a real `onlava-json-v1` payload codec profile. Keep config validation strict and fail with actionable messages when required env vars are missing.
-21. Update `docs/local-contract.md`, `docs/app-development-cookbook.md`, inspect schemas, generated binding docs, and ONLV `.onlava.json` examples to make Temporal production behavior explicit. Add explicit ONLV local config for `temporal.enabled`, `temporal.mode`, `temporal.namespace`, `temporal.task_queue_prefix`, and local `auto_start`, plus production env var docs for `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `ONLAVA_BUILD_ID`, `ONLAVA_TEMPORAL_DEPLOYMENT_NAME`, and `ONLAVA_TEMPORAL_VERSIONING_BEHAVIOR`.
-22. Audit `/Users/petrbrazdil/Repos/onlv/go.mod` for `github.com/rabbitmq/amqp091-go`. If RabbitMQ is still used for a non-Temporal domain, document that scope. If it is async-broker residue, remove it and any dead code/tests that only supported the old broker path.
+1. Extend Temporal connection config in `internal/app/root.go`, `runtime/temporal.go`, and docs to cover TLS/mTLS/API-key environment variables and a real `onlava-json-v1` payload codec profile. Keep config validation strict and fail with actionable messages when required env vars are missing.
+1. Update `docs/local-contract.md`, `docs/app-development-cookbook.md`, inspect schemas, generated binding docs, and ONLV `.onlava.json` examples to make Temporal production behavior explicit. Add explicit ONLV local config for `temporal.enabled`, `temporal.mode`, `temporal.namespace`, `temporal.task_queue_prefix`, and local `auto_start`, plus production env var docs for `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `ONLAVA_BUILD_ID`, `ONLAVA_TEMPORAL_DEPLOYMENT_NAME`, and `ONLAVA_TEMPORAL_VERSIONING_BEHAVIOR`.
+1. Audit `/Users/petrbrazdil/Repos/onlv/go.mod` for `github.com/rabbitmq/amqp091-go`. If RabbitMQ is still used for a non-Temporal domain, document that scope. If it is async-broker residue, remove it and any dead code/tests that only supported the old broker path.
 
 ## Validation and Acceptance
 

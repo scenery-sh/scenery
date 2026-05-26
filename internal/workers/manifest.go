@@ -231,11 +231,23 @@ func validateManifestV2Queues(manifest Manifest) []Diagnostic {
 		hash := strings.TrimSpace(queue.RegistrationHash)
 		if hash == "" {
 			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q registration_hash must not be empty", name)})
-		} else if !strings.HasPrefix(hash, "sha256:") || len(hash) <= len("sha256:") {
-			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q registration_hash must start with sha256:", name)})
+		} else if !isRegistrationHash(hash) {
+			diagnostics = append(diagnostics, Diagnostic{Path: manifest.Path, Message: fmt.Sprintf("task queue %q registration_hash must be sha256: followed by 64 lowercase hex characters", name)})
 		}
 	}
 	return diagnostics
+}
+
+func isRegistrationHash(hash string) bool {
+	if len(hash) != len("sha256:")+64 || !strings.HasPrefix(hash, "sha256:") {
+		return false
+	}
+	for _, ch := range hash[len("sha256:"):] {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func validateManifestV2Activities(manifest Manifest, activityNames map[string]struct{}) []Diagnostic {
@@ -287,7 +299,7 @@ func validateTaskQueueSharing(manifests []Summary) []Diagnostic {
 				owners[queue] = owner{path: manifest.Path, language: manifest.Language, registrationHash: registrationHash}
 				continue
 			}
-			if prev.registrationHash != "" || registrationHash != "" {
+			if prev.registrationHash != "" && registrationHash != "" {
 				if prev.registrationHash != registrationHash {
 					diagnostics = append(diagnostics, Diagnostic{
 						Path:    manifest.Path,

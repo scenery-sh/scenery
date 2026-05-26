@@ -258,9 +258,18 @@ Use `github.com/pbrazdil/onlava/temporal` for beta workflow and activity declara
 Use `github.com/pbrazdil/onlava/cron` and see `testdata/apps/cron`. When Temporal is enabled, cron jobs run through Temporal Schedules. Set `OverlapPolicy`, `CatchupWindow`, `PauseOnFailure`, `ActivityStartToClose`, and `ActivityRetryPolicy` on `cron.JobConfig` when missed-run, overlap, timeout, or retry behavior must be explicit.
 
 ```go
+package jobs
+
+import (
+	"context"
+	"time"
+
+	"github.com/pbrazdil/onlava/cron"
+)
+
 var _ = cron.NewJob("nightly-sync", cron.JobConfig{
 	Every:                cron.Hour,
-	Endpoint:             service.Sync,
+	Endpoint:             syncNightly,
 	OverlapPolicy:        cron.OverlapSkip,
 	CatchupWindow:        10 * time.Minute,
 	PauseOnFailure:       true,
@@ -270,6 +279,10 @@ var _ = cron.NewJob("nightly-sync", cron.JobConfig{
 		MaximumAttempts: 3,
 	},
 })
+
+func syncNightly(ctx context.Context) error {
+	return nil
+}
 ```
 
 Validate:

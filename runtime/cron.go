@@ -279,6 +279,7 @@ type temporalCronActivityInput struct {
 	AppID       string
 	JobID       string
 	ScheduledAt time.Time
+	ExecutionID string
 }
 
 func startTemporalCronRuntime(parent context.Context, cfg AppConfig, jobs []*CronJob) (*cronScheduler, error) {
@@ -489,6 +490,7 @@ func cronDayOfWeekRanges(field cronField, forceAny bool) []temporalclient.Schedu
 }
 
 func temporalCronWorkflow(ctx workflow.Context, in temporalCronInput) error {
+	scheduledAt := workflow.Now(ctx).UTC()
 	startToClose := in.ActivityStartToClose
 	if startToClose == 0 {
 		startToClose = time.Hour
@@ -502,7 +504,8 @@ func temporalCronWorkflow(ctx workflow.Context, in temporalCronInput) error {
 	return workflow.ExecuteActivity(actCtx, in.ActivityName, temporalCronActivityInput{
 		AppID:       in.AppID,
 		JobID:       in.JobID,
-		ScheduledAt: workflow.Now(ctx).UTC(),
+		ScheduledAt: scheduledAt,
+		ExecutionID: stableTemporalCronExecutionID(in.AppID, in.JobID, scheduledAt),
 	}).Get(actCtx, nil)
 }
 
@@ -514,9 +517,13 @@ func runTemporalCronActivity(ctx context.Context, job *CronJob, in temporalCronA
 	if scheduledAt.IsZero() {
 		scheduledAt = time.Now().UTC()
 	}
-	executionID, err := newCronExecutionID(job.ID, scheduledAt)
-	if err != nil {
-		return err
+	executionID := strings.TrimSpace(in.ExecutionID)
+	if executionID == "" {
+		var err error
+		executionID, err = newCronExecutionID(job.ID, scheduledAt)
+		if err != nil {
+			return err
+		}
 	}
 	return safeInvokeCronJob(withCronInvocation(ctx, job, scheduledAt, executionID), job)
 }
@@ -592,6 +599,14 @@ func temporalCronActivityName(job *CronJob) string {
 	return "onlava.cron." + sanitizeTemporalName(job.ID) + "/v1"
 }
 
+func stableTemporalCronExecutionID(appID, jobID string, scheduledAt time.Time) string {
+	appID = sanitizeTemporalName(appID)
+	if appID == "" {
+		appID = "app"
+	}
+	return fmt.Sprintf("%s-%s-%s", appID, sanitizeTemporalName(jobID), scheduledAt.UTC().Format("20060102T150405Z"))
+}
+
 func isTemporalAlreadyExistsError(err error) bool {
 	if err == nil {
 		return false
@@ -655,8 +670,11 @@ func validateCronJob(job *CronJob) error {
 }
 
 func validateCronRetryPolicy(jobID string, policy CronRetryPolicy) error {
-	if policy.InitialInterval < 0 {
-		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.InitialInterval cannot be negative", jobID)
+	if cronRetryPolicyIsZero(policy) {
+		return nil
+	}
+	if policy.InitialInterval <= 0 {
+		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.InitialInterval must be positive", jobID)
 	}
 	if policy.BackoffCoefficient < 0 {
 		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.BackoffCoefficient cannot be negative", jobID)

@@ -113,6 +113,17 @@ func TestTemporalCronScheduleOptionsApplyPolicy(t *testing.T) {
 	}
 }
 
+func TestStableTemporalCronExecutionIDIsDeterministic(t *testing.T) {
+	scheduledAt := time.Date(2026, time.May, 26, 10, 30, 0, 0, time.UTC)
+	got := stableTemporalCronExecutionID("orders-app", "nightly-sync", scheduledAt)
+	if got != stableTemporalCronExecutionID("orders-app", "nightly-sync", scheduledAt) {
+		t.Fatalf("stableTemporalCronExecutionID returned different values")
+	}
+	if got != "orders.app-nightly.sync-20260526T103000Z" {
+		t.Fatalf("stableTemporalCronExecutionID = %q", got)
+	}
+}
+
 func TestTemporalCronScheduleOptionsDefaultPolicy(t *testing.T) {
 	job := &CronJob{
 		ID:     "tick",
@@ -158,6 +169,18 @@ func TestValidateCronJobRejectsInvalidTemporalPolicy(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("validateCronJob returned nil error for negative catchup window")
+	}
+
+	err = validateCronJob(&CronJob{
+		ID:     "tick",
+		Every:  time.Minute,
+		Invoke: func(context.Context) error { return nil },
+		ActivityRetryPolicy: CronRetryPolicy{
+			MaximumAttempts: 3,
+		},
+	})
+	if err == nil {
+		t.Fatal("validateCronJob returned nil error for retry policy without initial interval")
 	}
 }
 

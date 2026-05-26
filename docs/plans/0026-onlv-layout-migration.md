@@ -3,7 +3,7 @@
 Status: canceled 2026-05-26. This plan is retained as historical context only
 and is no longer linked from the active plan index.
 
-This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
+This ExecPlan is a living document only while active; it is now archived. Its Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective sections are retained as a historical snapshot.
 
 ## Purpose / Big Picture
 

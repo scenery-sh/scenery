@@ -109,6 +109,9 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 		if decl.Kind == model.RuntimeDeclarationTemporalActivity && (!decl.TaskQueueExplicit || decl.TaskQueue != "orders.activities.go") {
 			t.Fatalf("activity task queue = %q explicit=%v", decl.TaskQueue, decl.TaskQueueExplicit)
 		}
+		if decl.Kind == model.RuntimeDeclarationTemporalWorkflow && !decl.TaskQueueResolved {
+			t.Fatalf("workflow task queue should be resolved as defaultable")
+		}
 	}
 	want := map[model.RuntimeDeclarationKind]string{
 		model.RuntimeDeclarationTemporalWorkflow: "orders.Fulfill/v1",
@@ -147,7 +150,12 @@ type Out struct{}
 var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConfig{}, func(ctx context.Context, in In) (Out, error) {
 	return Out{}, nil
 })
-var _ = temporal.NewActivity[In, Out]("orders.Refund/v1", temporal.ActivityConfig{TaskQueue: ""}, func(ctx context.Context, in In) (Out, error) {
+var blank = temporal.ActivityConfig{TaskQueue: "   "}
+var _ = temporal.NewActivity[In, Out]("orders.Refund/v1", blank, func(ctx context.Context, in In) (Out, error) {
+	return Out{}, nil
+})
+var zero temporal.ActivityConfig
+var _ = temporal.NewActivity[In, Out]("orders.Zero/v1", zero, func(ctx context.Context, in In) (Out, error) {
 	return Out{}, nil
 })
 `)
@@ -156,8 +164,54 @@ var _ = temporal.NewActivity[In, Out]("orders.Refund/v1", temporal.ActivityConfi
 	if err == nil {
 		t.Fatal("expected empty activity task queue error")
 	}
-	if got := err.Error(); strings.Count(got, "temporal.NewActivity requires temporal.ActivityConfig.TaskQueue") != 2 {
+	if got := err.Error(); strings.Count(got, "temporal.NewActivity requires temporal.ActivityConfig.TaskQueue") != 3 {
 		t.Fatalf("expected two activity task queue diagnostics, got %v", err)
+	}
+}
+
+func TestParseAcceptsUnkeyedTemporalActivityConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "go.mod", "module example.com/unkeyedactivityqueue\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
+	writeFile(t, dir, ".onlava.json", `{"name":"unkeyedactivityqueue"}`)
+	writeFile(t, dir, "svc/api.go", `package svc
+
+import "context"
+
+//onlava:api public
+func Ping(ctx context.Context) error { return nil }
+`)
+	writeFile(t, dir, "jobs/runtime.go", `package jobs
+
+import (
+	"context"
+	"time"
+
+	"github.com/pbrazdil/onlava/temporal"
+)
+
+type In struct{}
+type Out struct{}
+
+var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConfig{"orders.activities.go", time.Minute, 0, temporal.RetryPolicy{}}, func(ctx context.Context, in In) (Out, error) {
+	return Out{}, nil
+})
+`)
+
+	app, err := parse.App(dir, "unkeyedactivityqueue")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	var found bool
+	for _, decl := range app.Runtime {
+		if decl.Kind == model.RuntimeDeclarationTemporalActivity {
+			found = true
+			if decl.TaskQueue != "orders.activities.go" || !decl.TaskQueueExplicit || !decl.TaskQueueResolved {
+				t.Fatalf("activity declaration = %#v", decl)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected temporal activity declaration")
 	}
 }
 

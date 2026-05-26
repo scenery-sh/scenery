@@ -5,15 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	temporalclient "go.temporal.io/sdk/client"
 
 	"github.com/pbrazdil/onlava/internal/app"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
 )
+
+const temporalDeploymentTimeout = 30 * time.Second
 
 type temporalDeploymentOptions struct {
 	AppRoot                 string
@@ -63,7 +67,9 @@ func temporalDeploymentCommand(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return runTemporalDeployment(context.Background(), action, opts, stdout)
+	ctx, cancel := context.WithTimeout(context.Background(), temporalDeploymentTimeout)
+	defer cancel()
+	return runTemporalDeployment(ctx, action, opts, stdout)
 }
 
 func parseTemporalDeploymentArgs(action string, args []string) (temporalDeploymentOptions, error) {
@@ -103,6 +109,9 @@ func parseTemporalDeploymentArgs(action string, args []string) (temporalDeployme
 			if err != nil {
 				return opts, fmt.Errorf("invalid --percentage %q", args[i])
 			}
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				return opts, fmt.Errorf("invalid --percentage %q", args[i])
+			}
 			opts.Percentage = value
 			opts.PercentageSet = true
 		case "--ignore-missing-task-queues":
@@ -136,6 +145,14 @@ func parseTemporalDeploymentArgs(action string, args []string) (temporalDeployme
 	if opts.Force && action != "drain" {
 		return opts, fmt.Errorf("--force is only valid with drain")
 	}
+	if action == "drain" {
+		if opts.IgnoreMissingTaskQueues {
+			return opts, fmt.Errorf("--ignore-missing-task-queues is not valid with drain")
+		}
+		if opts.AllowNoPollers {
+			return opts, fmt.Errorf("--allow-no-pollers is not valid with drain")
+		}
+	}
 	return opts, nil
 }
 
@@ -148,7 +165,13 @@ func runTemporalDeployment(ctx context.Context, action string, opts temporalDepl
 	if err != nil {
 		return err
 	}
-	_ = root
+	env, err := appEnvWithDotEnv(os.Environ(), root, ".env", ".env.local")
+	if err != nil {
+		return err
+	}
+	restoreEnv := applyTemporaryEnv(envListMap(env))
+	defer restoreEnv()
+
 	rtCfg := temporalRuntimeConfigFromApp(cfg.Temporal)
 	if !rtCfg.Enabled {
 		return fmt.Errorf("temporal deployment commands require temporal.enabled=true")
@@ -208,4 +231,16 @@ func runTemporalDeployment(ctx context.Context, action string, opts temporalDepl
 		return err
 	}
 	return nil
+}
+
+func envListMap(env []string) map[string]string {
+	values := make(map[string]string, len(env))
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			continue
+		}
+		values[key] = value
+	}
+	return values
 }
