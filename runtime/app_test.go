@@ -3,6 +3,8 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -75,6 +77,21 @@ func TestRuntimeRoleFromEnvRejectsUnknown(t *testing.T) {
 	t.Setenv("ONLAVA_ROLE", "web")
 	if _, err := runtimeRoleFromEnv(); err == nil {
 		t.Fatal("expected unsupported role error")
+	}
+}
+
+func TestListenRuntimeUnixSocket(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "runtime.sock")
+	ln, err := listenRuntime("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listenRuntime unix: %v", err)
+	}
+	defer ln.Close()
+	if ln.Addr().Network() != "unix" {
+		t.Fatalf("network = %q, want unix", ln.Addr().Network())
+	}
+	if _, err := os.Stat(socketPath); err != nil {
+		t.Fatalf("socket file missing: %v", err)
 	}
 }
 

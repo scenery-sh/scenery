@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/build"
 	"github.com/pbrazdil/onlava/internal/codegen"
@@ -47,14 +48,16 @@ type devSupervisor struct {
 	cfg    app.Config
 	addr   string
 
-	store       *devdash.Store
-	dashboard   *dashboardServer
-	proxy       *localproxy.Proxy
-	temporal    *temporalDevServer
-	victoria    *victoriaStack
-	grafana     *grafanaComponent
-	reportToken string
-	console     *runConsole
+	store        *devdash.Store
+	dashboard    *dashboardServer
+	proxy        *localproxy.Proxy
+	temporal     *temporalDevServer
+	victoria     *victoriaStack
+	grafana      *grafanaComponent
+	reportToken  string
+	console      *runConsole
+	agent        *localagent.Client
+	agentSession *localagent.Session
 
 	closeOnce sync.Once
 	mu        sync.RWMutex
@@ -209,6 +212,11 @@ func (s *devSupervisor) Close() error {
 
 		if s.store != nil {
 			if err := s.store.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if s.agent != nil && s.agentSession != nil {
+			if _, err := s.agent.Delete(context.Background(), s.agentSession.SessionID, false); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -398,6 +406,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			"initial":     initial,
 		})
 	}
+	s.updateAgentSession(ctx, "running", current.pid)
 	if initial {
 		s.console.Banner(s.runURLs())
 	}
@@ -453,6 +462,8 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 	cmd.Env = append(cmd.Env, s.temporal.Env()...)
 	if s.proxy != nil {
 		cmd.Env = append(cmd.Env, "ONLAVA_PUBLIC_BASE_URL="+s.proxy.Routes().APIURL)
+	} else if s.agentSession != nil && s.agentSession.Routes[localagent.RouteAPI] != "" {
+		cmd.Env = append(cmd.Env, "ONLAVA_PUBLIC_BASE_URL="+s.agentSession.Routes[localagent.RouteAPI])
 	}
 	cmd.Stdin = nil
 
@@ -663,6 +674,7 @@ func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
 			"pid": app.pid,
 		})
 	}
+	s.updateAgentSession(ctx, "stopped", "")
 }
 
 func (a *runningApp) interrupt() error {
@@ -816,6 +828,9 @@ func (s *devSupervisor) apiURL() string {
 	if s.proxy != nil && s.proxy.Routes().APIURL != "" {
 		return s.proxy.Routes().APIURL
 	}
+	if s.agentSession != nil && s.agentSession.Routes[localagent.RouteAPI] != "" {
+		return s.agentSession.Routes[localagent.RouteAPI]
+	}
 	return "http://" + s.addr
 }
 
@@ -823,12 +838,18 @@ func (s *devSupervisor) dashboardURL() string {
 	if s.proxy != nil && s.proxy.Routes().ConsoleURL != "" {
 		return localproxy.ConsoleAppURL(s.proxy.Routes(), s.activeAppID())
 	}
+	if s.agentSession != nil && s.agentSession.Routes[localagent.RouteDashboard] != "" {
+		return s.agentSession.Routes[localagent.RouteDashboard]
+	}
 	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.activeAppID())
 }
 
 func (s *devSupervisor) mcpURL() string {
 	if s.proxy != nil && s.proxy.Routes().MCPBaseURL != "" {
 		return localproxy.MCPSSEURL(s.proxy.Routes(), s.activeAppID())
+	}
+	if s.agentSession != nil && s.agentSession.Routes[localagent.RouteMCP] != "" {
+		return s.agentSession.Routes[localagent.RouteMCP] + "?appID=" + url.QueryEscape(s.activeAppID())
 	}
 	return "http://" + devdash.ListenAddr() + "/sse?appID=" + url.QueryEscape(s.activeAppID())
 }
@@ -1027,6 +1048,7 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 			"error": err.Error(),
 		})
 	}
+	s.updateAgentSession(ctx, "compile-error", "")
 	return err
 }
 
@@ -1100,6 +1122,25 @@ func randomToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf[:]), nil
+}
+
+func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID string) {
+	if s == nil || s.agent == nil || s.agentSession == nil {
+		return
+	}
+	session, err := s.agent.Register(ctx, localagent.RegisterRequest{
+		BaseAppID: s.cfg.AppID(),
+		AppRoot:   s.root,
+		Status:    status,
+		OwnerPID:  os.Getpid(),
+		AppPID:    appPID,
+		Backends:  s.agentSession.Backends,
+	})
+	if err != nil {
+		slog.Warn("failed to update onlava agent session", "err", err)
+		return
+	}
+	s.agentSession = &session
 }
 
 func portAvailable(addr string) error {

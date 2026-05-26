@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -22,6 +24,17 @@ func ListenAddrFromEnv() string {
 	return "127.0.0.1:4000"
 }
 
+func ListenNetworkFromEnv() string {
+	switch value := strings.ToLower(strings.TrimSpace(os.Getenv("ONLAVA_LISTEN_NETWORK"))); value {
+	case "", "tcp":
+		return "tcp"
+	case "unix":
+		return "unix"
+	default:
+		return value
+	}
+}
+
 func Main(cfg AppConfig) error {
 	role, err := runtimeRoleFromEnv()
 	if err != nil {
@@ -30,6 +43,7 @@ func Main(cfg AppConfig) error {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ListenAddrFromEnv()
 	}
+	listenNetwork := ListenNetworkFromEnv()
 	cfg.Role = string(role)
 	SetAppConfig(cfg)
 	stopReporting := startDevelopmentReporting(cfg)
@@ -81,10 +95,15 @@ func Main(cfg AppConfig) error {
 		cancelRun()
 		return shutdownRuntime(nil, stopTemporalWorkers, stopTemporal, scheduler)
 	}
+	ln, err := listenRuntime(listenNetwork, cfg.ListenAddr)
+	if err != nil {
+		cancelRun()
+		return errorsJoin(err, shutdownRuntime(nil, stopTemporalWorkers, stopTemporal, scheduler))
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- server.ListenAndServe()
+		errCh <- server.Serve(ln)
 	}()
 
 	if !launchedBySupervisor() {
@@ -121,6 +140,26 @@ func Main(cfg AppConfig) error {
 			return stopErr
 		}
 		return errorsJoin(err, stopErr)
+	}
+}
+
+func listenRuntime(network, addr string) (net.Listener, error) {
+	switch network {
+	case "", "tcp":
+		return net.Listen("tcp", addr)
+	case "unix":
+		if strings.TrimSpace(addr) == "" {
+			return nil, fmt.Errorf("runtime: unix listen address is empty")
+		}
+		if err := os.MkdirAll(filepath.Dir(addr), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.Remove(addr); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return net.Listen("unix", addr)
+	default:
+		return nil, fmt.Errorf("runtime: unsupported ONLAVA_LISTEN_NETWORK %q", network)
 	}
 }
 

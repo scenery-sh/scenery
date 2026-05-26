@@ -20,6 +20,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/app"
 )
 
@@ -69,10 +70,18 @@ func runWithWatch(addr string, verbose, jsonMode bool, appRoot string) error {
 		return err
 	}
 
+	agentClient, agentSession, restoreAgentEnv, err := prepareDevAgentSession(ctx, root, cfg, addr)
+	if err != nil {
+		return err
+	}
+	defer restoreAgentEnv()
+
 	supervisor, err := newDevSupervisor(ctx, root, cfg, addr, verbose, jsonMode)
 	if err != nil {
 		return err
 	}
+	supervisor.agent = agentClient
+	supervisor.agentSession = agentSession
 	defer supervisor.Close()
 	if err := supervisor.Start(ctx); err != nil {
 		return err
@@ -107,6 +116,47 @@ func runWithWatch(addr string, verbose, jsonMode bool, appRoot string) error {
 			supervisor.console.RebuildFailed(err)
 		}
 	}
+}
+
+func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, apiAddr string) (*localagent.Client, *localagent.Session, func(), error) {
+	restore := func() {}
+	if localagent.DisabledByEnv() {
+		return nil, nil, restore, nil
+	}
+	if strings.TrimSpace(os.Getenv("ONLAVA_DEV_DASHBOARD_ADDR")) == "" {
+		addr, err := freeLoopbackAddr()
+		if err != nil {
+			return nil, nil, restore, err
+		}
+		_ = os.Setenv("ONLAVA_DEV_DASHBOARD_ADDR", addr)
+		restore = func() {
+			_ = os.Unsetenv("ONLAVA_DEV_DASHBOARD_ADDR")
+		}
+	}
+	client, err := localagent.Ensure(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "onlava: agent unavailable; continuing without routed session URLs: %v\n", err)
+		return nil, nil, restore, nil
+	}
+	session, err := client.Register(ctx, localagent.RegisterRequest{
+		BaseAppID: cfg.AppID(),
+		AppRoot:   root,
+		Status:    "starting",
+		OwnerPID:  os.Getpid(),
+		Backends: map[string]localagent.Backend{
+			localagent.RouteAPI:       {Network: "tcp", Addr: apiAddr},
+			localagent.RouteDashboard: {Network: "tcp", Addr: devdashListenAddr()},
+			localagent.RouteMCP:       {Network: "tcp", Addr: devdashListenAddr()},
+		},
+	})
+	if err != nil {
+		return nil, nil, restore, err
+	}
+	return client, &session, restore, nil
+}
+
+func devdashListenAddr() string {
+	return os.Getenv("ONLAVA_DEV_DASHBOARD_ADDR")
 }
 
 func waitForStableChange(ctx context.Context, root string, current fileSnapshot, watcher *fileChangeWatcher) (fileSnapshot, error) {

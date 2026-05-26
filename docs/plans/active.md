@@ -7,6 +7,12 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0037 onlava Agent MVP](0037-onlava-agent-mvp.md)
+  - Status: active
+  - Owner: onlava runtime
+  - Created: 2026-05-26
+  - Focus: local daemon control socket, routed session URLs, session manifests, `status`, `down`, and dev registration.
+
 - [0035 Temporal Worker Production Hardening](0035-temporal-worker-production-hardening.md)
   - Status: active
   - Owner: onlava runtime / ONLV integration

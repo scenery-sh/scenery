@@ -75,6 +75,7 @@ func onlavaDevEnv(repo, dashboardAddr, cacheDir string) []string {
 		"ONLAVA_DEV_DASHBOARD_UI_DIR="+filepath.Join(repo, "ui", "dist"),
 		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_LOCAL_PROXY=0",
+		"ONLAVA_AGENT_DISABLE=1",
 	)
 }
 
@@ -85,6 +86,7 @@ func onlavaDevProxyEnv(repo, dashboardAddr, cacheDir, httpPort, httpsPort, front
 		"ONLAVA_DEV_CACHE_DIR="+cacheDir,
 		"ONLAVA_DEV_DASHBOARD_UI_DIR="+filepath.Join(repo, "ui", "dist"),
 		"ONLAVA_DEV_VICTORIA=0",
+		"ONLAVA_AGENT_DISABLE=1",
 		"ONLAVA_LOCAL_PROXY_HTTP_PORT="+httpPort,
 		"ONLAVA_LOCAL_PROXY_HTTPS_PORT="+httpsPort,
 		"ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL=1",

@@ -33,10 +33,16 @@ func run(args []string) error {
 		return usageError()
 	}
 	switch args[0] {
+	case "agent":
+		return agentCommand(args[1:])
 	case "dev":
 		return devCommand(args[1:])
 	case "run":
 		return runCommand(args[1:])
+	case "status":
+		return statusCommand(args[1:])
+	case "down":
+		return downCommand(args[1:])
 	case "worker":
 		return workerCommand(args[1:])
 	case "temporal":
@@ -70,6 +76,9 @@ func usageError() error {
 	return fmt.Errorf(`usage:
   stable/dev commands:
     onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust]
+    onlava agent [--socket <path>] [--router-listen <addr>] [--json]
+    onlava status --json [--app-root <path>] [--session <id>]
+    onlava down [--app-root <path>] [--session <id>]
     onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
