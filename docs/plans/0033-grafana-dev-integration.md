@@ -65,6 +65,7 @@ Non-goals:
 * [x] 2026-05-25: Add unit tests and external-Grafana fake health coverage.
 * [x] 2026-05-25: Update the local contract and architecture docs.
 * [x] 2026-05-25: Validate live Grafana startup and dashboard links in the browser.
+* [x] 2026-05-26: Harden Grafana readiness so ready/external requires expected datasource and dashboard UIDs, external reuse is explicit, local proxy public URLs are written into `grafana.ini`, managed pinned Grafana is preferred over `PATH`, ambient `GF_*` overrides are filtered, datasource provisioning prunes stale entries, downloads verify checksums, and UI links are hidden until Grafana is usable.
 
 ## Surprises & Discoveries
 
@@ -86,6 +87,9 @@ type: victoriametrics-logs-datasource
 * Managed Grafana, Grafana plugin, and Victoria sidecar versions now live in the embedded `internal/devtools/versions.json` pin file instead of being scattered across supervisor code.
 * The dashboard app status path was the right place to expose Grafana state because existing UI polling and process notifications already converge there.
 * First-run Grafana startup can exceed 45 seconds because Grafana installs datasource plugins synchronously before reporting healthy. The readiness timeout must be long enough for a cold plugin install path while still surfacing a clear degraded state when startup really fails.
+* 2026-05-26: Static follow-up review found the first implementation could expose Grafana links after `/api/health` even when onlava provisioning had not loaded. The durable readiness boundary is now server health plus expected datasource and dashboard API reads.
+* 2026-05-26: The local HTTPS proxy can advertise `https://grafana.<workspace>.localhost` before the proxy itself is started. Computing that planned public URL before Grafana provisioning lets Grafana's `root_url` match the browser-facing route.
+* 2026-05-26: Inheriting developer shell `GF_*` values is too risky for a generated local config because Grafana treats environment variables as config overrides.
 
 ## Decision Log
 
@@ -120,6 +124,14 @@ type: victoriametrics-logs-datasource
 * Decision: Use a 3-minute readiness timeout for supervised Grafana startup.
   Rationale: Live validation showed that a cold Grafana install with synchronous Victoria datasource plugin installation can exceed 45 seconds. Three minutes leaves room for first-run plugin setup while still bounding required-mode startup failures.
   Date/Author: 2026-05-25 / Codex
+
+* Decision: Treat external Grafana as unusable unless explicitly requested and verified.
+  Rationale: An arbitrary Grafana process on the configured port is not equivalent to the onlava workbench. Reuse now requires `ONLAVA_GRAFANA_REUSE_EXTERNAL=1` and successful UID checks.
+  Date/Author: 2026-05-26 / Codex
+
+* Decision: Keep the direct upstream URL and public browser URL separate.
+  Rationale: The dev supervisor and local proxy need the direct loopback URL, while Grafana's own `root_url` and the UI should use the browser-facing URL when the HTTPS proxy is enabled.
+  Date/Author: 2026-05-26 / Codex
 
 ## Outcomes & Retrospective
 

@@ -199,6 +199,10 @@ func BuildConfig(cfg Config) Config {
 	return cfg
 }
 
+func PreviewRoutes(cfg Config) Routes {
+	return routesFor(normalizeConfig(BuildConfig(cfg)))
+}
+
 func Start(cfg Config) (*Proxy, error) {
 	cfg = normalizeConfig(cfg)
 	if cfg.APIUpstream == "" {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +56,7 @@ type grafanaConfig struct {
 	RootDir           string
 	Port              int
 	URL               string
+	PublicURL         string
 	ConfigPath        string
 	DataDir           string
 	LogsDir           string
@@ -81,8 +83,8 @@ type grafanaComponent struct {
 	state    devdash.GrafanaState
 }
 
-func startGrafanaForDev(ctx context.Context, appRoot string, victoria *victoriaStack, console *runConsole) (*grafanaComponent, error) {
-	cfg := newGrafanaConfig(appRoot, victoria)
+func startGrafanaForDev(ctx context.Context, appRoot string, victoria *victoriaStack, publicURL string, console *runConsole) (*grafanaComponent, error) {
+	cfg := newGrafanaConfig(appRoot, victoria, publicURL)
 	if !cfg.Enabled {
 		return &grafanaComponent{cfg: cfg, state: grafanaState(cfg, "disabled", "Grafana disabled by ONLAVA_DEV_GRAFANA=0")}, nil
 	}
@@ -104,8 +106,36 @@ func startGrafanaForDev(ctx context.Context, appRoot string, victoria *victoriaS
 	}
 
 	if external, ok := grafanaExternalOnPort(ctx, cfg); ok {
-		external.state = grafanaState(cfg, "external", "Grafana is already running on the configured port")
-		return external, nil
+		if explicitGrafanaReuseExternal() {
+			if err := verifyGrafanaAssets(ctx, cfg); err != nil {
+				msg := fmt.Sprintf("Grafana is running on the configured port, but onlava provisioning is not verified: %v", err)
+				if cfg.Required {
+					return &grafanaComponent{cfg: cfg, external: true, state: grafanaState(cfg, "degraded", msg)}, errors.New(msg)
+				}
+				warnGrafana(console, "%s", msg)
+				return &grafanaComponent{cfg: cfg, external: true, state: grafanaState(cfg, "degraded", msg)}, nil
+			}
+			external.state = grafanaState(cfg, "external", "Using verified external Grafana with onlava datasources and dashboards")
+			return external, nil
+		}
+		if explicitGrafanaPort() {
+			msg := "Grafana is already running on the configured port; set ONLAVA_GRAFANA_REUSE_EXTERNAL=1 to verify and reuse it"
+			if cfg.Required {
+				return &grafanaComponent{cfg: cfg, external: true, state: grafanaState(cfg, "unavailable", msg)}, errors.New(msg)
+			}
+			warnGrafana(console, "%s", msg)
+			return &grafanaComponent{cfg: cfg, external: true, state: grafanaState(cfg, "degraded", msg)}, nil
+		}
+		port, err := freeLoopbackPort()
+		if err != nil {
+			msg := fmt.Sprintf("Grafana is already running on the default port and no alternate port could be chosen: %v", err)
+			if cfg.Required {
+				return &grafanaComponent{cfg: cfg, state: grafanaState(cfg, "unavailable", msg)}, err
+			}
+			warnGrafana(console, "%s", msg)
+			return &grafanaComponent{cfg: cfg, state: grafanaState(cfg, "degraded", msg)}, nil
+		}
+		setGrafanaPort(&cfg, port)
 	}
 
 	if !tcpAddrAvailable(grafanaDefaultHost, cfg.Port) || grafanaPortResponds(ctx, cfg.URL) {
@@ -126,8 +156,7 @@ func startGrafanaForDev(ctx context.Context, appRoot string, victoria *victoriaS
 			warnGrafana(console, "%s", msg)
 			return &grafanaComponent{cfg: cfg, state: grafanaState(cfg, "degraded", msg)}, nil
 		}
-		cfg.Port = port
-		cfg.URL = fmt.Sprintf("http://%s:%d", grafanaDefaultHost, cfg.Port)
+		setGrafanaPort(&cfg, port)
 	}
 
 	component := &grafanaComponent{cfg: cfg, state: grafanaState(cfg, "starting", "Grafana starting")}
@@ -162,6 +191,7 @@ func startGrafanaForDev(ctx context.Context, appRoot string, victoria *victoriaS
 	}
 	cmd.Stdout = output
 	cmd.Stderr = output
+	cmd.Env = grafanaChildEnv(os.Environ(), cfg)
 	if err := cmd.Start(); err != nil {
 		component.state = grafanaState(cfg, "unavailable", err.Error())
 		if cfg.Required {
@@ -182,7 +212,7 @@ func startGrafanaForDev(ctx context.Context, appRoot string, victoria *victoriaS
 
 	readyCtx, cancel := context.WithTimeout(ctx, grafanaReadyTimeout)
 	defer cancel()
-	if err := waitGrafanaReady(readyCtx, cfg.URL); err != nil {
+	if err := waitGrafanaReady(readyCtx, cfg); err != nil {
 		component.state = grafanaState(cfg, "degraded", err.Error())
 		if cfg.Required {
 			return component, err
@@ -200,11 +230,18 @@ func startGrafanaForDev(ctx context.Context, appRoot string, victoria *victoriaS
 	return component, nil
 }
 
-func newGrafanaConfig(appRoot string, victoria *victoriaStack) grafanaConfig {
+func newGrafanaConfig(appRoot string, victoria *victoriaStack, publicURL string) grafanaConfig {
 	mode := grafanaDevMode()
 	versions := devtools.PinnedVersions()
 	root := grafanaRootDir(appRoot)
 	port := intEnvOrDefault("ONLAVA_GRAFANA_PORT", grafanaDefaultPort)
+	directURL := fmt.Sprintf("http://%s:%d", grafanaDefaultHost, port)
+	if value := strings.TrimSpace(os.Getenv("ONLAVA_GRAFANA_PUBLIC_URL")); value != "" {
+		publicURL = value
+	}
+	if strings.TrimSpace(publicURL) == "" {
+		publicURL = directURL
+	}
 	cfg := grafanaConfig{
 		Enabled:           mode != grafanaModeDisabled,
 		Required:          mode == grafanaModeRequired,
@@ -212,7 +249,8 @@ func newGrafanaConfig(appRoot string, victoria *victoriaStack) grafanaConfig {
 		Version:           envOrDefault("ONLAVA_GRAFANA_VERSION", versions.Grafana.Version),
 		RootDir:           root,
 		Port:              port,
-		URL:               fmt.Sprintf("http://%s:%d", grafanaDefaultHost, port),
+		URL:               directURL,
+		PublicURL:         strings.TrimRight(publicURL, "/"),
 		ConfigPath:        filepath.Join(root, "conf", "grafana.ini"),
 		DataDir:           filepath.Join(root, "data"),
 		LogsDir:           filepath.Join(root, "logs"),
@@ -234,6 +272,18 @@ func newGrafanaConfig(appRoot string, victoria *victoriaStack) grafanaConfig {
 		cfg.TracesURL = ""
 	}
 	return cfg
+}
+
+func setGrafanaPort(cfg *grafanaConfig, port int) {
+	if cfg == nil {
+		return
+	}
+	oldURL := cfg.URL
+	cfg.Port = port
+	cfg.URL = fmt.Sprintf("http://%s:%d", grafanaDefaultHost, cfg.Port)
+	if cfg.PublicURL == "" || cfg.PublicURL == oldURL {
+		cfg.PublicURL = cfg.URL
+	}
 }
 
 func grafanaDevMode() grafanaMode {
@@ -281,6 +331,18 @@ func explicitGrafanaPort() bool {
 	return strings.TrimSpace(os.Getenv("ONLAVA_GRAFANA_PORT")) != ""
 }
 
+func explicitGrafanaReuseExternal() bool {
+	return envEnabled("ONLAVA_GRAFANA_REUSE_EXTERNAL", false)
+}
+
+func envEnabled(key string, fallback bool) bool {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return !isFalseEnv(value)
+}
+
 func grafanaExternalOnPort(ctx context.Context, cfg grafanaConfig) (*grafanaComponent, bool) {
 	if tcpAddrAvailable(grafanaDefaultHost, cfg.Port) && !grafanaPortResponds(ctx, cfg.URL) {
 		return nil, false
@@ -291,13 +353,17 @@ func grafanaExternalOnPort(ctx context.Context, cfg grafanaConfig) (*grafanaComp
 	return &grafanaComponent{cfg: cfg, external: true}, true
 }
 
-func waitGrafanaReady(ctx context.Context, baseURL string) error {
+func waitGrafanaReady(ctx context.Context, cfg grafanaConfig) error {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	var lastErr error
 	for {
-		if grafanaHealthy(ctx, baseURL) {
-			return nil
+		if grafanaHealthy(ctx, cfg.URL) {
+			if err := verifyGrafanaAssets(ctx, cfg); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
 		}
 		if ctx.Err() != nil {
 			if lastErr != nil {
@@ -310,6 +376,48 @@ func waitGrafanaReady(ctx context.Context, baseURL string) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func verifyGrafanaAssets(ctx context.Context, cfg grafanaConfig) error {
+	if cfg.MetricsURL != "" {
+		if err := grafanaAPIReady(ctx, cfg.URL, "/api/datasources/uid/"+url.PathEscape(cfg.MetricsDatasource)); err != nil {
+			return fmt.Errorf("metrics datasource %s: %w", cfg.MetricsDatasource, err)
+		}
+	}
+	if cfg.LogsURL != "" {
+		if err := grafanaAPIReady(ctx, cfg.URL, "/api/datasources/uid/"+url.PathEscape(cfg.LogsDatasource)); err != nil {
+			return fmt.Errorf("logs datasource %s: %w", cfg.LogsDatasource, err)
+		}
+	}
+	if cfg.TracesURL != "" {
+		if err := grafanaAPIReady(ctx, cfg.URL, "/api/datasources/uid/"+url.PathEscape(cfg.TracesDatasource)); err != nil {
+			return fmt.Errorf("traces datasource %s: %w", cfg.TracesDatasource, err)
+		}
+	}
+	for _, uid := range []string{cfg.OverviewDashboard, cfg.LogsDashboard, cfg.EndpointDashboard} {
+		if err := grafanaAPIReady(ctx, cfg.URL, "/api/dashboards/uid/"+url.PathEscape(uid)); err != nil {
+			return fmt.Errorf("dashboard %s: %w", uid, err)
+		}
+	}
+	return nil
+}
+
+func grafanaAPIReady(ctx context.Context, baseURL, path string) error {
+	checkCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(checkCtx, http.MethodGet, strings.TrimRight(baseURL, "/")+path, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("unexpected status %s", resp.Status)
+	}
+	return nil
 }
 
 func grafanaHealthy(ctx context.Context, baseURL string) bool {
@@ -366,12 +474,13 @@ func resolveGrafanaBinary(ctx context.Context, cfg grafanaConfig) (binaryPath, h
 		}
 		return path, grafanaHomeForBinary(path, cfg.RootDir), nil
 	}
-	for _, path := range []string{
-		filepath.Join(cfg.RootDir, "bin", "grafana"),
-		filepath.Join(cfg.RootDir, "bin", "grafana-server"),
-	} {
-		if isExecutableFile(path) {
-			return path, grafanaHomeForBinary(path, cfg.RootDir), nil
+	if path, home := downloadedGrafanaBinary(cfg); path != "" {
+		return path, home, nil
+	}
+	if cfg.Download {
+		path, home, err := downloadGrafanaBinary(ctx, cfg)
+		if err == nil {
+			return path, home, nil
 		}
 	}
 	if path, err := exec.LookPath("grafana"); err == nil {
@@ -380,13 +489,10 @@ func resolveGrafanaBinary(ctx context.Context, cfg grafanaConfig) (binaryPath, h
 	if path, err := exec.LookPath("grafana-server"); err == nil {
 		return path, grafanaHomeForBinary(path, cfg.RootDir), nil
 	}
-	if path, home := downloadedGrafanaBinary(cfg); path != "" {
-		return path, home, nil
-	}
 	if !cfg.Download {
 		return "", "", fmt.Errorf("Grafana binary not found; set ONLAVA_GRAFANA_BIN or enable ONLAVA_DEV_GRAFANA_DOWNLOAD")
 	}
-	return downloadGrafanaBinary(ctx, cfg)
+	return "", "", err
 }
 
 func grafanaHomeForBinary(path, root string) string {
@@ -439,6 +545,28 @@ func grafanaCommandArgs(binaryPath, homePath, configPath string) []string {
 	return args
 }
 
+func grafanaChildEnv(base []string, cfg grafanaConfig) []string {
+	preserveGF := envEnabled("ONLAVA_GRAFANA_PRESERVE_GF_ENV", false)
+	out := make([]string, 0, len(base)+8)
+	for _, kv := range base {
+		key, _, ok := strings.Cut(kv, "=")
+		if ok && strings.HasPrefix(key, "GF_") && !preserveGF {
+			continue
+		}
+		out = append(out, kv)
+	}
+	rootURL := strings.TrimRight(firstNonEmpty(cfg.PublicURL, cfg.URL), "/") + "/"
+	return append(out,
+		"GF_SERVER_HTTP_ADDR="+grafanaDefaultHost,
+		"GF_SERVER_HTTP_PORT="+strconv.Itoa(cfg.Port),
+		"GF_SERVER_ROOT_URL="+rootURL,
+		"GF_PATHS_DATA="+cfg.DataDir,
+		"GF_PATHS_LOGS="+cfg.LogsDir,
+		"GF_PATHS_PLUGINS="+cfg.PluginsDir,
+		"GF_PATHS_PROVISIONING="+cfg.ProvisioningDir,
+	)
+}
+
 func downloadGrafanaBinary(ctx context.Context, cfg grafanaConfig) (string, string, error) {
 	archiveURL, err := grafanaArchiveURL(cfg)
 	if err != nil {
@@ -458,6 +586,9 @@ func downloadGrafanaBinary(ctx context.Context, cfg grafanaConfig) (string, stri
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 768<<20))
 	if err != nil {
+		return "", "", err
+	}
+	if err := verifyGrafanaArchiveChecksum(ctx, archiveURL, data); err != nil {
 		return "", "", err
 	}
 	home, err := extractGrafanaArchive(cfg, data)
@@ -490,6 +621,61 @@ func grafanaArchiveURL(cfg grafanaConfig) (string, error) {
 		return "", fmt.Errorf("automatic Grafana download is unsupported on %s/%s", goos, goarch)
 	}
 	return fmt.Sprintf("https://dl.grafana.com/oss/release/grafana-%s.%s-%s.tar.gz", cfg.Version, goos, goarch), nil
+}
+
+func verifyGrafanaArchiveChecksum(ctx context.Context, archiveURL string, data []byte) error {
+	if value := strings.TrimSpace(os.Getenv("ONLAVA_GRAFANA_DOWNLOAD_SHA256")); value != "" {
+		return verifyGrafanaSHA256(data, value)
+	}
+	if strings.TrimSpace(os.Getenv("ONLAVA_GRAFANA_DOWNLOAD_URL")) != "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, archiveURL+".sha256", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s: unexpected status %s", archiveURL+".sha256", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return err
+	}
+	want := grafanaChecksumFromResponse(string(body), filepath.Base(archiveURL))
+	if want == "" {
+		return fmt.Errorf("Grafana checksum response did not contain a checksum for %s", filepath.Base(archiveURL))
+	}
+	return verifyGrafanaSHA256(data, want)
+}
+
+func grafanaChecksumFromResponse(body, archiveName string) string {
+	if checksum := checksumForArchive(body, archiveName); checksum != "" {
+		return checksum
+	}
+	for _, field := range strings.Fields(body) {
+		field = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(field), "sha256:"))
+		if len(field) == 64 && isLowerHex(field) {
+			return field
+		}
+	}
+	return ""
+}
+
+func verifyGrafanaSHA256(data []byte, want string) error {
+	want = strings.ToLower(strings.TrimSpace(want))
+	if len(want) != 64 {
+		return fmt.Errorf("invalid Grafana SHA256 checksum")
+	}
+	sum := sha256.Sum256(data)
+	if fmt.Sprintf("%x", sum[:]) != want {
+		return fmt.Errorf("checksum mismatch for Grafana archive")
+	}
+	return nil
 }
 
 func extractGrafanaArchive(cfg grafanaConfig, data []byte) (string, error) {
@@ -566,10 +752,15 @@ func extractGrafanaArchive(cfg grafanaConfig, data []byte) (string, error) {
 }
 
 func grafanaState(cfg grafanaConfig, status, message string) devdash.GrafanaState {
+	available := status == "ready" || status == "external"
+	baseURL := ""
+	if available {
+		baseURL = firstNonEmpty(cfg.PublicURL, cfg.URL)
+	}
 	dashboards := []devdash.GrafanaDashboard{
-		{UID: grafanaOverviewUID, Title: "onlava dev overview", URL: grafanaDashboardURL(cfg.URL, grafanaOverviewUID)},
-		{UID: grafanaLogsDashboardUID, Title: "onlava dev logs", URL: grafanaDashboardURL(cfg.URL, grafanaLogsDashboardUID)},
-		{UID: grafanaEndpointUID, Title: "onlava dev endpoint", URL: grafanaDashboardURL(cfg.URL, grafanaEndpointUID)},
+		{UID: grafanaOverviewUID, Title: "onlava dev overview", URL: grafanaDashboardURL(baseURL, grafanaOverviewUID)},
+		{UID: grafanaLogsDashboardUID, Title: "onlava dev logs", URL: grafanaDashboardURL(baseURL, grafanaLogsDashboardUID)},
+		{UID: grafanaEndpointUID, Title: "onlava dev endpoint", URL: grafanaDashboardURL(baseURL, grafanaEndpointUID)},
 	}
 	datasources := map[string]string{}
 	datasourceStatus := map[string]string{}
@@ -587,8 +778,9 @@ func grafanaState(cfg grafanaConfig, status, message string) devdash.GrafanaStat
 	}
 	state := devdash.GrafanaState{
 		Enabled:          cfg.Enabled,
+		Available:        available,
 		Status:           status,
-		URL:              cfg.URL,
+		URL:              baseURL,
 		OverviewURL:      dashboards[0].URL,
 		LogsURL:          dashboards[1].URL,
 		EndpointURL:      dashboards[2].URL,
@@ -631,7 +823,7 @@ func grafanaDashboardURL(baseURL, uid string) string {
 }
 
 func grafanaStateWithBaseURL(state devdash.GrafanaState, baseURL string) devdash.GrafanaState {
-	if baseURL == "" || !state.Enabled || state.URL == "" {
+	if baseURL == "" || !state.Enabled || !state.Available {
 		return state
 	}
 	state.URL = baseURL
@@ -652,10 +844,10 @@ func (g *grafanaComponent) State() devdash.GrafanaState {
 }
 
 func (g *grafanaComponent) URL() string {
-	if g == nil || !g.state.Enabled {
+	if g == nil || !g.cfg.Enabled {
 		return ""
 	}
-	return g.state.URL
+	return g.cfg.URL
 }
 
 func (g *grafanaComponent) Interrupt() error {

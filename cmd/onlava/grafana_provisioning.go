@@ -5,19 +5,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
 
+const grafanaRequestDurationMetricName = "onlava_request_duration"
+
 func renderGrafanaINI(cfg grafanaConfig) ([]byte, error) {
 	var buf bytes.Buffer
+	rootURL := strings.TrimRight(firstNonEmpty(cfg.PublicURL, cfg.URL), "/") + "/"
+	domain := grafanaDefaultHost
+	if parsed, err := url.Parse(rootURL); err == nil && parsed.Hostname() != "" {
+		domain = parsed.Hostname()
+	}
 	fmt.Fprintf(&buf, "[server]\n")
 	fmt.Fprintf(&buf, "http_addr = %s\n", grafanaDefaultHost)
 	fmt.Fprintf(&buf, "http_port = %d\n", cfg.Port)
-	fmt.Fprintf(&buf, "domain = %s\n", grafanaDefaultHost)
-	fmt.Fprintf(&buf, "root_url = %s\n\n", cfg.URL+"/")
+	fmt.Fprintf(&buf, "domain = %s\n", domain)
+	fmt.Fprintf(&buf, "root_url = %s\n\n", rootURL)
 	fmt.Fprintf(&buf, "[paths]\n")
 	fmt.Fprintf(&buf, "data = %s\n", cfg.DataDir)
 	fmt.Fprintf(&buf, "logs = %s\n", cfg.LogsDir)
@@ -41,10 +49,13 @@ func renderGrafanaINI(cfg grafanaConfig) ([]byte, error) {
 func renderGrafanaDatasources(cfg grafanaConfig) ([]byte, error) {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "apiVersion: 1\n\n")
+	fmt.Fprintf(&buf, "prune: true\n\n")
 	fmt.Fprintf(&buf, "datasources:\n")
 	if cfg.MetricsURL != "" {
 		fmt.Fprintf(&buf, "  - name: onlava VictoriaMetrics\n")
+		fmt.Fprintf(&buf, "    orgId: 1\n")
 		fmt.Fprintf(&buf, "    uid: %s\n", cfg.MetricsDatasource)
+		fmt.Fprintf(&buf, "    version: 1\n")
 		fmt.Fprintf(&buf, "    type: victoriametrics-metrics-datasource\n")
 		fmt.Fprintf(&buf, "    access: proxy\n")
 		fmt.Fprintf(&buf, "    url: %s\n", cfg.MetricsURL)
@@ -53,7 +64,9 @@ func renderGrafanaDatasources(cfg grafanaConfig) ([]byte, error) {
 	}
 	if cfg.LogsURL != "" {
 		fmt.Fprintf(&buf, "  - name: onlava VictoriaLogs\n")
+		fmt.Fprintf(&buf, "    orgId: 1\n")
 		fmt.Fprintf(&buf, "    uid: %s\n", cfg.LogsDatasource)
+		fmt.Fprintf(&buf, "    version: 1\n")
 		fmt.Fprintf(&buf, "    type: victoriametrics-logs-datasource\n")
 		fmt.Fprintf(&buf, "    access: proxy\n")
 		fmt.Fprintf(&buf, "    url: %s\n", cfg.LogsURL)
@@ -61,7 +74,9 @@ func renderGrafanaDatasources(cfg grafanaConfig) ([]byte, error) {
 	}
 	if cfg.TracesURL != "" {
 		fmt.Fprintf(&buf, "  - name: onlava VictoriaTraces\n")
+		fmt.Fprintf(&buf, "    orgId: 1\n")
 		fmt.Fprintf(&buf, "    uid: %s\n", cfg.TracesDatasource)
+		fmt.Fprintf(&buf, "    version: 1\n")
 		fmt.Fprintf(&buf, "    type: jaeger\n")
 		fmt.Fprintf(&buf, "    access: proxy\n")
 		fmt.Fprintf(&buf, "    url: %s\n", cfg.TracesURL)
@@ -163,11 +178,12 @@ func grafanaDashboardFiles(cfg grafanaConfig) map[string][]byte {
 }
 
 func grafanaOverviewDashboard(cfg grafanaConfig) map[string]any {
+	requestDuration := grafanaRequestDurationMetricName
 	return baseGrafanaDashboard(grafanaOverviewUID, "onlava dev overview", []any{
-		statPanel(1, "Requests observed", metricTarget("count_over_time(onlava_request_duration[15m])"), 0, 0, 6, 4),
-		statPanel(2, "Latest latency", metricTarget("onlava_request_duration"), 6, 0, 6, 4),
-		timeSeriesPanel(3, "Request duration", []any{metricTarget("onlava_request_duration")}, 0, 4, 12, 8),
-		timeSeriesPanel(4, "Errors", []any{metricTarget(`count_over_time(onlava_request_duration{onlava_is_error="true"}[5m])`)}, 12, 0, 12, 6),
+		statPanel(1, "Requests observed", metricTarget(fmt.Sprintf("count_over_time(%s[15m])", requestDuration)), 0, 0, 6, 4),
+		statPanel(2, "Latest latency", metricTarget(requestDuration), 6, 0, 6, 4),
+		timeSeriesPanel(3, "Request duration", []any{metricTarget(requestDuration)}, 0, 4, 12, 8),
+		timeSeriesPanel(4, "Errors", []any{metricTarget(fmt.Sprintf(`count_over_time(%s{onlava_is_error="true"}[5m])`, requestDuration))}, 12, 0, 12, 6),
 		logsPanel(5, "Recent warnings and errors", `{level=~"warn|warning|error|fatal"}`, 12, 6, 12, 6),
 	})
 }
@@ -180,15 +196,16 @@ func grafanaLogsDashboard(cfg grafanaConfig) map[string]any {
 }
 
 func grafanaEndpointDashboard(cfg grafanaConfig) map[string]any {
+	requestDuration := grafanaRequestDurationMetricName
 	dashboard := baseGrafanaDashboard(grafanaEndpointUID, "onlava dev endpoint", []any{
-		timeSeriesPanel(1, "Endpoint latency", []any{metricTarget(`onlava_request_duration{onlava_service="$service",onlava_endpoint="$endpoint"}`)}, 0, 0, 12, 8),
-		timeSeriesPanel(2, "Endpoint errors", []any{metricTarget(`count_over_time(onlava_request_duration{onlava_service="$service",onlava_endpoint="$endpoint",onlava_is_error="true"}[5m])`)}, 12, 0, 12, 8),
+		timeSeriesPanel(1, "Endpoint latency", []any{metricTarget(fmt.Sprintf(`%s{onlava_service="$service",onlava_endpoint="$endpoint"}`, requestDuration))}, 0, 0, 12, 8),
+		timeSeriesPanel(2, "Endpoint errors", []any{metricTarget(fmt.Sprintf(`count_over_time(%s{onlava_service="$service",onlava_endpoint="$endpoint",onlava_is_error="true"}[5m])`, requestDuration))}, 12, 0, 12, 8),
 		logsPanel(3, "Endpoint logs", `{onlava_log_service="$service",onlava_log_endpoint="$endpoint"}`, 0, 8, 24, 8),
 	})
 	dashboard["templating"] = map[string]any{
 		"list": []any{
-			queryVariable("service", `label_values(onlava_request_duration, onlava_service)`),
-			queryVariable("endpoint", `label_values(onlava_request_duration{onlava_service="$service"}, onlava_endpoint)`),
+			queryVariable("service", fmt.Sprintf(`label_values(%s, onlava_service)`, requestDuration)),
+			queryVariable("endpoint", fmt.Sprintf(`label_values(%s{onlava_service="$service"}, onlava_endpoint)`, requestDuration)),
 		},
 	}
 	return dashboard

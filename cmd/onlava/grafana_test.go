@@ -30,7 +30,7 @@ func TestGrafanaDevMode(t *testing.T) {
 func TestGrafanaConfigDefaults(t *testing.T) {
 	root := t.TempDir()
 	stack := fakeVictoriaStack()
-	cfg := newGrafanaConfig(root, stack)
+	cfg := newGrafanaConfig(root, stack, "")
 	if !cfg.Enabled || cfg.Required {
 		t.Fatalf("cfg enabled/required = %v/%v", cfg.Enabled, cfg.Required)
 	}
@@ -52,12 +52,15 @@ func TestGrafanaConfigDefaults(t *testing.T) {
 }
 
 func TestRenderGrafanaProvisioning(t *testing.T) {
-	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack())
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "https://grafana.acme.localhost")
 	ini, err := renderGrafanaINI(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ini), "http_addr = 127.0.0.1") || !strings.Contains(string(ini), "preinstall_sync = victoriametrics-metrics-datasource@0.24.0,victoriametrics-logs-datasource@0.27.1") {
+	if !strings.Contains(string(ini), "http_addr = 127.0.0.1") ||
+		!strings.Contains(string(ini), "domain = grafana.acme.localhost") ||
+		!strings.Contains(string(ini), "root_url = https://grafana.acme.localhost/") ||
+		!strings.Contains(string(ini), "preinstall_sync = victoriametrics-metrics-datasource@0.24.0,victoriametrics-logs-datasource@0.27.1") {
 		t.Fatalf("unexpected grafana.ini:\n%s", ini)
 	}
 
@@ -65,7 +68,7 @@ func TestRenderGrafanaProvisioning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{grafanaMetricsUID, grafanaLogsUID, grafanaTracesUID, "type: jaeger"} {
+	for _, want := range []string{"prune: true", "orgId: 1", "version: 1", grafanaMetricsUID, grafanaLogsUID, grafanaTracesUID, "type: jaeger"} {
 		if !strings.Contains(string(datasources), want) {
 			t.Fatalf("datasources missing %q:\n%s", want, datasources)
 		}
@@ -81,7 +84,7 @@ func TestRenderGrafanaProvisioning(t *testing.T) {
 }
 
 func TestWriteGrafanaProvisioning(t *testing.T) {
-	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack())
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	if err := writeGrafanaProvisioning(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +102,20 @@ func TestWriteGrafanaProvisioning(t *testing.T) {
 	}
 }
 
+func TestGrafanaDashboardsUseExportedRequestMetric(t *testing.T) {
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
+	files := grafanaDashboardFiles(cfg)
+	overview := string(files["onlava-overview.json"])
+	if !strings.Contains(overview, grafanaRequestDurationMetricName) {
+		t.Fatalf("overview dashboard does not query %s:\n%s", grafanaRequestDurationMetricName, overview)
+	}
+	if onlavaRequestDurationMetricName != "onlava.request.duration" || grafanaRequestDurationMetricName != "onlava_request_duration" {
+		t.Fatalf("unexpected request duration metric names: otlp=%q grafana=%q", onlavaRequestDurationMetricName, grafanaRequestDurationMetricName)
+	}
+}
+
 func TestDownloadedGrafanaBinaryRequiresConfiguredVersion(t *testing.T) {
-	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack())
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	oldPath := filepath.Join(cfg.RootDir, "home", "grafana-12.2.1", "bin", "grafana")
 	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -125,9 +140,65 @@ func TestDownloadedGrafanaBinaryRequiresConfiguredVersion(t *testing.T) {
 	}
 }
 
+func TestResolveGrafanaBinaryPrefersManagedVersionOverPath(t *testing.T) {
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
+	cfg.Download = false
+	pathDir := t.TempDir()
+	pathBinary := filepath.Join(pathDir, "grafana")
+	if err := os.WriteFile(pathBinary, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	managedBinary := filepath.Join(cfg.RootDir, "home", "grafana-"+cfg.Version, "bin", "grafana")
+	if err := os.MkdirAll(filepath.Dir(managedBinary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(managedBinary, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", pathDir)
+	got, _, err := resolveGrafanaBinary(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != managedBinary {
+		t.Fatalf("resolveGrafanaBinary = %q, want managed %q", got, managedBinary)
+	}
+}
+
+func TestGrafanaChildEnvFiltersGFOverrides(t *testing.T) {
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "https://grafana.acme.localhost")
+	env := grafanaChildEnv([]string{
+		"PATH=/bin",
+		"GF_SERVER_ROOT_URL=https://wrong.example/",
+		"GF_SECURITY_ADMIN_PASSWORD=secret",
+	}, cfg)
+	if !containsString(env, "PATH=/bin") {
+		t.Fatalf("PATH missing from env: %#v", env)
+	}
+	for _, value := range env {
+		if value == "GF_SECURITY_ADMIN_PASSWORD=secret" || value == "GF_SERVER_ROOT_URL=https://wrong.example/" {
+			t.Fatalf("ambient GF_* override preserved: %#v", env)
+		}
+	}
+	if !containsString(env, "GF_SERVER_ROOT_URL=https://grafana.acme.localhost/") {
+		t.Fatalf("root URL missing from env: %#v", env)
+	}
+	if !containsString(env, "GF_SERVER_HTTP_PORT=10429") {
+		t.Fatalf("port missing from env: %#v", env)
+	}
+}
+
+func TestGrafanaChecksumFromResponseAcceptsGrafanaDistNames(t *testing.T) {
+	body := "16ab83288e2a95f661d1234d0ecac0e2cfc2fa5a7209b0977bbe8a5b4940c67e  dist/grafana_13.0.1+security-01_25720641773_darwin_arm64.tar.gz\n"
+	got := grafanaChecksumFromResponse(body, "grafana-13.0.1+security-01.darwin-arm64.tar.gz")
+	if got != "16ab83288e2a95f661d1234d0ecac0e2cfc2fa5a7209b0977bbe8a5b4940c67e" {
+		t.Fatalf("checksum = %q", got)
+	}
+}
+
 func TestStartGrafanaDisabled(t *testing.T) {
 	t.Setenv("ONLAVA_DEV_GRAFANA", "0")
-	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), nil)
+	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +213,7 @@ func TestStartGrafanaAutoMissingBinaryDoesNotFail(t *testing.T) {
 	t.Setenv("ONLAVA_DEV_GRAFANA", "auto")
 	t.Setenv("ONLAVA_DEV_GRAFANA_DOWNLOAD", "0")
 	t.Setenv("ONLAVA_GRAFANA_PORT", strconv.Itoa(freePortForTest(t)))
-	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), nil)
+	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +227,7 @@ func TestStartGrafanaRequiredMissingBinaryFails(t *testing.T) {
 	t.Setenv("ONLAVA_DEV_GRAFANA", "1")
 	t.Setenv("ONLAVA_DEV_GRAFANA_DOWNLOAD", "0")
 	t.Setenv("ONLAVA_GRAFANA_PORT", strconv.Itoa(freePortForTest(t)))
-	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), nil)
+	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), "", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -165,7 +236,7 @@ func TestStartGrafanaRequiredMissingBinaryFails(t *testing.T) {
 	}
 }
 
-func TestStartGrafanaReusesExternalGrafana(t *testing.T) {
+func TestStartGrafanaDoesNotReuseExternalGrafanaByDefault(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != grafanaHealthPath {
 			http.NotFound(w, r)
@@ -182,11 +253,45 @@ func TestStartGrafanaReusesExternalGrafana(t *testing.T) {
 	t.Setenv("ONLAVA_GRAFANA_PORT", portText)
 	t.Setenv("ONLAVA_DEV_GRAFANA_DOWNLOAD", "0")
 
-	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), nil)
+	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !component.external || component.State().Status != "external" {
+	if !component.external || component.State().Status != "degraded" || component.State().Available {
+		t.Fatalf("component = %+v state=%+v", component, component.State())
+	}
+}
+
+func TestStartGrafanaReusesVerifiedExternalGrafana(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case grafanaHealthPath,
+			"/api/datasources/uid/" + grafanaMetricsUID,
+			"/api/datasources/uid/" + grafanaLogsUID,
+			"/api/datasources/uid/" + grafanaTracesUID,
+			"/api/dashboards/uid/" + grafanaOverviewUID,
+			"/api/dashboards/uid/" + grafanaLogsDashboardUID,
+			"/api/dashboards/uid/" + grafanaEndpointUID:
+			_, _ = w.Write([]byte(`{"database":"ok"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, _ := strings.Cut(parsed.Host, ":")
+	t.Setenv("ONLAVA_GRAFANA_PORT", portText)
+	t.Setenv("ONLAVA_GRAFANA_REUSE_EXTERNAL", "1")
+	t.Setenv("ONLAVA_DEV_GRAFANA_DOWNLOAD", "0")
+
+	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !component.external || component.State().Status != "external" || !component.State().Available {
 		t.Fatalf("component = %+v state=%+v", component, component.State())
 	}
 }
@@ -210,7 +315,7 @@ func TestStartGrafanaTreatsNonGrafanaHealthAsOccupied(t *testing.T) {
 	t.Setenv("ONLAVA_DEV_GRAFANA_DOWNLOAD", "0")
 	t.Setenv("PATH", t.TempDir())
 
-	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), nil)
+	component, err := startGrafanaForDev(context.Background(), t.TempDir(), fakeVictoriaStack(), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,8 +325,11 @@ func TestStartGrafanaTreatsNonGrafanaHealthAsOccupied(t *testing.T) {
 }
 
 func TestGrafanaStateIncludesStableLinks(t *testing.T) {
-	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack())
+	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	state := grafanaState(cfg, "ready", "")
+	if !state.Available {
+		t.Fatalf("state.Available = false")
+	}
 	if state.Datasources["metrics"] != grafanaMetricsUID || state.Datasources["logs"] != grafanaLogsUID {
 		t.Fatalf("datasources = %+v", state.Datasources)
 	}
@@ -234,6 +342,10 @@ func TestGrafanaStateIncludesStableLinks(t *testing.T) {
 	proxied := grafanaStateWithBaseURL(state, "https://grafana.acme.localhost")
 	if proxied.URL != "https://grafana.acme.localhost" || !strings.Contains(proxied.OverviewURL, "https://grafana.acme.localhost/d/"+grafanaOverviewUID) {
 		t.Fatalf("proxied state URLs = %+v", proxied)
+	}
+	degraded := grafanaState(cfg, "degraded", "not ready")
+	if degraded.Available || degraded.URL != "" || degraded.OverviewURL != "" {
+		t.Fatalf("degraded state exposes links: %+v", degraded)
 	}
 }
 

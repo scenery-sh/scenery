@@ -21,6 +21,7 @@ export interface AppStatus {
 
 export interface GrafanaState {
   enabled: boolean;
+  available: boolean;
   status: string;
   url?: string;
   overview_url?: string;
