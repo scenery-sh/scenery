@@ -1648,6 +1648,7 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 		Addr:         s.status.ListenAddr,
 		APIEncoding:  s.status.APIEncoding,
 		Grafana:      decodeGrafanaState(s.status.Grafana),
+		Routes:       s.statusDashboardRoutesLocked(s.status.SessionID),
 		Compiling:    s.status.Compiling,
 		CompileError: s.status.CompileError,
 	}
@@ -1704,9 +1705,30 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 		Addr:         app.ListenAddr,
 		APIEncoding:  app.APIEncoding,
 		Grafana:      decodeGrafanaState(app.Grafana),
+		Routes:       s.statusDashboardRoutesLocked(app.SessionID),
 		Compiling:    app.Compiling,
 		CompileError: app.CompileError,
 	}, nil
+}
+
+func (s *devSupervisor) statusDashboardRoutesLocked(sessionID string) map[string]string {
+	if s == nil {
+		return nil
+	}
+	if s.agentSession != nil {
+		currentSessionID := strings.TrimSpace(s.agentSession.SessionID)
+		if sessionID == "" || sessionID == currentSessionID {
+			if routes := visibleDashboardRoutesFromAgent(s.agentSession.Routes); len(routes) > 0 {
+				return routes
+			}
+		}
+	}
+	if s.proxy != nil {
+		if routes := visibleDashboardRoutesFromProxy(s.proxy.Routes(), s.activeAppID()); len(routes) > 0 {
+			return routes
+		}
+	}
+	return nil
 }
 
 func randomToken() (string, error) {

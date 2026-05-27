@@ -87,6 +87,7 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		Branch:    "feature/live",
 		Backends: map[string]localagent.Backend{
 			localagent.RouteAPI: {Network: "tcp", Addr: "127.0.0.1:4000"},
+			"victoria":          {Network: "tcp", Addr: "127.0.0.1:8428"},
 		},
 	})
 	if err != nil {
@@ -148,7 +149,18 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		t.Fatalf("stale session not marked offline: apps=%+v", apps)
 	}
 
-	status, err := controller.dashboardStatusFor(ctx, "stale-session")
+	status, err := controller.dashboardStatusFor(ctx, session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Routes[localagent.RouteAPI] == "" || status.Routes[localagent.RouteDashboard] == "" || status.Routes[localagent.RouteMCP] == "" {
+		t.Fatalf("live status routes missing user-facing entries: %+v", status.Routes)
+	}
+	if _, ok := status.Routes["victoria"]; ok {
+		t.Fatalf("live status exposed victoria route: %+v", status.Routes)
+	}
+
+	status, err = controller.dashboardStatusFor(ctx, "stale-session")
 	if err != nil {
 		t.Fatal(err)
 	}

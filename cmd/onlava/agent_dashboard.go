@@ -153,7 +153,9 @@ func (c *agentDashboardController) appRecordWithRegistryLiveness(app devdash.App
 	session, ok := c.agent.GetSession(app.SessionID)
 	if !ok || strings.TrimSpace(session.Status) == "stopped" {
 		app.Running = false
+		return app
 	}
+	app.Routes = visibleDashboardRoutesFromAgent(session.Routes)
 	return app
 }
 
@@ -171,6 +173,7 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		Addr:         app.ListenAddr,
 		APIEncoding:  app.APIEncoding,
 		Grafana:      decodeGrafanaState(app.Grafana),
+		Routes:       app.Routes,
 		Compiling:    app.Compiling,
 		CompileError: app.CompileError,
 	}

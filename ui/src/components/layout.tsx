@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardProvider, useDashboard } from "../lib/dashboard-context";
 import { cn } from "../lib/utils";
 import {
@@ -18,6 +18,12 @@ type DashboardNavItem =
   | { kind: "ghost"; label: string; icon: DashboardNavIcon };
 
 const APP_NAV_ITEMS: readonly DashboardNavItem[] = [
+  {
+    kind: "route",
+    to: "/$appId",
+    label: "Home",
+    icon: IconHome,
+  },
   {
     kind: "route",
     to: "/$appId/requests",
@@ -50,6 +56,10 @@ function DashboardShell({ appId }: { appId: string }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const appSummary = apps.find((item) => item.id === appId);
   const appName = appSummary?.name || status?.appID || appId;
+  const runningApps = useMemo(
+    () => apps.filter((item) => !item.offline),
+    [apps],
+  );
 
   useEffect(() => {
     if (!menuOpen) {
@@ -112,6 +122,8 @@ function DashboardShell({ appId }: { appId: string }) {
                 type="button"
                 onClick={() => setMenuOpen((value) => !value)}
                 className={appShellAppMenuButtonClass()}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
                 title={statusTooltip(
                   status?.compileError,
                   status?.compiling,
@@ -120,40 +132,44 @@ function DashboardShell({ appId }: { appId: string }) {
                 )}
               >
                 <span className="truncate text-sm font-medium">{appName}</span>
+                <IconChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                    menuOpen && "rotate-180",
+                  )}
+                />
               </button>
               {menuOpen ? (
-                <div className="absolute left-0 top-10 z-50 w-64 rounded-md border border-border bg-popover text-popover-foreground shadow-lg">
+                <div className="absolute left-0 top-10 z-50 w-80 rounded-md border border-border bg-popover text-popover-foreground shadow-lg">
+                  <div className="border-b border-border px-3 py-2 text-xs font-medium uppercase text-muted-foreground">
+                    Running apps
+                  </div>
                   <div className="max-h-60 overflow-y-auto p-1">
-                    {apps.length === 0 ? (
+                    {runningApps.length === 0 ? (
                       <div className="px-3 py-2 text-sm text-muted-foreground">
-                        No apps found
+                        No running apps
                       </div>
                     ) : (
-                      apps.map((item) => (
+                      runningApps.map((item) => (
                         <Link
                           key={item.id}
                           to="/$appId"
                           params={{ appId: item.id }}
                           onClick={() => setMenuOpen(false)}
                           className={cn(
-                            "flex w-full items-center space-x-2 rounded-sm px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground",
-                            item.offline && "opacity-50",
+                            "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground",
                             item.id === appId &&
                               "bg-accent text-accent-foreground",
                           )}
                         >
-                          <figure
-                            className={cn(
-                              "h-2 w-2 rounded-full shrink-0",
-                              item.compileError
-                                ? "bg-red-500"
-                                : item.offline
-                                  ? "border border-border bg-transparent"
-                                  : "bg-success",
-                            )}
-                          />
-                          <span className="truncate font-medium">
-                            {item.name}
+                          <figure className="h-2 w-2 shrink-0 rounded-full bg-success" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">
+                              {item.name}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {item.session_id || item.id}
+                            </span>
                           </span>
                         </Link>
                       ))
@@ -178,9 +194,11 @@ function DashboardShell({ appId }: { appId: string }) {
                     </button>
                   );
                 }
-                const active = pathname.startsWith(
-                  item.to.replace("/$appId", `/${appId}`),
-                );
+                const targetPath = item.to.replace("/$appId", `/${appId}`);
+                const active =
+                  targetPath === `/${appId}`
+                    ? pathname === targetPath || pathname === `${targetPath}/`
+                    : pathname.startsWith(targetPath);
                 const Icon = "icon" in item ? item.icon : null;
                 return (
                   <Link
@@ -248,6 +266,34 @@ function HeaderIconButton({ icon, label }: { icon: ReactNode; label: string }) {
       {icon}
       {label ? <span className="sr-only">{label}</span> : null}
     </button>
+  );
+}
+
+function IconChevronDown({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="m4 6 4 4 4-4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconHome({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M2.5 7.2 8 2.8l5.5 4.4M4 6.8v6h3V9.5h2v3.3h3v-6"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

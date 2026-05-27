@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter, Navigate, Outlet } from "@tanstack/react-router";
 import { DashboardRouteShell } from "./components/layout";
 import { AppListPage } from "./routes/app-list";
+import { HomePage } from "./routes/home";
 import { RequestsPage } from "./routes/requests";
 import { TracesListPage, TracesPage } from "./routes/traces";
 import { ApiPage } from "./routes/api";
@@ -32,10 +33,7 @@ const appRoute = createRoute({
 const appIndexRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/",
-  component: function AppIndexRedirect() {
-    const { appId } = appRoute.useParams();
-    return <Navigate to="/$appId/requests" params={{ appId }} replace />;
-  },
+  component: HomePage,
 });
 
 const requestsRoute = createRoute({

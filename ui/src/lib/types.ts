@@ -2,6 +2,8 @@ export interface AppSummary {
   id: string;
   name: string;
   app_root: string;
+  session_id?: string;
+  base_app_id?: string;
   offline: boolean;
   compileError?: string;
 }
@@ -9,12 +11,16 @@ export interface AppSummary {
 export interface AppStatus {
   running: boolean;
   appID: string;
+  baseAppID?: string;
+  runtimeAppID?: string;
+  sessionID?: string;
   appRoot: string;
   pid?: string;
   meta?: DashboardMeta;
   addr?: string;
   apiEncoding?: APIEncoding;
   grafana?: GrafanaState;
+  routes?: Record<string, string>;
   compiling: boolean;
   compileError?: string;
 }

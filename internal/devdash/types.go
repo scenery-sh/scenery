@@ -31,6 +31,7 @@ type AppRecord struct {
 	Metadata     json.RawMessage
 	APIEncoding  json.RawMessage
 	Grafana      json.RawMessage
+	Routes       map[string]string
 	Offline      bool
 	Running      bool
 	Compiling    bool
@@ -40,19 +41,20 @@ type AppRecord struct {
 }
 
 type AppStatus struct {
-	Running      bool            `json:"running"`
-	AppID        string          `json:"appID"`
-	BaseAppID    string          `json:"baseAppID,omitempty"`
-	RuntimeAppID string          `json:"runtimeAppID,omitempty"`
-	SessionID    string          `json:"sessionID,omitempty"`
-	AppRoot      string          `json:"appRoot"`
-	PID          string          `json:"pid,omitempty"`
-	Meta         json.RawMessage `json:"meta,omitempty"`
-	Addr         string          `json:"addr,omitempty"`
-	APIEncoding  json.RawMessage `json:"apiEncoding,omitempty"`
-	Grafana      *GrafanaState   `json:"grafana,omitempty"`
-	Compiling    bool            `json:"compiling"`
-	CompileError string          `json:"compileError,omitempty"`
+	Running      bool              `json:"running"`
+	AppID        string            `json:"appID"`
+	BaseAppID    string            `json:"baseAppID,omitempty"`
+	RuntimeAppID string            `json:"runtimeAppID,omitempty"`
+	SessionID    string            `json:"sessionID,omitempty"`
+	AppRoot      string            `json:"appRoot"`
+	PID          string            `json:"pid,omitempty"`
+	Meta         json.RawMessage   `json:"meta,omitempty"`
+	Addr         string            `json:"addr,omitempty"`
+	APIEncoding  json.RawMessage   `json:"apiEncoding,omitempty"`
+	Grafana      *GrafanaState     `json:"grafana,omitempty"`
+	Routes       map[string]string `json:"routes,omitempty"`
+	Compiling    bool              `json:"compiling"`
+	CompileError string            `json:"compileError,omitempty"`
 }
 
 type GrafanaState struct {

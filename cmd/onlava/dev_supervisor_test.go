@@ -121,6 +121,35 @@ func TestSessionAuthEnvUsesRoutedSessionURLs(t *testing.T) {
 	}
 }
 
+func TestAppStatusIncludesVisibleSessionRoutes(t *testing.T) {
+	s := &devSupervisor{
+		status: devdash.AppRecord{
+			ID:        "demo",
+			SessionID: "feature-a-123abc",
+			Running:   true,
+		},
+		agentSession: &localagent.Session{
+			SessionID: "feature-a-123abc",
+			Routes: map[string]string{
+				localagent.RouteAPI:       "https://api.feature-a-123abc.onlava.localhost:9440/",
+				localagent.RouteDashboard: "https://console.onlava.localhost:9440/s/feature-a-123abc",
+				localagent.RouteGrafana:   "https://grafana.feature-a-123abc.onlava.localhost:9440/",
+				"web":                     "https://web.feature-a-123abc.onlava.localhost:9440/",
+				"victoria":                "https://victoria.feature-a-123abc.onlava.localhost:9440/",
+			},
+		},
+	}
+	status := s.appStatus()
+	for _, name := range []string{localagent.RouteAPI, localagent.RouteDashboard, localagent.RouteGrafana, "web"} {
+		if status.Routes[name] == "" {
+			t.Fatalf("appStatus routes missing %q: %+v", name, status.Routes)
+		}
+	}
+	if _, ok := status.Routes["victoria"]; ok {
+		t.Fatalf("appStatus exposed victoria route: %+v", status.Routes)
+	}
+}
+
 func TestAppEnvWithDotEnvAddsMissingValuesWithoutOverridingProcessEnv(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("A=from-file\nB=2\n"), 0o644); err != nil {

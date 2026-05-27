@@ -43,5 +43,5 @@ export function appShellIconButtonClass(): string {
 }
 
 export function appShellAppMenuButtonClass(): string {
-  return "flex h-8 cursor-pointer items-center gap-0 overflow-hidden rounded-md px-2 py-2 text-left transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus:outline-none";
+  return "flex h-8 min-w-0 cursor-pointer items-center gap-1 overflow-hidden rounded-md px-2 py-2 text-left transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus:outline-none";
 }
