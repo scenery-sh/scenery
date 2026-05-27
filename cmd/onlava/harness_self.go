@@ -67,6 +67,7 @@ func runOnlavaHarnessSelf(ctx context.Context, stdout io.Writer, args []string) 
 		runHarnessInspectDocsStep(repoRoot),
 		runHarnessArchitectureStep(repoRoot),
 		runHarnessUIStaticStep(repoRoot),
+		runHarnessParallelDevStep(ctx, repoRoot),
 		runHarnessExecStep(ctx, repoRoot, "go tests", []string{"go", "test", "./cmd/onlava", "./internal/devdash", "./runtime"}),
 		runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui typecheck", []string{"bun", "run", "typecheck"}),
 		runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui build", []string{"bun", "run", "build"}),

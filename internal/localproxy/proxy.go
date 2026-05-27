@@ -43,10 +43,11 @@ type Config struct {
 }
 
 type FrontendConfig struct {
-	Name     string
-	Host     string
-	Root     string
-	Upstream string
+	Name                string
+	Host                string
+	Root                string
+	Upstream            string
+	AllowSharedUpstream bool
 }
 
 type Routes struct {

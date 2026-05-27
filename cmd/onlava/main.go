@@ -45,6 +45,8 @@ func run(args []string) error {
 		return statusCommand(args[1:])
 	case "down":
 		return downCommand(args[1:])
+	case "gc":
+		return gcCommand(args[1:])
 	case "db":
 		return dbCommand(args[1:])
 	case "worker":
@@ -79,14 +81,16 @@ func run(args []string) error {
 func usageError() error {
 	return fmt.Errorf(`usage:
   stable/dev commands:
-    onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust] [--detach]
+    onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [--session <id>|--new-session] [-v|--verbose] [--json] [--proxy] [--trust] [--detach]
     onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--jsonl|--json]
     onlava agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
     onlava agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
     onlava status --json [--app-root <path>] [--session <id>]
-    onlava down [--app-root <path>] [--session <id>]
+    onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]
+    onlava gc --older-than <duration> [--app-root <path>] [--json]
     onlava db psql [--app-root <path>] [psql args...]
     onlava db reset [--app-root <path>]
+    onlava db drop [--app-root <path>]
     onlava db snapshot create|restore <name> [--app-root <path>]
     onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]
@@ -132,6 +136,7 @@ func devCommand(args []string) error {
 	}
 	restore := configureDevProcessEnv(opts)
 	defer restore()
+	warnDevEscapeHatches(opts)
 	if opts.Detach && !detachedDevChildMode() {
 		return runDetachedDevFunc(args, opts)
 	}
@@ -140,23 +145,27 @@ func devCommand(args []string) error {
 }
 
 type devOptions struct {
-	Listen    string
-	Port      int
-	ListenSet bool
-	PortSet   bool
-	Verbose   bool
-	JSON      bool
-	AppRoot   string
-	Proxy     bool
-	Trust     bool
-	Detach    bool
+	Listen     string
+	Port       int
+	ListenSet  bool
+	PortSet    bool
+	Verbose    bool
+	JSON       bool
+	AppRoot    string
+	SessionID  string
+	NewSession bool
+	Proxy      bool
+	Trust      bool
+	Detach     bool
 }
 
 type devListenRequest struct {
-	Network   string
-	Addr      string
-	Explicit  bool
-	PreferTCP bool
+	Network    string
+	Addr       string
+	Explicit   bool
+	PreferTCP  bool
+	SessionID  string
+	NewSession bool
 }
 
 func parseDevArgs(args []string) (devOptions, error) {
@@ -198,9 +207,20 @@ func parseDevArgs(args []string) (devOptions, error) {
 				return devOptions{}, fmt.Errorf("missing value for --app-root")
 			}
 			opts.AppRoot = args[i]
+		case "--session":
+			i++
+			if i >= len(args) {
+				return devOptions{}, fmt.Errorf("missing value for --session")
+			}
+			opts.SessionID = args[i]
+		case "--new-session":
+			opts.NewSession = true
 		default:
 			return devOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
+	}
+	if strings.TrimSpace(opts.SessionID) != "" && opts.NewSession {
+		return devOptions{}, fmt.Errorf("--session and --new-session cannot be used together")
 	}
 	return opts, nil
 }
@@ -208,12 +228,18 @@ func parseDevArgs(args []string) (devOptions, error) {
 func resolveDevListenRequest(opts devOptions) devListenRequest {
 	if opts.ListenSet || opts.PortSet {
 		return devListenRequest{
-			Network:  "tcp",
-			Addr:     resolveListenAddr(opts.Listen, opts.Port),
-			Explicit: true,
+			Network:    "tcp",
+			Addr:       resolveListenAddr(opts.Listen, opts.Port),
+			Explicit:   true,
+			SessionID:  opts.SessionID,
+			NewSession: opts.NewSession,
 		}
 	}
-	return devListenRequest{PreferTCP: opts.Proxy || opts.Trust || devProxyEnabledByEnv()}
+	return devListenRequest{
+		PreferTCP:  opts.Proxy || opts.Trust || devProxyEnabledByEnv(),
+		SessionID:  opts.SessionID,
+		NewSession: opts.NewSession,
+	}
 }
 
 func configureDevProcessEnv(opts devOptions) func() {
@@ -231,6 +257,18 @@ func configureDevProcessEnv(opts devOptions) func() {
 		}
 	}
 	return applyTemporaryEnv(changes)
+}
+
+func warnDevEscapeHatches(opts devOptions) {
+	if opts.JSON {
+		return
+	}
+	if opts.ListenSet || opts.PortSet {
+		fmt.Fprintln(os.Stderr, "onlava: warning: --listen/--port force a manual TCP app backend; this is a debugging escape hatch and can be less parallel-safe than the default agent Unix-socket backend")
+	}
+	if opts.Proxy || opts.Trust || devProxyEnabledByEnv() {
+		fmt.Fprintln(os.Stderr, "onlava: warning: local proxy mode uses legacy machine-global proxy ports; prefer default agent-routed session URLs for parallel worktrees")
+	}
 }
 
 func devProxyEnabledByEnv() bool {

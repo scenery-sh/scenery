@@ -312,6 +312,10 @@ func (s *devSupervisor) agentVictoriaStack(ctx context.Context) *victoriaStack {
 	if err != nil {
 		return nil
 	}
+	if err := verifySubstrateOwner(substrate); err != nil {
+		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria)
+		return nil
+	}
 	stack := victoriaStackFromSubstrate(substrate)
 	if stack == nil || !stack.Reachable() {
 		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria)
@@ -625,11 +629,17 @@ func (s *devSupervisor) runDevSetup(ctx context.Context) error {
 		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 		cmd.Dir = s.root
 		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		stdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
+		stderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
 		if err := cmd.Run(); err != nil {
+			stdout.Close()
+			stderr.Close()
 			return fmt.Errorf("dev.setup %q failed: %w", command, err)
 		}
+		stdout.Close()
+		stderr.Close()
 	}
 	return nil
 }
@@ -1247,6 +1257,10 @@ func (s *devSupervisor) agentTemporalDevServer(ctx context.Context) *temporalDev
 	if err != nil {
 		return nil
 	}
+	if err := verifySubstrateOwner(substrate); err != nil {
+		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateTemporal)
+		return nil
+	}
 	temporal := temporalDevServerFromSubstrate(substrate, s.cfg.Name, s.cfg.Temporal)
 	if temporal == nil {
 		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateTemporal)
@@ -1315,6 +1329,8 @@ func (s *devSupervisor) registerAgentSessionBackend(ctx context.Context, route s
 	session, err := s.agent.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:   s.cfg.AppID(),
 		AppRoot:     s.root,
+		SessionID:   s.agentSession.SessionID,
+		Branch:      s.agentSession.Branch,
 		Status:      firstNonEmpty(s.agentSession.Status, "starting"),
 		OwnerPID:    os.Getpid(),
 		AppPID:      s.agentSession.AppPID,
@@ -1374,6 +1390,10 @@ func (s *devSupervisor) agentGrafana(ctx context.Context) *grafanaComponent {
 	}
 	substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateGrafana)
 	if err != nil {
+		return nil
+	}
+	if err := verifySubstrateOwner(substrate); err != nil {
+		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateGrafana)
 		return nil
 	}
 	grafana := grafanaComponentFromSubstrate(substrate, s.victoria, "")
@@ -1525,10 +1545,11 @@ func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.F
 	for _, name := range names {
 		frontend := frontends[name]
 		resolved = append(resolved, localproxy.FrontendConfig{
-			Name:     name,
-			Host:     frontend.Host,
-			Root:     frontend.Root,
-			Upstream: frontend.Upstream,
+			Name:                name,
+			Host:                frontend.Host,
+			Root:                frontend.Root,
+			Upstream:            frontend.Upstream,
+			AllowSharedUpstream: frontend.AllowSharedUpstream,
 		})
 	}
 	return resolved
@@ -1746,6 +1767,8 @@ func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID s
 	session, err := s.agent.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:   s.cfg.AppID(),
 		AppRoot:     s.root,
+		SessionID:   s.agentSession.SessionID,
+		Branch:      s.agentSession.Branch,
 		Status:      status,
 		OwnerPID:    os.Getpid(),
 		AppPID:      appPID,

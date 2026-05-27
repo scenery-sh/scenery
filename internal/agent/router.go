@@ -137,7 +137,10 @@ func proxyBackend(w http.ResponseWriter, req *http.Request, backend Backend, str
 	originalDirector := proxy.Director
 	proxy.Director = func(out *http.Request) {
 		originalDirector(out)
-		out.Host = target.Host
+		out.Host = req.Host
+		out.Header.Set("X-Forwarded-Host", req.Host)
+		out.Header.Set("X-Forwarded-Proto", forwardedProto(req))
+		out.Header.Set("X-Forwarded-Port", forwardedPort(req))
 		if stripPrefix != "" {
 			out.URL.Path = strings.TrimPrefix(req.URL.Path, stripPrefix)
 			if out.URL.Path == "" {
@@ -149,4 +152,21 @@ func proxyBackend(w http.ResponseWriter, req *http.Request, backend Backend, str
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, req)
+}
+
+func forwardedProto(req *http.Request) string {
+	if req.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func forwardedPort(req *http.Request) string {
+	if _, port, err := net.SplitHostPort(strings.TrimSpace(req.Host)); err == nil && port != "" {
+		return port
+	}
+	if req.TLS != nil {
+		return "443"
+	}
+	return "80"
 }

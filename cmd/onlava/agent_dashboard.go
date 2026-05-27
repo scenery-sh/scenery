@@ -6,7 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/devdash"
@@ -18,8 +21,11 @@ type agentDashboardRuntime struct {
 }
 
 type agentDashboardController struct {
-	store *devdash.Store
-	agent *localagent.Server
+	store             *devdash.Store
+	agent             *localagent.Server
+	victoriaMu        sync.Mutex
+	victoria          *victoriaStack
+	victoriaSubstrate string
 }
 
 func startAgentDashboard(ctx context.Context, agentServer *localagent.Server, addr string) (*agentDashboardRuntime, error) {
@@ -143,7 +149,22 @@ func (c *agentDashboardController) dashboardRootForApp(ctx context.Context, appI
 }
 
 func (c *agentDashboardController) dashboardVictoria() dashboardVictoria {
-	return nil
+	if c == nil || c.agent == nil {
+		return nil
+	}
+	substrate, ok := c.agent.GetSubstrate(localagent.SubstrateVictoria)
+	if !ok {
+		return nil
+	}
+	key := substrate.UpdatedAt.Format(time.RFC3339Nano) + "|" + strings.Join(sortedStringMapValues(substrate.URLs), "|") + "|" + strings.Join(sortedStringMapValues(substrate.Endpoints), "|")
+	c.victoriaMu.Lock()
+	defer c.victoriaMu.Unlock()
+	if c.victoria != nil && c.victoriaSubstrate == key {
+		return c.victoria
+	}
+	c.victoria = victoriaStackFromSubstrate(substrate)
+	c.victoriaSubstrate = key
+	return c.victoria
 }
 
 func (c *agentDashboardController) appRecordWithRegistryLiveness(app devdash.AppRecord) devdash.AppRecord {
@@ -157,6 +178,18 @@ func (c *agentDashboardController) appRecordWithRegistryLiveness(app devdash.App
 	}
 	app.Routes = visibleDashboardRoutesFromAgent(session.Routes)
 	return app
+}
+
+func sortedStringMapValues(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	items := make([]string, 0, len(values))
+	for key, value := range values {
+		items = append(items, key+"="+value)
+	}
+	sort.Strings(items)
+	return items
 }
 
 func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {

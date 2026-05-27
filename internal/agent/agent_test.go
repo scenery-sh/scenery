@@ -28,6 +28,22 @@ func TestSessionIDUsesBranchAndRootHash(t *testing.T) {
 	}
 }
 
+func TestDefaultPathsIgnoresDevCacheDir(t *testing.T) {
+	t.Setenv(envAgentHome, "")
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", filepath.Join(t.TempDir(), "dev-cache"))
+	paths, err := DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := paths.Home, filepath.Join(home, ".onlava"); got != want {
+		t.Fatalf("agent home = %q, want %q", got, want)
+	}
+}
+
 func TestRegistryUpsertWritesSessionManifest(t *testing.T) {
 	root := t.TempDir()
 	registry, err := OpenRegistry(filepath.Join(t.TempDir(), "sessions.json"), "127.0.0.1:9440")
@@ -100,6 +116,138 @@ func TestRegistryUpsertPreservesReportTokenWhenOmitted(t *testing.T) {
 	}
 }
 
+func TestRegistryUpsertUsesExplicitSessionID(t *testing.T) {
+	root := t.TempDir()
+	registry, err := OpenRegistry(filepath.Join(t.TempDir(), "sessions.json"), "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := registry.Upsert(RegisterRequest{
+		BaseAppID:   "demo",
+		AppRoot:     root,
+		SessionID:   "review-a",
+		Branch:      "feature/a",
+		Status:      "starting",
+		ReportToken: "private-report-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SessionID != "review-a" || first.Branch != "feature/a" {
+		t.Fatalf("session = %+v, want explicit id and branch", first)
+	}
+	second, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   root,
+		SessionID: "review-a",
+		Status:    "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SessionID != "review-a" {
+		t.Fatalf("session id = %q", second.SessionID)
+	}
+	if second.Branch != "feature/a" {
+		t.Fatalf("branch = %q, want preserved branch", second.Branch)
+	}
+	if second.ReportToken != "private-report-token" {
+		t.Fatalf("report token = %q", second.ReportToken)
+	}
+}
+
+func TestRegistryTracksCurrentSessionByAppRoot(t *testing.T) {
+	root := t.TempDir()
+	registryPath := filepath.Join(t.TempDir(), "sessions.json")
+	registry, err := OpenRegistry(registryPath, "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   root,
+		SessionID: "review-a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   root,
+		SessionID: "review-b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches := registry.FindByAppRoot(root)
+	if len(matches) != 2 || matches[0].SessionID != second.SessionID {
+		t.Fatalf("matches = %+v, want current session %s first", matches, second.SessionID)
+	}
+	reloaded, err := OpenRegistry(registryPath, "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches = reloaded.FindByAppRoot(root)
+	if len(matches) != 2 || matches[0].SessionID != second.SessionID {
+		t.Fatalf("reloaded matches = %+v, want current session %s first", matches, second.SessionID)
+	}
+	if _, ok, err := reloaded.Delete(second.SessionID); err != nil || !ok {
+		t.Fatalf("delete current ok=%v err=%v", ok, err)
+	}
+	matches = reloaded.FindByAppRoot(root)
+	if len(matches) != 1 || matches[0].SessionID != first.SessionID {
+		t.Fatalf("matches after delete = %+v, want fallback current %s", matches, first.SessionID)
+	}
+}
+
+func TestRegistryRejectsInvalidExplicitSessionID(t *testing.T) {
+	registry, err := OpenRegistry(filepath.Join(t.TempDir(), "sessions.json"), "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   t.TempDir(),
+		SessionID: "___",
+	}); err == nil {
+		t.Fatal("expected invalid explicit session id to fail")
+	}
+}
+
+func TestRegistryCapturesSessionOwnerFingerprint(t *testing.T) {
+	root := t.TempDir()
+	registry, err := OpenRegistry(filepath.Join(t.TempDir(), "sessions.json"), "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   root,
+		Status:    "running",
+		OwnerPID:  os.Getpid(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Owner.PID != os.Getpid() || session.Owner.CmdlineHash == "" || session.Owner.CreatedBy != "onlava dev" {
+		t.Fatalf("owner = %+v", session.Owner)
+	}
+	if err := VerifyOwner(session.Owner); err != nil {
+		t.Fatalf("VerifyOwner returned error: %v", err)
+	}
+}
+
+func TestVerifyOwnerRejectsMismatchedFingerprint(t *testing.T) {
+	owner := CurrentOwner("test")
+	if owner.PID <= 0 {
+		t.Fatalf("owner = %+v", owner)
+	}
+	owner.CmdlineHash = "sha256:not-this-process"
+	if err := VerifyOwner(owner); err == nil {
+		t.Fatal("expected mismatched owner verification error")
+	}
+}
+
 func TestRegistryPersistsSharedSubstrate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	registry, err := OpenRegistry(path, "127.0.0.1:9440")
@@ -122,6 +270,9 @@ func TestRegistryPersistsSharedSubstrate(t *testing.T) {
 	if substrate.Kind != SubstrateVictoria || substrate.PIDs["metrics"] != 456 {
 		t.Fatalf("substrate = %+v", substrate)
 	}
+	if substrate.Owner.PID != 123 {
+		t.Fatalf("substrate owner = %+v", substrate.Owner)
+	}
 
 	reopened, err := OpenRegistry(path, "127.0.0.1:9440")
 	if err != nil {
@@ -136,11 +287,72 @@ func TestRegistryPersistsSharedSubstrate(t *testing.T) {
 	}
 }
 
+func TestRegistryCapturesSubstrateComponentOwners(t *testing.T) {
+	registry, err := OpenRegistry(filepath.Join(t.TempDir(), "sessions.json"), "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	substrate, err := registry.UpsertSubstrate(UpsertSubstrateRequest{
+		Kind:     SubstrateVictoria,
+		Status:   "ready",
+		OwnerPID: os.Getpid(),
+		PIDs: map[string]int{
+			"metrics": os.Getpid(),
+			"logs":    os.Getpid(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(substrate.Owners) != 2 {
+		t.Fatalf("component owners = %+v, want 2", substrate.Owners)
+	}
+	for name, owner := range substrate.Owners {
+		if owner.PID != os.Getpid() {
+			t.Fatalf("owner %s pid = %d, want %d", name, owner.PID, os.Getpid())
+		}
+		if err := VerifyOwner(owner); err != nil {
+			t.Fatalf("owner %s did not verify: %v", name, err)
+		}
+	}
+	second, err := registry.UpsertSubstrate(UpsertSubstrateRequest{
+		Kind:     SubstrateVictoria,
+		Status:   "ready",
+		OwnerPID: os.Getpid(),
+		PIDs: map[string]int{
+			"metrics": os.Getpid(),
+			"logs":    os.Getpid(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Owners["metrics"].RecordedAt.Equal(substrate.Owners["metrics"].RecordedAt) {
+		t.Fatalf("component owner was not preserved: first=%+v second=%+v", substrate.Owners["metrics"], second.Owners["metrics"])
+	}
+}
+
 func TestServerRegistersAndRoutesSessionBackend(t *testing.T) {
 	t.Setenv(envAgentHome, t.TempDir())
+	var publicHost string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/hello" {
 			t.Fatalf("backend path = %q, want /hello", req.URL.Path)
+		}
+		if req.Host != publicHost {
+			t.Fatalf("backend host = %q, want %q", req.Host, publicHost)
+		}
+		if got := req.Header.Get("X-Forwarded-Host"); got != publicHost {
+			t.Fatalf("X-Forwarded-Host = %q, want %q", got, publicHost)
+		}
+		if got := req.Header.Get("X-Forwarded-Proto"); got != "http" {
+			t.Fatalf("X-Forwarded-Proto = %q, want http", got)
+		}
+		if got := req.Header.Get("X-Forwarded-Port"); got != "80" {
+			t.Fatalf("X-Forwarded-Port = %q, want 80", got)
+		}
+		if got := req.Header.Get("X-Forwarded-For"); got == "" {
+			t.Fatal("X-Forwarded-For is empty")
 		}
 		_, _ = io.WriteString(w, "backend ok")
 	}))
@@ -178,12 +390,13 @@ func TestServerRegistersAndRoutesSessionBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	publicHost = "api." + session.SessionID + ".onlava.localhost"
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/hello", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Host = "api." + session.SessionID + ".onlava.localhost"
+	req.Host = publicHost
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -262,15 +475,15 @@ func TestServerRouterTLSGeneratesHTTPSRoutes(t *testing.T) {
 
 func TestServerRoutesFrontendBackend(t *testing.T) {
 	t.Setenv(envAgentHome, t.TempDir())
-	var frontendAddr string
+	var publicHost string
 	frontend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Host != frontendAddr {
-			t.Fatalf("frontend host = %q", req.Host)
+		if req.Host != publicHost {
+			t.Fatalf("frontend host = %q, want %q", req.Host, publicHost)
 		}
 		_, _ = io.WriteString(w, "frontend ok")
 	}))
 	defer frontend.Close()
-	frontendAddr = strings.TrimPrefix(frontend.URL, "http://")
+	frontendAddr := strings.TrimPrefix(frontend.URL, "http://")
 
 	paths, err := DefaultPaths()
 	if err != nil {
@@ -307,12 +520,13 @@ func TestServerRoutesFrontendBackend(t *testing.T) {
 	if session.Routes["web"] == "" || !strings.Contains(session.Routes["web"], "web."+session.SessionID+".onlava.localhost") {
 		t.Fatalf("frontend route = %q", session.Routes["web"])
 	}
+	publicHost = "web." + session.SessionID + ".onlava.localhost"
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Host = "web." + session.SessionID + ".onlava.localhost"
+	req.Host = publicHost
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -329,8 +543,8 @@ func TestServerRoutesParallelSessionsWithoutRouteCollision(t *testing.T) {
 	backend := func(label string) (*httptest.Server, *string) {
 		var addr string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			if req.Host != addr {
-				t.Fatalf("%s backend host = %q, want %q", label, req.Host, addr)
+			if !strings.HasSuffix(req.Host, ".onlava.localhost") {
+				t.Fatalf("%s backend host = %q, want onlava public host", label, req.Host)
 			}
 			_, _ = io.WriteString(w, label)
 		}))
@@ -419,15 +633,15 @@ func TestServerRoutesParallelSessionsWithoutRouteCollision(t *testing.T) {
 
 func TestServerRoutesSharedSubstrateBackends(t *testing.T) {
 	t.Setenv(envAgentHome, t.TempDir())
-	var grafanaAddr string
+	var publicHost string
 	grafana := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Host != grafanaAddr {
-			t.Fatalf("grafana host = %q", req.Host)
+		if req.Host != publicHost {
+			t.Fatalf("grafana host = %q, want %q", req.Host, publicHost)
 		}
 		_, _ = io.WriteString(w, "grafana ok")
 	}))
 	defer grafana.Close()
-	grafanaAddr = strings.TrimPrefix(grafana.URL, "http://")
+	grafanaAddr := strings.TrimPrefix(grafana.URL, "http://")
 
 	paths, err := DefaultPaths()
 	if err != nil {
@@ -463,12 +677,13 @@ func TestServerRoutesSharedSubstrateBackends(t *testing.T) {
 	if session.Routes[RouteGrafana] == "" || !strings.Contains(session.Routes[RouteGrafana], "grafana."+session.SessionID+".onlava.localhost") {
 		t.Fatalf("grafana route = %q", session.Routes[RouteGrafana])
 	}
+	publicHost = "grafana." + session.SessionID + ".onlava.localhost"
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Host = "grafana." + session.SessionID + ".onlava.localhost"
+	req.Host = publicHost
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

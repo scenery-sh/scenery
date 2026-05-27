@@ -94,6 +94,18 @@
       "tags": ["contract", "cli", "agents", "schemas"]
     },
     {
+      "path": "docs/environment.md",
+      "title": "onlava Environment Reference",
+      "owner": "onlava runtime",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-05-27",
+      "review_after": "2026-06-26",
+      "summary": "Human reference for onlava-owned environment variables, app-injected process identity, local dev overrides, and tooling escape hatches.",
+      "tags": ["environment", "env", "contract", "dev", "runtime"]
+    },
+    {
       "path": "docs/grafana.md",
       "title": "Grafana Dev Integration",
       "owner": "onlava runtime",

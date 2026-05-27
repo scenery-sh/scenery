@@ -5,9 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/pbrazdil/onlava/internal/build"
 )
 
 func TestParseCheckArgs(t *testing.T) {
@@ -86,6 +90,77 @@ func TestRunOnlavaCheckJSONSuccess(t *testing.T) {
 	}
 	if len(payload.Diagnostics) != 0 {
 		t.Fatalf("diagnostics = %+v, want empty", payload.Diagnostics)
+	}
+}
+
+func TestRunOnlavaCheckReusesFreshCompiledBuild(t *testing.T) {
+	root := t.TempDir()
+	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkcache"}`)
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkcache\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
+
+	restore := chdirForTest(t, root)
+	defer restore()
+
+	var out bytes.Buffer
+	if err := runOnlavaCheck(context.Background(), &out, []string{"--json"}); err != nil {
+		t.Fatalf("initial runOnlavaCheck returned error: %v", err)
+	}
+	manifest, ok, err := build.ReadLatestBuildManifest(root)
+	if err != nil {
+		t.Fatalf("ReadLatestBuildManifest: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected latest build manifest")
+	}
+	if manifest.Build.GraphFingerprint == "" {
+		t.Fatalf("expected check to persist graph fingerprint: manifest=%+v", manifest.Build)
+	}
+	sentinel := time.Now().Add(-2 * time.Hour).Round(time.Second)
+	if err := os.Chtimes(manifest.Build.BinaryPath, sentinel, sentinel); err != nil {
+		t.Fatalf("Chtimes(binary): %v", err)
+	}
+
+	out.Reset()
+	if err := runOnlavaCheck(context.Background(), &out, []string{"--json"}); err != nil {
+		t.Fatalf("cached runOnlavaCheck returned error: %v", err)
+	}
+	info, err := os.Stat(manifest.Build.BinaryPath)
+	if err != nil {
+		t.Fatalf("Stat(binary): %v", err)
+	}
+	if !info.ModTime().Equal(sentinel) {
+		t.Fatalf("binary modtime changed; check did not reuse compiled build: got %s want %s", info.ModTime(), sentinel)
+	}
+}
+
+func TestRunOnlavaCheckRecompilesAfterSourceChange(t *testing.T) {
+	root := t.TempDir()
+	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkchanged"}`)
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkchanged\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
+
+	restore := chdirForTest(t, root)
+	defer restore()
+
+	var out bytes.Buffer
+	if err := runOnlavaCheck(context.Background(), &out, []string{"--json"}); err != nil {
+		t.Fatalf("initial runOnlavaCheck returned error: %v", err)
+	}
+	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return MissingSymbol }\n")
+
+	out.Reset()
+	err := runOnlavaCheck(context.Background(), &out, []string{"--json"})
+	var silent *silentCLIError
+	if !errors.As(err, &silent) {
+		t.Fatalf("expected changed source to be recompiled, got %v", err)
+	}
+	if !strings.Contains(out.String(), "undefined: MissingSymbol") {
+		t.Fatalf("expected compile diagnostic after source change, got %s", out.String())
 	}
 }
 

@@ -30,12 +30,18 @@ func TestParseRunArgsRejectsDevFlags(t *testing.T) {
 }
 
 func TestParseDevArgs(t *testing.T) {
-	opts, err := parseDevArgs([]string{"--port", "4444", "--listen", "0.0.0.0", "--verbose", "--json", "--app-root", "/tmp/app", "--proxy", "--trust", "--detach"})
+	opts, err := parseDevArgs([]string{"--port", "4444", "--listen", "0.0.0.0", "--verbose", "--json", "--app-root", "/tmp/app", "--session", "review-a", "--proxy", "--trust", "--detach"})
 	if err != nil {
 		t.Fatalf("parseDevArgs returned error: %v", err)
 	}
-	if opts.Port != 4444 || opts.Listen != "0.0.0.0" || !opts.PortSet || !opts.ListenSet || !opts.Verbose || !opts.JSON || opts.AppRoot != "/tmp/app" || !opts.Proxy || !opts.Trust || !opts.Detach {
+	if opts.Port != 4444 || opts.Listen != "0.0.0.0" || !opts.PortSet || !opts.ListenSet || !opts.Verbose || !opts.JSON || opts.AppRoot != "/tmp/app" || opts.SessionID != "review-a" || !opts.Proxy || !opts.Trust || !opts.Detach {
 		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestParseDevArgsRejectsSessionAndNewSession(t *testing.T) {
+	if _, err := parseDevArgs([]string{"--session", "review-a", "--new-session"}); err == nil {
+		t.Fatal("expected --session with --new-session to fail")
 	}
 }
 
@@ -46,7 +52,7 @@ func TestDevCommandUsesWatcherPath(t *testing.T) {
 	called := false
 	runWithWatchFunc = func(listen devListenRequest, verbose, jsonMode bool, appRoot string) error {
 		called = true
-		if listen.Network != "tcp" || listen.Addr != "127.0.0.1:4444" || !listen.Explicit || !verbose || !jsonMode || appRoot != "/tmp/app" {
+		if listen.Network != "tcp" || listen.Addr != "127.0.0.1:4444" || !listen.Explicit || listen.SessionID != "review-a" || !verbose || !jsonMode || appRoot != "/tmp/app" {
 			t.Fatalf("watch args = %+v %v %v %q", listen, verbose, jsonMode, appRoot)
 		}
 		if got := getenvForTest("ONLAVA_LOCAL_PROXY"); got != "1" {
@@ -58,7 +64,7 @@ func TestDevCommandUsesWatcherPath(t *testing.T) {
 		return nil
 	}
 
-	if err := devCommand([]string{"--port", "4444", "--verbose", "--json", "--app-root", "/tmp/app", "--proxy"}); err != nil {
+	if err := devCommand([]string{"--port", "4444", "--verbose", "--json", "--app-root", "/tmp/app", "--session", "review-a", "--proxy"}); err != nil {
 		t.Fatalf("devCommand returned error: %v", err)
 	}
 	if !called {

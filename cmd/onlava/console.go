@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -187,6 +188,49 @@ func (c *runConsole) Banner(urls runURLs) {
 	c.printf(c.out, "\n")
 }
 
+func (c *runConsole) SetupOutput(line, stream string) {
+	line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+	if line == "" {
+		return
+	}
+	if c == nil {
+		return
+	}
+	if c.json {
+		c.Event("setup.output", map[string]any{
+			"line":   line,
+			"stream": stream,
+		})
+		return
+	}
+	normalized := strings.TrimSpace(strings.TrimPrefix(line, "==>"))
+	lower := strings.ToLower(normalized)
+	switch {
+	case strings.HasPrefix(lower, "atlas target:"):
+		c.printSetupDetail("Atlas target", strings.TrimSpace(strings.TrimPrefix(normalized, "Atlas target:")))
+	case strings.HasPrefix(lower, "atlas dry-run:"):
+		c.printSetupDetail("Atlas dry-run", strings.TrimSpace(strings.TrimPrefix(normalized, "Atlas dry-run:")))
+	case normalized == "Schema is synced, no changes to be made":
+		c.printSetupDone("Atlas schema synced")
+	case normalized == "No database changes needed":
+		c.printSetupDone("No database changes needed")
+	default:
+		c.printf(c.out, "    %s\n", line)
+	}
+}
+
+func (c *runConsole) printSetupDetail(label, value string) {
+	if value == "" {
+		c.printf(c.out, "  %s %s\n", c.palette.Cyan("•"), label)
+		return
+	}
+	c.printf(c.out, "  %s %s: %s\n", c.palette.Cyan("•"), label, c.palette.Dim(value))
+}
+
+func (c *runConsole) printSetupDone(title string) {
+	c.printf(c.out, "  %s %s... %s\n", c.palette.Green("✔"), title, c.palette.Green("Done!"))
+}
+
 func runURLData(urls runURLs, verbose bool) map[string]any {
 	data := map[string]any{
 		"api_url":       urls.API,
@@ -280,4 +324,58 @@ func (c *runConsole) Event(eventType string, data map[string]any) {
 	defer c.mu.Unlock()
 	enc := json.NewEncoder(c.out)
 	_ = enc.Encode(event)
+}
+
+type setupOutputWriter struct {
+	console  *runConsole
+	stream   string
+	fallback io.Writer
+	mu       sync.Mutex
+	buf      []byte
+}
+
+func newSetupOutputWriter(console *runConsole, stream string, fallback io.Writer) *setupOutputWriter {
+	return &setupOutputWriter{
+		console:  console,
+		stream:   stream,
+		fallback: fallback,
+	}
+}
+
+func (w *setupOutputWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	total := len(p)
+	for len(p) > 0 {
+		index := bytes.IndexByte(p, '\n')
+		if index < 0 {
+			w.buf = append(w.buf, p...)
+			return total, nil
+		}
+		line := append(w.buf, p[:index]...)
+		w.buf = w.buf[:0]
+		w.emit(line)
+		p = p[index+1:]
+	}
+	return total, nil
+}
+
+func (w *setupOutputWriter) Close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.buf) == 0 {
+		return
+	}
+	w.emit(w.buf)
+	w.buf = nil
+}
+
+func (w *setupOutputWriter) emit(line []byte) {
+	if w.console == nil {
+		if w.fallback != nil {
+			_, _ = fmt.Fprintln(w.fallback, string(line))
+		}
+		return
+	}
+	w.console.SetupOutput(string(line), w.stream)
 }

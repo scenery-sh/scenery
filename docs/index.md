@@ -14,6 +14,7 @@ onlava harness self --json
 - [Installable Skill](../SKILL.md): concise agent entrypoint for using current onlava workflows.
 - [Architecture](../ARCHITECTURE.md): high-level repo map, boundaries, and architectural invariants.
 - [Local Contract](local-contract.md): CLI grammar, stable JSON schemas, generated artifacts, and local runtime contracts.
+- [Environment Reference](environment.md): onlava-owned env vars, app-injected env, and local override escape hatches.
 - [Data Platform](data-platform.md): beta dynamic data package usage, query shapes, auth tenant permissions, import/export, relations, saved views, and public error codes.
 - [App Development Cookbook](app-development-cookbook.md): practical recipes for building onlava apps.
 - [Data Platform Runbook](data-platform-runbook.md): operational guide for dynamic data, migrations, inspect data, live events, and recovery.

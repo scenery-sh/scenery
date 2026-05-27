@@ -12,17 +12,19 @@ import (
 )
 
 type Registry struct {
-	path       string
-	router     string
-	scheme     string
-	mu         sync.Mutex
-	sessions   map[string]Session
-	substrates map[string]Substrate
+	path             string
+	router           string
+	scheme           string
+	mu               sync.Mutex
+	sessions         map[string]Session
+	substrates       map[string]Substrate
+	currentByAppRoot map[string]string
 }
 
 type registryFile struct {
-	Sessions   []Session   `json:"sessions"`
-	Substrates []Substrate `json:"substrates,omitempty"`
+	Sessions         []Session         `json:"sessions"`
+	Substrates       []Substrate       `json:"substrates,omitempty"`
+	CurrentByAppRoot map[string]string `json:"current_by_app_root,omitempty"`
 }
 
 func OpenRegistry(path, routerAddr string, routerScheme ...string) (*Registry, error) {
@@ -31,11 +33,12 @@ func OpenRegistry(path, routerAddr string, routerScheme ...string) (*Registry, e
 		scheme = strings.TrimSpace(routerScheme[0])
 	}
 	r := &Registry{
-		path:       path,
-		router:     routerAddr,
-		scheme:     scheme,
-		sessions:   make(map[string]Session),
-		substrates: make(map[string]Substrate),
+		path:             path,
+		router:           routerAddr,
+		scheme:           scheme,
+		sessions:         make(map[string]Session),
+		substrates:       make(map[string]Substrate),
+		currentByAppRoot: make(map[string]string),
 	}
 	if err := r.load(); err != nil {
 		return nil, err
@@ -56,15 +59,32 @@ func (r *Registry) UpsertSubstrate(req UpsertSubstrateRequest) (Substrate, error
 	}
 	now := time.Now().UTC()
 	createdAt := now
-	if current, ok := r.substrates[kind]; ok && !current.CreatedAt.IsZero() {
+	var current *Substrate
+	if existing, ok := r.substrates[kind]; ok {
+		current = &existing
+	}
+	if current != nil && !current.CreatedAt.IsZero() {
 		createdAt = current.CreatedAt
 	}
+	ownerPID := req.OwnerPID
+	if ownerPID == 0 && current != nil {
+		ownerPID = current.OwnerPID
+	}
+	owner := req.Owner
+	if owner.PID == 0 && current != nil && current.Owner.PID > 0 {
+		owner = current.Owner
+	}
+	owner = OwnerFromRequest(ownerPID, owner, "onlava substrate")
+	pids := copyIntMap(req.PIDs)
+	owners := ownersForSubstrate(kind, pids, req.Owners, current)
 	substrate := Substrate{
 		SchemaVersion: SubstrateSchemaVersion,
 		Kind:          kind,
 		Status:        status,
-		OwnerPID:      req.OwnerPID,
-		PIDs:          copyIntMap(req.PIDs),
+		OwnerPID:      ownerPID,
+		Owner:         owner,
+		PIDs:          pids,
+		Owners:        owners,
 		URLs:          copyStringMap(req.URLs),
 		Endpoints:     copyStringMap(req.Endpoints),
 		CreatedAt:     createdAt,
@@ -108,7 +128,17 @@ func (r *Registry) DeleteSubstrate(kind string) (Substrate, bool, error) {
 func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	sessionID := SessionID(req.AppRoot, req.Branch)
+	sessionID, err := NormalizeSessionID(req.SessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if sessionID == "" {
+		branch := strings.TrimSpace(req.Branch)
+		if branch == "" {
+			branch = discoverGitBranch(req.AppRoot)
+		}
+		sessionID = SessionID(req.AppRoot, branch)
+	}
 	var existing *Session
 	if current, ok := r.sessions[sessionID]; ok {
 		existing = &current
@@ -118,6 +148,7 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 		return Session{}, err
 	}
 	r.sessions[session.SessionID] = session
+	r.currentByAppRoot[filepath.Clean(session.AppRoot)] = session.SessionID
 	if err := r.saveLocked(); err != nil {
 		return Session{}, err
 	}
@@ -151,6 +182,18 @@ func (r *Registry) FindByAppRoot(root string) []Session {
 		}
 	}
 	sortSessions(matches)
+	currentID := r.currentByAppRoot[root]
+	if currentID != "" {
+		sort.SliceStable(matches, func(i, j int) bool {
+			if matches[i].SessionID == currentID {
+				return true
+			}
+			if matches[j].SessionID == currentID {
+				return false
+			}
+			return false
+		})
+	}
 	return matches
 }
 
@@ -162,6 +205,16 @@ func (r *Registry) Delete(id string) (Session, bool, error) {
 		return Session{}, false, nil
 	}
 	delete(r.sessions, id)
+	key := filepath.Clean(session.AppRoot)
+	if r.currentByAppRoot[key] == id {
+		delete(r.currentByAppRoot, key)
+		for _, candidate := range sortedSessions(r.sessions) {
+			if filepath.Clean(candidate.AppRoot) == key {
+				r.currentByAppRoot[key] = candidate.SessionID
+				break
+			}
+		}
+	}
 	if err := r.saveLocked(); err != nil {
 		return Session{}, false, err
 	}
@@ -194,6 +247,13 @@ func (r *Registry) load() error {
 		substrate.Kind = kind
 		r.substrates[kind] = substrate
 	}
+	for appRoot, sessionID := range file.CurrentByAppRoot {
+		appRoot = filepath.Clean(strings.TrimSpace(appRoot))
+		sessionID = strings.TrimSpace(sessionID)
+		if appRoot != "" && sessionID != "" {
+			r.currentByAppRoot[appRoot] = sessionID
+		}
+	}
 	return nil
 }
 
@@ -202,8 +262,9 @@ func (r *Registry) saveLocked() error {
 		return err
 	}
 	data, err := json.MarshalIndent(registryFile{
-		Sessions:   sortedSessions(r.sessions),
-		Substrates: sortedSubstrates(r.substrates),
+		Sessions:         sortedSessions(r.sessions),
+		Substrates:       sortedSubstrates(r.substrates),
+		CurrentByAppRoot: copyRawStringMap(r.currentByAppRoot),
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -242,6 +303,69 @@ func copyStringMap(values map[string]string) map[string]string {
 	return copied
 }
 
+func copyRawStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	copied := make(map[string]string, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		copied[key] = value
+	}
+	if len(copied) == 0 {
+		return nil
+	}
+	return copied
+}
+
+func ownersForSubstrate(kind string, pids map[string]int, requested map[string]Owner, current *Substrate) map[string]Owner {
+	owners := copyOwnerMap(requested)
+	if len(pids) == 0 {
+		if len(owners) == 0 {
+			return nil
+		}
+		return owners
+	}
+	for name, pid := range pids {
+		if pid <= 0 {
+			continue
+		}
+		owner := owners[name]
+		if owner.PID == 0 && current != nil {
+			if existing := current.Owners[name]; existing.PID == pid {
+				owner = existing
+			}
+		}
+		owner = OwnerFromRequest(pid, owner, "onlava substrate "+kind+"."+name)
+		if owner.PID > 0 {
+			owners[name] = owner
+		}
+	}
+	if len(owners) == 0 {
+		return nil
+	}
+	return owners
+}
+
+func copyOwnerMap(values map[string]Owner) map[string]Owner {
+	if len(values) == 0 {
+		return map[string]Owner{}
+	}
+	copied := make(map[string]Owner, len(values))
+	for key, value := range values {
+		key = sanitizeLabel(key)
+		if key == "" {
+			continue
+		}
+		copied[key] = value
+	}
+	return copied
+}
+
 func copyIntMap(values map[string]int) map[string]int {
 	if len(values) == 0 {
 		return nil
@@ -271,10 +395,10 @@ func sortedSessions(sessions map[string]Session) []Session {
 
 func sortSessions(items []Session) {
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].Status == items[j].Status {
-			return items[i].SessionID < items[j].SessionID
+		if !items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].UpdatedAt.After(items[j].UpdatedAt)
 		}
-		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+		return items[i].SessionID < items[j].SessionID
 	})
 }
 

@@ -190,7 +190,7 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 		},
 		Proxy: app.ProxyConfig{
 			Frontends: map[string]app.FrontendConfig{
-				"web": {Host: "web.demo.localhost", Upstream: "127.0.0.1:5173"},
+				"web": {Host: "web.demo.localhost", Upstream: "127.0.0.1:5173", AllowSharedUpstream: true},
 			},
 		},
 	}, devListenRequest{})
@@ -273,6 +273,53 @@ func TestPrepareDevAgentSessionPrefersTCPWhenRequested(t *testing.T) {
 	api := session.Backends[localagent.RouteAPI]
 	if api.Network != "tcp" || api.Addr != backend.Addr {
 		t.Fatalf("session API backend = %+v, want tcp %q", api, backend.Addr)
+	}
+
+	cancel()
+	waitForTestAgentServer(t, agentDone)
+}
+
+func TestPrepareDevAgentSessionUsesExplicitSessionID(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	agentDone := startTestAgentServer(t, ctx)
+
+	root := t.TempDir()
+	_, session, _, restore, err := prepareDevAgentSession(ctx, root, app.Config{Name: "demo"}, devListenRequest{SessionID: "review-a"})
+	defer restore()
+	if err != nil {
+		t.Fatalf("prepareDevAgentSession: %v", err)
+	}
+	if session.SessionID != "review-a" {
+		t.Fatalf("session id = %q, want review-a", session.SessionID)
+	}
+
+	cancel()
+	waitForTestAgentServer(t, agentDone)
+}
+
+func TestPrepareDevAgentSessionNewSessionAddsSuffix(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	agentDone := startTestAgentServer(t, ctx)
+
+	root := t.TempDir()
+	_, first, _, restoreFirst, err := prepareDevAgentSession(ctx, root, app.Config{Name: "demo"}, devListenRequest{NewSession: true})
+	defer restoreFirst()
+	if err != nil {
+		t.Fatalf("prepareDevAgentSession first: %v", err)
+	}
+	_, second, _, restoreSecond, err := prepareDevAgentSession(ctx, root, app.Config{Name: "demo"}, devListenRequest{NewSession: true})
+	defer restoreSecond()
+	if err != nil {
+		t.Fatalf("prepareDevAgentSession second: %v", err)
+	}
+	if first.SessionID == second.SessionID {
+		t.Fatalf("new sessions reused id %q", first.SessionID)
+	}
+	wantPrefix := localagent.SessionID(root, "")
+	if !strings.HasPrefix(first.SessionID, wantPrefix+"-") || !strings.HasPrefix(second.SessionID, wantPrefix+"-") {
+		t.Fatalf("new session ids = %q and %q, want %q-*", first.SessionID, second.SessionID, wantPrefix)
 	}
 
 	cancel()

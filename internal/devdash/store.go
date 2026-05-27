@@ -127,7 +127,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			is_error integer not null default 0,
 			duration_nanos integer not null default 0,
 			summary_json text not null,
-			unique(app_id, trace_id, span_id)
+			unique(app_id, session_id, trace_id, span_id)
 		)`,
 		`create table if not exists trace_events (
 			id integer primary key autoincrement,
@@ -203,6 +203,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "trace_summaries", "session_id", `text not null default ''`); err != nil {
 		return err
 	}
+	if err := s.migrateTraceSummariesSessionUniqueness(ctx); err != nil {
+		return err
+	}
 	if err := s.ensureColumn(ctx, "trace_events", "session_id", `text not null default ''`); err != nil {
 		return err
 	}
@@ -213,6 +216,128 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Store) migrateTraceSummariesSessionUniqueness(ctx context.Context) error {
+	ok, err := s.traceSummariesUniqueIndexIncludesSession(ctx)
+	if err != nil || ok {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if _, err := tx.ExecContext(ctx, `
+		create table trace_summaries_new (
+			id integer primary key autoincrement,
+			app_id text not null,
+			session_id text not null default '',
+			trace_id text not null,
+			span_id text not null,
+			started_at text not null,
+			service_name text not null default '',
+			endpoint_name text,
+			is_root integer not null default 0,
+			is_error integer not null default 0,
+			duration_nanos integer not null default 0,
+			summary_json text not null,
+			unique(app_id, session_id, trace_id, span_id)
+		)
+	`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into trace_summaries_new (
+			id, app_id, session_id, trace_id, span_id, started_at, service_name,
+			endpoint_name, is_root, is_error, duration_nanos, summary_json
+		)
+		select
+			id, app_id, session_id, trace_id, span_id, started_at, service_name,
+			endpoint_name, is_root, is_error, duration_nanos, summary_json
+		from trace_summaries
+	`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `drop table trace_summaries`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `alter table trace_summaries_new rename to trace_summaries`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) traceSummariesUniqueIndexIncludesSession(ctx context.Context) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, `pragma index_list(trace_summaries)`)
+	if err != nil {
+		return false, err
+	}
+	var uniqueIndexes []string
+	for rows.Next() {
+		var seq int
+		var name string
+		var unique int
+		var origin string
+		var partial int
+		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
+			_ = rows.Close()
+			return false, err
+		}
+		if unique != 0 {
+			uniqueIndexes = append(uniqueIndexes, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return false, err
+	}
+	if err := rows.Close(); err != nil {
+		return false, err
+	}
+	for _, name := range uniqueIndexes {
+		cols, err := s.indexColumns(ctx, name)
+		if err != nil {
+			return false, err
+		}
+		if equalStrings(cols, []string{"app_id", "session_id", "trace_id", "span_id"}) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *Store) indexColumns(ctx context.Context, indexName string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `pragma index_info(`+indexName+`)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cols []string
+	for rows.Next() {
+		var seqno int
+		var cid int
+		var name string
+		if err := rows.Scan(&seqno, &cid, &name); err != nil {
+			return nil, err
+		}
+		cols = append(cols, name)
+	}
+	return cols, rows.Err()
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) ensureColumn(ctx context.Context, table, column, definition string) error {
@@ -682,8 +807,7 @@ func (s *Store) AppendTraceSummary(ctx context.Context, summary *TraceSummary) e
 	_, err = s.db.ExecContext(ctx, `
 		insert into trace_summaries (app_id, session_id, trace_id, span_id, started_at, service_name, endpoint_name, is_root, is_error, duration_nanos, summary_json)
 		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		on conflict(app_id, trace_id, span_id) do update set
-			session_id = excluded.session_id,
+		on conflict(app_id, session_id, trace_id, span_id) do update set
 			started_at = excluded.started_at,
 			service_name = excluded.service_name,
 			endpoint_name = excluded.endpoint_name,

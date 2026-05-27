@@ -121,6 +121,146 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 	}
 }
 
+func TestParseDownArgsCleanupFlags(t *testing.T) {
+	opts, err := parseDownArgs([]string{"--app-root", "/tmp/app", "--session", "session-a", "--db", "--state", "--all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.AppRoot != "/tmp/app" || opts.SessionID != "session-a" || !opts.DB || !opts.State || !opts.All {
+		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestParseGCArgs(t *testing.T) {
+	opts, err := parseGCArgs([]string{"--older-than", "14d", "--app-root", "/tmp/app", "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.OlderThan != 14*24*time.Hour || opts.AppRoot != "/tmp/app" || !opts.JSON {
+		t.Fatalf("opts = %+v", opts)
+	}
+	if _, err := parseGCArgs([]string{}); err == nil {
+		t.Fatal("expected missing --older-than to fail")
+	}
+}
+
+func TestDownCommandRemovesSessionState(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+	defer func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agent shutdown: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for agent shutdown")
+		}
+	}()
+
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	appRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appRoot, ".onlava.json"), []byte(`{"name":"demo"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.Register(ctx, localagent.RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   appRoot,
+		Branch:    "feature/state-cleanup",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(session.StateRoot, "logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output := captureStdout(t, func() error {
+		return downCommand([]string{"--session", session.SessionID, "--state"})
+	})
+	if !strings.Contains(output, "removed onlava session state") {
+		t.Fatalf("down output = %q", output)
+	}
+	if _, err := os.Stat(session.StateRoot); !os.IsNotExist(err) {
+		t.Fatalf("session state still exists or stat failed: %v", err)
+	}
+}
+
+func TestGCCommandPrunesOldSessionState(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+	defer func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agent shutdown: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for agent shutdown")
+		}
+	}()
+
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	appRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appRoot, ".onlava.json"), []byte(`{"name":"demo"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.Register(ctx, localagent.RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   appRoot,
+		SessionID: "old-session",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(session.StateRoot, "logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+
+	output := captureStdout(t, func() error {
+		return gcCommand([]string{"--app-root", appRoot, "--older-than", "1ms"})
+	})
+	if !strings.Contains(output, "pruned onlava session old-session") {
+		t.Fatalf("gc output = %q", output)
+	}
+	sessions, err := client.List(ctx, appRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("sessions after gc = %+v, want none", sessions)
+	}
+	if _, err := os.Stat(session.StateRoot); !os.IsNotExist(err) {
+		t.Fatalf("session state still exists or stat failed: %v", err)
+	}
+}
+
 func waitForAgentCommandPing(ctx context.Context, client *localagent.Client) error {
 	deadline := time.Now().Add(2 * time.Second)
 	var lastErr error

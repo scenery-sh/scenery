@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/build"
@@ -66,6 +67,20 @@ func runOnlavaCheck(ctx context.Context, stdout io.Writer, args []string) error 
 		ConfigPath: filepath.Join(appRoot, ".onlava.json"),
 	}
 
+	snapshot, snapshotErr := scanWatchedFiles(appRoot)
+	graphFingerprint := ""
+	if snapshotErr == nil {
+		graphFingerprint = snapshotFingerprint(snapshot)
+		if cached, cachedApp, err := cachedCheckResult(appRoot, cfg, graphFingerprint); err != nil {
+			return renderCheckFailure(stdout, opts.JSON, appInfo, "cache", err)
+		} else if cached {
+			if cachedApp.ModulePath != "" {
+				appInfo.ModulePath = cachedApp.ModulePath
+			}
+			return renderCheckSuccess(stdout, opts.JSON, appInfo)
+		}
+	}
+
 	model, err := parse.App(appRoot, cfg.Name)
 	if err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "parse", err)
@@ -76,10 +91,17 @@ func runOnlavaCheck(ctx context.Context, stdout io.Writer, args []string) error 
 	if err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "prepare", err)
 	}
+	if graphFingerprint != "" {
+		result.GraphFingerprint = graphFingerprint
+	}
 	if err := build.CompileContext(ctx, result); err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "compile", err)
 	}
-	if opts.JSON {
+	return renderCheckSuccess(stdout, opts.JSON, appInfo)
+}
+
+func renderCheckSuccess(stdout io.Writer, jsonMode bool, appInfo inspectdata.AppRef) error {
+	if jsonMode {
 		return writeCheckJSON(stdout, checkResponse{
 			SchemaVersion: "onlava.check.result.v1",
 			OK:            true,
@@ -89,6 +111,71 @@ func runOnlavaCheck(ctx context.Context, stdout io.Writer, args []string) error 
 	}
 	_, _ = fmt.Fprintln(stdout, "onlava: check ok")
 	return nil
+}
+
+func cachedCheckResult(appRoot string, cfg appcfg.Config, graphFingerprint string) (bool, inspectdata.AppRef, error) {
+	if graphFingerprint == "" {
+		return false, inspectdata.AppRef{}, nil
+	}
+	manifest, ok, err := build.ReadLatestBuildManifest(appRoot)
+	if err != nil || !ok {
+		return false, inspectdata.AppRef{}, err
+	}
+	if manifest.SchemaVersion != "onlava.build.latest.v1" || manifest.Build.Phase != "compiled" {
+		return false, inspectdata.AppRef{}, nil
+	}
+	if manifest.App.Name != cfg.Name || manifest.App.Root != appRoot {
+		return false, inspectdata.AppRef{}, nil
+	}
+	if strings.TrimSpace(cfg.ID) != "" && strings.TrimSpace(manifest.App.ID) != strings.TrimSpace(cfg.ID) {
+		return false, inspectdata.AppRef{}, nil
+	}
+	state, err := build.ReadStateInfo(appRoot, cfg.Name)
+	if err != nil {
+		return false, inspectdata.AppRef{}, err
+	}
+	if !state.Exists || state.Version == "" || state.Version != manifest.Build.BuildStateVersion || state.GraphFingerprint != graphFingerprint {
+		return false, inspectdata.AppRef{}, nil
+	}
+	if !pathExists(manifest.Build.BinaryPath) || !pathExists(manifest.Build.BuildStatePath) {
+		return false, inspectdata.AppRef{}, nil
+	}
+	if toolIsNewerThanBuild(appRoot) {
+		return false, inspectdata.AppRef{}, nil
+	}
+	app, ok, err := inspectdata.ReadGeneratedApp(appRoot)
+	if err != nil || !ok {
+		return false, inspectdata.AppRef{}, err
+	}
+	if _, ok, err := inspectdata.ReadGeneratedRoutes(appRoot); err != nil || !ok {
+		return false, inspectdata.AppRef{}, err
+	}
+	if _, ok, err := inspectdata.ReadGeneratedServices(appRoot); err != nil || !ok {
+		return false, inspectdata.AppRef{}, err
+	}
+	if _, ok, err := inspectdata.ReadGeneratedEndpoints(appRoot); err != nil || !ok {
+		return false, inspectdata.AppRef{}, err
+	}
+	if _, ok, err := inspectdata.ReadGeneratedWireCapabilities(appRoot); err != nil || !ok {
+		return false, inspectdata.AppRef{}, err
+	}
+	return true, app.App, nil
+}
+
+func toolIsNewerThanBuild(appRoot string) bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return true
+	}
+	exeInfo, err := os.Stat(exe)
+	if err != nil {
+		return true
+	}
+	manifestInfo, err := os.Stat(build.LatestBuildPath(appRoot))
+	if err != nil {
+		return true
+	}
+	return exeInfo.ModTime().After(manifestInfo.ModTime().Add(time.Second))
 }
 
 func renderCheckFailure(stdout io.Writer, jsonMode bool, app inspectdata.AppRef, stage string, cause error) error {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,6 +35,15 @@ type statusOptions struct {
 type downOptions struct {
 	AppRoot   string
 	SessionID string
+	DB        bool
+	State     bool
+	All       bool
+}
+
+type gcOptions struct {
+	AppRoot   string
+	OlderThan time.Duration
+	JSON      bool
 }
 
 func agentCommand(args []string) error {
@@ -325,27 +335,65 @@ func downCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
+	session, err := resolveDownSession(ctx, client, opts)
+	if err != nil {
+		return err
+	}
+	if opts.All {
+		opts.DB = true
+		opts.State = true
+	}
+	sessionID := session.SessionID
+	appRoot := session.AppRoot
+	if strings.TrimSpace(appRoot) == "" {
+		appRoot, _ = resolveStatusAppRoot(opts.AppRoot)
+	}
+	deletedSession, err := client.Delete(ctx, sessionID, true)
+	if err != nil {
+		return err
+	}
+	if opts.DB {
+		if err := dropSessionManagedDatabase(ctx, appRoot, deletedSession); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stdout, "dropped onlava managed database for session %s\n", deletedSession.SessionID)
+	}
+	if opts.State {
+		if err := removeSessionStateRoot(deletedSession); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stdout, "removed onlava session state %s\n", deletedSession.StateRoot)
+	}
+	fmt.Fprintf(os.Stdout, "stopped onlava session %s\n", deletedSession.SessionID)
+	return nil
+}
+
+func resolveDownSession(ctx context.Context, client *localagent.Client, opts downOptions) (localagent.Session, error) {
 	sessionID := strings.TrimSpace(opts.SessionID)
 	if sessionID == "" {
 		appRoot, err := resolveStatusAppRoot(opts.AppRoot)
 		if err != nil {
-			return err
+			return localagent.Session{}, err
 		}
 		sessions, err := client.List(ctx, appRoot)
 		if err != nil {
-			return err
+			return localagent.Session{}, err
 		}
 		if len(sessions) == 0 {
-			return fmt.Errorf("no onlava agent session found for %s", appRoot)
+			return localagent.Session{}, fmt.Errorf("no onlava agent session found for %s", appRoot)
 		}
-		sessionID = sessions[0].SessionID
+		return sessions[0], nil
 	}
-	session, err := client.Delete(ctx, sessionID, true)
+	sessions, err := client.List(ctx, "")
 	if err != nil {
-		return err
+		return localagent.Session{}, err
 	}
-	fmt.Fprintf(os.Stdout, "stopped onlava session %s\n", session.SessionID)
-	return nil
+	for _, session := range sessions {
+		if session.SessionID == sessionID {
+			return session, nil
+		}
+	}
+	return localagent.Session{}, fmt.Errorf("no onlava agent session found for %s", sessionID)
 }
 
 func parseDownArgs(args []string) (downOptions, error) {
@@ -364,11 +412,179 @@ func parseDownArgs(args []string) (downOptions, error) {
 				return downOptions{}, fmt.Errorf("missing value for --session")
 			}
 			opts.SessionID = args[i]
+		case "--db":
+			opts.DB = true
+		case "--state":
+			opts.State = true
+		case "--all":
+			opts.All = true
 		default:
 			return downOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
 	}
 	return opts, nil
+}
+
+func removeSessionStateRoot(session localagent.Session) error {
+	if strings.TrimSpace(session.StateRoot) == "" {
+		return nil
+	}
+	clean := filepath.Clean(session.StateRoot)
+	if !strings.Contains(clean, string(filepath.Separator)+".onlava"+string(filepath.Separator)+"sessions"+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to remove unexpected session state path %s", clean)
+	}
+	return os.RemoveAll(clean)
+}
+
+func gcCommand(args []string) error {
+	opts, err := parseGCArgs(args)
+	if err != nil {
+		return err
+	}
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	appRoot := strings.TrimSpace(opts.AppRoot)
+	if appRoot != "" {
+		resolved, err := resolveStatusAppRoot(appRoot)
+		if err != nil {
+			return err
+		}
+		appRoot = resolved
+	}
+	sessions, err := client.List(ctx, appRoot)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().UTC().Add(-opts.OlderThan)
+	var pruned []string
+	var skipped []string
+	for _, session := range sessions {
+		if !gcSessionEligible(session, cutoff) {
+			skipped = append(skipped, session.SessionID)
+			continue
+		}
+		deleted, err := client.Delete(ctx, session.SessionID, false)
+		if err != nil {
+			return err
+		}
+		if err := removeSessionStateRoot(deleted); err != nil {
+			return err
+		}
+		pruned = append(pruned, deleted.SessionID)
+	}
+	if opts.JSON {
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"cutoff":  cutoff.Format(time.RFC3339Nano),
+			"pruned":  pruned,
+			"skipped": skipped,
+		})
+	}
+	for _, id := range pruned {
+		fmt.Fprintf(os.Stdout, "pruned onlava session %s\n", id)
+	}
+	fmt.Fprintf(os.Stdout, "onlava gc complete: pruned=%d skipped=%d\n", len(pruned), len(skipped))
+	return nil
+}
+
+func parseGCArgs(args []string) (gcOptions, error) {
+	var opts gcOptions
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--app-root":
+			i++
+			if i >= len(args) {
+				return gcOptions{}, fmt.Errorf("missing value for --app-root")
+			}
+			opts.AppRoot = args[i]
+		case "--older-than":
+			i++
+			if i >= len(args) {
+				return gcOptions{}, fmt.Errorf("missing value for --older-than")
+			}
+			duration, err := parseGCAge(args[i])
+			if err != nil {
+				return gcOptions{}, err
+			}
+			opts.OlderThan = duration
+		case "--json":
+			opts.JSON = true
+		default:
+			return gcOptions{}, fmt.Errorf("unknown flag %q", args[i])
+		}
+	}
+	if opts.OlderThan <= 0 {
+		return gcOptions{}, fmt.Errorf("gc requires --older-than <duration>")
+	}
+	return opts, nil
+}
+
+func parseGCAge(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
+		if err != nil || days <= 0 {
+			return 0, fmt.Errorf("invalid --older-than duration %q", value)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("invalid --older-than duration %q", value)
+	}
+	return duration, nil
+}
+
+func gcSessionEligible(session localagent.Session, cutoff time.Time) bool {
+	if session.UpdatedAt.IsZero() || session.UpdatedAt.After(cutoff) {
+		return false
+	}
+	owner := session.Owner
+	if owner.PID <= 0 {
+		owner.PID = session.OwnerPID
+	}
+	if owner.PID <= 0 {
+		return true
+	}
+	err := localagent.VerifyOwner(owner)
+	if err == nil {
+		return false
+	}
+	if strings.Contains(err.Error(), "fingerprint is missing") {
+		return false
+	}
+	return true
+}
+
+func dropSessionManagedDatabase(ctx context.Context, appRoot string, session localagent.Session) error {
+	if strings.TrimSpace(appRoot) == "" {
+		return fmt.Errorf("app root is required to drop a managed database")
+	}
+	_, cfg, err := app.DiscoverRoot(appRoot)
+	if err != nil {
+		return err
+	}
+	baseEnv, err := appEnvWithDotEnv(os.Environ(), appRoot)
+	if err != nil {
+		return err
+	}
+	client, err := localagent.DefaultClient()
+	if err == nil {
+		baseEnv, err = envWithManagedPostgresAdminURL(ctx, cfg, baseEnv, client)
+		if err != nil {
+			return err
+		}
+	}
+	plan, err := resolveManagedPostgresPlan(cfg, &session, baseEnv)
+	if err != nil {
+		return err
+	}
+	if plan == nil {
+		return fmt.Errorf("dev.services.postgres is not configured")
+	}
+	return dropManagedPostgresDatabase(ctx, plan.AdminURL, plan.DatabaseName)
 }
 
 func resolveStatusAppRoot(value string) (string, error) {

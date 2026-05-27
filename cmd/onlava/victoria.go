@@ -140,6 +140,11 @@ func (s *victoriaStack) SubstrateRequest(ownerPID int) localagent.UpsertSubstrat
 			pids[component.spec.Name] = component.cmd.Process.Pid
 		}
 	}
+	if pid := firstPID(pids); pid > 0 {
+		ownerPID = pid
+	} else if ownerPID <= 0 {
+		ownerPID = firstPID(pids)
+	}
 	return localagent.UpsertSubstrateRequest{
 		Kind:      localagent.SubstrateVictoria,
 		Status:    "ready",
@@ -148,6 +153,15 @@ func (s *victoriaStack) SubstrateRequest(ownerPID int) localagent.UpsertSubstrat
 		URLs:      urls,
 		Endpoints: endpoints,
 	}
+}
+
+func firstPID(pids map[string]int) int {
+	for _, pid := range pids {
+		if pid > 0 {
+			return pid
+		}
+	}
+	return 0
 }
 
 func (s *victoriaStack) MarkExternal() {

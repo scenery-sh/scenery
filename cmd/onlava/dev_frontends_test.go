@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	localagent "github.com/pbrazdil/onlava/internal/agent"
+	"github.com/pbrazdil/onlava/internal/app"
 )
 
 func TestManagedFrontendCommandUsesViteLocalBin(t *testing.T) {
@@ -81,6 +83,58 @@ func TestFrontendDevEnvIncludesSessionRoutes(t *testing.T) {
 		if !containsString(env, want) {
 			t.Fatalf("frontendDevEnv() missing %q in %s", want, strings.Join(env, "\n"))
 		}
+	}
+}
+
+func TestManagedFrontendBackendsRequiresExplicitSharedUpstream(t *testing.T) {
+	root := t.TempDir()
+	cfg := app.Config{
+		Proxy: app.ProxyConfig{
+			Frontends: map[string]app.FrontendConfig{
+				"web": {
+					Root:     "apps/web",
+					Upstream: "127.0.0.1:5173",
+				},
+			},
+		},
+	}
+	_, _, err := managedFrontendBackendsForSession(context.Background(), root, cfg, nil, localagent.Session{
+		SessionID: "main-test",
+		StateRoot: filepath.Join(root, ".onlava", "sessions", "main-test"),
+	})
+	if err == nil {
+		t.Fatal("expected managed frontend fallback error")
+	}
+	if !strings.Contains(err.Error(), "allow_shared_upstream") {
+		t.Fatalf("error = %q, want allow_shared_upstream guidance", err)
+	}
+}
+
+func TestManagedFrontendBackendsAllowsExplicitSharedUpstream(t *testing.T) {
+	root := t.TempDir()
+	cfg := app.Config{
+		Proxy: app.ProxyConfig{
+			Frontends: map[string]app.FrontendConfig{
+				"web": {
+					Root:                "apps/web",
+					Upstream:            "127.0.0.1:5173",
+					AllowSharedUpstream: true,
+				},
+			},
+		},
+	}
+	backends, processes, err := managedFrontendBackendsForSession(context.Background(), root, cfg, nil, localagent.Session{
+		SessionID: "main-test",
+		StateRoot: filepath.Join(root, ".onlava", "sessions", "main-test"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(processes) != 0 {
+		t.Fatalf("processes = %d, want 0", len(processes))
+	}
+	if got := backends["web"]; got.Network != "tcp" || got.Addr != "127.0.0.1:5173" {
+		t.Fatalf("web backend = %+v", got)
 	}
 }
 

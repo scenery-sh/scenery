@@ -187,6 +187,13 @@ func (s *Server) GetSession(id string) (Session, bool) {
 	return s.registry.Get(id)
 }
 
+func (s *Server) GetSubstrate(kind string) (Substrate, bool) {
+	if s == nil || s.registry == nil {
+		return Substrate{}, false
+	}
+	return s.registry.GetSubstrate(kind)
+}
+
 func (s *Server) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -213,8 +220,29 @@ func (s *Server) Close() error {
 	}
 	if s.registry != nil {
 		for _, substrate := range s.registry.ListSubstrates() {
+			substrateOwnerVerified := false
+			if substrate.OwnerPID > 0 || substrate.Owner.PID > 0 {
+				if _, err := ownerForSignal(substrate.OwnerPID, substrate.Owner); err == nil {
+					substrateOwnerVerified = true
+				} else {
+					slog.Warn("substrate owner fingerprint did not verify; component owners are required for safe interrupt", "kind", substrate.Kind, "pid", firstPositive(substrate.Owner.PID, substrate.OwnerPID), "err", err)
+				}
+			}
 			for name, pid := range substrate.PIDs {
 				if pid <= 0 {
+					continue
+				}
+				if owner := substrate.Owners[name]; owner.PID > 0 {
+					if owner.PID != pid {
+						slog.Warn("skipping substrate component interrupt because owner pid does not match component pid", "kind", substrate.Kind, "component", name, "pid", pid, "owner_pid", owner.PID)
+						continue
+					}
+					if _, err := ownerForSignal(pid, owner); err != nil {
+						slog.Warn("skipping substrate component interrupt because owner fingerprint did not verify", "kind", substrate.Kind, "component", name, "pid", pid, "err", err)
+						continue
+					}
+				} else if !substrateOwnerVerified {
+					slog.Warn("skipping substrate component interrupt because no verified owner fingerprint is available", "kind", substrate.Kind, "component", name, "pid", pid)
 					continue
 				}
 				if err := interruptProcess(pid); err != nil {
@@ -467,9 +495,12 @@ func (s *Server) handleSession(w http.ResponseWriter, req *http.Request) {
 			http.NotFound(w, req)
 			return
 		}
-		if req.URL.Query().Get("signal") == "1" && session.OwnerPID > 0 {
-			if err := interruptProcess(session.OwnerPID); err != nil {
-				slog.Warn("failed to interrupt onlava dev owner", "pid", session.OwnerPID, "err", err)
+		if req.URL.Query().Get("signal") == "1" && (session.OwnerPID > 0 || session.Owner.PID > 0) {
+			owner, err := ownerForSignal(session.OwnerPID, session.Owner)
+			if err != nil {
+				slog.Warn("skipping onlava dev owner interrupt because owner fingerprint did not verify", "pid", firstPositive(session.Owner.PID, session.OwnerPID), "err", err)
+			} else if err := interruptProcess(owner.PID); err != nil {
+				slog.Warn("failed to interrupt onlava dev owner", "pid", owner.PID, "err", err)
 			}
 		}
 		writeJSON(w, http.StatusOK, RegisterResponse{Session: session})
@@ -483,6 +514,15 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func methodNotAllowed(w http.ResponseWriter, methods ...string) {

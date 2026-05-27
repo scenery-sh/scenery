@@ -169,6 +169,59 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	}
 }
 
+func TestAgentDashboardControllerUsesVictoriaSubstrate(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	agentServer, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- agentServer.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agent shutdown: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for agent shutdown")
+		}
+	})
+
+	client := localagent.NewClient(agentServer.Paths().SocketPath)
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind: localagent.SubstrateVictoria,
+		URLs: map[string]string{
+			"traces": "http://127.0.0.1:10428",
+		},
+		Endpoints: map[string]string{
+			"traces": "http://127.0.0.1:10428/insert/opentelemetry/v1/traces",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := devdash.OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+	controller := &agentDashboardController{store: store, agent: agentServer}
+	victoria := controller.dashboardVictoria()
+	if victoria == nil {
+		t.Fatal("dashboardVictoria returned nil")
+	}
+	if got := victoria.Endpoint("traces"); got != "http://127.0.0.1:10428/insert/opentelemetry/v1/traces" {
+		t.Fatalf("trace endpoint = %q", got)
+	}
+}
+
 func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
 	agentServer, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})

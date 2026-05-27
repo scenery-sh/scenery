@@ -915,6 +915,7 @@ func (g *grafanaComponent) SubstrateRequest(ownerPID int) localagent.UpsertSubst
 	pids := map[string]int{}
 	if g.cmd != nil && g.cmd.Process != nil {
 		pids["server"] = g.cmd.Process.Pid
+		ownerPID = g.cmd.Process.Pid
 	}
 	return localagent.UpsertSubstrateRequest{
 		Kind:     localagent.SubstrateGrafana,

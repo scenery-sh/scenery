@@ -194,6 +194,19 @@ func TestRunOnlavaHarnessJSONFailureIncludesNextAction(t *testing.T) {
 	}
 }
 
+func TestRunHarnessParallelDevStep(t *testing.T) {
+	step := runHarnessParallelDevStep(context.Background(), t.TempDir())
+	if !step.OK {
+		t.Fatalf("parallel dev step failed: error=%s diagnostics=%+v summary=%+v", step.Error, step.Diagnostics, step.Summary)
+	}
+	if got, _ := step.Summary["sessions"].(int); got != 2 {
+		t.Fatalf("sessions summary = %v, want 2", step.Summary["sessions"])
+	}
+	if got, _ := step.Summary["databases"].(int); got != 2 {
+		t.Fatalf("databases summary = %v, want 2", step.Summary["databases"])
+	}
+}
+
 func writeHarnessTestApp(t *testing.T, root, name, body string) {
 	t.Helper()
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"`+name+`","id":"`+name+`-id"}`)

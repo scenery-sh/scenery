@@ -17,6 +17,11 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: onlava runtime / ONLV integration
   - Created: 2026-05-27
   - Focus: make ONLV consume the PRD-5 agent model by default through onlava-owned dev sessions, routes, Postgres, Electric, and docs.
+- [0046 PRD-5 Dev Safety Hardening](0046-prd5-dev-safety-hardening.md)
+  - Status: active
+  - Owner: onlava runtime
+  - Created: 2026-05-27
+  - Focus: finish the remaining PRD-5 hardening around ownership fingerprints, cleanup, explicit sessions, legacy escape hatches, and parallel validation.
 
 ## Agent-Friendly Local Runtime
 

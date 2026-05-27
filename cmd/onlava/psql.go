@@ -18,18 +18,55 @@ type psqlOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: onlava db psql|reset|snapshot [--app-root <path>]")
+		return fmt.Errorf("usage: onlava db psql|reset|drop|snapshot [--app-root <path>]")
 	}
 	switch args[0] {
 	case "psql":
 		return psqlCommandWithOptions(args[1:], true)
 	case "reset":
 		return dbResetCommand(args[1:])
+	case "drop":
+		return dbDropCommand(args[1:])
 	case "snapshot":
 		return dbSnapshotCommand(args[1:])
 	default:
 		return fmt.Errorf("unknown db command %q", args[0])
 	}
+}
+
+func dbDropCommand(args []string) error {
+	opts, err := parseDBResetArgs(args)
+	if err != nil {
+		return err
+	}
+	start, err := resolveAppRoot(opts.AppRoot)
+	if err != nil {
+		return err
+	}
+	appRoot, cfg, err := appcfg.DiscoverRoot(start)
+	if err != nil {
+		return err
+	}
+	baseEnv, err := appEnvWithDotEnv(os.Environ(), appRoot)
+	if err != nil {
+		return err
+	}
+	session, err := currentAgentSessionForAppRoot(context.Background(), appRoot)
+	if err != nil {
+		return err
+	}
+	plan, err := managedPostgresPlanForCurrentSession(context.Background(), appRoot, cfg, baseEnv)
+	if err != nil {
+		return err
+	}
+	if plan == nil {
+		return fmt.Errorf("dev.services.postgres is not configured")
+	}
+	if err := dropManagedPostgresDatabase(context.Background(), plan.AdminURL, plan.DatabaseName); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stdout, "dropped onlava managed database %s for session %s\n", plan.DatabaseName, session.SessionID)
+	return nil
 }
 
 func psqlCommand(args []string) error {

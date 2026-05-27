@@ -232,6 +232,7 @@ func (s *temporalDevServer) SubstrateRequest(ownerPID int) localagent.UpsertSubs
 	pids := map[string]int{}
 	if s.cmd != nil && s.cmd.Process != nil {
 		pids["server"] = s.cmd.Process.Pid
+		ownerPID = s.cmd.Process.Pid
 	}
 	endpoints := map[string]string{
 		"address":   s.info.Address,

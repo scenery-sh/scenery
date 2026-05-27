@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -66,6 +67,7 @@ type managedPostgresServer struct {
 	Port      int
 	Source    string
 	Version   string
+	ownerPID  int
 	cmd       *exec.Cmd
 	done      chan error
 }
@@ -279,6 +281,8 @@ func (s *devSupervisor) ensureManagedElectric(ctx context.Context) error {
 	session, err := s.agent.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:   s.cfg.AppID(),
 		AppRoot:     s.root,
+		SessionID:   s.agentSession.SessionID,
+		Branch:      s.agentSession.Branch,
 		Status:      firstNonEmpty(s.agentSession.Status, "starting"),
 		OwnerPID:    os.Getpid(),
 		AppPID:      s.agentSession.AppPID,
@@ -586,6 +590,10 @@ func envWithManagedPostgresAgentAdminURL(ctx context.Context, env []string, agen
 	if err != nil {
 		return env
 	}
+	if err := verifySubstrateOwner(substrate); err != nil {
+		_, _ = agent.DeleteSubstrate(ctx, localagent.SubstratePostgres)
+		return env
+	}
 	if adminURL := strings.TrimSpace(substrate.URLs["admin"]); adminURL != "" {
 		return append(append([]string(nil), env...), devPostgresAdminURLEnv+"="+adminURL)
 	}
@@ -598,7 +606,7 @@ func ensureLocalManagedPostgresSubstrate(ctx context.Context, cfg app.Config, ag
 	}
 	if substrate, err := agent.GetSubstrate(ctx, localagent.SubstratePostgres); err == nil {
 		if adminURL := strings.TrimSpace(substrate.URLs["admin"]); adminURL != "" {
-			if managedPostgresAdminReachable(ctx, adminURL) && postgresAdminVersionMatches(ctx, adminURL, postgresServiceVersion(cfg)) {
+			if verifySubstrateOwner(substrate) == nil && managedPostgresAdminReachable(ctx, adminURL) && postgresAdminVersionMatches(ctx, adminURL, postgresServiceVersion(cfg)) {
 				return adminURL, nil
 			}
 			_, _ = agent.DeleteSubstrate(ctx, localagent.SubstratePostgres)
@@ -617,7 +625,7 @@ func ensureLocalManagedPostgresSubstrate(ctx context.Context, cfg app.Config, ag
 	if _, err := agent.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
 		Kind:     localagent.SubstratePostgres,
 		Status:   "ready",
-		OwnerPID: os.Getpid(),
+		OwnerPID: serverPID(server),
 		PIDs:     map[string]int{"server": serverPID(server)},
 		URLs:     map[string]string{"admin": server.AdminURL},
 		Endpoints: map[string]string{
@@ -633,6 +641,17 @@ func ensureLocalManagedPostgresSubstrate(ctx context.Context, cfg app.Config, ag
 		return "", err
 	}
 	return server.AdminURL, nil
+}
+
+func verifySubstrateOwner(substrate localagent.Substrate) error {
+	if substrate.Owner.PID <= 0 && substrate.OwnerPID <= 0 {
+		return fmt.Errorf("substrate owner is missing")
+	}
+	owner := substrate.Owner
+	if owner.PID <= 0 {
+		owner.PID = substrate.OwnerPID
+	}
+	return localagent.VerifyOwner(owner)
 }
 
 func postgresServiceVersion(cfg app.Config) string {
@@ -693,7 +712,14 @@ func startLocalManagedPostgresBinary(ctx context.Context, root, version string, 
 	}
 	adminURL := localPostgresAdminURL(socketDir, port)
 	if managedPostgresAdminReachable(ctx, adminURL) {
-		return &managedPostgresServer{AdminURL: adminURL, DataDir: dataDir, SocketDir: socketDir, Port: port, Source: "local-binary", Version: version}, nil
+		if owner, err := verifyManagedPostgresPortOwner(root); err == nil {
+			return &managedPostgresServer{AdminURL: adminURL, DataDir: dataDir, SocketDir: socketDir, Port: port, Source: "local-binary", Version: version, ownerPID: owner.PID}, nil
+		}
+		port, err = resetLocalPostgresPort(root)
+		if err != nil {
+			return nil, err
+		}
+		adminURL = localPostgresAdminURL(socketDir, port)
 	}
 	logFile, err := os.OpenFile(filepath.Join(root, "postgres.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -718,6 +744,7 @@ func startLocalManagedPostgresBinary(ctx context.Context, root, version string, 
 		Port:      port,
 		Source:    "local-binary",
 		Version:   version,
+		ownerPID:  cmd.Process.Pid,
 		cmd:       cmd,
 		done:      make(chan error, 1),
 	}
@@ -727,6 +754,10 @@ func startLocalManagedPostgresBinary(ctx context.Context, root, version string, 
 		_ = logFile.Close()
 	}()
 	if err := waitForManagedPostgres(ctx, server); err != nil {
+		_ = interruptManagedPostgresServer(server)
+		return nil, err
+	}
+	if err := writeManagedPostgresPortOwner(root, localagent.CaptureOwner(cmd.Process.Pid, "managed postgres")); err != nil {
 		_ = interruptManagedPostgresServer(server)
 		return nil, err
 	}
@@ -744,7 +775,14 @@ func startLocalManagedPostgresContainer(ctx context.Context, root, version, dock
 	}
 	adminURL := localPostgresTCPAdminURL(port)
 	if managedPostgresAdminReachable(ctx, adminURL) && postgresAdminVersionMatches(ctx, adminURL, version) {
-		return &managedPostgresServer{AdminURL: adminURL, DataDir: dataDir, Port: port, Source: "docker", Version: version}, nil
+		if owner, err := verifyManagedPostgresPortOwner(root); err == nil {
+			return &managedPostgresServer{AdminURL: adminURL, DataDir: dataDir, Port: port, Source: "docker", Version: version, ownerPID: owner.PID}, nil
+		}
+		port, err = resetLocalPostgresPort(root)
+		if err != nil {
+			return nil, err
+		}
+		adminURL = localPostgresTCPAdminURL(port)
 	}
 	logFile, err := os.OpenFile(filepath.Join(root, "postgres-docker.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -779,6 +817,7 @@ func startLocalManagedPostgresContainer(ctx context.Context, root, version, dock
 		Port:     port,
 		Source:   "docker",
 		Version:  version,
+		ownerPID: cmd.Process.Pid,
 		cmd:      cmd,
 		done:     make(chan error, 1),
 	}
@@ -788,6 +827,10 @@ func startLocalManagedPostgresContainer(ctx context.Context, root, version, dock
 		_ = logFile.Close()
 	}()
 	if err := waitForManagedPostgres(ctx, server); err != nil {
+		_ = interruptManagedPostgresServer(server)
+		return nil, err
+	}
+	if err := writeManagedPostgresPortOwner(root, localagent.CaptureOwner(cmd.Process.Pid, "managed postgres docker")); err != nil {
 		_ = interruptManagedPostgresServer(server)
 		return nil, err
 	}
@@ -815,6 +858,55 @@ func localPostgresPort(root string) (int, error) {
 		return 0, err
 	}
 	return port, nil
+}
+
+func resetLocalPostgresPort(root string) (int, error) {
+	port, err := freeLoopbackPort()
+	if err != nil {
+		return 0, err
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(filepath.Join(root, "port"), []byte(fmt.Sprintf("%d\n", port)), 0o644); err != nil {
+		return 0, err
+	}
+	_ = os.Remove(managedPostgresPortOwnerPath(root))
+	return port, nil
+}
+
+func managedPostgresPortOwnerPath(root string) string {
+	return filepath.Join(root, "owner.json")
+}
+
+func writeManagedPostgresPortOwner(root string, owner localagent.Owner) error {
+	if owner.PID <= 0 {
+		return fmt.Errorf("managed Postgres owner pid is missing")
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(owner, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(managedPostgresPortOwnerPath(root), data, 0o644)
+}
+
+func verifyManagedPostgresPortOwner(root string) (localagent.Owner, error) {
+	data, err := os.ReadFile(managedPostgresPortOwnerPath(root))
+	if err != nil {
+		return localagent.Owner{}, err
+	}
+	var owner localagent.Owner
+	if err := json.Unmarshal(data, &owner); err != nil {
+		return localagent.Owner{}, err
+	}
+	if err := localagent.VerifyOwner(owner); err != nil {
+		return localagent.Owner{}, err
+	}
+	return owner, nil
 }
 
 func managedPostgresServerArgs() []string {
@@ -967,7 +1059,13 @@ func interruptManagedPostgresServer(server *managedPostgresServer) error {
 }
 
 func serverPID(server *managedPostgresServer) int {
-	if server == nil || server.cmd == nil || server.cmd.Process == nil {
+	if server == nil {
+		return 0
+	}
+	if server.ownerPID > 0 {
+		return server.ownerPID
+	}
+	if server.cmd == nil || server.cmd.Process == nil {
 		return 0
 	}
 	return server.cmd.Process.Pid
@@ -1186,6 +1284,25 @@ func resetManagedPostgresDatabase(ctx context.Context, adminURL, dbName string) 
 		return err
 	}
 	return nil
+}
+
+func dropManagedPostgresDatabase(ctx context.Context, adminURL, dbName string) error {
+	db, err := sql.Open("postgres", adminURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("managed Postgres admin connection failed: %w", err)
+	}
+	quoted := pq.QuoteIdentifier(dbName)
+	if _, err := db.ExecContext(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, dbName); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoted)
+	return err
 }
 
 func createPostgresDatabaseIfMissing(ctx context.Context, db *sql.DB, dbName string) error {

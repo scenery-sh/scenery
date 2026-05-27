@@ -37,9 +37,10 @@ type ProxyConfig struct {
 }
 
 type FrontendConfig struct {
-	Host     string `json:"host"`
-	Root     string `json:"root"`
-	Upstream string `json:"upstream"`
+	Host                string `json:"host"`
+	Root                string `json:"root"`
+	Upstream            string `json:"upstream"`
+	AllowSharedUpstream bool   `json:"allow_shared_upstream"`
 }
 
 type DevConfig struct {

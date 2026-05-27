@@ -33,15 +33,11 @@ type Paths struct {
 func DefaultPaths() (Paths, error) {
 	home := strings.TrimSpace(os.Getenv(envAgentHome))
 	if home == "" {
-		if cacheRoot := strings.TrimSpace(os.Getenv("ONLAVA_DEV_CACHE_DIR")); cacheRoot != "" {
-			home = filepath.Join(cacheRoot, "agent-home")
-		} else {
-			userHome, err := os.UserHomeDir()
-			if err != nil {
-				return Paths{}, err
-			}
-			home = filepath.Join(userHome, ".onlava")
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return Paths{}, err
 		}
+		home = filepath.Join(userHome, ".onlava")
 	}
 	home = filepath.Clean(home)
 	runDir := filepath.Join(home, "run")

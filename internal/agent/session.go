@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -25,10 +26,23 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		return Session{}, fmt.Errorf("base_app_id must not be empty")
 	}
 	branch := strings.TrimSpace(req.Branch)
+	requestedSessionID, err := NormalizeSessionID(req.SessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if branch == "" && requestedSessionID != "" && existing != nil && existing.SessionID == requestedSessionID {
+		branch = existing.Branch
+	}
 	if branch == "" {
 		branch = discoverGitBranch(appRoot)
 	}
 	sessionID := SessionID(appRoot, branch)
+	if requestedSessionID != "" {
+		sessionID = requestedSessionID
+	}
+	if existing != nil && filepath.Clean(existing.AppRoot) != appRoot {
+		return Session{}, fmt.Errorf("session %q already belongs to app root %s", sessionID, existing.AppRoot)
+	}
 	now := time.Now().UTC()
 	createdAt := now
 	if existing != nil && !existing.CreatedAt.IsZero() {
@@ -42,6 +56,15 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 	if reportToken == "" && existing != nil {
 		reportToken = existing.ReportToken
 	}
+	ownerPID := req.OwnerPID
+	if ownerPID == 0 && existing != nil {
+		ownerPID = existing.OwnerPID
+	}
+	owner := req.Owner
+	if owner.PID == 0 && existing != nil && existing.Owner.PID > 0 {
+		owner = existing.Owner
+	}
+	owner = OwnerFromRequest(ownerPID, owner, "onlava dev")
 	backends := copyBackends(req.Backends)
 	routes := routesForSession(sessionID, routerAddr, routerScheme, backends)
 	session := Session{
@@ -53,7 +76,8 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		StateRoot:     StateRoot(appRoot, sessionID),
 		Branch:        branch,
 		Status:        status,
-		OwnerPID:      req.OwnerPID,
+		OwnerPID:      ownerPID,
+		Owner:         owner,
 		AppPID:        strings.TrimSpace(req.AppPID),
 		Routes:        routes,
 		Backends:      backends,
@@ -78,6 +102,30 @@ func SessionID(appRoot, branch string) string {
 		label = strings.Trim(label[:48], "-")
 	}
 	return label + "-" + suffix
+}
+
+func UniqueSessionID(appRoot, branch string) (string, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		branch = discoverGitBranch(appRoot)
+	}
+	base := SessionID(appRoot, branch)
+	var buf [4]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	if len(base) > 55 {
+		base = strings.Trim(base[:55], "-")
+	}
+	return base + "-" + hex.EncodeToString(buf[:]), nil
+}
+
+func NormalizeSessionID(value string) (string, error) {
+	id := sanitizeLabel(value)
+	if strings.TrimSpace(value) != "" && id == "" {
+		return "", fmt.Errorf("invalid session id %q", value)
+	}
+	return id, nil
 }
 
 func sanitizeLabel(value string) string {

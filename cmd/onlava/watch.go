@@ -201,9 +201,18 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 	if listen.Addr != "" {
 		backends[localagent.RouteAPI] = localagent.Backend{Network: "tcp", Addr: listen.Addr}
 	}
+	sessionID := strings.TrimSpace(listen.SessionID)
+	if listen.NewSession {
+		generated, err := localagent.UniqueSessionID(root, "")
+		if err != nil {
+			return nil, nil, devBackend{}, restore, err
+		}
+		sessionID = generated
+	}
 	session, err := client.Register(ctx, localagent.RegisterRequest{
 		BaseAppID: cfg.AppID(),
 		AppRoot:   root,
+		SessionID: sessionID,
 		Status:    "starting",
 		OwnerPID:  os.Getpid(),
 		Backends:  backends,
@@ -221,6 +230,8 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 		session, err = client.Register(ctx, localagent.RegisterRequest{
 			BaseAppID: cfg.AppID(),
 			AppRoot:   root,
+			SessionID: session.SessionID,
+			Branch:    session.Branch,
 			Status:    "starting",
 			OwnerPID:  os.Getpid(),
 			Backends:  backends,
@@ -245,6 +256,8 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 		session, err = client.Register(ctx, localagent.RegisterRequest{
 			BaseAppID: cfg.AppID(),
 			AppRoot:   root,
+			SessionID: session.SessionID,
+			Branch:    session.Branch,
 			Status:    "starting",
 			OwnerPID:  os.Getpid(),
 			Backends:  backends,

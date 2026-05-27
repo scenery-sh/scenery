@@ -56,18 +56,44 @@ func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app
 			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: process.Addr}
 			continue
 		}
-		upstream := normalizeManagedTCPUpstream(frontend.Upstream)
-		if upstream == "" {
-			upstream = localproxy.DiscoverFrontendUpstream(root, frontend)
+		if frontend.AllowSharedUpstream {
+			upstream := normalizeManagedTCPUpstream(frontend.Upstream)
+			if upstream != "" {
+				backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: upstream}
+				continue
+			}
+			return nil, nil, fmt.Errorf("start managed frontend %q: allow_shared_upstream is true but no upstream is configured", frontend.Name)
 		}
-		if upstream != "" {
-			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: upstream}
+		if err == nil {
+			err = fmt.Errorf("managed frontend did not start")
 		}
+		if strings.TrimSpace(frontend.Upstream) != "" {
+			return nil, nil, fmt.Errorf("start managed frontend %q: %w; configured upstream is ignored unless allow_shared_upstream is true or %s is set", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
+		}
+		return nil, nil, fmt.Errorf("start managed frontend %q: %w; set %s for a manual upstream", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
 	}
 	if len(backends) == 0 {
 		backends = nil
 	}
 	return backends, processes, nil
+}
+
+func frontendOverrideEnvName(name string) string {
+	name = strings.ToUpper(strings.TrimSpace(name))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range name {
+		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return "ONLAVA_FRONTEND_" + strings.Trim(b.String(), "_") + "_ADDR"
 }
 
 func startManagedFrontendProcess(ctx context.Context, appRoot string, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) (*managedFrontendProcess, error) {

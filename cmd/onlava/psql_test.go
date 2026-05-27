@@ -28,7 +28,7 @@ func TestParsePSQLArgsRequiresAppRootValue(t *testing.T) {
 }
 
 func TestDBCommandRejectsMissingOrUnknownSubcommand(t *testing.T) {
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: onlava db psql|reset|snapshot [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: onlava db psql|reset|drop|snapshot [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
 	if err := dbCommand([]string{"vacuum"}); err == nil || err.Error() != `unknown db command "vacuum"` {

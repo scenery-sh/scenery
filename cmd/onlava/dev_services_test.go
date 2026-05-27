@@ -123,8 +123,9 @@ func TestManagedPostgresAdminURLCanComeFromAgentSubstrate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
-		Kind: localagent.SubstratePostgres,
-		URLs: map[string]string{"admin": "postgres://localhost/postgres"},
+		Kind:     localagent.SubstratePostgres,
+		OwnerPID: os.Getpid(),
+		URLs:     map[string]string{"admin": "postgres://localhost/postgres"},
 	}); err != nil {
 		t.Fatal(err)
 	}
