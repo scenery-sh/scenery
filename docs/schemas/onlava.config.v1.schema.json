@@ -73,7 +73,11 @@
         "namespace": { "type": "string" },
         "address_env": { "type": "string" },
         "task_queue_prefix": { "type": "string" },
-        "local": { "$ref": "#/$defs/temporalLocal" }
+        "payload_codec": { "type": "string" },
+        "api_key_env": { "type": "string" },
+        "tls": { "$ref": "#/$defs/temporalTLS" },
+        "local": { "$ref": "#/$defs/temporalLocal" },
+        "typescript": { "$ref": "#/$defs/temporalTypeScript" }
       },
       "additionalProperties": false
     }
@@ -149,6 +153,26 @@
       "properties": {
         "auto_start": { "type": "boolean" },
         "db_filename": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "temporalTLS": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "server_name_env": { "type": "string" },
+        "ca_cert_file_env": { "type": "string" },
+        "client_cert_file_env": { "type": "string" },
+        "client_key_file_env": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "temporalTypeScript": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "runtime": { "type": "string", "enum": ["bun", "node"] },
+        "auto_start": { "type": "boolean" }
       },
       "additionalProperties": false
     }

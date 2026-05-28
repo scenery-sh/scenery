@@ -16,6 +16,7 @@ import (
 	"github.com/pbrazdil/onlava/internal/build"
 	inspectdata "github.com/pbrazdil/onlava/internal/inspect"
 	"github.com/pbrazdil/onlava/internal/parse"
+	"github.com/pbrazdil/onlava/internal/workers"
 )
 
 type checkOptions struct {
@@ -86,6 +87,9 @@ func runOnlavaCheck(ctx context.Context, stdout io.Writer, args []string) error 
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "parse", err)
 	}
 	appInfo.ModulePath = model.ModulePath
+	if diagnostics := typeScriptTemporalDiagnostics(appRoot, model); len(diagnostics) > 0 {
+		return renderCheckFailure(stdout, opts.JSON, appInfo, "temporal-typescript", workers.DiagnosticsError(diagnostics))
+	}
 
 	result, err := build.Prepare(appRoot, model, cfg, build.PrepareOptions{})
 	if err != nil {
@@ -307,6 +311,8 @@ func suggestedActionForDiagnostic(stage, message string) string {
 		return "Fix the source or onlava directive error, then rerun `onlava check --json`."
 	case stage == "prepare":
 		return "Fix the generated workspace or dependency setup issue, then rerun `onlava check --json`."
+	case stage == "temporal-typescript":
+		return "Fix the TypeScript Temporal worker declaration or matching Go external activity, then rerun `onlava check --json`."
 	default:
 		return "Fix the compile error, then rerun `onlava check --json`."
 	}

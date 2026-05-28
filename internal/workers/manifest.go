@@ -115,6 +115,12 @@ func manifestPaths(appRoot string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	generated := filepath.Join(appRoot, TypeScriptWorkerGeneratedRelDir, "manifest.json")
+	if _, err := os.Stat(generated); err == nil {
+		matches = append(matches, generated)
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	slices.Sort(matches)
 	return matches, nil
 }

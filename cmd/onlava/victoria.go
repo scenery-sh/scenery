@@ -98,7 +98,8 @@ func victoriaStackFromSubstrate(substrate localagent.Substrate) *victoriaStack {
 		return nil
 	}
 	stack := &victoriaStack{}
-	for _, spec := range victoriaComponentSpecs() {
+	specs := victoriaComponentSpecs()
+	for _, spec := range specs {
 		endpoint := strings.TrimSpace(substrate.Endpoints[spec.Name])
 		baseURL := strings.TrimSpace(substrate.URLs[spec.Name])
 		if endpoint == "" && baseURL != "" {
@@ -117,7 +118,7 @@ func victoriaStackFromSubstrate(substrate localagent.Substrate) *victoriaStack {
 			external:    true,
 		})
 	}
-	if len(stack.components) == 0 {
+	if len(stack.components) != len(specs) {
 		return nil
 	}
 	return stack
@@ -340,6 +341,11 @@ func startVictoriaComponent(ctx context.Context, root, binDir string, spec victo
 		component.done <- cmd.Wait()
 		close(component.done)
 	}()
+	if err := waitForVictoriaComponentReady(ctx, component, 5*time.Second); err != nil {
+		_ = interruptProcessTree(cmd)
+		_ = waitOrKillVictoriaComponent(component, time.Second)
+		return nil, err
+	}
 	if console != nil && console.verbose {
 		console.Event("victoria.start", map[string]any{
 			"component":    spec.Name,
@@ -350,6 +356,36 @@ func startVictoriaComponent(ctx context.Context, root, binDir string, spec victo
 		})
 	}
 	return component, nil
+}
+
+func waitForVictoriaComponentReady(ctx context.Context, component *victoriaComponent, timeout time.Duration) error {
+	if component == nil {
+		return fmt.Errorf("Victoria component is nil")
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if urlAcceptsTCP(component.baseURL) {
+			return nil
+		}
+		select {
+		case err, ok := <-component.done:
+			if !ok {
+				return fmt.Errorf("%s exited before accepting TCP connections", component.spec.DisplayName)
+			}
+			if err != nil {
+				return fmt.Errorf("%s exited before accepting TCP connections: %w", component.spec.DisplayName, err)
+			}
+			return fmt.Errorf("%s exited before accepting TCP connections", component.spec.DisplayName)
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("%s did not accept TCP connections at %s within %s", component.spec.DisplayName, component.baseURL, timeout)
+		case <-ticker.C:
+		}
+	}
 }
 
 func resolveVictoriaBinary(ctx context.Context, spec victoriaComponentSpec, binDir string, download bool) (string, error) {

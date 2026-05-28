@@ -37,6 +37,7 @@ const (
 	grafanaOverviewUID      = "onlava-dev-overview"
 	grafanaLogsDashboardUID = "onlava-dev-logs"
 	grafanaEndpointUID      = "onlava-dev-endpoint"
+	grafanaTemporalUID      = "onlava-dev-temporal"
 )
 
 type grafanaMode string
@@ -74,6 +75,7 @@ type grafanaConfig struct {
 	OverviewDashboard string
 	LogsDashboard     string
 	EndpointDashboard string
+	TemporalDashboard string
 }
 
 type grafanaComponent struct {
@@ -229,7 +231,7 @@ func startGrafanaForDevWithRoot(ctx context.Context, root string, victoria *vict
 	if console != nil {
 		console.Event("grafana.ready", map[string]any{
 			"url":        cfg.URL,
-			"dashboards": []string{grafanaOverviewUID, grafanaLogsDashboardUID, grafanaEndpointUID},
+			"dashboards": []string{grafanaOverviewUID, grafanaLogsDashboardUID, grafanaEndpointUID, grafanaTemporalUID},
 		})
 	}
 	return component, nil
@@ -275,6 +277,7 @@ func newGrafanaConfigForRoot(root string, victoria *victoriaStack, publicURL str
 		OverviewDashboard: grafanaOverviewUID,
 		LogsDashboard:     grafanaLogsDashboardUID,
 		EndpointDashboard: grafanaEndpointUID,
+		TemporalDashboard: grafanaTemporalUID,
 	}
 	if victoria.BaseURL("traces") == "" {
 		cfg.TracesURL = ""
@@ -428,7 +431,7 @@ func verifyGrafanaAssets(ctx context.Context, cfg grafanaConfig) error {
 			return fmt.Errorf("traces datasource %s: %w", cfg.TracesDatasource, err)
 		}
 	}
-	for _, uid := range []string{cfg.OverviewDashboard, cfg.LogsDashboard, cfg.EndpointDashboard} {
+	for _, uid := range []string{cfg.OverviewDashboard, cfg.LogsDashboard, cfg.EndpointDashboard, cfg.TemporalDashboard} {
 		if err := grafanaAPIReady(ctx, cfg.URL, "/api/dashboards/uid/"+url.PathEscape(uid)); err != nil {
 			return fmt.Errorf("dashboard %s: %w", uid, err)
 		}
@@ -816,6 +819,7 @@ func grafanaState(cfg grafanaConfig, status, message string) devdash.GrafanaStat
 		{UID: grafanaOverviewUID, Title: "onlava dev overview", URL: grafanaDashboardURL(baseURL, grafanaOverviewUID)},
 		{UID: grafanaLogsDashboardUID, Title: "onlava dev logs", URL: grafanaDashboardURL(baseURL, grafanaLogsDashboardUID)},
 		{UID: grafanaEndpointUID, Title: "onlava dev endpoint", URL: grafanaDashboardURL(baseURL, grafanaEndpointUID)},
+		{UID: grafanaTemporalUID, Title: "onlava dev temporal", URL: grafanaDashboardURL(baseURL, grafanaTemporalUID)},
 	}
 	datasources := map[string]string{}
 	datasourceStatus := map[string]string{}
@@ -842,6 +846,7 @@ func grafanaState(cfg grafanaConfig, status, message string) devdash.GrafanaStat
 		OverviewURL:      dashboards[0].URL,
 		LogsURL:          dashboards[1].URL,
 		EndpointURL:      dashboards[2].URL,
+		TemporalURL:      dashboards[3].URL,
 		ConfigPath:       cfg.ConfigPath,
 		ProvisioningPath: cfg.ProvisioningDir,
 		DashboardsPath:   cfg.DashboardsDir,
@@ -855,6 +860,7 @@ func grafanaState(cfg grafanaConfig, status, message string) devdash.GrafanaStat
 		state.OverviewURL = ""
 		state.LogsURL = ""
 		state.EndpointURL = ""
+		state.TemporalURL = ""
 		state.Dashboards = nil
 		state.Datasources = nil
 		state.DatasourceStatus = nil
@@ -888,6 +894,7 @@ func grafanaStateWithBaseURL(state devdash.GrafanaState, baseURL string) devdash
 	state.OverviewURL = grafanaDashboardURL(baseURL, grafanaOverviewUID)
 	state.LogsURL = grafanaDashboardURL(baseURL, grafanaLogsDashboardUID)
 	state.EndpointURL = grafanaDashboardURL(baseURL, grafanaEndpointUID)
+	state.TemporalURL = grafanaDashboardURL(baseURL, grafanaTemporalUID)
 	for i := range state.Dashboards {
 		state.Dashboards[i].URL = grafanaDashboardURL(baseURL, state.Dashboards[i].UID)
 	}

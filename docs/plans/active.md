@@ -22,6 +22,16 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: onlava runtime
   - Created: 2026-05-27
   - Focus: finish the remaining PRD-5 hardening around ownership fingerprints, cleanup, explicit sessions, legacy escape hatches, and parallel validation.
+- [0048 Agent Runtime Operational Hardening](0048-agent-runtime-operational-hardening.md)
+  - Status: active
+  - Owner: onlava runtime / ONLV integration
+  - Created: 2026-05-27
+  - Focus: close the remaining agent-runtime edges around devdash storage, DB-aware GC, non-destructive restart, legacy proxy opt-in, setup policy, and the two-worktree gate.
+- [0047 TypeScript Temporal Workers](0047-typescript-temporal-workers.md)
+  - Status: active
+  - Owner: onlava runtime / Temporal
+  - Created: 2026-05-27
+  - Focus: domain-local TypeScript Temporal activities, generated worker runtime files, external Go activity declarations, and validation.
 
 ## Agent-Friendly Local Runtime
 

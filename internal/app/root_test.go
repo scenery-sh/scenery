@@ -47,7 +47,7 @@ func TestDiscoverRootAcceptsLegacyID(t *testing.T) {
 
 func TestDiscoverRootAcceptsTemporalConfig(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"temporalapp","temporal":{"enabled":true,"mode":"local","namespace":"default","address_env":"TEMPORAL_ADDRESS","task_queue_prefix":"onlava.temporalapp","payload_codec":"onlava-json-v1","api_key_env":"TEMPORAL_API_KEY","tls":{"enabled":true,"server_name_env":"TEMPORAL_TLS_SERVER_NAME","ca_cert_file_env":"TEMPORAL_TLS_CA_CERT_FILE","client_cert_file_env":"TEMPORAL_TLS_CERT_FILE","client_key_file_env":"TEMPORAL_TLS_KEY_FILE"},"local":{"auto_start":true,"db_filename":".onlava/temporal/dev.sqlite"}}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"temporalapp","temporal":{"enabled":true,"mode":"local","namespace":"default","address_env":"TEMPORAL_ADDRESS","task_queue_prefix":"onlava.temporalapp","payload_codec":"onlava-json-v1","api_key_env":"TEMPORAL_API_KEY","tls":{"enabled":true,"server_name_env":"TEMPORAL_TLS_SERVER_NAME","ca_cert_file_env":"TEMPORAL_TLS_CA_CERT_FILE","client_cert_file_env":"TEMPORAL_TLS_CERT_FILE","client_key_file_env":"TEMPORAL_TLS_KEY_FILE"},"local":{"auto_start":true,"db_filename":".onlava/temporal/dev.sqlite"},"typescript":{"enabled":true,"runtime":"bun","auto_start":true}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,6 +72,9 @@ func TestDiscoverRootAcceptsTemporalConfig(t *testing.T) {
 	}
 	if cfg.Temporal.Local.DBFilename != ".onlava/temporal/dev.sqlite" {
 		t.Fatalf("temporal local db = %q", cfg.Temporal.Local.DBFilename)
+	}
+	if !cfg.Temporal.TypeScript.Enabled || cfg.Temporal.TypeScript.Runtime != "bun" || !cfg.Temporal.TypeScript.AutoStart {
+		t.Fatalf("temporal typescript = %+v", cfg.Temporal.TypeScript)
 	}
 }
 

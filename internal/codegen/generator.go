@@ -338,7 +338,7 @@ func appUsesTemporalRuntime(appModel *model.App) bool {
 	}
 	for _, decl := range appModel.Runtime {
 		switch decl.Kind {
-		case model.RuntimeDeclarationTemporalWorkflow, model.RuntimeDeclarationTemporalActivity, model.RuntimeDeclarationCronJob:
+		case model.RuntimeDeclarationTemporalWorkflow, model.RuntimeDeclarationTemporalActivity, model.RuntimeDeclarationTemporalExternalActivity, model.RuntimeDeclarationCronJob:
 			return true
 		}
 	}

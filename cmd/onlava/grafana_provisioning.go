@@ -36,6 +36,8 @@ func renderGrafanaINI(cfg grafanaConfig) ([]byte, error) {
 	fmt.Fprintf(&buf, "[auth.anonymous]\n")
 	fmt.Fprintf(&buf, "enabled = true\n")
 	fmt.Fprintf(&buf, "org_role = Viewer\n\n")
+	fmt.Fprintf(&buf, "[users]\n")
+	fmt.Fprintf(&buf, "viewers_can_edit = true\n\n")
 	fmt.Fprintf(&buf, "[analytics]\n")
 	fmt.Fprintf(&buf, "reporting_enabled = false\n")
 	fmt.Fprintf(&buf, "check_for_updates = false\n\n")
@@ -167,6 +169,7 @@ func grafanaDashboardFiles(cfg grafanaConfig) map[string][]byte {
 		{name: "onlava-overview.json", model: grafanaOverviewDashboard(cfg)},
 		{name: "onlava-logs.json", model: grafanaLogsDashboard(cfg)},
 		{name: "onlava-endpoint.json", model: grafanaEndpointDashboard(cfg)},
+		{name: "onlava-temporal.json", model: grafanaTemporalDashboard(cfg)},
 	} {
 		data, err := json.MarshalIndent(dashboard.model, "", "  ")
 		if err != nil {
@@ -186,8 +189,14 @@ func grafanaOverviewDashboard(cfg grafanaConfig) map[string]any {
 		timeSeriesPanel(3, "Request duration", []any{metricTarget(requestDuration)}, 0, 4, 12, 8),
 		timeSeriesPanel(4, "Errors", []any{metricTarget(fmt.Sprintf(`count_over_time(%s[5m])`, errorDuration))}, 12, 0, 12, 6),
 		logsPanel(5, "Recent warnings and errors", `{level=~"warn|warning|error|fatal"}`, 12, 6, 12, 6),
+		traceSearchPanel(6, "Request traces", "$app", "onlava.trace.type=REQUEST", 0, 12, 24, 8),
 	})
-	dashboard["templating"] = grafanaSessionTemplating(grafanaRequestDurationMetricName)
+	dashboard["templating"] = map[string]any{
+		"list": []any{
+			sessionVariable(grafanaRequestDurationMetricName),
+			appVariable(grafanaRequestDurationMetricName),
+		},
+	}
 	return dashboard
 }
 
@@ -214,6 +223,27 @@ func grafanaEndpointDashboard(cfg grafanaConfig) map[string]any {
 			sessionVariable(requestDuration),
 			queryVariable("service", fmt.Sprintf(`label_values(%s, onlava_service)`, grafanaMetricSelector(requestDuration, `onlava_session_id=~"$session"`))),
 			queryVariable("endpoint", fmt.Sprintf(`label_values(%s, onlava_endpoint)`, grafanaMetricSelector(requestDuration, `onlava_session_id=~"$session"`, `onlava_service="$service"`))),
+		},
+	}
+	return dashboard
+}
+
+func grafanaTemporalDashboard(cfg grafanaConfig) map[string]any {
+	requestDuration := grafanaRequestDurationMetricName
+	temporalDuration := grafanaMetricSelector(requestDuration, `onlava_session_id=~"$session"`, `onlava_temporal="true"`)
+	temporalErrors := grafanaMetricSelector(requestDuration, `onlava_session_id=~"$session"`, `onlava_temporal="true"`, `onlava_is_error="true"`)
+	dashboard := baseGrafanaDashboard(grafanaTemporalUID, "onlava dev temporal", []any{
+		statPanel(1, "Temporal spans", metricTarget(fmt.Sprintf("count_over_time(%s[15m])", temporalDuration)), 0, 0, 6, 4),
+		statPanel(2, "Latest duration", metricTarget(temporalDuration), 6, 0, 6, 4),
+		timeSeriesPanel(3, "Temporal duration", []any{metricTarget(temporalDuration)}, 0, 4, 12, 8),
+		timeSeriesPanel(4, "Temporal errors", []any{metricTarget(fmt.Sprintf("count_over_time(%s[5m])", temporalErrors))}, 12, 0, 12, 6),
+		traceSearchPanel(5, "Temporal traces", "$app", "onlava.temporal=true", 12, 6, 12, 8),
+		logsPanel(6, "Temporal logs", "*", 0, 12, 24, 6),
+	})
+	dashboard["templating"] = map[string]any{
+		"list": []any{
+			sessionVariable(requestDuration),
+			appVariable(requestDuration),
 		},
 	}
 	return dashboard
@@ -336,6 +366,12 @@ func sessionVariable(metric string) map[string]any {
 	return variable
 }
 
+func appVariable(metric string) map[string]any {
+	variable := queryVariable("app", fmt.Sprintf(`label_values(%s, onlava_app)`, metric))
+	variable["label"] = "App"
+	return variable
+}
+
 func metricDatasourceRef() map[string]any {
 	return map[string]any{
 		"type": "victoriametrics-metrics-datasource",
@@ -347,6 +383,34 @@ func logsDatasourceRef() map[string]any {
 	return map[string]any{
 		"type": "victoriametrics-logs-datasource",
 		"uid":  grafanaLogsUID,
+	}
+}
+
+func tracesDatasourceRef() map[string]any {
+	return map[string]any{
+		"type": "jaeger",
+		"uid":  grafanaTracesUID,
+	}
+}
+
+func traceSearchPanel(id int, title, service, tags string, x, y, w, h int) map[string]any {
+	return map[string]any{
+		"id":         id,
+		"type":       "table",
+		"title":      title,
+		"datasource": tracesDatasourceRef(),
+		"targets": []any{
+			map[string]any{
+				"refId":     "A",
+				"queryType": "search",
+				"service":   service,
+				"tags":      tags,
+				"limit":     20,
+			},
+		},
+		"gridPos":     gridPos(x, y, w, h),
+		"fieldConfig": map[string]any{"defaults": map[string]any{}, "overrides": []any{}},
+		"options":     map[string]any{"showHeader": true},
 	}
 }
 

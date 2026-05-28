@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -15,6 +16,7 @@ import (
 	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/devdash"
+	"github.com/pbrazdil/onlava/internal/workers"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
 )
 
@@ -75,7 +77,7 @@ func TestSessionTemporalEnvUsesAgentSession(t *testing.T) {
 	env := s.sessionTemporalEnv()
 	for _, want := range []string{
 		"ONLAVA_TEMPORAL_TASK_QUEUE_PREFIX=onlava.demo.feature-a-123abc",
-		"ONLAVA_TEMPORAL_DEPLOYMENT_NAME=onlava.demo.feature-a-123abc",
+		"ONLAVA_TEMPORAL_DEPLOYMENT_NAME=onlava-demo-feature-a-123abc",
 		"ONLAVA_BUILD_ID=feature-a-123abc",
 	} {
 		if !containsString(env, want) {
@@ -298,6 +300,95 @@ func TestTemporalDevHelpers(t *testing.T) {
 	}
 }
 
+func TestTypeScriptWorkerAutoStartEnablesTemporalDevServer(t *testing.T) {
+	cfg := app.Config{
+		Name: "demo",
+		Temporal: app.TemporalConfig{
+			TypeScript: app.TemporalTypeScript{
+				Enabled:   true,
+				AutoStart: true,
+			},
+		},
+	}
+	ts := workers.TypeScriptWorkerModel{Activities: []workers.TypeScriptActivity{{
+		Name:      "house.RenderRoofPreview/v1",
+		TaskQueue: "onlv.house.preview.ts",
+	}}}
+
+	got := effectiveDevConfigForTypeScriptWorker(cfg, ts)
+	if !got.Temporal.Enabled || got.Temporal.Mode != "local" || !got.Temporal.Local.AutoStart {
+		t.Fatalf("effective TypeScript Temporal dev config = %+v", got.Temporal)
+	}
+}
+
+func TestTypeScriptWorkerAutoStartRequiresActivity(t *testing.T) {
+	cfg := app.Config{
+		Name: "demo",
+		Temporal: app.TemporalConfig{
+			TypeScript: app.TemporalTypeScript{
+				Enabled:   true,
+				AutoStart: true,
+			},
+		},
+	}
+	if typeScriptWorkerAutoStartEnabled(cfg, workers.TypeScriptWorkerModel{}) {
+		t.Fatal("typeScriptWorkerAutoStartEnabled returned true without activities")
+	}
+}
+
+func TestTypeScriptWorkerEnvUsesTemporalAndSessionOverrides(t *testing.T) {
+	s := &devSupervisor{
+		root: "/tmp/onlv-demo",
+		cfg: app.Config{
+			Name: "demo",
+			Temporal: app.TemporalConfig{
+				Enabled: true,
+			},
+		},
+		status:   devdash.AppRecord{ID: "demo"},
+		temporal: &temporalDevServer{info: onlavaRuntimeInfoForTest()},
+		agentSession: &localagent.Session{
+			SessionID:    "feature-a-123abc",
+			BaseAppID:    "demo",
+			RuntimeAppID: "demo--feature-a-123abc",
+			AppRoot:      "/tmp/onlv-demo",
+			Branch:       "feature/a",
+		},
+	}
+
+	env := s.typeScriptWorkerEnv([]string{
+		"TEMPORAL_ADDRESS=old:7233",
+		"ONLAVA_BUILD_ID=old-build",
+	})
+	for _, want := range []string{
+		"TEMPORAL_ADDRESS=127.0.0.1:7233",
+		"TEMPORAL_NAMESPACE=orders",
+		"ONLAVA_APP_ID=demo",
+		"ONLAVA_APP_ROOT=/tmp/onlv-demo",
+		"ONLAVA_ROLE=typescript-worker",
+		fmt.Sprintf("ONLAVA_DEV_SUPERVISOR_PID=%d", os.Getpid()),
+		"ONLAVA_TEMPORAL_TASK_QUEUE_PREFIX=onlava.demo.feature-a-123abc",
+		"ONLAVA_TEMPORAL_DEPLOYMENT_NAME=onlava-demo-feature-a-123abc",
+		"ONLAVA_BUILD_ID=feature-a-123abc",
+		"ONLAVA_SESSION_ID=feature-a-123abc",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("typeScriptWorkerEnv() = %v, missing %q", env, want)
+		}
+	}
+	if countEnvKey(env, "ONLAVA_BUILD_ID") != 1 || countEnvKey(env, "TEMPORAL_ADDRESS") != 1 {
+		t.Fatalf("typeScriptWorkerEnv() has duplicate overrides: %v", env)
+	}
+}
+
+func TestCompactEnvOverridesKeepsLastValue(t *testing.T) {
+	got := compactEnvOverrides([]string{"A=1", "B=2", "A=3"})
+	want := []string{"B=2", "A=3"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("compactEnvOverrides() = %v, want %v", got, want)
+	}
+}
+
 func TestTemporalSubstrateRoundTrip(t *testing.T) {
 	server := &temporalDevServer{
 		info:   onlavaRuntimeInfoForTest(),
@@ -338,6 +429,17 @@ func TestTemporalSubstrateRoundTrip(t *testing.T) {
 	}
 }
 
+func countEnvKey(env []string, key string) int {
+	prefix := key + "="
+	count := 0
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			count++
+		}
+	}
+	return count
+}
+
 func TestFrontendURLsFromAgentRoutes(t *testing.T) {
 	urls := frontendURLsFromAgentRoutes(map[string]string{
 		localagent.RouteAPI:       "http://api.session.onlava.localhost",
@@ -375,7 +477,7 @@ func TestBackendFromHTTPURL(t *testing.T) {
 	}
 }
 
-func TestDevReportURLUsesAgentDashboardRoute(t *testing.T) {
+func TestDevReportURLUsesLocalDashboardReportEndpoint(t *testing.T) {
 	s := &devSupervisor{
 		agentSession: &localagent.Session{
 			Routes: map[string]string{
@@ -383,7 +485,44 @@ func TestDevReportURLUsesAgentDashboardRoute(t *testing.T) {
 			},
 		},
 	}
-	if got, want := s.devReportURL(), "http://console.session.onlava.localhost:4100/__onlava/report"; got != want {
+	if got, want := s.devReportURL(), "http://127.0.0.1:9401/__onlava/report"; got != want {
+		t.Fatalf("devReportURL() = %q, want %q", got, want)
+	}
+}
+
+func TestDevReportURLUsesAgentDashboardBackend(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	server, err := localagent.NewServer(localagent.RunOptions{
+		RouterAddr: "127.0.0.1:0",
+		DashboardBackend: localagent.Backend{
+			Network: "tcp",
+			Addr:    "127.0.0.1:45678",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+	defer func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agent shutdown: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for agent shutdown")
+		}
+	}()
+
+	client := localagent.NewClient(server.Paths().SocketPath)
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	s := &devSupervisor{agent: client}
+	if got, want := s.devReportURL(), "http://127.0.0.1:45678/__onlava/report"; got != want {
 		t.Fatalf("devReportURL() = %q, want %q", got, want)
 	}
 }

@@ -1,11 +1,12 @@
-import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useDashboard } from "../lib/dashboard-context";
+import { requestTracesURL } from "../lib/grafana";
 import { formatDurationNanos, formatTime } from "../lib/utils";
 
 export function CronPage() {
-  const { appId, meta, traces } = useDashboard();
+  const { meta, status, traces } = useDashboard();
   const jobs = meta?.cron_jobs ?? [];
+  const traceURL = requestTracesURL(status?.grafana);
 
   const items = useMemo(
     () =>
@@ -89,10 +90,16 @@ export function CronPage() {
                         </p>
                       ) : (
                         recent.map((trace) => (
-                          <Link
+                          <a
                             key={trace.trace_id}
-                            to="/$appId/envs/local/traces/$traceId"
-                            params={{ appId, traceId: trace.trace_id }}
+                            href={traceURL || "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => {
+                              if (!traceURL) {
+                                event.preventDefault();
+                              }
+                            }}
                             className="block rounded-md border border-border px-4 py-3 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           >
                             <div className="flex items-center justify-between gap-3">
@@ -105,7 +112,7 @@ export function CronPage() {
                               <span>{formatDurationNanos(trace.duration_nanos)}</span>
                               <span>{formatTime(trace.started_at)}</span>
                             </div>
-                          </Link>
+                          </a>
                         ))
                       )}
                     </div>

@@ -36,6 +36,7 @@ export interface GrafanaState {
   overview_url?: string;
   logs_url?: string;
   endpoint_url?: string;
+  temporal_url?: string;
   config_path?: string;
   provisioning_path?: string;
   dashboards_path?: string;

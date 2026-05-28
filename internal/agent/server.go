@@ -385,11 +385,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, HealthResponse{
-		SchemaVersion: StateSchemaVersion,
-		PID:           os.Getpid(),
-		SocketPath:    s.paths.SocketPath,
-		RouterAddr:    s.routerAddr,
-		RouterScheme:  s.routerScheme,
+		SchemaVersion:    StateSchemaVersion,
+		PID:              os.Getpid(),
+		SocketPath:       s.paths.SocketPath,
+		RouterAddr:       s.routerAddr,
+		RouterScheme:     s.routerScheme,
+		DashboardBackend: s.dashboard,
 	})
 }
 

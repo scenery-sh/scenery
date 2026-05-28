@@ -105,6 +105,7 @@ type TemporalConfig struct {
 	APIKeyEnv       string              `json:"api_key_env"`
 	TLS             TemporalTLSConfig   `json:"tls"`
 	Local           TemporalLocalConfig `json:"local"`
+	TypeScript      TemporalTypeScript  `json:"typescript"`
 }
 
 type TemporalTLSConfig struct {
@@ -118,6 +119,12 @@ type TemporalTLSConfig struct {
 type TemporalLocalConfig struct {
 	AutoStart  bool   `json:"auto_start"`
 	DBFilename string `json:"db_filename"`
+}
+
+type TemporalTypeScript struct {
+	Enabled   bool   `json:"enabled"`
+	Runtime   string `json:"runtime"`
+	AutoStart bool   `json:"auto_start"`
 }
 
 func DiscoverRoot(start string) (string, Config, error) {

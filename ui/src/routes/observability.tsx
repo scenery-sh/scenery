@@ -42,6 +42,7 @@ export function ObservabilityPage() {
               <GrafanaLink href={grafanaAvailable ? grafana?.overview_url : undefined} label="Overview" />
               <GrafanaLink href={grafanaAvailable ? grafana?.logs_url : undefined} label="Logs" />
               <GrafanaLink href={grafanaAvailable ? grafana?.endpoint_url : undefined} label="Endpoint Debugger" />
+              <GrafanaLink href={grafanaAvailable ? grafana?.temporal_url : undefined} label="Temporal" />
             </div>
           </section>
 

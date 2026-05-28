@@ -888,6 +888,7 @@ func discoverRuntimeDeclarations(pkg *model.Package) []*model.RuntimeDeclaration
 				return true
 			}
 			taskQueue, taskQueueExplicit, taskQueueResolved := runtimeDeclarationTaskQueue(pkg, call, kind, aliases)
+			inputType, outputType := runtimeDeclarationTypeArgs(pkg, call)
 			decls = append(decls, &model.RuntimeDeclaration{
 				Package:           pkg,
 				File:              file,
@@ -898,6 +899,8 @@ func discoverRuntimeDeclarations(pkg *model.Package) []*model.RuntimeDeclaration
 				TaskQueue:         taskQueue,
 				TaskQueueExplicit: taskQueueExplicit,
 				TaskQueueResolved: taskQueueResolved,
+				InputType:         inputType,
+				OutputType:        outputType,
 			})
 			return true
 		})
@@ -924,7 +927,7 @@ func runtimeDeclarationTaskQueue(pkg *model.Package, call *ast.CallExpr, kind mo
 			return "", false, false
 		}
 		return temporalConfigTaskQueue(pkg, call.Args[1], "WorkflowConfig", aliases)
-	case model.RuntimeDeclarationTemporalActivity:
+	case model.RuntimeDeclarationTemporalActivity, model.RuntimeDeclarationTemporalExternalActivity:
 		if len(call.Args) <= 1 {
 			return "", false, false
 		}
@@ -1004,9 +1007,9 @@ func validateTemporalRuntimeCalls(pkg *model.Package) []string {
 				return true
 			}
 			switch sel.Sel.Name {
-			case "NewActivity":
+			case "NewActivity", "NewExternalActivity":
 				if len(call.Args) > 1 && temporalActivityConfigHasEmptyTaskQueue(pkg, call.Args[1], aliases) {
-					errs = append(errs, sourceDiagnostic(pkg, call.Lparen, "temporal.NewActivity requires temporal.ActivityConfig.TaskQueue"))
+					errs = append(errs, sourceDiagnostic(pkg, call.Lparen, "temporal."+sel.Sel.Name+" requires temporal.ActivityConfig.TaskQueue"))
 				}
 			case "Start":
 				if len(call.Args) == 3 {
@@ -1181,6 +1184,8 @@ func runtimeDeclarationKind(importPath, callName string) (model.RuntimeDeclarati
 			return model.RuntimeDeclarationTemporalWorkflow, 0, true
 		case "NewActivity":
 			return model.RuntimeDeclarationTemporalActivity, 0, true
+		case "NewExternalActivity":
+			return model.RuntimeDeclarationTemporalExternalActivity, 0, true
 		}
 	case "github.com/pbrazdil/onlava/cron":
 		if callName == "NewJob" {
@@ -1188,6 +1193,23 @@ func runtimeDeclarationKind(importPath, callName string) (model.RuntimeDeclarati
 		}
 	}
 	return "", 0, false
+}
+
+func runtimeDeclarationTypeArgs(pkg *model.Package, call *ast.CallExpr) (string, string) {
+	if pkg == nil || pkg.GoPkg == nil || call == nil {
+		return "", ""
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.IndexListExpr:
+		if len(fun.Indices) >= 2 {
+			return renderNode(pkg.GoPkg.Fset, fun.Indices[0]), renderNode(pkg.GoPkg.Fset, fun.Indices[1])
+		}
+	case *ast.IndexExpr:
+		return renderNode(pkg.GoPkg.Fset, fun.Index), ""
+	case *ast.SelectorExpr:
+		return "", ""
+	}
+	return "", ""
 }
 
 func runtimeDeclarationName(pkg *model.Package, call *ast.CallExpr, arg int) string {

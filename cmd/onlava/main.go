@@ -95,6 +95,7 @@ func usageError() error {
     onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
+    onlava worker typescript [--task-queue <name>[,<name>]]... [--runtime bun|node] [--app-root <path>] [--generate-only]
     onlava temporal deployment set-current --build-id <id> [--deployment <name>] [--app-root <path>] [--json]
     onlava temporal deployment ramp --build-id <id> --percentage <n> [--deployment <name>] [--app-root <path>] [--json]
     onlava temporal deployment drain --build-id <id> [--deployment <name>] [--force] [--app-root <path>] [--json]

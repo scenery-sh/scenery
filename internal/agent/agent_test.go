@@ -248,6 +248,18 @@ func TestVerifyOwnerRejectsMismatchedFingerprint(t *testing.T) {
 	}
 }
 
+func TestVerifyOwnerRejectsUninspectableProcess(t *testing.T) {
+	owner := Owner{
+		PID:         99999999,
+		StartedAt:   "not-a-live-process",
+		CmdlineHash: "sha256:not-a-live-process",
+		Exe:         "/not/a/live/process",
+	}
+	if err := VerifyOwner(owner); err == nil {
+		t.Fatal("expected uninspectable owner verification error")
+	}
+}
+
 func TestRegistryPersistsSharedSubstrate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	registry, err := OpenRegistry(path, "127.0.0.1:9440")
@@ -784,6 +796,13 @@ func TestServerRoutesConsoleToGlobalDashboardBackend(t *testing.T) {
 	client := NewClient(server.paths.SocketPath)
 	if err := waitForAgentPing(ctx, client); err != nil {
 		t.Fatal(err)
+	}
+	health, err := client.Health(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.DashboardBackend.Addr != backendAddr {
+		t.Fatalf("health dashboard backend = %+v, want addr %q", health.DashboardBackend, backendAddr)
 	}
 	session, err := client.Register(ctx, RegisterRequest{
 		BaseAppID: "demo",

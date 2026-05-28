@@ -197,10 +197,14 @@ func TestAgentDashboardControllerUsesVictoriaSubstrate(t *testing.T) {
 	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
 		Kind: localagent.SubstrateVictoria,
 		URLs: map[string]string{
-			"traces": "http://127.0.0.1:10428",
+			"metrics": "http://127.0.0.1:8428",
+			"logs":    "http://127.0.0.1:9428",
+			"traces":  "http://127.0.0.1:10428",
 		},
 		Endpoints: map[string]string{
-			"traces": "http://127.0.0.1:10428/insert/opentelemetry/v1/traces",
+			"metrics": "http://127.0.0.1:8428/opentelemetry/v1/metrics",
+			"logs":    "http://127.0.0.1:9428/insert/opentelemetry/v1/logs",
+			"traces":  "http://127.0.0.1:10428/insert/opentelemetry/v1/traces",
 		},
 	}); err != nil {
 		t.Fatal(err)

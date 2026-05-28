@@ -344,7 +344,13 @@ func TestPrepareDevAgentSessionFallsBackWhenAgentDisabled(t *testing.T) {
 func startTestAgentServer(t *testing.T, ctx context.Context) <-chan error {
 	t.Helper()
 	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{
+		RouterAddr: "127.0.0.1:0",
+		DashboardBackend: localagent.Backend{
+			Network: "tcp",
+			Addr:    "127.0.0.1:9",
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

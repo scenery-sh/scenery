@@ -108,11 +108,12 @@ type SubstratesResponse struct {
 }
 
 type HealthResponse struct {
-	SchemaVersion string `json:"schema_version"`
-	PID           int    `json:"pid"`
-	SocketPath    string `json:"socket_path"`
-	RouterAddr    string `json:"router_addr"`
-	RouterScheme  string `json:"router_scheme"`
+	SchemaVersion    string  `json:"schema_version"`
+	PID              int     `json:"pid"`
+	SocketPath       string  `json:"socket_path"`
+	RouterAddr       string  `json:"router_addr"`
+	RouterScheme     string  `json:"router_scheme"`
+	DashboardBackend Backend `json:"dashboard_backend,omitempty"`
 }
 
 type State struct {

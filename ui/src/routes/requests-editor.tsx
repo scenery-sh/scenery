@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { forwardRef, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/primitives/Button";
 import { cn, formatDurationNanos, formatTime, processOutputText, renderMetadataPath, tryParseJSON } from "../lib/utils";
@@ -226,13 +225,13 @@ export function SourceLinkButton({ label, onClick }: { label: string; onClick: (
 }
 
 export function ResponsePanel({
-  appId,
   response,
   traceDuration,
+  traceURL,
 }: {
-  appId: string;
   response: ApiCallResponse;
   traceDuration: string;
+  traceURL?: string;
 }) {
   const hasError = response.status_code >= 400;
   const rawBody = typeof response.body === "string" ? response.body.trim() : "";
@@ -249,14 +248,15 @@ export function ResponsePanel({
               <figure className={cn("w-[8px] h-[8px] rounded-full", hasError ? "bg-red-500" : "bg-success")} />
               <span className="font-mono text-sm">{response.status_code}</span>
             </div>
-            {hasTrace ? (
-              <Link
-                to="/$appId/envs/local/traces/$traceId"
-                params={{ appId, traceId: response.trace_id! }}
+            {hasTrace && traceURL ? (
+              <a
+                href={traceURL}
+                target="_blank"
+                rel="noreferrer"
                 className="flex items-center text-sm underline"
               >
-                View trace
-              </Link>
+                View in Grafana
+              </a>
             ) : null}
           </div>
 

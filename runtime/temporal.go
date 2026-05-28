@@ -12,6 +12,7 @@ import (
 
 	temporalclient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/contrib/sysinfo"
+	temporalinterceptor "go.temporal.io/sdk/interceptor"
 	temporalworker "go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
@@ -354,6 +355,9 @@ func temporalClientOptions(info TemporalRuntimeInfo) (temporalclient.Options, er
 	if enabled {
 		options.ConnectionOptions.TLS = tlsConfig
 	}
+	if activeReporter() != nil {
+		options.Interceptors = append(options.Interceptors, temporalinterceptor.NewTracingInterceptor(newOnlavaTemporalTracer(info)))
+	}
 	return options, nil
 }
 
@@ -441,6 +445,9 @@ func TemporalWorkerOptions(info TemporalRuntimeInfo, role, taskQueue string) tem
 	}
 	if TemporalHostResourceReportingEnabled(info) {
 		opts.SysInfoProvider = sysinfo.SysInfoProvider()
+	}
+	if activeReporter() != nil {
+		opts.Interceptors = append(opts.Interceptors, temporalinterceptor.NewTracingInterceptor(newOnlavaTemporalTracer(info)))
 	}
 	return opts
 }

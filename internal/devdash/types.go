@@ -68,6 +68,7 @@ type GrafanaState struct {
 	OverviewURL      string             `json:"overview_url,omitempty"`
 	LogsURL          string             `json:"logs_url,omitempty"`
 	EndpointURL      string             `json:"endpoint_url,omitempty"`
+	TemporalURL      string             `json:"temporal_url,omitempty"`
 	ConfigPath       string             `json:"config_path,omitempty"`
 	ProvisioningPath string             `json:"provisioning_path,omitempty"`
 	DashboardsPath   string             `json:"dashboards_path,omitempty"`

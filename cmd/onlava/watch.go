@@ -170,6 +170,10 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 		fmt.Fprintf(os.Stderr, "onlava: agent unavailable; continuing without routed session URLs: %v\n", err)
 		return nil, nil, fallback, restore, nil
 	}
+	if err := ensureDevAgentDashboardBackend(ctx, client); err != nil {
+		fmt.Fprintf(os.Stderr, "onlava: agent dashboard unavailable; continuing without routed session URLs: %v\n", err)
+		return nil, nil, fallback, restore, nil
+	}
 	if strings.TrimSpace(os.Getenv("ONLAVA_DEV_CACHE_DIR")) == "" {
 		paths, err := localagent.DefaultPaths()
 		if err != nil {
@@ -267,6 +271,94 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 		}
 	}
 	return client, &session, backend.normalized(), restore, nil
+}
+
+func ensureDevAgentDashboardBackend(ctx context.Context, client *localagent.Client) error {
+	if client == nil {
+		return nil
+	}
+	health, err := client.Health(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(health.DashboardBackend.Addr) != "" {
+		return nil
+	}
+	if health.PID == os.Getpid() {
+		return fmt.Errorf("onlava agent did not expose dashboard backend")
+	}
+	substrates, _ := client.ListSubstrates(ctx)
+	if health.PID > 0 {
+		if err := signalAgentPID(health.PID); err != nil {
+			return fmt.Errorf("stop stale onlava agent pid %d: %w", health.PID, err)
+		}
+		if err := waitForAgentStop(ctx, client, health.PID); err != nil {
+			return err
+		}
+		waitForSubstrateProcessesExit(ctx, substrates, 3*time.Second)
+	}
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	opts := localagent.StartOptions{RouterAddr: health.RouterAddr}
+	switch health.RouterScheme {
+	case "https":
+		opts.RouterTLS = true
+	case "http":
+		opts.RouterHTTP = true
+	}
+	if err := localagent.StartProcess(paths, opts); err != nil {
+		return err
+	}
+	restarted, err := waitForAgentStart(ctx, client, health.PID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(restarted.DashboardBackend.Addr) == "" {
+		return fmt.Errorf("restarted onlava agent did not expose dashboard backend")
+	}
+	return nil
+}
+
+func waitForSubstrateProcessesExit(ctx context.Context, substrates []localagent.Substrate, timeout time.Duration) {
+	if len(substrates) == 0 || timeout <= 0 {
+		return
+	}
+	pids := map[int]bool{}
+	for _, substrate := range substrates {
+		for _, pid := range substrate.PIDs {
+			if pid > 0 && pid != os.Getpid() {
+				pids[pid] = true
+			}
+		}
+	}
+	if len(pids) == 0 {
+		return
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		alive := false
+		for pid := range pids {
+			if _, ok := inspectProcess(pid); ok {
+				alive = true
+				break
+			}
+		}
+		if !alive {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline.C:
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func waitForStableChange(ctx context.Context, root string, current fileSnapshot, watcher *fileChangeWatcher) (fileSnapshot, error) {
@@ -490,6 +582,9 @@ func isWatchedFile(rel string) bool {
 		return true
 	}
 	if isWatchedRootDotFile(rel) {
+		return true
+	}
+	if strings.HasSuffix(rel, ".worker.ts") {
 		return true
 	}
 	switch filepath.Ext(rel) {

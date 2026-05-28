@@ -73,6 +73,7 @@ type inspectTemporalResponse struct {
 	App             inspectdata.AppRef    `json:"app"`
 	Temporal        inspectTemporalRecord `json:"temporal"`
 	Declarations    []temporalDeclaration `json:"declarations"`
+	TypeScript      temporalTypeScript    `json:"typescript"`
 	Connectivity    temporalConnectivity  `json:"connectivity"`
 	WorkerManifests workers.Validation    `json:"worker_manifests"`
 }
@@ -130,6 +131,25 @@ type temporalDeclaration struct {
 	TaskQueueExplicit bool   `json:"task_queue_explicit"`
 	File              string `json:"file"`
 	Line              int    `json:"line"`
+}
+
+type temporalTypeScript struct {
+	Checked      bool                         `json:"checked"`
+	OK           bool                         `json:"ok"`
+	GeneratedDir string                       `json:"generated_dir"`
+	Activities   []temporalTypeScriptActivity `json:"activities"`
+	Diagnostics  []workers.Diagnostic         `json:"diagnostics,omitempty"`
+}
+
+type temporalTypeScriptActivity struct {
+	Name           string `json:"name"`
+	TaskQueue      string `json:"task_queue"`
+	ExportName     string `json:"export_name"`
+	Input          string `json:"input"`
+	Output         string `json:"output"`
+	File           string `json:"file"`
+	Line           int    `json:"line"`
+	MaxConcurrency int    `json:"max_concurrency,omitempty"`
 }
 
 func inspectCommand(args []string) error {
@@ -443,6 +463,8 @@ func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcf
 	if err != nil {
 		return inspectTemporalResponse{}, err
 	}
+	ts := workers.DiscoverTypeScriptActivities(appRoot)
+	tsDiagnostics := workers.ValidateTypeScriptContracts(ts, temporalExternalActivityDeclarations(appRoot, appModel), nativeGoTemporalDeclarations(appRoot, appModel))
 	return inspectTemporalResponse{
 		SchemaVersion: "onlava.inspect.temporal.v1",
 		App:           inspectAppInfo(appRoot, cfg, appModel),
@@ -486,6 +508,7 @@ func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcf
 			ConnectTimeoutMS: info.ConnectTimeoutMS,
 		},
 		Declarations: temporalDeclarations(appRoot, appModel, info),
+		TypeScript:   temporalTypeScriptResponse(appRoot, ts, tsDiagnostics),
 		Connectivity: temporalConnectivity{
 			Checked:   status.Checked,
 			Reachable: status.Reachable,
@@ -495,13 +518,36 @@ func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcf
 	}, nil
 }
 
+func temporalTypeScriptResponse(appRoot string, ts workers.TypeScriptWorkerModel, diagnostics []workers.Diagnostic) temporalTypeScript {
+	activities := make([]temporalTypeScriptActivity, 0, len(ts.Activities))
+	for _, activity := range ts.Activities {
+		activities = append(activities, temporalTypeScriptActivity{
+			Name:           activity.Name,
+			TaskQueue:      activity.TaskQueue,
+			ExportName:     activity.ExportName,
+			Input:          activity.Input,
+			Output:         activity.Output,
+			File:           activity.File,
+			Line:           activity.Line,
+			MaxConcurrency: activity.MaxConcurrency,
+		})
+	}
+	return temporalTypeScript{
+		Checked:      true,
+		OK:           len(diagnostics) == 0,
+		GeneratedDir: filepath.ToSlash(filepath.Join(appRoot, workers.TypeScriptWorkerGeneratedRelDir)),
+		Activities:   activities,
+		Diagnostics:  diagnostics,
+	}
+}
+
 func temporalDeclarations(appRoot string, appModel *model.App, info onlavaruntime.TemporalRuntimeInfo) []temporalDeclaration {
 	if appModel == nil {
 		return nil
 	}
 	out := make([]temporalDeclaration, 0, len(appModel.Runtime))
 	for _, decl := range appModel.Runtime {
-		if decl.Kind != model.RuntimeDeclarationTemporalWorkflow && decl.Kind != model.RuntimeDeclarationTemporalActivity {
+		if decl.Kind != model.RuntimeDeclarationTemporalWorkflow && decl.Kind != model.RuntimeDeclarationTemporalActivity && decl.Kind != model.RuntimeDeclarationTemporalExternalActivity {
 			continue
 		}
 		queue := decl.TaskQueue
@@ -538,7 +584,7 @@ func knownTemporalActivityNames(appModel *model.App) []string {
 	}
 	var names []string
 	for _, decl := range appModel.Runtime {
-		if decl.Kind == model.RuntimeDeclarationTemporalActivity && decl.Name != "" {
+		if (decl.Kind == model.RuntimeDeclarationTemporalActivity || decl.Kind == model.RuntimeDeclarationTemporalExternalActivity) && decl.Name != "" {
 			names = append(names, decl.Name)
 		}
 	}

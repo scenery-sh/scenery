@@ -87,6 +87,7 @@ var _ = temporal.NewWorkflow[In, Out]("orders.Fulfill/v1", temporal.WorkflowConf
 var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConfig{TaskQueue: "orders.activities.go"}, func(ctx context.Context, in In) (Out, error) {
 	return Out{ID: in.ID}, nil
 })
+var _ = temporal.NewExternalActivity[*In, *Out]("orders.Render/v1", temporal.ActivityConfig{TaskQueue: "orders.render.ts"})
 var _ = cron.NewJob("tick", cron.JobConfig{
 	Every: time.Second,
 	Handler: func(context.Context) error { return nil },
@@ -97,7 +98,7 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	if len(app.Runtime) != 3 {
+	if len(app.Runtime) != 4 {
 		t.Fatalf("runtime declarations = %#v", app.Runtime)
 	}
 	got := make(map[model.RuntimeDeclarationKind]string)
@@ -109,14 +110,18 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 		if decl.Kind == model.RuntimeDeclarationTemporalActivity && (!decl.TaskQueueExplicit || decl.TaskQueue != "orders.activities.go") {
 			t.Fatalf("activity task queue = %q explicit=%v", decl.TaskQueue, decl.TaskQueueExplicit)
 		}
+		if decl.Kind == model.RuntimeDeclarationTemporalExternalActivity && (!decl.TaskQueueExplicit || decl.TaskQueue != "orders.render.ts" || decl.InputType != "*In" || decl.OutputType != "*Out") {
+			t.Fatalf("external activity declaration = %#v", decl)
+		}
 		if decl.Kind == model.RuntimeDeclarationTemporalWorkflow && !decl.TaskQueueResolved {
 			t.Fatalf("workflow task queue should be resolved as defaultable")
 		}
 	}
 	want := map[model.RuntimeDeclarationKind]string{
-		model.RuntimeDeclarationTemporalWorkflow: "orders.Fulfill/v1",
-		model.RuntimeDeclarationTemporalActivity: "orders.Capture/v1",
-		model.RuntimeDeclarationCronJob:          "tick",
+		model.RuntimeDeclarationTemporalWorkflow:         "orders.Fulfill/v1",
+		model.RuntimeDeclarationTemporalActivity:         "orders.Capture/v1",
+		model.RuntimeDeclarationTemporalExternalActivity: "orders.Render/v1",
+		model.RuntimeDeclarationCronJob:                  "tick",
 	}
 	for kind, name := range want {
 		if got[kind] != name {

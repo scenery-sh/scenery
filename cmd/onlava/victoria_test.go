@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -100,13 +101,15 @@ func TestVictoriaStackEnv(t *testing.T) {
 }
 
 func TestVictoriaStackSubstrateRoundTrip(t *testing.T) {
-	stack := &victoriaStack{components: []*victoriaComponent{
-		{
-			spec:        victoriaComponentSpec{Name: "metrics", EndpointPath: "/opentelemetry/v1/metrics", URLPath: "/vmui"},
-			baseURL:     "http://127.0.0.1:8428",
-			endpointURL: "http://127.0.0.1:8428/opentelemetry/v1/metrics",
-		},
-	}}
+	stack := &victoriaStack{}
+	for _, spec := range victoriaComponentSpecs() {
+		baseURL := fmt.Sprintf("http://127.0.0.1:%d", spec.DefaultPort)
+		stack.components = append(stack.components, &victoriaComponent{
+			spec:        spec,
+			baseURL:     baseURL,
+			endpointURL: baseURL + spec.EndpointPath,
+		})
+	}
 	req := stack.SubstrateRequest(123)
 	if req.Kind != localagent.SubstrateVictoria || req.OwnerPID != 123 {
 		t.Fatalf("substrate request = %+v", req)
@@ -131,6 +134,21 @@ func TestVictoriaStackSubstrateRoundTrip(t *testing.T) {
 	roundTrip.MarkExternal()
 	if !roundTrip.components[0].external {
 		t.Fatal("component not marked external")
+	}
+}
+
+func TestVictoriaStackFromSubstrateRequiresAllComponents(t *testing.T) {
+	substrate := localagent.Substrate{
+		Kind: localagent.SubstrateVictoria,
+		URLs: map[string]string{
+			"metrics": "http://127.0.0.1:8428",
+		},
+		Endpoints: map[string]string{
+			"metrics": "http://127.0.0.1:8428/opentelemetry/v1/metrics",
+		},
+	}
+	if stack := victoriaStackFromSubstrate(substrate); stack != nil {
+		t.Fatalf("expected incomplete Victoria substrate to be rejected: %+v", stack)
 	}
 }
 

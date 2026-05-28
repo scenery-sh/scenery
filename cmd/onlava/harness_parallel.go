@@ -60,7 +60,13 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	})
 	defer restoreEnv()
 
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{
+		RouterAddr: "127.0.0.1:0",
+		DashboardBackend: localagent.Backend{
+			Network: "tcp",
+			Addr:    "127.0.0.1:9",
+		},
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -159,10 +165,14 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		Status:   "ready",
 		OwnerPID: os.Getpid(),
 		URLs: map[string]string{
-			"traces": "http://" + grafanaAddr,
+			"metrics": "http://" + grafanaAddr,
+			"logs":    "http://" + grafanaAddr,
+			"traces":  "http://" + grafanaAddr,
 		},
 		Endpoints: map[string]string{
-			"traces": "http://" + grafanaAddr + "/insert/opentelemetry/v1/traces",
+			"metrics": "http://" + grafanaAddr + "/opentelemetry/v1/metrics",
+			"logs":    "http://" + grafanaAddr + "/insert/opentelemetry/v1/logs",
+			"traces":  "http://" + grafanaAddr + "/insert/opentelemetry/v1/traces",
 		},
 	}); err != nil {
 		return nil, nil, err

@@ -170,6 +170,11 @@ Current shape:
     "local": {
       "auto_start": false,
       "db_filename": ".onlava/temporal/dev.sqlite"
+    },
+    "typescript": {
+      "enabled": false,
+      "runtime": "bun",
+      "auto_start": false
     }
   }
 }
@@ -204,9 +209,12 @@ Rules:
 - Temporal workers enable Go SDK host resource reporting by default using Temporal's `contrib/sysinfo` provider, so Worker heartbeats can include CPU and memory usage for Temporal Cloud worker health views. Set `ONLAVA_TEMPORAL_HOST_RESOURCE_REPORTING=0` to disable this provider.
 - Local onlava-managed worker processes set their `worker_build_id` as the current Temporal Worker Deployment version on startup so schedules and new workflow executions have a versioned routing target. Non-local workers do not self-promote; operators must promote deployment versions explicitly.
 - `temporal.local.auto_start` and `temporal.local.db_filename` are local development settings for supervised Temporal dev server work. With an active agent, the Temporal dev server is registered as a shared agent substrate and its local database state is stored under the agent directory; each dev session also registers a `temporal` route for the shared UI, while app workers receive session-scoped task queue prefixes. Explicit workflow/activity task queues are prefixed in active dev sessions too, so parallel worktrees do not poll or schedule onto each other's queues.
-- `ONLAVA_TEMPORAL_TASK_QUEUE` overrides the generated Temporal task queue for worker processes. `onlava worker --task-queue <name>` sets it.
+- `ONLAVA_TEMPORAL_TASK_QUEUE` overrides the generated Temporal task queue for worker processes. `onlava worker --task-queue <name>` and `onlava worker typescript --task-queue <name>` set it.
+- TypeScript Temporal activity support is activity-only. onlava discovers `*.worker.ts` files, plus ordinary `.ts` files with `//onlava:worker`, and generates `.onlava/generated/temporal/typescript/{onlava.ts,registry.ts,worker.ts,manifest.json,tsconfig.json}`. Source files import `activity` from `onlava/worker` or `@onlava/temporal`; the generated `tsconfig.json` maps both names to the generated local API.
+- Go workflows declare TypeScript activities with `temporal.NewExternalActivity` using matching input/output type parameters and call them through `temporal.ExecuteActivity`. `onlava check --json` validates matching TypeScript activity names, task queues, and type names before build/runtime.
+- `temporal.typescript.enabled`, `runtime`, and `auto_start` configure the TypeScript worker path. `onlava worker typescript` generates and runs the hidden worker directly. When `temporal.typescript.enabled` and `auto_start` are both true, `onlava dev` validates Go-to-TypeScript contracts, regenerates the hidden worker runtime, and supervises the TypeScript worker alongside the Go app. The worker receives the supervised Temporal address/namespace, session-scoped task queue prefix, deployment name, build ID, and agent session identity environment. `runtime` accepts `bun` or `node`; when empty, onlava prefers `bun` and falls back to `node --import tsx`.
 - Generated binaries accept `ONLAVA_ROLE=all|api|worker`. `onlava dev` uses the default combined role. `onlava run` uses `api`. `onlava worker` uses `worker`.
-- Packages that declare `github.com/pbrazdil/onlava/temporal` workflows or activities with `temporal.NewWorkflow` or `temporal.NewActivity` are imported into the generated main so their declarations register at startup.
+- Packages that declare `github.com/pbrazdil/onlava/temporal` workflows or activities with `temporal.NewWorkflow`, `temporal.NewActivity`, or `temporal.NewExternalActivity` are imported into the generated main so their declarations register at startup.
 - `temporal.ActivityConfig.MaxConcurrency` maps to the Temporal worker's per-task-queue maximum concurrent activity executions. Use a dedicated task queue when different activities need different limits.
 - Cron jobs can set `cron.JobConfig.OverlapPolicy`, `CatchupWindow`, `PauseOnFailure`, `ActivityStartToClose`, and `ActivityRetryPolicy`. When Temporal is enabled these map to Temporal Schedule overlap/catchup/pause policy and to the generated cron activity options. Defaults are overlap `skip`, catchup window `1m`, pause-on-failure `false`, and activity start-to-close `1h`.
 - Optional multi-language worker manifests live under `.onlava/workers/*.json` and use `onlava.worker.manifest.v1` or `onlava.worker.manifest.v2`. They require `build_id` and `payload_codec: "onlava-json-v1"`. v2 manifests use queue-level registrations with `registration_hash` values so `onlava inspect temporal --json` can reject incompatible workers sharing a Temporal task queue.
@@ -226,6 +234,7 @@ onlava gc --older-than <duration> [--app-root <path>] [--json]
 onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
 onlava worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <name>] [--log-format text|json]
 onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
+onlava worker typescript [--task-queue <name>[,<name>...]]... [--runtime bun|node] [--app-root <path>] [--generate-only]
 onlava temporal deployment set-current --build-id <id> [--deployment <name>] [--ignore-missing-task-queues] [--allow-no-pollers] [--app-root <path>] [--json]
 onlava temporal deployment ramp --build-id <id> --percentage <0-100> [--deployment <name>] [--ignore-missing-task-queues] [--allow-no-pollers] [--app-root <path>] [--json]
 onlava temporal deployment drain --build-id <id> [--deployment <name>] [--force] [--app-root <path>] [--json]

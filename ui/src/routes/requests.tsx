@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createStoredRequest,
@@ -18,10 +17,10 @@ import {
   reconcileTabsWithEndpoints,
   type RequestTab,
 } from "../lib/api-explorer";
+import { requestTracesURL, temporalTracesURL } from "../lib/grafana";
 import {
   cn,
   formatDurationNanos,
-  formatTime,
   materializePath,
   parseJSONInput,
   processOutputText,
@@ -47,9 +46,7 @@ import {
   DeleteStoredRequestModal,
   EditStoredRequestModal,
   EndpointSelector,
-  IconActivity,
   IconPanelLeft,
-  IconTraceRequest,
   StoreRequestModal,
   openEditor,
 } from "./requests-modals";
@@ -66,17 +63,13 @@ const REQUESTS_SIDEBAR_STORAGE_KEY = "onlava:requests-sidebar-collapsed";
 const REQUESTS_SIDEBAR_WIDTH = 280;
 
 export function RequestsPage() {
-  const { appId, apiEncoding, callAPI, meta, outputs, refreshAll, rpc, status, traces } = useDashboard();
+  const { appId, apiEncoding, callAPI, meta, outputs, rpc, status, traces } = useDashboard();
   const [items, setItems] = useState<StoredRequest[]>([]);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [tabs, setTabs] = useState<RequestTab[]>([]);
   const [activeTabID, setActiveTabID] = useState<string | null>(null);
-  const [traceServiceFilter, setTraceServiceFilter] = useState("");
-  const [traceEndpointFilter, setTraceEndpointFilter] = useState("");
-  const [traceStatusFilter, setTraceStatusFilter] = useState<"all" | "ok" | "error">("all");
-  const [traceIDFilter, setTraceIDFilter] = useState("");
   const [showEndpointPicker, setShowEndpointPicker] = useState(false);
   const [showStoreModal, setShowStoreModal] = useState(false);
   const [editingRequest, setEditingRequest] = useState<StoredRequest | null>(null);
@@ -232,6 +225,8 @@ export function RequestsPage() {
   const myRequests = items.filter((item) => !item.shared);
   const sharedRequests = items.filter((item) => item.shared);
   const activeTab = tabs.find((tab) => tab.id === activeTabID) || null;
+  const requestTraceURL = requestTracesURL(status?.grafana);
+  const temporalTraceURL = temporalTracesURL(status?.grafana);
   const activeEndpoint = useMemo(() => {
     if (!activeTab) {
       return null;
@@ -294,44 +289,6 @@ export function RequestsPage() {
       label: `${baseName(loc.filename)}${loc.src_line_start ? `:${loc.src_line_start}` : ""}`,
     };
   }, [activeEndpointMeta?.loc, status?.appRoot]);
-  const traceServices = useMemo(
-    () => Array.from(new Set(traces.map((trace) => trace.service_name).filter(Boolean))).sort(),
-    [traces],
-  );
-  const traceEndpoints = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          traces
-            .filter((trace) => !traceServiceFilter || trace.service_name === traceServiceFilter)
-            .map((trace) => trace.endpoint_name)
-            .filter((endpoint): endpoint is string => typeof endpoint === "string" && endpoint.length > 0),
-        ),
-      ).sort(),
-    [traceServiceFilter, traces],
-  );
-  const filteredTraces = useMemo(
-    () =>
-      traces.filter((trace) => {
-        if (traceServiceFilter && trace.service_name !== traceServiceFilter) {
-          return false;
-        }
-        if (traceEndpointFilter && trace.endpoint_name !== traceEndpointFilter) {
-          return false;
-        }
-        if (traceStatusFilter === "ok" && trace.is_error) {
-          return false;
-        }
-        if (traceStatusFilter === "error" && !trace.is_error) {
-          return false;
-        }
-        if (traceIDFilter && !trace.trace_id.includes(traceIDFilter.trim())) {
-          return false;
-        }
-        return true;
-      }),
-    [traceEndpointFilter, traceIDFilter, traceServiceFilter, traceStatusFilter, traces],
-  );
   const activeTrace = useMemo(
     () =>
       activeTab?.response?.trace_id
@@ -631,9 +588,9 @@ export function RequestsPage() {
 
                     {activeTab.response ? (
                       <ResponsePanel
-                        appId={appId}
                         response={activeTab.response}
                         traceDuration={activeTrace ? formatDurationNanos(activeTrace.duration_nanos) : ""}
+                        traceURL={requestTraceURL}
                       />
                     ) : null}
 
@@ -646,146 +603,40 @@ export function RequestsPage() {
         </div>
       </div>
 
-      <div className="col-span-1 overflow-auto">
+      <div className="col-span-1 overflow-auto bg-sidebar">
         <div className="overflow-y-auto overflow-x-hidden" style={{ height: "calc(100vh - var(--header-height))" }}>
-          <section>
-            <div className="flex items-center justify-between pt-4 px-4 bg-sidebar pb-2">
-              <div className="flex items-center gap-2 -mt-2">
-                <IconActivity className="h-4 w-4" />
-                <p className="text-sm">Traces</p>
-              </div>
-              <button
-                type="button"
-                className="rounded-md border border-border px-2 py-1 text-xs transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50"
-                disabled={traces.length === 0}
-                onClick={() => void rpc?.request("traces/clear", { app_id: appId }).then(() => refreshAll())}
-              >
-                Clear traces
-              </button>
+          <section className="px-4 py-4">
+            <div>
+              <p className="text-sm font-medium">Grafana</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Request and Temporal traces now live in Grafana for this dev session.
+              </p>
             </div>
-            <div className="pb-3 bg-sidebar px-4 pt-0 border-b border-border">
-              <div className="flex flex-col gap-1.5 mb-3">
-                <div className="flex items-start gap-2.5">
-                  <div className="flex-1 flex flex-col gap-0.5">
-                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Type</span>
-                    <select className="h-9 w-full rounded-md border border-border px-3 text-sm" value="api-calls" disabled>
-                      <option value="api-calls">API Calls</option>
-                    </select>
-                  </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <GrafanaPanelLink href={requestTraceURL} label="Request traces" primary />
+              <GrafanaPanelLink href={temporalTraceURL} label="Temporal traces" />
+            </div>
+
+            {activeTab?.response?.trace_id ? (
+              <div className="mt-6 rounded-md border border-border bg-background/30 p-4">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Last response trace</div>
+                <div className="mt-2 break-all font-mono text-xs">{activeTab.response.trace_id}</div>
+                <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                  <span>{activeTrace ? formatDurationNanos(activeTrace.duration_nanos) : "duration pending"}</span>
+                  {requestTraceURL ? (
+                    <a href={requestTraceURL} target="_blank" rel="noreferrer" className="underline">
+                      Open in Grafana
+                    </a>
+                  ) : null}
                 </div>
               </div>
-              <div className="space-y-3 devdash-trace-filters">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Service</div>
-                <select
-                  className="h-9 w-full rounded-md border border-border px-3 text-sm"
-                  value={traceServiceFilter}
-                  onChange={(event) => {
-                    setTraceServiceFilter(event.target.value);
-                    setTraceEndpointFilter("");
-                  }}
-                >
-                  <option value="">All services</option>
-                  {traceServices.map((service) => (
-                    <option key={service} value={service}>
-                      {service}
-                    </option>
-                  ))}
-                </select>
+            ) : null}
 
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Endpoint</div>
-                <select
-                  className="h-9 w-full rounded-md border border-border px-3 text-sm"
-                  value={traceEndpointFilter}
-                  onChange={(event) => setTraceEndpointFilter(event.target.value)}
-                >
-                  <option value="">All endpoints</option>
-                  {traceEndpoints.map((endpoint) => (
-                    <option key={endpoint} value={endpoint}>
-                      {endpoint}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="inline-flex gap-0.5 p-1 rounded-lg bg-sidebar-accent/50 self-start">
-                  <button
-                    type="button"
-                    onClick={() => setTraceStatusFilter("all")}
-                    className={cn(
-                      "px-3 py-1.5 text-sm rounded-md transition-colors",
-                      traceStatusFilter === "all"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTraceStatusFilter("error")}
-                    className={cn(
-                      "px-3 py-1.5 text-sm rounded-md transition-colors",
-                      traceStatusFilter === "error"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    Errors
-                  </button>
-                </div>
-
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Trace ID</div>
-                <input
-                  className="h-9 w-full rounded-md border border-border px-3 text-sm"
-                  placeholder="Trace ID"
-                  value={traceIDFilter}
-                  onChange={(event) => setTraceIDFilter(event.target.value)}
-                />
-              </div>
-            </div>
-            <div className="px-4 py-3">
-              {filteredTraces.slice(0, 50).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No traces match the current filters.</p>
-              ) : (
-                <div className="w-full">
-                  {filteredTraces.slice(0, 50).map((trace) => (
-                    <Link
-                      key={`${trace.trace_id}/${trace.span_id}`}
-                      to="/$appId/envs/local/traces/$traceId"
-                      params={{ appId, traceId: trace.trace_id }}
-                      className="group/traceRow block border-b border-border text-sm transition-colors hover:bg-accent/50"
-                    >
-                      <div className="relative flex h-12 items-center justify-between px-2 py-2">
-                        <div className="min-w-0 flex items-center h-full space-x-2">
-                          <figure
-                            className={cn(
-                              "h-3 w-3 rounded-full",
-                              trace.is_error ? "bg-red-500" : "bg-success",
-                            )}
-                          />
-                          <div className="text-sm min-w-0 shrink flex items-start flex-col justify-start">
-                            <div className="text-sm min-w-0 flex items-center">
-                              <div className="flex-none w-5">
-                                <IconTraceRequest className="h-4 w-4 inline-block mr-2" />
-                              </div>
-                              <div className="shrink truncate">
-                                {trace.service_name || "unknown service"}.{trace.endpoint_name || trace.type}
-                              </div>
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground font-mono truncate">
-                              {trace.trace_id}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="min-w-0 flex flex-col text-right text-xs mt-1 text-muted-foreground">
-                          <span>{formatDurationNanos(trace.duration_nanos)}</span>
-                          <span>{formatTime(trace.started_at)}</span>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
+            {!status?.grafana?.available ? (
+              <p className="mt-6 text-sm text-muted-foreground">
+                Grafana is {status?.grafana?.status || "unavailable"}.
+              </p>
+            ) : null}
           </section>
         </div>
       </div>
@@ -835,4 +686,37 @@ export function RequestsPage() {
       });
     }
   }
+}
+
+function GrafanaPanelLink({
+  href,
+  label,
+  primary = false,
+}: {
+  href: string;
+  label: string;
+  primary?: boolean;
+}) {
+  const disabled = !href;
+  return (
+    <a
+      href={href || "#"}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(event) => {
+        if (disabled) {
+          event.preventDefault();
+        }
+      }}
+      className={cn(
+        "rounded-md border px-3 py-2 text-sm transition-colors",
+        primary
+          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+          : "border-border hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        disabled && "pointer-events-none opacity-50",
+      )}
+    >
+      {label}
+    </a>
+  );
 }

@@ -119,6 +119,16 @@ type Activity[I, O any] struct {
 	handler func(context.Context, I) (O, error)
 }
 
+type ExternalActivity[I, O any] struct {
+	name   string
+	config ActivityConfig
+}
+
+type ActivityHandle[I, O any] interface {
+	temporalActivityName() string
+	temporalActivityConfig() ActivityConfig
+}
+
 type Run[O any] struct {
 	run        temporalclient.WorkflowRun
 	client     temporalclient.Client
@@ -186,6 +196,17 @@ func NewActivity[I, O any](name string, cfg ActivityConfig, handler func(context
 	return a
 }
 
+func NewExternalActivity[I, O any](name string, cfg ActivityConfig) *ExternalActivity[I, O] {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		panic("temporal: external activity name must not be empty")
+	}
+	if err := validateActivityConfig(name, cfg); err != nil {
+		panic(err.Error())
+	}
+	return &ExternalActivity[I, O]{name: name, config: cfg}
+}
+
 func (w *Workflow[I, O]) Name() string {
 	if w == nil {
 		return ""
@@ -239,6 +260,20 @@ func (a *Activity[I, O]) Config() ActivityConfig {
 	return a.config
 }
 
+func (a *Activity[I, O]) temporalActivityName() string {
+	if a == nil {
+		return ""
+	}
+	return a.name
+}
+
+func (a *Activity[I, O]) temporalActivityConfig() ActivityConfig {
+	if a == nil {
+		return ActivityConfig{}
+	}
+	return a.config
+}
+
 func (a *Activity[I, O]) taskQueue(info onlavaruntime.TemporalRuntimeInfo) string {
 	if a != nil {
 		return onlavaruntime.SessionScopedTemporalTaskQueue(info, a.config.TaskQueue)
@@ -264,6 +299,34 @@ func (a *Activity[I, O]) declarationKey() string {
 	return "activity:" + a.name
 }
 
+func (a *ExternalActivity[I, O]) Name() string {
+	if a == nil {
+		return ""
+	}
+	return a.name
+}
+
+func (a *ExternalActivity[I, O]) Config() ActivityConfig {
+	if a == nil {
+		return ActivityConfig{}
+	}
+	return a.config
+}
+
+func (a *ExternalActivity[I, O]) temporalActivityName() string {
+	if a == nil {
+		return ""
+	}
+	return a.name
+}
+
+func (a *ExternalActivity[I, O]) temporalActivityConfig() ActivityConfig {
+	if a == nil {
+		return ActivityConfig{}
+	}
+	return a.config
+}
+
 func Start[I, O any](ctx context.Context, w *Workflow[I, O], input I, identity WorkflowIdentity, opts ...StartOption) (Run[O], error) {
 	if w == nil {
 		return Run[O]{}, errors.New("temporal: nil workflow")
@@ -284,19 +347,20 @@ func Start[I, O any](ctx context.Context, w *Workflow[I, O], input I, identity W
 	return Run[O]{run: run, client: client, workflowID: run.GetID(), runID: run.GetRunID()}, nil
 }
 
-func ExecuteActivity[I, O any](ctx workflow.Context, a *Activity[I, O], input I) ActivityFuture[O] {
+func ExecuteActivity[I, O any](ctx workflow.Context, a ActivityHandle[I, O], input I) ActivityFuture[O] {
 	if a == nil {
 		return ActivityFuture[O]{}
 	}
+	cfg := a.temporalActivityConfig()
 	opts := workflow.ActivityOptions{
-		TaskQueue:           onlavaruntime.SessionScopedTemporalTaskQueueFromEnv(a.config.TaskQueue),
-		StartToCloseTimeout: a.config.StartToClose,
-		RetryPolicy:         retryPolicy(a.config.RetryPolicy),
+		TaskQueue:           onlavaruntime.SessionScopedTemporalTaskQueueFromEnv(cfg.TaskQueue),
+		StartToCloseTimeout: cfg.StartToClose,
+		RetryPolicy:         retryPolicy(cfg.RetryPolicy),
 	}
 	if opts.StartToCloseTimeout <= 0 {
 		opts.StartToCloseTimeout = time.Minute
 	}
-	return ActivityFuture[O]{future: workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), a.name, input)}
+	return ActivityFuture[O]{future: workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, opts), a.temporalActivityName(), input)}
 }
 
 func MethodActivity[I, SvcStruct any](handler func(s SvcStruct, ctx context.Context, input I) error) func(context.Context, I) (Void, error) {

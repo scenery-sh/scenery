@@ -51,9 +51,10 @@ type File struct {
 type RuntimeDeclarationKind string
 
 const (
-	RuntimeDeclarationTemporalWorkflow RuntimeDeclarationKind = "temporal_workflow"
-	RuntimeDeclarationTemporalActivity RuntimeDeclarationKind = "temporal_activity"
-	RuntimeDeclarationCronJob          RuntimeDeclarationKind = "cron_job"
+	RuntimeDeclarationTemporalWorkflow         RuntimeDeclarationKind = "temporal_workflow"
+	RuntimeDeclarationTemporalActivity         RuntimeDeclarationKind = "temporal_activity"
+	RuntimeDeclarationTemporalExternalActivity RuntimeDeclarationKind = "temporal_external_activity"
+	RuntimeDeclarationCronJob                  RuntimeDeclarationKind = "cron_job"
 )
 
 type RuntimeDeclaration struct {
@@ -66,6 +67,8 @@ type RuntimeDeclaration struct {
 	TaskQueue         string
 	TaskQueueExplicit bool
 	TaskQueueResolved bool
+	InputType         string
+	OutputType        string
 }
 
 type Receiver struct {

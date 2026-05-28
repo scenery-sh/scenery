@@ -651,7 +651,22 @@ func verifySubstrateOwner(substrate localagent.Substrate) error {
 	if owner.PID <= 0 {
 		owner.PID = substrate.OwnerPID
 	}
-	return localagent.VerifyOwner(owner)
+	if err := localagent.VerifyOwner(owner); err != nil {
+		return err
+	}
+	for name, pid := range substrate.PIDs {
+		if pid <= 0 {
+			continue
+		}
+		componentOwner := substrate.Owners[name]
+		if componentOwner.PID <= 0 {
+			componentOwner.PID = pid
+		}
+		if err := localagent.VerifyOwner(componentOwner); err != nil {
+			return fmt.Errorf("substrate component %s owner invalid: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func postgresServiceVersion(cfg app.Config) string {

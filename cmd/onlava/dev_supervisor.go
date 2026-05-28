@@ -33,6 +33,7 @@ import (
 	"github.com/pbrazdil/onlava/internal/localproxy"
 	"github.com/pbrazdil/onlava/internal/model"
 	"github.com/pbrazdil/onlava/internal/parse"
+	"github.com/pbrazdil/onlava/internal/workers"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
 )
 
@@ -64,10 +65,11 @@ type devSupervisor struct {
 	agent        *localagent.Client
 	agentSession *localagent.Session
 
-	closeOnce sync.Once
-	mu        sync.RWMutex
-	current   *runningApp
-	status    devdash.AppRecord
+	closeOnce  sync.Once
+	mu         sync.RWMutex
+	current    *runningApp
+	typescript *runningTypeScriptWorker
+	status     devdash.AppRecord
 }
 
 const (
@@ -130,6 +132,7 @@ func (s *devSupervisor) Close() error {
 		}
 
 		app := s.detachCurrentApp()
+		typescript := s.detachTypeScriptWorker()
 		victoria := s.victoria
 		grafana := s.grafana
 		temporal := s.temporal
@@ -138,6 +141,11 @@ func (s *devSupervisor) Close() error {
 		var errs []error
 		if app != nil {
 			if err := app.interrupt(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if typescript != nil {
+			if err := typescript.interrupt(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -204,6 +212,11 @@ func (s *devSupervisor) Close() error {
 
 		if app != nil {
 			if err := app.waitOrKill(stopTimeout); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if typescript != nil {
+			if err := typescript.waitOrKill(stopTimeout); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -357,6 +370,8 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		metadata    json.RawMessage
 		apiEncoding json.RawMessage
 		result      *build.Result
+		tsModel     workers.TypeScriptWorkerModel
+		tsWorker    *workers.TypeScriptWorkerResult
 		cached      *build.CachedGraph
 		err         error
 	)
@@ -392,7 +407,17 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if err := validateLocalSecretsFiles(s.root); err != nil {
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
 	}
+	if err := s.console.Phase("Validating TypeScript Temporal workers", func() error {
+		tsModel = workers.DiscoverTypeScriptActivities(s.root)
+		if diagnostics := workers.ValidateTypeScriptContracts(tsModel, temporalExternalActivityDeclarations(s.root, model), nativeGoTemporalDeclarations(s.root, model)); len(diagnostics) > 0 {
+			return workers.DiagnosticsError(diagnostics)
+		}
+		return nil
+	}); err != nil {
+		return s.handleCompileError(ctx, metadata, apiEncoding, err)
+	}
 	s.cfg = effectiveDevConfigForModel(s.cfg, model)
+	s.cfg = effectiveDevConfigForTypeScriptWorker(s.cfg, tsModel)
 	if err := s.ensureManagedElectric(ctx); err != nil {
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
 	}
@@ -452,23 +477,55 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 			return s.handleCompileError(ctx, metadata, apiEncoding, err)
 		}
 	}
+	if typeScriptWorkerAutoStartEnabled(s.cfg, tsModel) {
+		if err := s.console.Phase("Generating TypeScript Temporal worker", func() error {
+			generated, generateErr := s.generateTypeScriptTemporalWorker()
+			if generateErr != nil {
+				return generateErr
+			}
+			tsWorker = generated
+			return nil
+		}); err != nil {
+			return s.handleCompileError(ctx, metadata, apiEncoding, err)
+		}
+	}
 
 	previous := s.currentApp()
+	previousTS := s.currentTypeScriptWorker()
 	var current *runningApp
+	var currentTS *runningTypeScriptWorker
 	if err := s.console.Phase("Starting onlava application", func() error {
 		if previous != nil {
 			if err := previous.stop(); err != nil {
 				return err
 			}
 		}
+		if previousTS != nil {
+			if err := previousTS.stop(); err != nil {
+				return err
+			}
+		}
 		current, err = s.startApp(ctx, result, metadata, apiEncoding)
-		return err
+		if err != nil {
+			return err
+		}
+		if tsWorker != nil {
+			currentTS, err = s.startTypeScriptWorker(ctx, *tsWorker)
+			if err != nil {
+				_ = current.stop()
+				return err
+			}
+		}
+		return nil
 	}); err != nil {
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
 	}
 
 	s.mu.Lock()
 	s.current = current
+	if currentTS == nil {
+		s.typescript = nil
+	}
 	s.mu.Unlock()
 
 	s.setCompiling(false, "")
@@ -688,17 +745,30 @@ func appWorktreeName(root string) string {
 }
 
 func (s *devSupervisor) devReportURL() string {
-	if s != nil && s.agentSession != nil {
-		if rawURL := strings.TrimSpace(s.agentSession.Routes[localagent.RouteDashboard]); rawURL != "" {
-			if parsed, err := url.Parse(rawURL); err == nil {
-				parsed.Path = devdash.ReportPath
-				parsed.RawQuery = ""
-				parsed.Fragment = ""
-				return parsed.String()
+	if s != nil && s.agent != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		if health, err := s.agent.Health(ctx); err == nil {
+			if rawURL := reportURLForBackend(health.DashboardBackend); rawURL != "" {
+				return rawURL
+			}
+		}
+		if s.agentSession != nil {
+			if rawURL := reportURLForBackend(s.agentSession.Backends[localagent.RouteDashboard]); rawURL != "" {
+				return rawURL
 			}
 		}
 	}
 	return "http://" + devdash.ListenAddr() + devdash.ReportPath
+}
+
+func reportURLForBackend(backend localagent.Backend) string {
+	network := strings.TrimSpace(backend.Network)
+	addr := strings.TrimSpace(backend.Addr)
+	if addr == "" || (network != "" && network != "tcp") {
+		return ""
+	}
+	return "http://" + addr + devdash.ReportPath
 }
 
 func (s *devSupervisor) sessionTemporalEnv() []string {
@@ -714,9 +784,12 @@ func (s *devSupervisor) sessionTemporalEnv() []string {
 		baseAppID = s.activeAppID()
 	}
 	prefix := "onlava." + baseAppID + "." + sessionID
+	deploymentName := onlavaruntime.TemporalDeploymentName(onlavaruntime.TemporalRuntimeInfo{
+		DeploymentName: prefix,
+	})
 	return []string{
 		onlavaruntime.DefaultTemporalTaskQueueEnv + "=" + prefix,
-		onlavaruntime.DefaultTemporalDeploymentEnv + "=" + prefix,
+		onlavaruntime.DefaultTemporalDeploymentEnv + "=" + deploymentName,
 		onlavaruntime.DefaultTemporalBuildIDEnv + "=" + sessionID,
 	}
 }
@@ -841,11 +914,17 @@ func tcpAddrAcceptsConnections(addr string) bool {
 }
 
 func (s *devSupervisor) captureOutput(ctx context.Context, app *runningApp, stream string, src io.Reader, dst io.Writer) {
+	var tail *safeLineTail
 	reader := bufio.NewReader(src)
 	pid := ""
 	if app != nil {
 		pid = app.pid
+		tail = app.output
 	}
+	s.captureProcessOutput(ctx, pid, stream, tail, reader, dst)
+}
+
+func (s *devSupervisor) captureProcessOutput(ctx context.Context, pid, stream string, tail *safeLineTail, reader *bufio.Reader, dst io.Writer) {
 	for {
 		chunk, err := reader.ReadBytes('\n')
 		if len(chunk) > 0 {
@@ -853,8 +932,8 @@ func (s *devSupervisor) captureOutput(ctx context.Context, app *runningApp, stre
 				_, _ = dst.Write(chunk)
 			}
 			plain := stripANSI(chunk)
-			if app != nil && app.output != nil {
-				app.output.Add(strings.TrimRight(string(plain), "\n"))
+			if tail != nil {
+				tail.Add(strings.TrimRight(string(plain), "\n"))
 			}
 			output := devdash.ProcessOutput{
 				AppID:     s.activeAppID(),
@@ -1131,6 +1210,20 @@ func (s *devSupervisor) detachCurrentApp() *runningApp {
 	return current
 }
 
+func (s *devSupervisor) currentTypeScriptWorker() *runningTypeScriptWorker {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.typescript
+}
+
+func (s *devSupervisor) detachTypeScriptWorker() *runningTypeScriptWorker {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.typescript
+	s.typescript = nil
+	return current
+}
+
 func (s *devSupervisor) announceRebuild(paths []string) {
 	if s.console != nil {
 		s.console.RebuildDetected(paths)
@@ -1195,8 +1288,17 @@ func (s *devSupervisor) frontendURLs() map[string]string {
 }
 
 func (s *devSupervisor) ensureTemporalDevServer(ctx context.Context) error {
-	if s == nil || s.temporal != nil {
+	if s == nil {
 		return nil
+	}
+	if s.temporal != nil {
+		if s.temporal.Reachable(ctx, s.cfg.Name, s.cfg.Temporal) {
+			return nil
+		}
+		s.temporal = nil
+		if s.agent != nil {
+			_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateTemporal)
+		}
 	}
 	var (
 		temporal *temporalDevServer

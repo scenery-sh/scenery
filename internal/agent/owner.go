@@ -84,6 +84,9 @@ func VerifyOwner(owner Owner) error {
 	if live.PID <= 0 {
 		return errors.New("owner process is not inspectable")
 	}
+	if live.StartedAt == "" && live.CmdlineHash == "" && live.Exe == "" {
+		return errors.New("owner process is not inspectable")
+	}
 	if owner.StartedAt != "" && live.StartedAt != "" && owner.StartedAt != live.StartedAt {
 		return errors.New("owner process start time changed")
 	}

@@ -73,6 +73,8 @@ func TestRenderGrafanaProvisioning(t *testing.T) {
 	if !strings.Contains(string(ini), "http_addr = 127.0.0.1") ||
 		!strings.Contains(string(ini), "domain = grafana.acme.localhost") ||
 		!strings.Contains(string(ini), "root_url = https://grafana.acme.localhost/") ||
+		!strings.Contains(string(ini), "org_role = Viewer") ||
+		!strings.Contains(string(ini), "viewers_can_edit = true") ||
 		!strings.Contains(string(ini), "preinstall_sync = victoriametrics-metrics-datasource@0.24.0,victoriametrics-logs-datasource@0.27.1") {
 		t.Fatalf("unexpected grafana.ini:\n%s", ini)
 	}
@@ -108,6 +110,7 @@ func TestWriteGrafanaProvisioning(t *testing.T) {
 		filepath.Join(cfg.DashboardsDir, "onlava-overview.json"),
 		filepath.Join(cfg.DashboardsDir, "onlava-logs.json"),
 		filepath.Join(cfg.DashboardsDir, "onlava-endpoint.json"),
+		filepath.Join(cfg.DashboardsDir, "onlava-temporal.json"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected %s: %v", path, err)
@@ -125,9 +128,20 @@ func TestGrafanaDashboardsUseExportedRequestMetric(t *testing.T) {
 	if !strings.Contains(overview, "onlava_session_id") || !strings.Contains(overview, "label_values(onlava_request_duration_seconds, onlava_session_id)") {
 		t.Fatalf("overview dashboard missing session variable/filter:\n%s", overview)
 	}
+	for _, want := range []string{"Request traces", grafanaTracesUID, `"queryType": "search"`, `"tags": "onlava.trace.type=REQUEST"`, "label_values(onlava_request_duration_seconds, onlava_app)"} {
+		if !strings.Contains(overview, want) {
+			t.Fatalf("overview dashboard missing %q:\n%s", want, overview)
+		}
+	}
 	endpoint := string(files["onlava-endpoint.json"])
 	if !strings.Contains(endpoint, `onlava_session_id=~\"$session\"`) {
 		t.Fatalf("endpoint dashboard missing session filter:\n%s", endpoint)
+	}
+	temporal := string(files["onlava-temporal.json"])
+	for _, want := range []string{grafanaTemporalUID, `onlava_temporal=\"true\"`, grafanaTracesUID, `"queryType": "search"`, `"tags": "onlava.temporal=true"`} {
+		if !strings.Contains(temporal, want) {
+			t.Fatalf("temporal dashboard missing %q:\n%s", want, temporal)
+		}
 	}
 	if onlavaRequestDurationMetricName != "onlava_request_duration_seconds" || grafanaRequestDurationMetricName != "onlava_request_duration_seconds" {
 		t.Fatalf("unexpected request duration metric names: otlp=%q grafana=%q", onlavaRequestDurationMetricName, grafanaRequestDurationMetricName)
@@ -314,7 +328,8 @@ func TestStartGrafanaReusesVerifiedExternalGrafana(t *testing.T) {
 			"/api/datasources/uid/" + grafanaTracesUID,
 			"/api/dashboards/uid/" + grafanaOverviewUID,
 			"/api/dashboards/uid/" + grafanaLogsDashboardUID,
-			"/api/dashboards/uid/" + grafanaEndpointUID:
+			"/api/dashboards/uid/" + grafanaEndpointUID,
+			"/api/dashboards/uid/" + grafanaTemporalUID:
 			_, _ = w.Write([]byte(`{"database":"ok"}`))
 		default:
 			http.NotFound(w, r)
@@ -379,7 +394,10 @@ func TestGrafanaStateIncludesStableLinks(t *testing.T) {
 	if !strings.Contains(state.OverviewURL, "/d/"+grafanaOverviewUID) {
 		t.Fatalf("overview URL = %q", state.OverviewURL)
 	}
-	if len(state.Dashboards) != 3 {
+	if !strings.Contains(state.TemporalURL, "/d/"+grafanaTemporalUID) {
+		t.Fatalf("temporal URL = %q", state.TemporalURL)
+	}
+	if len(state.Dashboards) != 4 {
 		t.Fatalf("dashboards = %+v", state.Dashboards)
 	}
 	proxied := grafanaStateWithBaseURL(state, "https://grafana.acme.localhost")

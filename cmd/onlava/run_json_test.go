@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/pbrazdil/onlava/internal/app"
@@ -368,6 +370,41 @@ func TestWorkerCommandUsesWorkerPath(t *testing.T) {
 	}
 }
 
+func TestParseWorkerTypeScriptArgs(t *testing.T) {
+	opts, err := parseWorkerTypeScriptArgs([]string{"--app-root", "/tmp/app", "--runtime", "bun", "--task-queue", "onlv.house.preview.ts,onlv.maps.earth.ts", "--generate-only"})
+	if err != nil {
+		t.Fatalf("parseWorkerTypeScriptArgs returned error: %v", err)
+	}
+	wantQueues := []string{"onlv.house.preview.ts", "onlv.maps.earth.ts"}
+	if opts.AppRoot != "/tmp/app" || opts.Runtime != "bun" || !opts.GenerateOnly || !reflect.DeepEqual(opts.TaskQueues, wantQueues) {
+		t.Fatalf("opts = %+v", opts)
+	}
+	if _, err := parseWorkerTypeScriptArgs([]string{"--runtime", "deno"}); err == nil {
+		t.Fatal("expected invalid runtime error")
+	}
+}
+
+func TestWorkerCommandUsesTypeScriptPath(t *testing.T) {
+	prev := runWorkerTypeScriptFunc
+	defer func() { runWorkerTypeScriptFunc = prev }()
+
+	called := false
+	runWorkerTypeScriptFunc = func(opts workerTypeScriptOptions, stdout io.Writer) error {
+		called = true
+		if opts.AppRoot != "/tmp/app" || opts.Runtime != "bun" || !reflect.DeepEqual(opts.TaskQueues, []string{"onlv.house.preview.ts"}) {
+			t.Fatalf("typescript worker opts = %+v", opts)
+		}
+		return nil
+	}
+
+	if err := workerCommand([]string{"typescript", "--app-root", "/tmp/app", "--runtime", "bun", "--task-queue", "onlv.house.preview.ts"}); err != nil {
+		t.Fatalf("workerCommand returned error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected TypeScript worker path to be called")
+	}
+}
+
 func TestParseWorkerBindingsArgs(t *testing.T) {
 	opts, err := parseWorkerBindingsArgs([]string{"--app-root", "/tmp/app", "--out", "/tmp/out", "--json"})
 	if err != nil {
@@ -375,6 +412,29 @@ func TestParseWorkerBindingsArgs(t *testing.T) {
 	}
 	if opts.AppRoot != "/tmp/app" || opts.OutDir != "/tmp/out" || !opts.JSON {
 		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestRunWorkerTypeScriptGenerateOnlyWritesRuntime(t *testing.T) {
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"orders"}`)
+	writeTestAppFile(t, root, "house/preview.worker.ts", `import { activity } from "onlava/worker";
+export type RenderInput = { id: string };
+export type RenderOutput = { url: string };
+export const render = activity<RenderInput, RenderOutput>({
+  name: "house.Render/v1",
+  taskQueue: "onlv.house.preview.ts"
+}, async (_ctx, input) => ({ url: input.id }));
+`)
+	var out bytes.Buffer
+	if err := runWorkerTypeScript(workerTypeScriptOptions{AppRoot: root, GenerateOnly: true, TaskQueues: []string{"onlv.house.preview.ts"}}, &out); err != nil {
+		t.Fatalf("runWorkerTypeScript returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), ".onlava/generated/temporal/typescript/worker.ts") {
+		t.Fatalf("output = %s", out.String())
+	}
+	if _, err := os.Stat(root + "/.onlava/generated/temporal/typescript/manifest.json"); err != nil {
+		t.Fatalf("expected generated manifest: %v", err)
 	}
 }
 

@@ -8,6 +8,7 @@ import {
   resolveCatalogSelection,
   summarizeEndpoint,
 } from "../lib/service-catalog";
+import { requestTracesURL } from "../lib/grafana";
 import { tryParseJSON } from "../lib/utils";
 import type { ApiCallResponse } from "../lib/types";
 
@@ -24,6 +25,7 @@ export function ServicesPage() {
   const [authToken, setAuthToken] = useState("");
 
   const services = meta?.svcs ?? [];
+  const traceURL = requestTracesURL(status?.grafana);
   const visibleServices = useMemo(() => filterCatalogServices(services, search), [search, services]);
   const { selectedService, selectedEndpoint } = useMemo(
     () => resolveCatalogSelection(services, serviceSlug, rpcSlug),
@@ -242,14 +244,15 @@ export function ServicesPage() {
                             <StatCard label="Code" value={String(response.status_code)} />
                             <StatCard label="Trace" value={response.trace_id || "n/a"} mono />
                           </div>
-                          {response.trace_id ? (
-                            <Link
-                              to="/$appId/envs/local/traces/$traceId"
-                              params={{ appId, traceId: response.trace_id }}
+                          {response.trace_id && traceURL ? (
+                            <a
+                              href={traceURL}
+                              target="_blank"
+                              rel="noreferrer"
                               className="inline-flex text-sm underline"
                             >
-                              Open trace
-                            </Link>
+                              Open in Grafana
+                            </a>
                           ) : null}
                           <JSONView title="Response body" value={tryParseJSON(response.body)} />
                         </div>

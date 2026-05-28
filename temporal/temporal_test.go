@@ -48,6 +48,19 @@ func TestNewWorkflowAndActivityRegisterDeclarations(t *testing.T) {
 	}
 }
 
+func TestNewExternalActivityDoesNotRegisterWorkerDeclaration(t *testing.T) {
+	restore := resetRegistryForTest()
+	defer restore()
+
+	act := NewExternalActivity[testWorkflowInput, testWorkflowOutput]("payments.Render/v1", ActivityConfig{TaskQueue: "payments.ts", StartToClose: time.Minute})
+	if act.Name() != "payments.Render/v1" || act.Config().TaskQueue != "payments.ts" {
+		t.Fatalf("external activity = %q %+v", act.Name(), act.Config())
+	}
+	if len(snapshotDeclarations()) != 0 {
+		t.Fatalf("external activity should not register Go worker declaration: %#v", snapshotDeclarations())
+	}
+}
+
 func TestWorkflowVersioningBehaviorConversion(t *testing.T) {
 	if workflowVersioningBehavior(VersioningDefault) != workflow.VersioningBehaviorUnspecified {
 		t.Fatal("default behavior should leave registration behavior unspecified")
