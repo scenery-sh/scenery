@@ -30,6 +30,8 @@ func TestSignBuiltBinaryIfNeededSkipsOutsideDarwin(t *testing.T) {
 }
 
 func TestCopyBinarySkipsUnchangedOutput(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
 	dst := filepath.Join(dir, "dst")
@@ -57,6 +59,8 @@ func TestCopyBinarySkipsUnchangedOutput(t *testing.T) {
 }
 
 func TestCopyBinaryRewritesChangedOutput(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
 	dst := filepath.Join(dir, "dst")

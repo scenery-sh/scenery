@@ -138,6 +138,18 @@ func TestWaitForStableChangeEventsPollsWhenEventsAreMissed(t *testing.T) {
 	}
 }
 
+func TestWatchDurationFromEnv(t *testing.T) {
+	t.Setenv("ONLAVA_TEST_WATCH_SETTLE_DELAY_MS", "25")
+	if got := watchDurationFromEnv("ONLAVA_TEST_WATCH_SETTLE_DELAY_MS", time.Second); got != 25*time.Millisecond {
+		t.Fatalf("watchDurationFromEnv() = %s, want 25ms", got)
+	}
+
+	t.Setenv("ONLAVA_TEST_WATCH_SETTLE_DELAY_MS", "0")
+	if got := watchDurationFromEnv("ONLAVA_TEST_WATCH_SETTLE_DELAY_MS", time.Second); got != time.Second {
+		t.Fatalf("watchDurationFromEnv(invalid) = %s, want fallback", got)
+	}
+}
+
 func TestSnapshotsEqual(t *testing.T) {
 	a := fileSnapshot{
 		"a.go": {size: 1},

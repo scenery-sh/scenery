@@ -8,6 +8,8 @@ import (
 )
 
 func TestParseInspectArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseInspectArgs([]string{"routes", "--json", "--app-root", "/tmp/app"})
 	if err != nil {
 		t.Fatalf("parseInspectArgs returned error: %v", err)
@@ -35,6 +37,8 @@ func TestParseInspectArgs(t *testing.T) {
 }
 
 func TestRunOnlavaInspectRequiresJSON(t *testing.T) {
+	t.Parallel()
+
 	err := runOnlavaInspect([]string{"app"}, &bytes.Buffer{})
 	if err == nil || err.Error() != "onlava inspect currently requires --json" {
 		t.Fatalf("runOnlavaInspect() error = %v", err)
@@ -339,10 +343,11 @@ var act = temporal.NewActivity[In, Out]("jobs.Do/v1", temporal.ActivityConfig{Ta
 func TestRunOnlavaInspectExcludesUnrelatedPackages(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".onlava.json", `{"name":"inspectapp","id":"inspect-id"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRootForTest(t)+"\n")
-	writeTestAppFile(t, root, "users/api.go", `package users
+	root := persistentTestAppRoot(t, "inspect-excludes-unrelated")
+	preparePersistentTestApp(t, root, map[string]string{
+		".onlava.json": `{"name":"inspectapp","id":"inspect-id"}`,
+		"go.mod":       "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
+		"users/api.go": `package users
 
 import "context"
 
@@ -351,12 +356,12 @@ type Service struct{}
 
 //onlava:api public
 func (*Service) Profile(context.Context) error { return nil }
-`)
-	writeTestAppFile(t, root, "users/helpers/helper.go", `package helpers
+`,
+		"users/helpers/helper.go": `package helpers
 
 func Helper() {}
-`)
-	writeTestAppFile(t, root, "users/mw/mw.go", `package mw
+`,
+		"users/mw/mw.go": `package mw
 
 import "github.com/pbrazdil/onlava/middleware"
 
@@ -364,9 +369,9 @@ import "github.com/pbrazdil/onlava/middleware"
 func ServiceMW(req middleware.Request, next middleware.Next) middleware.Response {
 	return next(req)
 }
-`)
+`,
 
-	writeTestAppFile(t, root, "globalmw/mw.go", `package globalmw
+		"globalmw/mw.go": `package globalmw
 
 import "github.com/pbrazdil/onlava/middleware"
 
@@ -374,7 +379,8 @@ import "github.com/pbrazdil/onlava/middleware"
 func Global(req middleware.Request, next middleware.Next) middleware.Response {
 	return next(req)
 }
-`)
+`,
+	})
 
 	inspectArgs := func(subject string) []string {
 		return []string{subject, "--json", "--app-root", root}
@@ -447,17 +453,18 @@ func Global(req middleware.Request, next middleware.Next) middleware.Response {
 func TestInspectTemporalLeavesUnresolvedWorkflowQueueEmpty(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".onlava.json", `{"name":"inspectapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRootForTest(t)+"\n")
-	writeTestAppFile(t, root, "svc/api.go", `package svc
+	root := persistentTestAppRoot(t, "inspect-temporal-unresolved")
+	preparePersistentTestApp(t, root, map[string]string{
+		".onlava.json": `{"name":"inspectapp"}`,
+		"go.mod":       "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
+		"svc/api.go": `package svc
 
 import "context"
 
 //onlava:api public
 func Ping(ctx context.Context) error { return nil }
-`)
-	writeTestAppFile(t, root, "jobs/runtime.go", `package jobs
+`,
+		"jobs/runtime.go": `package jobs
 
 import "github.com/pbrazdil/onlava/temporal"
 
@@ -473,7 +480,8 @@ var cfg = workflowConfig()
 var _ = temporal.NewWorkflow[In, Out]("jobs.Run/v1", cfg, func(ctx temporal.WorkflowContext, in In) (Out, error) {
 	return Out{}, nil
 })
-`)
+`,
+	})
 
 	var out bytes.Buffer
 	if err := runOnlavaInspect([]string{"temporal", "--json", "--app-root", root}, &out); err != nil {

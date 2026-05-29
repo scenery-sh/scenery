@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -73,15 +74,34 @@ func (s *Store) eventsAfter(ctx context.Context, afterSeq int64, tenantIDs map[s
 	if limit <= 0 || limit > 1000 {
 		limit = 1000
 	}
-	rows, err := s.db.Query(ctx, `
+	query := `
 		select seq, id::text, tenant_id::text, coalesce(object_id::text, ''), object_name,
 		       coalesce(record_id::text, ''), action, actor_id, schema_version, changed_fields,
 		       before, after, diff, created_at
-		from `+qualifiedIdent(MetadataSchema, "outbox_events")+`
+		from ` + qualifiedIdent(MetadataSchema, "outbox_events") + `
 		where seq > $1
 		order by seq asc
 		limit $2
-	`, afterSeq, limit)
+	`
+	args := []any{afterSeq, limit}
+	if len(tenantIDs) > 0 {
+		ids := make([]string, 0, len(tenantIDs))
+		for id := range tenantIDs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		query = `
+			select seq, id::text, tenant_id::text, coalesce(object_id::text, ''), object_name,
+			       coalesce(record_id::text, ''), action, actor_id, schema_version, changed_fields,
+			       before, after, diff, created_at
+			from ` + qualifiedIdent(MetadataSchema, "outbox_events") + `
+			where seq > $1 and tenant_id::text = any($3)
+			order by seq asc
+			limit $2
+		`
+		args = append(args, ids)
+	}
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -91,9 +111,6 @@ func (s *Store) eventsAfter(ctx context.Context, afterSeq int64, tenantIDs map[s
 		event, err := scanEvent(rows)
 		if err != nil {
 			return nil, err
-		}
-		if len(tenantIDs) > 0 && !tenantIDs[event.TenantID] {
-			continue
 		}
 		events = append(events, event)
 	}

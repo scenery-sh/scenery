@@ -13,6 +13,8 @@ import (
 )
 
 func TestDevArgsForDetachedChild(t *testing.T) {
+	t.Parallel()
+
 	got := devArgsForDetachedChild([]string{"--app-root", "relative/app", "--detach", "--json"}, "/tmp/app")
 	want := []string{"--json", "--app-root", "/tmp/app"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
@@ -32,6 +34,8 @@ func TestDetachedDevChildMode(t *testing.T) {
 }
 
 func TestDetachedDevLogPathIsStableAndSafe(t *testing.T) {
+	t.Parallel()
+
 	paths := localagent.Paths{AgentDir: "/tmp/onlava-agent"}
 	when := time.Date(2026, 5, 27, 12, 34, 56, 0, time.UTC)
 	got := detachedDevLogPath(paths, filepath.Join("/tmp", "My App"), when)
@@ -41,6 +45,10 @@ func TestDetachedDevLogPathIsStableAndSafe(t *testing.T) {
 }
 
 func TestWaitForDetachedDevSessionFindsOwnerPID(t *testing.T) {
+	oldInterval := detachedDevStartupInterval
+	detachedDevStartupInterval = time.Millisecond
+	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
+
 	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
 	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
 	if err != nil {
@@ -71,7 +79,7 @@ func TestWaitForDetachedDevSessionFindsOwnerPID(t *testing.T) {
 	appRoot := t.TempDir()
 	registered := make(chan struct{})
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 		_, _ = client.Register(ctx, localagent.RegisterRequest{
 			BaseAppID: "detachapp",
 			AppRoot:   appRoot,
@@ -93,6 +101,8 @@ func TestWaitForDetachedDevSessionFindsOwnerPID(t *testing.T) {
 }
 
 func TestWriteDetachedDevResultJSON(t *testing.T) {
+	t.Parallel()
+
 	result := detachedDevResult{
 		SchemaVersion: "onlava.dev.detach.v1",
 		PID:           123,

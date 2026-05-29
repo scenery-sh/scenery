@@ -20,23 +20,19 @@ const (
 )
 
 var allowedDirectGoDeps = map[string]string{
-	"github.com/chromedp/cdproto":                                  "Chrome DevTools Protocol event types for the optional browser UI harness",
-	"github.com/chromedp/chromedp":                                 "Go-native browser automation for `onlava harness ui --json` screenshots and route checks",
-	"github.com/fsnotify/fsnotify":                                 "file watching for onlava dev live rebuilds",
-	"github.com/golang-jwt/jwt/v5":                                 "JWT signing and verification for standard auth",
-	"github.com/google/uuid":                                       "UUID generation and parsing for standard auth database records",
-	"github.com/gorilla/websocket":                                 "dashboard JSON-RPC websocket transport",
-	"github.com/jackc/pgx/v5":                                      "Postgres pgxpool compatibility wrapper for onlava apps",
-	"github.com/lib/pq":                                            "Postgres database explorer and psql URL handling",
-	"github.com/testcontainers/testcontainers-go":                  "Docker-backed integration test lifecycle for PostgreSQL",
-	"github.com/testcontainers/testcontainers-go/modules/postgres": "PostgreSQL integration test container module",
-	"go.temporal.io/api":                                           "Temporal API types used by deployment and scheduling integrations",
-	"go.temporal.io/sdk":                                           "Temporal client and worker SDK for the durable execution runtime",
-	"go.temporal.io/sdk/contrib/sysinfo":                           "Temporal-recommended host and cgroup resource reporting for worker heartbeats",
-	"golang.org/x/crypto":                                          "password hashing primitives for standard auth",
-	"golang.org/x/mod":                                             "Go module parsing for self-harness dependency checks",
-	"golang.org/x/tools":                                           "Go package loading/parser pipeline",
-	"modernc.org/sqlite":                                           "CGO-free local dashboard state store",
+	"github.com/fsnotify/fsnotify":       "file watching for onlava dev live rebuilds",
+	"github.com/golang-jwt/jwt/v5":       "JWT signing and verification for standard auth",
+	"github.com/google/uuid":             "UUID generation and parsing for standard auth database records",
+	"github.com/gorilla/websocket":       "dashboard JSON-RPC websocket transport",
+	"github.com/jackc/pgx/v5":            "Postgres pgxpool compatibility wrapper for onlava apps",
+	"github.com/lib/pq":                  "Postgres database explorer and psql URL handling",
+	"go.temporal.io/api":                 "Temporal API types used by deployment and scheduling integrations",
+	"go.temporal.io/sdk":                 "Temporal client and worker SDK for the durable execution runtime",
+	"go.temporal.io/sdk/contrib/sysinfo": "Temporal-recommended host and cgroup resource reporting for worker heartbeats",
+	"golang.org/x/crypto":                "password hashing primitives for standard auth",
+	"golang.org/x/mod":                   "Go module parsing for self-harness dependency checks",
+	"golang.org/x/tools":                 "Go package loading/parser pipeline",
+	"modernc.org/sqlite":                 "CGO-free local dashboard state store",
 }
 
 var forbiddenSourceImports = map[string]string{
@@ -45,6 +41,47 @@ var forbiddenSourceImports = map[string]string{
 	"github.com/urfave/cli":               "onlava CLI intentionally stays hand-rolled to avoid framework surface area.",
 	"github.com/fatih/color":              "onlava terminal styling uses internal/termstyle instead of a color dependency.",
 	"github.com/charmbracelet/lipgloss":   "onlava terminal styling uses internal/termstyle instead of a UI framework dependency.",
+}
+
+type packageLayerRule struct {
+	Name             string
+	PathPrefixes     []string
+	ForbiddenImports []string
+}
+
+var packageLayerRules = []packageLayerRule{
+	{
+		Name:         "runtime packages stay independent from CLI/dev dashboard",
+		PathPrefixes: []string{"runtime/"},
+		ForbiddenImports: []string{
+			"github.com/pbrazdil/onlava/cmd/onlava",
+			"github.com/pbrazdil/onlava/internal/devdash",
+		},
+	},
+	{
+		Name:         "internal/build stays below CLI",
+		PathPrefixes: []string{"internal/build/"},
+		ForbiddenImports: []string{
+			"github.com/pbrazdil/onlava/cmd/onlava",
+		},
+	},
+	{
+		Name:         "runtimeapp excludes dev-only packages",
+		PathPrefixes: []string{"runtimeapp/"},
+		ForbiddenImports: []string{
+			"github.com/pbrazdil/onlava/cmd/onlava",
+			"github.com/pbrazdil/onlava/internal/devdash",
+		},
+	},
+	{
+		Name:         "localproxy stays independent from app build/runtime internals",
+		PathPrefixes: []string{"internal/localproxy/"},
+		ForbiddenImports: []string{
+			"github.com/pbrazdil/onlava/cmd/onlava",
+			"github.com/pbrazdil/onlava/internal/build",
+			"github.com/pbrazdil/onlava/runtimeapp",
+		},
+	},
 }
 
 func runHarnessArchitectureStep(repoRoot string) harnessStep {
@@ -233,8 +270,34 @@ func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {
 				SuggestedAction: "Move shared code into internal/ instead of importing the CLI package.",
 			})
 		}
+		for _, rule := range packageLayerRules {
+			if !pathMatchesLayerRule(rel, rule) {
+				continue
+			}
+			for _, forbidden := range rule.ForbiddenImports {
+				if importPath == forbidden {
+					diagnostics = append(diagnostics, checkDiagnostic{
+						Stage:           "architecture checks",
+						Severity:        "error",
+						File:            filepath.ToSlash(path),
+						Message:         "package layer violation: " + rule.Name + " forbids import " + importPath,
+						SuggestedAction: "Move shared code to a lower-level internal package or invert the dependency.",
+					})
+				}
+			}
+		}
 	}
 	return diagnostics, nil
+}
+
+func pathMatchesLayerRule(rel string, rule packageLayerRule) bool {
+	rel = filepath.ToSlash(rel)
+	for _, prefix := range rule.PathPrefixes {
+		if strings.HasPrefix(rel, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func checkArchitectureGeneratedHygiene(repoRoot string, summary *architectureSummary) []checkDiagnostic {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	onlavaauth "github.com/pbrazdil/onlava/auth"
+	"github.com/pbrazdil/onlava/internal/authbridge"
 )
 
 // StandardAuthPermissions scopes data access to the current standard-auth tenant.
@@ -78,13 +78,10 @@ func TenantKeyFromActor(actor Actor) (string, bool) {
 	if tenantKey := strings.TrimSpace(actor.TenantKey); tenantKey != "" {
 		return tenantKey, true
 	}
+	if tenantKey, ok := authbridge.TenantID(actor.Data); ok {
+		return tenantKey, true
+	}
 	switch data := actor.Data.(type) {
-	case *onlavaauth.AuthData:
-		tenantKey := strings.TrimSpace(string(data.TenantID))
-		return tenantKey, tenantKey != ""
-	case onlavaauth.AuthData:
-		tenantKey := strings.TrimSpace(string(data.TenantID))
-		return tenantKey, tenantKey != ""
 	case interface{ AuditTenantID() string }:
 		tenantKey := strings.TrimSpace(data.AuditTenantID())
 		return tenantKey, tenantKey != ""

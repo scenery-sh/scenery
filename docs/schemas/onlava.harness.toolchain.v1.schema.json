@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.harness.toolchain.v1.schema.json",
+  "title": "onlava harness toolchain preflight",
+  "type": "object",
+  "required": ["schema_version", "tools"],
+  "properties": {
+    "schema_version": { "const": "onlava.harness.toolchain.v1" },
+    "tools": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/tool" }
+    },
+    "env": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/env" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "required": ["name", "scope", "required", "present"],
+      "properties": {
+        "name": { "type": "string" },
+        "scope": { "type": "string" },
+        "required": { "type": "boolean" },
+        "present": { "type": "boolean" },
+        "path": { "type": "string" },
+        "version": { "type": "string" },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "env": {
+      "type": "object",
+      "required": ["name", "value"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pbrazdil/onlava/internal/testpostgres"
 )
 
 func TestPostgresVerticalSlice(t *testing.T) {
@@ -24,7 +25,6 @@ func TestPostgresVerticalSlice(t *testing.T) {
 
 	ctx := context.Background()
 	pool := openPostgresPool(t)
-	t.Cleanup(pool.Close)
 
 	store, err := Open(ctx, pool, Options{})
 	if err != nil {
@@ -293,7 +293,6 @@ func TestPostgresBootstrapIdempotent(t *testing.T) {
 
 	ctx := context.Background()
 	pool := openPostgresPool(t)
-	t.Cleanup(pool.Close)
 
 	for i := 0; i < 3; i++ {
 		if _, err := Open(ctx, pool, Options{}); err != nil {
@@ -951,7 +950,6 @@ func TestPostgresConcurrentDistinctFieldMigrationsAdvanceSchemaVersion(t *testin
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	pool := openPostgresPool(t)
-	t.Cleanup(pool.Close)
 	const fieldCount = 8
 	perms := &barrierWriteObjectPermissions{
 		objectName: "company",
@@ -1404,7 +1402,6 @@ func openPostgresStore(t *testing.T) (*pgxpool.Pool, *Store) {
 	t.Helper()
 	ctx := context.Background()
 	pool := openPostgresPool(t)
-	t.Cleanup(pool.Close)
 	store, err := Open(ctx, pool, Options{})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -1415,11 +1412,27 @@ func openPostgresStore(t *testing.T) (*pgxpool.Pool, *Store) {
 func openPostgresPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, postgresTestDatabaseURL(t))
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
+	postgresTest.poolOnce.Do(func() {
+		dsn, err := ensurePostgresTestDatabase()
+		if err != nil {
+			postgresTest.poolErr = err
+			return
+		}
+		cfg, err := pgxpool.ParseConfig(dsn)
+		if err != nil {
+			postgresTest.poolErr = err
+			return
+		}
+		cfg.MaxConns = 4
+		postgresTest.pool, postgresTest.poolErr = pgxpool.NewWithConfig(ctx, cfg)
+	})
+	if postgresTest.poolErr != nil {
+		t.Fatalf("PostgreSQL integration test setup failed; start Docker or set %s: %v", testpostgres.EnvDatabaseURL, postgresTest.poolErr)
 	}
-	return pool
+	if postgresTest.pool == nil {
+		t.Fatalf("PostgreSQL integration test setup failed: pgxpool.NewWithConfig returned nil pool without error")
+	}
+	return postgresTest.pool
 }
 
 func runConcurrent(t *testing.T, n int, fn func() (string, error)) []string {

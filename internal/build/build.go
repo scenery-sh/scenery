@@ -12,8 +12,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/mod/modfile"
 
@@ -737,11 +740,28 @@ func generatorFingerprintPaths() []string {
 	return []string{
 		"go.mod",
 		"go.sum",
+		".",
 		"auth",
 		"cron",
 		"data",
 		"errs",
-		"internal",
+		"internal/app",
+		"internal/build",
+		"internal/codegen",
+		"internal/devreport",
+		"internal/envfile",
+		"internal/inspect",
+		"internal/localproxy",
+		"internal/model",
+		"internal/objectstore",
+		"internal/parse",
+		"internal/redact",
+		"internal/runtimeapi",
+		"internal/standardauthmeta",
+		"internal/stdlog",
+		"internal/termstyle",
+		"internal/wire",
+		"internal/wiremodel",
 		"middleware",
 		"pgxpool",
 		"rlog",
@@ -791,45 +811,24 @@ func saveGeneratorFingerprintCache(path string, cached generatorFingerprintCache
 }
 
 func hashGeneratorMetadataPath(h interface{ Write([]byte) (int, error) }, repoRoot, path string) error {
-	info, err := os.Stat(path)
+	files, err := generatorFingerprintFiles(repoRoot, path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
 		return err
 	}
-	if !info.IsDir() {
-		return hashGeneratorFileMetadata(h, repoRoot, path, info)
+	for _, rel := range files {
+		child := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		info, err := os.Stat(child)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		if err := hashGeneratorFileMetadata(h, repoRoot, child, info); err != nil {
+			return err
+		}
 	}
-	return filepath.WalkDir(path, func(child string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(path, child)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			if rel == "." {
-				return nil
-			}
-			switch filepath.Base(rel) {
-			case "node_modules", "dist", "coverage":
-				return filepath.SkipDir
-			default:
-				return nil
-			}
-		}
-		if filepath.Ext(child) != ".go" || strings.HasSuffix(child, "_test.go") {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		return hashGeneratorFileMetadata(h, repoRoot, child, info)
-	})
+	return nil
 }
 
 func hashGeneratorFileMetadata(h interface{ Write([]byte) (int, error) }, repoRoot, path string, info os.FileInfo) error {
@@ -845,17 +844,47 @@ func hashGeneratorFileMetadata(h interface{ Write([]byte) (int, error) }, repoRo
 }
 
 func hashGeneratorPath(h interface{ Write([]byte) (int, error) }, repoRoot, path string) error {
+	files, err := generatorFingerprintFiles(repoRoot, path)
+	if err != nil {
+		return err
+	}
+	for _, rel := range files {
+		child := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		if err := hashGeneratorFile(h, repoRoot, child); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func generatorFingerprintFiles(repoRoot, path string) ([]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	if !info.IsDir() {
-		return hashGeneratorFile(h, repoRoot, path)
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, nil
+		}
+		rel, err := filepath.Rel(repoRoot, path)
+		if err != nil {
+			return nil, err
+		}
+		return []string{filepath.ToSlash(rel)}, nil
 	}
-	return filepath.WalkDir(path, func(child string, d os.DirEntry, err error) error {
+	if rel, err := filepath.Rel(repoRoot, path); err != nil {
+		return nil, err
+	} else if rel == "." {
+		return generatorRootPackageFiles(repoRoot)
+	}
+	files := map[string]struct{}{}
+	err = filepath.WalkDir(path, func(child string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -875,11 +904,56 @@ func hashGeneratorPath(h interface{ Write([]byte) (int, error) }, repoRoot, path
 				return nil
 			}
 		}
-		if filepath.Ext(child) != ".go" || strings.HasSuffix(child, "_test.go") {
+		if d.Type()&os.ModeSymlink != 0 || filepath.Ext(child) != ".go" || strings.HasSuffix(child, "_test.go") {
 			return nil
 		}
-		return hashGeneratorFile(h, repoRoot, child)
+		repoRel, err := filepath.Rel(repoRoot, child)
+		if err != nil {
+			return err
+		}
+		repoRel = filepath.ToSlash(repoRel)
+		files[repoRel] = struct{}{}
+		if err := addGeneratorEmbeddedFiles(repoRoot, repoRel, files); err != nil {
+			return err
+		}
+		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(files))
+	for rel := range files {
+		paths = append(paths, rel)
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func generatorRootPackageFiles(repoRoot string) ([]string, error) {
+	entries, err := os.ReadDir(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	files := map[string]struct{}{}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		name := entry.Name()
+		if filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		files[name] = struct{}{}
+		if err := addGeneratorEmbeddedFiles(repoRoot, name, files); err != nil {
+			return nil, err
+		}
+	}
+	paths := make([]string, 0, len(files))
+	for rel := range files {
+		paths = append(paths, rel)
+	}
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func hashGeneratorFile(h interface{ Write([]byte) (int, error) }, repoRoot, path string) error {
@@ -896,6 +970,150 @@ func hashGeneratorFile(h interface{ Write([]byte) (int, error) }, repoRoot, path
 	_, _ = h.Write(data)
 	_, _ = h.Write([]byte{0})
 	return nil
+}
+
+func addGeneratorEmbeddedFiles(repoRoot, goRel string, files map[string]struct{}) error {
+	data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(goRel)))
+	if err != nil {
+		return err
+	}
+	patterns := parseGeneratorGoEmbedPatterns(string(data))
+	if len(patterns) == 0 {
+		return nil
+	}
+	pkgDir := filepath.Dir(goRel)
+	for _, pattern := range patterns {
+		if err := addGeneratorEmbeddedPatternFiles(repoRoot, pkgDir, pattern, files); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseGeneratorGoEmbedPatterns(src string) []string {
+	var patterns []string
+	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "//go:embed") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "//go:embed"))
+		for rest != "" {
+			token, next, ok := nextGeneratorEmbedToken(rest)
+			if !ok {
+				break
+			}
+			if token != "" {
+				patterns = append(patterns, token)
+			}
+			rest = next
+		}
+	}
+	return patterns
+}
+
+func nextGeneratorEmbedToken(input string) (string, string, bool) {
+	input = strings.TrimLeftFunc(input, unicode.IsSpace)
+	if input == "" {
+		return "", "", false
+	}
+	if quote, _ := utf8.DecodeRuneInString(input); quote == '"' || quote == '`' {
+		for i := 1; i <= len(input); i++ {
+			token, err := strconv.Unquote(input[:i])
+			if err == nil {
+				return token, input[i:], true
+			}
+		}
+		return "", "", false
+	}
+	i := 0
+	for i < len(input) {
+		r, size := utf8.DecodeRuneInString(input[i:])
+		if unicode.IsSpace(r) {
+			break
+		}
+		i += size
+	}
+	return input[:i], input[i:], true
+}
+
+func addGeneratorEmbeddedPatternFiles(repoRoot, pkgDir, pattern string, files map[string]struct{}) error {
+	includeHidden := false
+	if strings.HasPrefix(pattern, "all:") {
+		includeHidden = true
+		pattern = strings.TrimPrefix(pattern, "all:")
+	}
+	if pattern == "" || filepath.IsAbs(pattern) || strings.HasPrefix(pattern, "../") || strings.Contains(pattern, "/../") {
+		return nil
+	}
+	search := filepath.Join(repoRoot, filepath.FromSlash(pkgDir), filepath.FromSlash(pattern))
+	matches, err := filepath.Glob(search)
+	if err != nil {
+		return nil
+	}
+	for _, match := range matches {
+		if err := addGeneratorEmbeddedPath(repoRoot, match, includeHidden, files); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addGeneratorEmbeddedPath(repoRoot, path string, includeHidden bool, files map[string]struct{}) error {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		rel, err := filepath.Rel(repoRoot, path)
+		if err != nil {
+			return err
+		}
+		if includeHidden || !hasGeneratorHiddenOrUnderscorePart(rel) {
+			files[filepath.ToSlash(rel)] = struct{}{}
+		}
+		return nil
+	}
+	return filepath.WalkDir(path, func(child string, d fs.DirEntry, err error) error {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(repoRoot, child)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if d.IsDir() {
+			if !includeHidden && hasGeneratorHiddenOrUnderscorePart(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if includeHidden || !hasGeneratorHiddenOrUnderscorePart(rel) {
+			files[filepath.ToSlash(rel)] = struct{}{}
+		}
+		return nil
+	})
+}
+
+func hasGeneratorHiddenOrUnderscorePart(rel string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if strings.HasPrefix(part, ".") || strings.HasPrefix(part, "_") {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldSkipDir(rel string) bool {
@@ -1066,7 +1284,9 @@ func workspaceDir(appRoot, appName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if key := strings.TrimSpace(os.Getenv("ONLAVA_TEST_WORKSPACE_KEY")); key != "" {
+	if key, err := testWorkspaceKey(); err != nil {
+		return "", err
+	} else if key != "" {
 		name := sanitizeWorkspaceLabel(appName)
 		if name == "" {
 			name = "app"
@@ -1085,8 +1305,19 @@ func workspaceDir(appRoot, appName string) (string, error) {
 	return filepath.Join(cacheRoot, "build", name+"-"+hex.EncodeToString(sum[:8])), nil
 }
 
-func workspaceBinaryName(appRoot, buildFingerprint string) string {
+func testWorkspaceKey() (string, error) {
 	key := strings.TrimSpace(os.Getenv("ONLAVA_TEST_WORKSPACE_KEY"))
+	if key == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(os.Getenv("ONLAVA_ALLOW_TEST_WORKSPACE_KEY")) != "1" {
+		return "", fmt.Errorf("ONLAVA_TEST_WORKSPACE_KEY requires ONLAVA_ALLOW_TEST_WORKSPACE_KEY=1")
+	}
+	return key, nil
+}
+
+func workspaceBinaryName(appRoot, buildFingerprint string) string {
+	key, _ := testWorkspaceKey()
 	if key == "" {
 		return "onlava-app"
 	}

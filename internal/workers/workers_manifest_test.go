@@ -1,12 +1,10 @@
-package relocatedtests
+package workers
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	. "github.com/pbrazdil/onlava/internal/workers"
 )
 
 const (
@@ -15,6 +13,8 @@ const (
 )
 
 func TestValidateWorkerManifests(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "email.json", `{
   "schema_version": "onlava.worker.manifest.v1",
@@ -41,6 +41,8 @@ func TestValidateWorkerManifests(t *testing.T) {
 }
 
 func TestValidateWorkerManifestRejectsIncompatibleQueueSharing(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "python.json", `{
   "app": "orders",
@@ -69,6 +71,8 @@ func TestValidateWorkerManifestRejectsIncompatibleQueueSharing(t *testing.T) {
 }
 
 func TestValidateWorkerManifestV2AcceptsQueueRegistrations(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "email.json", `{
   "schema_version": "onlava.worker.manifest.v2",
@@ -102,6 +106,8 @@ func TestValidateWorkerManifestV2AcceptsQueueRegistrations(t *testing.T) {
 }
 
 func TestValidateWorkerManifestV2RejectsRegistrationHashMismatch(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "python.json", `{
   "schema_version": "onlava.worker.manifest.v2",
@@ -134,6 +140,8 @@ func TestValidateWorkerManifestV2RejectsRegistrationHashMismatch(t *testing.T) {
 }
 
 func TestValidateWorkerManifestV2RejectsMalformedRegistrationHash(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "python.json", `{
   "schema_version": "onlava.worker.manifest.v2",
@@ -156,6 +164,8 @@ func TestValidateWorkerManifestV2RejectsMalformedRegistrationHash(t *testing.T) 
 }
 
 func TestValidateWorkerManifestAllowsV1AndV2SharedQueueDuringMigration(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "python-v1.json", `{
   "schema_version": "onlava.worker.manifest.v1",
@@ -184,6 +194,8 @@ func TestValidateWorkerManifestAllowsV1AndV2SharedQueueDuringMigration(t *testin
 }
 
 func TestValidateWorkerManifestRejectsUnknownActivitiesWhenKnownSetProvided(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "python.json", `{
   "app": "orders",
@@ -204,6 +216,8 @@ func TestValidateWorkerManifestRejectsUnknownActivitiesWhenKnownSetProvided(t *t
 }
 
 func TestValidateWorkerManifestRejectsBadShape(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "bad.json", `{
   "schema_version": "wrong",
@@ -225,6 +239,8 @@ func TestValidateWorkerManifestRejectsBadShape(t *testing.T) {
 }
 
 func TestGenerateBindingsWritesPythonAndTypeScriptStarters(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeManifest(t, root, "email-python.json", `{
   "schema_version": "onlava.worker.manifest.v1",

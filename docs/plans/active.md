@@ -37,6 +37,11 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: onlava runtime / test infrastructure
   - Created: 2026-05-28
   - Focus: fix flaky Grafana version probing, silence expected CLI warnings in tests, add timing reports, and reduce warm-cache `go test -count=1 ./...` runtime.
+- [0051 Harness Self Agent Oracle](0051-harness-self-agent-oracle.md)
+  - Status: active
+  - Owner: onlava runtime / agent DX
+  - Created: 2026-05-29
+  - Focus: make `onlava harness self` a machine-readable development oracle with full tests, changed-area recommendations, timing budgets, schema validation, context pack, and drift checks.
 - [0047 TypeScript Temporal Workers](0047-typescript-temporal-workers.md)
   - Status: active
   - Owner: onlava runtime / Temporal

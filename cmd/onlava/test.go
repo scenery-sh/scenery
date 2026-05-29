@@ -42,11 +42,7 @@ func runOnlavaTest(ctx context.Context, args []string) error {
 		return err
 	}
 
-	model, err := parse.App(appRoot, cfg.Name)
-	if err != nil {
-		return err
-	}
-	result, err := build.Prepare(appRoot, model, cfg, build.PrepareOptions{})
+	result, err := prepareTestWorkspace(ctx, appRoot, cfg)
 	if err != nil {
 		return err
 	}
@@ -66,16 +62,45 @@ func runOnlavaTest(ctx context.Context, args []string) error {
 		_, _ = os.Stdout.Write(output)
 		return nil
 	}
-	if result.NeedsTidy && goTestNeedsWorkspaceTidy(output) {
-		if tidyErr := build.PrimeWorkspaceContext(ctx, result); tidyErr != nil {
-			_, _ = os.Stdout.Write(output)
-			return tidyErr
-		}
-		err, _ = runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, true)
-		return err
-	}
 	_, _ = os.Stdout.Write(output)
 	return err
+}
+
+func prepareTestWorkspace(ctx context.Context, appRoot string, cfg app.Config) (*build.Result, error) {
+	var result *build.Result
+	graphFingerprint := ""
+	if snapshot, err := scanWatchedFiles(appRoot); err == nil {
+		graphFingerprint = snapshotFingerprint(snapshot)
+		if cached, ok, err := build.LoadCachedGraph(appRoot, cfg.Name, graphFingerprint); err != nil {
+			return nil, err
+		} else if ok {
+			reused, err := build.RefreshCachedWorkspace(appRoot, cached.Result)
+			if err != nil {
+				return nil, err
+			}
+			if reused {
+				result = cached.Result
+			}
+		}
+	}
+	if result == nil {
+		model, err := parse.App(appRoot, cfg.Name)
+		if err != nil {
+			return nil, err
+		}
+		prepared, err := build.Prepare(appRoot, model, cfg, build.PrepareOptions{})
+		if err != nil {
+			return nil, err
+		}
+		result = prepared
+	}
+	if graphFingerprint != "" {
+		result.GraphFingerprint = graphFingerprint
+	}
+	if err := build.PrimeWorkspaceContext(ctx, result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []string, stream bool) (error, []byte) {

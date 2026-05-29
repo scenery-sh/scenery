@@ -95,7 +95,6 @@ func TestWithMigrationTxUsesDeterministicFieldDDLLockOrder(t *testing.T) {
 	got := db.txs[0].advisoryLockKeys()
 	want := []int64{
 		advisoryLockKey("objectstore", metadataBootstrapLockName),
-		advisoryLockKey("objectstore", physicalSchemaMigrationLockName),
 		advisoryLockKey("objectstore", tenantSchemaMigrationLockName, "tenant-one"),
 		advisoryLockKey("objectstore", tenantRecordSchemaLockName, "tenant-one"),
 		advisoryLockKey("objectstore", objectSchemaMigrationLockName, "tenant-1", "object-1"),
@@ -103,10 +102,10 @@ func TestWithMigrationTxUsesDeterministicFieldDDLLockOrder(t *testing.T) {
 	if !equalInt64Slices(got, want) {
 		t.Fatalf("advisory lock keys = %#v, want %#v", got, want)
 	}
-	if got[2] == advisoryLockKey("objectstore", tenantSchemaMigrationLockName, "tenant-two") {
+	if got[1] == advisoryLockKey("objectstore", tenantSchemaMigrationLockName, "tenant-two") {
 		t.Fatalf("tenant schema lock key is not tenant-scoped")
 	}
-	if got[3] == advisoryLockKey("objectstore", tenantRecordSchemaLockName, "tenant-two") {
+	if got[2] == advisoryLockKey("objectstore", tenantRecordSchemaLockName, "tenant-two") {
 		t.Fatalf("tenant record schema lock key is not tenant-scoped")
 	}
 }
@@ -134,7 +133,6 @@ func TestEnsureTenantUsesDeterministicDDLLockOrder(t *testing.T) {
 	got := db.txs[0].advisoryLockKeys()
 	want := []int64{
 		advisoryLockKey("objectstore", metadataBootstrapLockName),
-		advisoryLockKey("objectstore", physicalSchemaMigrationLockName),
 		advisoryLockKey("objectstore", tenantSchemaMigrationLockName, "tenant_one"),
 	}
 	if !equalInt64Slices(got, want) {

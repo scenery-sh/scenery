@@ -54,6 +54,7 @@ These are injected by onlava into generated app processes. App code may read the
 | `ONLAVA_DEV_REPORT_TOKEN` | injected | Token used by the app child to report logs/traces to the dev dashboard. |
 | `ONLAVA_DEV_DETACHED_CHILD` | internal | Marks the background child used by `onlava dev --detach`. |
 | `ONLAVA_PUBLIC_BASE_URL` | injected | Public API base URL advertised to app code. |
+| `ONLAVA_STANDALONE_DEV` | internal | Marks a generated runtime process started in standalone dev mode. |
 
 ## App Service URLs And Auth
 
@@ -62,6 +63,8 @@ These are injected by onlava into generated app processes. App code may read the
 | `DATABASE_URL` | user input/injected | Conventional database URL. Managed dev Postgres overwrites this with the session database unless `ONLAVA_DEV_POSTGRES_EXTERNAL=1`. |
 | `DatabaseURL` | user input/injected | onlava app-style database URL env. Used when `auth.database_url_env` is `DatabaseURL`. |
 | `ONLAVA_AUTH_DATABASE_URL` | user input | Fallback DB URL for standard auth when app-specific envs are unset. |
+| `ONLAVA_AUTH_JWT_SECRET` | user input | Fallback JWT signing secret for standard auth when `auth.jwt_secret_env` and `JWT_SECRET` are unset. |
+| `ONLAVA_AUTH_EMAIL_FROM` | user input | Fallback sender address for standard auth email flows when `auth.email_from_env` and `AUTH_EMAIL_FROM` are unset. |
 | `ONLAVA_MANAGED_DATABASE_NAME` | injected | Name of the managed per-session Postgres database. |
 | `ONLAVA_MANAGED_DATABASE_URL` | injected | Managed per-session Postgres URL exposed for tooling/debugging. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
@@ -167,7 +170,9 @@ onlava also injects standard OpenTelemetry endpoint variables when Victoria side
 | `ONLAVA_BIN` | user input | Target-app helper override for the onlava binary path. |
 | `ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT` | user input | Optional external app root for release-gate smoke validation. |
 | `ONLAVA_RELEASE_GATE_LOG_DIR` | user input | Release-gate log directory override. |
-| `ONLAVA_TEST_DATABASE_URL` | test input | PostgreSQL URL for integration tests that need a real database. |
+| `ONLAVA_ALLOW_TEST_WORKSPACE_KEY` | test input | Must be `1` before the production binary honors `ONLAVA_TEST_WORKSPACE_KEY`; prevents accidental real-dev build workspace collisions. |
+| `ONLAVA_TEST_DATABASE_URL` | test input | PostgreSQL admin URL for integration tests that need a real database; tests create package-scoped databases from it. |
+| `ONLAVA_TEST_WATCH_SETTLE_DELAY_MS` | test input | Overrides `onlava dev` file-watch settle delay in integration tests so reload assertions do not wait on production debounce timing. |
 | `ONLAVA_SHADCN_REGISTRY_ROOT` | user input | UI registry root override for the dashboard shadcn wrapper. |
 | `ONLAVA_SHADCN_VERSION` | user input | shadcn CLI version override for the dashboard wrapper. |
 | `ONLAVA_SHADCN_OVERWRITE` | user input | `1` permits overwrite operations in the dashboard shadcn wrapper. |

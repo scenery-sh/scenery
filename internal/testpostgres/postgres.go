@@ -1,19 +1,18 @@
 package testpostgres
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,14 +20,17 @@ import (
 const EnvDatabaseURL = "ONLAVA_TEST_DATABASE_URL"
 
 type Database struct {
-	URL       string
-	container *postgres.PostgresContainer
-	reusable  bool
+	URL      string
+	reusable bool
 }
 
 func Start(ctx context.Context) (*Database, error) {
 	if dsn := strings.TrimSpace(os.Getenv(EnvDatabaseURL)); dsn != "" {
-		return &Database{URL: dsn}, nil
+		url, err := ensurePackageDatabase(ctx, dsn)
+		if err != nil {
+			return nil, err
+		}
+		return &Database{URL: url}, nil
 	}
 	if adminURL, ok := readCachedReusablePostgresURL(); ok {
 		url, err := ensurePackageDatabase(ctx, adminURL)
@@ -49,45 +51,146 @@ func Start(ctx context.Context) (*Database, error) {
 		}
 		_ = os.Remove(reusablePostgresURLCachePath())
 	}
-	if err := os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true"); err != nil {
+	url, err := startDockerPostgres(ctx)
+	if err != nil {
 		return nil, err
 	}
-	container, err := postgres.Run(ctx,
-		"postgres:17-alpine",
-		postgres.WithDatabase("onlava_test"),
-		postgres.WithUsername("postgres"),
-		postgres.WithPassword("postgres"),
-		testcontainers.WithReuseByName(reusablePostgresContainerName()),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(90*time.Second),
-		),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("start PostgreSQL testcontainer: %w", err)
-	}
-	url, err := container.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		_ = container.Terminate(ctx)
-		return nil, fmt.Errorf("read PostgreSQL testcontainer connection string: %w", err)
-	}
 	if err := writeCachedReusablePostgresURL(url); err != nil {
-		_ = container.Terminate(ctx)
 		return nil, err
 	}
 	url, err = ensurePackageDatabase(ctx, url)
 	if err != nil {
 		return nil, err
 	}
-	return &Database{URL: url, container: container, reusable: true}, nil
+	return &Database{URL: url, reusable: true}, nil
 }
 
 func (db *Database) Terminate(ctx context.Context) error {
-	if db == nil || db.container == nil || db.reusable {
-		return nil
+	return nil
+}
+
+func startDockerPostgres(ctx context.Context) (string, error) {
+	name := reusablePostgresContainerName()
+	if _, err := exec.LookPath("docker"); err != nil {
+		return "", fmt.Errorf("%s is not set and docker CLI was not found in PATH: %w", EnvDatabaseURL, err)
 	}
-	return db.container.Terminate(ctx)
+	exists, running, err := inspectDockerContainer(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		if err := runDockerPostgres(ctx, name); err != nil {
+			return "", err
+		}
+	} else if !running {
+		if err := removeDockerContainer(ctx, name); err != nil {
+			return "", err
+		}
+		if err := runDockerPostgres(ctx, name); err != nil {
+			return "", err
+		}
+	}
+	host, port, err := dockerPostgresHostPort(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	adminURL := (&url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword("postgres", "postgres"),
+		Host:   net.JoinHostPort(host, port),
+		Path:   "/onlava_test",
+	}).String() + "?sslmode=disable"
+	if err := waitForPostgres(ctx, adminURL); err != nil {
+		return "", err
+	}
+	return adminURL, nil
+}
+
+func inspectDockerContainer(ctx context.Context, name string) (exists bool, running bool, err error) {
+	output, err := runCommand(ctx, "docker", "inspect", "-f", "{{.State.Running}}", name)
+	if err == nil {
+		return true, strings.TrimSpace(string(output)) == "true", nil
+	}
+	if strings.Contains(string(output), "No such object") || strings.Contains(err.Error(), "exit status 1") {
+		return false, false, nil
+	}
+	return false, false, fmt.Errorf("inspect PostgreSQL docker container %s: %w\n%s", name, err, output)
+}
+
+func runDockerPostgres(ctx context.Context, name string) error {
+	output, err := runCommand(ctx,
+		"docker", "run", "-d",
+		"--name", name,
+		"-e", "POSTGRES_DB=onlava_test",
+		"-e", "POSTGRES_USER=postgres",
+		"-e", "POSTGRES_PASSWORD=postgres",
+		"-p", "127.0.0.1::5432",
+		"postgres:17-alpine",
+	)
+	if err != nil {
+		return fmt.Errorf("start PostgreSQL docker container %s: %w\n%s", name, err, output)
+	}
+	return nil
+}
+
+func removeDockerContainer(ctx context.Context, name string) error {
+	output, err := runCommand(ctx, "docker", "rm", "-f", name)
+	if err != nil {
+		return fmt.Errorf("remove stale PostgreSQL docker container %s: %w\n%s", name, err, output)
+	}
+	return nil
+}
+
+func dockerPostgresHostPort(ctx context.Context, name string) (string, string, error) {
+	output, err := runCommand(ctx, "docker", "port", name, "5432/tcp")
+	if err != nil {
+		return "", "", fmt.Errorf("read PostgreSQL docker container port %s: %w\n%s", name, err, output)
+	}
+	fields := strings.Fields(strings.TrimSpace(string(output)))
+	if len(fields) == 0 {
+		return "", "", fmt.Errorf("PostgreSQL docker container %s has no published 5432/tcp port", name)
+	}
+	host, port, err := net.SplitHostPort(fields[0])
+	if err != nil {
+		return "", "", fmt.Errorf("parse PostgreSQL docker container port %q: %w", fields[0], err)
+	}
+	if host == "0.0.0.0" || host == "::" || host == "" {
+		host = "127.0.0.1"
+	}
+	return host, port, nil
+}
+
+func waitForPostgres(ctx context.Context, dsn string) error {
+	deadline := time.Now().Add(90 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		pingCtx, cancel := context.WithTimeout(ctx, time.Second)
+		pool, err := pgxpool.New(pingCtx, dsn)
+		if err == nil {
+			err = pool.Ping(pingCtx)
+			pool.Close()
+		}
+		cancel()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("PostgreSQL docker container did not become ready: %w", lastErr)
+}
+
+func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	err := cmd.Run()
+	return output.Bytes(), err
 }
 
 func reusablePostgresContainerName() string {
@@ -199,6 +302,9 @@ func lockReusablePostgres(ctx context.Context) (func(), error) {
 }
 
 func ensurePackageDatabase(ctx context.Context, adminURL string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	dbName := packageDatabaseName()
 	pool, err := pgxpool.New(ctx, adminURL)
 	if err != nil {

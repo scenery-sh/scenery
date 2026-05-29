@@ -52,6 +52,8 @@ func (b devBackend) normalized() devBackend {
 }
 
 func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot string) error {
+	applyWatchTimingOverridesFromEnv()
+
 	start, err := resolveAppRoot(appRoot)
 	if err != nil {
 		return err
@@ -132,6 +134,22 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 			supervisor.console.RebuildFailed(err)
 		}
 	}
+}
+
+func applyWatchTimingOverridesFromEnv() {
+	watchSettleDelay = watchDurationFromEnv("ONLAVA_TEST_WATCH_SETTLE_DELAY_MS", watchSettleDelay)
+}
+
+func watchDurationFromEnv(name string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	millis, err := strconv.Atoi(value)
+	if err != nil || millis <= 0 {
+		return fallback
+	}
+	return time.Duration(millis) * time.Millisecond
 }
 
 func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, listen devListenRequest) (*localagent.Client, *localagent.Session, devBackend, func(), error) {

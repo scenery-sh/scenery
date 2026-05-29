@@ -106,7 +106,7 @@ func usageError() error {
     onlava build [--app-root <path>] [-o <path>]
     onlava check [--app-root <path>] [--json]
     onlava harness [--app-root <path>] [--json] [--write]
-    onlava harness self [--repo-root <path>] [--json] [--write]
+    onlava harness self [--repo-root <path>] [--json] [--write] [--quick|--race|--release]
     onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
     onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
     onlava inspect docs --json [--repo-root <path>]

@@ -81,6 +81,8 @@ func TestRuntimeRoleFromEnvRejectsUnknown(t *testing.T) {
 }
 
 func TestListenRuntimeUnixSocket(t *testing.T) {
+	t.Parallel()
+
 	socketPath := filepath.Join(t.TempDir(), "runtime.sock")
 	ln, err := listenRuntime("unix", socketPath)
 	if err != nil {
@@ -96,6 +98,8 @@ func TestListenRuntimeUnixSocket(t *testing.T) {
 }
 
 func TestSupervisorParentMonitorShouldCancel(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name            string
 		supervisorPID   int

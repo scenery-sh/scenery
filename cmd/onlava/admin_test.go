@@ -11,6 +11,8 @@ import (
 )
 
 func TestParseAdminArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseAdminArgs([]string{"traces", "clear", "--json", "--app-root", "/tmp/app"})
 	if err != nil {
 		t.Fatalf("parseAdminArgs returned error: %v", err)
@@ -21,6 +23,8 @@ func TestParseAdminArgs(t *testing.T) {
 }
 
 func TestRunOnlavaAdminRequiresJSON(t *testing.T) {
+	t.Parallel()
+
 	err := runOnlavaAdmin(context.Background(), []string{"traces", "clear"}, &bytes.Buffer{})
 	if err == nil || err.Error() != "onlava admin currently requires --json" {
 		t.Fatalf("runOnlavaAdmin() error = %v", err)

@@ -20,7 +20,7 @@
         "temporal_host": { "type": "string" },
         "grafana_host": { "type": "string" },
         "frontends": {
-          "type": "object",
+          "type": ["object", "null"],
           "additionalProperties": { "$ref": "#/$defs/frontend" }
         }
       },
@@ -30,11 +30,11 @@
       "type": "object",
       "properties": {
         "services": {
-          "type": "object",
+          "type": ["object", "null"],
           "additionalProperties": { "$ref": "#/$defs/devService" }
         },
         "setup": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": { "type": "string" }
         }
       },
@@ -69,7 +69,7 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
-        "mode": { "type": "string", "enum": ["local", "production"] },
+        "mode": { "type": "string", "enum": ["", "local", "production"] },
         "namespace": { "type": "string" },
         "address_env": { "type": "string" },
         "task_queue_prefix": { "type": "string" },
@@ -92,11 +92,11 @@
       "type": "object",
       "properties": {
         "include_endpoints": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": { "type": "string" }
         },
         "exclude_endpoints": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": { "type": "string" }
         }
       },
@@ -107,7 +107,8 @@
       "properties": {
         "host": { "type": "string" },
         "root": { "type": "string" },
-        "upstream": { "type": "string" }
+        "upstream": { "type": "string" },
+        "allow_shared_upstream": { "type": "boolean" }
       },
       "required": ["host"],
       "additionalProperties": false
@@ -143,6 +144,7 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
+        "default_user_email": { "type": "string" },
         "default_user_id": { "type": "string" },
         "default_tenant_id": { "type": "string" }
       },
@@ -171,7 +173,7 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
-        "runtime": { "type": "string", "enum": ["bun", "node"] },
+        "runtime": { "type": "string", "enum": ["", "bun", "node"] },
         "auto_start": { "type": "boolean" }
       },
       "additionalProperties": false

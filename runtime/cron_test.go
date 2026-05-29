@@ -7,6 +7,8 @@ import (
 )
 
 func TestEveryCronPlanAlignsToUTCGrid(t *testing.T) {
+	t.Parallel()
+
 	plan := everyCronPlan{interval: 6 * time.Hour}
 	got := plan.Next(time.Date(2026, time.April, 14, 7, 10, 0, 0, time.UTC))
 	want := time.Date(2026, time.April, 14, 12, 0, 0, 0, time.UTC)
@@ -16,6 +18,8 @@ func TestEveryCronPlanAlignsToUTCGrid(t *testing.T) {
 }
 
 func TestParseCronScheduleSupportsNamesAndSteps(t *testing.T) {
+	t.Parallel()
+
 	plan, err := parseCronSchedule("*/15 9-17 * * MON-FRI")
 	if err != nil {
 		t.Fatalf("parseCronSchedule returned error: %v", err)
@@ -28,6 +32,8 @@ func TestParseCronScheduleSupportsNamesAndSteps(t *testing.T) {
 }
 
 func TestValidateCronJobRequiresExactlyOneScheduleMode(t *testing.T) {
+	t.Parallel()
+
 	err := validateCronJob(&CronJob{
 		ID:       "tick",
 		Every:    time.Minute,
@@ -40,6 +46,8 @@ func TestValidateCronJobRequiresExactlyOneScheduleMode(t *testing.T) {
 }
 
 func TestTemporalCronScheduleSpecForEvery(t *testing.T) {
+	t.Parallel()
+
 	job := &CronJob{
 		ID:     "tick",
 		Every:  5 * time.Minute,
@@ -58,6 +66,8 @@ func TestTemporalCronScheduleSpecForEvery(t *testing.T) {
 }
 
 func TestValidateCronJobRejectsInvalidTemporalPolicy(t *testing.T) {
+	t.Parallel()
+
 	err := validateCronJob(&CronJob{
 		ID:            "tick",
 		Every:         time.Minute,
@@ -92,6 +102,8 @@ func TestValidateCronJobRejectsInvalidTemporalPolicy(t *testing.T) {
 }
 
 func TestTemporalCronCalendarPreservesDayOfMonthOrDayOfWeekSemantics(t *testing.T) {
+	t.Parallel()
+
 	job := &CronJob{
 		ID:       "monthly-or-monday",
 		Schedule: "0 9 1 * MON",

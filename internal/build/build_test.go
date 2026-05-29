@@ -16,6 +16,8 @@ import (
 )
 
 func TestCopyTreeSkipsHiddenDirsAndBrokenSymlinks(t *testing.T) {
+	t.Parallel()
+
 	src := t.TempDir()
 	dst := t.TempDir()
 
@@ -62,6 +64,8 @@ func TestCopyTreeSkipsHiddenDirsAndBrokenSymlinks(t *testing.T) {
 }
 
 func TestCopyTreeRewritesPGXPoolImport(t *testing.T) {
+	t.Parallel()
+
 	src := t.TempDir()
 	dst := t.TempDir()
 
@@ -99,6 +103,8 @@ func Open(conn string) (*pgxpool.Pool, error) {
 }
 
 func TestSeedOnlavaGoSumMergesWorkspaceAndRepoSums(t *testing.T) {
+	t.Parallel()
+
 	workspace := t.TempDir()
 	repo := t.TempDir()
 	writeBuildTestFile(t, workspace, "go.sum", "example.com/app v1.0.0 h1:app\n")
@@ -126,6 +132,8 @@ func TestSeedOnlavaGoSumMergesWorkspaceAndRepoSums(t *testing.T) {
 }
 
 func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	for _, rel := range []string{
 		"go.mod",
@@ -479,6 +487,7 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 func TestCompileReusesSharedWorkspaceFingerprintBinary(t *testing.T) {
 	cacheDir := t.TempDir()
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_ALLOW_TEST_WORKSPACE_KEY", "1")
 	t.Setenv("ONLAVA_TEST_WORKSPACE_KEY", "shared-buildtest")
 
 	var builds int
@@ -539,6 +548,17 @@ func TestCompileReusesSharedWorkspaceFingerprintBinary(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDirRejectsUnguardedTestWorkspaceKey(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
+	t.Setenv("ONLAVA_TEST_WORKSPACE_KEY", "shared-buildtest")
+
+	_, err := workspaceDir(t.TempDir(), "buildtest")
+	if err == nil || !strings.Contains(err.Error(), "ONLAVA_ALLOW_TEST_WORKSPACE_KEY=1") {
+		t.Fatalf("workspaceDir() error = %v, want guarded test workspace key error", err)
+	}
+}
+
 func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 	useFakeGoRunner(t)
 	cacheDir := t.TempDir()
@@ -561,10 +581,6 @@ func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 		t.Fatalf("first compile: %v", err)
 	}
 
-	model, err = parse.App(appDir, "buildtest")
-	if err != nil {
-		t.Fatalf("re-parse app: %v", err)
-	}
 	second, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"}, PrepareOptions{ChangedPaths: []string{"svc/api.go"}})
 	if err != nil {
 		t.Fatalf("second prepare: %v", err)
@@ -624,7 +640,7 @@ func TestCachedGeneratorFingerprintInvalidatesOnSourceMetadata(t *testing.T) {
 	cacheDir := t.TempDir()
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	repo := t.TempDir()
-	sourcePath := filepath.Join(repo, "internal", "sample.go")
+	sourcePath := filepath.Join(repo, "internal", "codegen", "sample.go")
 	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -670,6 +686,119 @@ func TestCachedGeneratorFingerprintInvalidatesOnSourceMetadata(t *testing.T) {
 	}
 }
 
+func TestCachedGeneratorFingerprintIncludesRootPackageFiles(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
+	repo := t.TempDir()
+	sourcePath := filepath.Join(repo, "onlava.go")
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example.com/repo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("package onlava\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := cachedGeneratorFingerprint(repo)
+	if err != nil {
+		t.Fatalf("cachedGeneratorFingerprint(first) error = %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("package onlava\n\nconst X = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	modTime := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(sourcePath, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+	second, err := cachedGeneratorFingerprint(repo)
+	if err != nil {
+		t.Fatalf("cachedGeneratorFingerprint(second) error = %v", err)
+	}
+	if second == first {
+		t.Fatalf("cached fingerprint did not change after root package source changed: %q", second)
+	}
+}
+
+func TestCachedGeneratorFingerprintIncludesEmbeddedFiles(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
+	repo := t.TempDir()
+	sourcePath := filepath.Join(repo, "auth", "standard.go")
+	embedPath := filepath.Join(repo, "auth", "db", "gen", "schema.sql")
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example.com/repo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(embedPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("package auth\n\nimport \"embed\"\n\n//go:embed db/gen/schema.sql\nvar _ embed.FS\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(embedPath, []byte("create table one();\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := cachedGeneratorFingerprint(repo)
+	if err != nil {
+		t.Fatalf("cachedGeneratorFingerprint(first) error = %v", err)
+	}
+	if err := os.WriteFile(embedPath, []byte("create table two();\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	modTime := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(embedPath, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+	second, err := cachedGeneratorFingerprint(repo)
+	if err != nil {
+		t.Fatalf("cachedGeneratorFingerprint(second) error = %v", err)
+	}
+	if second == first {
+		t.Fatalf("cached fingerprint did not change after embedded source changed: %q", second)
+	}
+}
+
+func TestCachedGeneratorFingerprintIgnoresUnrelatedInternalPackages(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
+	repo := t.TempDir()
+	trackedPath := filepath.Join(repo, "internal", "codegen", "sample.go")
+	unrelatedPath := filepath.Join(repo, "internal", "agent", "sample.go")
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example.com/repo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trackedPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(unrelatedPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trackedPath, []byte("package codegen\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelatedPath, []byte("package agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := cachedGeneratorFingerprint(repo)
+	if err != nil {
+		t.Fatalf("cachedGeneratorFingerprint(first) error = %v", err)
+	}
+	if err := os.WriteFile(unrelatedPath, []byte("package agent\n\nconst X = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	modTime := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(unrelatedPath, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+	second, err := cachedGeneratorFingerprint(repo)
+	if err != nil {
+		t.Fatalf("cachedGeneratorFingerprint(second) error = %v", err)
+	}
+	if second != first {
+		t.Fatalf("cached fingerprint changed for unrelated internal package: %q != %q", second, first)
+	}
+}
+
 func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
 	useFakeGoRunner(t)
 	cacheDir := t.TempDir()
@@ -698,10 +827,6 @@ func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	model, err = parse.App(appDir, "buildtest")
-	if err != nil {
-		t.Fatalf("re-parse app: %v", err)
-	}
 	next, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"}, PrepareOptions{})
 	if err != nil {
 		t.Fatalf("prepare after go.mod change: %v", err)
@@ -712,6 +837,8 @@ func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
 }
 
 func TestSyncWorkspaceRemovesStaleFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeBuildTestFile(t, root, "go.mod", "module example.com/test\n")
 	writeBuildTestFile(t, root, "svc/api.go", "package svc\n")
@@ -909,6 +1036,8 @@ func TestRefreshCachedWorkspaceFallsBackWhenGeneratedFileMissing(t *testing.T) {
 }
 
 func TestSyncSourceFilesDetectsNewFilesOutsideChangedPaths(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	appRoot := t.TempDir()
 
@@ -943,6 +1072,8 @@ func TestSyncSourceFilesDetectsNewFilesOutsideChangedPaths(t *testing.T) {
 }
 
 func TestSyncGeneratedFilesKeepsPathsThatAreNowRegularSourceFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	appRoot := t.TempDir()
 	rel := "house/rooftopology_api.go"

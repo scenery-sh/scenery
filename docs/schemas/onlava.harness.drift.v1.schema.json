@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.harness.drift.v1.schema.json",
+  "title": "onlava harness drift report",
+  "type": "object",
+  "required": ["schema_version", "cli", "env", "artifacts", "embeds"],
+  "properties": {
+    "schema_version": { "const": "onlava.harness.drift.v1" },
+    "cli": { "type": "object", "additionalProperties": true },
+    "env": { "type": "object", "additionalProperties": true },
+    "artifacts": { "type": "object", "additionalProperties": true },
+    "embeds": { "type": "object", "additionalProperties": true },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "additionalProperties": false
+}

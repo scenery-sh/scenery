@@ -18,7 +18,6 @@ import (
 	"time"
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
-	"github.com/pbrazdil/onlava/internal/harnessbrowser"
 	"github.com/pbrazdil/onlava/internal/inspect"
 )
 
@@ -372,68 +371,7 @@ func (p *harnessUIDevProcess) Stop() {
 }
 
 func runHarnessUIBrowserChecks(ctx context.Context, routes []harnessUIRouteSpec, artifactRoot string, headed bool) (harnessUIBrowserResult, error) {
-	checkRoutes := make([]harnessbrowser.RouteSpec, 0, len(routes))
-	for _, route := range routes {
-		checkRoutes = append(checkRoutes, harnessbrowser.RouteSpec{
-			Name:    route.Name,
-			Path:    route.Path,
-			Markers: append([]string(nil), route.Markers...),
-		})
-	}
-	result, err := harnessbrowser.RunChecks(ctx, checkRoutes, artifactRoot, headed)
-	if err != nil {
-		return harnessUIBrowserResult{}, err
-	}
-	return convertHarnessBrowserResult(result), nil
-}
-
-func convertHarnessBrowserResult(result harnessbrowser.Result) harnessUIBrowserResult {
-	out := harnessUIBrowserResult{
-		ConsoleErrors:   convertHarnessBrowserConsoleMessages(result.ConsoleErrors),
-		NetworkFailures: convertHarnessBrowserNetworkFailures(result.NetworkFailures),
-		Artifacts:       make([]harnessArtifact, 0, len(result.Artifacts)),
-	}
-	for _, route := range result.Routes {
-		out.Routes = append(out.Routes, harnessUIRoute{
-			Name:            route.Name,
-			URL:             route.URL,
-			OK:              route.OK,
-			DurationMS:      route.DurationMS,
-			Markers:         convertHarnessBrowserMarkers(route.Markers),
-			Screenshot:      route.Screenshot,
-			ConsoleErrors:   convertHarnessBrowserConsoleMessages(route.ConsoleErrors),
-			NetworkFailures: convertHarnessBrowserNetworkFailures(route.NetworkFailures),
-			Error:           route.Error,
-		})
-	}
-	for _, artifact := range result.Artifacts {
-		out.Artifacts = append(out.Artifacts, harnessArtifact{Name: artifact.Name, Path: artifact.Path, Exists: artifact.Exists})
-	}
-	return out
-}
-
-func convertHarnessBrowserMarkers(markers []harnessbrowser.Marker) []harnessUIMarker {
-	out := make([]harnessUIMarker, 0, len(markers))
-	for _, marker := range markers {
-		out = append(out, harnessUIMarker{Selector: marker.Selector, Count: marker.Count, Found: marker.Found})
-	}
-	return out
-}
-
-func convertHarnessBrowserConsoleMessages(messages []harnessbrowser.ConsoleMessage) []harnessUIConsoleMessage {
-	out := make([]harnessUIConsoleMessage, 0, len(messages))
-	for _, message := range messages {
-		out = append(out, harnessUIConsoleMessage{Route: message.Route, Level: message.Level, Message: message.Message})
-	}
-	return out
-}
-
-func convertHarnessBrowserNetworkFailures(failures []harnessbrowser.NetworkFailure) []harnessUINetworkFailure {
-	out := make([]harnessUINetworkFailure, 0, len(failures))
-	for _, failure := range failures {
-		out = append(out, harnessUINetworkFailure{Route: failure.Route, URL: failure.URL, Type: failure.Type, Error: failure.Error})
-	}
-	return out
+	return runCDPBrowserChecks(ctx, routes, artifactRoot, headed)
 }
 
 func buildHarnessUIRoutes(appURL string) []harnessUIRouteSpec {

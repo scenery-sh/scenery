@@ -69,6 +69,8 @@ func TestServerLeavesResponsesUncompressedWithoutAcceptEncoding(t *testing.T) {
 }
 
 func TestGzipSkipsNoBodyResponses(t *testing.T) {
+	t.Parallel()
+
 	handler := withGzip(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -90,6 +92,8 @@ func TestGzipSkipsNoBodyResponses(t *testing.T) {
 }
 
 func TestGzipSkipsEventStreamResponses(t *testing.T) {
+	t.Parallel()
+
 	handler := withGzip(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: ok\n\n")
@@ -109,6 +113,8 @@ func TestGzipSkipsEventStreamResponses(t *testing.T) {
 }
 
 func TestGzipSkipsUpgradeRequests(t *testing.T) {
+	t.Parallel()
+
 	handler := withGzip(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		_, _ = w.Write([]byte("upgrade"))
 	}))
@@ -129,6 +135,8 @@ func TestGzipSkipsUpgradeRequests(t *testing.T) {
 }
 
 func TestRequestAcceptsGzipQualityValues(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct {
 		header string
 		want   bool

@@ -7,15 +7,13 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
-	temporalclient "go.temporal.io/sdk/client"
-
 	"github.com/pbrazdil/onlava/internal/app"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
-	onlavatemporal "github.com/pbrazdil/onlava/temporal"
 )
 
 const temporalDeploymentTimeout = 30 * time.Second
@@ -181,38 +179,8 @@ func runTemporalDeployment(ctx context.Context, action string, opts temporalDepl
 	if opts.Deployment != "" {
 		info.DeploymentName = opts.Deployment
 	}
-	client, err := onlavatemporal.Dial(ctx, info)
-	if err != nil {
+	if err := runTemporalDeploymentCLI(ctx, action, opts, info); err != nil {
 		return err
-	}
-	defer client.Close()
-
-	handle := client.WorkerDeploymentClient().GetHandle(onlavaruntime.TemporalDeploymentName(info))
-	switch action {
-	case "set-current":
-		_, err = handle.SetCurrentVersion(ctx, temporalclient.WorkerDeploymentSetCurrentVersionOptions{
-			BuildID:                 opts.BuildID,
-			Identity:                "onlava-cli",
-			IgnoreMissingTaskQueues: opts.IgnoreMissingTaskQueues,
-			AllowNoPollers:          opts.AllowNoPollers,
-		})
-	case "ramp":
-		_, err = handle.SetRampingVersion(ctx, temporalclient.WorkerDeploymentSetRampingVersionOptions{
-			BuildID:                 opts.BuildID,
-			Percentage:              float32(opts.Percentage),
-			Identity:                "onlava-cli",
-			IgnoreMissingTaskQueues: opts.IgnoreMissingTaskQueues,
-			AllowNoPollers:          opts.AllowNoPollers,
-		})
-	case "drain":
-		_, err = handle.DeleteVersion(ctx, temporalclient.WorkerDeploymentDeleteVersionOptions{
-			BuildID:      opts.BuildID,
-			SkipDrainage: opts.Force,
-			Identity:     "onlava-cli",
-		})
-	}
-	if err != nil {
-		return fmt.Errorf("temporal deployment %s %s build %s: %w", action, onlavaruntime.TemporalDeploymentName(info), opts.BuildID, err)
 	}
 	result := temporalDeploymentResult{
 		OK:         true,
@@ -232,6 +200,101 @@ func runTemporalDeployment(ctx context.Context, action string, opts temporalDepl
 		return err
 	}
 	return nil
+}
+
+func runTemporalDeploymentCLI(ctx context.Context, action string, opts temporalDeploymentOptions, info onlavaruntime.TemporalRuntimeInfo) error {
+	path, err := exec.LookPath("temporal")
+	if err != nil {
+		return fmt.Errorf("temporal deployment commands require the temporal CLI in PATH: %w", err)
+	}
+	args := temporalDeploymentCLIArgs(action, opts, info)
+	cmd := exec.CommandContext(ctx, path, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("temporal deployment %s %s build %s: %w\n%s", action, onlavaruntime.TemporalDeploymentName(info), opts.BuildID, err, output)
+	}
+	return nil
+}
+
+func temporalDeploymentCLIArgs(action string, opts temporalDeploymentOptions, info onlavaruntime.TemporalRuntimeInfo) []string {
+	deployment := onlavaruntime.TemporalDeploymentName(info)
+	var args []string
+	switch action {
+	case "set-current":
+		args = append(args,
+			"worker", "deployment", "set-current-version",
+			"--deployment-name", deployment,
+			"--build-id", opts.BuildID,
+			"--identity", "onlava-cli",
+			"--yes",
+		)
+		if opts.IgnoreMissingTaskQueues {
+			args = append(args, "--ignore-missing-task-queues")
+		}
+		if opts.AllowNoPollers {
+			args = append(args, "--allow-no-pollers")
+		}
+	case "ramp":
+		args = append(args,
+			"worker", "deployment", "set-ramping-version",
+			"--deployment-name", deployment,
+			"--build-id", opts.BuildID,
+			"--percentage", strconv.FormatFloat(opts.Percentage, 'f', -1, 64),
+			"--identity", "onlava-cli",
+			"--yes",
+		)
+		if opts.IgnoreMissingTaskQueues {
+			args = append(args, "--ignore-missing-task-queues")
+		}
+		if opts.AllowNoPollers {
+			args = append(args, "--allow-no-pollers")
+		}
+	case "drain":
+		args = append(args,
+			"worker", "deployment", "delete-version",
+			"--deployment-name", deployment,
+			"--build-id", opts.BuildID,
+			"--identity", "onlava-cli",
+		)
+		if opts.Force {
+			args = append(args, "--skip-drainage")
+		}
+	}
+	args = append(args,
+		"--address", info.Address,
+		"--namespace", info.Namespace,
+		"--command-timeout", temporalDeploymentTimeout.String(),
+		"--client-connect-timeout", onlavaruntime.DefaultTemporalConnectWait.String(),
+		"--color", "never",
+		"--output", "json",
+	)
+	if info.APIKeyEnvSet {
+		if value := strings.TrimSpace(os.Getenv(info.APIKeyEnv)); value != "" {
+			args = append(args, "--api-key", value)
+		}
+	}
+	if info.TLSEnabled {
+		args = append(args, "--tls")
+	}
+	if info.TLSServerNameSet {
+		args = append(args, "--tls-server-name", info.TLSServerName)
+	}
+	if info.TLSCACertFileSet {
+		if value := strings.TrimSpace(os.Getenv(info.TLSCACertFileEnv)); value != "" {
+			args = append(args, "--tls-ca-path", value)
+		}
+	}
+	if info.TLSCertFileSet {
+		if value := strings.TrimSpace(os.Getenv(info.TLSCertFileEnv)); value != "" {
+			args = append(args, "--tls-cert-path", value)
+		}
+	}
+	if info.TLSKeyFileSet {
+		if value := strings.TrimSpace(os.Getenv(info.TLSKeyFileEnv)); value != "" {
+			args = append(args, "--tls-key-path", value)
+		}
+	}
+	return args
 }
 
 func envListMap(env []string) map[string]string {

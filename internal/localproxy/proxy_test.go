@@ -20,6 +20,8 @@ import (
 )
 
 func TestDiscoverWorkspace(t *testing.T) {
+	t.Parallel()
+
 	got := DiscoverWorkspace("/tmp/Acme Repo", "fallback")
 	if got != "acme-repo" {
 		t.Fatalf("DiscoverWorkspace() = %q, want %q", got, "acme-repo")
@@ -88,6 +90,8 @@ func TestEnvironmentParsing(t *testing.T) {
 }
 
 func TestNormalizeUpstream(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		input string
 		want  string
@@ -106,6 +110,8 @@ func TestNormalizeUpstream(t *testing.T) {
 }
 
 func TestRoutesFor(t *testing.T) {
+	t.Parallel()
+
 	routes := routesFor(Config{
 		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
@@ -144,6 +150,8 @@ func TestRoutesFor(t *testing.T) {
 }
 
 func TestRoutesForExplicitHosts(t *testing.T) {
+	t.Parallel()
+
 	routes := routesFor(Config{
 		APIHost:           "api.custom.localhost",
 		ConsoleHost:       "console.custom.localhost",
@@ -180,6 +188,8 @@ func TestRoutesForExplicitHosts(t *testing.T) {
 }
 
 func TestRouteTableIncludesExpectedHosts(t *testing.T) {
+	t.Parallel()
+
 	table, err := proxyRoutes(Config{
 		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
@@ -217,6 +227,8 @@ func TestRouteTableIncludesExpectedHosts(t *testing.T) {
 }
 
 func TestCertificateSubjects(t *testing.T) {
+	t.Parallel()
+
 	subjects := routeSubjects(Config{
 		Workspace:         "acme",
 		APIUpstream:       "127.0.0.1:4000",
@@ -243,6 +255,8 @@ func TestCertificateSubjects(t *testing.T) {
 }
 
 func TestStartRejectsInvalidConfig(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		cfg  Config
@@ -280,6 +294,8 @@ func TestStartRejectsInvalidConfig(t *testing.T) {
 }
 
 func TestNormalizeHost(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		input string
 		want  string

@@ -1,4 +1,4 @@
-package relocatedtests
+package workers
 
 import (
 	"encoding/json"
@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	. "github.com/pbrazdil/onlava/internal/workers"
 )
 
 func TestDiscoverTypeScriptActivitiesFromWorkerFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTSWorkerFile(t, root, "house/preview.worker.ts", `import { activity } from "onlava/worker";
 
@@ -54,6 +54,8 @@ export const normalizeEarthMetadata = activity<NormalizeEarthMetadataInput, Norm
 }
 
 func TestGenerateTypeScriptWorkerWritesRegistryWorkerAndManifest(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTSWorkerFile(t, root, "house/preview.worker.ts", `import { activity } from "onlava/worker";
 export type RenderRoofPreviewInput = { project_id: string };
@@ -143,6 +145,8 @@ export const normalizeEarthMetadata = activity<NormalizeEarthMetadataInput, Norm
 }
 
 func TestValidateTypeScriptContractsMatchesExternalActivities(t *testing.T) {
+	t.Parallel()
+
 	ts := TypeScriptWorkerModel{Activities: []TypeScriptActivity{{
 		ExportName: "renderRoofPreview",
 		Name:       "house.RenderRoofPreview/v1",
@@ -173,6 +177,8 @@ func TestValidateTypeScriptContractsMatchesExternalActivities(t *testing.T) {
 }
 
 func TestValidateTypeScriptTaskQueuesRejectsUnknownSelection(t *testing.T) {
+	t.Parallel()
+
 	activities := []TypeScriptActivity{{Name: "house.Render/v1", TaskQueue: "onlv.house.preview.ts"}}
 	diagnostics := ValidateTypeScriptTaskQueues(activities, []string{"onlv.house.preview.ts", "missing.ts"})
 	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].Message, "missing.ts") {

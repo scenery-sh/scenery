@@ -315,9 +315,6 @@ func (s *Store) ensureTenantOnce(ctx context.Context, id, key, name string, now 
 	if err := lockMetadataBootstrapRead(ctx, tx); err != nil {
 		return nil, fmt.Errorf("ensure data tenant %q: %w", key, err)
 	}
-	if err := lockPhysicalSchemaMigration(ctx, tx); err != nil {
-		return nil, fmt.Errorf("ensure data tenant %q: %w", key, err)
-	}
 	if err := lockTenantSchemaMigration(ctx, tx, key); err != nil {
 		return nil, fmt.Errorf("ensure data tenant %q: %w", key, err)
 	}

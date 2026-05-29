@@ -5,9 +5,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
-	onlavaauth "github.com/pbrazdil/onlava/auth"
+	"github.com/pbrazdil/onlava/internal/authbridge"
 	"github.com/pbrazdil/onlava/internal/objectstore"
 )
 
@@ -200,10 +199,10 @@ func (s *Store) ServeEvents(ctx context.Context, actor Actor, w http.ResponseWri
 
 func ActorFromContext(ctx context.Context) Actor {
 	var actor Actor
-	if uid, ok := onlavaauth.UserID(); ok {
-		actor.ID = string(uid)
+	if uid, ok := authbridge.UserID(); ok {
+		actor.ID = uid
 	}
-	if data := onlavaauth.Data(); data != nil {
+	if data := authbridge.Data(); data != nil {
 		actor.Data = data
 	}
 	if tenantKey, ok := TenantKeyFromContext(ctx); ok {
@@ -213,12 +212,11 @@ func ActorFromContext(ctx context.Context) Actor {
 }
 
 func TenantKeyFromContext(context.Context) (string, bool) {
-	authData, ok := onlavaauth.CurrentAuthData()
+	authData, ok := authbridge.CurrentData()
 	if !ok || authData == nil {
 		return "", false
 	}
-	tenantKey := strings.TrimSpace(string(authData.TenantID))
-	return tenantKey, tenantKey != ""
+	return authbridge.TenantID(authData)
 }
 
 func RequireTenantKeyFromContext(ctx context.Context) (string, error) {

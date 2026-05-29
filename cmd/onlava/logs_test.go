@@ -14,6 +14,8 @@ import (
 )
 
 func TestParseLogsArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseLogsArgs([]string{"--app-root", "/tmp/app", "--limit", "50", "--stream", "stderr", "--session", "current", "--follow", "--jsonl"})
 	if err != nil {
 		t.Fatalf("parseLogsArgs returned error: %v", err)
@@ -24,6 +26,8 @@ func TestParseLogsArgs(t *testing.T) {
 }
 
 func TestParseLogsArgsTreatsJSONAsAliasForJSONL(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseLogsArgs([]string{"--json"})
 	if err != nil {
 		t.Fatalf("parseLogsArgs returned error: %v", err)
@@ -34,6 +38,8 @@ func TestParseLogsArgsTreatsJSONAsAliasForJSONL(t *testing.T) {
 }
 
 func TestAttachLogArgsDefaultsToCurrentSessionFollow(t *testing.T) {
+	t.Parallel()
+
 	args, err := attachLogArgs([]string{"--app-root", "/tmp/app", "--limit", "25", "--stream", "stderr", "--json"})
 	if err != nil {
 		t.Fatalf("attachLogArgs returned error: %v", err)

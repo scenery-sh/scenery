@@ -21,6 +21,8 @@ import (
 )
 
 func TestAppChildEnvForcesColorWhenRequested(t *testing.T) {
+	t.Parallel()
+
 	env := appChildEnv([]string{"A=1"}, true, "B=2")
 	if !containsString(env, "CLICOLOR_FORCE=1") {
 		t.Fatalf("appChildEnv(%v) missing CLICOLOR_FORCE=1", env)
@@ -28,6 +30,8 @@ func TestAppChildEnvForcesColorWhenRequested(t *testing.T) {
 }
 
 func TestAppChildEnvLeavesColorUnsetWhenDisabled(t *testing.T) {
+	t.Parallel()
+
 	env := appChildEnv([]string{"A=1"}, false, "B=2")
 	if containsString(env, "CLICOLOR_FORCE=1") {
 		t.Fatalf("appChildEnv(%v) unexpectedly added CLICOLOR_FORCE=1", env)
@@ -35,6 +39,8 @@ func TestAppChildEnvLeavesColorUnsetWhenDisabled(t *testing.T) {
 }
 
 func TestSessionIdentityEnvUsesAgentSession(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{
 		cfg: app.Config{Name: "demo"},
 		agentSession: &localagent.Session{
@@ -61,6 +67,8 @@ func TestSessionIdentityEnvUsesAgentSession(t *testing.T) {
 }
 
 func TestSessionTemporalEnvUsesAgentSession(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{
 		cfg: app.Config{
 			Name: "demo",
@@ -87,6 +95,8 @@ func TestSessionTemporalEnvUsesAgentSession(t *testing.T) {
 }
 
 func TestSessionAuthEnvUsesRoutedSessionURLs(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{
 		cfg: app.Config{
 			Name: "demo",
@@ -124,6 +134,8 @@ func TestSessionAuthEnvUsesRoutedSessionURLs(t *testing.T) {
 }
 
 func TestAppStatusIncludesVisibleSessionRoutes(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{
 		status: devdash.AppRecord{
 			ID:        "demo",
@@ -153,6 +165,8 @@ func TestAppStatusIncludesVisibleSessionRoutes(t *testing.T) {
 }
 
 func TestAppEnvWithDotEnvAddsMissingValuesWithoutOverridingProcessEnv(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("A=from-file\nB=2\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -173,6 +187,8 @@ func TestAppEnvWithDotEnvAddsMissingValuesWithoutOverridingProcessEnv(t *testing
 }
 
 func TestAppEnvWithDotEnvCanLoadLocalOverride(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("A=from-env\nB=from-env\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -196,6 +212,8 @@ func TestAppEnvWithDotEnvCanLoadLocalOverride(t *testing.T) {
 }
 
 func TestAppEnvWithRequiredDotEnvFailsWhenMissing(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	_, err := appEnvWithRequiredDotEnv(nil, root)
 	if err == nil {
@@ -207,6 +225,8 @@ func TestAppEnvWithRequiredDotEnvFailsWhenMissing(t *testing.T) {
 }
 
 func TestValidateLocalSecretsFilesRequiresDotEnv(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	err := validateLocalSecretsFiles(root)
 	if err == nil {
@@ -218,6 +238,8 @@ func TestValidateLocalSecretsFilesRequiresDotEnv(t *testing.T) {
 }
 
 func TestAppProcessEnvAllowsMissingDotEnvForProduction(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	env, err := appProcessEnv(root, app.Config{Name: "demo"}, "json", "production")
 	if err != nil {
@@ -229,6 +251,8 @@ func TestAppProcessEnvAllowsMissingDotEnvForProduction(t *testing.T) {
 }
 
 func TestAppStartupExitErrorIncludesOutput(t *testing.T) {
+	t.Parallel()
+
 	output := &safeLineTail{limit: 10}
 	output.Add("warning: something happened")
 	output.Add("fatal: database missing")

@@ -102,11 +102,12 @@ func TestRunOnlavaCheckJSONSuccess(t *testing.T) {
 func TestRunOnlavaCheckJSONReportsTypeScriptTemporalContractFailure(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkts"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/checkts\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRootForTest(t)+"\n")
-	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
-	writeTestAppFile(t, root, "jobs/runtime.go", `package jobs
+	root := persistentTestAppRoot(t, "check-ts-contract")
+	preparePersistentTestApp(t, root, map[string]string{
+		".onlava.json": `{"name":"checkts"}`,
+		"go.mod":       "module example.com/checkts\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
+		"svc/api.go":   "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n",
+		"jobs/runtime.go": `package jobs
 
 import "github.com/pbrazdil/onlava/temporal"
 
@@ -114,15 +115,16 @@ type RenderInput struct{}
 type RenderOutput struct{}
 
 var _ = temporal.NewExternalActivity[*RenderInput, *RenderOutput]("house.Render/v1", temporal.ActivityConfig{TaskQueue: "onlv.house.preview.ts"})
-`)
-	writeTestAppFile(t, root, "house/preview.worker.ts", `import { activity } from "onlava/worker";
+`,
+		"house/preview.worker.ts": `import { activity } from "onlava/worker";
 export type RenderInput = { id: string };
 export type RenderOutput = { url: string };
 export const render = activity<RenderInput, RenderOutput>({
   name: "house.Render/v1",
   taskQueue: "wrong.queue.ts"
 }, async (_ctx, input) => ({ url: input.id }));
-`)
+`,
+	})
 
 	var out bytes.Buffer
 	err := runOnlavaCheck(context.Background(), &out, []string{"--app-root", root, "--json"})

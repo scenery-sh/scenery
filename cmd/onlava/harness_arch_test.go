@@ -46,6 +46,26 @@ func TestRunHarnessArchitectureStepReportsViolations(t *testing.T) {
 	}
 }
 
+func TestRunHarnessArchitectureStepReportsLayerViolation(t *testing.T) {
+	t.Parallel()
+
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+	writeArchitectureSupportFiles(t, root)
+	writeTestAppFile(t, root, "runtime/bad.go", "package runtime\n\nimport _ \"github.com/pbrazdil/onlava/internal/devdash\"\n")
+
+	step := runHarnessArchitectureStep(root)
+	if step.OK {
+		t.Fatalf("architecture step ok = true, want false")
+	}
+	var messages []string
+	for _, diag := range step.Diagnostics {
+		messages = append(messages, diag.Message)
+	}
+	if !strings.Contains(strings.Join(messages, "\n"), "package layer violation") {
+		t.Fatalf("missing layer diagnostic: %+v", step.Diagnostics)
+	}
+}
+
 func writeArchitectureSupportFiles(t *testing.T, root string) {
 	t.Helper()
 	writeTestAppFile(t, root, ".gitignore", "/oracle/\n/coverage/\n.onlava/\n.DS_Store\nnode_modules/\n")

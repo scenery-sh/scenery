@@ -13,6 +13,8 @@ import (
 )
 
 func TestResolveManagedPostgresPlanDefaults(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
@@ -41,6 +43,8 @@ func TestResolveManagedPostgresPlanDefaults(t *testing.T) {
 }
 
 func TestManagedPostgresPlanRejectsUnsupportedIsolation(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
@@ -92,6 +96,8 @@ func TestManagedPostgresEnvOverridesExplicitDatabaseURL(t *testing.T) {
 }
 
 func TestManagedPostgresEnvAllowsExplicitExternalDatabaseOptOut(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
@@ -136,6 +142,8 @@ func TestManagedPostgresAdminURLCanComeFromAgentSubstrate(t *testing.T) {
 }
 
 func TestManagedPostgresDatabaseNameFitsPostgresIdentifierLimit(t *testing.T) {
+	t.Parallel()
+
 	got := managedPostgresDatabaseName(strings.Repeat("very-long-app-", 8), strings.Repeat("feature-branch-", 8))
 	if len(got) > 63 {
 		t.Fatalf("database name length = %d, value %q", len(got), got)
@@ -146,12 +154,16 @@ func TestManagedPostgresDatabaseNameFitsPostgresIdentifierLimit(t *testing.T) {
 }
 
 func TestPostgresDatabaseURLRequiresPostgresScheme(t *testing.T) {
+	t.Parallel()
+
 	if _, err := postgresDatabaseURL("mysql://localhost/db", "session"); err == nil {
 		t.Fatal("expected unsupported scheme error")
 	}
 }
 
 func TestPostgresDatabaseURLAcceptsUnixSocketHostQuery(t *testing.T) {
+	t.Parallel()
+
 	got, err := postgresDatabaseURL("postgres://onlava@/postgres?host=%2Ftmp%2Fonlava+pg&port=55432&sslmode=disable", "session")
 	if err != nil {
 		t.Fatalf("postgresDatabaseURL returned error: %v", err)
@@ -162,6 +174,8 @@ func TestPostgresDatabaseURLAcceptsUnixSocketHostQuery(t *testing.T) {
 }
 
 func TestLocalPostgresAdminURLUsesUnixSocketQuery(t *testing.T) {
+	t.Parallel()
+
 	got := localPostgresAdminURL("/tmp/onlava pg", 55432)
 	parsed, err := url.Parse(got)
 	if err != nil {
@@ -176,6 +190,8 @@ func TestLocalPostgresAdminURLUsesUnixSocketQuery(t *testing.T) {
 }
 
 func TestLocalPostgresTCPAdminURL(t *testing.T) {
+	t.Parallel()
+
 	got := localPostgresTCPAdminURL(55432)
 	parsed, err := url.Parse(got)
 	if err != nil {
@@ -193,6 +209,8 @@ func TestLocalPostgresTCPAdminURL(t *testing.T) {
 }
 
 func TestPostgresMajorVersionFromOutput(t *testing.T) {
+	t.Parallel()
+
 	for input, want := range map[string]string{
 		"postgres (PostgreSQL) 14.0": "14",
 		"postgres (PostgreSQL) 18":   "18",
@@ -209,6 +227,8 @@ func TestPostgresMajorVersionFromOutput(t *testing.T) {
 }
 
 func TestManagedPostgresServerArgsEnableLogicalReplication(t *testing.T) {
+	t.Parallel()
+
 	got := strings.Join(managedPostgresServerArgs(), " ")
 	for _, want := range []string{
 		"wal_level=logical",
@@ -249,6 +269,8 @@ func TestResolveLocalPostgresBinariesFindsSibling(t *testing.T) {
 }
 
 func TestLocalPostgresPortPersists(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	first, err := localPostgresPort(root)
 	if err != nil {
@@ -264,6 +286,8 @@ func TestLocalPostgresPortPersists(t *testing.T) {
 }
 
 func TestManagedElectricBackendsAndEnv(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
@@ -304,6 +328,8 @@ func TestManagedElectricBackendsAndEnv(t *testing.T) {
 }
 
 func TestManagedElectricProcessEnvExpandsDatabaseURL(t *testing.T) {
+	t.Parallel()
+
 	plan := &managedElectricPlan{
 		Env: map[string]string{
 			"DATABASE_URL":             "$DatabaseURL",
@@ -326,6 +352,8 @@ func TestManagedElectricProcessEnvExpandsDatabaseURL(t *testing.T) {
 }
 
 func TestManagedElectricProcessEnvAllowsConfiguredReplicationStreamID(t *testing.T) {
+	t.Parallel()
+
 	plan := &managedElectricPlan{Env: map[string]string{
 		"ELECTRIC_REPLICATION_STREAM_ID": "custom_stream",
 	}}
@@ -336,6 +364,8 @@ func TestManagedElectricProcessEnvAllowsConfiguredReplicationStreamID(t *testing
 }
 
 func TestManagedElectricReplicationStreamIDUsesSessionIdentifier(t *testing.T) {
+	t.Parallel()
+
 	got := managedElectricReplicationStreamID(&localagent.Session{SessionID: "feature/my-worktree-123456"})
 	if got != "onlava_feature_my_worktree_123456" {
 		t.Fatalf("stream id = %q", got)
@@ -374,6 +404,8 @@ func TestManagedElectricDatabaseURLPrefersManagedPostgres(t *testing.T) {
 }
 
 func TestManagedElectricDatabaseURLAllowsExternalPostgresOptOut(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
@@ -398,6 +430,8 @@ func TestManagedElectricDatabaseURLAllowsExternalPostgresOptOut(t *testing.T) {
 }
 
 func TestManagedElectricContainerEnvUsesInternalPort(t *testing.T) {
+	t.Parallel()
+
 	plan := &managedElectricPlan{
 		Env: map[string]string{"ELECTRIC_INSECURE": "true"},
 	}

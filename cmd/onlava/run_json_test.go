@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/pbrazdil/onlava/internal/app"
+	onlavaruntime "github.com/pbrazdil/onlava/runtime"
 )
 
 func silenceCLIStderr(t *testing.T) {
@@ -21,6 +22,8 @@ func silenceCLIStderr(t *testing.T) {
 }
 
 func TestParseRunArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseRunArgs([]string{"--port", "4444", "--listen", "0.0.0.0", "--app-root", "/tmp/app", "--env", "production", "--log-format", "json"})
 	if err != nil {
 		t.Fatalf("parseRunArgs returned error: %v", err)
@@ -31,6 +34,8 @@ func TestParseRunArgs(t *testing.T) {
 }
 
 func TestParseRunArgsRejectsDevFlags(t *testing.T) {
+	t.Parallel()
+
 	for _, flag := range []string{"--verbose", "--json", "--watch", "--dashboard", "--proxy"} {
 		if _, err := parseRunArgs([]string{flag}); err == nil {
 			t.Fatalf("parseRunArgs(%q) returned nil error", flag)
@@ -39,6 +44,8 @@ func TestParseRunArgsRejectsDevFlags(t *testing.T) {
 }
 
 func TestParseDevArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseDevArgs([]string{"--port", "4444", "--listen", "0.0.0.0", "--verbose", "--json", "--app-root", "/tmp/app", "--session", "review-a", "--proxy", "--trust", "--detach"})
 	if err != nil {
 		t.Fatalf("parseDevArgs returned error: %v", err)
@@ -49,6 +56,8 @@ func TestParseDevArgs(t *testing.T) {
 }
 
 func TestParseDevArgsRejectsSessionAndNewSession(t *testing.T) {
+	t.Parallel()
+
 	if _, err := parseDevArgs([]string{"--session", "review-a", "--new-session"}); err == nil {
 		t.Fatal("expected --session with --new-session to fail")
 	}
@@ -330,6 +339,8 @@ func TestRunCommandUsesHeadlessPath(t *testing.T) {
 }
 
 func TestHeadlessRuntimeRoleUsesAPI(t *testing.T) {
+	t.Parallel()
+
 	for _, cfg := range []app.Config{
 		{},
 		{Temporal: app.TemporalConfig{Enabled: true}},
@@ -341,6 +352,8 @@ func TestHeadlessRuntimeRoleUsesAPI(t *testing.T) {
 }
 
 func TestParseWorkerArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseWorkerArgs([]string{"--app-root", "/tmp/app", "--env", "production", "--log-format", "json", "--task-queue", "onlava.app.worker.go"})
 	if err != nil {
 		t.Fatalf("parseWorkerArgs returned error: %v", err)
@@ -351,6 +364,8 @@ func TestParseWorkerArgs(t *testing.T) {
 }
 
 func TestParseWorkerArgsSplitsRepeatedTaskQueues(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseWorkerArgs([]string{"--task-queue", "onlava.app.worker.go, onlava.app.email.go", "--task-queue", "onlava.app.worker.go"})
 	if err != nil {
 		t.Fatalf("parseWorkerArgs returned error: %v", err)
@@ -365,6 +380,8 @@ func TestParseWorkerArgsSplitsRepeatedTaskQueues(t *testing.T) {
 }
 
 func TestParseWorkerArgsRejectsServerFlags(t *testing.T) {
+	t.Parallel()
+
 	for _, flag := range []string{"--port", "--listen", "--verbose", "--json", "--watch", "--dashboard", "--proxy"} {
 		if _, err := parseWorkerArgs([]string{flag}); err == nil {
 			t.Fatalf("parseWorkerArgs(%q) returned nil error", flag)
@@ -394,6 +411,8 @@ func TestWorkerCommandUsesWorkerPath(t *testing.T) {
 }
 
 func TestParseWorkerTypeScriptArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseWorkerTypeScriptArgs([]string{"--app-root", "/tmp/app", "--runtime", "bun", "--task-queue", "onlv.house.preview.ts,onlv.maps.earth.ts", "--generate-only"})
 	if err != nil {
 		t.Fatalf("parseWorkerTypeScriptArgs returned error: %v", err)
@@ -429,6 +448,8 @@ func TestWorkerCommandUsesTypeScriptPath(t *testing.T) {
 }
 
 func TestParseWorkerBindingsArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseWorkerBindingsArgs([]string{"--app-root", "/tmp/app", "--out", "/tmp/out", "--json"})
 	if err != nil {
 		t.Fatalf("parseWorkerBindingsArgs returned error: %v", err)
@@ -439,6 +460,8 @@ func TestParseWorkerBindingsArgs(t *testing.T) {
 }
 
 func TestRunWorkerTypeScriptGenerateOnlyWritesRuntime(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"orders"}`)
 	writeTestAppFile(t, root, "house/preview.worker.ts", `import { activity } from "onlava/worker";
@@ -462,6 +485,8 @@ export const render = activity<RenderInput, RenderOutput>({
 }
 
 func TestParseTemporalDeploymentArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseTemporalDeploymentArgs("ramp", []string{
 		"--app-root", "/tmp/app",
 		"--deployment", "orders-api",
@@ -496,7 +521,71 @@ func TestParseTemporalDeploymentArgs(t *testing.T) {
 	}
 }
 
+func TestTemporalDeploymentCLIArgs(t *testing.T) {
+	t.Setenv("TEMPORAL_API_KEY", "test-api-key")
+	t.Setenv("TEMPORAL_TLS_CA_CERT_FILE", "/tmp/ca.pem")
+	info := onlavaruntime.TemporalRuntimeInfo{
+		Address:          "temporal.example:7233",
+		Namespace:        "prod",
+		DeploymentName:   "orders-api",
+		APIKeyEnv:        "TEMPORAL_API_KEY",
+		APIKeyEnvSet:     true,
+		TLSEnabled:       true,
+		TLSServerName:    "orders.tmprl.cloud",
+		TLSServerNameSet: true,
+		TLSCACertFileEnv: "TEMPORAL_TLS_CA_CERT_FILE",
+		TLSCACertFileSet: true,
+		ConnectTimeoutMS: onlavaruntime.DefaultTemporalConnectWait.Milliseconds(),
+		WorkerBuildID:    "sha-123",
+		WorkerBuildIDEnv: onlavaruntime.DefaultTemporalBuildIDEnv,
+		DeploymentEnv:    onlavaruntime.DefaultTemporalDeploymentEnv,
+		Versioning:       onlavaruntime.DefaultTemporalVersioning,
+		VersioningEnv:    onlavaruntime.DefaultTemporalVersioningEnv,
+		LocalDBFilename:  onlavaruntime.DefaultTemporalLocalDBFile,
+		PayloadCodec:     onlavaruntime.DefaultTemporalPayloadCodec,
+		TaskQueueEnv:     onlavaruntime.DefaultTemporalTaskQueueEnv,
+		HostReporting:    true,
+		HostReportingEnv: onlavaruntime.DefaultTemporalHostReportingEnv,
+		AddressEnv:       onlavaruntime.DefaultTemporalAddressEnv,
+		NamespaceEnvSet:  true,
+		TaskQueuePrefix:  "onlava.orders",
+		WorkerBuildIDSet: true,
+		DeploymentEnvSet: true,
+		VersioningEnvSet: true,
+		HostReportingSet: true,
+		LocalAutoStart:   false,
+	}
+	opts := temporalDeploymentOptions{
+		BuildID:                 "sha-123",
+		Percentage:              25,
+		IgnoreMissingTaskQueues: true,
+		AllowNoPollers:          true,
+	}
+	args := temporalDeploymentCLIArgs("ramp", opts, info)
+	got := strings.Join(args, "\x00")
+	for _, want := range []string{
+		"worker\x00deployment\x00set-ramping-version",
+		"--deployment-name\x00orders-api",
+		"--build-id\x00sha-123",
+		"--percentage\x0025",
+		"--ignore-missing-task-queues",
+		"--allow-no-pollers",
+		"--address\x00temporal.example:7233",
+		"--namespace\x00prod",
+		"--api-key\x00test-api-key",
+		"--tls",
+		"--tls-server-name\x00orders.tmprl.cloud",
+		"--tls-ca-path\x00/tmp/ca.pem",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("temporalDeploymentCLIArgs missing %q in %#v", want, args)
+		}
+	}
+}
+
 func TestRunWorkerBindingsWritesFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"orders"}`)
 	writeTestAppFile(t, root, ".onlava/workers/email.json", `{
@@ -532,6 +621,8 @@ func TestRunWorkerBindingsWritesFiles(t *testing.T) {
 }
 
 func TestRunConsoleJSONPhaseAndBanner(t *testing.T) {
+	t.Parallel()
+
 	var out bytes.Buffer
 	console := newRunConsole(&out, &out, false, true, "jsonapp", "/repo/jsonapp")
 
@@ -592,6 +683,8 @@ func TestRunConsoleJSONPhaseAndBanner(t *testing.T) {
 }
 
 func TestRunConsoleHidesVictoriaUnlessVerbose(t *testing.T) {
+	t.Parallel()
+
 	urls := runURLs{
 		API:       "https://api.jsonapp.localhost",
 		Dashboard: "https://console.jsonapp.localhost/jsonapp",
@@ -619,6 +712,8 @@ func TestRunConsoleHidesVictoriaUnlessVerbose(t *testing.T) {
 }
 
 func TestRunConsoleInitialBuildFailedEmitsRunFailed(t *testing.T) {
+	t.Parallel()
+
 	var out bytes.Buffer
 	console := newRunConsole(&out, &out, false, true, "jsonapp", "/tmp/jsonapp")
 	console.InitialBuildFailed(fmt.Errorf("compile failed"), runURLs{
@@ -644,6 +739,8 @@ func TestRunConsoleInitialBuildFailedEmitsRunFailed(t *testing.T) {
 }
 
 func TestRunConsoleJSONHidesVictoriaUnlessVerbose(t *testing.T) {
+	t.Parallel()
+
 	urls := runURLs{
 		API:       "https://api.jsonapp.localhost",
 		Dashboard: "https://console.jsonapp.localhost/jsonapp",

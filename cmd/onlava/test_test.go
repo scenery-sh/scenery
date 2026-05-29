@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -62,13 +65,13 @@ func TestOnlavaTestRunsGoTestInGeneratedWorkspace(t *testing.T) {
 	t.Parallel()
 
 	root := persistentTestAppRoot(t, "generated-workspace")
-	if err := os.RemoveAll(root); err != nil {
-		t.Fatal(err)
+	files := map[string]string{
+		".onlava.json":    `{"name":"testapp"}`,
+		"go.mod":          "module example.com/testapp\n\ngo 1.26.0\n",
+		"svc/api.go":      "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n",
+		"svc/api_test.go": "package svc\n\nimport (\n\t\"testing\"\n\n\tonlava \"github.com/pbrazdil/onlava\"\n)\n\nfunc TestOnlavaMetaUsesTestEnv(t *testing.T) {\n\tif onlava.Meta().Environment.Type != onlava.EnvTest {\n\t\tt.Fatalf(\"env type = %q, want %q\", onlava.Meta().Environment.Type, onlava.EnvTest)\n\t}\n}\n",
 	}
-	writeTestAppFile(t, root, ".onlava.json", `{"name":"testapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/testapp\n\ngo 1.26.0\n")
-	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
-	writeTestAppFile(t, root, "svc/api_test.go", "package svc\n\nimport (\n\t\"testing\"\n\n\tonlava \"github.com/pbrazdil/onlava\"\n)\n\nfunc TestOnlavaMetaUsesTestEnv(t *testing.T) {\n\tif onlava.Meta().Environment.Type != onlava.EnvTest {\n\t\tt.Fatalf(\"env type = %q, want %q\", onlava.Meta().Environment.Type, onlava.EnvTest)\n\t}\n}\n")
+	preparePersistentTestApp(t, root, files)
 
 	if err := runOnlavaTest(context.Background(), []string{"--app-root", root, "./svc", "-run", "TestOnlavaMetaUsesTestEnv"}); err != nil {
 		t.Fatalf("runOnlavaTest returned error: %v", err)
@@ -82,6 +85,52 @@ func persistentTestAppRoot(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return filepath.Join(cacheDir, "onlava", "cmd-onlava-tests", name)
+}
+
+func preparePersistentTestApp(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	fingerprint := testAppFingerprint(files)
+	marker := filepath.Join(root, ".onlava-test-fingerprint")
+	data, err := os.ReadFile(marker)
+	if err != nil || strings.TrimSpace(string(data)) != fingerprint {
+		if err := os.RemoveAll(root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := make([]string, 0, len(files))
+	for rel := range files {
+		paths = append(paths, rel)
+	}
+	sort.Strings(paths)
+	for _, rel := range paths {
+		writeTestAppFileIfChanged(t, root, rel, files[rel])
+	}
+	writeTestAppFileIfChanged(t, root, ".onlava-test-fingerprint", fingerprint+"\n")
+}
+
+func testAppFingerprint(files map[string]string) string {
+	paths := make([]string, 0, len(files))
+	for rel := range files {
+		paths = append(paths, filepath.ToSlash(rel))
+	}
+	sort.Strings(paths)
+	h := sha256.New()
+	for _, rel := range paths {
+		_, _ = h.Write([]byte(rel))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(files[rel]))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func writeTestAppFileIfChanged(t *testing.T, root, rel, contents string) {
+	t.Helper()
+	path := filepath.Join(root, rel)
+	if current, err := os.ReadFile(path); err == nil && string(current) == contents {
+		return
+	}
+	writeTestAppFile(t, root, rel, contents)
 }
 
 func writeTestAppFile(t *testing.T, root, rel, contents string) {

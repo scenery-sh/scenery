@@ -339,6 +339,8 @@ PostgreSQL-backed tests:
 ONLAVA_TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/objectstore ./internal/datainspect
 ```
 
+`ONLAVA_TEST_DATABASE_URL` should point at a PostgreSQL database where the test helper may create package-scoped databases.
+
 Full repo:
 
 ```sh

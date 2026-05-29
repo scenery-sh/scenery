@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.harness.fixture_matrix.v1.schema.json",
+  "title": "onlava harness fixture matrix",
+  "type": "object",
+  "required": ["schema_version", "fixtures"],
+  "properties": {
+    "schema_version": { "const": "onlava.harness.fixture_matrix.v1" },
+    "fixtures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fixture" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "fixture": {
+      "type": "object",
+      "required": ["name", "path", "check", "inspect"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "check": { "type": "boolean" },
+        "inspect": {
+          "type": "object",
+          "additionalProperties": { "type": "boolean" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

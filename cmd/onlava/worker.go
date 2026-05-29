@@ -196,7 +196,17 @@ func runWorker(opts workerOptions) error {
 	if err != nil {
 		return err
 	}
-	result, err := build.App(root, cfg)
+	result, ok, err := build.LoadReusableBinary(root, cfg)
+	if err != nil {
+		return err
+	}
+	if ok {
+		if err := build.WriteLatestBuildManifest(result, "compiled"); err != nil {
+			return err
+		}
+		return startWorkerApp(root, cfg, result.Binary, opts)
+	}
+	result, err = build.App(root, cfg)
 	if err != nil {
 		return err
 	}

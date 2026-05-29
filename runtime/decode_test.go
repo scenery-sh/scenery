@@ -20,6 +20,8 @@ func (codedValidationPayload) Validate() error {
 }
 
 func TestMaybeValidateConvertsPlainErrorsToInvalidArgument(t *testing.T) {
+	t.Parallel()
+
 	err := maybeValidate(plainValidationPayload{})
 	if err == nil {
 		t.Fatal("maybeValidate() = nil, want error")
@@ -36,6 +38,8 @@ func TestMaybeValidateConvertsPlainErrorsToInvalidArgument(t *testing.T) {
 }
 
 func TestMaybeValidatePreservesCodedErrors(t *testing.T) {
+	t.Parallel()
+
 	err := maybeValidate(codedValidationPayload{})
 	if err == nil {
 		t.Fatal("maybeValidate() = nil, want error")

@@ -1,8 +1,11 @@
 package parse_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -62,17 +65,17 @@ func TestParseBasicApp(t *testing.T) {
 func TestParseRuntimeDeclarations(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/runtimedecls\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"runtimedecls"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "runtimedecls", map[string]string{
+		"go.mod":       "module example.com/runtimedecls\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"runtimedecls"}`,
+		"svc/api.go": `package svc
 
 import "context"
 
 //onlava:api private
 func Run(ctx context.Context) error { return nil }
-`)
-	writeFile(t, dir, "jobs/runtime.go", `package jobs
+`,
+		"jobs/runtime.go": `package jobs
 
 import (
 	"context"
@@ -96,7 +99,8 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 	Every: time.Second,
 	Handler: func(context.Context) error { return nil },
 })
-`)
+`,
+	})
 
 	app, err := parse.App(dir, "runtimedecls")
 	if err != nil {
@@ -137,17 +141,17 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 func TestParseRejectsEmptyTemporalActivityTaskQueue(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/emptyactivityqueue\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"emptyactivityqueue"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "emptyactivityqueue", map[string]string{
+		"go.mod":       "module example.com/emptyactivityqueue\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"emptyactivityqueue"}`,
+		"svc/api.go": `package svc
 
 import "context"
 
 //onlava:api public
 func Ping(ctx context.Context) error { return nil }
-`)
-	writeFile(t, dir, "jobs/runtime.go", `package jobs
+`,
+		"jobs/runtime.go": `package jobs
 
 import (
 	"context"
@@ -169,7 +173,8 @@ var zero temporal.ActivityConfig
 var _ = temporal.NewActivity[In, Out]("orders.Zero/v1", zero, func(ctx context.Context, in In) (Out, error) {
 	return Out{}, nil
 })
-`)
+`,
+	})
 
 	_, err := parse.App(dir, "emptyactivityqueue")
 	if err == nil {
@@ -183,17 +188,17 @@ var _ = temporal.NewActivity[In, Out]("orders.Zero/v1", zero, func(ctx context.C
 func TestParseAcceptsUnkeyedTemporalActivityConfig(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/unkeyedactivityqueue\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"unkeyedactivityqueue"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "unkeyedactivityqueue", map[string]string{
+		"go.mod":       "module example.com/unkeyedactivityqueue\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"unkeyedactivityqueue"}`,
+		"svc/api.go": `package svc
 
 import "context"
 
 //onlava:api public
 func Ping(ctx context.Context) error { return nil }
-`)
-	writeFile(t, dir, "jobs/runtime.go", `package jobs
+`,
+		"jobs/runtime.go": `package jobs
 
 import (
 	"context"
@@ -208,7 +213,8 @@ type Out struct{}
 var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConfig{"orders.activities.go", time.Minute, 0, temporal.RetryPolicy{}}, func(ctx context.Context, in In) (Out, error) {
 	return Out{}, nil
 })
-`)
+`,
+	})
 
 	app, err := parse.App(dir, "unkeyedactivityqueue")
 	if err != nil {
@@ -231,10 +237,10 @@ var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConf
 func TestParseRejectsLegacyTemporalStartCall(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/legacystart\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"legacystart"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "legacystart", map[string]string{
+		"go.mod":       "module example.com/legacystart\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"legacystart"}`,
+		"svc/api.go": `package svc
 
 import (
 	"context"
@@ -254,7 +260,8 @@ func Ping(ctx context.Context) error {
 	_, err := temporal.Start(ctx, wf, In{})
 	return err
 }
-`)
+`,
+	})
 
 	_, err := parse.App(dir, "legacystart")
 	if err == nil || !strings.Contains(err.Error(), "temporal.Start requires a workflow identity argument") {
@@ -265,10 +272,10 @@ func Ping(ctx context.Context) error {
 func TestParseRejectsRawEndpointCalls(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/rawcall\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"rawcall"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "rawcall", map[string]string{
+		"go.mod":       "module example.com/rawcall\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"rawcall"}`,
+		"svc/api.go": `package svc
 
 import (
 	"net/http"
@@ -281,7 +288,8 @@ func Raw(w http.ResponseWriter, req *http.Request) {}
 func Call(w http.ResponseWriter, req *http.Request) {
 	Raw(w, req)
 }
-`)
+`,
+	})
 
 	_, err := parse.App(dir, "rawcall")
 	if err == nil || !strings.Contains(err.Error(), "raw endpoint calls are not supported") {
@@ -292,10 +300,10 @@ func Call(w http.ResponseWriter, req *http.Request) {
 func TestParseAllowsNestedPackageServiceStruct(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/nestedservice\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"nestedservice"}`)
-	writeFile(t, dir, "solar/projects/api.go", `package projects
+	dir := persistentParseTestApp(t, "nestedservice", map[string]string{
+		"go.mod":       "module example.com/nestedservice\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"nestedservice"}`,
+		"solar/projects/api.go": `package projects
 
 import "context"
 
@@ -310,7 +318,8 @@ type ListProjectsResponse struct {
 func (s *Service) ListProjects(ctx context.Context, tenant_id string) (*ListProjectsResponse, error) {
 	return &ListProjectsResponse{}, nil
 }
-`)
+`,
+	})
 
 	app, err := parse.App(dir, "nestedservice")
 	if err != nil {
@@ -337,16 +346,17 @@ func (s *Service) ListProjects(ctx context.Context, tenant_id string) (*ListProj
 func TestParseRejectsPathParamMismatch(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/pathmismatch\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"pathmismatch"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "pathmismatch", map[string]string{
+		"go.mod":       "module example.com/pathmismatch\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"pathmismatch"}`,
+		"svc/api.go": `package svc
 
 import "context"
 
 //onlava:api public path=/hello/:name
 func Hello(ctx context.Context, wrong string) error { return nil }
-`)
+`,
+	})
 
 	_, err := parse.App(dir, "pathmismatch")
 	if err == nil || !strings.Contains(err.Error(), "path param name must match") && !strings.Contains(err.Error(), "must match function param") {
@@ -357,16 +367,17 @@ func Hello(ctx context.Context, wrong string) error { return nil }
 func TestParseRejectsNonOnlavaDirectives(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/otherdirective\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"otherdirective"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "otherdirective", map[string]string{
+		"go.mod":       "module example.com/otherdirective\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"otherdirective"}`,
+		"svc/api.go": `package svc
 
 import "context"
 
 //other:api public
 func Hello(ctx context.Context) error { return nil }
-`)
+`,
+	})
 
 	_, err := parse.App(dir, "otherdirective")
 	if err == nil || !strings.Contains(err.Error(), "no onlava directives found in application") {
@@ -377,17 +388,17 @@ func Hello(ctx context.Context) error { return nil }
 func TestParseMiddlewareTargetsAndTags(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/middlewareapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"middlewareapp"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "middlewareapp", map[string]string{
+		"go.mod":       "module example.com/middlewareapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"middlewareapp"}`,
+		"svc/api.go": `package svc
 
 import "context"
 
 //onlava:api public tag:foo
 func Hello(ctx context.Context) error { return nil }
-`)
-	writeFile(t, dir, "svc/mw/mw.go", `package mw
+`,
+		"svc/mw/mw.go": `package mw
 
 import "github.com/pbrazdil/onlava/middleware"
 
@@ -395,8 +406,8 @@ import "github.com/pbrazdil/onlava/middleware"
 func ServiceTag(req middleware.Request, next middleware.Next) middleware.Response {
 	return next(req)
 }
-`)
-	writeFile(t, dir, "globalmw/mw.go", `package globalmw
+`,
+		"globalmw/mw.go": `package globalmw
 
 import "github.com/pbrazdil/onlava/middleware"
 
@@ -404,7 +415,8 @@ import "github.com/pbrazdil/onlava/middleware"
 func Global(req middleware.Request, next middleware.Next) middleware.Response {
 	return next(req)
 }
-`)
+`,
+	})
 
 	app, err := parse.App(dir, "middlewareapp")
 	if err != nil {
@@ -443,13 +455,14 @@ func Global(req middleware.Request, next middleware.Next) middleware.Response {
 func TestParseRejectsAppsWithoutOnlavaDirectives(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/noonlava\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"noonlava"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "noonlava", map[string]string{
+		"go.mod":       "module example.com/noonlava\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"noonlava"}`,
+		"svc/api.go": `package svc
 
 func Helper() {}
-`)
+`,
+	})
 
 	_, err := parse.App(dir, "noonlava")
 	if err == nil || !strings.Contains(err.Error(), "no onlava directives found in application") {
@@ -460,10 +473,10 @@ func Helper() {}
 func TestParseRejectsInvalidServiceShutdownSignature(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	writeFile(t, dir, "go.mod", "module example.com/badshutdown\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
-	writeFile(t, dir, ".onlava.json", `{"name":"badshutdown"}`)
-	writeFile(t, dir, "svc/api.go", `package svc
+	dir := persistentParseTestApp(t, "badshutdown", map[string]string{
+		"go.mod":       "module example.com/badshutdown\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"badshutdown"}`,
+		"svc/api.go": `package svc
 
 import "context"
 
@@ -474,7 +487,8 @@ func (s *Service) Shutdown() {}
 
 //onlava:api public
 func (s *Service) Hello(ctx context.Context) error { return nil }
-`)
+`,
+	})
 
 	_, err := parse.App(dir, "badshutdown")
 	if err == nil || !strings.Contains(err.Error(), "Shutdown method must have signature func(context.Context)") {
@@ -500,4 +514,55 @@ func writeFile(t *testing.T, root, rel, data string) {
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func persistentParseTestApp(t *testing.T, name string, files map[string]string) string {
+	t.Helper()
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(cacheDir, "onlava", "internal-parse-tests", name)
+	fingerprint := parseTestAppFingerprint(files)
+	marker := filepath.Join(root, ".onlava-test-fingerprint")
+	if data, err := os.ReadFile(marker); err != nil || strings.TrimSpace(string(data)) != fingerprint {
+		if err := os.RemoveAll(root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := make([]string, 0, len(files))
+	for rel := range files {
+		paths = append(paths, filepath.ToSlash(rel))
+	}
+	sort.Strings(paths)
+	for _, rel := range paths {
+		writeFileIfChanged(t, root, rel, files[rel])
+	}
+	writeFileIfChanged(t, root, ".onlava-test-fingerprint", fingerprint+"\n")
+	return root
+}
+
+func parseTestAppFingerprint(files map[string]string) string {
+	paths := make([]string, 0, len(files))
+	for rel := range files {
+		paths = append(paths, filepath.ToSlash(rel))
+	}
+	sort.Strings(paths)
+	h := sha256.New()
+	for _, rel := range paths {
+		_, _ = h.Write([]byte(rel))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(files[rel]))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func writeFileIfChanged(t *testing.T, root, rel, data string) {
+	t.Helper()
+	path := filepath.Join(root, rel)
+	if current, err := os.ReadFile(path); err == nil && string(current) == data {
+		return
+	}
+	writeFile(t, root, rel, data)
 }

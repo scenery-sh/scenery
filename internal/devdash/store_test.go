@@ -1,4 +1,4 @@
-package relocatedtests
+package devdash
 
 import (
 	"context"
@@ -7,9 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	. "github.com/pbrazdil/onlava/internal/devdash"
-	_ "modernc.org/sqlite"
 )
 
 func TestOpenStoreConfiguresSQLiteForConcurrentDevReaders(t *testing.T) {

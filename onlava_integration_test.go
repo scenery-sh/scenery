@@ -32,7 +32,6 @@ func TestMain(m *testing.M) {
 
 func TestOnlavaRunBasicApp(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := cachedFixtureApp(t, repo, "basic")
@@ -52,22 +51,11 @@ func TestOnlavaRunBasicApp(t *testing.T) {
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava run: %v", err)
 	}
-	defer func() {
-		cancel()
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		done := make(chan error, 1)
-		go func() { done <- cmd.Wait() }()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting for onlava process to exit")
-		}
-	}()
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForHTTP(t, "http://"+addr+"/service.CallPrivate")
 
@@ -82,7 +70,6 @@ func TestOnlavaRunBasicApp(t *testing.T) {
 
 func TestOnlavaRunStandardAuthDevBootstrap(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := cachedFixtureApp(t, repo, "standard-auth")
@@ -102,10 +89,11 @@ func TestOnlavaRunStandardAuthDevBootstrap(t *testing.T) {
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava run: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForHTTP(t, "http://"+addr+"/users/dev-bootstrap")
 	token := postJSONForString(t, "http://"+addr+"/users/dev-bootstrap", map[string]string{
@@ -120,7 +108,6 @@ func TestOnlavaRunStandardAuthDevBootstrap(t *testing.T) {
 
 func TestOnlavaRunLoadsSecretsFromDotEnv(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := cachedFixtureApp(t, repo, "secrets")
@@ -140,10 +127,11 @@ func TestOnlavaRunLoadsSecretsFromDotEnv(t *testing.T) {
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava run: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForHTTP(t, "http://"+addr+"/secrets")
 	getJSON(t, "http://"+addr+"/secrets", nil, http.StatusOK, map[string]any{
@@ -190,7 +178,6 @@ func TestOnlavaRunProductionFailsForMissingSecrets(t *testing.T) {
 
 func TestOnlavaRunPopulatesSecretsBeforeTemporalPackageDeclarations(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := cachedSyntheticApp(t, "temporalsecrets", map[string]string{
@@ -251,23 +238,26 @@ func Concurrency(ctx context.Context) (*Response, error) {
 	dashAddr := "127.0.0.1:" + freePort(t)
 	cacheDir := sharedIntegrationCache(t)
 	binary := buildOnlavaBinary(t, repo)
+	temporalAddr := startTemporalDevServerForTest(t, filepath.Join(t.TempDir(), "temporal-cache"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	var output strings.Builder
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
-	cmd.Env = withSharedWorkspace(onlavaRunEnv(repo, dashAddr, cacheDir), "fixture-temporal-secrets-v1")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd.Env = append(withSharedWorkspace(onlavaRunEnv(repo, dashAddr, cacheDir), "fixture-temporal-secrets-v1"), "TEMPORAL_ADDRESS="+temporalAddr)
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava run: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
-	waitForHTTP(t, "http://"+addr+"/concurrency")
+	waitForHTTPWithProcessOutput(t, "http://"+addr+"/concurrency", &output)
 	getJSON(t, "http://"+addr+"/concurrency", nil, http.StatusOK, map[string]any{
 		"timeout_seconds": 10,
 		"secret":          "10",
@@ -276,7 +266,6 @@ func Concurrency(ctx context.Context) (*Response, error) {
 
 func TestOnlavaRunInitializesServiceStructsAtStartup(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := cachedSyntheticApp(t, "serviceinit", map[string]string{
@@ -324,17 +313,17 @@ func (s *Service) Hello(ctx context.Context) error { return nil }
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava run: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForFile(t, markerPath)
 }
 
 func TestOnlavaRunMiddlewareApp(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := cachedFixtureApp(t, repo, "middleware")
@@ -354,10 +343,11 @@ func TestOnlavaRunMiddlewareApp(t *testing.T) {
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava run: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForHTTP(t, "http://"+addr+"/service.Context")
 	assertJSONResponseWithHeaders(t, mustRequest(t, http.MethodGet, "http://"+addr+"/service.Context", nil), http.StatusOK, map[string]any{"message": "svc"}, map[string]string{
@@ -372,7 +362,6 @@ func TestOnlavaRunMiddlewareApp(t *testing.T) {
 
 func TestOnlavaRunExecutesCronJobs(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
 	appDir := cachedFixtureApp(t, repo, "cron")
@@ -408,10 +397,11 @@ func TestOnlavaRunExecutesCronJobs(t *testing.T) {
 	workerCmd.Stdin = nil
 	workerCmd.Dir = appDir
 	workerCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := workerCmd.Start(); err != nil {
 		t.Fatalf("start onlava worker: %v", err)
 	}
-	defer stopOnlavaProcess(t, workerCancel, workerCmd)
+	defer killOnlavaProcess(t, workerCancel, workerCmd)
 
 	var apiOutput strings.Builder
 	cmd := exec.CommandContext(ctx, binary, "run", "--listen", addr)
@@ -424,7 +414,7 @@ func TestOnlavaRunExecutesCronJobs(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava run: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForHTTPWithProcessOutput(t, "http://"+addr+"/cron/status", &apiOutput, &workerOutput)
 	waitForCronStatus(t, "http://"+addr+"/cron/status")
@@ -490,28 +480,61 @@ func Ping(context.Context) (*Response, error) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start built app: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForHTTP(t, "http://"+addr+"/svc.Ping")
 	getJSON(t, "http://"+addr+"/svc.Ping", nil, http.StatusOK, map[string]any{"message": "pong"})
-	client := insecureHTTPSClient()
-	client.Timeout = 300 * time.Millisecond
-	resp, err := client.Get("https://api.acme.localhost:" + httpsPort + "/svc.Ping")
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+httpsPort, 50*time.Millisecond)
 	if err == nil {
-		resp.Body.Close()
-		t.Fatalf("built binary unexpectedly served local HTTPS proxy on %s", httpsPort)
+		_ = conn.Close()
+		t.Fatalf("built binary unexpectedly listened on local HTTPS proxy port %s", httpsPort)
 	}
 }
 
 func TestOnlavaDevDashboardNotificationsAndMCP(t *testing.T) {
 	t.Parallel()
-	limitOnlavaProcessConcurrency(t)
 
 	repo := repoRoot(t)
-	appDir := cachedFixtureAppVariant(t, repo, "basic", "dev-proxy", map[string]string{
-		".onlava.json": `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontends":{"web":{"host":"web.acme.localhost"}}}}`,
-	}, nil)
-	restoreFixtureFile(t, repo, appDir, "basic", "service/api.go")
+	serviceSource := `package service
+
+import "context"
+
+//onlava:service
+type Service struct {
+	Prefix string
+}
+
+func initService() (*Service, error) {
+	return &Service{Prefix: "hi"}, nil
+}
+
+type Response struct {
+	Message string ` + "`json:\"message\"`" + `
+}
+
+//onlava:api private
+func (s *Service) Secret(ctx context.Context) (*Response, error) {
+	return &Response{Message: "secret:" + s.Prefix}, nil
+}
+
+//onlava:api public
+func (s *Service) CallPrivate(ctx context.Context) (*Response, error) {
+	return s.Secret(ctx)
+}
+`
+	appDir := cachedSyntheticApp(t, "devdashboard", map[string]string{
+		"go.mod":         "module example.com/devdashboard\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
+		".onlava.json":   `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontends":{"web":{"host":"web.acme.localhost"}}}}`,
+		".env":           "# Fixture environment intentionally empty.\n",
+		"service/api.go": serviceSource,
+	})
+	unlockFixture := lockIntegrationFixtureMutation(t, appDir)
+	t.Cleanup(unlockFixture)
+	apiPath := filepath.Join(appDir, "service", "api.go")
+	writeFileIfChanged(t, apiPath, serviceSource)
+	t.Cleanup(func() {
+		writeFileIfChanged(t, apiPath, serviceSource)
+	})
 
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
@@ -545,10 +568,11 @@ func TestOnlavaDevDashboardNotificationsAndMCP(t *testing.T) {
 	cmd.Stdin = nil
 	cmd.Dir = appDir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	limitOnlavaProcessConcurrency(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start onlava dev: %v", err)
 	}
-	defer stopOnlavaProcess(t, cancel, cmd)
+	defer killOnlavaProcess(t, cancel, cmd)
 
 	waitForHTTP(t, "http://"+addr+"/service.CallPrivate")
 	waitForHTTP(t, "http://"+dashAddr+"/basicapp")
@@ -641,7 +665,6 @@ func TestOnlavaDevDashboardNotificationsAndMCP(t *testing.T) {
 		t.Fatalf("unexpected get_traces response: %#v", tracesResp)
 	}
 
-	apiPath := filepath.Join(appDir, "service", "api.go")
 	data, err := os.ReadFile(apiPath)
 	if err != nil {
 		t.Fatal(err)

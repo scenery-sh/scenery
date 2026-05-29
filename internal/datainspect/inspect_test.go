@@ -6,6 +6,8 @@ import (
 )
 
 func TestColumnNames(t *testing.T) {
+	t.Parallel()
+
 	got := columnNames([]byte(`[{"name":"first_name","sql_type":"text"},{"name":"last_name","sql_type":"text"}]`))
 	want := []string{"first_name", "last_name"}
 	if len(got) != len(want) {
@@ -19,6 +21,8 @@ func TestColumnNames(t *testing.T) {
 }
 
 func TestResponseJSONShape(t *testing.T) {
+	t.Parallel()
+
 	resp := Response{
 		SchemaVersion: schemaVersion,
 		Schemas:       Schemas{Metadata: "onlava_data", Records: "onlava_data_records"},
@@ -77,6 +81,8 @@ func TestResponseJSONShape(t *testing.T) {
 }
 
 func TestResponseJSONUsesEmptyArrays(t *testing.T) {
+	t.Parallel()
+
 	resp := Response{
 		SchemaVersion: schemaVersion,
 		Schemas:       Schemas{Metadata: "onlava_data", Records: "onlava_data_records"},

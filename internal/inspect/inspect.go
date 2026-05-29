@@ -162,9 +162,12 @@ func BuildServicesResponse(appRoot string, cfg appcfg.Config, app *model.App) Se
 	services := make([]ServiceDetails, 0, len(app.Services))
 	for _, svc := range filteredModelServices(app.Services) {
 		item := ServiceDetails{
-			Name:       svc.Name,
-			RootRelDir: filepath.ToSlash(svc.RootRelDir),
-			RootAbsDir: svc.RootAbsDir,
+			Name:        svc.Name,
+			RootRelDir:  filepath.ToSlash(svc.RootRelDir),
+			RootAbsDir:  svc.RootAbsDir,
+			PackageDirs: []string{},
+			Endpoints:   []string{},
+			Middleware:  []string{},
 		}
 		item.PackageDirs = relevantServicePackageDirs(svc)
 		for _, ep := range svc.Endpoints {
@@ -363,6 +366,8 @@ func standardAuthServiceDetails() []ServiceDetails {
 			PackageDirs: []string{
 				"github.com/pbrazdil/onlava/auth",
 			},
+			Endpoints:   []string{},
+			Middleware:  []string{},
 			AuthHandler: &AuthHandlerRef{Name: "AuthHandler", Package: "github.com/pbrazdil/onlava/auth"},
 		},
 		"users": {
@@ -372,6 +377,8 @@ func standardAuthServiceDetails() []ServiceDetails {
 			PackageDirs: []string{
 				"github.com/pbrazdil/onlava/auth",
 			},
+			Endpoints:  []string{},
+			Middleware: []string{},
 		},
 	}
 	for _, ep := range standardauthmeta.Endpoints() {

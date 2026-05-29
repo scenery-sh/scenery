@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pbrazdil/onlava/internal/build"
 )
@@ -31,7 +32,7 @@ func TestParseHarnessArgs(t *testing.T) {
 func TestParseHarnessSelfArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseHarnessSelfArgs([]string{"--repo-root", "/tmp/onlava", "--json", "--write"})
+	opts, err := parseHarnessSelfArgs([]string{"--repo-root", "/tmp/onlava", "--json", "--write", "--quick"})
 	if err != nil {
 		t.Fatalf("parseHarnessSelfArgs returned error: %v", err)
 	}
@@ -40,6 +41,21 @@ func TestParseHarnessSelfArgs(t *testing.T) {
 	}
 	if !opts.JSON || !opts.Write {
 		t.Fatalf("opts = %+v, want json and write", opts)
+	}
+	if opts.Mode != harnessSelfModeQuick {
+		t.Fatalf("mode = %q, want quick", opts.Mode)
+	}
+	if _, err := parseHarnessSelfArgs([]string{"--quick", "--race"}); err == nil {
+		t.Fatal("expected conflicting harness self modes to fail")
+	}
+}
+
+func TestHarnessSelfGoTestCommandRunsFullSuiteInJSONMode(t *testing.T) {
+	t.Parallel()
+
+	got := strings.Join(harnessSelfGoTestCommand(), " ")
+	if got != "go test -count=1 -p 8 -parallel 12 -json ./..." {
+		t.Fatalf("harnessSelfGoTestCommand() = %q", got)
 	}
 }
 
@@ -61,6 +77,405 @@ func TestFindOnlavaRepoRoot(t *testing.T) {
 	}
 	if got != root {
 		t.Fatalf("repo root = %q, want %q", got, root)
+	}
+}
+
+func TestLatestHarnessSourceModTimeIncludesEmbeddedNonGoInputs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTestAppFile(t, root, "go.mod", "module github.com/pbrazdil/onlava\n")
+	writeTestAppFile(t, root, "internal/devtools/versions.json", `{"grafana":"1.0.0"}`)
+	writeTestAppFile(t, root, "internal/devtools/versions_test.go", "package devtools\n")
+	writeTestAppFile(t, root, "internal/devtools/node_modules/ignored.json", `{"ignored":true}`)
+
+	oldTime := time.Unix(1_700_000_000, 0)
+	embedTime := oldTime.Add(1 * time.Hour)
+	testTime := embedTime.Add(1 * time.Hour)
+	ignoredTime := testTime.Add(1 * time.Hour)
+	for path, modTime := range map[string]time.Time{
+		filepath.Join(root, "go.mod"):                                      oldTime,
+		filepath.Join(root, "internal/devtools/versions.json"):             embedTime,
+		filepath.Join(root, "internal/devtools/versions_test.go"):          testTime,
+		filepath.Join(root, "internal/devtools/node_modules/ignored.json"): ignoredTime,
+	} {
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatalf("Chtimes(%s): %v", path, err)
+		}
+	}
+
+	latest, ok, err := latestHarnessSourceModTime(root)
+	if err != nil {
+		t.Fatalf("latestHarnessSourceModTime() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("latestHarnessSourceModTime() ok = false")
+	}
+	if !latest.Equal(embedTime) {
+		t.Fatalf("latest source time = %s, want embedded non-Go time %s", latest, embedTime)
+	}
+}
+
+func TestBuildHarnessChangedAreaReportRecommendsPackageCommands(t *testing.T) {
+	root := t.TempDir()
+
+	oldCollect := harnessCollectChangedFiles
+	oldList := harnessListGoPackages
+	harnessCollectChangedFiles = func(context.Context, string) ([]harnessChangedFile, []checkDiagnostic) {
+		return []harnessChangedFile{
+			{Path: "cmd/onlava/main.go", Status: "modified"},
+			{Path: "docs/schemas/example.schema.json", Status: "untracked"},
+		}, nil
+	}
+	harnessListGoPackages = func(context.Context, string) ([]harnessPackageInfo, error) {
+		return []harnessPackageInfo{{
+			ImportPath: "example.com/oracle/cmd/onlava",
+			Dir:        filepath.Join(root, "cmd", "onlava"),
+			RelDir:     "cmd/onlava",
+		}}, nil
+	}
+	t.Cleanup(func() {
+		harnessCollectChangedFiles = oldCollect
+		harnessListGoPackages = oldList
+	})
+
+	report := buildHarnessChangedAreaReport(context.Background(), root)
+	if hasErrorDiagnostics(report.Diagnostics) {
+		t.Fatalf("changed area diagnostics = %+v", report.Diagnostics)
+	}
+	var foundCLI bool
+	for _, file := range report.ChangedFiles {
+		if file.Path == "cmd/onlava/main.go" {
+			foundCLI = true
+			if file.Status != "modified" {
+				t.Fatalf("status = %q, want modified", file.Status)
+			}
+			if file.Category != "cli" {
+				t.Fatalf("category = %q, want cli", file.Category)
+			}
+			if file.Package != "example.com/oracle/cmd/onlava" {
+				t.Fatalf("package = %q", file.Package)
+			}
+		}
+	}
+	if !foundCLI {
+		t.Fatalf("changed files did not include cmd/onlava/main.go: %+v", report.ChangedFiles)
+	}
+	if !stringSliceContains(report.RecommendedCommands, "go test -count=1 ./cmd/onlava") {
+		t.Fatalf("recommended commands = %+v", report.RecommendedCommands)
+	}
+	if !stringSliceContains(report.RecommendedCommands, "onlava harness self --json --write") {
+		t.Fatalf("recommended commands = %+v", report.RecommendedCommands)
+	}
+	if !stringSliceContains(report.RiskFlags, "cli-contract") {
+		t.Fatalf("risk flags = %+v", report.RiskFlags)
+	}
+	if !stringSliceContains(report.RiskFlags, "json-schema-contract") {
+		t.Fatalf("risk flags = %+v", report.RiskFlags)
+	}
+}
+
+func TestParseHarnessGoTestTimingReportsBudgets(t *testing.T) {
+	t.Parallel()
+
+	output := strings.Join([]string{
+		`{"Action":"pass","Package":"example.com/oracle/cmd","Test":"TestSlow","Elapsed":0.7}`,
+		`{"Action":"pass","Package":"example.com/oracle/cmd","Elapsed":2.3}`,
+		`{"Action":"pass","Package":"example.com/oracle/internal","Elapsed":0.1}`,
+	}, "\n")
+	report := parseHarnessGoTestTiming([]byte(output), harnessSelfGoTestCommand(), 8*time.Second)
+
+	if report.SchemaVersion != harnessTestTimingSchema {
+		t.Fatalf("schema = %q", report.SchemaVersion)
+	}
+	if report.TotalSeconds != 8 {
+		t.Fatalf("total seconds = %v, want 8", report.TotalSeconds)
+	}
+	if len(report.SlowTests) != 1 || report.SlowTests[0].Name != "TestSlow" {
+		t.Fatalf("slow tests = %+v", report.SlowTests)
+	}
+	if report.Budgets.Mode != "enforce-total" {
+		t.Fatalf("budget mode = %q, want enforce-total", report.Budgets.Mode)
+	}
+	var packageWarning, totalError bool
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Severity == "warning" && strings.Contains(diagnostic.Message, "package example.com/oracle/cmd took") {
+			packageWarning = true
+		}
+		if diagnostic.Severity == "error" && strings.Contains(diagnostic.Message, "full Go suite took 8.000s") {
+			totalError = true
+		}
+	}
+	if !packageWarning || !totalError {
+		t.Fatalf("diagnostics = %+v, want package warning and total budget error", report.Diagnostics)
+	}
+}
+
+func TestWriteHarnessSelfOracleArtifacts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	resp := harnessSelfResponse{
+		GeneratedAt: "2026-05-29T00:00:00Z",
+		Mode:        harnessSelfModeDefault,
+		Repo: harnessSelfRepo{
+			Root:       root,
+			ModulePath: "github.com/pbrazdil/onlava",
+			GoModPath:  filepath.Join(root, "go.mod"),
+		},
+		Knowledge: harnessKnowledge{
+			Entrypoints: []harnessKnowledgeFile{{Path: "AGENTS.md", Exists: true}},
+			Schemas:     []harnessKnowledgeFile{{Path: "docs/schemas/onlava.agent_context.v1.schema.json", Exists: true}},
+		},
+		ChangedArea: &harnessChangedAreaReport{
+			SchemaVersion:       harnessChangedAreaSchema,
+			RecommendedCommands: []string{"go test -count=1 ./cmd/onlava"},
+		},
+		TestTiming: &harnessTestTimingReport{
+			SchemaVersion: harnessTestTimingSchema,
+			Command:       harnessSelfGoTestCommand(),
+			Budgets:       defaultHarnessTestTimingBudgets(),
+		},
+		NextActions: []string{"onlava harness self --json --write"},
+	}
+
+	if err := writeHarnessSelfOracleArtifacts(root, resp); err != nil {
+		t.Fatalf("writeHarnessSelfOracleArtifacts: %v", err)
+	}
+	for _, rel := range []string{
+		".onlava/harness/changed-area-latest.json",
+		".onlava/harness/test-timing-latest.json",
+		".onlava/harness/agent-context.json",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("expected %s: %v", rel, err)
+		}
+	}
+	var contextPack harnessAgentContext
+	data, err := os.ReadFile(filepath.Join(root, ".onlava", "harness", "agent-context.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &contextPack); err != nil {
+		t.Fatalf("agent context JSON: %v", err)
+	}
+	if contextPack.SchemaVersion != harnessAgentContextSchema {
+		t.Fatalf("agent context schema = %q", contextPack.SchemaVersion)
+	}
+	if !stringSliceContains(contextPack.RecommendedCommands, "go test -count=1 ./cmd/onlava") {
+		t.Fatalf("agent context commands = %+v", contextPack.RecommendedCommands)
+	}
+}
+
+func TestValidateHarnessJSONSchemaFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	schemaPath := filepath.Join(root, "schema.json")
+	if err := os.WriteFile(filepath.Join(root, "external.json"), []byte(`{
+  "type": "object",
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(schemaPath, []byte(`{
+  "type": "object",
+  "required": ["schema_version", "items", "owner"],
+  "properties": {
+    "schema_version": {"const": "example.v1"},
+    "owner": {"$ref": "external.json#/$defs/owner"},
+    "items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/item"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["name", "count"],
+      "properties": {
+        "name": {"type": "string"},
+        "count": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	valid := map[string]any{
+		"schema_version": "example.v1",
+		"owner": map[string]any{
+			"name": "agent",
+		},
+		"items": []map[string]any{{
+			"name":  "alpha",
+			"count": 1,
+		}},
+	}
+	if diagnostics := validateHarnessJSONSchemaFile(schemaPath, valid); len(diagnostics) != 0 {
+		t.Fatalf("valid diagnostics = %+v", diagnostics)
+	}
+
+	invalid := map[string]any{
+		"schema_version": "example.v2",
+		"owner": map[string]any{
+			"extra": true,
+		},
+		"items": []map[string]any{{
+			"name":  "alpha",
+			"count": 0,
+			"extra": true,
+		}},
+	}
+	diagnostics := validateHarnessJSONSchemaFile(schemaPath, invalid)
+	joined := strings.Join(diagnostics, "\n")
+	for _, want := range []string{"does not equal const", "less than minimum", "additional property"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("diagnostics %q missing %q", joined, want)
+		}
+	}
+}
+
+func TestBuildHarnessSchemaValidationReport(t *testing.T) {
+	t.Parallel()
+
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+	resp := harnessSelfResponse{
+		SchemaVersion: "onlava.harness.self.v1",
+		OK:            true,
+		GeneratedAt:   "2026-05-29T00:00:00Z",
+		Mode:          harnessSelfModeDefault,
+		Repo: harnessSelfRepo{
+			Root:       root,
+			ModulePath: "github.com/pbrazdil/onlava",
+			GoModPath:  filepath.Join(root, "go.mod"),
+		},
+		Knowledge: buildHarnessSelfKnowledge(root),
+		ChangedArea: &harnessChangedAreaReport{
+			SchemaVersion: harnessChangedAreaSchema,
+		},
+		TestTiming: &harnessTestTimingReport{
+			SchemaVersion: harnessTestTimingSchema,
+			Command:       harnessSelfGoTestCommand(),
+			Budgets:       defaultHarnessTestTimingBudgets(),
+		},
+		Steps:     []harnessStep{{Name: "test", Command: []string{"true"}, OK: true}},
+		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".onlava/harness/self-latest.json", Exists: true}},
+	}
+	report := buildHarnessSchemaValidationReport(root, resp)
+	if len(report.Validated) != 7 {
+		t.Fatalf("validated = %+v", report.Validated)
+	}
+	if hasErrorDiagnostics(report.Diagnostics) {
+		t.Fatalf("schema diagnostics = %+v", report.Diagnostics)
+	}
+}
+
+func TestBuildHarnessToolchainPreflightReport(t *testing.T) {
+	oldProbe := harnessProbeTool
+	harnessProbeTool = func(_ context.Context, name, scope string, required bool, _ []string) harnessToolchainTool {
+		tool := harnessToolchainTool{
+			Name:     name,
+			Scope:    scope,
+			Required: required,
+			Present:  true,
+			Path:     "/test/bin/" + name,
+			Version:  name + " version test",
+		}
+		return tool
+	}
+	t.Cleanup(func() { harnessProbeTool = oldProbe })
+
+	report := buildHarnessToolchainPreflightReport(context.Background(), t.TempDir())
+	if report.SchemaVersion != harnessToolchainSchema {
+		t.Fatalf("schema = %q", report.SchemaVersion)
+	}
+	var foundGo bool
+	for _, tool := range report.Tools {
+		if tool.Name == "go" {
+			foundGo = true
+			if !tool.Present || tool.Version == "" {
+				t.Fatalf("go tool = %+v", tool)
+			}
+		}
+	}
+	if !foundGo {
+		t.Fatalf("tools = %+v", report.Tools)
+	}
+}
+
+func TestBuildHarnessDriftReport(t *testing.T) {
+	t.Parallel()
+
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+	writeTestAppFile(t, root, "cmd/onlava/env.go", "package main\n\nconst _ = \"ONLAVA_TEST_UNDOCUMENTED_ONLY\"\n")
+	writeTestAppFile(t, root, "internal/build/build.go", "package build\n\nconst _ = `.env .DS_Store __MACOSX node_modules coverage`\n")
+
+	report := buildHarnessDriftReport(context.Background(), root)
+	if report.SchemaVersion != harnessDriftSchema {
+		t.Fatalf("schema = %q", report.SchemaVersion)
+	}
+	if len(report.CLI.Commands) == 0 {
+		t.Fatalf("expected CLI contract commands")
+	}
+	if len(report.Env.Variables) == 0 {
+		t.Fatalf("expected env var inventory")
+	}
+	if hasErrorDiagnostics(report.Diagnostics) {
+		t.Fatalf("drift diagnostics = %+v", report.Diagnostics)
+	}
+}
+
+func TestBuildHarnessEmbedReportChecksBinaryFreshnessCoverage(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTestAppFile(t, root, "go.mod", "module github.com/pbrazdil/onlava\n")
+	writeTestAppFile(t, root, "internal/devtools/versions.go", "package devtools\n\nimport \"embed\"\n\n//go:embed versions.json\nvar _ embed.FS\n")
+	writeTestAppFile(t, root, "internal/devtools/versions.json", "{}\n")
+
+	report, diagnostics := buildHarnessEmbedReport(root, nil)
+	if hasErrorDiagnostics(diagnostics) {
+		t.Fatalf("embed diagnostics = %+v", diagnostics)
+	}
+	if len(report.Embeds) != 1 {
+		t.Fatalf("embeds = %+v", report.Embeds)
+	}
+	if !report.Embeds[0].CoveredByBinaryFreshness {
+		t.Fatalf("embed not covered: %+v", report.Embeds[0])
+	}
+}
+
+func TestBuildHarnessFixtureMatrixReport(t *testing.T) {
+	useFakeBuildGoRunner(t)
+
+	root := t.TempDir()
+	for _, subject := range []string{"app", "routes", "services", "endpoints"} {
+		writeTestAppFile(t, root, "docs/schemas/onlava.inspect."+subject+".v1.schema.json", `{"type":"object","required":["schema_version"],"properties":{"schema_version":{"const":"onlava.inspect.`+subject+`.v1"}}}`)
+	}
+	writeHarnessTestApp(t, filepath.Join(root, "testdata", "apps", "basic"), "basic", "return nil")
+
+	report := buildHarnessFixtureMatrixReport(context.Background(), root)
+	if report.SchemaVersion != harnessFixtureMatrixSchema {
+		t.Fatalf("schema = %q", report.SchemaVersion)
+	}
+	if len(report.Fixtures) != 1 {
+		t.Fatalf("fixtures = %+v", report.Fixtures)
+	}
+	if !report.Fixtures[0].Check || !report.Fixtures[0].Inspect["app"] || !report.Fixtures[0].Inspect["routes"] || !report.Fixtures[0].Inspect["services"] || !report.Fixtures[0].Inspect["endpoints"] {
+		t.Fatalf("fixture result = %+v", report.Fixtures[0])
 	}
 }
 
@@ -253,6 +668,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 	writeTestAppFile(t, root, "PLANS.md", validExecPlanStandardForTest())
 	writeTestAppFile(t, root, "docs/index.md", "See [local](local-contract.md), [plans](plans/active.md), and [debt](tech-debt.md).\n")
 	writeTestAppFile(t, root, "docs/local-contract.md", "Contract.\n")
+	writeTestAppFile(t, root, "docs/environment.md", "Environment.\n")
 	writeTestAppFile(t, root, "docs/data-platform.md", "Data platform.\n")
 	writeTestAppFile(t, root, "docs/app-development-cookbook.md", "Cookbook.\n")
 	writeTestAppFile(t, root, "docs/data-platform-runbook.md", "Runbook.\n")
@@ -267,6 +683,13 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/onlava.build.latest.v1.schema.json",
 		"docs/schemas/onlava.docs.index.v1.schema.json",
 		"docs/schemas/onlava.harness.self.v1.schema.json",
+		"docs/schemas/onlava.harness.toolchain.v1.schema.json",
+		"docs/schemas/onlava.harness.changed_area.v1.schema.json",
+		"docs/schemas/onlava.harness.drift.v1.schema.json",
+		"docs/schemas/onlava.harness.test_timing.v1.schema.json",
+		"docs/schemas/onlava.harness.fixture_matrix.v1.schema.json",
+		"docs/schemas/onlava.harness.schema_validation.v1.schema.json",
+		"docs/schemas/onlava.agent_context.v1.schema.json",
 		"docs/schemas/onlava.harness.result.v1.schema.json",
 		"docs/schemas/onlava.harness.ui.v1.schema.json",
 		"docs/schemas/onlava.check.result.v1.schema.json",
@@ -401,6 +824,15 @@ func harnessArtifactExists(items []harnessArtifact, name string) bool {
 	for _, item := range items {
 		if item.Name == name {
 			return item.Exists
+		}
+	}
+	return false
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
 		}
 	}
 	return false

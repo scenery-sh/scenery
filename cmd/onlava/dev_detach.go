@@ -21,10 +21,11 @@ import (
 )
 
 const (
-	detachedDevChildEnv        = "ONLAVA_DEV_DETACHED_CHILD"
-	detachedDevStartupTimeout  = 10 * time.Second
-	detachedDevStartupInterval = 100 * time.Millisecond
+	detachedDevChildEnv       = "ONLAVA_DEV_DETACHED_CHILD"
+	detachedDevStartupTimeout = 10 * time.Second
 )
+
+var detachedDevStartupInterval = 100 * time.Millisecond
 
 type detachedDevResult struct {
 	SchemaVersion string             `json:"schema_version"`

@@ -1,4 +1,4 @@
-package relocatedtests
+package parse_test
 
 import (
 	"bytes"
@@ -36,6 +36,8 @@ import (
 )
 
 func TestAppDiscoverRootAcceptsLegacyID(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"id":"legacy-app","proxy":{"workspace":"acme","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","temporal_host":"temporal.acme.localhost","grafana_host":"grafana.acme.localhost","frontends":{"web":{"host":"web.acme.localhost","root":"apps/web","upstream":"127.0.0.1:5173"}}},"observability":{"logs":{"exclude_endpoints":["sync.*"]},"tracing":{"include_endpoints":["tenants.Config"]}}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -75,6 +77,8 @@ func TestAppDiscoverRootAcceptsLegacyID(t *testing.T) {
 }
 
 func TestAppDiscoverRootAcceptsTemporalConfig(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"temporalapp","temporal":{"enabled":true,"mode":"local","namespace":"default","address_env":"TEMPORAL_ADDRESS","task_queue_prefix":"onlava.temporalapp","payload_codec":"onlava-json-v1","api_key_env":"TEMPORAL_API_KEY","tls":{"enabled":true,"server_name_env":"TEMPORAL_TLS_SERVER_NAME","ca_cert_file_env":"TEMPORAL_TLS_CA_CERT_FILE","client_cert_file_env":"TEMPORAL_TLS_CERT_FILE","client_key_file_env":"TEMPORAL_TLS_KEY_FILE"},"local":{"auto_start":true,"db_filename":".onlava/temporal/dev.sqlite"},"typescript":{"enabled":true,"runtime":"bun","auto_start":true}}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -108,6 +112,8 @@ func TestAppDiscoverRootAcceptsTemporalConfig(t *testing.T) {
 }
 
 func TestAppDiscoverRootAcceptsDevServicesConfig(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	data := `{
   "name": "devservices",
@@ -156,6 +162,8 @@ func TestAppDiscoverRootAcceptsDevServicesConfig(t *testing.T) {
 }
 
 func TestAppConfigAppIDPrefersExplicitID(t *testing.T) {
+	t.Parallel()
+
 	cfg := appcfg.Config{Name: "display-name", ID: "stable-id"}
 	if got, want := cfg.AppID(), "stable-id"; got != want {
 		t.Fatalf("AppID() = %q, want %q", got, want)
@@ -167,6 +175,8 @@ func TestAppConfigAppIDPrefersExplicitID(t *testing.T) {
 }
 
 func TestAppDiscoverRootRequiresNameOrID(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"proxy":{}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -182,6 +192,8 @@ func TestAppDiscoverRootRequiresNameOrID(t *testing.T) {
 }
 
 func TestAppDiscoverRootRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"app","proxy":{"extra":"value"}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -197,6 +209,8 @@ func TestAppDiscoverRootRejectsUnknownFields(t *testing.T) {
 }
 
 func TestAppDiscoverRootRejectsUnknownTemporalFields(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"app","temporal":{"enabled":true,"extra":"value"}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -212,6 +226,8 @@ func TestAppDiscoverRootRejectsUnknownTemporalFields(t *testing.T) {
 }
 
 func TestDevmetaBuildMetadataSnapshotIncludesPlatformStats(t *testing.T) {
+	t.Parallel()
+
 	metaJSON, err := devmeta.BuildMetadataSnapshot(&model.App{})
 	if err != nil {
 		t.Fatalf("BuildMetadataSnapshot() error = %v", err)
@@ -252,6 +268,8 @@ func TestDevmetaBuildMetadataSnapshotIncludesPlatformStats(t *testing.T) {
 }
 
 func TestDevmetaBuildAPIEncodingIncludesPlatformStats(t *testing.T) {
+	t.Parallel()
+
 	apiJSON, err := devmeta.BuildAPIEncoding(&model.App{})
 	if err != nil {
 		t.Fatalf("BuildAPIEncoding() error = %v", err)
@@ -292,6 +310,8 @@ func TestDevmetaBuildAPIEncodingIncludesPlatformStats(t *testing.T) {
 }
 
 func TestDevtoolsPinnedVersionsConfig(t *testing.T) {
+	t.Parallel()
+
 	cfg := devtools.PinnedVersions()
 	if cfg.Grafana.Version != "13.0.1+security-01" {
 		t.Fatalf("grafana version = %q", cfg.Grafana.Version)
@@ -308,6 +328,8 @@ func TestDevtoolsPinnedVersionsConfig(t *testing.T) {
 }
 
 func TestDevtoolsGrafanaPluginPreinstallSyncPinsVersions(t *testing.T) {
+	t.Parallel()
+
 	got := devtools.GrafanaPluginPreinstallSync()
 	want := "victoriametrics-metrics-datasource@0.24.0,victoriametrics-logs-datasource@0.27.1"
 	if got != want {
@@ -316,6 +338,8 @@ func TestDevtoolsGrafanaPluginPreinstallSyncPinsVersions(t *testing.T) {
 }
 
 func TestDevtoolsPinnedVersionsRejectsMissingValues(t *testing.T) {
+	t.Parallel()
+
 	_, err := devtools.ParsePinnedVersions([]byte(`{
 		"schema_version": "onlava.internal.devtools.versions.v1",
 		"grafana": {
@@ -334,6 +358,8 @@ func TestDevtoolsPinnedVersionsRejectsMissingValues(t *testing.T) {
 }
 
 func TestClientgenGenerateTypeScriptIncludesStructuredRequestHandling(t *testing.T) {
+	t.Parallel()
+
 	appRoot := filepath.Join(appcfg.RepoRoot(), "testdata", "apps", "basic")
 	model, err := parse.App(appRoot, "basicapp")
 	if err != nil {
@@ -385,6 +411,8 @@ func TestClientgenGenerateTypeScriptIncludesStructuredRequestHandling(t *testing
 }
 
 func TestClientgenGenerateTypeScriptIncludesNamedAliases(t *testing.T) {
+	t.Parallel()
+
 	appRoot := t.TempDir()
 	writeRelocatedUnitTestFile(t, appRoot, "go.mod", "module example.com/clientapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
 	writeRelocatedUnitTestFile(t, appRoot, ".onlava.json", `{"name":"clientapp"}`)
@@ -441,6 +469,8 @@ func Get(ctx context.Context) (*Response, error) {
 }
 
 func TestDataFilterHelpers(t *testing.T) {
+	t.Parallel()
+
 	filter := data.And(
 		data.Contains("name", "acme"),
 		data.Or(data.EQ("stage", "lead"), data.EQ("stage", "won")),
@@ -461,6 +491,8 @@ func TestDataFilterHelpers(t *testing.T) {
 }
 
 func TestDataFilterHelpersCollapseEmptyAndSingleLogicalFilters(t *testing.T) {
+	t.Parallel()
+
 	if got := data.And(nil, nil); got != nil {
 		t.Fatalf("And(nil) = %#v, want nil", got)
 	}
@@ -471,6 +503,8 @@ func TestDataFilterHelpersCollapseEmptyAndSingleLogicalFilters(t *testing.T) {
 }
 
 func TestDataSortHelpers(t *testing.T) {
+	t.Parallel()
+
 	if got := data.Asc("name"); got.Field != "name" || got.Desc {
 		t.Fatalf("Asc = %#v", got)
 	}
@@ -480,6 +514,8 @@ func TestDataSortHelpers(t *testing.T) {
 }
 
 func TestDataCodeOfClassifiesPublicDataErrors(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		err  error
@@ -501,6 +537,8 @@ func TestDataCodeOfClassifiesPublicDataErrors(t *testing.T) {
 }
 
 func TestDataOpenErrorUnwrap(t *testing.T) {
+	t.Parallel()
+
 	_, err := data.Open(context.Background(), nil, data.Options{})
 	if err == nil {
 		t.Fatal("Open(nil) returned nil error")
@@ -515,6 +553,8 @@ func TestDataOpenErrorUnwrap(t *testing.T) {
 }
 
 func TestDataTenantKeyFromActorUsesStandardAuthData(t *testing.T) {
+	t.Parallel()
+
 	tenantKey, ok := data.TenantKeyFromActor(data.Actor{
 		Data: &onlavaauth.AuthData{TenantID: onlavaauth.TenantID("tenant-a")},
 	})
@@ -524,6 +564,8 @@ func TestDataTenantKeyFromActorUsesStandardAuthData(t *testing.T) {
 }
 
 func TestDataTenantKeyFromActorPrefersExplicitTenantKey(t *testing.T) {
+	t.Parallel()
+
 	tenantKey, ok := data.TenantKeyFromActor(data.Actor{
 		TenantKey: "explicit",
 		Data:      &onlavaauth.AuthData{TenantID: onlavaauth.TenantID("auth-tenant")},
@@ -534,6 +576,8 @@ func TestDataTenantKeyFromActorPrefersExplicitTenantKey(t *testing.T) {
 }
 
 func TestDataStandardAuthPermissionsDenyCrossTenant(t *testing.T) {
+	t.Parallel()
+
 	perms := data.StandardAuthPermissions{}
 	err := perms.CanReadObject(context.Background(), data.Actor{TenantKey: "tenant-a"}, data.ObjectRef{TenantKey: "tenant-b", Name: "company"})
 	if err == nil || !strings.Contains(err.Error(), "permission denied") {
@@ -545,6 +589,8 @@ func TestDataStandardAuthPermissionsDenyCrossTenant(t *testing.T) {
 }
 
 func TestDataStandardAuthPermissionsDelegateAfterTenantCheck(t *testing.T) {
+	t.Parallel()
+
 	perms := data.StandardAuthPermissions{Base: denyRowFilterPermissions{}}
 	_, err := perms.RowFilter(context.Background(), data.Actor{TenantKey: "tenant-a"}, data.ObjectRef{TenantKey: "tenant-a", Name: "company"})
 	if err == nil || err.Error() != "row denied" {
@@ -553,6 +599,8 @@ func TestDataStandardAuthPermissionsDelegateAfterTenantCheck(t *testing.T) {
 }
 
 func TestWiremodelAppCapabilitiesMarksUnsupportedEndpointJSONOnly(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeRelocatedUnitTestFile(t, root, "go.mod", "module example.com/wiretest\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
 	writeRelocatedUnitTestFile(t, root, ".onlava.json", `{"name":"wiretest"}`)
@@ -595,6 +643,8 @@ func Unsupported(ctx context.Context) (*UnsupportedResponse, error) {
 }
 
 func TestEnvfileParseFile(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	path := filepath.Join(root, ".env")
 	if err := os.WriteFile(path, []byte("\ufeff# comment\nexport A=one\nB=\"two\\nlines\"\nC='three'\nD=four\n"), 0o644); err != nil {
@@ -619,6 +669,8 @@ func TestEnvfileParseFile(t *testing.T) {
 }
 
 func TestEnvfileMergeFilesAndAppendMissing(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("A=from-env\nB=from-env\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -648,6 +700,8 @@ func TestEnvfileMergeFilesAndAppendMissing(t *testing.T) {
 }
 
 func TestEnvfileParseFileMissingReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
 	got, err := envfile.ParseFile(filepath.Join(t.TempDir(), ".env"))
 	if err != nil {
 		t.Fatalf("ParseFile missing: %v", err)
@@ -658,6 +712,8 @@ func TestEnvfileParseFileMissingReturnsEmpty(t *testing.T) {
 }
 
 func TestErrsHTTPErrorRedactsSensitiveMeta(t *testing.T) {
+	t.Parallel()
+
 	type credentials struct {
 		Token string `json:"token" onlava:"sensitive"`
 		Name  string `json:"name"`
@@ -684,6 +740,8 @@ func TestErrsHTTPErrorRedactsSensitiveMeta(t *testing.T) {
 }
 
 func TestPGXPoolParseConfigInjectsOnlavaTracer(t *testing.T) {
+	t.Parallel()
+
 	cfg, err := onlavapgxpool.ParseConfig("postgres://onlava:onlava@localhost/onlava?sslmode=disable")
 	if err != nil {
 		t.Fatalf("ParseConfig returned error: %v", err)
@@ -694,6 +752,8 @@ func TestPGXPoolParseConfigInjectsOnlavaTracer(t *testing.T) {
 }
 
 func TestPGXPoolInstrumentConfigIsIdempotent(t *testing.T) {
+	t.Parallel()
+
 	cfg, err := onlavapgxpool.ParseConfig("postgres://onlava:onlava@localhost/onlava?sslmode=disable")
 	if err != nil {
 		t.Fatalf("ParseConfig returned error: %v", err)
@@ -710,6 +770,8 @@ func TestPGXPoolInstrumentConfigIsIdempotent(t *testing.T) {
 }
 
 func TestPGXPoolQueryTracerDelegatesToBaseTracer(t *testing.T) {
+	t.Parallel()
+
 	cfg, err := stdpgxpool.ParseConfig("postgres://onlava:onlava@localhost/onlava?sslmode=disable")
 	if err != nil {
 		t.Fatalf("standard ParseConfig returned error: %v", err)
@@ -744,6 +806,8 @@ func TestPGXPoolQueryTracerDelegatesToBaseTracer(t *testing.T) {
 }
 
 func TestRedactValueRedactsOnlavaSensitiveFields(t *testing.T) {
+	t.Parallel()
+
 	type nested struct {
 		Token string `json:"token" onlava:"sensitive"`
 	}
@@ -772,6 +836,8 @@ func TestRedactValueRedactsOnlavaSensitiveFields(t *testing.T) {
 }
 
 func TestRedactHeadersRedactsSensitiveKeys(t *testing.T) {
+	t.Parallel()
+
 	headers := http.Header{
 		"Authorization": []string{"Bearer secret"},
 		"X-Test":        []string{"ok"},
@@ -786,6 +852,8 @@ func TestRedactHeadersRedactsSensitiveKeys(t *testing.T) {
 }
 
 func TestRedactStringRedactsSensitiveAssignments(t *testing.T) {
+	t.Parallel()
+
 	got := redact.String("token=abc password:secret Authorization=Bearer123 ok=value")
 	for _, wantGone := range []string{"abc", "secret", "Bearer123"} {
 		if got == "" || got == wantGone || bytes.Contains([]byte(got), []byte(wantGone)) {
@@ -798,6 +866,8 @@ func TestRedactStringRedactsSensitiveAssignments(t *testing.T) {
 }
 
 func TestRedactURLRedactsSensitiveQueryAndUserinfo(t *testing.T) {
+	t.Parallel()
+
 	got, ok := redact.URL("https://user:pass@example.com/path?token=abc&x=1")
 	if !ok {
 		t.Fatal("URL(...) should parse")
@@ -917,6 +987,8 @@ func TestTermstyleCLICOLORFORCEOverridesNoColor(t *testing.T) {
 }
 
 func TestWireRequestFrameRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	payload := []byte(`{"message":"hello"}`)
 	pathParams := []byte(`{"id":"42"}`)
 
@@ -940,6 +1012,8 @@ func TestWireRequestFrameRoundTrip(t *testing.T) {
 }
 
 func TestWireResponseFrameRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	payload := []byte(`{"code":"invalid_argument","message":"bad"}`)
 
 	data := wire.EncodeResponseFrame(400, true, payload)

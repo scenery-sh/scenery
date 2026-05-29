@@ -39,9 +39,14 @@ func TestDashboardDataRPC(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, db.URL)
+	cfg, err := pgxpool.ParseConfig(db.URL)
 	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
+		t.Fatalf("pgxpool.ParseConfig: %v", err)
+	}
+	cfg.MaxConns = 4
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("pgxpool.NewWithConfig: %v", err)
 	}
 	t.Cleanup(pool.Close)
 	store, err := objectstore.Open(ctx, pool, objectstore.Options{})

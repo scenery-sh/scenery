@@ -22,14 +22,19 @@ import (
 	"github.com/pbrazdil/onlava/internal/wiremodel"
 	"github.com/pbrazdil/onlava/internal/workers"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
-	onlavatemporal "github.com/pbrazdil/onlava/temporal"
 )
 
 var inspectAppModelCache = struct {
 	sync.Mutex
-	items map[string]*model.App
+	items map[string]*inspectAppModelCacheEntry
 }{
-	items: map[string]*model.App{},
+	items: map[string]*inspectAppModelCacheEntry{},
+}
+
+type inspectAppModelCacheEntry struct {
+	ready chan struct{}
+	app   *model.App
+	err   error
 }
 
 type inspectOptions struct {
@@ -382,16 +387,27 @@ func cachedInspectAppModel(appRoot, appName string) (*model.App, error) {
 		return nil, err
 	}
 	inspectAppModelCache.Lock()
-	defer inspectAppModelCache.Unlock()
-	if app := inspectAppModelCache.items[key]; app != nil {
-		return app, nil
+	if entry := inspectAppModelCache.items[key]; entry != nil {
+		inspectAppModelCache.Unlock()
+		<-entry.ready
+		return entry.app, entry.err
 	}
+	entry := &inspectAppModelCacheEntry{ready: make(chan struct{})}
+	inspectAppModelCache.items[key] = entry
+	inspectAppModelCache.Unlock()
+
 	appModel, err := parse.App(appRoot, appName)
+
+	inspectAppModelCache.Lock()
+	entry.app = appModel
+	entry.err = err
 	if err != nil {
-		return nil, err
+		delete(inspectAppModelCache.items, key)
 	}
-	inspectAppModelCache.items[key] = appModel
-	return appModel, nil
+	close(entry.ready)
+	inspectAppModelCache.Unlock()
+
+	return appModel, err
 }
 
 func inspectAppModelCacheKey(appRoot, appName string) (string, error) {
@@ -530,7 +546,7 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcfg.Config) (inspectTemporalResponse, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	info, status := onlavatemporal.CheckConnection(checkCtx, cfg.Name, temporalRuntimeConfigFromApp(cfg.Temporal))
+	info, status := checkTemporalConnection(checkCtx, cfg.Name, temporalRuntimeConfigFromApp(cfg.Temporal))
 	appModel, err := cachedInspectAppModel(appRoot, cfg.Name)
 	if err != nil {
 		return inspectTemporalResponse{}, err

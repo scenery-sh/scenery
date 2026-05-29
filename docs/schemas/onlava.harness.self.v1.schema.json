@@ -3,7 +3,7 @@
   "$id": "https://onlava.com/schemas/onlava.harness.self.v1.schema.json",
   "title": "onlava self harness result",
   "type": "object",
-  "required": ["schema_version", "ok", "generated_at", "repo", "knowledge", "steps", "artifacts"],
+  "required": ["schema_version", "ok", "generated_at", "mode", "repo", "knowledge", "steps", "artifacts"],
   "properties": {
     "schema_version": {
       "const": "onlava.harness.self.v1"
@@ -13,6 +13,9 @@
     },
     "generated_at": {
       "type": "string"
+    },
+    "mode": {
+      "enum": ["default", "quick", "race", "release"]
     },
     "repo": {
       "type": "object",
@@ -38,6 +41,27 @@
         }
       },
       "additionalProperties": false
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "changed_area": {
+      "$ref": "#/$defs/changed_area"
+    },
+    "drift": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "test_timing": {
+      "$ref": "#/$defs/test_timing"
+    },
+    "fixture_matrix": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "schema_validation": {
+      "$ref": "#/$defs/schema_validation"
     },
     "steps": {
       "type": "array",
@@ -66,6 +90,148 @@
       },
       "additionalProperties": false
     },
+    "changed_area": {
+      "type": "object",
+      "required": ["schema_version", "changed_files", "affected_packages", "recommended_commands", "relevant_docs", "risk_flags"],
+      "properties": {
+        "schema_version": { "const": "onlava.harness.changed_area.v1" },
+        "changed_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/changed_file" }
+        },
+        "affected_packages": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "recommended_commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "relevant_docs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "risk_flags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "changed_file": {
+      "type": "object",
+      "required": ["path", "status", "category"],
+      "properties": {
+        "path": { "type": "string" },
+        "status": { "type": "string" },
+        "category": { "type": "string" },
+        "package": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "test_timing": {
+      "type": "object",
+      "required": ["schema_version", "command", "total_seconds", "packages", "budgets"],
+      "properties": {
+        "schema_version": { "const": "onlava.harness.test_timing.v1" },
+        "command": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "total_seconds": { "type": "number" },
+        "packages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/package_timing" }
+        },
+        "slow_tests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/test_timing_item" }
+        },
+        "budgets": {
+          "type": "object",
+          "required": ["total_seconds", "package_seconds", "test_seconds", "mode"],
+          "properties": {
+            "total_seconds": { "type": "number" },
+            "package_seconds": { "type": "number" },
+            "test_seconds": { "type": "number" },
+            "mode": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "package_timing": {
+      "type": "object",
+      "required": ["package", "seconds"],
+      "properties": {
+        "package": { "type": "string" },
+        "seconds": { "type": "number" },
+        "slow_tests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/test_timing_item" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "test_timing_item": {
+      "type": "object",
+      "required": ["name", "package", "seconds"],
+      "properties": {
+        "name": { "type": "string" },
+        "package": { "type": "string" },
+        "seconds": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "schema_validation": {
+      "type": "object",
+      "required": ["schema_version", "validated"],
+      "properties": {
+        "schema_version": { "const": "onlava.harness.schema_validation.v1" },
+        "validated": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/schema_validation_item" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "schema_validation_item": {
+      "type": "object",
+      "required": ["name", "schema", "ok"],
+      "properties": {
+        "name": { "type": "string" },
+        "schema": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "step": {
       "type": "object",
       "required": ["name", "command", "ok", "duration_ms"],
@@ -77,6 +243,10 @@
         },
         "ok": { "type": "boolean" },
         "duration_ms": { "type": "integer" },
+        "effects": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "summary": {
           "type": "object",
           "additionalProperties": true

@@ -48,6 +48,7 @@ type harnessStep struct {
 	Command     []string          `json:"command"`
 	OK          bool              `json:"ok"`
 	DurationMS  int64             `json:"duration_ms"`
+	Effects     []string          `json:"effects,omitempty"`
 	Summary     map[string]any    `json:"summary,omitempty"`
 	Diagnostics []checkDiagnostic `json:"diagnostics,omitempty"`
 	Error       string            `json:"error,omitempty"`

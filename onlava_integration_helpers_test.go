@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	temporalclient "go.temporal.io/sdk/client"
 )
 
 const integrationPollInterval = 20 * time.Millisecond
@@ -66,12 +65,12 @@ func integrationProcessSlotCount() int {
 			return count
 		}
 	}
-	count := runtime.GOMAXPROCS(0) / 2
+	count := runtime.GOMAXPROCS(0) + 2
 	if count < 2 {
 		return 2
 	}
-	if count > 6 {
-		return 6
+	if count > 12 {
+		return 12
 	}
 	return count
 }
@@ -145,6 +144,7 @@ func latestIntegrationSourceModTime(repo string) (time.Time, bool, error) {
 		"auth",
 		"cmd",
 		"cron",
+		"data",
 		"errs",
 		"internal",
 		"middleware",
@@ -192,20 +192,15 @@ func latestPathModTime(root string) (time.Time, bool, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			switch rel {
-			case ".", "node_modules", "dist", "testpostgres", "relocatedtests":
-				if rel == "." {
-					return nil
-				}
-				return filepath.SkipDir
+			if rel == "." {
+				return nil
 			}
-			if strings.HasPrefix(rel, "node_modules/") || strings.HasPrefix(rel, "dist/") ||
-				strings.HasPrefix(rel, "testpostgres/") || strings.HasPrefix(rel, "relocatedtests/") {
+			if integrationBinaryInputSkipDirName(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
+		if !integrationBinaryInputFile(path) {
 			return nil
 		}
 		info, err := d.Info()
@@ -243,6 +238,7 @@ func onlavaDevEnv(repo, dashboardAddr, cacheDir string) []string {
 		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_LOCAL_PROXY=0",
 		"ONLAVA_AGENT_DISABLE=1",
+		"ONLAVA_TEST_WATCH_SETTLE_DELAY_MS=20",
 	)
 }
 
@@ -255,6 +251,7 @@ func onlavaDevProxyEnv(repo, dashboardAddr, cacheDir, httpPort, httpsPort, front
 		"ONLAVA_DEV_DASHBOARD_UI_DIR="+filepath.Join(repo, "ui", "dist"),
 		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_AGENT_DISABLE=1",
+		"ONLAVA_TEST_WATCH_SETTLE_DELAY_MS=20",
 		"ONLAVA_LOCAL_PROXY_HTTP_PORT="+httpPort,
 		"ONLAVA_LOCAL_PROXY_HTTPS_PORT="+httpsPort,
 		"ONLAVA_LOCAL_PROXY_SKIP_TRUST_INSTALL=1",
@@ -317,21 +314,15 @@ func integrationSourceFingerprint(repo string) (string, error) {
 			switch {
 			case rel == ".":
 				return nil
-			case rel == ".git" || rel == ".onlava" || rel == "cmd" || rel == "scripts" || rel == "internal/testpostgres" || rel == "internal/relocatedtests" || rel == "ui/node_modules" || rel == "ui/dist":
+			case integrationBinaryInputSkipDirName(d.Name()):
 				return filepath.SkipDir
-			case strings.HasPrefix(rel, ".onlava/") || strings.HasPrefix(rel, "cmd/") || strings.HasPrefix(rel, "scripts/") || strings.HasPrefix(rel, "internal/testpostgres/") || strings.HasPrefix(rel, "internal/relocatedtests/") || strings.HasPrefix(rel, "ui/node_modules/") || strings.HasPrefix(rel, "ui/dist/"):
+			case rel == "cmd" || rel == "scripts":
 				return filepath.SkipDir
 			default:
 				return nil
 			}
 		}
-		switch filepath.Ext(path) {
-		case ".go":
-			if strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-		case ".mod", ".sum":
-		default:
+		if !integrationSourceFingerprintFile(rel, path) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -350,8 +341,63 @@ func integrationSourceFingerprint(repo string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+func integrationSourceFingerprintFile(rel, path string) bool {
+	if rel == "go.mod" || rel == "go.sum" {
+		return true
+	}
+	for _, prefix := range []string{"auth/", "cron/", "data/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "runtimeapp/", "temporal/"} {
+		if strings.HasPrefix(rel, prefix) {
+			return integrationBinaryInputFile(path)
+		}
+	}
+	return false
+}
+
+func integrationBinaryInputFile(path string) bool {
+	base := filepath.Base(path)
+	if base == "" || base == ".DS_Store" || strings.HasPrefix(base, ".env") || strings.HasPrefix(base, ".") {
+		return false
+	}
+	if strings.HasSuffix(base, "_test.go") {
+		return false
+	}
+	return true
+}
+
+func integrationBinaryInputSkipDirName(name string) bool {
+	switch name {
+	case ".git", ".onlava", "coverage", "dist", "node_modules", "testpostgres":
+		return true
+	default:
+		return false
+	}
+}
+
 func withSharedWorkspace(env []string, key string) []string {
-	return append(env, "ONLAVA_TEST_WORKSPACE_KEY="+key)
+	return append(env, "ONLAVA_ALLOW_TEST_WORKSPACE_KEY=1", "ONLAVA_TEST_WORKSPACE_KEY="+key)
+}
+
+func lockIntegrationFixtureMutation(t *testing.T, appDir string) func() {
+	t.Helper()
+	lockDir := appDir + ".mutation.lock"
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		err := os.Mkdir(lockDir, 0o755)
+		if err == nil {
+			return func() { _ = os.Remove(lockDir) }
+		}
+		if !os.IsExist(err) {
+			t.Fatalf("lock mutable fixture %s: %v", appDir, err)
+		}
+		if info, statErr := os.Stat(lockDir); statErr == nil && time.Since(info.ModTime()) > 2*time.Minute {
+			_ = os.Remove(lockDir)
+			continue
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for mutable fixture lock %s", lockDir)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 func startTemporalDevServerForTest(t *testing.T, cacheDir string) string {
@@ -379,28 +425,14 @@ func startSharedTemporalDevServer() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	uiPort, err := freeTCPPort()
-	if err != nil {
-		return "", err
-	}
 	address := "127.0.0.1:" + port
-	cacheDir, err := os.MkdirTemp("", "onlava-temporal-dev-*")
-	if err != nil {
-		return "", err
-	}
-	dbPath := filepath.Join(cacheDir, "temporal", "test.sqlite")
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return "", err
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, path,
 		"server",
 		"start-dev",
 		"--ip", "127.0.0.1",
 		"--port", port,
-		"--ui-ip", "127.0.0.1",
-		"--ui-port", uiPort,
-		"--db-filename", dbPath,
+		"--headless",
 		"--log-level", "warn",
 	)
 	cmd.Stdout = &sharedTemporalDevServer.output
@@ -434,14 +466,9 @@ func waitForTemporalAddress(address string, output *bytes.Buffer) error {
 	deadline := time.Now().Add(20 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		client, err := temporalclient.DialContext(ctx, temporalclient.Options{
-			HostPort:  address,
-			Namespace: "default",
-		})
-		cancel()
+		conn, err := net.DialTimeout("tcp", address, 500*time.Millisecond)
 		if err == nil {
-			client.Close()
+			_ = conn.Close()
 			return nil
 		}
 		lastErr = err
@@ -470,6 +497,22 @@ func stopOnlavaProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_ = cmd.Process.Kill()
 	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for onlava process to exit")
+	}
+}
+
+func killOnlavaProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
+	t.Helper()
+	cancel()
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Process.Kill()
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -1187,7 +1230,11 @@ func restoreFixtureFile(t *testing.T, repo, appDir, fixtureName, rel string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(appDir, filepath.FromSlash(rel)), string(data))
+	target := filepath.Join(appDir, filepath.FromSlash(rel))
+	if current, err := os.ReadFile(target); err == nil && bytes.Equal(current, data) {
+		return
+	}
+	writeFile(t, target, string(data))
 }
 
 func fixtureAppVariantFingerprint(name string, overrides map[string]string, removes []string) string {
@@ -1300,4 +1347,12 @@ func writeFile(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeFileIfChanged(t *testing.T, path, contents string) {
+	t.Helper()
+	if current, err := os.ReadFile(path); err == nil && string(current) == contents {
+		return
+	}
+	writeFile(t, path, contents)
 }

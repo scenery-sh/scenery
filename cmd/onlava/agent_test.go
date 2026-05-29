@@ -14,6 +14,8 @@ import (
 )
 
 func TestParseAgentArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseAgentArgs([]string{"--socket", "/tmp/onlava.sock", "--router-listen", "127.0.0.1:0", "--router-tls", "--trust", "--json"})
 	if err != nil {
 		t.Fatalf("parseAgentArgs: %v", err)
@@ -122,6 +124,8 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 }
 
 func TestParseDownArgsCleanupFlags(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseDownArgs([]string{"--app-root", "/tmp/app", "--session", "session-a", "--db", "--state", "--all"})
 	if err != nil {
 		t.Fatal(err)

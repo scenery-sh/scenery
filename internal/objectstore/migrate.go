@@ -323,12 +323,11 @@ type pgxTx interface {
 }
 
 const (
-	metadataBootstrapLockName       = "metadata-bootstrap"
-	physicalSchemaMigrationLockName = "physical-schema-migration"
-	sharedTriggerFunctionLockName   = "shared-trigger-function"
-	tenantSchemaMigrationLockName   = "tenant-schema-migration"
-	tenantRecordSchemaLockName      = "tenant-record-schema"
-	objectSchemaMigrationLockName   = "object-schema-migration"
+	metadataBootstrapLockName     = "metadata-bootstrap"
+	sharedTriggerFunctionLockName = "shared-trigger-function"
+	tenantSchemaMigrationLockName = "tenant-schema-migration"
+	tenantRecordSchemaLockName    = "tenant-record-schema"
+	objectSchemaMigrationLockName = "object-schema-migration"
 )
 
 func (s *Store) withMigrationTx(ctx context.Context, tenantKey, tenantID, objectID, migrationID string, fromVersion, toVersion int64, ddl []string, sharedLockName string, fn func(pgxTx) error) error {
@@ -350,9 +349,6 @@ func (s *Store) withMigrationTxOnce(ctx context.Context, tenantKey, tenantID, ob
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lockMetadataBootstrapRead(ctx, tx); err != nil {
-		return err
-	}
-	if err := lockPhysicalSchemaMigration(ctx, tx); err != nil {
 		return err
 	}
 	if sharedLockName != "" {
@@ -426,12 +422,13 @@ func waitBeforeAdvisoryLockRetry(ctx context.Context, attempt int) error {
 }
 
 // DDL paths and tenant upserts acquire locks in this order:
-// 1. shared metadata-bootstrap lock, 2. global physical-schema DDL lock,
-// 3. optional shared-schema lock, 4. tenant schema lock,
-// 5. exclusive tenant record-schema barrier, 6. object lock.
+// 1. shared metadata-bootstrap lock, 2. optional shared-schema lock,
+// 3. tenant schema lock, 4. exclusive tenant record-schema barrier,
+// 5. object lock.
 // Metadata bootstrap takes the bootstrap lock exclusively. Record writes take the
 // same bootstrap lock in shared mode, then the tenant record-schema barrier in
-// shared mode so writes in other tenants are not blocked by tenant-local DDL.
+// shared mode so writes and DDL in other tenants are not blocked by tenant-local
+// DDL.
 func lockMetadataBootstrapWrite(ctx context.Context, q Queryer) error {
 	if _, err := q.Exec(ctx, `select pg_advisory_xact_lock($1)`, advisoryLockKey("objectstore", metadataBootstrapLockName)); err != nil {
 		return fmt.Errorf("lock metadata bootstrap: %w", err)
@@ -442,13 +439,6 @@ func lockMetadataBootstrapWrite(ctx context.Context, q Queryer) error {
 func lockMetadataBootstrapRead(ctx context.Context, q Queryer) error {
 	if _, err := q.Exec(ctx, `select pg_advisory_xact_lock_shared($1)`, advisoryLockKey("objectstore", metadataBootstrapLockName)); err != nil {
 		return fmt.Errorf("lock metadata bootstrap read: %w", err)
-	}
-	return nil
-}
-
-func lockPhysicalSchemaMigration(ctx context.Context, q Queryer) error {
-	if _, err := q.Exec(ctx, `select pg_advisory_xact_lock($1)`, advisoryLockKey("objectstore", physicalSchemaMigrationLockName)); err != nil {
-		return fmt.Errorf("lock physical schema migration: %w", err)
 	}
 	return nil
 }

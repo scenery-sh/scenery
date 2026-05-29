@@ -15,7 +15,6 @@ import (
 	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/app"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
-	onlavatemporal "github.com/pbrazdil/onlava/temporal"
 )
 
 const temporalDevStartupTimeout = 20 * time.Second
@@ -41,7 +40,7 @@ func startTemporalDevServer(ctx context.Context, root string, cfg app.Config, co
 	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	_, status := onlavatemporal.CheckConnection(checkCtx, cfg.Name, rtCfg)
+	_, status := checkTemporalConnection(checkCtx, cfg.Name, rtCfg)
 	cancel()
 	if status.Reachable {
 		if console != nil && console.verbose {
@@ -173,7 +172,7 @@ func (s *temporalDevServer) waitReady(ctx context.Context, appName string, cfg o
 			return fmt.Errorf("temporal: dev server at %s did not become ready within %s: %s", s.info.Address, temporalDevStartupTimeout, lastErr)
 		case <-ticker.C:
 			checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-			_, status := onlavatemporal.CheckConnection(checkCtx, appName, cfg)
+			_, status := checkTemporalConnection(checkCtx, appName, cfg)
 			cancel()
 			if status.Reachable {
 				return nil
@@ -264,12 +263,7 @@ func (s *temporalDevServer) Reachable(ctx context.Context, appName string, cfg a
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	client, err := onlavatemporal.Dial(checkCtx, s.info)
-	if err != nil {
-		return false
-	}
-	client.Close()
-	return true
+	return temporalAddressReachable(checkCtx, s.info.Address) == nil
 }
 
 func (s *temporalDevServer) Interrupt() error {
@@ -333,6 +327,32 @@ func temporalUIURL(info onlavaruntime.TemporalRuntimeInfo) string {
 		return ""
 	}
 	return fmt.Sprintf("http://%s", net.JoinHostPort(host, strconv.Itoa(port+1000)))
+}
+
+func checkTemporalConnection(ctx context.Context, appName string, cfg onlavaruntime.TemporalConfig) (onlavaruntime.TemporalRuntimeInfo, onlavaruntime.TemporalConnectionStatus) {
+	info := onlavaruntime.ResolveTemporalConfig(appName, cfg)
+	if !info.Enabled {
+		return info, onlavaruntime.TemporalConnectionStatus{}
+	}
+	if err := temporalAddressReachable(ctx, info.Address); err != nil {
+		return info, onlavaruntime.TemporalConnectionStatus{
+			Checked: true,
+			Error:   err.Error(),
+		}
+	}
+	return info, onlavaruntime.TemporalConnectionStatus{
+		Checked:   true,
+		Reachable: true,
+	}
+}
+
+func temporalAddressReachable(ctx context.Context, address string) error {
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp", strings.TrimSpace(address))
+	if err != nil {
+		return err
+	}
+	return conn.Close()
 }
 
 func temporalUIUpstreamForConfig(cfg app.Config) string {

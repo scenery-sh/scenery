@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.agent_context.v1.schema.json",
+  "title": "onlava agent context",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "repo",
+    "dirty_files",
+    "recommended_commands",
+    "docs_entrypoints",
+    "schemas",
+    "known_fast_loop",
+    "known_release_loop",
+    "architecture_rules"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "onlava.agent_context.v1"
+    },
+    "generated_at": { "type": "string" },
+    "repo": {
+      "type": "object",
+      "required": ["root", "module_path", "go_mod_path"],
+      "properties": {
+        "root": { "type": "string" },
+        "module_path": { "const": "github.com/pbrazdil/onlava" },
+        "go_mod_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "current_branch": { "type": "string" },
+    "current_commit": { "type": "string" },
+    "dirty_files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/changed_file" }
+    },
+    "changed_area": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "recommended_commands": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "docs_entrypoints": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "schemas": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "known_fast_loop": { "type": "string" },
+    "known_release_loop": { "type": "string" },
+    "architecture_rules": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "recent_failures": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "changed_file": {
+      "type": "object",
+      "required": ["path", "status", "category"],
+      "properties": {
+        "path": { "type": "string" },
+        "status": { "type": "string" },
+        "category": { "type": "string" },
+        "package": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
