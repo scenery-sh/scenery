@@ -252,7 +252,6 @@ func validateDocsKnowledge(repoRoot string) ([]checkDiagnostic, map[string]any) 
 var importantKnowledgeDocuments = []string{
 	"SKILL.md",
 	"docs/app-development-cookbook.md",
-	"docs/data-platform-runbook.md",
 	"docs/ui-agent-contract.md",
 	"docs/local-contract.md",
 }

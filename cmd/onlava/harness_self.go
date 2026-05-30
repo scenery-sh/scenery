@@ -697,9 +697,6 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 
 var requiredSkillMentions = []string{
 	"onlava harness ui --json",
-	"onlava inspect data --json",
-	"github.com/pbrazdil/onlava/data",
-	"docs/data-platform.md",
 	"docs/ui-agent-contract.md",
 	"@onlava registry",
 	"bun run shadcn:add @onlava/",
@@ -888,9 +885,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/local-contract.md",
 		"docs/environment.md",
 		"docs/grafana.md",
-		"docs/data-platform.md",
 		"docs/app-development-cookbook.md",
-		"docs/data-platform-runbook.md",
 		"docs/ui-agent-contract.md",
 		"docs/plans/active.md",
 		"docs/plans/completed.md",
@@ -915,8 +910,6 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/onlava.gen.manifest.v1.schema.json",
 		"docs/schemas/onlava.inspect.app.v1.schema.json",
 		"docs/schemas/onlava.inspect.build.v1.schema.json",
-		"docs/schemas/onlava.data.export.v1.schema.json",
-		"docs/schemas/onlava.inspect.data.v1.schema.json",
 		"docs/schemas/onlava.inspect.docs.v1.schema.json",
 		"docs/schemas/onlava.inspect.endpoints.v1.schema.json",
 		"docs/schemas/onlava.inspect.metrics.v1.schema.json",

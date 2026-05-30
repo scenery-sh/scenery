@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -165,6 +167,109 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 	for _, unwanted := range []string{".env", ".env.local", ".DS_Store", "__MACOSX", "node_modules", ".onlava", ".git", "coverage"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("source files included %s: %v", unwanted, files)
+		}
+	}
+}
+
+func TestBuildPrepSkipsBrowserRuntimeArtifactsAndNonRegularFiles(t *testing.T) {
+	root := t.TempDir()
+	dst := t.TempDir()
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", t.TempDir())
+	writeBuildTestFile(t, root, ".onlava.json", `{"name":"browserartifacts"}`)
+	writeBuildTestFile(t, root, "go.mod", "module example.com/browserartifacts\n\ngo 1.26.0\n")
+	writeBuildTestFile(t, root, "go.sum", "")
+	writeBuildTestFile(t, root, "svc/api.go", `package svc
+
+import "context"
+
+type Response struct {
+	Message string
+}
+
+//onlava:api public
+func Ping(context.Context) (*Response, error) {
+	return &Response{Message: "pong"}, nil
+}
+`)
+	for _, rel := range []string{
+		"assets/logo.png",
+		"var/browser/Default/Preferences",
+		"var/chrome/SingletonLock",
+		"var/playwright/cache-marker",
+		".onlava/artifacts/chatgpt/profile/Default/Preferences",
+	} {
+		writeBuildTestFile(t, root, rel, "x")
+	}
+	socketPaths := []string{}
+	if runtime.GOOS != "windows" {
+		for _, rel := range []string{"var/browser/SingletonSocket", "assets/live.sock"} {
+			path := filepath.Join(root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ln, err := net.Listen("unix", path)
+			if err != nil {
+				t.Logf("skipping unix socket fixture %s: %v", rel, err)
+				continue
+			}
+			t.Cleanup(func() { _ = ln.Close() })
+			socketPaths = append(socketPaths, rel)
+		}
+	}
+
+	files, err := listSourceFiles(root)
+	if err != nil {
+		t.Fatalf("listSourceFiles() error = %v", err)
+	}
+	got := strings.Join(files, "\n")
+	for _, want := range []string{"go.mod", "go.sum", "svc/api.go", "assets/logo.png"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("source files missing %s: %v", want, files)
+		}
+	}
+	for _, unwanted := range append([]string{
+		"var/browser",
+		"var/chrome",
+		"var/playwright",
+		".onlava",
+	}, socketPaths...) {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("source files included %s: %v", unwanted, files)
+		}
+	}
+
+	if err := copyTree(root, dst); err != nil {
+		t.Fatalf("copyTree returned error: %v", err)
+	}
+	for _, unwanted := range append([]string{
+		"var/browser",
+		"var/chrome",
+		"var/playwright",
+		".onlava",
+	}, socketPaths...) {
+		if _, err := os.Stat(filepath.Join(dst, filepath.FromSlash(unwanted))); !os.IsNotExist(err) {
+			t.Fatalf("copyTree copied %s, stat err = %v", unwanted, err)
+		}
+	}
+
+	cfg := appcfg.Config{Name: "browserartifacts"}
+	model, err := parse.App(root, cfg.Name)
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	result, err := Prepare(root, model, cfg, PrepareOptions{})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	joined := strings.Join(result.SourceFiles, "\n")
+	for _, unwanted := range append([]string{
+		"var/browser",
+		"var/chrome",
+		"var/playwright",
+		".onlava",
+	}, socketPaths...) {
+		if strings.Contains(joined, unwanted) {
+			t.Fatalf("Prepare source files included %s: %v", unwanted, result.SourceFiles)
 		}
 	}
 }

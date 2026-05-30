@@ -35,11 +35,26 @@ func killProcessTree(cmd *exec.Cmd) error {
 	return signalProcessTree(cmd, syscall.SIGKILL)
 }
 
+func terminateProcessIDTree(pid int) error {
+	return signalProcessIDTree(pid, syscall.SIGTERM)
+}
+
+func killProcessIDTree(pid int) error {
+	return signalProcessIDTree(pid, syscall.SIGKILL)
+}
+
 func signalProcessTree(cmd *exec.Cmd, sig syscall.Signal) error {
 	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 0 {
 		return nil
 	}
 	pid := cmd.Process.Pid
+	return signalProcessIDTree(pid, sig)
+}
+
+func signalProcessIDTree(pid int, sig syscall.Signal) error {
+	if pid <= 0 {
+		return nil
+	}
 	if pgid, err := syscall.Getpgid(pid); err == nil && pgid > 1 {
 		if err := syscall.Kill(-pgid, sig); err == nil || errors.Is(err, syscall.ESRCH) {
 			return nil
@@ -47,7 +62,7 @@ func signalProcessTree(cmd *exec.Cmd, sig syscall.Signal) error {
 			return err
 		}
 	}
-	if err := cmd.Process.Signal(sig); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := syscall.Kill(pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return err
 	}
 	return nil

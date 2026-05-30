@@ -15,7 +15,6 @@ import (
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/build"
-	datainspect "github.com/pbrazdil/onlava/internal/datainspect"
 	inspectdata "github.com/pbrazdil/onlava/internal/inspect"
 	"github.com/pbrazdil/onlava/internal/model"
 	"github.com/pbrazdil/onlava/internal/parse"
@@ -43,7 +42,6 @@ type inspectOptions struct {
 	RepoRoot string
 	JSON     bool
 	Trace    inspectTraceQueryOptions
-	Data     datainspect.Options
 }
 
 type inspectBuildResponse struct {
@@ -193,14 +191,6 @@ func runOnlavaInspect(args []string, stdout io.Writer) error {
 		return writeInspectJSON(stdout, resp)
 	}
 
-	if opts.Subject == "data" {
-		resp, err := datainspect.Build(context.Background(), opts.Data)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, resp)
-	}
-
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
 		return err
@@ -336,33 +326,6 @@ func parseInspectArgs(args []string) (inspectOptions, error) {
 			if err := parseInspectTraceFlags(&opts, args[i-1], args[i]); err != nil {
 				return inspectOptions{}, err
 			}
-		case "--database-url":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for --database-url")
-			}
-			if opts.Subject != "data" {
-				return inspectOptions{}, fmt.Errorf("--database-url is only supported for inspect data")
-			}
-			opts.Data.DatabaseURL = args[i]
-		case "--tenant":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for --tenant")
-			}
-			if opts.Subject != "data" {
-				return inspectOptions{}, fmt.Errorf("--tenant is only supported for inspect data")
-			}
-			opts.Data.TenantKey = args[i]
-		case "--object":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for --object")
-			}
-			if opts.Subject != "data" {
-				return inspectOptions{}, fmt.Errorf("--object is only supported for inspect data")
-			}
-			opts.Data.ObjectName = args[i]
 		case "--slowest":
 			if opts.Subject != "traces" && opts.Subject != "metrics" {
 				return inspectOptions{}, fmt.Errorf("%s is only supported for inspect traces and metrics", args[i])

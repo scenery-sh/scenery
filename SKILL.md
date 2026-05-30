@@ -19,7 +19,6 @@ Read next when you need detail:
 
 - `docs/local-contract.md` for CLI, JSON, generated artifact, and stability contracts.
 - `docs/app-development-cookbook.md` for app-building recipes.
-- `docs/data-platform.md` and `docs/data-platform-runbook.md` for dynamic data.
 - `docs/ui-agent-contract.md` for dashboard/UI work and `@onlava` registry rules.
 - `docs/plans/active.md` before substantial changes.
 
@@ -33,8 +32,7 @@ Read next when you need detail:
 - Public and auth endpoints are reachable over external HTTP. Private endpoints are internal-only and called through generated helpers.
 - Typed endpoints decode path params, query params, headers, cookies, and JSON bodies into Go values, then encode typed responses.
 - Generated internal calls preserve routing, private access, and auth context instead of bypassing the runtime.
-- The beta `github.com/pbrazdil/onlava/data` package exposes metadata-defined dynamic objects backed by real PostgreSQL tables, columns, indexes, outbox rows, and live events.
-- The local dashboard includes API Explorer, traces, metrics, cron surfaces, Data Explorer, and browser-harness validation hooks.
+- The local dashboard includes API Explorer, traces, metrics, cron surfaces, DB inspection, and browser-harness validation hooks.
 
 ## Minimal App
 
@@ -121,7 +119,6 @@ Struct tags:
 - `github.com/pbrazdil/onlava/cron`: cron job declarations.
 - `github.com/pbrazdil/onlava/pgxpool`: pgx pool wrapper with onlava DB tracing.
 - `github.com/pbrazdil/onlava/et`: endpoint and service mocking helpers for tests.
-- `github.com/pbrazdil/onlava/data`: beta dynamic data platform for metadata-defined objects, fields, records, indexes, relations, saved views, import/export, search, outbox, and SSE live updates.
 
 ## Auth
 
@@ -156,18 +153,6 @@ standardData, ok := auth.CurrentAuthData()
 
 Use `//onlava:api auth` for endpoints that require auth. Use `//onlava:api private` for internal-only endpoints.
 
-For data-platform apps, standard auth can scope requests to a data tenant:
-
-```go
-store, err := data.Open(ctx, pool, data.Options{
-	Permissions: data.StandardAuthPermissions{},
-})
-tenantKey, err := data.RequireTenantKeyFromContext(ctx)
-actor := data.ActorFromContext(ctx)
-```
-
-`StandardAuthPermissions` maps standard-auth `tenant_id` to `data.TenantKey` and denies cross-tenant data access by default.
-
 ## Services
 
 Use `//onlava:service` when endpoints are methods on a service struct.
@@ -184,61 +169,6 @@ func initService() (*Service, error) {
 ```
 
 onlava initializes service structs and wraps methods so endpoint calls still pass through runtime semantics.
-
-## Data Platform
-
-Use `github.com/pbrazdil/onlava/data` when an app needs dynamic, metadata-defined records backed by PostgreSQL.
-
-```go
-store, err := data.Open(ctx, pool, data.Options{})
-actor := data.ActorFromContext(ctx)
-
-_, err = store.CreateObject(ctx, actor, data.CreateObjectRequest{
-	TenantKey:    "acme",
-	NameSingular: "company",
-	NamePlural:   "companies",
-})
-
-_, err = store.CreateField(ctx, actor, "company", data.CreateFieldRequest{
-	TenantKey: "acme",
-	Name:      "name",
-	Type:      data.FieldText,
-})
-
-_, err = store.CreateRecord(ctx, actor, "company", data.CreateRecordRequest{
-	TenantKey: "acme",
-	Values: data.Record{
-		"name": "Acme",
-	},
-})
-
-page, err := store.QueryRecords(ctx, actor, "company", data.QueryRecordsRequest{
-	TenantKey: "acme",
-	Query: data.Query{
-		Select: []string{"name"},
-		Filter: data.EQ("name", "Acme"),
-		Sort:   []data.Sort{data.Asc("name")},
-		Limit:  50,
-	},
-})
-```
-
-Current beta capabilities include:
-
-- Metadata tenants, objects, fields, field options, and real PostgreSQL schema changes.
-- Scalar fields backed by real columns, not a universal JSONB value table.
-- Select and multi-select stored as text/text arrays, not PostgreSQL enum types.
-- Indexes, one-hop many-to-one relations, many-to-many physical foundations, saved views, keyset cursors, and PostgreSQL-backed search.
-- Transactional outbox, optional trigger-backed outbox, SSE live updates, import/export, and typed public errors through `data.CodeOf(err)`.
-
-Inspect data-platform state:
-
-```sh
-onlava inspect data --json --database-url "$DATABASE_URL"
-onlava inspect data --json --database-url "$DATABASE_URL" --tenant acme --object company
-```
-
-Use `docs/data-platform.md` for the overview and `docs/data-platform-runbook.md` for operational workflows and current beta limitations.
 
 ## Errors And Responses
 
@@ -372,11 +302,9 @@ onlava psql [psql args...]
 
 Use `onlava inspect app --json` and `onlava inspect paths --json` to understand app configuration and local generated paths before debugging DB access.
 
-## Dashboard And Data Explorer
+## Dashboard
 
-The local dashboard is for development and inspection, not production hosting. Use it to inspect routes, endpoint calls, traces, logs, metrics, cron state, and the beta Data Explorer.
-
-Data Explorer is a developer-facing view over `onlava inspect data` semantics: tenants, objects, fields, records, migrations, outbox, triggers, indexes, relations, saved views, and search state. Treat it as a debugging surface; app code should still use `github.com/pbrazdil/onlava/data`.
+The local dashboard is for development and inspection, not production hosting. Use it to inspect routes, endpoint calls, traces, logs, metrics, cron state, and database query traces.
 
 ## UI Development
 
@@ -444,7 +372,6 @@ onlava check [--app-root <path>] [--json]
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness ui [--app-root <path>] [--repo-root <path>] [--json] [--headed]
 onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
-onlava inspect data --json --database-url <url> [--tenant <key>] [--object <name>]
 onlava inspect docs --json [--repo-root <path>]
 onlava logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [-f|--follow] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
@@ -484,14 +411,6 @@ bun run test
 bun run build
 cd ..
 onlava harness self --json --write
-```
-
-For data-platform work:
-
-```sh
-go test ./data ./internal/objectstore ./internal/datainspect
-ONLAVA_TEST_DATABASE_URL="$DATABASE_URL" go test ./internal/objectstore ./internal/datainspect
-onlava inspect data --json --database-url "$DATABASE_URL"
 ```
 
 For generated client changes:

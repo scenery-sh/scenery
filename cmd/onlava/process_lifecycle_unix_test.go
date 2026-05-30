@@ -14,6 +14,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/pbrazdil/onlava/internal/app"
+	"github.com/pbrazdil/onlava/internal/devdash"
 )
 
 func TestSupervisorClosePropagatesCtrlCToAppProcessGroup(t *testing.T) {
@@ -99,6 +102,132 @@ wait "$child"
 	}
 	waitForProcessExit(t, cmd.Process.Pid, time.Second)
 	waitForProcessExit(t, grandchildPID, time.Second)
+}
+
+func TestSupervisorCloseStopsTypeScriptWorkerAndClearsState(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	readyPath := filepath.Join(dir, "ready")
+	interruptPath := filepath.Join(dir, "interrupted")
+
+	cmd, done := startShellProcessTree(t, `
+set -eu
+trap 'echo interrupted > "$ONLAVA_TEST_INTERRUPTED"; exit 0' INT TERM
+echo ready > "$ONLAVA_TEST_READY"
+while true; do sleep 1; done
+`, map[string]string{
+		"ONLAVA_TEST_READY":       readyPath,
+		"ONLAVA_TEST_INTERRUPTED": interruptPath,
+	})
+	waitForTestFile(t, readyPath, time.Second)
+
+	supervisor := &devSupervisor{
+		typescript: &runningTypeScriptWorker{
+			cmd:  cmd,
+			done: done,
+			pid:  strconv.Itoa(cmd.Process.Pid),
+		},
+	}
+	if err := supervisor.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	waitForTestFile(t, interruptPath, time.Second)
+	waitForProcessExit(t, cmd.Process.Pid, time.Second)
+	if got := supervisor.currentTypeScriptWorker(); got != nil {
+		t.Fatalf("currentTypeScriptWorker() = %#v, want nil", got)
+	}
+}
+
+func TestDetachedDevReapsStaleTypeScriptWorker(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	outputDir := filepath.Join(root, ".onlava", "generated", "temporal", "typescript")
+	workerPath := filepath.Join(outputDir, "worker.ts")
+	readyPath := filepath.Join(root, "ready")
+	interruptPath := filepath.Join(root, "interrupted")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(workerPath, []byte(`#!/bin/sh
+set -eu
+trap 'echo interrupted > "$ONLAVA_TEST_INTERRUPTED"; exit 0' INT TERM
+echo ready > "$ONLAVA_TEST_READY"
+while true; do sleep 1; done
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", workerPath)
+	cmd.Env = append(os.Environ(),
+		"ONLAVA_TEST_READY="+readyPath,
+		"ONLAVA_TEST_INTERRUPTED="+interruptPath,
+	)
+	cmd.Stdin = nil
+	configureChildProcess(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start stale worker fixture: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cleanupProcessTree(cmd, done)
+	})
+	waitForTestFile(t, readyPath, time.Second)
+
+	record := typeScriptWorkerDevRegistry{
+		SchemaVersion: "onlava.dev.typescript_worker.v1",
+		PID:           cmd.Process.Pid,
+		AppRoot:       cleanAbsPath(root),
+		OutputDir:     cleanAbsPath(outputDir),
+		WorkerPath:    cleanAbsPath(workerPath),
+		Command:       []string{"sh", workerPath},
+		DevSupervisor: true,
+		StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if err := writeTypeScriptWorkerDevRegistry(outputDir, record); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+	store, err := devdash.OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenStore() error = %v", err)
+	}
+	defer store.Close()
+	supervisor := &devSupervisor{
+		root:  root,
+		cfg:   app.Config{Name: "demo"},
+		store: store,
+	}
+
+	if err := supervisor.reapStaleTypeScriptWorker(ctx, outputDir); err != nil {
+		t.Fatalf("reap outside detached mode: %v", err)
+	}
+	if !processAliveForTest(cmd.Process.Pid) {
+		t.Fatal("stale worker was reaped outside detached mode")
+	}
+
+	t.Setenv(detachedDevChildEnv, "1")
+	if err := supervisor.reapStaleTypeScriptWorker(ctx, outputDir); err != nil {
+		t.Fatalf("reap detached worker: %v", err)
+	}
+	waitForTestFile(t, interruptPath, time.Second)
+	waitForProcessExit(t, cmd.Process.Pid, time.Second)
+	if _, ok, err := readTypeScriptWorkerDevRegistry(outputDir); err != nil || ok {
+		t.Fatalf("registry after reap ok=%v err=%v", ok, err)
+	}
+	events, err := store.ListProcessEvents(ctx, "demo", 10)
+	if err != nil {
+		t.Fatalf("ListProcessEvents() error = %v", err)
+	}
+	for _, event := range events {
+		if event.Kind == "typescript-worker-stale-reap" {
+			return
+		}
+	}
+	t.Fatalf("missing stale reap event: %#v", events)
 }
 
 func TestSecondCtrlCUsesDefaultSignalBehavior(t *testing.T) {

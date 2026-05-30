@@ -380,7 +380,6 @@ func buildHarnessUIRoutes(appURL string) []harnessUIRouteSpec {
 		{Name: "api-explorer", Path: joinDashboardPath(appURL, "requests"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
 		{Name: "service-catalog", Path: joinDashboardPath(appURL, "envs/local/api"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
 		{Name: "traces", Path: joinDashboardPath(appURL, "envs/local/traces"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
-		{Name: "data-explorer", Path: joinDashboardPath(appURL, "data"), Markers: []string{`[data-onlava-ui="DataExplorerLayout"]`}},
 		{Name: "db-explorer", Path: joinDashboardPath(appURL, "db"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
 	}
 }

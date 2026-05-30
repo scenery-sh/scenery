@@ -345,7 +345,7 @@ func integrationSourceFingerprintFile(rel, path string) bool {
 	if rel == "go.mod" || rel == "go.sum" {
 		return true
 	}
-	for _, prefix := range []string{"auth/", "cron/", "data/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "runtimeapp/", "temporal/"} {
+	for _, prefix := range []string{"auth/", "cron/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "runtimeapp/", "temporal/"} {
 		if strings.HasPrefix(rel, prefix) {
 			return integrationBinaryInputFile(path)
 		}

@@ -504,13 +504,16 @@ func copyTree(src, dst string) error {
 		if rel == "." {
 			return nil
 		}
-		if d.IsDir() && shouldSkipDir(rel) {
+		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() && shouldSkipFile(rel) {
 			return nil
 		}
 		if shouldSkipSymlink(path, d) {
+			return nil
+		}
+		if !d.IsDir() && shouldSkipNonRegularFile(path, d) {
 			return nil
 		}
 		target := filepath.Join(dst, rel)
@@ -615,10 +618,10 @@ func listSourceFiles(appRoot string) ([]string, error) {
 		if rel == "." {
 			return nil
 		}
-		if d.IsDir() && shouldSkipDir(rel) {
+		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
 			return filepath.SkipDir
 		}
-		if d.IsDir() || !isSourceFile(rel) || shouldSkipFile(rel) || shouldSkipSymlink(path, d) {
+		if d.IsDir() || !isSourceFile(rel) || shouldSkipFile(rel) || shouldSkipSymlink(path, d) || shouldSkipNonRegularFile(path, d) {
 			return nil
 		}
 		files[filepath.ToSlash(rel)] = struct{}{}
@@ -743,7 +746,6 @@ func generatorFingerprintPaths() []string {
 		".",
 		"auth",
 		"cron",
-		"data",
 		"errs",
 		"internal/app",
 		"internal/build",
@@ -753,7 +755,6 @@ func generatorFingerprintPaths() []string {
 		"internal/inspect",
 		"internal/localproxy",
 		"internal/model",
-		"internal/objectstore",
 		"internal/parse",
 		"internal/redact",
 		"internal/runtimeapi",
@@ -1129,6 +1130,20 @@ func shouldSkipDir(rel string) bool {
 	}
 }
 
+func shouldSkipRuntimeArtifactDir(rel string) bool {
+	rel = strings.Trim(filepath.ToSlash(rel), "/")
+	switch {
+	case rel == "var/browser", strings.HasPrefix(rel, "var/browser/"):
+		return true
+	case rel == "var/chrome", strings.HasPrefix(rel, "var/chrome/"):
+		return true
+	case rel == "var/playwright", strings.HasPrefix(rel, "var/playwright/"):
+		return true
+	default:
+		return false
+	}
+}
+
 func shouldSkipFile(rel string) bool {
 	base := filepath.Base(rel)
 	if base == ".DS_Store" {
@@ -1138,6 +1153,17 @@ func shouldSkipFile(rel string) bool {
 		return true
 	}
 	return false
+}
+
+func shouldSkipNonRegularFile(path string, d os.DirEntry) bool {
+	if d == nil || d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+		return false
+	}
+	info, err := d.Info()
+	if err != nil {
+		return true
+	}
+	return !info.Mode().IsRegular()
 }
 
 func shouldSkipSymlink(path string, d os.DirEntry) bool {

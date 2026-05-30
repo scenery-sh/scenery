@@ -503,7 +503,7 @@ func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (ha
 
 func harnessBinaryFreshnessCoversRel(rel string) bool {
 	rel = filepath.ToSlash(rel)
-	for _, prefix := range []string{"auth/", "cmd/", "cron/", "data/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "runtimeapp/", "temporal/"} {
+	for _, prefix := range []string{"auth/", "cmd/", "cron/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "runtimeapp/", "temporal/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {
 				if harnessBinaryInputSkipDir(part) {

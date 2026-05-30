@@ -15,9 +15,7 @@ onlava harness self --json
 - [Architecture](../ARCHITECTURE.md): high-level repo map, boundaries, and architectural invariants.
 - [Local Contract](local-contract.md): CLI grammar, stable JSON schemas, generated artifacts, and local runtime contracts.
 - [Environment Reference](environment.md): onlava-owned env vars, app-injected env, and local override escape hatches.
-- [Data Platform](data-platform.md): beta dynamic data package usage, query shapes, auth tenant permissions, import/export, relations, saved views, and public error codes.
 - [App Development Cookbook](app-development-cookbook.md): practical recipes for building onlava apps.
-- [Data Platform Runbook](data-platform-runbook.md): operational guide for dynamic data, migrations, inspect data, live events, and recovery.
 - [Grafana Dev Integration](grafana.md): local Grafana provisioning and environment controls for `onlava dev`.
 - [Harness Engineering](harness-engineering.md): agent validation loop, harness outputs, and self-harness expectations.
 - [Execution Plan Standard](../PLANS.md): required structure for long-running agent-executable implementation plans.
@@ -52,7 +50,5 @@ Start with:
 - [onlava.inspect.docs.v1](schemas/onlava.inspect.docs.v1.schema.json)
 - [onlava.inspect.temporal.v1](schemas/onlava.inspect.temporal.v1.schema.json)
 - [onlava.worker.manifest.v1](schemas/onlava.worker.manifest.v1.schema.json)
-- [onlava.inspect.data.v1](schemas/onlava.inspect.data.v1.schema.json)
-- [onlava.data.export.v1](schemas/onlava.data.export.v1.schema.json)
 - [onlava.docs.index.v1](schemas/onlava.docs.index.v1.schema.json)
 - [onlava.version.v1](schemas/onlava.version.v1.schema.json)

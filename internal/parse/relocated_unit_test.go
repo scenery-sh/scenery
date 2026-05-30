@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"log"
 	"log/slog"
 	"net/http"
@@ -16,8 +15,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	stdpgxpool "github.com/jackc/pgx/v5/pgxpool"
-	onlavaauth "github.com/pbrazdil/onlava/auth"
-	"github.com/pbrazdil/onlava/data"
 	"github.com/pbrazdil/onlava/errs"
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/clientgen"
@@ -465,136 +462,6 @@ func Get(ctx context.Context) (*Response, error) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated client missing %q", want)
 		}
-	}
-}
-
-func TestDataFilterHelpers(t *testing.T) {
-	t.Parallel()
-
-	filter := data.And(
-		data.Contains("name", "acme"),
-		data.Or(data.EQ("stage", "lead"), data.EQ("stage", "won")),
-		data.Not(data.IsNull("arr")),
-	)
-	if filter == nil || filter.Op != "and" || len(filter.Filters) != 3 {
-		t.Fatalf("And filter = %#v", filter)
-	}
-	if filter.Filters[0].Op != "contains" || filter.Filters[0].Field != "name" || filter.Filters[0].Value != "acme" {
-		t.Fatalf("contains filter = %#v", filter.Filters[0])
-	}
-	if filter.Filters[1].Op != "or" || len(filter.Filters[1].Filters) != 2 {
-		t.Fatalf("or filter = %#v", filter.Filters[1])
-	}
-	if filter.Filters[2].Op != "not" || len(filter.Filters[2].Filters) != 1 || filter.Filters[2].Filters[0].Value != true {
-		t.Fatalf("not filter = %#v", filter.Filters[2])
-	}
-}
-
-func TestDataFilterHelpersCollapseEmptyAndSingleLogicalFilters(t *testing.T) {
-	t.Parallel()
-
-	if got := data.And(nil, nil); got != nil {
-		t.Fatalf("And(nil) = %#v, want nil", got)
-	}
-	one := data.EQ("stage", "won")
-	if got := data.And(nil, one); got == nil || got.Op != "eq" || got.Field != "stage" {
-		t.Fatalf("And(single) = %#v, want single filter", got)
-	}
-}
-
-func TestDataSortHelpers(t *testing.T) {
-	t.Parallel()
-
-	if got := data.Asc("name"); got.Field != "name" || got.Desc {
-		t.Fatalf("Asc = %#v", got)
-	}
-	if got := data.Desc("arr"); got.Field != "arr" || !got.Desc {
-		t.Fatalf("Desc = %#v", got)
-	}
-}
-
-func TestDataCodeOfClassifiesPublicDataErrors(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		err  error
-		want data.ErrorCode
-	}{
-		{name: "nil", want: ""},
-		{name: "wrapped", err: &data.Error{Code: data.ErrorInvalidCursor, Op: "QueryRecords", Message: "cursor sort shape does not match query sort", Err: errors.New("cursor sort shape does not match query sort")}, want: data.ErrorInvalidCursor},
-		{name: "field", err: errors.New(`selected field "missing" does not exist on object company`), want: data.ErrorFieldNotFound},
-		{name: "filter", err: errors.New("operator contains is not valid for field arr of type numeric"), want: data.ErrorInvalidFilter},
-		{name: "drift", err: errors.New("physical schema drift was detected"), want: data.ErrorSchemaDrift},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := data.CodeOf(tt.err); got != tt.want {
-				t.Fatalf("CodeOf() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestDataOpenErrorUnwrap(t *testing.T) {
-	t.Parallel()
-
-	_, err := data.Open(context.Background(), nil, data.Options{})
-	if err == nil {
-		t.Fatal("Open(nil) returned nil error")
-	}
-	var dataErr *data.Error
-	if !errors.As(err, &dataErr) || dataErr.Op != "Open" {
-		t.Fatalf("wrapped error = %#v", err)
-	}
-	if !strings.Contains(dataErr.Unwrap().Error(), "object store requires a database") {
-		t.Fatalf("unwrapped error = %v", dataErr.Unwrap())
-	}
-}
-
-func TestDataTenantKeyFromActorUsesStandardAuthData(t *testing.T) {
-	t.Parallel()
-
-	tenantKey, ok := data.TenantKeyFromActor(data.Actor{
-		Data: &onlavaauth.AuthData{TenantID: onlavaauth.TenantID("tenant-a")},
-	})
-	if !ok || tenantKey != "tenant-a" {
-		t.Fatalf("TenantKeyFromActor = %q, %v; want tenant-a, true", tenantKey, ok)
-	}
-}
-
-func TestDataTenantKeyFromActorPrefersExplicitTenantKey(t *testing.T) {
-	t.Parallel()
-
-	tenantKey, ok := data.TenantKeyFromActor(data.Actor{
-		TenantKey: "explicit",
-		Data:      &onlavaauth.AuthData{TenantID: onlavaauth.TenantID("auth-tenant")},
-	})
-	if !ok || tenantKey != "explicit" {
-		t.Fatalf("TenantKeyFromActor = %q, %v; want explicit, true", tenantKey, ok)
-	}
-}
-
-func TestDataStandardAuthPermissionsDenyCrossTenant(t *testing.T) {
-	t.Parallel()
-
-	perms := data.StandardAuthPermissions{}
-	err := perms.CanReadObject(context.Background(), data.Actor{TenantKey: "tenant-a"}, data.ObjectRef{TenantKey: "tenant-b", Name: "company"})
-	if err == nil || !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("CanReadObject error = %v, want permission denied", err)
-	}
-	if data.CodeOf(&data.Error{Code: data.CodeOf(err), Op: "CanReadObject", Message: err.Error(), Err: err}) != data.ErrorPermissionDenied {
-		t.Fatalf("CodeOf = %q, want %q", data.CodeOf(err), data.ErrorPermissionDenied)
-	}
-}
-
-func TestDataStandardAuthPermissionsDelegateAfterTenantCheck(t *testing.T) {
-	t.Parallel()
-
-	perms := data.StandardAuthPermissions{Base: denyRowFilterPermissions{}}
-	_, err := perms.RowFilter(context.Background(), data.Actor{TenantKey: "tenant-a"}, data.ObjectRef{TenantKey: "tenant-a", Name: "company"})
-	if err == nil || err.Error() != "row denied" {
-		t.Fatalf("RowFilter error = %v, want delegated row denied", err)
 	}
 }
 
@@ -1053,14 +920,6 @@ func writeRelocatedUnitTestFile(t *testing.T, root, rel, data string) {
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-type denyRowFilterPermissions struct {
-	data.AllowAllPermissions
-}
-
-func (denyRowFilterPermissions) RowFilter(context.Context, data.Actor, data.ObjectRef) (*data.Filter, error) {
-	return nil, errors.New("row denied")
 }
 
 type fakeTracerKey string

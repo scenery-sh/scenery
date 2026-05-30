@@ -166,8 +166,6 @@ The public packages at the module root are what user apps import:
   registration, and pluggable email delivery)
 - `github.com/pbrazdil/onlava/errs` exposes coded errors and HTTP status mapping
 - `github.com/pbrazdil/onlava/middleware` exposes middleware types
-- `github.com/pbrazdil/onlava/data` exposes the beta native dynamic data
-  platform facade for metadata-defined PostgreSQL-backed objects and records
 - `github.com/pbrazdil/onlava/temporal`, `github.com/pbrazdil/onlava/cron`, `github.com/pbrazdil/onlava/pgxpool`, and related small
   packages expose local runtime integrations
 
@@ -207,23 +205,6 @@ dashboard server and UI embedding are orchestrated from `cmd/onlava`.
 Architecture invariant: development services should be optional around the app
 runtime. They can improve local ergonomics, but `onlava run` must remain a
 headless execution path.
-
-### `internal/objectstore`
-
-`internal/objectstore` implements the beta dynamic data platform behind
-`github.com/pbrazdil/onlava/data`. It owns runtime metadata tables, deterministic
-physical table/column DDL, metadata-validated SQL query compilation,
-transactional record mutations, outbox event rows, permission hooks, and
-single-process SSE live fanout.
-
-Architecture invariant: dynamic data metadata is runtime object stored in
-PostgreSQL. It is not parsed onlava app semantics and should not be added to
-`internal/model` unless a future source directive explicitly requires it.
-
-Architecture invariant: the data platform compiles metadata-resolved queries
-directly to parameterized SQL. Do not introduce a dynamic ORM, generated structs
-per object, dynamic GraphQL schemas, or an external broker as the default local
-live-update backbone.
 
 ### `ui`
 

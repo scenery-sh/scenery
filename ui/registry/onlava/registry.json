@@ -106,12 +106,6 @@
       "description": "Slot-based dashboard page layout."
     },
     {
-      "name": "data-explorer-layout",
-      "type": "registry:block",
-      "title": "Data Explorer Layout",
-      "description": "Slot-based layout for dynamic object data explorers."
-    },
-    {
       "name": "dialog",
       "type": "registry:component",
       "title": "Dialog",

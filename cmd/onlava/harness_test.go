@@ -669,9 +669,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 	writeTestAppFile(t, root, "docs/index.md", "See [local](local-contract.md), [plans](plans/active.md), and [debt](tech-debt.md).\n")
 	writeTestAppFile(t, root, "docs/local-contract.md", "Contract.\n")
 	writeTestAppFile(t, root, "docs/environment.md", "Environment.\n")
-	writeTestAppFile(t, root, "docs/data-platform.md", "Data platform.\n")
 	writeTestAppFile(t, root, "docs/app-development-cookbook.md", "Cookbook.\n")
-	writeTestAppFile(t, root, "docs/data-platform-runbook.md", "Runbook.\n")
 	writeTestAppFile(t, root, "docs/ui-agent-contract.md", "UI contract.\n")
 	writeTestAppFile(t, root, "docs/harness-engineering.md", "Harness.\n")
 	writeTestAppFile(t, root, "docs/plans/active.md", "Active.\n")
@@ -696,8 +694,6 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/onlava.gen.manifest.v1.schema.json",
 		"docs/schemas/onlava.inspect.app.v1.schema.json",
 		"docs/schemas/onlava.inspect.build.v1.schema.json",
-		"docs/schemas/onlava.data.export.v1.schema.json",
-		"docs/schemas/onlava.inspect.data.v1.schema.json",
 		"docs/schemas/onlava.inspect.docs.v1.schema.json",
 		"docs/schemas/onlava.inspect.endpoints.v1.schema.json",
 		"docs/schemas/onlava.inspect.metrics.v1.schema.json",
@@ -760,18 +756,6 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
       "review_after": "2026-05-27",
       "summary": "Cookbook.",
       "tags": ["cookbook"]
-    },
-    {
-      "path": "docs/data-platform-runbook.md",
-      "title": "Data runbook",
-      "owner": "onlava maintainers",
-      "status": "active",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Runbook.",
-      "tags": ["data"]
     },
     {
       "path": "docs/ui-agent-contract.md",

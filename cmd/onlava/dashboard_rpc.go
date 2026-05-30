@@ -149,24 +149,6 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return s.transactionDB(ctx, params)
-	case "data/inspect":
-		var params dataInspectRPCRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		return s.inspectData(ctx, params)
-	case "data/query-records":
-		var params dataQueryRecordsRPCRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		return s.queryDataRecords(ctx, params)
-	case "data/outbox-events":
-		var params dataOutboxEventsRPCRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		return s.dataOutboxEvents(ctx, params)
 	case "db-migration-status":
 		return []any{}, nil
 	case "editors/list":

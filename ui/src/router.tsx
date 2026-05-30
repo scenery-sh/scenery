@@ -9,7 +9,6 @@ import { ServicesPage } from "./routes/services";
 import { DatabasePage } from "./routes/db";
 import { CronPage } from "./routes/cron";
 import { ObservabilityPage } from "./routes/observability";
-import { DataExplorerPage } from "./features/data-explorer/DataExplorerPage";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -90,12 +89,6 @@ const dbRoute = createRoute({
   component: DatabasePage,
 });
 
-const dataRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "data",
-  component: DataExplorerPage,
-});
-
 const dbDetailRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "db/$dbSlug",
@@ -161,7 +154,6 @@ const routeTree = rootRoute.addChildren([
     tracesIndexRoute,
     traceDetailRoute,
     traceSpanDetailRoute,
-    dataRoute,
     dbRoute,
     dbDetailRoute,
     cronRoute,

@@ -39,7 +39,6 @@ same as the stable v0 support surface.
 - `onlava inspect temporal --json`
 - `onlava inspect traces --json`
 - `onlava inspect metrics --json`
-- `onlava inspect data --json`
 - `onlava inspect docs --json`
 - `onlava logs --jsonl`
 - `.onlava/gen/app.json`
@@ -51,7 +50,6 @@ same as the stable v0 support surface.
 - `.onlava/build/latest.json`
 - `.onlava/harness/latest.json`
 - `.onlava/harness/self-latest.json`
-- `github.com/pbrazdil/onlava/data` beta dynamic data platform package
 
 Reserved by contract, implementation pending:
 - other `onlava admin ... --json` commands beyond `traces clear`
@@ -81,20 +79,17 @@ Dev-only or beta surface:
 - `onlava db snapshot create|restore`
 - `onlava psql`
 - `onlava inspect traces|metrics --json`
-- `onlava inspect data --json`
 - `onlava inspect temporal --json`
 - `onlava worker`
 - `onlava admin traces clear --json`
 - `onlava harness ui --json`
 - dashboard and API Explorer
-- dashboard Data Explorer
 - MCP server
 - local HTTPS/frontend proxy
 - trust-store installation
 - Victoria sidecars, Grafana, automatic observability binary downloads, and Victoria-backed local observability reads
 - Temporal workflow/activity and cron runtime/admin affordances until their lifecycle, retry, scheduling, and clear/delete semantics are frozen
 - cron UI
-- `github.com/pbrazdil/onlava/data` dynamic data platform, including object/field metadata, record CRUD/query, indexes, saved views, relationships, beta search, and live updates
 - `github.com/pbrazdil/onlava/temporal` workflow/activity declarations and worker registration
 - migration compatibility for older app shapes
 
@@ -249,7 +244,6 @@ onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
 onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
-onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]
 onlava inspect docs --json [--repo-root <path>]
 onlava inspect traces --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 onlava inspect metrics --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
@@ -346,31 +340,6 @@ Secrets and environment:
 - Missing declared secrets warn in local development mode.
 - `onlava run --env production` can use process environment without a `.env` file, and fails before serving if any declared secret is missing.
 - `.env`, `.env.*`, and secret-bearing local files are not copied into build workspaces.
-
-Beta dynamic data platform:
-
-- Apps may import `github.com/pbrazdil/onlava/data` and open a store with a pgx-compatible pool.
-- The data package exposes small query helpers such as `data.EQ`, `data.GTE`, `data.Contains`, `data.And`, `data.Or`, `data.Not`, `data.Asc`, and `data.Desc`.
-- The first slice stores metadata and outbox rows in `onlava_data` and physical dynamic record tables in `onlava_data_records`.
-- Objects and scalar/composite fields are metadata-defined and backed by real PostgreSQL tables and columns.
-- User-managed select and multi-select fields use `text` and `text[]` plus metadata options, not PostgreSQL enum types.
-- Apps may call `store.CreateIndex(ctx, actor, objectName, data.CreateIndexRequest{...})` and `store.ListIndexes(ctx, actor, objectName, data.ListIndexesRequest{...})` for metadata-backed PostgreSQL indexes. The first index surface supports btree scalar indexes, compound btree indexes, and explicit GIN indexes for multi-select and JSON fields.
-- Relation fields can target another object through `data.RelationSettings`. `many_to_one` relations create a real UUID column plus PostgreSQL foreign key. `many_to_many` relations create a physical join table; record-level many-to-many mutation helpers are not stable yet.
-- Apps may create, update, list, delete, and query saved views with `store.CreateView`, `store.UpdateView`, `store.ListViews`, `store.DeleteView`, and `store.QueryView`. The first view surface stores table-style columns, filter, sort, limit, visibility, owner ID, and layout metadata.
-- Apps may use `data.StandardAuthPermissions` to scope data access to the active standard-auth `tenant_id`; the auth tenant ID maps directly to `TenantKey`.
-- Apps may export and import portable tenant bundles with `store.ExportTenant` and `store.ImportTenant`. The bundle schema is `onlava.data.export.v1`; imports recreate metadata through existing mutation paths, create new record IDs, and return `record_id_map`.
-- Public data methods wrap failures in `*data.Error` where possible. Use `data.CodeOf(err)` for coarse handling of `object_not_found`, `field_not_found`, `invalid_filter`, `permission_denied`, `migration_failed`, `schema_drift`, and `invalid_cursor`.
-- Record queries are compiled from metadata to parameterized SQL; user input must not become SQL identifiers.
-- Record queries can filter, sort, and select one-hop `many_to_one` relation paths such as `company.name`; deeper paths and many-to-many path queries remain future work.
-- Record queries use keyset cursor pagination when `query.cursor` is set. `RecordPage.NextCursor` is a base64url-encoded opaque cursor tied to the object, schema version, and effective sort shape; callers must reuse the same sort shape when fetching the next page. Cursor pagination currently rejects nullable and relation sort fields because null-aware keyset semantics are not stable yet.
-- Record mutations write outbox events in the same transaction.
-- Live updates use SSE over ordinary raw onlava endpoints plus the PostgreSQL outbox sequence for reconnect/replay.
-- Apps may call `store.EnableOutboxTriggers(ctx, actor, tenantKey, objectName)` to enable per-object trigger-backed outbox rows for direct SQL changes.
-- Explicit onlava record mutations still write precise outbox events themselves; trigger-backed outbox skips those transactions to avoid duplicate events.
-- Trigger-backed direct SQL events use logical field names in `before`, `after`, `diff`, and `changed_fields` where field metadata exists. Actor IDs come from transaction-local `onlava.actor_id` when set, otherwise they are empty.
-- `onlava inspect data --json --database-url <postgres-url>` reports data tenants, objects, fields, relation metadata, indexes, saved views, migration state, and outbox state without dumping user records.
-- `onlava inspect data --json --database-url <postgres-url> --tenant <tenant-key> --object <object-name>` filters the same infrastructure view to one data tenant/object.
-- The dashboard Data Explorer is a dev-only view over the same data platform concepts. It can inspect data tenants/objects, query selected object records through the objectstore query path, and tail outbox events for debugging local apps.
 
 Standard auth:
 
@@ -539,8 +508,6 @@ Implemented now:
 - [onlava.inspect.endpoints.v1.schema.json](schemas/onlava.inspect.endpoints.v1.schema.json)
 - [onlava.inspect.traces.v1.schema.json](schemas/onlava.inspect.traces.v1.schema.json)
 - [onlava.inspect.metrics.v1.schema.json](schemas/onlava.inspect.metrics.v1.schema.json)
-- [onlava.data.export.v1.schema.json](schemas/onlava.data.export.v1.schema.json)
-- [onlava.inspect.data.v1.schema.json](schemas/onlava.inspect.data.v1.schema.json)
 - [onlava.inspect.docs.v1.schema.json](schemas/onlava.inspect.docs.v1.schema.json)
 - [onlava.docs.index.v1.schema.json](schemas/onlava.docs.index.v1.schema.json)
 - [onlava.wire.capabilities.v1.schema.json](schemas/onlava.wire.capabilities.v1.schema.json)

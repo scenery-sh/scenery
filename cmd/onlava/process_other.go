@@ -28,6 +28,22 @@ func killProcessTree(cmd *exec.Cmd) error {
 	return cmd.Process.Signal(syscall.SIGKILL)
 }
 
+func terminateProcessIDTree(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Signal(os.Interrupt)
+}
+
+func killProcessIDTree(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Signal(syscall.SIGKILL)
+}
+
 func commandTreeContext(ctx context.Context, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
 	configureCommandCancellation(cmd, 3*time.Second)

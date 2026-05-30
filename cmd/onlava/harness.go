@@ -301,7 +301,6 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/onlava.inspect.endpoints.v1.schema.json",
 		"docs/schemas/onlava.inspect.traces.v1.schema.json",
 		"docs/schemas/onlava.inspect.metrics.v1.schema.json",
-		"docs/schemas/onlava.data.export.v1.schema.json",
 		"docs/schemas/onlava.wire.capabilities.v1.schema.json",
 		"docs/schemas/onlava.inspect.build.v1.schema.json",
 		"docs/schemas/onlava.inspect.paths.v1.schema.json",

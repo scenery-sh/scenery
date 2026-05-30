@@ -12,7 +12,7 @@ This file tracks known project debt that should be visible to agents before they
 - Created: 2026-04-27
 - Review after: 2026-05-27
 
-The editable dashboard source exists, but parity should continue to be verified visually for complex pages such as traces, API Explorer, Data Explorer, Cron, and DB Explorer.
+The editable dashboard source exists, but parity should continue to be verified visually for complex pages such as traces, API Explorer, Cron, and DB Explorer.
 
 ### Browser Harness
 

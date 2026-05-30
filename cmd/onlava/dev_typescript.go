@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,12 +21,26 @@ import (
 )
 
 const typeScriptWorkerStartupProbe = 750 * time.Millisecond
+const typeScriptWorkerStaleGrace = 750 * time.Millisecond
+
+const typeScriptWorkerDevRegistryFile = "dev-worker.json"
 
 type runningTypeScriptWorker struct {
 	cmd    *exec.Cmd
 	done   chan error
 	pid    string
 	output *safeLineTail
+}
+
+type typeScriptWorkerDevRegistry struct {
+	SchemaVersion string   `json:"schema_version"`
+	PID           int      `json:"pid"`
+	AppRoot       string   `json:"app_root"`
+	OutputDir     string   `json:"output_dir"`
+	WorkerPath    string   `json:"worker_path"`
+	Command       []string `json:"command"`
+	DevSupervisor bool     `json:"dev_supervisor"`
+	StartedAt     string   `json:"started_at"`
 }
 
 func effectiveDevConfigForTypeScriptWorker(cfg app.Config, ts workers.TypeScriptWorkerModel) app.Config {
@@ -69,11 +85,17 @@ func (s *devSupervisor) startTypeScriptWorker(ctx context.Context, result worker
 	if err != nil {
 		return nil, err
 	}
-	cmd := commandTreeContext(s.ctx, runtimeName, runtimeArgs...)
-	cmd.Dir = result.OutputDir
-	if strings.TrimSpace(cmd.Dir) == "" {
-		cmd.Dir = filepath.Join(s.root, workers.TypeScriptWorkerGeneratedRelDir)
+	outputDir := strings.TrimSpace(result.OutputDir)
+	if outputDir == "" {
+		outputDir = filepath.Join(s.root, workers.TypeScriptWorkerGeneratedRelDir)
 	}
+	if detachedDevChildMode() {
+		if err := s.reapStaleTypeScriptWorker(ctx, outputDir); err != nil {
+			return nil, err
+		}
+	}
+	cmd := commandTreeContext(s.ctx, runtimeName, runtimeArgs...)
+	cmd.Dir = outputDir
 	baseEnv, err := appEnvWithDotEnv(os.Environ(), s.root, ".env", ".env.local")
 	if err != nil {
 		return nil, err
@@ -109,7 +131,15 @@ func (s *devSupervisor) startTypeScriptWorker(ctx context.Context, result worker
 	s.mu.Lock()
 	s.typescript = worker
 	s.mu.Unlock()
+	if detachedDevChildMode() {
+		if err := s.writeTypeScriptWorkerDevRegistry(ctx, worker, cmd.Dir, runtimeName, runtimeArgs); err != nil {
+			_ = worker.stop()
+			s.clearTypeScriptWorker(worker)
+			return nil, err
+		}
+	}
 	if err := waitForTypeScriptWorkerStartup(ctx, worker); err != nil {
+		_ = removeMatchingTypeScriptWorkerDevRegistry(cmd.Dir, workerPIDInt(worker.pid))
 		s.clearTypeScriptWorker(worker)
 		return nil, err
 	}
@@ -210,6 +240,7 @@ func (s *devSupervisor) handleTypeScriptWorkerExit(ctx context.Context, worker *
 	if !s.clearTypeScriptWorker(worker) {
 		return
 	}
+	_ = removeMatchingTypeScriptWorkerDevRegistry(workerOutputDir(worker), workerPIDInt(worker.pid))
 
 	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "typescript-worker-stop", map[string]any{
 		"pid": worker.pid,
@@ -232,6 +263,198 @@ func (s *devSupervisor) clearTypeScriptWorker(worker *runningTypeScriptWorker) b
 	}
 	s.typescript = nil
 	return true
+}
+
+func (s *devSupervisor) writeTypeScriptWorkerDevRegistry(ctx context.Context, worker *runningTypeScriptWorker, outputDir, runtimeName string, runtimeArgs []string) error {
+	if worker == nil || worker.cmd == nil || worker.cmd.Process == nil {
+		return nil
+	}
+	record := typeScriptWorkerDevRegistry{
+		SchemaVersion: "onlava.dev.typescript_worker.v1",
+		PID:           worker.cmd.Process.Pid,
+		AppRoot:       cleanAbsPath(s.root),
+		OutputDir:     cleanAbsPath(outputDir),
+		WorkerPath:    cleanAbsPath(filepath.Join(outputDir, "worker.ts")),
+		Command:       append([]string{runtimeName}, runtimeArgs...),
+		DevSupervisor: true,
+		StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if err := writeTypeScriptWorkerDevRegistry(outputDir, record); err != nil {
+		return err
+	}
+	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "typescript-worker-register", map[string]any{
+		"pid":         worker.pid,
+		"worker_path": record.WorkerPath,
+	})
+	return nil
+}
+
+func (s *devSupervisor) reapStaleTypeScriptWorker(ctx context.Context, outputDir string) error {
+	if !detachedDevChildMode() {
+		return nil
+	}
+	record, ok, err := readTypeScriptWorkerDevRegistry(outputDir)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	if !matchesTypeScriptWorkerDevRegistry(record, s.root, outputDir) {
+		return nil
+	}
+	if record.PID <= 0 {
+		_ = os.Remove(typeScriptWorkerDevRegistryPath(outputDir))
+		return nil
+	}
+	info, alive := inspectProcess(record.PID)
+	if !alive {
+		_ = os.Remove(typeScriptWorkerDevRegistryPath(outputDir))
+		return nil
+	}
+	if !looksLikeTypeScriptWorkerProcess(info.cmd, record) {
+		return nil
+	}
+	if err := stopStaleTypeScriptWorkerProcess(record.PID, typeScriptWorkerStaleGrace); err != nil {
+		return err
+	}
+	_ = os.Remove(typeScriptWorkerDevRegistryPath(outputDir))
+	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "typescript-worker-stale-reap", map[string]any{
+		"pid":         record.PID,
+		"worker_path": record.WorkerPath,
+		"output_dir":  record.OutputDir,
+	})
+	if s.console != nil && s.console.verbose {
+		s.console.Event("typescript-worker.stale-reap", map[string]any{
+			"pid":         record.PID,
+			"worker_path": record.WorkerPath,
+		})
+	}
+	return nil
+}
+
+func typeScriptWorkerDevRegistryPath(outputDir string) string {
+	return filepath.Join(outputDir, typeScriptWorkerDevRegistryFile)
+}
+
+func writeTypeScriptWorkerDevRegistry(outputDir string, record typeScriptWorkerDevRegistry) error {
+	if strings.TrimSpace(outputDir) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(typeScriptWorkerDevRegistryPath(outputDir), data, 0o644)
+}
+
+func readTypeScriptWorkerDevRegistry(outputDir string) (typeScriptWorkerDevRegistry, bool, error) {
+	if strings.TrimSpace(outputDir) == "" {
+		return typeScriptWorkerDevRegistry{}, false, nil
+	}
+	data, err := os.ReadFile(typeScriptWorkerDevRegistryPath(outputDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return typeScriptWorkerDevRegistry{}, false, nil
+	}
+	if err != nil {
+		return typeScriptWorkerDevRegistry{}, false, err
+	}
+	var record typeScriptWorkerDevRegistry
+	if err := json.Unmarshal(data, &record); err != nil {
+		return typeScriptWorkerDevRegistry{}, false, err
+	}
+	return record, true, nil
+}
+
+func removeMatchingTypeScriptWorkerDevRegistry(outputDir string, pid int) error {
+	record, ok, err := readTypeScriptWorkerDevRegistry(outputDir)
+	if err != nil || !ok {
+		return err
+	}
+	if pid > 0 && record.PID != pid {
+		return nil
+	}
+	return os.Remove(typeScriptWorkerDevRegistryPath(outputDir))
+}
+
+func matchesTypeScriptWorkerDevRegistry(record typeScriptWorkerDevRegistry, appRoot, outputDir string) bool {
+	if !record.DevSupervisor || strings.TrimSpace(record.SchemaVersion) != "onlava.dev.typescript_worker.v1" {
+		return false
+	}
+	if cleanAbsPath(record.AppRoot) != cleanAbsPath(appRoot) {
+		return false
+	}
+	if cleanAbsPath(record.OutputDir) != cleanAbsPath(outputDir) {
+		return false
+	}
+	return cleanAbsPath(record.WorkerPath) == cleanAbsPath(filepath.Join(outputDir, "worker.ts"))
+}
+
+func looksLikeTypeScriptWorkerProcess(command string, record typeScriptWorkerDevRegistry) bool {
+	command = filepath.ToSlash(strings.TrimSpace(command))
+	if command == "" || !strings.Contains(command, "worker.ts") {
+		return false
+	}
+	workerPath := filepath.ToSlash(cleanAbsPath(record.WorkerPath))
+	outputDir := filepath.ToSlash(cleanAbsPath(record.OutputDir))
+	return strings.Contains(command, workerPath) ||
+		strings.Contains(command, outputDir) ||
+		strings.Contains(command, " worker.ts") ||
+		strings.HasSuffix(command, "/worker.ts")
+}
+
+func stopStaleTypeScriptWorkerProcess(pid int, grace time.Duration) error {
+	if err := terminateProcessIDTree(pid); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	deadline := time.Now().Add(grace)
+	for time.Now().Before(deadline) {
+		if _, ok := inspectProcess(pid); !ok {
+			return nil
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if err := killProcessIDTree(pid); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	killDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(killDeadline) {
+		if _, ok := inspectProcess(pid); !ok {
+			return nil
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return fmt.Errorf("stale TypeScript worker process %d did not exit after SIGKILL", pid)
+}
+
+func workerOutputDir(worker *runningTypeScriptWorker) string {
+	if worker == nil || worker.cmd == nil {
+		return ""
+	}
+	return worker.cmd.Dir
+}
+
+func workerPIDInt(pid string) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(pid))
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func cleanAbsPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return filepath.Clean(path)
 }
 
 func (w *runningTypeScriptWorker) interrupt() error {

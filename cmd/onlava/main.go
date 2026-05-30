@@ -110,7 +110,6 @@ func usageError() error {
     onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
     onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
     onlava inspect docs --json [--repo-root <path>]
-    onlava inspect data --json --database-url <postgres-url> [--tenant <key>] [--object <name>]
     onlava inspect traces --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
     onlava inspect metrics --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
     onlava admin traces clear --json [--app-root <path>]

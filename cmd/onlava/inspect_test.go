@@ -24,15 +24,8 @@ func TestParseInspectArgs(t *testing.T) {
 		t.Fatalf("app root = %q", opts.AppRoot)
 	}
 
-	opts, err = parseInspectArgs([]string{"data", "--json", "--database-url", "postgres://example", "--tenant", "acme", "--object", "company"})
-	if err != nil {
-		t.Fatalf("parseInspectArgs(data) returned error: %v", err)
-	}
-	if opts.Subject != "data" || !opts.JSON {
-		t.Fatalf("data opts = %+v", opts)
-	}
-	if opts.Data.DatabaseURL != "postgres://example" || opts.Data.TenantKey != "acme" || opts.Data.ObjectName != "company" {
-		t.Fatalf("data opts = %+v", opts.Data)
+	if _, err := parseInspectArgs([]string{"data", "--json", "--database-url", "postgres://example"}); err == nil || err.Error() != `unknown flag "--database-url"` {
+		t.Fatalf("parseInspectArgs(data --database-url) error = %v", err)
 	}
 }
 

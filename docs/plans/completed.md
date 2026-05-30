@@ -6,6 +6,24 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Browser Worker Operational Hardening
+
+- Status: completed
+- Owner: onlava runtime / Temporal TypeScript workers
+- Completed: 2026-05-30
+- Quality: B+
+- ExecPlan: [0052 Browser Worker Operational Hardening](0052-browser-worker-operational-hardening.md)
+
+Shipped:
+
+- Build prep skips browser runtime artifact directories: `var/browser`, `var/chrome`, and `var/playwright`.
+- Build source listing and workspace copying skip unsupported non-regular files such as Unix sockets without changing symlink behavior.
+- Generated TypeScript Temporal worker tests now lock supervisor PID monitoring through `ONLAVA_DEV_SUPERVISOR_PID`.
+- Dev supervisor shutdown tests prove TypeScript worker children are interrupted, waited on, and detached from supervisor state.
+- Detached `onlava dev` children write a generated TypeScript worker registry and conservatively reap stale registry-matched workers for the current app root and generated `worker.ts` path.
+- Stale worker cleanup records a dev dashboard process event and leaves foreground `onlava worker typescript` behavior unchanged.
+- Focused tests, full `go test -count=1 ./...`, binary install, `git diff --check`, and `onlava harness self --json --write` validation.
+
 ## Agent HTTPS Ingress
 
 - Status: completed

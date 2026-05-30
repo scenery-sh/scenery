@@ -42,6 +42,11 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: onlava runtime / agent DX
   - Created: 2026-05-29
   - Focus: make `onlava harness self` a machine-readable development oracle with full tests, changed-area recommendations, timing budgets, schema validation, context pack, and drift checks.
+- [0054 Remove Objectstore Functionality](0054-remove-objectstore-functionality.md)
+  - Status: active
+  - Owner: onlava runtime
+  - Created: 2026-05-30
+  - Focus: remove the beta data/objectstore feature surface without compatibility aliases or dormant code paths.
 - [0047 TypeScript Temporal Workers](0047-typescript-temporal-workers.md)
   - Status: active
   - Owner: onlava runtime / Temporal
@@ -73,7 +78,7 @@ Current focus:
 Current focus:
 
 - Maintain editable source dashboard behavior under `ui/`.
-- Keep supported local-only surfaces first: API Explorer, traces, Data Explorer, DB explorer, cron, service metadata.
+- Keep supported local-only surfaces first: API Explorer, traces, DB explorer, cron, service metadata.
 - Avoid reintroducing cloud, Clerk, deploy, or marketing surfaces.
 
 ## Runtime Contracts

@@ -17,6 +17,14 @@ type Store struct {
 	db *sql.DB
 }
 
+type ProcessEvent struct {
+	ID          int64           `json:"id"`
+	AppID       string          `json:"app_id"`
+	Kind        string          `json:"kind"`
+	PayloadJSON json.RawMessage `json:"payload_json"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
 const sqliteBusyTimeoutMS = 5_000
 const SQLiteBusyTimeoutMS = sqliteBusyTimeoutMS
 
@@ -702,6 +710,41 @@ func (s *Store) WriteProcessEvent(ctx context.Context, appID, kind string, paylo
 		values (?, ?, ?, ?)
 	`, appID, kind, string(data), time.Now().UTC().Format(time.RFC3339Nano))
 	return err
+}
+
+func (s *Store) ListProcessEvents(ctx context.Context, appID string, limit int) ([]ProcessEvent, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, app_id, kind, payload_json, created_at
+		from process_events
+		where app_id = ?
+		order by id desc
+		limit ?
+	`, appID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []ProcessEvent
+	for rows.Next() {
+		var event ProcessEvent
+		var payload string
+		var created string
+		if err := rows.Scan(&event.ID, &event.AppID, &event.Kind, &payload, &created); err != nil {
+			return nil, err
+		}
+		event.PayloadJSON = append(json.RawMessage(nil), payload...)
+		if t, err := time.Parse(time.RFC3339Nano, created); err == nil {
+			event.CreatedAt = t
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
 }
 
 func (s *Store) WriteProcessOutput(ctx context.Context, output ProcessOutput) error {

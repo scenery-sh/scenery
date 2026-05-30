@@ -31,7 +31,7 @@ Use the onlava wrapper:
 ```sh
 cd ui
 bun run shadcn:add @onlava/button
-bun run shadcn:add @onlava/data-explorer-layout
+bun run shadcn:add @onlava/dashboard-page
 ```
 
 The wrapper accepts only `@onlava/*` items, starts the local onlava registry server for the command, runs shadcn with `--dry-run` first, rejects URLs, local paths, unsupported flags, and an occupied registry port, pins the shadcn CLI to `shadcn@4.7.0` by default, and refuses overwrite unless `ONLAVA_SHADCN_OVERWRITE=1` is set.
@@ -98,32 +98,23 @@ Agent-facing layouts use named props instead of free-form compound children. The
 Preferred:
 
 ```tsx
-<DataExplorerLayout
-  title="Data"
-  objectList={<ObjectList />}
-  toolbar={<RecordToolbar />}
-  table={<RecordTable />}
-  inspector={<RecordInspector />}
-  eventStream={<OutboxStream />}
-/>
+<DashboardPage title="Requests" toolbar={<RequestToolbar />} content={<RequestTable />} />
 ```
 
 Avoid:
 
 ```tsx
-<DataExplorerLayout>
-  <DataExplorerLayout.Sidebar />
-  <DataExplorerLayout.Main />
-</DataExplorerLayout>
+<DashboardPage>
+  <div className="grid gap-4" />
+</DashboardPage>
 ```
 
 Layouts must expose stable markers for future browser harness checks:
 
 ```tsx
-<section data-onlava-ui="DataExplorerLayout">
-  <aside data-slot="object-list">{objectList}</aside>
-  <main data-slot="table">{table}</main>
-  <aside data-slot="inspector">{inspector}</aside>
+<section data-onlava-ui="DashboardPage">
+  <header data-slot="header">{toolbar}</header>
+  <main data-slot="content">{content}</main>
 </section>
 ```
 

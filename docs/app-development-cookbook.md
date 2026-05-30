@@ -375,12 +375,6 @@ onlava inspect build --json
 onlava inspect paths --json
 ```
 
-For data-platform apps:
-
-```sh
-onlava inspect data --json --database-url "$DATABASE_URL"
-```
-
 ## Harness Workflow
 
 For app changes:
