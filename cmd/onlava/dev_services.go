@@ -21,6 +21,7 @@ import (
 
 	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/app"
+	"github.com/pbrazdil/onlava/internal/devdash"
 )
 
 const (
@@ -301,6 +302,11 @@ func (s *devSupervisor) ensureManagedElectric(ctx context.Context) error {
 			"source": service.Source,
 		})
 	}
+	s.emitDevEvent(ctx, devdash.DevSource{ID: "electric", Kind: "substrate", Name: "electric", Role: "sync-service", Status: "running", URL: "http://" + service.Addr}, "info", "managed Electric ready", map[string]any{
+		"route":  plan.Route,
+		"addr":   service.Addr,
+		"source": service.Source,
+	})
 	return nil
 }
 

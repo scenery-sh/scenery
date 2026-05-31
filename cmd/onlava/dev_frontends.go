@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -14,6 +16,7 @@ import (
 
 	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/app"
+	"github.com/pbrazdil/onlava/internal/devdash"
 	"github.com/pbrazdil/onlava/internal/localproxy"
 )
 
@@ -25,6 +28,7 @@ type managedFrontendProcess struct {
 	Addr    string
 	Command *exec.Cmd
 	LogFile *os.File
+	Store   *devdash.Store
 }
 
 type packageJSONForFrontend struct {
@@ -50,7 +54,7 @@ func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app
 			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: override}
 			continue
 		}
-		process, err := startManagedFrontendProcess(ctx, root, frontend, baseEnv, session)
+		process, err := startManagedFrontendProcess(ctx, root, cfg.AppID(), frontend, baseEnv, session)
 		if err == nil && process != nil {
 			processes = append(processes, process)
 			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: process.Addr}
@@ -96,7 +100,7 @@ func frontendOverrideEnvName(name string) string {
 	return "ONLAVA_FRONTEND_" + strings.Trim(b.String(), "_") + "_ADDR"
 }
 
-func startManagedFrontendProcess(ctx context.Context, appRoot string, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) (*managedFrontendProcess, error) {
+func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) (*managedFrontendProcess, error) {
 	root := managedFrontendRoot(appRoot, frontend)
 	if root == "" {
 		return nil, fmt.Errorf("frontend %s has no root", frontend.Name)
@@ -120,9 +124,25 @@ func startManagedFrontendProcess(ctx context.Context, appRoot string, frontend l
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	store, err := openDevdashStore()
+	if err != nil {
+		_ = logFile.Close()
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = store.Close()
+		_ = logFile.Close()
+		return nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		_ = store.Close()
+		_ = logFile.Close()
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
+		_ = store.Close()
 		_ = logFile.Close()
 		return nil, err
 	}
@@ -132,12 +152,56 @@ func startManagedFrontendProcess(ctx context.Context, appRoot string, frontend l
 		Addr:    addr,
 		Command: cmd,
 		LogFile: logFile,
+		Store:   store,
 	}
+	go captureManagedFrontendOutput(ctx, store, appID, session.SessionID, process, "stdout", stdout, logFile)
+	go captureManagedFrontendOutput(ctx, store, appID, session.SessionID, process, "stderr", stderr, logFile)
 	if err := waitForManagedFrontend(ctx, process); err != nil {
 		_ = process.Stop()
 		return nil, err
 	}
 	return process, nil
+}
+
+func captureManagedFrontendOutput(ctx context.Context, store *devdash.Store, appID, sessionID string, process *managedFrontendProcess, stream string, src io.Reader, dst io.Writer) {
+	if process == nil || store == nil || src == nil {
+		return
+	}
+	reader := bufio.NewReader(src)
+	pid := ""
+	if process.Command != nil && process.Command.Process != nil {
+		pid = fmt.Sprintf("%d", process.Command.Process.Pid)
+	}
+	source := devdash.DevSource{
+		ID:     "frontend:" + process.Name,
+		Kind:   "frontend",
+		Name:   process.Name,
+		Role:   "web-frontend",
+		PID:    pid,
+		Stream: stream,
+		Status: "running",
+		URL:    "http://" + process.Addr,
+	}
+	for {
+		chunk, err := reader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			_, _ = dst.Write(chunk)
+			plain := stripANSI(chunk)
+			now := time.Now().UTC()
+			_ = store.WriteProcessOutput(ctx, devdash.ProcessOutput{
+				AppID:     appID,
+				SessionID: sessionID,
+				PID:       pid,
+				Stream:    stream,
+				Output:    plain,
+				CreatedAt: now,
+			})
+			_ = store.WriteDevEvent(ctx, devdash.DevEventFromOutput(appID, sessionID, source, plain, now))
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func managedFrontendRoot(appRoot string, frontend localproxy.FrontendConfig) string {
@@ -330,7 +394,14 @@ func (p *managedFrontendProcess) Stop() error {
 		}
 	}
 	if p.LogFile != nil {
-		return p.LogFile.Close()
+		err := p.LogFile.Close()
+		if p.Store != nil {
+			_ = p.Store.Close()
+		}
+		return err
+	}
+	if p.Store != nil {
+		return p.Store.Close()
 	}
 	return nil
 }

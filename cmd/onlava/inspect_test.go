@@ -41,7 +41,7 @@ func TestRunOnlavaInspectRequiresJSON(t *testing.T) {
 func TestRunOnlavaInspectOutputsStableJSON(t *testing.T) {
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"inspectapp","id":"inspect-id"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRootForTest(t)+"\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/inspectapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRootForTest(t)+"\n")
 	writeTestAppFile(t, root, "users/api.go", `package users
 
 import "context"
@@ -339,7 +339,7 @@ func TestRunOnlavaInspectExcludesUnrelatedPackages(t *testing.T) {
 	root := persistentTestAppRoot(t, "inspect-excludes-unrelated")
 	preparePersistentTestApp(t, root, map[string]string{
 		".onlava.json": `{"name":"inspectapp","id":"inspect-id"}`,
-		"go.mod":       "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
+		"go.mod":       "module example.com/inspectapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
 		"users/api.go": `package users
 
 import "context"
@@ -449,7 +449,7 @@ func TestInspectTemporalLeavesUnresolvedWorkflowQueueEmpty(t *testing.T) {
 	root := persistentTestAppRoot(t, "inspect-temporal-unresolved")
 	preparePersistentTestApp(t, root, map[string]string{
 		".onlava.json": `{"name":"inspectapp"}`,
-		"go.mod":       "module example.com/inspectapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
+		"go.mod":       "module example.com/inspectapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
 		"svc/api.go": `package svc
 
 import "context"

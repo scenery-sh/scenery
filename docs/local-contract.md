@@ -205,7 +205,7 @@ Rules:
 - Local onlava-managed worker processes set their `worker_build_id` as the current Temporal Worker Deployment version on startup so schedules and new workflow executions have a versioned routing target. Non-local workers do not self-promote; operators must promote deployment versions explicitly.
 - `temporal.local.auto_start` and `temporal.local.db_filename` are local development settings for supervised Temporal dev server work. With an active agent, the Temporal dev server is registered as a shared agent substrate and its local database state is stored under the agent directory; each dev session also registers a `temporal` route for the shared UI, while app workers receive session-scoped task queue prefixes. Explicit workflow/activity task queues are prefixed in active dev sessions too, so parallel worktrees do not poll or schedule onto each other's queues.
 - `ONLAVA_TEMPORAL_TASK_QUEUE` overrides the generated Temporal task queue for worker processes. `onlava worker --task-queue <name>` and `onlava worker typescript --task-queue <name>` set it.
-- TypeScript Temporal activity support is activity-only. onlava discovers `*.worker.ts` files, plus ordinary `.ts` files with `//onlava:worker`, and generates `.onlava/generated/temporal/typescript/{onlava.ts,registry.ts,worker.ts,manifest.json,tsconfig.json}`. Source files import `activity` from `onlava/worker` or `@onlava/temporal`; the generated `tsconfig.json` maps both names to the generated local API.
+- TypeScript Temporal activity support is activity-only. onlava discovers `*.worker.ts` files, plus ordinary `.ts` files with `//onlava:worker`, and generates `.onlava/generated/temporal/typescript/{onlava.ts,registry.ts,worker.ts,manifest.json,tsconfig.json,package.json}`. Source files import `activity` from `onlava/worker` or `@onlava/temporal`; the generated `tsconfig.json` maps both names to the generated local API. Before launching the generated worker, `onlava dev` and `onlava worker typescript` install the generated worker package dependencies with `bun install`, falling back to `npm install` when Bun is unavailable.
 - Go workflows declare TypeScript activities with `temporal.NewExternalActivity` using matching input/output type parameters and call them through `temporal.ExecuteActivity`. `onlava check --json` validates matching TypeScript activity names, task queues, and type names before build/runtime.
 - `temporal.typescript.enabled`, `runtime`, and `auto_start` configure the TypeScript worker path. `onlava worker typescript` generates and runs the hidden worker directly. When `temporal.typescript.enabled` and `auto_start` are both true, `onlava dev` validates Go-to-TypeScript contracts, regenerates the hidden worker runtime, and supervises the TypeScript worker alongside the Go app. The worker receives the supervised Temporal address/namespace, session-scoped task queue prefix, deployment name, build ID, and agent session identity environment. `runtime` accepts `bun` or `node`; when empty, onlava prefers `bun` and falls back to `node --import tsx`.
 - Generated binaries accept `ONLAVA_ROLE=all|api|worker`. `onlava dev` uses the default combined role. `onlava run` uses `api`. `onlava worker` uses `worker`.
@@ -220,10 +220,11 @@ Current implemented grammar:
 
 ```text
 onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [--session <id>|--new-session] [-v|--verbose] [--json] [--proxy] [--trust] [--detach]
-onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--jsonl|--json]
+onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [--jsonl|--json] [--tui]
+onlava console [--app-root <path>] [--session current|<id>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 onlava agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 onlava agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
-onlava status --json [--app-root <path>] [--session <id>]
+onlava status --json [--app-root <path>] [--session <id>] [--watch]
 onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]
 onlava prune --older-than <duration> [--app-root <path>] [--json]
 onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
@@ -248,7 +249,7 @@ onlava inspect docs --json [--repo-root <path>]
 onlava inspect traces --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 onlava inspect metrics --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
 onlava admin traces clear --json [--app-root <path>]
-onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [-f|--follow] [--jsonl|--json]
+onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [-f|--follow] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
 onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 ```
@@ -279,7 +280,10 @@ Command split:
 - `onlava dev` starts the local development platform: app process, file watching, and rebuild/restart supervision.
 - `onlava dev --session <id>` registers the dev process under an explicit session ID. `onlava dev --new-session` creates a fresh session ID for this run, even when the app root and branch already have a deterministic default session. These flags are mutually exclusive.
 - `onlava dev --detach` requires the local agent, starts the same dev supervisor in a background child process, waits for that child PID to register as the app root's agent session owner, prints the session URLs plus attach/stop commands, and returns. Detached child stdout/stderr from the supervisor is written under the agent directory; app process output continues to flow through the session-scoped dashboard log store.
-- `onlava attach` follows the current agent session's logs by default. It is equivalent to `onlava logs --session current --follow` with the same app-root, limit, stream, and JSONL options, and it does not mutate session state.
+- `onlava attach` follows the current agent session's logs by default. It is equivalent to `onlava logs --session current --follow` with the same app-root, limit, stream, source, kind, level, grep, since, backend, and JSONL options, and it does not mutate session state.
+- `onlava logs` and plain `onlava attach` prefer the shared agent VictoriaLogs dev-event stream when it has matching structured events, then fall back to SQLite. `--backend victoria` and `--backend sqlite` force either side while the migration is being verified; `ONLAVA_LOGS_BACKEND` accepts the same values.
+- `onlava attach --tui` and `onlava console` open the source-aware terminal console when stdin/stdout are real TTYs. In CI, dumb terminals, or redirected output they fall back to normal log following.
+- Structured dev logs carry source identity. Current source ids include `api`, `worker:typescript`, `build`, `supervisor`, `temporal`, `electric`, `grafana`, `victoria`, and `frontend:<name>`.
 - `onlava agent restart` stops the currently reachable local agent process, starts a new background agent, waits until the control socket is reachable, and returns. The same `--socket`, `--router-listen`, `--router-tls`, `--trust`, and `--json` options apply to the restarted agent.
 - `onlava down` stops and unregisters the selected session but is non-destructive by default. `--db` drops that session's managed Postgres database, `--state` removes that session's `.onlava/sessions/<id>` state root, and `--all` enables both.
 - `onlava prune --older-than <duration>` prunes old agent sessions whose recorded owner is gone or mismatched, and removes their `.onlava/sessions/<id>` state roots. It accepts Go durations such as `336h` plus day shorthand such as `14d`. It does not drop managed databases; use `onlava down --db` or `onlava db drop` for destructive database cleanup.
@@ -428,8 +432,10 @@ onlava logs --json
 
 - `--json` is an alias for `--jsonl`
 - output is JSONL
-- each line conforms to `onlava.logs.event.v1`
-- one JSON object is emitted per stored process-output chunk
+- each line conforms to `onlava.dev.event.v1`
+- one JSON object is emitted per stored structured dev event or legacy process-output chunk
+- structured events include app id/root, session id, source id/kind/name/role/pid/stream/status, level, message, parsed fields, raw output, and parse metadata
+- structured dev events are dual-written to SQLite and VictoriaLogs during the migration; the JSONL output shape is the same for both `--backend sqlite` and `--backend victoria`
 - human-readable raw output remains the default when neither flag is used
 
 Reserved grammar:
@@ -522,6 +528,7 @@ Implemented now:
 - [onlava.check.result.v1.schema.json](schemas/onlava.check.result.v1.schema.json)
 - [onlava.harness.result.v1.schema.json](schemas/onlava.harness.result.v1.schema.json)
 - [onlava.harness.self.v1.schema.json](schemas/onlava.harness.self.v1.schema.json)
+- [onlava.dev.event.v1.schema.json](schemas/onlava.dev.event.v1.schema.json)
 - [onlava.logs.event.v1.schema.json](schemas/onlava.logs.event.v1.schema.json)
 - [onlava.admin.result.v1.schema.json](schemas/onlava.admin.result.v1.schema.json)
 - [onlava.version.v1.schema.json](schemas/onlava.version.v1.schema.json)

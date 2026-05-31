@@ -35,7 +35,7 @@ func TestGenerateSanitizesBlankIdentifiers(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "blankident", map[string]string{
-		"go.mod":       "module example.com/blankident\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/blankident\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"blankident"}`,
 		"svc/api.go": `package svc
 
@@ -71,7 +71,7 @@ func TestGenerateRawOnlyPackageOmitsContextImport(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "rawonly", map[string]string{
-		"go.mod":       "module example.com/rawonly\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/rawonly\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"rawonly"}`,
 		"svc/api.go": `package svc
 
@@ -101,7 +101,7 @@ func TestGeneratePopulatesSecretsBeforePackageVarInitializers(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "earlysecrets", map[string]string{
-		"go.mod":       "module example.com/earlysecrets\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/earlysecrets\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"earlysecrets"}`,
 		"svc/api.go": `package svc
 
@@ -143,7 +143,7 @@ func TestGenerateRegistersMiddlewareAndEndpointLinks(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "middlewaregen", map[string]string{
-		"go.mod":       "module example.com/middlewaregen\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/middlewaregen\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"middlewaregen"}`,
 		"svc/api.go": `package svc
 
@@ -185,7 +185,7 @@ func TestGenerateRegistersServiceInitializer(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "serviceinit", map[string]string{
-		"go.mod":       "module example.com/serviceinit\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/serviceinit\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"serviceinit"}`,
 		"svc/api.go": `package svc
 
@@ -223,7 +223,7 @@ func TestGenerateRegistersServiceShutdownAndMockLookup(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "serviceshutdown", map[string]string{
-		"go.mod":       "module example.com/serviceshutdown\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/serviceshutdown\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"serviceshutdown"}`,
 		"svc/api.go": `package svc
 
@@ -266,7 +266,7 @@ func TestGenerateMainImportsCronOnlyPackages(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "cronapp", map[string]string{
-		"go.mod":       "module example.com/cronapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/cronapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"cronapp"}`,
 		"service/api.go": `package service
 
@@ -312,7 +312,7 @@ func TestGenerateRegistersTemporalServiceAccessor(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "temporalsvc", map[string]string{
-		"go.mod":       "module example.com/temporalsvc\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/temporalsvc\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"temporalsvc"}`,
 		"svc/api.go": `package svc
 
@@ -340,7 +340,7 @@ func TestGenerateMainOmitsRuntimeAppByDefault(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "headlessapp", map[string]string{
-		"go.mod":       "module example.com/headlessapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/headlessapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"headlessapp","proxy":{"api_host":"api.acme.localhost"}}`,
 		"svc/api.go": `package svc
 
@@ -370,7 +370,7 @@ func TestGenerateMainIncludesObservabilityFiltersWhenConfigured(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "obsapp", map[string]string{
-		"go.mod":       "module example.com/obsapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/obsapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"obsapp"}`,
 		"svc/api.go": `package svc
 
@@ -415,7 +415,7 @@ func TestGenerateMainIncludesTemporalConfigWhenConfigured(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "temporalapp", map[string]string{
-		"go.mod":       "module example.com/temporalapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/temporalapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"temporalapp"}`,
 		"svc/api.go": `package svc
 
@@ -480,7 +480,7 @@ func TestGenerateMainImportsTemporalDeclarationPackages(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentCodegenTestApp(t, "temporaldecl", map[string]string{
-		"go.mod":       "module example.com/temporaldecl\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/temporaldecl\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"temporaldecl"}`,
 		"svc/api.go": `package svc
 

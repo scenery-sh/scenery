@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,11 +18,11 @@ import (
 func TestParseLogsArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseLogsArgs([]string{"--app-root", "/tmp/app", "--limit", "50", "--stream", "stderr", "--session", "current", "--follow", "--jsonl"})
+	opts, err := parseLogsArgs([]string{"--app-root", "/tmp/app", "--limit", "50", "--stream", "stderr", "--session", "current", "--follow", "--jsonl", "--source", "api", "--kind", "app", "--level", "error", "--grep", "boom", "--since", "15m", "--backend", "victoria"})
 	if err != nil {
 		t.Fatalf("parseLogsArgs returned error: %v", err)
 	}
-	if opts.AppRoot != "/tmp/app" || opts.Limit != 50 || opts.Stream != "stderr" || opts.Session != "current" || !opts.Follow || !opts.JSONL {
+	if opts.AppRoot != "/tmp/app" || opts.Limit != 50 || opts.Stream != "stderr" || opts.Session != "current" || !opts.Follow || !opts.JSONL || opts.Source != "api" || opts.Kind != "app" || opts.Level != "error" || opts.Grep != "boom" || opts.Since != 15*time.Minute || opts.Backend != logsBackendVictoria {
 		t.Fatalf("unexpected logs options: %#v", opts)
 	}
 }
@@ -40,11 +42,11 @@ func TestParseLogsArgsTreatsJSONAsAliasForJSONL(t *testing.T) {
 func TestAttachLogArgsDefaultsToCurrentSessionFollow(t *testing.T) {
 	t.Parallel()
 
-	args, err := attachLogArgs([]string{"--app-root", "/tmp/app", "--limit", "25", "--stream", "stderr", "--json"})
+	args, err := attachLogArgs([]string{"--app-root", "/tmp/app", "--limit", "25", "--stream", "stderr", "--json", "--backend", "sqlite"})
 	if err != nil {
 		t.Fatalf("attachLogArgs returned error: %v", err)
 	}
-	want := []string{"--follow", "--session", "current", "--limit", "25", "--stream", "stderr", "--app-root", "/tmp/app", "--jsonl"}
+	want := []string{"--follow", "--session", "current", "--limit", "25", "--stream", "stderr", "--app-root", "/tmp/app", "--jsonl", "--backend", "sqlite"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("attach args = %#v, want %#v", args, want)
 	}
@@ -75,7 +77,7 @@ func TestRunOnlavaLogsReadsStoredOutput(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"logsapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.3\n")
 
 	store, err := devdash.OpenStore(cacheRoot)
 	if err != nil {
@@ -125,7 +127,7 @@ func TestRunOnlavaLogsFiltersStream(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"logsapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.3\n")
 
 	store, err := devdash.OpenStore(cacheRoot)
 	if err != nil {
@@ -167,7 +169,7 @@ func TestRunOnlavaLogsFiltersSession(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"logsapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.3\n")
 
 	store, err := devdash.OpenStore(cacheRoot)
 	if err != nil {
@@ -210,7 +212,7 @@ func TestRunOnlavaLogsUsesSessionAppRecordWhenLatestAppRootDiffers(t *testing.T)
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"logsapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.3\n")
 
 	store, err := devdash.OpenStore(cacheRoot)
 	if err != nil {
@@ -251,7 +253,7 @@ func TestRunOnlavaLogsJSONL(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"logsapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.3\n")
 
 	store, err := devdash.OpenStore(cacheRoot)
 	if err != nil {
@@ -291,31 +293,170 @@ func TestRunOnlavaLogsJSONL(t *testing.T) {
 	var payload struct {
 		SchemaVersion string `json:"schema_version"`
 		App           struct {
+			ID   string `json:"id"`
 			Name string `json:"name"`
 			Root string `json:"root"`
 		} `json:"app"`
 		SessionID string `json:"session_id"`
-		PID       string `json:"pid"`
-		Stream    string `json:"stream"`
-		Output    string `json:"output"`
-		CreatedAt string `json:"created_at"`
+		Source    struct {
+			ID     string `json:"id"`
+			PID    string `json:"pid"`
+			Stream string `json:"stream"`
+		} `json:"source"`
+		Level   string `json:"level"`
+		Message string `json:"message"`
+		Raw     string `json:"raw"`
+		Time    string `json:"time"`
 	}
 	if err := json.Unmarshal([]byte(lines[0]), &payload); err != nil {
 		t.Fatalf("json.Unmarshal(jsonl): %v\n%s", err, lines[0])
 	}
-	if payload.SchemaVersion != "onlava.logs.event.v1" {
+	if payload.SchemaVersion != "onlava.dev.event.v1" {
 		t.Fatalf("schema_version = %q", payload.SchemaVersion)
 	}
-	if payload.App.Name != "logsapp" || payload.App.Root != root {
+	if payload.App.ID != "logsapp" || payload.App.Name != "logsapp" || payload.App.Root != root {
 		t.Fatalf("app = %+v", payload.App)
 	}
-	if payload.PID != "123" || payload.Stream != "stdout" || payload.Output != "json line\n" {
+	if payload.Source.PID != "123" || payload.Source.Stream != "stdout" || payload.Raw != "json line" || payload.Message != "json line" || payload.Level != "info" {
 		t.Fatalf("payload = %+v", payload)
 	}
 	if payload.SessionID != "session-json" {
 		t.Fatalf("session_id = %q", payload.SessionID)
 	}
-	if payload.CreatedAt == "" {
-		t.Fatal("expected created_at")
+	if payload.Time == "" {
+		t.Fatal("expected time")
+	}
+}
+
+func TestRunOnlavaLogsFiltersStructuredEvents(t *testing.T) {
+	root := t.TempDir()
+	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"logsapp"}`)
+	writeTestAppFile(t, root, "go.mod", "module example.com/logsapp\n\ngo 1.26.3\n")
+
+	store, err := devdash.OpenStore(cacheRoot)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.UpsertApp(ctx, devdash.AppRecord{
+		ID:        "logsapp",
+		Name:      "logsapp",
+		Root:      root,
+		Running:   true,
+		UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpsertApp: %v", err)
+	}
+	for _, event := range []devdash.DevEvent{
+		devdash.DevEventFromOutput("logsapp", "session-a", devdash.DevSource{ID: "api", Kind: "app", Name: "api", Stream: "stdout"}, []byte("INFO request ok path=/health\n"), time.Now().UTC().Add(-time.Second)),
+		devdash.DevEventFromOutput("logsapp", "session-a", devdash.DevSource{ID: "worker:typescript", Kind: "worker", Name: "typescript", Stream: "stderr"}, []byte("ERROR activity failed activity=SyncUser\n"), time.Now().UTC()),
+	} {
+		if err := store.WriteDevEvent(ctx, event); err != nil {
+			t.Fatalf("WriteDevEvent: %v", err)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := runOnlavaLogs(ctx, &buf, []string{"--app-root", root, "--session", "session-a", "--source", "worker:typescript", "--level", "error", "--grep", "SyncUser"}); err != nil {
+		t.Fatalf("runOnlavaLogs returned error: %v", err)
+	}
+	if got := strings.TrimSpace(buf.String()); got != "ERROR activity failed activity=SyncUser" {
+		t.Fatalf("filtered structured logs output = %q", got)
+	}
+}
+
+func TestVictoriaDevEventExportUsesJSONLineShape(t *testing.T) {
+	t.Parallel()
+
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/insert/jsonline" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("_time_field") != "" || r.URL.Query().Get("_msg_field") != "message" {
+			t.Fatalf("query = %s", r.URL.RawQuery)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	stack := &victoriaStack{components: []*victoriaComponent{{spec: victoriaComponentSpec{Name: "logs"}, baseURL: server.URL}}}
+	event := devdash.NewDevEvent("logsapp", "session-a", devdash.DevSource{
+		ID:     "worker:typescript",
+		Kind:   "worker",
+		Name:   "typescript",
+		Role:   "temporal-activity-worker",
+		PID:    "123",
+		Stream: "stderr",
+	}, "error", "activity failed", map[string]any{"activity": "SyncUser"}, time.Date(2026, 5, 31, 12, 44, 1, 223000000, time.UTC))
+	event.ID = 42
+
+	if err := stack.ExportDevEvent(context.Background(), event); err != nil {
+		t.Fatalf("ExportDevEvent: %v", err)
+	}
+	if got[victoriaDevEventSchemaField] != devdash.DevEventSchemaVersion || got[victoriaDevEventAppField] != "logsapp" || got["id"].(float64) != 42 || got[victoriaDevEventCreatedAt] == "" {
+		t.Fatalf("unexpected exported record: %+v", got)
+	}
+	if got["source_id"] != "worker:typescript" || got["source_stream"] != "stderr" || got["level"] != "error" || got["message"] != "activity failed" {
+		t.Fatalf("unexpected exported fields: %+v", got)
+	}
+	if !strings.Contains(got["fields_json"].(string), "SyncUser") {
+		t.Fatalf("fields_json = %v", got["fields_json"])
+	}
+}
+
+func TestVictoriaListDevEventsReconstructsStructuredEvents(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/select/logsql/query" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		query := r.Form.Get("query")
+		for _, want := range []string{
+			`onlava_app_id="logsapp"`,
+			`onlava_dev_schema="onlava.dev.event.v1"`,
+			`source_id="worker:typescript"`,
+		} {
+			if !strings.Contains(query, want) {
+				t.Fatalf("query %q does not contain %q", query, want)
+			}
+		}
+		io.WriteString(w, `{"_msg":"ERROR activity failed activity=SyncUser","created_at":"2026-05-31T12:44:01.223Z","onlava_dev_schema":"onlava.dev.event.v1","onlava_app_id":"logsapp","onlava_session_id":"session-a","id":"42","source_id":"worker:typescript","source_kind":"worker","source_name":"typescript","source_role":"temporal-activity-worker","source_pid":"123","source_stream":"stderr","level":"error","fields_json":"{\"activity\":\"SyncUser\"}","raw":"ERROR activity failed activity=SyncUser","parse_format":"logfmt","parse_ok":"true"}`+"\n")
+		io.WriteString(w, `{"_msg":"INFO other","created_at":"2026-05-31T12:44:02Z","onlava_dev_schema":"onlava.dev.event.v1","onlava_app_id":"logsapp","onlava_session_id":"session-a","id":"43","source_id":"api","source_kind":"app","source_stream":"stdout","level":"info","fields_json":"{}","raw":"INFO other","parse_format":"raw","parse_ok":"false"}`+"\n")
+	}))
+	defer server.Close()
+
+	stack := &victoriaStack{components: []*victoriaComponent{{spec: victoriaComponentSpec{Name: "logs"}, baseURL: server.URL}}}
+	items, err := stack.ListDevEvents(context.Background(), devdash.DevEventQuery{
+		AppID:     "logsapp",
+		SessionID: "session-a",
+		SourceID:  "worker:typescript",
+		Level:     "error",
+		Grep:      "SyncUser",
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListDevEvents: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %d: %+v", len(items), items)
+	}
+	item := items[0]
+	if item.ID != 42 || item.AppID != "logsapp" || item.SessionID != "session-a" || item.Source.ID != "worker:typescript" || item.Source.Stream != "stderr" || item.Level != "error" {
+		t.Fatalf("unexpected event: %+v", item)
+	}
+	if item.Message != "ERROR activity failed activity=SyncUser" || item.Raw != "ERROR activity failed activity=SyncUser" || !item.Parse.OK || item.Parse.Format != "logfmt" {
+		t.Fatalf("unexpected event payload: %+v", item)
 	}
 }

@@ -96,6 +96,51 @@ type ProcessOutput struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type DevSource struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Role      string `json:"role,omitempty"`
+	PID       string `json:"pid,omitempty"`
+	Stream    string `json:"stream,omitempty"`
+	RestartID string `json:"restart_id,omitempty"`
+	Status    string `json:"status,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type DevEventParse struct {
+	Format string `json:"format"`
+	OK     bool   `json:"ok"`
+}
+
+type DevEvent struct {
+	ID        int64           `json:"id"`
+	AppID     string          `json:"-"`
+	AppRoot   string          `json:"-"`
+	SessionID string          `json:"session_id,omitempty"`
+	Source    DevSource       `json:"source"`
+	Level     string          `json:"level"`
+	Message   string          `json:"message"`
+	Fields    json.RawMessage `json:"fields,omitempty"`
+	Raw       string          `json:"raw,omitempty"`
+	Parse     DevEventParse   `json:"parse"`
+	CreatedAt time.Time       `json:"-"`
+}
+
+type DevEventQuery struct {
+	AppID     string
+	SessionID string
+	SourceID  string
+	Kind      string
+	Level     string
+	Stream    string
+	Grep      string
+	Since     time.Time
+	AfterID   int64
+	Limit     int
+}
+
 type Notification struct {
 	Method string `json:"method"`
 	Params any    `json:"params"`

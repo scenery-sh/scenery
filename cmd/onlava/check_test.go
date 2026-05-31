@@ -36,7 +36,7 @@ func TestRunOnlavaCheckCompilesApp(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/checkapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkapp\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
 
 	restore := chdirForTest(t, root)
@@ -66,7 +66,7 @@ func TestRunOnlavaCheckJSONSuccess(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkjson","id":"check-id"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/checkjson\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkjson\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
 
 	restore := chdirForTest(t, root)
@@ -105,7 +105,7 @@ func TestRunOnlavaCheckJSONReportsTypeScriptTemporalContractFailure(t *testing.T
 	root := persistentTestAppRoot(t, "check-ts-contract")
 	preparePersistentTestApp(t, root, map[string]string{
 		".onlava.json": `{"name":"checkts"}`,
-		"go.mod":       "module example.com/checkts\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
+		"go.mod":       "module example.com/checkts\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRootForTest(t) + "\n",
 		"svc/api.go":   "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n",
 		"jobs/runtime.go": `package jobs
 
@@ -151,7 +151,7 @@ func TestRunOnlavaCheckReusesFreshCompiledBuild(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkcache"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/checkcache\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkcache\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
 
 	restore := chdirForTest(t, root)
@@ -216,7 +216,7 @@ func TestRunOnlavaCheckRecompilesAfterSourceChange(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkchanged"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/checkchanged\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkchanged\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
 
 	restore := chdirForTest(t, root)
@@ -255,7 +255,7 @@ func TestRunOnlavaCheckJSONCompileFailure(t *testing.T) {
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"checkfail"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/checkfail\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkfail\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return MissingSymbol }\n")
 
 	restore := chdirForTest(t, root)

@@ -176,7 +176,7 @@ func TestBuildPrepSkipsBrowserRuntimeArtifactsAndNonRegularFiles(t *testing.T) {
 	dst := t.TempDir()
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", t.TempDir())
 	writeBuildTestFile(t, root, ".onlava.json", `{"name":"browserartifacts"}`)
-	writeBuildTestFile(t, root, "go.mod", "module example.com/browserartifacts\n\ngo 1.26.0\n")
+	writeBuildTestFile(t, root, "go.mod", "module example.com/browserartifacts\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, root, "go.sum", "")
 	writeBuildTestFile(t, root, "svc/api.go", `package svc
 
@@ -280,7 +280,7 @@ func TestPrepareWritesInspectArtifacts(t *testing.T) {
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 
 	writeBuildTestFile(t, appDir, ".onlava.json", `{"name":"inspectartifacts","id":"inspect-id"}`)
-	writeBuildTestFile(t, appDir, "go.mod", "module example.com/inspectartifacts\n\ngo 1.26.0\n")
+	writeBuildTestFile(t, appDir, "go.mod", "module example.com/inspectartifacts\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, appDir, "users/api.go", `package users
 
 import "context"
@@ -447,7 +447,7 @@ func TestCompileRealGoBuildSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.0\n")
+	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, workspace, "onlava_internal_main/main.go", "package main\n\nfunc main() {}\n")
 
 	result := &Result{
@@ -490,7 +490,7 @@ func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.0\n")
+	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, workspace, "onlava_internal_main/main.go", "package main\n\nfunc main() {}\n")
 
 	var commands []string
@@ -546,7 +546,7 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.0\n")
+	writeBuildTestFile(t, workspace, "go.mod", "module example.com/smoke\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, workspace, "onlava_internal_main/main.go", "package main\n\nfunc main() {}\n")
 
 	var commands []string
@@ -1215,7 +1215,7 @@ func newBuildTestAppNamed(t *testing.T, base string) string {
 	if strings.TrimSpace(base) != "" {
 		root = filepath.Join(root, base)
 	}
-	writeBuildTestFile(t, root, "go.mod", "module example.com/buildtest\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
+	writeBuildTestFile(t, root, "go.mod", "module example.com/buildtest\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+repoRoot(t)+"\n")
 	writeBuildTestFile(t, root, ".onlava.json", `{"name":"buildtest"}`)
 	writeBuildTestFile(t, root, "svc/api.go", `package svc
 
@@ -1233,7 +1233,7 @@ func newCachedBuildTestWorkspace(t *testing.T, graphFingerprint string) (string,
 	t.Setenv("ONLAVA_DEV_CACHE_DIR", cacheDir)
 	appDir := t.TempDir()
 
-	const goMod = "module example.com/buildtest\n\ngo 1.26.0\n"
+	const goMod = "module example.com/buildtest\n\ngo 1.26.3\n"
 	const serviceSource = `package svc
 
 import "context"

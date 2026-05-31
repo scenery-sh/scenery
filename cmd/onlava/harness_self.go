@@ -918,6 +918,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/onlava.inspect.routes.v1.schema.json",
 		"docs/schemas/onlava.inspect.services.v1.schema.json",
 		"docs/schemas/onlava.inspect.traces.v1.schema.json",
+		"docs/schemas/onlava.dev.event.v1.schema.json",
 		"docs/schemas/onlava.logs.event.v1.schema.json",
 		"docs/schemas/onlava.run.event.v1.schema.json",
 		"docs/schemas/onlava.version.v1.schema.json",

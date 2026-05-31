@@ -67,7 +67,7 @@ func TestOnlavaTestRunsGoTestInGeneratedWorkspace(t *testing.T) {
 	root := persistentTestAppRoot(t, "generated-workspace")
 	files := map[string]string{
 		".onlava.json":    `{"name":"testapp"}`,
-		"go.mod":          "module example.com/testapp\n\ngo 1.26.0\n",
+		"go.mod":          "module example.com/testapp\n\ngo 1.26.3\n",
 		"svc/api.go":      "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n",
 		"svc/api_test.go": "package svc\n\nimport (\n\t\"testing\"\n\n\tonlava \"github.com/pbrazdil/onlava\"\n)\n\nfunc TestOnlavaMetaUsesTestEnv(t *testing.T) {\n\tif onlava.Meta().Environment.Type != onlava.EnvTest {\n\t\tt.Fatalf(\"env type = %q, want %q\", onlava.Meta().Environment.Type, onlava.EnvTest)\n\t}\n}\n",
 	}
@@ -179,7 +179,7 @@ func TestOnlavaTestPassesThroughGoTestFlags(t *testing.T) {
 
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"flagapp"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/flagapp\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/flagapp\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { return nil }\n")
 
 	restore := chdirForTest(t, root)

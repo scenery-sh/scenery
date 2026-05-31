@@ -84,10 +84,23 @@ export const normalizeEarthMetadata = activity<NormalizeEarthMetadataInput, Norm
 	if err != nil {
 		t.Fatalf("GenerateTypeScriptWorker returned error: %v", err)
 	}
-	if !result.OK || len(result.Files) != 5 {
+	if !result.OK || len(result.Files) != 6 {
 		t.Fatalf("result = %#v", result)
 	}
 	outDir := filepath.Join(root, TypeScriptWorkerGeneratedRelDir)
+	packageJSON, err := os.ReadFile(filepath.Join(outDir, "package.json"))
+	if err != nil {
+		t.Fatalf("read package.json: %v", err)
+	}
+	for _, want := range []string{
+		`"@temporalio/activity": "1.17.2"`,
+		`"@temporalio/worker": "1.17.2"`,
+		`"tsx": "4.20.6"`,
+	} {
+		if !strings.Contains(string(packageJSON), want) {
+			t.Fatalf("package.json missing %q:\n%s", want, packageJSON)
+		}
+	}
 	registry, err := os.ReadFile(filepath.Join(outDir, "registry.ts"))
 	if err != nil {
 		t.Fatalf("read registry: %v", err)

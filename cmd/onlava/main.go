@@ -42,6 +42,8 @@ func run(args []string) error {
 		return devCommand(args[1:])
 	case "attach":
 		return attachCommand(args[1:])
+	case "console":
+		return consoleCommand(args[1:])
 	case "run":
 		return runCommand(args[1:])
 	case "status":
@@ -85,10 +87,11 @@ func usageError() error {
 	return fmt.Errorf(`usage:
   stable/dev commands:
     onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [--session <id>|--new-session] [-v|--verbose] [--json] [--proxy] [--trust] [--detach]
-    onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--jsonl|--json]
+    onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [--jsonl|--json] [--tui]
+    onlava console [--app-root <path>] [--session current|<id>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
     onlava agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
     onlava agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
-    onlava status --json [--app-root <path>] [--session <id>]
+    onlava status --json [--app-root <path>] [--session <id>] [--watch]
     onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]
     onlava prune --older-than <duration> [--app-root <path>] [--json]
     onlava db psql [--app-root <path>] [psql args...]
@@ -113,7 +116,7 @@ func usageError() error {
     onlava inspect traces --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
     onlava inspect metrics --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
     onlava admin traces clear --json [--app-root <path>]
-    onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [-f|--follow] [--jsonl|--json]
+    onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [-f|--follow] [--jsonl|--json]
     onlava test [--app-root <path>] [go test flags/packages...]
     onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 

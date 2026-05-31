@@ -189,6 +189,61 @@ func TestStorePersistsSessionIdentityAndFiltersOutput(t *testing.T) {
 	}
 }
 
+func TestStoreDevEventsRoundTripAndFilters(t *testing.T) {
+	t.Parallel()
+
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	events := []DevEvent{
+		DevEventFromOutput("app-test", "session-a", DevSource{ID: "api", Kind: "app", Name: "api", PID: "111", Stream: "stdout", Status: "running"}, []byte(`{"level":"info","msg":"registered","activity":"SendEmail"}`+"\n"), now),
+		DevEventFromOutput("app-test", "session-a", DevSource{ID: "worker:typescript", Kind: "worker", Name: "typescript", PID: "222", Stream: "stderr", Status: "running"}, []byte(`2026-05-31T12:00:00Z ERROR activity failed activity=SyncUser attempt=2`+"\n"), now.Add(time.Second)),
+		DevEventFromOutput("app-test", "session-b", DevSource{ID: "api", Kind: "app", Name: "api", PID: "333", Stream: "stdout", Status: "running"}, []byte("other session\n"), now.Add(2*time.Second)),
+	}
+	for _, event := range events {
+		if err := store.WriteDevEvent(ctx, event); err != nil {
+			t.Fatalf("write dev event: %v", err)
+		}
+	}
+
+	filtered, err := store.ListDevEvents(ctx, DevEventQuery{
+		AppID:     "app-test",
+		SessionID: "session-a",
+		SourceID:  "worker:typescript",
+		Level:     "error",
+		Grep:      "SyncUser",
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("list filtered dev events: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("filtered events = %d, want 1: %+v", len(filtered), filtered)
+	}
+	event := filtered[0]
+	if event.Source.ID != "worker:typescript" || event.Source.Kind != "worker" || event.Level != "error" || event.Message != "activity failed" {
+		t.Fatalf("filtered event = %+v", event)
+	}
+	if string(event.Fields) != `{"activity":"SyncUser","attempt":2}` {
+		t.Fatalf("fields = %s", event.Fields)
+	}
+
+	sources, err := store.ListDevSources(ctx, "app-test", "session-a")
+	if err != nil {
+		t.Fatalf("list dev sources: %v", err)
+	}
+	if len(sources) != 2 {
+		t.Fatalf("sources = %d, want 2: %+v", len(sources), sources)
+	}
+}
+
 func TestStoreKeepsDistinctAppSessionsForSameApp(t *testing.T) {
 	t.Parallel()
 

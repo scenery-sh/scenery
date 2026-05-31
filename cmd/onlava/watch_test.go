@@ -17,7 +17,7 @@ func TestScanWatchedFilesIncludesWatchedSourceFiles(t *testing.T) {
 	root := t.TempDir()
 
 	writeWatchFile(t, root, ".onlava.json", `{"name":"watchapp"}`)
-	writeWatchFile(t, root, "go.mod", "module example.com/watchapp\n\ngo 1.26.0\n")
+	writeWatchFile(t, root, "go.mod", "module example.com/watchapp\n\ngo 1.26.3\n")
 	writeWatchFile(t, root, "go.sum", "example.com/mod v1.0.0 h1:abc\n")
 	writeWatchFile(t, root, ".env", "DatabaseURL=postgres://localhost/db\n")
 	writeWatchFile(t, root, ".env.local", "DatabaseURL=postgres://localhost/local\n")
@@ -50,7 +50,7 @@ func TestScanWatchedFilesIncludesEmbeddedFiles(t *testing.T) {
 	root := t.TempDir()
 
 	writeWatchFile(t, root, ".onlava.json", `{"name":"watchapp"}`)
-	writeWatchFile(t, root, "go.mod", "module example.com/watchapp\n\ngo 1.26.0\n")
+	writeWatchFile(t, root, "go.mod", "module example.com/watchapp\n\ngo 1.26.3\n")
 	writeWatchFile(t, root, "svc/embed.go", `package svc
 
 import _ "embed"
@@ -117,7 +117,7 @@ func TestWaitForStableChangeEventsPollsWhenEventsAreMissed(t *testing.T) {
 
 	root := t.TempDir()
 	writeWatchFile(t, root, ".onlava.json", `{"name":"watchapp"}`)
-	writeWatchFile(t, root, "go.mod", "module example.com/watchapp\n\ngo 1.26.0\n")
+	writeWatchFile(t, root, "go.mod", "module example.com/watchapp\n\ngo 1.26.3\n")
 	writeWatchFile(t, root, "svc/api.go", "package svc\n")
 
 	snapshot, err := scanWatchedFiles(root)

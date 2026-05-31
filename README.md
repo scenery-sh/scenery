@@ -91,7 +91,7 @@ Create `go.mod`:
 ```go
 module example.com/hello
 
-go 1.26.0
+go 1.26.3
 
 require github.com/pbrazdil/onlava v0.0.0
 
@@ -147,7 +147,7 @@ onlava dev --detach
 onlava attach
 ```
 
-`--detach` starts an agent-backed dev session in the background and returns after the session is registered. `onlava attach` follows the current session logs. `onlava down` stops the current or selected session.
+`--detach` starts an agent-backed dev session in the background and returns after the session is registered. `onlava attach` follows the current session logs. Structured logs prefer VictoriaLogs with SQLite fallback; use `--backend victoria` or `--backend sqlite` to compare during the migration. `onlava attach --tui` or `onlava console` opens a source-aware terminal console when attached to a real TTY. `onlava down` stops the current or selected session.
 
 `--proxy` enables local HTTPS/frontend domains from `.onlava.json` proxy config. `--trust` allows onlava to install the local development CA into the OS trust store. Without `--trust`, onlava skips trust-store changes.
 
@@ -180,10 +180,11 @@ Example proxy config:
 
 ```text
 onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [-v|--verbose] [--json] [--proxy] [--trust] [--detach]
-onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--jsonl|--json]
+onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [--jsonl|--json] [--tui]
+onlava console [--app-root <path>] [--session current|<id>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 onlava agent [--socket <path>] [--router-listen <addr>] [--router-tls] [--trust] [--json]
 onlava agent restart [--socket <path>] [--router-listen <addr>] [--router-tls] [--trust] [--json]
-onlava status --json [--app-root <path>] [--session <id>]
+onlava status --json [--app-root <path>] [--session <id>] [--watch]
 onlava down [--app-root <path>] [--session <id>]
 onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
 onlava version [--json]
@@ -193,7 +194,7 @@ onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
 onlava inspect app|routes|services|endpoints|wire|build|paths|traces|metrics --json [--app-root <path>]
 onlava inspect docs --json [--repo-root <path>]
-onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [-f|--follow] [--jsonl|--json]
+onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [-f|--follow] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
 onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 onlava db psql [--app-root <path>] [psql args...]
@@ -232,7 +233,8 @@ Useful commands:
 ```sh
 onlava logs --session current --limit 200
 onlava attach
-onlava logs --session current --jsonl --limit 200
+onlava attach --tui
+onlava logs --session current --source api --level error --jsonl --limit 200
 onlava inspect routes --json
 onlava inspect endpoints --json
 onlava inspect traces --json --session current --since 15m --slowest

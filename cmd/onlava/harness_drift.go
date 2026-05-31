@@ -251,8 +251,8 @@ func buildHarnessCLIContractReport(repoRoot string, diagnostics []checkDiagnosti
 			_, err := parseHarnessSelfArgs([]string{"--repo-root", repoRoot, "--json"})
 			return err
 		}},
-		{name: "status", needle: "onlava status --json [--app-root <path>] [--session <id>]", mode: "parse", smoke: func() error {
-			_, err := parseStatusArgs([]string{"--json", "--app-root", repoRoot, "--session", "current"})
+		{name: "status", needle: "onlava status --json [--app-root <path>] [--session <id>] [--watch]", mode: "parse", smoke: func() error {
+			_, err := parseStatusArgs([]string{"--json", "--app-root", repoRoot, "--session", "current", "--watch"})
 			return err
 		}},
 	} {

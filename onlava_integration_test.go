@@ -181,7 +181,7 @@ func TestOnlavaRunPopulatesSecretsBeforeTemporalPackageDeclarations(t *testing.T
 
 	repo := repoRoot(t)
 	appDir := cachedSyntheticApp(t, "temporalsecrets", map[string]string{
-		"go.mod":       "module example.com/temporalsecrets\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
+		"go.mod":       "module example.com/temporalsecrets\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
 		".onlava.json": `{"name":"temporalsecrets"}`,
 		".env":         "TestActivityTimeoutSeconds=10\n",
 		"queue/api.go": `package queue
@@ -269,7 +269,7 @@ func TestOnlavaRunInitializesServiceStructsAtStartup(t *testing.T) {
 
 	repo := repoRoot(t)
 	appDir := cachedSyntheticApp(t, "serviceinit", map[string]string{
-		"go.mod":       "module example.com/serviceinit\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
+		"go.mod":       "module example.com/serviceinit\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
 		".onlava.json": `{"name":"serviceinit"}`,
 		".env":         "# Fixture environment intentionally empty.\n",
 		"svc/api.go": `package svc
@@ -425,7 +425,7 @@ func TestOnlavaBuiltBinaryIsHeadlessByDefault(t *testing.T) {
 
 	repo := repoRoot(t)
 	appDir := cachedSyntheticApp(t, "headless", map[string]string{
-		"go.mod":       "module example.com/headless\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
+		"go.mod":       "module example.com/headless\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
 		".onlava.json": `{"name":"headlessapp","proxy":{"api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontends":{"web":{"host":"web.acme.localhost"}}}}`,
 		"svc/api.go": `package svc
 
@@ -523,7 +523,7 @@ func (s *Service) CallPrivate(ctx context.Context) (*Response, error) {
 }
 `
 	appDir := cachedSyntheticApp(t, "devdashboard", map[string]string{
-		"go.mod":         "module example.com/devdashboard\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
+		"go.mod":         "module example.com/devdashboard\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repo + "\n",
 		".onlava.json":   `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","mcp_host":"mcp.acme.localhost","frontends":{"web":{"host":"web.acme.localhost"}}}}`,
 		".env":           "# Fixture environment intentionally empty.\n",
 		"service/api.go": serviceSource,

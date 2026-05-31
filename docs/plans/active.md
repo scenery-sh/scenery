@@ -47,6 +47,11 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: onlava runtime
   - Created: 2026-05-30
   - Focus: remove the beta data/objectstore feature surface without compatibility aliases or dormant code paths.
+- [0055 Structured Dev Events and Console](0055-structured-dev-events-and-console.md)
+  - Status: active
+  - Owner: onlava runtime / agent DX
+  - Created: 2026-05-31
+  - Focus: build a structured source-aware dev event spine, add log filters, then layer an observing-only terminal console and error summaries over the same stream.
 - [0047 TypeScript Temporal Workers](0047-typescript-temporal-workers.md)
   - Status: active
   - Owner: onlava runtime / Temporal

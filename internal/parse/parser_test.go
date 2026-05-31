@@ -66,7 +66,7 @@ func TestParseRuntimeDeclarations(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "runtimedecls", map[string]string{
-		"go.mod":       "module example.com/runtimedecls\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/runtimedecls\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"runtimedecls"}`,
 		"svc/api.go": `package svc
 
@@ -142,7 +142,7 @@ func TestParseRejectsEmptyTemporalActivityTaskQueue(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "emptyactivityqueue", map[string]string{
-		"go.mod":       "module example.com/emptyactivityqueue\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/emptyactivityqueue\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"emptyactivityqueue"}`,
 		"svc/api.go": `package svc
 
@@ -189,7 +189,7 @@ func TestParseAcceptsUnkeyedTemporalActivityConfig(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "unkeyedactivityqueue", map[string]string{
-		"go.mod":       "module example.com/unkeyedactivityqueue\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/unkeyedactivityqueue\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"unkeyedactivityqueue"}`,
 		"svc/api.go": `package svc
 
@@ -238,7 +238,7 @@ func TestParseRejectsLegacyTemporalStartCall(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "legacystart", map[string]string{
-		"go.mod":       "module example.com/legacystart\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/legacystart\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"legacystart"}`,
 		"svc/api.go": `package svc
 
@@ -273,7 +273,7 @@ func TestParseRejectsRawEndpointCalls(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "rawcall", map[string]string{
-		"go.mod":       "module example.com/rawcall\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/rawcall\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"rawcall"}`,
 		"svc/api.go": `package svc
 
@@ -301,7 +301,7 @@ func TestParseAllowsNestedPackageServiceStruct(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "nestedservice", map[string]string{
-		"go.mod":       "module example.com/nestedservice\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/nestedservice\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"nestedservice"}`,
 		"solar/projects/api.go": `package projects
 
@@ -347,7 +347,7 @@ func TestParseRejectsPathParamMismatch(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "pathmismatch", map[string]string{
-		"go.mod":       "module example.com/pathmismatch\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/pathmismatch\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"pathmismatch"}`,
 		"svc/api.go": `package svc
 
@@ -368,7 +368,7 @@ func TestParseRejectsNonOnlavaDirectives(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "otherdirective", map[string]string{
-		"go.mod":       "module example.com/otherdirective\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/otherdirective\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"otherdirective"}`,
 		"svc/api.go": `package svc
 
@@ -389,7 +389,7 @@ func TestParseMiddlewareTargetsAndTags(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "middlewareapp", map[string]string{
-		"go.mod":       "module example.com/middlewareapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/middlewareapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"middlewareapp"}`,
 		"svc/api.go": `package svc
 
@@ -456,7 +456,7 @@ func TestParseRejectsAppsWithoutOnlavaDirectives(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "noonlava", map[string]string{
-		"go.mod":       "module example.com/noonlava\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/noonlava\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"noonlava"}`,
 		"svc/api.go": `package svc
 
@@ -474,7 +474,7 @@ func TestParseRejectsInvalidServiceShutdownSignature(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "badshutdown", map[string]string{
-		"go.mod":       "module example.com/badshutdown\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		"go.mod":       "module example.com/badshutdown\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"badshutdown"}`,
 		"svc/api.go": `package svc
 

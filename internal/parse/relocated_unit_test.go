@@ -411,7 +411,7 @@ func TestClientgenGenerateTypeScriptIncludesNamedAliases(t *testing.T) {
 	t.Parallel()
 
 	appRoot := t.TempDir()
-	writeRelocatedUnitTestFile(t, appRoot, "go.mod", "module example.com/clientapp\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
+	writeRelocatedUnitTestFile(t, appRoot, "go.mod", "module example.com/clientapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
 	writeRelocatedUnitTestFile(t, appRoot, ".onlava.json", `{"name":"clientapp"}`)
 	writeRelocatedUnitTestFile(t, appRoot, "point/point.go", `package point
 
@@ -469,7 +469,7 @@ func TestWiremodelAppCapabilitiesMarksUnsupportedEndpointJSONOnly(t *testing.T) 
 	t.Parallel()
 
 	root := t.TempDir()
-	writeRelocatedUnitTestFile(t, root, "go.mod", "module example.com/wiretest\n\ngo 1.26.0\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
+	writeRelocatedUnitTestFile(t, root, "go.mod", "module example.com/wiretest\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
 	writeRelocatedUnitTestFile(t, root, ".onlava.json", `{"name":"wiretest"}`)
 	writeRelocatedUnitTestFile(t, root, "svc/api.go", `package svc
 

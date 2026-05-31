@@ -17,6 +17,8 @@ import (
 )
 
 const TypeScriptWorkerGeneratedRelDir = ".onlava/generated/temporal/typescript"
+const TypeScriptTemporalSDKPackageVersion = "1.17.2"
+const TypeScriptTSXPackageVersion = "4.20.6"
 
 type TypeScriptActivity struct {
 	ExportName     string
@@ -82,6 +84,11 @@ type tsRegistryData struct {
 type tsWorkerData struct{}
 
 type tsConfigData struct{}
+
+type tsPackageData struct {
+	TemporalVersion string
+	TSXVersion      string
+}
 
 var (
 	tsActivityCallRE  = regexp.MustCompile(`(?s)(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*activity\s*<\s*([^,\n>]+)\s*,\s*([^>\n]+)\s*>\s*\(`)
@@ -255,6 +262,7 @@ func GenerateTypeScriptWorker(opts TypeScriptWorkerOptions) (TypeScriptWorkerRes
 		{name: "registry.ts", data: executeTypeScriptTemplate("registry.ts", tsRegistryTemplate, registryData(opts, model.Activities))},
 		{name: "worker.ts", data: executeTypeScriptTemplate("worker.ts", tsWorkerTemplate, tsWorkerData{})},
 		{name: "tsconfig.json", data: executeTypeScriptTemplate("tsconfig.json", tsConfigTemplate, tsConfigData{})},
+		{name: "package.json", data: executeTypeScriptTemplate("package.json", tsPackageTemplate, tsPackageData{TemporalVersion: TypeScriptTemporalSDKPackageVersion, TSXVersion: TypeScriptTSXPackageVersion})},
 	}
 	manifest, err := typeScriptManifest(opts, model.Activities)
 	if err != nil {
@@ -1145,6 +1153,18 @@ var tsConfigTemplate = template.Must(template.New("tsconfig.json").Parse(`{
       "onlava/worker": ["./onlava.ts"],
       "@onlava/temporal": ["./onlava.ts"]
     }
+  }
+}
+`))
+
+var tsPackageTemplate = template.Must(template.New("package.json").Parse(`{
+  "name": "@onlava/generated-temporal-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@temporalio/activity": "{{ .TemporalVersion }}",
+    "@temporalio/worker": "{{ .TemporalVersion }}",
+    "tsx": "{{ .TSXVersion }}"
   }
 }
 `))

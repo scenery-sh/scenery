@@ -30,6 +30,7 @@ type statusOptions struct {
 	AppRoot   string
 	SessionID string
 	JSON      bool
+	Watch     bool
 }
 
 type downOptions struct {
@@ -271,33 +272,15 @@ func statusCommand(args []string) error {
 			return err
 		}
 	}
-	sessions, err := client.List(ctx, appRoot)
-	if err != nil {
-		return err
-	}
-	if opts.SessionID != "" {
-		filtered := sessions[:0]
-		for _, session := range sessions {
-			if session.SessionID == opts.SessionID {
-				filtered = append(filtered, session)
-			}
+	for {
+		if err := writeStatus(ctx, client, appRoot, opts); err != nil {
+			return err
 		}
-		sessions = filtered
+		if !opts.Watch {
+			return nil
+		}
+		time.Sleep(time.Second)
 	}
-	if opts.JSON {
-		health, _ := client.Health(ctx)
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{
-			"schema_version": "onlava.agent.status.v1",
-			"agent":          health,
-			"sessions":       sessions,
-		})
-	}
-	for _, session := range sessions {
-		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", session.SessionID, session.Status, session.AppRoot)
-	}
-	return nil
 }
 
 func parseStatusArgs(args []string) (statusOptions, error) {
@@ -306,6 +289,8 @@ func parseStatusArgs(args []string) (statusOptions, error) {
 		switch args[i] {
 		case "--json":
 			opts.JSON = true
+		case "--watch":
+			opts.Watch = true
 		case "--app-root":
 			i++
 			if i >= len(args) {
@@ -323,6 +308,41 @@ func parseStatusArgs(args []string) (statusOptions, error) {
 		}
 	}
 	return opts, nil
+}
+
+func writeStatus(ctx context.Context, client *localagent.Client, appRoot string, opts statusOptions) error {
+	sessions, err := client.List(ctx, appRoot)
+	if err != nil {
+		return err
+	}
+	if opts.SessionID != "" {
+		filtered := sessions[:0]
+		for _, session := range sessions {
+			if session.SessionID == opts.SessionID {
+				filtered = append(filtered, session)
+			}
+		}
+		sessions = filtered
+	}
+	if opts.JSON {
+		health, _ := client.Health(ctx)
+		enc := json.NewEncoder(os.Stdout)
+		if !opts.Watch {
+			enc.SetIndent("", "  ")
+		}
+		return enc.Encode(map[string]any{
+			"schema_version": "onlava.agent.status.v1",
+			"agent":          health,
+			"sessions":       sessions,
+		})
+	}
+	for _, session := range sessions {
+		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", session.SessionID, session.Status, session.AppRoot)
+	}
+	if opts.Watch {
+		fmt.Fprintln(os.Stdout, "---")
+	}
+	return nil
 }
 
 func downCommand(args []string) error {

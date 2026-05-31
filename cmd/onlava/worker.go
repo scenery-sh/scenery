@@ -270,6 +270,9 @@ func runWorkerTypeScript(opts workerTypeScriptOptions, stdout io.Writer) error {
 	if opts.GenerateOnly {
 		return nil
 	}
+	if _, err := ensureTypeScriptWorkerDependencies(context.Background(), result.OutputDir); err != nil {
+		return err
+	}
 	runtimeName, runtimeArgs, err := typeScriptWorkerCommand(opts.Runtime)
 	if err != nil {
 		return err

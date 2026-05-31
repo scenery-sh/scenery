@@ -67,7 +67,7 @@ func TestFindOnlavaRepoRoot(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/pbrazdil/onlava\n\ngo 1.26.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/pbrazdil/onlava\n\ngo 1.26.3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -654,14 +654,14 @@ func TestRunHarnessParallelDevStep(t *testing.T) {
 func writeHarnessTestApp(t *testing.T, root, name, body string) {
 	t.Helper()
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"`+name+`","id":"`+name+`-id"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/"+name+"\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module example.com/"+name+"\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//onlava:api public\nfunc Ping(context.Context) error { "+body+" }\n")
 }
 
 func writeHarnessSelfRepo(t *testing.T, schema string) string {
 	t.Helper()
 	root := t.TempDir()
-	writeTestAppFile(t, root, "go.mod", "module github.com/pbrazdil/onlava\n\ngo 1.26.0\n")
+	writeTestAppFile(t, root, "go.mod", "module github.com/pbrazdil/onlava\n\ngo 1.26.3\n")
 	writeTestAppFile(t, root, "AGENTS.md", "See [harness](docs/harness-engineering.md).\n")
 	writeTestAppFile(t, root, "SKILL.md", strings.Join(requiredSkillMentions, "\n")+"\n")
 	writeTestAppFile(t, root, "PLAN.md", "See [docs](docs/index.md).\n")
@@ -702,6 +702,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/onlava.inspect.routes.v1.schema.json",
 		"docs/schemas/onlava.inspect.services.v1.schema.json",
 		"docs/schemas/onlava.inspect.traces.v1.schema.json",
+		"docs/schemas/onlava.dev.event.v1.schema.json",
 		"docs/schemas/onlava.logs.event.v1.schema.json",
 		"docs/schemas/onlava.run.event.v1.schema.json",
 		"docs/schemas/onlava.version.v1.schema.json",

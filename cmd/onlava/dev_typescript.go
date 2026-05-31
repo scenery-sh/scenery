@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pbrazdil/onlava/internal/app"
+	"github.com/pbrazdil/onlava/internal/devdash"
 	"github.com/pbrazdil/onlava/internal/workers"
 	onlavaruntime "github.com/pbrazdil/onlava/runtime"
 )
@@ -198,7 +199,16 @@ func (s *devSupervisor) captureTypeScriptWorkerOutput(ctx context.Context, worke
 		pid = worker.pid
 		tail = worker.output
 	}
-	s.captureProcessOutput(ctx, pid, stream, tail, bufio.NewReader(src), dst)
+	source := devdash.DevSource{
+		ID:     "worker:typescript",
+		Kind:   "worker",
+		Name:   "typescript",
+		Role:   "temporal-activity-worker",
+		PID:    pid,
+		Stream: stream,
+		Status: "running",
+	}
+	s.captureServiceOutput(ctx, source, tail, bufio.NewReader(src), dst)
 }
 
 func waitForTypeScriptWorkerStartup(ctx context.Context, worker *runningTypeScriptWorker) error {

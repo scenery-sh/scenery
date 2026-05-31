@@ -15,7 +15,7 @@ Create `go.mod`:
 ```go
 module example.com/hello
 
-go 1.26.0
+go 1.26.3
 
 require github.com/pbrazdil/onlava v0.0.0
 ```
