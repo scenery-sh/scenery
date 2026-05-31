@@ -1,6 +1,6 @@
 {
   "schema_version": "onlava.docs.index.v1",
-  "generated_at": "2026-04-27T00:00:00Z",
+  "generated_at": "2026-05-31T00:00:00Z",
   "owner_default": "onlava maintainers",
   "freshness_policy": {
     "default_review_days": 30,
@@ -15,9 +15,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Human entry point for the repo knowledge base.",
+      "last_reviewed": "2026-05-31",
+      "review_after": "2026-06-30",
+      "summary": "Human entry point for the repo knowledge base, with explicit agent entry points and current-contract guidance.",
       "tags": ["docs", "agents", "index"]
     },
     {
@@ -27,11 +27,23 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
+      "last_reviewed": "2026-05-31",
+      "review_after": "2026-06-30",
       "summary": "Machine-readable docs metadata for agents and harness validation.",
       "tags": ["docs", "agents", "json", "contract"],
       "schema_refs": ["docs/schemas/onlava.docs.index.v1.schema.json"]
+    },
+    {
+      "path": "AGENTS.md",
+      "title": "onlava Repo Agent Instructions",
+      "owner": "onlava maintainers",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-05-31",
+      "review_after": "2026-06-30",
+      "summary": "Repo-local operating manual for agents changing onlava itself, including validation, MCP, docs, and client-app instruction rules.",
+      "tags": ["agents", "repo", "instructions", "workflow"]
     },
     {
       "path": "SKILL.md",
@@ -40,10 +52,22 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-05-09",
-      "review_after": "2026-06-08",
-      "summary": "Concise installed-skill entrypoint for building, inspecting, debugging, validating, and using current onlava apps.",
-      "tags": ["skill", "agents", "onboarding"]
+      "last_reviewed": "2026-05-31",
+      "review_after": "2026-06-30",
+      "summary": "Concise installed-skill entrypoint for using current onlava apps, including CLI JSON, MCP, debugging, databases, generated clients, and validation loops.",
+      "tags": ["skill", "agents", "onboarding", "mcp"]
+    },
+    {
+      "path": "docs/agent-guide.md",
+      "title": "onlava Agent Guide",
+      "owner": "onlava maintainers",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-05-31",
+      "review_after": "2026-06-30",
+      "summary": "Agent workflow guide for using CLI JSON, MCP, generated artifacts, TypeScript clients, and app-local instruction layering.",
+      "tags": ["agents", "mcp", "cli", "apps", "client-integration"]
     },
     {
       "path": "PLAN.md",
