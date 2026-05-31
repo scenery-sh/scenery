@@ -1,6 +1,6 @@
 # onlava Documentation Index
 
-This is the human entry point for onlava's local knowledge base.
+This is the human entry point for onlava's local knowledge base. The docs are also intended for AI agents, so prefer stable command contracts and JSON schemas over duplicated prose.
 
 For agents, the machine-readable source of truth is [knowledge.json](knowledge.json). Validate it with:
 
@@ -9,9 +9,14 @@ onlava inspect docs --json
 onlava harness self --json
 ```
 
+## Agent Entry Points
+
+- [Repo Agent Instructions](../AGENTS.md): mandatory repo-local operating rules for agents changing onlava itself.
+- [Installable Skill](../SKILL.md): concise portable skill for agents using onlava in target apps.
+- [Agent Guide](agent-guide.md): agent workflows, MCP usage, generated artifacts, and client-app integration guidance.
+
 ## Core Contracts
 
-- [Installable Skill](../SKILL.md): concise agent entrypoint for using current onlava workflows.
 - [Architecture](../ARCHITECTURE.md): high-level repo map, boundaries, and architectural invariants.
 - [Local Contract](local-contract.md): CLI grammar, stable JSON schemas, generated artifacts, and local runtime contracts.
 - [Environment Reference](environment.md): onlava-owned env vars, app-injected env, and local override escape hatches.
@@ -32,6 +37,8 @@ onlava harness self --json
 - [Standard Auth Production Migration](runbooks/standard-auth-migration.md): operator checklist and SQL template for preserving existing users, tenants, memberships, password hashes, and sessions when moving an app to onlava standard auth.
 
 ## PRDs
+
+Historical PRDs may describe shipped design intent rather than the current contract. Prefer [Local Contract](local-contract.md), [Agent Guide](agent-guide.md), and current CLI JSON for exact behavior.
 
 - [Proto/Wire PRD](PRD-2-proto.md): binary wire and generated transport plan.
 - [Release Readiness PRD](PRD-3-release.md): audit and recommendations for freezing a smaller production-ready v0.

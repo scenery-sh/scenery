@@ -1,145 +1,205 @@
-# Engineering Constraints
+# onlava Agent Instructions
 
-Keep dependencies minimal. Prefer the Go standard library unless an external dependency has a clear, concrete payoff that justifies the added maintenance and upgrade surface.
+This file is the repo-local operating manual for AI agents changing `github.com/pbrazdil/onlava`.
 
-Do not add legacy compatibility aliases or backwards-compatibility shims for renamed or removed onlava APIs. Prefer one current public surface and remove obsolete spellings rather than carrying deprecated paths.
+Optimize for agents: prefer concise rules, exact commands, and machine-readable contracts over long prose.
 
-# Workflow
+## Instruction Layers
 
-- After every repository change, rebuild any binaries from this repo that are expected to be available in `PATH`. For onlava, run `go install ./cmd/onlava` before finishing the task.
-- For substantial repo changes, run `onlava harness self --json --write` when practical so agents and humans have one stable validation snapshot at `.onlava/harness/self-latest.json`.
-- For substantial target-app changes, run `onlava harness --json --write` from that app root when practical.
+Use the narrowest current source of truth that applies:
 
-# Execution Plans
+1. `AGENTS.md` gives repo-local rules for changing onlava itself.
+2. `SKILL.md` is the installable skill for agents working inside any onlava app.
+3. `docs/agent-guide.md` explains agent workflows, MCP, generated artifacts, and client-app integration.
+4. `docs/local-contract.md` is the contract for CLI grammar, JSON schemas, artifact paths, and stability labels.
+5. `docs/app-development-cookbook.md` gives practical app-building recipes.
+6. `onlava inspect ... --json`, `.onlava/gen/*.json`, schemas under `docs/schemas/`, and harness outputs are stronger than old prose when they disagree.
 
-For complex features, multi-hour tasks, migrations, or significant refactors, create or update an ExecPlan as described in `PLANS.md`.
+When implementation and docs disagree, treat it as drift. Fix the drift in the same change when practical.
 
-- Store active ExecPlans under `docs/plans/<0000-short-slug>.md` using a permanent historical sequence ID.
-- Link active ExecPlans from `docs/plans/active.md`.
-- Keep their Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective sections current as you work.
-- `PLAN.md` is the strategic roadmap; do not treat it as an executable task plan.
+## Current Mental Model
 
-# Summary
+onlava is a Go-native service runtime and local development platform.
 
-Build an onlava-native Go-only local runtime that makes `onlava run` start a single HTTP server for onlava services, with strict onlava naming and no compatibility layer for non-onlava syntax. Use `onlava dev` for the full local development platform with dashboard, proxy, and live reload.
+- App roots are marked by `.onlava.json`.
+- Go source is the app model: services, endpoints, auth handlers, middleware, Temporal declarations, cron jobs, and generated clients are discovered from code.
+- `onlava run` builds once and starts a headless API-role runtime.
+- `onlava worker` builds once and starts a worker-role runtime for cron and native Temporal workers.
+- `onlava dev` starts the local development platform: supervised app process, file watching, dashboard, API explorer, MCP endpoint, logs, traces, metrics, Grafana/Victoria sidecars when available, managed dev services, and optional frontend/proxy routing.
+- Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
+- Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
+- Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
 
-# Public Surface
+Do not revive deprecated non-onlava APIs, legacy directive spellings, or compatibility aliases unless an active plan explicitly requires compatibility.
 
-- CLI:
-  - `onlava dev [--port <n>] [--listen <addr>]` for local development.
-  - `onlava run [--port <n>] [--listen <addr>]` for headless production-like execution.
-  - Default listen address is `127.0.0.1:4000`.
-- App root marker:
-  - `.onlava.json`, JSON, required for `onlava run`.
-  - Phase 1 only needs `"name"`; no cloud/linking fields.
-  - Standard auth can be enabled with `"auth": {"enabled": true}`. It registers the built-in auth handler plus `/auth/*` and `/users/dev-bootstrap` endpoints, stores DB-backed state in PostgreSQL schema `onlava_auth`, and exposes request data as `*auth.AuthData`.
-- Source directives:
+## Engineering Rules
 
-  ```go
-  //onlava:api public|auth|private [raw] [path=/...] [method=GET,POST]
-  //onlava:service
-  //onlava:authhandler
-  ```
+- Prefer the Go standard library. Add dependencies only when the payoff is clear and the maintenance surface is justified.
+- Keep public surface small, current, and singular. Remove obsolete spellings instead of carrying compatibility shims.
+- Preserve onlava-native naming: `.onlava.json`, `//onlava:*`, and `github.com/pbrazdil/onlava/...`.
+- Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
+- Do not commit machine-local state or generated cache output from `.onlava/`, Grafana, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 
-- Public Go packages:
-  - `github.com/pbrazdil/onlava` with `Meta()` and `CurrentRequest()`.
-  - `github.com/pbrazdil/onlava/auth` with `UserID()`, `Data()`, `CurrentAuthData()`, and the standard auth module.
-  - `github.com/pbrazdil/onlava/errs` with coded errors and HTTP status mapping.
-- Struct tag surface for typed endpoints/auth params:
-  - Request decoding: `json`, `header`, `query`, `qs`, `cookie`.
-  - onlava tags: `onlava:"optional"` and `onlava:"httpstatus"`.
+## Before Making Changes
 
-# Implementation Changes
+For any non-trivial task:
 
-Create a new Go module rooted at `github.com/pbrazdil/onlava` with three main areas:
+```sh
+onlava inspect docs --json
+```
 
-- `cmd/onlava` for the CLI.
-- Internal parser/build pipeline for service discovery, directive parsing, codegen, and app launch.
-- Runtime/public packages under `github.com/pbrazdil/onlava/...`.
+Read the relevant files from that output, then check:
 
-## App Discovery And Service Model
+```text
+docs/local-contract.md
+docs/agent-guide.md
+docs/plans/active.md
+docs/tech-debt.md
+```
 
-- `onlava run` walks upward to `.onlava.json`, then loads the Go module from that root.
-- Service discovery follows onlava rules:
-  - A service is defined by onlava APIs, an onlava service struct, or an onlava auth handler.
-  - Nested services are invalid.
-  - Service names come from the root package name and must be unique.
+For complex features, migrations, multi-hour work, or significant refactors, create or update an ExecPlan as described in `PLANS.md`.
 
-## Parser Behavior
+- Store active plans under `docs/plans/<0000-short-slug>.md`.
+- Link active plans from `docs/plans/active.md`.
+- Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current.
+- `PLAN.md` is the strategic roadmap. Do not treat it as an executable task plan.
 
-- Support typed handlers with onlava endpoint signatures: `func(context.Context, [path params...], [payload]) ([resp], error)`.
-- Support raw handlers: `func(http.ResponseWriter, *http.Request)`.
-- Support `//onlava:service` methods plus optional `init<Type>() (*Type, error)` service initialization.
-- Support `//onlava:authhandler` as either a package function or service method.
-- Allow both token-string auth and structured auth params from `header`, `query`, `qs`, and `cookie` tags.
-- Allow optional auth-data return struct.
+## CLI Commands Agents Should Prefer
 
-## Preserve onlava Route Defaults
+Use JSON surfaces for inspection and automation:
 
-- Default path: `/<service>.<Endpoint>`.
-- Typed endpoint default methods:
-  - `GET,POST` when no payload exists.
-  - `POST` when a payload exists.
-- Raw endpoint default method wildcard.
+```text
+onlava version --json
+onlava check --json
+onlava inspect app|routes|services|endpoints|wire|build|paths|docs --json
+onlava inspect temporal|traces|metrics --json
+onlava logs --jsonl --limit 200
+onlava harness --json --write
+onlava harness self --json --write
+```
 
-## Build/Codegen Strategy
+Use runtime commands according to intent:
 
-- `onlava run` parses the app with `go/packages` and AST, builds an app model, generates a transient build workspace, compiles it, and runs the resulting binary.
-- Generated files include:
-  - Endpoint descriptors and registration.
-  - Service-struct wrappers.
-  - Auth-handler registration.
-  - Internal API-call helpers.
-  - A synthetic main.
-- Rewriting is part of phase 1: endpoint-to-endpoint calls are rewritten to generated internal call helpers so same-service and cross-service calls honor routing, auth context, and private access rules instead of bypassing the runtime through direct Go calls.
+```text
+onlava dev [--app-root <path>] [--session <id>|--new-session] [--json] [--detach]
+onlava attach [--app-root <path>] [--session current|<id>] [--jsonl]
+onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]
+onlava run [--app-root <path>] [--env <name>] [--log-format text|json]
+onlava worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <name>]
+onlava build [--app-root <path>] [-o <path>]
+onlava test [--app-root <path>] [go test flags/packages...]
+onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
+onlava db psql|reset|drop|snapshot [--app-root <path>]
+```
 
-## Runtime Behavior
+`onlava dev` is the preferred local loop for agents because it exposes dashboard, logs, traces, metrics, MCP, session routing, and managed dev services. `onlava run` is for headless API execution and must not be expected to expose dev/admin endpoints, dashboard, MCP, proxy, or watch behavior.
 
-- Start one local HTTP server with separate public and private routing tables.
-- Mount public and auth endpoints on external HTTP.
-- Keep private endpoints internal-only and callable via generated in-process service calls.
-- Do not support service-to-service calls to raw endpoints in phase 1; fail at generation time with a clear error.
-- Decode typed requests from path params, headers, query strings, cookies, and JSON body.
-- Encode typed responses as JSON.
-- Honor `onlava:"httpstatus"` on response structs.
-- Run the auth handler for external auth requests, then expose auth state through `github.com/pbrazdil/onlava/auth`.
-- Expose enough request metadata through `onlava.CurrentRequest()` for migrated common cases, especially raw endpoint path params, method, path, service, endpoint, and payload metadata.
-- Map `github.com/pbrazdil/onlava/errs` codes to HTTP responses and return full structured errors for in-process internal calls.
+## MCP Guidance
 
-# Test Plan
+MCP is a development-session tool surface exposed by `onlava dev`, not a production API.
 
-Maintain a small onlava-named fixture set as the acceptance suite for phase 1.
+Agents should use MCP for interactive local app work when a dev session is already running, especially for service metadata, endpoint calls through the local runtime, recent traces, trace spans, and development database inspection.
 
-Add parser/unit tests for:
+The MCP server uses the dashboard server's SSE transport. `onlava dev` prints the `MCP SSE URL`; with the agent router active, session manifests also expose a session-scoped MCP route. MCP tool results are convenience views over the local dev runtime and dashboard store. For stable CI, release, and code-review automation, prefer `onlava inspect ... --json`, `onlava logs --jsonl`, schemas, and harness outputs.
 
-- Directive parsing and validation.
-- Service discovery.
-- Typed/raw handler signatures.
-- Auth-handler signatures.
-- Route defaulting and path-param validation.
+Keep MCP docs in sync with `cmd/onlava/mcp.go` and `docs/agent-guide.md`.
 
-Add golden/codegen tests for:
+## Documentation Update Rules
 
-- Service-struct wrappers.
-- Internal API-call helper generation.
-- Auth-handler registration.
-- Synthetic main generation.
+When changing behavior, update all affected layers in one change:
 
-Add integration tests that run `onlava run` against sample apps and verify:
+- `docs/local-contract.md` for CLI grammar, JSON schemas, artifact paths, and stability semantics.
+- `docs/agent-guide.md` for agent workflows, MCP, and client-app integration.
+- `SKILL.md` for concise portable instructions used inside target apps.
+- `README.md` for human-facing overview and install/run examples.
+- `docs/app-development-cookbook.md` for practical app recipes.
+- `docs/environment.md` for onlava-owned env vars.
+- `docs/knowledge.json` when adding, removing, or materially changing indexed docs.
 
-- Public typed endpoints on default and custom paths.
-- Auth endpoints with string-token and structured auth params.
-- `auth.UserID()` and `auth.Data()`.
-- Service struct initialization and internal private calls.
-- Raw endpoint routing plus `onlava.CurrentRequest().PathParams`.
-- `onlava:"httpstatus"` and coded error responses.
+If a PRD is historical, do not silently rewrite it into current contract prose. Add a short "current contract lives in ..." note or update the docs index/knowledge metadata instead.
 
-Gate phase 1 on `go test ./...` and a lint/format pass for the new onlava code.
+## Validation Matrix
 
-# Assumptions And Defaults
+For ordinary onlava repo changes:
 
-- Go only in phase 1. TypeScript is out of scope.
-- Strict onlava naming only. No non-onlava app markers, imports, or directives in this milestone.
-- No infra generation, DB management/migrations, Temporal workers, cron, middleware, dashboard, cloud features, namespaces, or live-reload/watch mode.
-- No automatic source migration command in phase 1; migrated apps are expected to adopt onlava syntax directly.
-- Single-process local runtime only. No remote service hosting or distributed local orchestration in this phase.
+```sh
+go test ./...
+go install ./cmd/onlava
+```
+
+For substantial onlava repo changes:
+
+```sh
+onlava harness self --json --write
+```
+
+For target app changes:
+
+```sh
+onlava check --json
+go test ./...
+onlava harness --json --write
+```
+
+For generated TypeScript client changes:
+
+```sh
+onlava inspect endpoints --json
+onlava inspect wire --json
+onlava gen client --lang typescript --output <expected-output>
+```
+
+For dashboard UI changes:
+
+```sh
+cd ui
+bun run typecheck
+bun run test
+bun run build
+cd ..
+onlava harness self --json --write
+```
+
+For browser/dashboard validation when relevant:
+
+```sh
+onlava harness ui --json
+```
+
+If a command cannot be run in the current environment, say exactly which command was skipped and why.
+
+## App-Local Instructions For Clients
+
+The installable onlava skill is necessary but not enough for client repositories such as `github.com/pbrazdil/onlv`.
+
+Client apps should keep a small app-local `AGENTS.md` that records only app-specific facts:
+
+- app root and `.onlava.json` location
+- frontend roots and generated client output paths
+- required local environment names without values
+- standard validation commands for that app
+- whether agents should use `onlava dev --detach`, MCP, generated TypeScript client, or direct CLI JSON
+- product/domain invariants that onlava cannot know
+
+Do not copy the whole onlava skill into the client app. Keep the shared onlava behavior in `SKILL.md` and the app-specific policy in the client's `AGENTS.md`.
+
+## Public Surface Checklist
+
+When editing source that changes the public app model, confirm the docs and tests cover:
+
+- `//onlava:api public|auth|private [raw] [path=/...] [method=...]`
+- `//onlava:service`
+- `//onlava:authhandler`
+- request tags: `json`, `header`, `query`, `qs`, `cookie`
+- response tag: `onlava:"httpstatus"`
+- public packages: `onlava`, `auth`, `errs`, `middleware`, `temporal`, `cron`, `pgxpool`, `et`
+- standard auth configuration and generated endpoints
+- private/internal call behavior
+- worker, Temporal, cron, middleware, and generated TypeScript client behavior when touched
+
+## Repository Hygiene
+
+- Keep changes small and explicit.
+- Prefer tests at stable boundaries: parser validation, codegen golden output, runtime HTTP behavior, CLI JSON contracts, schemas, and fixture apps.
+- Keep large files split. Non-generated source over 2500 lines should fail self-harness architecture checks; non-generated source over 1000 lines should be treated as a warning to split soon.
+- Do not bypass UI boundaries. Dashboard/app UI should compose from onlava primitives/layouts and approved `@onlava` registry items; read `docs/ui-agent-contract.md` before UI work.

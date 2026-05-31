@@ -4,7 +4,7 @@
 
 onlava is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
-Applications mark their root with `.onlava.json`, declare endpoints with `//onlava:` directives, and run as one local HTTP server. onlava handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, and TypeScript client generation.
+Applications mark their root with `.onlava.json`, declare endpoints with `//onlava:` directives, and run as one local HTTP server. onlava handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, MCP, and TypeScript client generation.
 
 onlava is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, MCP endpoint, Victoria observability sidecars, Grafana workbench, local HTTPS proxy, Temporal worker tooling, and cron UI are development-focused companion tools.
 
@@ -12,7 +12,7 @@ onlava is used in production. The stable v0 surface is intentionally small and G
 
 - **Go source is the app model.** Services, APIs, auth handlers, middleware, Temporal workflows and activities, and cron jobs are discovered from Go code.
 - **One local app server.** `onlava run` builds once and starts a headless, production-like HTTP server.
-- **Full local dev loop.** `onlava dev` adds file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, Grafana, and optional HTTPS local domains.
+- **Full local dev loop.** `onlava dev` adds file watching, rebuild/restart supervision, dashboard, API explorer, MCP, logs, traces, metrics, Grafana, and optional HTTPS local domains.
 - **Typed HTTP by default.** onlava decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
 - **Inspectable by tools and agents.** `onlava inspect`, `onlava check`, `onlava logs`, and `onlava harness` expose machine-readable JSON contracts.
@@ -39,13 +39,13 @@ Available now:
 - TypeScript client generation
 - JSON/wire benchmark fixture
 
-Stable v0 API details live in [docs/local-contract.md](docs/local-contract.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
+Stable v0 API details live in [docs/local-contract.md](docs/local-contract.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Requirements
 
 - Go 1.26+
 - Bun, only when working on the dashboard UI or the benchmark fixture
-- `psql`, only when using `onlava psql`
+- `psql`, only when using `onlava db psql`
 
 ## Install From Source
 
@@ -76,7 +76,9 @@ onlava includes an installable agent skill for using onlava apps:
 npx skills add https://github.com/pbrazdil/onlava
 ```
 
-The skill teaches agents the onlava app model, directives, local development workflow, debugging commands, observability, `psql`, and TypeScript client generation.
+The skill teaches agents the onlava app model, directives, local development workflow, debugging commands, MCP, observability, database inspection, and TypeScript client generation.
+
+The skill is shared runtime knowledge. Client apps should still keep a small app-local `AGENTS.md` for app root, frontend roots, generated client output paths, required environment names, validation commands, and product invariants. Do not copy the whole skill into every app; keep shared onlava behavior in `SKILL.md` and app-specific facts in the client repository.
 
 ## A Minimal App
 
@@ -145,6 +147,8 @@ onlava dev --proxy
 onlava dev --proxy --trust
 onlava dev --detach
 onlava attach
+onlava attach --tui
+onlava console
 ```
 
 `--detach` starts an agent-backed dev session in the background and returns after the session is registered. `onlava attach` follows the current session logs. Structured logs prefer VictoriaLogs with SQLite fallback; use `--backend victoria` or `--backend sqlite` to compare during the migration. `onlava attach --tui` or `onlava console` opens a source-aware terminal console when attached to a real TTY. `onlava down` stops the current or selected session.
@@ -175,6 +179,14 @@ Example proxy config:
   }
 }
 ```
+
+## MCP
+
+`onlava dev` exposes a development MCP server over SSE. Use the printed `MCP SSE URL` from the startup banner or the session-scoped MCP route from the local agent manifest.
+
+Current MCP tools cover app metadata, service and endpoint lists, middleware, auth handlers, cron jobs, endpoint calls, source-file reads, referenced environment names, recent traces and spans, discovered PostgreSQL metadata, and SQL queries. MCP is a development convenience surface for agents. Stable automation should use `onlava inspect ... --json`, `onlava logs --jsonl`, schemas, and harness outputs.
+
+See [docs/agent-guide.md](docs/agent-guide.md) for the tool list and usage guidance.
 
 ## CLI Overview
 
@@ -219,6 +231,8 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 ## TypeScript Client Generation
 
 ```sh
+onlava inspect endpoints --json
+onlava inspect wire --json
 onlava gen client --lang typescript --output ./src/onlava-client.ts
 ```
 
