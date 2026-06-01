@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -234,6 +236,82 @@ func TestRegistryCapturesSessionOwnerFingerprint(t *testing.T) {
 	}
 	if err := VerifyOwner(session.Owner); err != nil {
 		t.Fatalf("VerifyOwner returned error: %v", err)
+	}
+}
+
+func TestRegistryRejectsSupersededOwnerUpdate(t *testing.T) {
+	root := t.TempDir()
+	replacement := exec.Command("sleep", "30")
+	if err := replacement.Start(); err != nil {
+		t.Fatalf("start replacement owner fixture: %v", err)
+	}
+	defer func() {
+		_ = replacement.Process.Kill()
+		_ = replacement.Wait()
+	}()
+	registry, err := OpenRegistry(filepath.Join(t.TempDir(), "sessions.json"), "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   root,
+		SessionID: "review-a",
+		Status:    "running",
+		OwnerPID:  os.Getpid(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := registry.Upsert(RegisterRequest{
+		BaseAppID:  "demo",
+		AppRoot:    root,
+		SessionID:  first.SessionID,
+		Status:     "starting",
+		OwnerPID:   replacement.Process.Pid,
+		ClaimOwner: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.OwnerPID != replacement.Process.Pid {
+		t.Fatalf("replacement owner pid = %d, want %d", second.OwnerPID, replacement.Process.Pid)
+	}
+	if _, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   root,
+		SessionID: first.SessionID,
+		Status:    "running",
+		OwnerPID:  os.Getpid(),
+	}); err == nil {
+		t.Fatal("expected superseded owner update to fail")
+	}
+}
+
+func TestRegistryTracksSessionProcesses(t *testing.T) {
+	root := t.TempDir()
+	registry, err := OpenRegistry(filepath.Join(t.TempDir(), "sessions.json"), "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := registry.Upsert(RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   root,
+		SessionID: "review-a",
+		Status:    "running",
+		AppPID:    strconv.Itoa(os.Getpid()),
+		Processes: map[string]Process{
+			"frontend-web": {PID: os.Getpid()},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Processes[RouteAPI].PID != os.Getpid() || session.Processes["frontend-web"].PID != os.Getpid() {
+		t.Fatalf("session processes = %+v", session.Processes)
+	}
+	if session.Processes[RouteAPI].Owner.PID != os.Getpid() || session.Processes["frontend-web"].Owner.PID != os.Getpid() {
+		t.Fatalf("process owners = %+v", session.Processes)
 	}
 }
 

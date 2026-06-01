@@ -215,6 +215,7 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 	if err != nil {
 		return nil, nil, devBackend{}, restore, err
 	}
+	existingSessions, _ := client.List(ctx, root)
 	electricBackends, err := managedElectricBackends(cfg, baseEnv)
 	if err != nil {
 		return nil, nil, devBackend{}, restore, err
@@ -234,14 +235,18 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 		sessionID = generated
 	}
 	session, err := client.Register(ctx, localagent.RegisterRequest{
-		BaseAppID: cfg.AppID(),
-		AppRoot:   root,
-		SessionID: sessionID,
-		Status:    "starting",
-		OwnerPID:  os.Getpid(),
-		Backends:  backends,
+		BaseAppID:  cfg.AppID(),
+		AppRoot:    root,
+		SessionID:  sessionID,
+		Status:     "starting",
+		OwnerPID:   os.Getpid(),
+		Backends:   backends,
+		ClaimOwner: true,
 	})
 	if err != nil {
+		return nil, nil, devBackend{}, restore, err
+	}
+	if err := cleanupSupersededDevSessions(ctx, session, existingSessions); err != nil {
 		return nil, nil, devBackend{}, restore, err
 	}
 	backend := fallback
@@ -285,6 +290,7 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 			Status:    "starting",
 			OwnerPID:  os.Getpid(),
 			Backends:  backends,
+			Processes: frontendSessionProcesses(frontendProcesses),
 		})
 		if err != nil {
 			return nil, nil, devBackend{}, restore, err

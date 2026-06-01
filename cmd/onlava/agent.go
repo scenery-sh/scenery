@@ -325,6 +325,7 @@ func writeStatus(ctx context.Context, client *localagent.Client, appRoot string,
 		}
 		sessions = filtered
 	}
+	sessions = markInconsistentStatusSessions(sessions)
 	if opts.JSON {
 		health, _ := client.Health(ctx)
 		enc := json.NewEncoder(os.Stdout)
@@ -344,6 +345,48 @@ func writeStatus(ctx context.Context, client *localagent.Client, appRoot string,
 		fmt.Fprintln(os.Stdout, "---")
 	}
 	return nil
+}
+
+func markInconsistentStatusSessions(sessions []localagent.Session) []localagent.Session {
+	out := append([]localagent.Session(nil), sessions...)
+	for i := range out {
+		if sessionStatusHealthy(out[i].Status) && !sessionOwnerConsistent(out[i]) {
+			out[i].Status = "stale"
+		}
+	}
+	return out
+}
+
+func sessionStatusHealthy(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "starting", "running":
+		return true
+	default:
+		return false
+	}
+}
+
+func sessionOwnerConsistent(session localagent.Session) bool {
+	owner := session.Owner
+	if owner.PID <= 0 {
+		owner.PID = session.OwnerPID
+	}
+	if owner.PID <= 0 {
+		return false
+	}
+	if err := localagent.VerifyOwner(owner); err != nil {
+		return false
+	}
+	if session.AppPID != "" {
+		pid := atoiPID(session.AppPID)
+		if pid <= 0 {
+			return false
+		}
+		if _, ok := inspectProcess(pid); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func downCommand(args []string) error {

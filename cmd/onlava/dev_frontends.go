@@ -384,6 +384,27 @@ func stopManagedFrontendProcesses(processes []*managedFrontendProcess) {
 	}
 }
 
+func frontendSessionProcesses(processes []*managedFrontendProcess) map[string]localagent.Process {
+	if len(processes) == 0 {
+		return nil
+	}
+	out := map[string]localagent.Process{}
+	for _, process := range processes {
+		if process == nil || process.Command == nil || process.Command.Process == nil {
+			continue
+		}
+		name := localagentLabel(process.Name)
+		if name == "" {
+			continue
+		}
+		out["frontend-"+name] = localagent.Process{PID: process.Command.Process.Pid}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func (p *managedFrontendProcess) Stop() error {
 	if p == nil {
 		return nil

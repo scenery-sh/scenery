@@ -199,7 +199,6 @@ func onlavaDevEnv(repo, dashboardAddr, cacheDir string) []string {
 	return append(
 		os.Environ(),
 		"ONLAVA_DEV_DASHBOARD_ADDR="+dashboardAddr,
-		"ONLAVA_DEV_CACHE_DIR="+cacheDir,
 		"ONLAVA_DEV_DASHBOARD_UI_DIR="+filepath.Join(repo, "ui", "dist"),
 		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_LOCAL_PROXY=0",
@@ -212,7 +211,6 @@ func onlavaDevProxyEnv(repo, dashboardAddr, cacheDir, httpPort, httpsPort, front
 	env := append(
 		os.Environ(),
 		"ONLAVA_DEV_DASHBOARD_ADDR="+dashboardAddr,
-		"ONLAVA_DEV_CACHE_DIR="+cacheDir,
 		"ONLAVA_DEV_DASHBOARD_UI_DIR="+filepath.Join(repo, "ui", "dist"),
 		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_AGENT_DISABLE=1",

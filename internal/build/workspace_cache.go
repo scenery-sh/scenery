@@ -119,6 +119,13 @@ func LoadCachedGraph(appRoot, appName, graphFingerprint string) (*CachedGraph, b
 	if state.GraphFingerprint == "" || state.GraphFingerprint != graphFingerprint {
 		return nil, false, nil
 	}
+	generatorFingerprint, err := currentGeneratorFingerprint()
+	if err != nil {
+		return nil, false, err
+	}
+	if state.GeneratorFingerprint == "" || state.GeneratorFingerprint != generatorFingerprint {
+		return nil, false, nil
+	}
 	if _, err := os.Stat(filepath.Join(root, "onlava_internal_main", "main.go")); err != nil {
 		return nil, false, nil
 	}
@@ -126,20 +133,21 @@ func LoadCachedGraph(appRoot, appName, graphFingerprint string) (*CachedGraph, b
 		return nil, false, nil
 	}
 	result := &Result{
-		AppRoot:               appRoot,
-		AppName:               appName,
-		Dir:                   root,
-		Binary:                filepath.Join(root, workspaceBinaryName(appRoot, state.BuildFingerprint)),
-		NeedsTidy:             false,
-		DependencyFingerprint: state.DependencyFingerprint,
-		SourceFingerprint:     state.SourceFingerprint,
-		GeneratorFingerprint:  state.GeneratorFingerprint,
-		BuildFingerprint:      state.BuildFingerprint,
-		GraphFingerprint:      state.GraphFingerprint,
-		Metadata:              append(json.RawMessage(nil), state.Metadata...),
-		APIEncoding:           append(json.RawMessage(nil), state.APIEncoding...),
-		SourceFiles:           append([]string(nil), state.SourceFiles...),
-		GeneratedFiles:        append([]string(nil), state.GeneratedFiles...),
+		AppRoot:                   appRoot,
+		AppName:                   appName,
+		Dir:                       root,
+		Binary:                    filepath.Join(root, workspaceBinaryName(appRoot, state.BuildFingerprint)),
+		NeedsTidy:                 false,
+		DependencyFingerprint:     state.DependencyFingerprint,
+		SourceFingerprint:         state.SourceFingerprint,
+		SourceMetadataFingerprint: state.SourceMetadataFingerprint,
+		GeneratorFingerprint:      state.GeneratorFingerprint,
+		BuildFingerprint:          state.BuildFingerprint,
+		GraphFingerprint:          state.GraphFingerprint,
+		Metadata:                  append(json.RawMessage(nil), state.Metadata...),
+		APIEncoding:               append(json.RawMessage(nil), state.APIEncoding...),
+		SourceFiles:               append([]string(nil), state.SourceFiles...),
+		GeneratedFiles:            append([]string(nil), state.GeneratedFiles...),
 	}
 	return &CachedGraph{
 		Result:      result,
@@ -149,6 +157,14 @@ func LoadCachedGraph(appRoot, appName, graphFingerprint string) (*CachedGraph, b
 }
 
 func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
+	return RefreshCachedWorkspaceWithOptions(appRoot, result, RefreshOptions{})
+}
+
+type RefreshOptions struct {
+	ChangedPaths []string
+}
+
+func RefreshCachedWorkspaceWithOptions(appRoot string, result *Result, opts RefreshOptions) (bool, error) {
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
@@ -163,11 +179,12 @@ func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
 			return false, err
 		}
 	}
-	sourceFiles, err := syncAllSourceFiles(result.Dir, appRoot, generated)
+	sourceFiles, sourceMetadataFingerprint, err := refreshCachedSourceFiles(appRoot, result, generated, opts)
 	if err != nil {
 		return false, err
 	}
 	result.SourceFiles = sourceFiles
+	result.SourceMetadataFingerprint = sourceMetadataFingerprint
 	if err := removeUnexpectedFilesFromLists(result.Dir, result.SourceFiles, result.GeneratedFiles); err != nil {
 		return false, err
 	}
@@ -185,6 +202,47 @@ func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appRoot, buildFingerprint))
 	result.ReuseCompiled = !result.NeedsTidy && pathExists(result.Binary)
 	return true, nil
+}
+
+func refreshCachedSourceFiles(appRoot string, result *Result, generated map[string]struct{}, opts RefreshOptions) ([]string, string, error) {
+	if len(opts.ChangedPaths) > 0 {
+		sourceFiles, err := syncSourceFiles(result.Dir, appRoot, result.SourceFiles, opts.ChangedPaths)
+		if err != nil {
+			return nil, "", err
+		}
+		fingerprint, err := sourceFilesMetadataFingerprint(appRoot, sourceFiles)
+		if err != nil {
+			return nil, "", err
+		}
+		return sourceFiles, fingerprint, nil
+	}
+	if result.SourceMetadataFingerprint != "" {
+		sourceFiles, fingerprint, err := currentSourceMetadataFingerprint(appRoot)
+		if err != nil {
+			return nil, "", err
+		}
+		if fingerprint == result.SourceMetadataFingerprint && workspaceSourceFilesExist(result.Dir, sourceFiles) {
+			return sourceFiles, fingerprint, nil
+		}
+	}
+	sourceFiles, err := syncAllSourceFiles(result.Dir, appRoot, generated)
+	if err != nil {
+		return nil, "", err
+	}
+	fingerprint, err := sourceFilesMetadataFingerprint(appRoot, sourceFiles)
+	if err != nil {
+		return nil, "", err
+	}
+	return sourceFiles, fingerprint, nil
+}
+
+func workspaceSourceFilesExist(root string, sourceFiles []string) bool {
+	for _, rel := range sourceFiles {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func saveBuildState(root string, state buildState) error {
@@ -267,12 +325,6 @@ func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceF
 	}
 	sort.Strings(paths)
 	return paths, nil
-}
-
-func isSourceFile(rel string) bool {
-	rel = filepath.ToSlash(rel)
-	base := filepath.Base(rel)
-	return !strings.HasPrefix(base, ".")
 }
 
 func sortedKeys(set map[string]struct{}) []string {

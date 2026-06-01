@@ -30,36 +30,38 @@ import (
 )
 
 type Result struct {
-	AppRoot               string
-	AppName               string
-	AppID                 string
-	Dir                   string
-	Binary                string
-	NeedsTidy             bool
-	DependencyFingerprint string
-	SourceFingerprint     string
-	GeneratorFingerprint  string
-	BuildFingerprint      string
-	GraphFingerprint      string
-	Metadata              json.RawMessage
-	APIEncoding           json.RawMessage
-	SourceFiles           []string
-	GeneratedFiles        []string
-	ReuseCompiled         bool
-	Ephemeral             bool
+	AppRoot                   string
+	AppName                   string
+	AppID                     string
+	Dir                       string
+	Binary                    string
+	NeedsTidy                 bool
+	DependencyFingerprint     string
+	SourceFingerprint         string
+	SourceMetadataFingerprint string
+	GeneratorFingerprint      string
+	BuildFingerprint          string
+	GraphFingerprint          string
+	Metadata                  json.RawMessage
+	APIEncoding               json.RawMessage
+	SourceFiles               []string
+	GeneratedFiles            []string
+	ReuseCompiled             bool
+	Ephemeral                 bool
 }
 
 type buildState struct {
-	Version               string   `json:"version,omitempty"`
-	DependencyFingerprint string   `json:"dependency_fingerprint"`
-	SourceFingerprint     string   `json:"source_fingerprint,omitempty"`
-	GeneratorFingerprint  string   `json:"generator_fingerprint,omitempty"`
-	BuildFingerprint      string   `json:"build_fingerprint,omitempty"`
-	GraphFingerprint      string   `json:"graph_fingerprint,omitempty"`
-	Metadata              []byte   `json:"metadata,omitempty"`
-	APIEncoding           []byte   `json:"api_encoding,omitempty"`
-	SourceFiles           []string `json:"source_files,omitempty"`
-	GeneratedFiles        []string `json:"generated_files,omitempty"`
+	Version                   string   `json:"version,omitempty"`
+	DependencyFingerprint     string   `json:"dependency_fingerprint"`
+	SourceFingerprint         string   `json:"source_fingerprint,omitempty"`
+	SourceMetadataFingerprint string   `json:"source_metadata_fingerprint,omitempty"`
+	GeneratorFingerprint      string   `json:"generator_fingerprint,omitempty"`
+	BuildFingerprint          string   `json:"build_fingerprint,omitempty"`
+	GraphFingerprint          string   `json:"graph_fingerprint,omitempty"`
+	Metadata                  []byte   `json:"metadata,omitempty"`
+	APIEncoding               []byte   `json:"api_encoding,omitempty"`
+	SourceFiles               []string `json:"source_files,omitempty"`
+	GeneratedFiles            []string `json:"generated_files,omitempty"`
 }
 
 const (
@@ -208,22 +210,23 @@ func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
 		return nil, false, nil
 	}
 	result := &Result{
-		AppRoot:               appRoot,
-		AppName:               cfg.Name,
-		AppID:                 cfg.ID,
-		Dir:                   workspaceDir,
-		Binary:                binary,
-		NeedsTidy:             false,
-		DependencyFingerprint: state.DependencyFingerprint,
-		SourceFingerprint:     state.SourceFingerprint,
-		GeneratorFingerprint:  state.GeneratorFingerprint,
-		BuildFingerprint:      state.BuildFingerprint,
-		GraphFingerprint:      state.GraphFingerprint,
-		Metadata:              append(json.RawMessage(nil), state.Metadata...),
-		APIEncoding:           append(json.RawMessage(nil), state.APIEncoding...),
-		SourceFiles:           append([]string(nil), state.SourceFiles...),
-		GeneratedFiles:        append([]string(nil), state.GeneratedFiles...),
-		ReuseCompiled:         true,
+		AppRoot:                   appRoot,
+		AppName:                   cfg.Name,
+		AppID:                     cfg.ID,
+		Dir:                       workspaceDir,
+		Binary:                    binary,
+		NeedsTidy:                 false,
+		DependencyFingerprint:     state.DependencyFingerprint,
+		SourceFingerprint:         state.SourceFingerprint,
+		SourceMetadataFingerprint: state.SourceMetadataFingerprint,
+		GeneratorFingerprint:      state.GeneratorFingerprint,
+		BuildFingerprint:          state.BuildFingerprint,
+		GraphFingerprint:          state.GraphFingerprint,
+		Metadata:                  append(json.RawMessage(nil), state.Metadata...),
+		APIEncoding:               append(json.RawMessage(nil), state.APIEncoding...),
+		SourceFiles:               append([]string(nil), state.SourceFiles...),
+		GeneratedFiles:            append([]string(nil), state.GeneratedFiles...),
+		ReuseCompiled:             true,
 	}
 	return result, true, nil
 }
@@ -272,6 +275,10 @@ func Prepare(appRoot string, model *model.App, cfg app.Config, opts PrepareOptio
 	if err != nil {
 		return nil, err
 	}
+	sourceMetadataFingerprint, err := sourceFilesMetadataFingerprint(appRoot, sourceFiles)
+	if err != nil {
+		return nil, err
+	}
 	generatorFingerprint, err := currentGeneratorFingerprint()
 	if err != nil {
 		return nil, err
@@ -287,19 +294,20 @@ func Prepare(appRoot string, model *model.App, cfg app.Config, opts PrepareOptio
 	}
 	binary := filepath.Join(workspaceDir, workspaceBinaryName(appRoot, buildFingerprint))
 	result := &Result{
-		AppRoot:               appRoot,
-		AppName:               cfg.Name,
-		AppID:                 cfg.ID,
-		Dir:                   workspaceDir,
-		Binary:                binary,
-		NeedsTidy:             needsTidy,
-		DependencyFingerprint: depFingerprint,
-		SourceFingerprint:     sourceFingerprint,
-		GeneratorFingerprint:  generatorFingerprint,
-		BuildFingerprint:      buildFingerprint,
-		ReuseCompiled:         !needsTidy && buildFingerprint != "" && state.BuildFingerprint == buildFingerprint && pathExists(binary),
-		SourceFiles:           sourceFiles,
-		GeneratedFiles:        generatedFiles,
+		AppRoot:                   appRoot,
+		AppName:                   cfg.Name,
+		AppID:                     cfg.ID,
+		Dir:                       workspaceDir,
+		Binary:                    binary,
+		NeedsTidy:                 needsTidy,
+		DependencyFingerprint:     depFingerprint,
+		SourceFingerprint:         sourceFingerprint,
+		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		GeneratorFingerprint:      generatorFingerprint,
+		BuildFingerprint:          buildFingerprint,
+		ReuseCompiled:             !needsTidy && buildFingerprint != "" && state.BuildFingerprint == buildFingerprint && pathExists(binary),
+		SourceFiles:               sourceFiles,
+		GeneratedFiles:            generatedFiles,
 	}
 	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
 		return nil, err
@@ -422,16 +430,17 @@ func tidyWorkspace(ctx context.Context, result *Result) error {
 
 func savePrimedWorkspace(result *Result) error {
 	if err := saveBuildState(result.Dir, buildState{
-		Version:               buildStateVersion,
-		DependencyFingerprint: result.DependencyFingerprint,
-		SourceFingerprint:     result.SourceFingerprint,
-		GeneratorFingerprint:  result.GeneratorFingerprint,
-		BuildFingerprint:      result.BuildFingerprint,
-		GraphFingerprint:      result.GraphFingerprint,
-		Metadata:              append([]byte(nil), result.Metadata...),
-		APIEncoding:           append([]byte(nil), result.APIEncoding...),
-		SourceFiles:           append([]string(nil), result.SourceFiles...),
-		GeneratedFiles:        append([]string(nil), result.GeneratedFiles...),
+		Version:                   buildStateVersion,
+		DependencyFingerprint:     result.DependencyFingerprint,
+		SourceFingerprint:         result.SourceFingerprint,
+		SourceMetadataFingerprint: result.SourceMetadataFingerprint,
+		GeneratorFingerprint:      result.GeneratorFingerprint,
+		BuildFingerprint:          result.BuildFingerprint,
+		GraphFingerprint:          result.GraphFingerprint,
+		Metadata:                  append([]byte(nil), result.Metadata...),
+		APIEncoding:               append([]byte(nil), result.APIEncoding...),
+		SourceFiles:               append([]string(nil), result.SourceFiles...),
+		GeneratedFiles:            append([]string(nil), result.GeneratedFiles...),
 	}); err != nil {
 		return err
 	}
@@ -622,16 +631,55 @@ func listSourceFiles(appRoot string) ([]string, error) {
 		if d.IsDir() && (shouldSkipDir(rel) || shouldSkipRuntimeArtifactDir(rel)) {
 			return filepath.SkipDir
 		}
-		if d.IsDir() || !isSourceFile(rel) || shouldSkipFile(rel) || shouldSkipSymlink(path, d) || shouldSkipNonRegularFile(path, d) {
+		if d.IsDir() || !isGoWorkspaceSourceFile(rel) || shouldSkipFile(rel) || shouldSkipSymlink(path, d) || shouldSkipNonRegularFile(path, d) {
 			return nil
 		}
-		files[filepath.ToSlash(rel)] = struct{}{}
+		rel = filepath.ToSlash(rel)
+		files[rel] = struct{}{}
+		if filepath.Ext(rel) == ".go" {
+			if err := addAppEmbeddedFiles(appRoot, rel, files); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return sortedKeys(files), nil
+}
+
+func isGoWorkspaceSourceFile(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	base := filepath.Base(rel)
+	switch base {
+	case "go.mod", "go.sum", "go.work", "go.work.sum":
+		return true
+	}
+	switch filepath.Ext(rel) {
+	case ".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".f", ".F", ".for", ".f90", ".m", ".mm", ".s", ".S", ".syso", ".swig", ".swigcxx":
+		return true
+	default:
+		return false
+	}
+}
+
+func addAppEmbeddedFiles(appRoot, goRel string, files map[string]struct{}) error {
+	data, err := os.ReadFile(filepath.Join(appRoot, filepath.FromSlash(goRel)))
+	if err != nil {
+		return err
+	}
+	patterns := parseGeneratorGoEmbedPatterns(string(data))
+	if len(patterns) == 0 {
+		return nil
+	}
+	pkgDir := filepath.Dir(goRel)
+	for _, pattern := range patterns {
+		if err := addGeneratorEmbeddedPatternFiles(appRoot, pkgDir, pattern, files); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func currentAppSourceFingerprint(appRoot string) (string, error) {
@@ -657,6 +705,37 @@ func currentAppSourceFingerprint(appRoot string) (string, error) {
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(data)
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func currentSourceMetadataFingerprint(appRoot string) ([]string, string, error) {
+	files, err := listSourceFiles(appRoot)
+	if err != nil {
+		return nil, "", err
+	}
+	fingerprint, err := sourceFilesMetadataFingerprint(appRoot, files)
+	if err != nil {
+		return nil, "", err
+	}
+	return files, fingerprint, nil
+}
+
+func sourceFilesMetadataFingerprint(appRoot string, files []string) (string, error) {
+	h := sha256.New()
+	for _, rel := range files {
+		rel = filepath.ToSlash(rel)
+		info, err := os.Stat(filepath.Join(appRoot, filepath.FromSlash(rel)))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return "", err
+		}
+		_, _ = h.Write([]byte(rel))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(fmt.Sprintf("%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode().Perm())))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
@@ -1371,17 +1450,18 @@ func LatestBuildPath(appRoot string) string {
 }
 
 type StateInfo struct {
-	Path                  string
-	Exists                bool
-	Version               string
-	DependencyFingerprint string
-	SourceFingerprint     string
-	GeneratorFingerprint  string
-	GraphFingerprint      string
-	MetadataPresent       bool
-	APIEncodingPresent    bool
-	SourceFiles           []string
-	GeneratedFiles        []string
+	Path                      string
+	Exists                    bool
+	Version                   string
+	DependencyFingerprint     string
+	SourceFingerprint         string
+	SourceMetadataFingerprint string
+	GeneratorFingerprint      string
+	GraphFingerprint          string
+	MetadataPresent           bool
+	APIEncodingPresent        bool
+	SourceFiles               []string
+	GeneratedFiles            []string
 }
 
 func ReadStateInfo(appRoot, appName string) (*StateInfo, error) {
@@ -1404,6 +1484,7 @@ func ReadStateInfo(appRoot, appName string) (*StateInfo, error) {
 	info.Version = state.Version
 	info.DependencyFingerprint = state.DependencyFingerprint
 	info.SourceFingerprint = state.SourceFingerprint
+	info.SourceMetadataFingerprint = state.SourceMetadataFingerprint
 	info.GeneratorFingerprint = state.GeneratorFingerprint
 	info.GraphFingerprint = state.GraphFingerprint
 	info.MetadataPresent = len(state.Metadata) > 0

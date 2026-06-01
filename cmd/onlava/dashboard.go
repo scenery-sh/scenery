@@ -178,6 +178,7 @@ func (s *dashboardServer) Start(ctx context.Context) error {
 type procInfo struct {
 	pid  int
 	ppid int
+	stat string
 	cmd  string
 }
 
@@ -204,7 +205,7 @@ func findListeningPID(addr string) (int, bool) {
 }
 
 func inspectProcess(pid int) (procInfo, bool) {
-	cmd := exec.Command("ps", "-o", "pid=,ppid=,command=", "-p", strconv.Itoa(pid))
+	cmd := exec.Command("ps", "-o", "pid=,ppid=,stat=,command=", "-p", strconv.Itoa(pid))
 	output, err := cmd.Output()
 	if err != nil {
 		return procInfo{}, false
@@ -214,7 +215,7 @@ func inspectProcess(pid int) (procInfo, bool) {
 		return procInfo{}, false
 	}
 	parts := strings.Fields(line)
-	if len(parts) < 3 {
+	if len(parts) < 4 {
 		return procInfo{}, false
 	}
 	gotPID, err := strconv.Atoi(parts[0])
@@ -228,7 +229,8 @@ func inspectProcess(pid int) (procInfo, bool) {
 	return procInfo{
 		pid:  gotPID,
 		ppid: ppid,
-		cmd:  strings.Join(parts[2:], " "),
+		stat: parts[2],
+		cmd:  strings.Join(parts[3:], " "),
 	}, true
 }
 

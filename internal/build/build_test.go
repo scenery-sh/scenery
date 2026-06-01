@@ -137,11 +137,14 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	writeBuildTestFile(t, root, "go.mod", "module example.com/list\n")
+	writeBuildTestFile(t, root, "go.sum", "")
+	writeBuildTestFile(t, root, "svc/api.go", "package svc\n\nimport \"embed\"\n\n//go:embed assets/logo.png\nvar _ embed.FS\n")
 	for _, rel := range []string{
-		"go.mod",
-		"go.sum",
-		"svc/api.go",
-		"assets/logo.png",
+		"svc/assets/logo.png",
+		"assets/unembedded-logo.png",
+		"docs/readme.md",
+		"var/atlas/plans/2026-06-01-atlas-apply-dry-run.txt",
 		".env",
 		".env.local",
 		".DS_Store",
@@ -159,12 +162,12 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 		t.Fatalf("listSourceFiles() error = %v", err)
 	}
 	got := strings.Join(files, "\n")
-	for _, want := range []string{"go.mod", "go.sum", "svc/api.go", "assets/logo.png"} {
+	for _, want := range []string{"go.mod", "go.sum", "svc/api.go", "svc/assets/logo.png"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("source files missing %s: %v", want, files)
 		}
 	}
-	for _, unwanted := range []string{".env", ".env.local", ".DS_Store", "__MACOSX", "node_modules", ".onlava", ".git", "coverage"} {
+	for _, unwanted := range []string{"assets/unembedded-logo.png", "docs/readme.md", "var/atlas/plans", ".env", ".env.local", ".DS_Store", "__MACOSX", "node_modules", ".onlava", ".git", "coverage"} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("source files included %s: %v", unwanted, files)
 		}
@@ -181,6 +184,10 @@ func TestBuildPrepSkipsBrowserRuntimeArtifactsAndNonRegularFiles(t *testing.T) {
 	writeBuildTestFile(t, root, "svc/api.go", `package svc
 
 import "context"
+import "embed"
+
+//go:embed assets/logo.png
+var _ embed.FS
 
 type Response struct {
 	Message string
@@ -192,7 +199,8 @@ func Ping(context.Context) (*Response, error) {
 }
 `)
 	for _, rel := range []string{
-		"assets/logo.png",
+		"svc/assets/logo.png",
+		"assets/unembedded-logo.png",
 		"var/browser/Default/Preferences",
 		"var/chrome/SingletonLock",
 		"var/playwright/cache-marker",
@@ -222,12 +230,13 @@ func Ping(context.Context) (*Response, error) {
 		t.Fatalf("listSourceFiles() error = %v", err)
 	}
 	got := strings.Join(files, "\n")
-	for _, want := range []string{"go.mod", "go.sum", "svc/api.go", "assets/logo.png"} {
+	for _, want := range []string{"go.mod", "go.sum", "svc/api.go", "svc/assets/logo.png"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("source files missing %s: %v", want, files)
 		}
 	}
 	for _, unwanted := range append([]string{
+		"assets/unembedded-logo.png",
 		"var/browser",
 		"var/chrome",
 		"var/playwright",
@@ -1028,6 +1037,31 @@ func TestLoadCachedGraphRejectsOldBuildStateVersion(t *testing.T) {
 	}
 }
 
+func TestLoadCachedGraphRejectsGeneratorFingerprintMismatch(t *testing.T) {
+	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
+
+	statePath := filepath.Join(result.Dir, buildStateFile)
+	state, err := loadBuildState(result.Dir)
+	if err != nil {
+		t.Fatalf("load build state: %v", err)
+	}
+	state.GeneratorFingerprint = "stale-generator"
+	if err := saveBuildState(result.Dir, state); err != nil {
+		t.Fatalf("save stale build state: %v", err)
+	}
+
+	cached, ok, err := LoadCachedGraph(appDir, "buildtest", "graph-1")
+	if err != nil {
+		t.Fatalf("LoadCachedGraph() error = %v", err)
+	}
+	if ok || cached != nil {
+		t.Fatalf("expected stale generator fingerprint to be rejected, got ok=%v cached=%#v", ok, cached)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("state file should remain for fallback regeneration: %v", err)
+	}
+}
+
 func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
 
@@ -1064,6 +1098,34 @@ func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("refreshed source files missing %s: %v", newFile, cached.Result.SourceFiles)
+	}
+}
+
+func TestRefreshCachedWorkspaceFallsBackWhenSourceFileMissing(t *testing.T) {
+	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
+
+	target := filepath.Join(result.Dir, "svc", "api.go")
+	if err := os.Remove(target); err != nil {
+		t.Fatalf("remove source file: %v", err)
+	}
+
+	cached, ok, err := LoadCachedGraph(appDir, "buildtest", "graph-1")
+	if err != nil {
+		t.Fatalf("LoadCachedGraph() error = %v", err)
+	}
+	if !ok || cached == nil || cached.Result == nil {
+		t.Fatal("expected cached graph to load")
+	}
+
+	reused, err := RefreshCachedWorkspace(cached.Result.AppRoot, cached.Result)
+	if err != nil {
+		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
+	}
+	if !reused {
+		t.Fatal("expected cached workspace refresh to be reusable")
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("expected missing source file to be restored: %v", err)
 	}
 }
 
@@ -1127,7 +1189,7 @@ func TestSyncSourceFilesDetectsNewFilesOutsideChangedPaths(t *testing.T) {
 	appRoot := t.TempDir()
 
 	writeBuildTestFile(t, appRoot, "go.mod", "module example.com/test\n\ngo 1.25.0\n")
-	writeBuildTestFile(t, appRoot, "svc/api.go", "package svc\n")
+	writeBuildTestFile(t, appRoot, "svc/api.go", "package svc\n\nimport \"embed\"\n\n//go:embed templates/*\nvar _ embed.FS\n")
 
 	prev, err := syncAllSourceFiles(root, appRoot, nil)
 	if err != nil {
@@ -1244,29 +1306,41 @@ func Hello(ctx context.Context) error { return nil }
 	if err != nil {
 		t.Fatal(err)
 	}
+	sourceMetadataFingerprint, err := sourceFilesMetadataFingerprint(appDir, sourceFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generatorFingerprint, err := currentGeneratorFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := &Result{
-		AppRoot:               appDir,
-		AppName:               "buildtest",
-		Dir:                   workspace,
-		Binary:                filepath.Join(workspace, workspaceBinaryName(appDir, buildFingerprint)),
-		NeedsTidy:             false,
-		DependencyFingerprint: depFingerprint,
-		BuildFingerprint:      buildFingerprint,
-		GraphFingerprint:      graphFingerprint,
-		Metadata:              json.RawMessage(`{"ok":true}`),
-		APIEncoding:           json.RawMessage(`{"api":"v1"}`),
-		SourceFiles:           append([]string(nil), sourceFiles...),
-		GeneratedFiles:        append([]string(nil), generatedFiles...),
+		AppRoot:                   appDir,
+		AppName:                   "buildtest",
+		Dir:                       workspace,
+		Binary:                    filepath.Join(workspace, workspaceBinaryName(appDir, buildFingerprint)),
+		NeedsTidy:                 false,
+		DependencyFingerprint:     depFingerprint,
+		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		GeneratorFingerprint:      generatorFingerprint,
+		BuildFingerprint:          buildFingerprint,
+		GraphFingerprint:          graphFingerprint,
+		Metadata:                  json.RawMessage(`{"ok":true}`),
+		APIEncoding:               json.RawMessage(`{"api":"v1"}`),
+		SourceFiles:               append([]string(nil), sourceFiles...),
+		GeneratedFiles:            append([]string(nil), generatedFiles...),
 	}
 	if err := saveBuildState(workspace, buildState{
-		Version:               buildStateVersion,
-		DependencyFingerprint: depFingerprint,
-		BuildFingerprint:      buildFingerprint,
-		GraphFingerprint:      graphFingerprint,
-		Metadata:              append([]byte(nil), result.Metadata...),
-		APIEncoding:           append([]byte(nil), result.APIEncoding...),
-		SourceFiles:           sourceFiles,
-		GeneratedFiles:        generatedFiles,
+		Version:                   buildStateVersion,
+		DependencyFingerprint:     depFingerprint,
+		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		GeneratorFingerprint:      generatorFingerprint,
+		BuildFingerprint:          buildFingerprint,
+		GraphFingerprint:          graphFingerprint,
+		Metadata:                  append([]byte(nil), result.Metadata...),
+		APIEncoding:               append([]byte(nil), result.APIEncoding...),
+		SourceFiles:               sourceFiles,
+		GeneratedFiles:            generatedFiles,
 	}); err != nil {
 		t.Fatal(err)
 	}

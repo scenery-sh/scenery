@@ -45,11 +45,17 @@ type Session struct {
 	OwnerPID      int                `json:"owner_pid,omitempty"`
 	Owner         Owner              `json:"owner,omitempty"`
 	AppPID        string             `json:"app_pid,omitempty"`
+	Processes     map[string]Process `json:"processes,omitempty"`
 	Routes        map[string]string  `json:"routes"`
 	Backends      map[string]Backend `json:"backends"`
 	ReportToken   string             `json:"-"`
 	CreatedAt     time.Time          `json:"created_at"`
 	UpdatedAt     time.Time          `json:"updated_at"`
+}
+
+type Process struct {
+	PID   int   `json:"pid"`
+	Owner Owner `json:"owner,omitempty"`
 }
 
 type RegisterRequest struct {
@@ -61,8 +67,10 @@ type RegisterRequest struct {
 	OwnerPID    int                `json:"owner_pid,omitempty"`
 	Owner       Owner              `json:"owner,omitempty"`
 	AppPID      string             `json:"app_pid,omitempty"`
+	Processes   map[string]Process `json:"processes,omitempty"`
 	Backends    map[string]Backend `json:"backends,omitempty"`
 	ReportToken string             `json:"report_token,omitempty"`
+	ClaimOwner  bool               `json:"claim_owner,omitempty"`
 }
 
 type RegisterResponse struct {

@@ -147,6 +147,9 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if existing != nil && !requestMayClaimSession(req, *existing, session) {
+		return Session{}, errors.New("session is owned by another live onlava dev process")
+	}
 	r.sessions[session.SessionID] = session
 	r.currentByAppRoot[filepath.Clean(session.AppRoot)] = session.SessionID
 	if err := r.saveLocked(); err != nil {
@@ -156,6 +159,25 @@ func (r *Registry) Upsert(req RegisterRequest) (Session, error) {
 		return Session{}, err
 	}
 	return session, nil
+}
+
+func requestMayClaimSession(req RegisterRequest, existing, next Session) bool {
+	requestPID := firstPositive(req.Owner.PID, req.OwnerPID, next.Owner.PID, next.OwnerPID)
+	existingPID := firstPositive(existing.Owner.PID, existing.OwnerPID)
+	if requestPID <= 0 || existingPID <= 0 || requestPID == existingPID {
+		return true
+	}
+	if req.ClaimOwner {
+		return true
+	}
+	owner := existing.Owner
+	if owner.PID <= 0 {
+		owner.PID = existing.OwnerPID
+	}
+	if VerifyOwner(owner) != nil {
+		return true
+	}
+	return false
 }
 
 func (r *Registry) Get(id string) (Session, bool) {

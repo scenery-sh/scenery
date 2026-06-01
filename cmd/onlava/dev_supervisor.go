@@ -454,7 +454,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
 		if cached != nil {
-			reused, refreshErr := build.RefreshCachedWorkspace(s.root, result)
+			reused, refreshErr := build.RefreshCachedWorkspaceWithOptions(s.root, result, build.RefreshOptions{ChangedPaths: changedPaths})
 			if refreshErr != nil {
 				return refreshErr
 			}
@@ -1988,6 +1988,7 @@ func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID s
 		Status:      status,
 		OwnerPID:    os.Getpid(),
 		AppPID:      appPID,
+		Processes:   s.sessionProcesses(appPID),
 		Backends:    s.agentSession.Backends,
 		ReportToken: s.reportToken,
 	})
@@ -1997,6 +1998,39 @@ func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID s
 	}
 	s.agentSession = &session
 	s.setSessionIdentity(&session)
+}
+
+func (s *devSupervisor) sessionProcesses(appPID string) map[string]localagent.Process {
+	if s == nil || s.agentSession == nil {
+		return nil
+	}
+	processes := copySessionProcesses(s.agentSession.Processes)
+	if pid := atoiPID(appPID); pid > 0 {
+		processes[localagent.RouteAPI] = localagent.Process{PID: pid}
+	}
+	if worker := s.currentTypeScriptWorker(); worker != nil {
+		if pid := atoiPID(worker.pid); pid > 0 {
+			processes["worker-typescript"] = localagent.Process{PID: pid}
+		}
+	}
+	if len(processes) == 0 {
+		return nil
+	}
+	return processes
+}
+
+func copySessionProcesses(values map[string]localagent.Process) map[string]localagent.Process {
+	if len(values) == 0 {
+		return map[string]localagent.Process{}
+	}
+	copied := make(map[string]localagent.Process, len(values))
+	for key, value := range values {
+		if strings.TrimSpace(key) == "" || value.PID <= 0 {
+			continue
+		}
+		copied[key] = value
+	}
+	return copied
 }
 
 func portAvailable(addr string) error {

@@ -61,10 +61,25 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		ownerPID = existing.OwnerPID
 	}
 	owner := req.Owner
-	if owner.PID == 0 && existing != nil && existing.Owner.PID > 0 {
+	if owner.PID == 0 && existing != nil && existing.Owner.PID > 0 && (ownerPID == 0 || ownerPID == existing.Owner.PID || ownerPID == existing.OwnerPID) {
 		owner = existing.Owner
 	}
 	owner = OwnerFromRequest(ownerPID, owner, "onlava dev")
+	processes := processesForSession(req.Processes, currentProcesses(existing))
+	if strings.TrimSpace(req.AppPID) != "" {
+		pid := parseProcessPID(req.AppPID)
+		if pid > 0 {
+			if processes == nil {
+				processes = map[string]Process{}
+			}
+			process := processes[RouteAPI]
+			if process.PID != pid {
+				process = Process{PID: pid}
+			}
+			process.Owner = OwnerFromRequest(pid, process.Owner, "onlava dev api")
+			processes[RouteAPI] = process
+		}
+	}
 	backends := copyBackends(req.Backends)
 	routes := routesForSession(sessionID, routerAddr, routerScheme, backends)
 	session := Session{
@@ -79,6 +94,7 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		OwnerPID:      ownerPID,
 		Owner:         owner,
 		AppPID:        strings.TrimSpace(req.AppPID),
+		Processes:     processes,
 		Routes:        routes,
 		Backends:      backends,
 		ReportToken:   reportToken,
@@ -178,6 +194,71 @@ func copyBackends(backends map[string]Backend) map[string]Backend {
 		copied[key] = backend
 	}
 	return copied
+}
+
+func currentProcesses(existing *Session) map[string]Process {
+	if existing == nil {
+		return nil
+	}
+	return existing.Processes
+}
+
+func processesForSession(requested, existing map[string]Process) map[string]Process {
+	if len(requested) == 0 {
+		if len(existing) == 0 {
+			return nil
+		}
+		return copyProcesses(existing)
+	}
+	processes := copyProcesses(requested)
+	for name, process := range processes {
+		if process.PID <= 0 {
+			delete(processes, name)
+			continue
+		}
+		if existingProcess, ok := existing[name]; ok && existingProcess.PID == process.PID && process.Owner.PID == 0 {
+			process.Owner = existingProcess.Owner
+		}
+		process.Owner = OwnerFromRequest(process.PID, process.Owner, "onlava dev "+name)
+		processes[name] = process
+	}
+	if len(processes) == 0 {
+		return nil
+	}
+	return processes
+}
+
+func copyProcesses(values map[string]Process) map[string]Process {
+	if len(values) == 0 {
+		return nil
+	}
+	copied := make(map[string]Process, len(values))
+	for key, value := range values {
+		key = sanitizeLabel(key)
+		if key == "" || value.PID <= 0 {
+			continue
+		}
+		copied[key] = value
+	}
+	if len(copied) == 0 {
+		return nil
+	}
+	return copied
+}
+
+func parseProcessPID(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	var pid int
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		pid = pid*10 + int(r-'0')
+	}
+	return pid
 }
 
 func routesForSession(sessionID, routerAddr, routerScheme string, backends map[string]Backend) map[string]string {
