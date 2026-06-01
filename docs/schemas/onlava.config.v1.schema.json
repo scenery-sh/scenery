@@ -40,6 +40,28 @@
       },
       "additionalProperties": false
     },
+    "generators": {
+      "type": "object",
+      "properties": {
+        "clients": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/clientGenerator" }
+        },
+        "sqlc": { "$ref": "#/$defs/sqlcGenerator" }
+      },
+      "additionalProperties": false
+    },
+    "database": {
+      "type": "object",
+      "properties": {
+        "apply": { "$ref": "#/$defs/databaseApply" }
+      },
+      "additionalProperties": false
+    },
+    "tasks": {
+      "type": ["object", "null"],
+      "additionalProperties": { "$ref": "#/$defs/task" }
+    },
     "auth": {
       "type": "object",
       "properties": {
@@ -123,12 +145,77 @@
         "database": { "type": "string", "description": "Named database service dependency for a managed service, such as Electric using postgres." },
         "route": { "type": "string", "description": "Agent route label for a managed session backend." },
         "env": {
-          "type": "object",
+          "type": ["object", "null"],
           "description": "Service-process environment values. These are not automatically injected into the app process.",
           "additionalProperties": { "type": "string" }
         }
       },
       "required": ["kind"],
+      "additionalProperties": false
+    },
+    "clientGenerator": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["", "typescript-client"] },
+        "target": { "type": "string" },
+        "lang": { "type": "string", "enum": ["", "typescript", "ts"] },
+        "output": { "type": "string" }
+      },
+      "required": ["output"],
+      "additionalProperties": false
+    },
+    "sqlcGenerator": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "enum": ["", "sqlc"] },
+        "config": { "type": "string" },
+        "dev_url": { "type": "string" },
+        "schemas": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/sqlcGeneratorSchema" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "sqlcGeneratorSchema": {
+      "type": "object",
+      "properties": {
+        "sqlc_schema": { "type": "string" },
+        "atlas_schema": { "type": "string" },
+        "atlas_source": { "type": "string" },
+        "atlas_dev_url": { "type": "string" }
+      },
+      "required": ["sqlc_schema"],
+      "additionalProperties": false
+    },
+    "databaseApply": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "enum": ["", "exec"] },
+        "command": { "type": "string" },
+        "cwd": { "type": "string" },
+        "env": {
+          "type": ["object", "null"],
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "properties": {
+        "cwd": { "type": "string" },
+        "run": { "type": "string" },
+        "steps": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": ["object", "null"],
+          "additionalProperties": { "type": "string" }
+        }
+      },
       "additionalProperties": false
     },
     "authGoogleOAuth": {

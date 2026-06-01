@@ -6,6 +6,56 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## onlava Script Runner
+
+- Status: completed
+- Owner: onlava runtime / developer experience
+- Completed: 2026-06-01
+- Quality: B+
+- ExecPlan: [0058 onlava Script Runner](0058-onlava-script-runner.md)
+
+Shipped:
+
+- `onlava script list`, `onlava script inspect`, and `onlava script run` for app-local operational scripts.
+- `onlava run <domain>:<script> [script args...]` as sugar for `onlava script run`.
+- Filesystem-first discovery for `<domain>/scripts/<name>.script.go`, `<domain>/scripts/<name>.script.ts`, `<domain>/scripts/<name>/main.go`, and `<domain>/scripts/<name>/index.ts`.
+- Strict target parsing, clear missing-script errors, and ambiguity errors unless `--lang go|typescript` disambiguates.
+- Go execution via `go run`, requiring `//go:build ignore` for single-file Go scripts, plus TypeScript execution through Bun or Node with `tsx`.
+- Focused tests, usage text, local-contract/cookbook docs, and a script fixture that also passes the normal app fixture matrix.
+
+Validation:
+
+- `go test ./cmd/onlava` passed.
+- `go test ./...` passed.
+- `git diff --check` passed.
+- `go install ./cmd/onlava` passed.
+- Focused `onlava script` and `onlava run` fixture scenarios passed.
+- `onlava harness self --json --write` was run after fixes; all feature-relevant checks and fixture matrix passed, but the overall harness remained red on the pre-existing full-suite timing budget tracked by `docs/plans/0050-test-suite-speed-hardening.md`.
+
+## Typed Lifecycle Graph Phase 1
+
+- Status: completed
+- Owner: onlava runtime / ONLV integration
+- Completed: 2026-06-01
+- Quality: B+
+- ExecPlan: [0057 Typed Lifecycle Graph Phase 1](0057-typed-lifecycle-graph-phase1.md)
+
+Shipped:
+
+- `onlava generate`, `onlava generate client`, and `onlava generate sqlc` for configured file-producing lifecycle work.
+- `onlava inspect generators --json` and `onlava generate --dry-run --json` for generator graph inspection.
+- `onlava db sync` with an explicit `database.apply` exec provider followed by dependent SQLC regeneration.
+- `onlava task list`, `onlava task run <name>`, and `onlava task graph --json` as a thin repo-local task layer.
+- `.onlava.json` config/schema support for `generators`, `database.apply`, and `tasks`, plus focused tests and docs.
+
+Validation:
+
+- `go test ./cmd/onlava -run 'Test(ParseGenerate|BuildSQLC|RunGenerate|RunSQLC|DBSync|TaskGraph|DBCommand)'` passed.
+- `go test ./cmd/onlava` passed.
+- `go test ./...` passed.
+- `go install ./cmd/onlava` passed.
+- `onlava harness self --json --write` was run after fixes; all feature-relevant checks passed, but the overall harness remained red on the pre-existing full-suite timing budget tracked by `docs/plans/0050-test-suite-speed-hardening.md`.
+
 ## Browser Worker Operational Hardening
 
 - Status: completed

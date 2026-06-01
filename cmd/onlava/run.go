@@ -28,12 +28,61 @@ type runOptions struct {
 }
 
 func runCommand(args []string) error {
+	if opts, ok, err := parseRunScriptArgs(args); err != nil {
+		return err
+	} else if ok {
+		return runOnlavaScript(context.Background(), opts)
+	}
 	opts, err := parseRunArgs(args)
 	if err != nil {
 		return err
 	}
 	addr := resolveListenAddr(opts.Listen, opts.Port)
 	return runHeadlessFunc(addr, opts)
+}
+
+func parseRunScriptArgs(args []string) (scriptOptions, bool, error) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if runArgConsumesValue(arg) {
+			i++
+			if i >= len(args) {
+				return scriptOptions{}, false, nil
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if !strings.Contains(arg, ":") {
+			return scriptOptions{}, false, nil
+		}
+		prefix := append([]string(nil), args[:i]...)
+		runOpts, err := parseRunArgs(prefix)
+		if err != nil {
+			return scriptOptions{}, true, err
+		}
+		scriptArgs := append([]string(nil), args[i+1:]...)
+		if len(scriptArgs) > 0 && scriptArgs[0] == "--" {
+			scriptArgs = scriptArgs[1:]
+		}
+		return scriptOptions{
+			AppRoot: runOpts.AppRoot,
+			Env:     runOpts.Env,
+			Target:  arg,
+			Args:    scriptArgs,
+		}, true, nil
+	}
+	return scriptOptions{}, false, nil
+}
+
+func runArgConsumesValue(arg string) bool {
+	switch arg {
+	case "--port", "-p", "--listen", "--app-root", "--env", "--log-format":
+		return true
+	default:
+		return false
+	}
 }
 
 var (

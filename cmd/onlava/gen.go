@@ -45,42 +45,56 @@ func genClientCommand(args []string) error {
 		return fmt.Errorf("unsupported client language %q", opts.Lang)
 	}
 
-	start, err := resolveAppRoot(opts.AppRoot)
+	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
+	}
+	outputPath, err := writeTypeScriptClient(appRoot, cfg, opts.Target, opts.Output)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stdout, "onlava: generated TypeScript client at %s\n", outputPath)
+	return nil
+}
+
+func discoverConfiguredApp(appRootOpt string) (string, app.Config, error) {
+	start, err := resolveAppRoot(appRootOpt)
+	if err != nil {
+		return "", app.Config{}, err
 	}
 	appRoot, cfg, err := app.DiscoverRoot(start)
 	if err != nil {
-		return err
+		return "", app.Config{}, err
 	}
-	if opts.Target != "" && opts.Target != cfg.ID && opts.Target != cfg.Name {
-		return fmt.Errorf("client target %q does not match local app %q", opts.Target, cfg.Name)
-	}
+	return appRoot, cfg, nil
+}
 
+func writeTypeScriptClient(appRoot string, cfg app.Config, target, outputPath string) (string, error) {
+	if target != "" && target != cfg.ID && target != cfg.Name {
+		return "", fmt.Errorf("client target %q does not match local app %q", target, cfg.Name)
+	}
 	model, err := parse.App(appRoot, cfg.Name)
 	if err != nil {
-		return err
+		return "", err
 	}
 	output, err := clientgen.GenerateTypeScript(model, clientgen.TypeScriptOptions{
 		AppSlug:      firstNonEmpty(cfg.ID, cfg.Name),
 		StandardAuth: cfg.Auth.Enabled,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	outputPath := opts.Output
 	if !filepath.IsAbs(outputPath) {
 		outputPath = filepath.Join(appRoot, outputPath)
 	}
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return err
+		return "", err
 	}
 	if err := os.WriteFile(outputPath, output, 0o644); err != nil {
-		return err
+		return "", err
 	}
-	fmt.Fprintf(os.Stdout, "onlava: generated TypeScript client at %s\n", outputPath)
-	return nil
+	return outputPath, nil
 }
 
 func parseGenClientArgs(args []string) (genClientOptions, error) {

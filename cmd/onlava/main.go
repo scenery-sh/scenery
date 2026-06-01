@@ -46,6 +46,8 @@ func run(args []string) error {
 		return consoleCommand(args[1:])
 	case "run":
 		return runCommand(args[1:])
+	case "script":
+		return scriptCommand(args[1:])
 	case "status":
 		return statusCommand(args[1:])
 	case "down":
@@ -54,6 +56,10 @@ func run(args []string) error {
 		return pruneCommand(args[1:])
 	case "db":
 		return dbCommand(args[1:])
+	case "generate":
+		return generateCommand(args[1:])
+	case "task":
+		return taskCommand(args[1:])
 	case "worker":
 		return workerCommand(args[1:])
 	case "temporal":
@@ -95,10 +101,21 @@ func usageError() error {
     onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]
     onlava prune --older-than <duration> [--app-root <path>] [--json]
     onlava db psql [--app-root <path>] [psql args...]
+    onlava db sync [--app-root <path>]
     onlava db reset [--app-root <path>]
     onlava db drop [--app-root <path>]
     onlava db snapshot create|restore <name> [--app-root <path>]
+    onlava generate [--app-root <path>] [--dry-run] [--json]
+    onlava generate client [<app-id>] [--lang typescript] [--output <path>] [--app-root <path>] [--dry-run] [--json]
+    onlava generate sqlc [--app-root <path>] [--dry-run] [--json]
+    onlava task list [--app-root <path>] [--json]
+    onlava task run <name> [--app-root <path>]
+    onlava task graph --json [--app-root <path>]
+    onlava script list [--app-root <path>] [--json]
+    onlava script inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
+    onlava script run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
     onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
+    onlava run [--app-root <path>] [--env <name>] <domain>:<script> [script args...]
     onlava worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
     onlava worker typescript [--task-queue <name>[,<name>]]... [--runtime bun|node] [--app-root <path>] [--generate-only]
@@ -111,7 +128,7 @@ func usageError() error {
     onlava harness [--app-root <path>] [--json] [--write]
     onlava harness self [--repo-root <path>] [--json] [--write] [--quick|--race|--release]
     onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-    onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
+    onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|traces|metrics --json [--app-root <path>]
     onlava inspect docs --json [--repo-root <path>]
     onlava inspect traces --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
     onlava inspect metrics --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]

@@ -268,6 +268,12 @@ func runOnlavaInspect(args []string, stdout io.Writer) error {
 			return err
 		}
 		return writeInspectJSON(stdout, resp)
+	case "generators":
+		resp, err := buildInspectGeneratorsResponse(appRoot, cfg)
+		if err != nil {
+			return err
+		}
+		return writeInspectJSON(stdout, resp)
 	case "temporal":
 		resp, err := buildInspectTemporalResponse(context.Background(), appRoot, cfg)
 		if err != nil {

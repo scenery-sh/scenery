@@ -202,14 +202,19 @@ onlava run [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--
 onlava version [--json]
 onlava build [--app-root <path>] [-o <path>]
 onlava check [--app-root <path>] [--json]
+onlava generate [--app-root <path>] [--dry-run] [--json]
+onlava task list [--app-root <path>] [--json]
+onlava task run <name> [--app-root <path>]
+onlava task graph --json [--app-root <path>]
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
-onlava inspect app|routes|services|endpoints|wire|build|paths|traces|metrics --json [--app-root <path>]
+onlava inspect app|routes|services|endpoints|wire|build|paths|generators|traces|metrics --json [--app-root <path>]
 onlava inspect docs --json [--repo-root <path>]
 onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [-f|--follow] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
 onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 onlava db psql [--app-root <path>] [psql args...]
+onlava db sync [--app-root <path>]
 onlava db reset [--app-root <path>]
 onlava db snapshot create|restore <name> [--app-root <path>]
 onlava psql [--app-root <path>] [psql args...]
@@ -237,6 +242,8 @@ onlava gen client --lang typescript --output ./src/onlava-client.ts
 ```
 
 The generated client understands the app's route model and local wire capabilities. The benchmark fixture in [benchmarks/json-wire](benchmarks/json-wire) compares JSON, wire JSON, binary wire, and automatic wire modes.
+
+Apps can also configure `generators.clients` and use `onlava generate client` or `onlava generate --dry-run --json` to inspect and run configured generators. `onlava generate sqlc` is for file generation; database mutation belongs under `onlava db sync`.
 
 ## Observability And Inspection
 

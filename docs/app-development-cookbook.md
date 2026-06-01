@@ -315,6 +315,14 @@ Generate a client:
 onlava gen client --lang typescript --output ./src/onlava-client.ts
 ```
 
+If `.onlava.json` declares `generators.clients`, inspect and run the configured graph:
+
+```sh
+onlava inspect generators --json
+onlava generate --dry-run --json
+onlava generate client
+```
+
 Inspect wire support:
 
 ```sh
@@ -322,6 +330,64 @@ onlava inspect wire --json
 ```
 
 Common failure: committing generated clients without regenerating after endpoint changes.
+
+## Operational Scripts
+
+Use `onlava script` for app-local operational scripts that should run from the app root without requiring the app model to parse cleanly.
+
+Single-file Go scripts live under a domain's `scripts` directory and must start with `//go:build ignore`:
+
+```go
+//go:build ignore
+
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("reconcile")
+}
+```
+
+```text
+billing/scripts/reconcile.script.go
+```
+
+Run it:
+
+```sh
+onlava script run billing:reconcile --dry-run
+onlava run billing:reconcile --dry-run
+```
+
+Use a directory for larger Go scripts:
+
+```text
+billing/scripts/reconcile/main.go
+billing/scripts/reconcile/helpers.go
+```
+
+TypeScript scripts use the same namespace:
+
+```text
+billing/scripts/reconcile.script.ts
+billing/scripts/reconcile/index.ts
+```
+
+List and inspect scripts:
+
+```sh
+onlava script list --json
+onlava script inspect billing:reconcile --json
+```
+
+Common failure: putting two single-file Go scripts with `package main` in the same directory without `//go:build ignore`. Normal Go package loading may see both files before onlava can filter anything. Use the build tag for `*.script.go`, or use a per-script directory.
+
+## Configured SQLC And DB Sync
+
+Use `onlava generate sqlc` for file generation. It reads `sqlc.yaml`, refreshes convention-matched Atlas schema SQL such as `auth/db/gen/schema.sql` from `auth/db/schema.hcl`, and then runs `sqlc generate`.
+
+Use `onlava db sync` only when `.onlava.json` explicitly configures `database.apply`; it may mutate the selected development database before regenerating dependent SQLC artifacts.
 
 ## Local Proxy And Frontends
 
@@ -402,7 +468,7 @@ onlava harness ui --json
 ## Common Mistakes And Fixes
 
 - Missing `.onlava.json`: create it at the app root or pass `--app-root`.
-- Stale generated client: rerun `onlava gen client`.
+- Stale generated client: rerun `onlava gen client` or configured `onlava generate client`.
 - Auth endpoint returns unauthorized: inspect standard auth bootstrap and bearer token.
 - Private endpoint exposed over HTTP: change to public/auth only when it should be externally reachable.
 - No traces: confirm the app is running under onlava and uses onlava-aware wrappers for DB/client work.

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.task.graph.v1.schema.json",
+  "title": "onlava.task.graph.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "tasks"],
+  "properties": {
+    "schema_version": { "const": "onlava.task.graph.v1" },
+    "app": { "$ref": "#/$defs/appRef" },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/task" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": ["name", "root", "config_path"],
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "type": "string" },
+        "root": { "type": "string" },
+        "config_path": { "type": "string" },
+        "module_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "cwd": { "type": "string" },
+        "run": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "env_keys": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

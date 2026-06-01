@@ -145,12 +145,16 @@ Prefer JSON when output will feed another tool or decision.
 | Inspect routes/endpoints/services | `onlava inspect routes --json`, `onlava inspect endpoints --json`, `onlava inspect services --json` |
 | Inspect generated client/wire | `onlava inspect wire --json` |
 | Inspect build/cache paths | `onlava inspect build --json`, `onlava inspect paths --json` |
+| Inspect generator graph | `onlava inspect generators --json` |
 | Inspect docs knowledge base | `onlava inspect docs --json` |
 | Run app validation snapshot | `onlava harness --json --write` |
 | Run repo validation snapshot | `onlava harness self --json --write` |
 | Follow logs | `onlava logs --jsonl --session current --limit 200` |
 | Inspect traces/metrics | `onlava inspect traces --json --session current`, `onlava inspect metrics --json --session current` |
 | Generate TypeScript client | `onlava gen client --lang typescript --output <path>` |
+| Run configured generation | `onlava generate --dry-run --json`, then `onlava generate` |
+| Sync configured dev DB | `onlava db sync` |
+| Run repo-local task | `onlava task list`, `onlava task run <name>` |
 | Connect to managed Postgres | `onlava db psql` |
 
 Use non-JSON output only for human inspection.
@@ -164,6 +168,8 @@ Use non-JSON output only for human inspection.
 - Use `onlava run` for headless API-role execution. Do not expect dashboard, MCP, proxy, watch mode, or dev/admin endpoints.
 - Use `onlava worker` for worker-role execution of native Temporal workers and cron.
 - Use `onlava build` for a deployable binary artifact.
+- Use `onlava generate` for configured file-producing generators. It is separate from `onlava db sync`, which can mutate the configured development database before refreshing dependent SQLC artifacts.
+- Use `onlava task run <name>` only for repo-local workflows that are not core onlava lifecycle commands.
 
 ## MCP For Agents
 

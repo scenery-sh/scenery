@@ -10,13 +10,16 @@ import (
 )
 
 type Config struct {
-	Name          string              `json:"name"`
-	ID            string              `json:"id"`
-	Proxy         ProxyConfig         `json:"proxy"`
-	Dev           DevConfig           `json:"dev"`
-	Auth          AuthConfig          `json:"auth"`
-	Observability ObservabilityConfig `json:"observability"`
-	Temporal      TemporalConfig      `json:"temporal"`
+	Name          string                `json:"name"`
+	ID            string                `json:"id"`
+	Proxy         ProxyConfig           `json:"proxy"`
+	Dev           DevConfig             `json:"dev"`
+	Generators    GeneratorsConfig      `json:"generators"`
+	Database      DatabaseConfig        `json:"database"`
+	Tasks         map[string]TaskConfig `json:"tasks"`
+	Auth          AuthConfig            `json:"auth"`
+	Observability ObservabilityConfig   `json:"observability"`
+	Temporal      TemporalConfig        `json:"temporal"`
 }
 
 func (c Config) AppID() string {
@@ -56,6 +59,51 @@ type DevServiceConfig struct {
 	Database  string            `json:"database"`
 	Route     string            `json:"route"`
 	Env       map[string]string `json:"env"`
+}
+
+type GeneratorsConfig struct {
+	Clients []ClientGeneratorConfig `json:"clients"`
+	SQLC    SQLCGeneratorConfig     `json:"sqlc"`
+}
+
+type ClientGeneratorConfig struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	Lang   string `json:"lang"`
+	Output string `json:"output"`
+}
+
+type SQLCGeneratorConfig struct {
+	Provider string                `json:"provider"`
+	Config   string                `json:"config"`
+	DevURL   string                `json:"dev_url"`
+	Schemas  []SQLCGeneratorSchema `json:"schemas"`
+}
+
+type SQLCGeneratorSchema struct {
+	SQLCSchema  string `json:"sqlc_schema"`
+	AtlasSchema string `json:"atlas_schema"`
+	AtlasSource string `json:"atlas_source"`
+	AtlasDevURL string `json:"atlas_dev_url"`
+}
+
+type DatabaseConfig struct {
+	Apply DatabaseApplyConfig `json:"apply"`
+}
+
+type DatabaseApplyConfig struct {
+	Provider string            `json:"provider"`
+	Command  string            `json:"command"`
+	CWD      string            `json:"cwd"`
+	Env      map[string]string `json:"env"`
+}
+
+type TaskConfig struct {
+	CWD   string            `json:"cwd"`
+	Run   string            `json:"run"`
+	Steps []string          `json:"steps"`
+	Env   map[string]string `json:"env"`
 }
 
 type AuthConfig struct {

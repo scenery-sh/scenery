@@ -166,6 +166,16 @@ onlava gen client --lang typescript --output ./src/onlava-client.ts
 
 Regenerate committed clients after endpoint, request/response, auth, or wire-capability changes.
 
+When an app configures `generators`, prefer:
+
+```sh
+onlava inspect generators --json
+onlava generate --dry-run --json
+onlava generate
+```
+
+Use `onlava db sync` for configured database mutation plus dependent SQLC regeneration; keep `onlava generate` for file generation only.
+
 ## Command Reference
 
 Use `docs/local-contract.md` for the full grammar. Common agent commands:
@@ -181,14 +191,19 @@ onlava worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <n
 onlava version --json
 onlava build [--app-root <path>] [-o <path>]
 onlava check [--app-root <path>] --json
+onlava generate [--app-root <path>] [--dry-run] [--json]
+onlava task list [--app-root <path>] [--json]
+onlava task run <name> [--app-root <path>]
+onlava task graph --json [--app-root <path>]
 onlava harness [--app-root <path>] --json --write
 onlava harness self [--repo-root <path>] --json --write
-onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
+onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|traces|metrics --json [--app-root <path>]
 onlava inspect docs --json [--repo-root <path>]
 onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
 onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 onlava db psql [--app-root <path>] [psql args...]
+onlava db sync [--app-root <path>]
 ```
 
 ## Validation Before Finishing

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 )
@@ -18,11 +19,13 @@ type psqlOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: onlava db psql|reset|drop|snapshot [--app-root <path>]")
+		return fmt.Errorf("usage: onlava db psql|sync|reset|drop|snapshot [--app-root <path>]")
 	}
 	switch args[0] {
 	case "psql":
 		return psqlCommandWithOptions(args[1:], true)
+	case "sync":
+		return dbSyncCommand(args[1:])
 	case "reset":
 		return dbResetCommand(args[1:])
 	case "drop":
@@ -32,6 +35,53 @@ func dbCommand(args []string) error {
 	default:
 		return fmt.Errorf("unknown db command %q", args[0])
 	}
+}
+
+func dbSyncCommand(args []string) error {
+	opts, err := parseDBResetArgs(args)
+	if err != nil {
+		return err
+	}
+	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if err := runDatabaseApplyProvider(ctx, appRoot, cfg.Database.Apply); err != nil {
+		return err
+	}
+	if sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg); err != nil {
+		return err
+	} else if ok {
+		return runSQLCGenerator(ctx, os.Stdout, appRoot, sqlcPlan, false)
+	}
+	fmt.Fprintln(os.Stdout, "onlava: database sync complete; no sqlc generator configured")
+	return nil
+}
+
+func runDatabaseApplyProvider(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig) error {
+	command := strings.TrimSpace(apply.Command)
+	if command == "" {
+		return fmt.Errorf("database.apply is not configured")
+	}
+	provider := firstNonEmpty(apply.Provider, "exec")
+	if provider != "exec" {
+		return fmt.Errorf("unsupported database apply provider %q", apply.Provider)
+	}
+	env, err := appEnvWithDotEnv(os.Environ(), appRoot)
+	if err != nil {
+		return err
+	}
+	program, args := shellInvocation(command)
+	return runLifecycleExec(ctx, lifecycleExecRequest{
+		Dir:     resolveLifecycleCWD(appRoot, apply.CWD),
+		Env:     overlayEnv(env, apply.Env),
+		Program: program,
+		Args:    args,
+		Stdin:   os.Stdin,
+		Stdout:  os.Stdout,
+		Stderr:  os.Stderr,
+	})
 }
 
 func dbDropCommand(args []string) error {

@@ -21,9 +21,14 @@ same as the stable v0 support surface.
 - `onlava worker`
 - `onlava version --json`
 - `onlava check --json`
+- `onlava generate`
+- `onlava generate client`
+- `onlava generate sqlc`
 - `onlava db psql`
+- `onlava db sync`
 - `onlava db reset`
 - `onlava db snapshot create|restore`
+- `onlava task list|run|graph`
 - `onlava psql`
 - `onlava harness --json`
 - `onlava harness self --json`
@@ -36,6 +41,7 @@ same as the stable v0 support surface.
 - `onlava inspect wire --json`
 - `onlava inspect build --json`
 - `onlava inspect paths --json`
+- `onlava inspect generators --json`
 - `onlava inspect temporal --json`
 - `onlava inspect traces --json`
 - `onlava inspect metrics --json`
@@ -75,10 +81,14 @@ Stable v0 surface:
 Dev-only or beta surface:
 - `onlava dev`
 - `onlava db psql`
+- `onlava db sync`
 - `onlava db reset`
 - `onlava db snapshot create|restore`
+- `onlava generate`
+- `onlava task list|run|graph`
 - `onlava psql`
 - `onlava inspect traces|metrics --json`
+- `onlava inspect generators --json`
 - `onlava inspect temporal --json`
 - `onlava worker`
 - `onlava admin traces clear --json`
@@ -118,6 +128,42 @@ Current shape:
         "host": "app.acme.localhost",
         "root": "apps/app"
       }
+    }
+  },
+  "generators": {
+    "clients": [
+      {
+        "id": "web",
+        "kind": "typescript-client",
+        "target": "myapp-dev",
+        "output": "apps/web/src/onlava-client.ts"
+      }
+    ],
+    "sqlc": {
+      "provider": "sqlc",
+      "config": "sqlc.yaml",
+      "dev_url": "docker://postgres/18/dev",
+      "schemas": [
+        {
+          "sqlc_schema": "auth/db/gen/schema.sql",
+          "atlas_source": "auth/db/schema.hcl"
+        }
+      ]
+    }
+  },
+  "database": {
+    "apply": {
+      "provider": "exec",
+      "command": "./scripts/db-safe-apply.sh"
+    }
+  },
+  "tasks": {
+    "harness": {
+      "steps": ["check", "test:go"]
+    },
+    "ui-harness": {
+      "cwd": "apps/web",
+      "run": "bun run ui-harness"
     }
   },
   "auth": {
@@ -187,6 +233,10 @@ Rules:
 - `proxy.frontends` is a map keyed by frontend name. Each frontend requires `host`; `root` defaults to `apps/<name>`; `upstream` is optional but ignored by agent dev unless that frontend also sets `allow_shared_upstream: true`. With an active agent, `onlava dev` prefers to start supported Vite/Astro frontends on hidden loopback ports, inject routed API/Electric URLs into their process environment, register those hidden ports as session backends, and expose `https://<frontend>.<session>.onlava.localhost:<agent-router-port>/` by default. `ONLAVA_FRONTEND_<NAME>_ADDR` still overrides onlava-owned frontend startup for manual debugging.
 - `dev.services` is a beta local-development config surface for onlava-owned substrates. Phase 5 accepts `postgres` and `electric` service declarations with `kind`, `version`, `isolation`, `image`, `database`, `route`, and string `env` values. The agent currently owns managed Postgres and Electric for this surface, while unsupported service kinds or isolation modes are rejected instead of silently falling back to target-app port orchestration.
 - `dev.setup` is an optional beta list of shell commands that `onlava dev` runs from the app root after managed dev services are prepared and before the app process starts. Setup commands receive the same managed Postgres `DatabaseURL`/`DATABASE_URL` env values as the app child, so target apps can apply local schema to the per-session database.
+- `generators.clients` is a beta lifecycle config for generated TypeScript clients. `kind` defaults to `typescript-client`, `lang` defaults to TypeScript, and `output` is required. `onlava generate client` uses these entries when no explicit `--output` is passed.
+- `generators.sqlc` is a beta lifecycle config for SQLC generation. `provider` may be empty or `sqlc`; `config` defaults to `sqlc.yaml`; `dev_url` defaults to `docker://postgres/18/dev`. When a SQLC schema path follows `<pkg>/db/gen/schema.sql` and `<pkg>/db/schema.hcl` exists, `onlava generate sqlc` refreshes the generated schema SQL with `atlas schema inspect` before running `sqlc generate`.
+- `database.apply` is a beta DB lifecycle escape hatch. Phase 1 supports only `provider: "exec"` with an explicit shell `command`, optional `cwd`, and string `env` overlay. `onlava db sync` runs this provider and then refreshes configured SQLC artifacts. It does not infer or apply migrations by convention.
+- `tasks` is a beta thin repo-task layer. Each task can define either `run` or `steps`, plus optional `cwd` and string `env`. `run` uses the platform shell from the app root or task cwd. `steps` currently accepts `task:<name>`, `check`, `test:go`, `generate`, `generate:client`, `generate:sqlc`, and `db:sync`.
 - `dev.services.postgres` currently defaults to version `18` and `isolation: "database"`. Other isolation modes are rejected until implemented. With an active agent session, onlava creates or reuses a deterministic per-session database, registers Postgres substrate metadata, and injects session-scoped `DatabaseURL`/`DATABASE_URL` even when local env files already contain those keys. The admin cluster comes from `ONLAVA_DEV_POSTGRES_ADMIN_URL`, a reusable agent Postgres substrate, Docker when available for the requested version, or local `initdb`/`postgres` binaries under the agent state directory. Managed local Postgres starts with logical replication settings so `dev.services.electric` can attach. `ONLAVA_DEV_POSTGRES_INITDB` and `ONLAVA_DEV_POSTGRES_BIN` can point at explicit local binaries. Set `ONLAVA_DEV_POSTGRES_EXTERNAL=1` to keep an explicit external `DatabaseURL`/`DATABASE_URL` instead of using the managed session database. Once registered, later sessions and `onlava db ...` commands can reuse the agent-recorded Postgres substrate URL.
 - `dev.services.electric` supports explicit upstream routing with `ONLAVA_DEV_ELECTRIC_UPSTREAM`; when set, onlava registers the upstream as a hidden session backend and injects `ELECTRIC_URL`/`ONLAVA_ELECTRIC_URL` using the agent route. Without an explicit upstream, onlava starts a hidden per-session Electric process from `ONLAVA_DEV_ELECTRIC_BIN` or, when `dev.services.electric.image` is set and Docker is available, from that image. Electric receives the managed Postgres session database URL when `dev.services.postgres` is declared, unless `ONLAVA_DEV_POSTGRES_EXTERNAL=1` is set; otherwise it receives explicit `DATABASE_URL`/`DatabaseURL`. onlava also sets a deterministic session-scoped `ELECTRIC_REPLICATION_STREAM_ID` by default so multiple sessions can share one Postgres cluster without colliding on Electric publication or replication-slot names. Configured `dev.services.electric.env` values stay on the Electric process/container and are not injected into the app process; an explicit `ELECTRIC_REPLICATION_STREAM_ID` there overrides the onlava default.
 - Standard auth uses the `github.com/pbrazdil/onlava/auth` top surface and stores DB-backed auth state in PostgreSQL schema `onlava_auth`.
@@ -238,13 +288,23 @@ onlava version [--json]
 onlava build [--app-root <path>] [-o <path>]
 onlava check [--app-root <path>] [--json]
 onlava db psql [--app-root <path>] [psql args...]
+onlava db sync [--app-root <path>]
 onlava db reset [--app-root <path>]
 onlava db drop [--app-root <path>]
 onlava db snapshot create|restore <name> [--app-root <path>]
+onlava generate [--app-root <path>] [--dry-run] [--json]
+onlava generate client [<app-id>] [--lang typescript] [--output <path>] [--app-root <path>] [--dry-run] [--json]
+onlava generate sqlc [--app-root <path>] [--dry-run] [--json]
+onlava task list [--app-root <path>] [--json]
+onlava task run <name> [--app-root <path>]
+onlava task graph --json [--app-root <path>]
+onlava script list [--app-root <path>] [--json]
+onlava script inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
+onlava script run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
 onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-onlava inspect app|routes|services|endpoints|wire|build|paths|temporal|traces|metrics --json [--app-root <path>]
+onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|traces|metrics --json [--app-root <path>]
 onlava inspect docs --json [--repo-root <path>]
 onlava inspect traces --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 onlava inspect metrics --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
@@ -261,14 +321,14 @@ Implemented beta/dev helper grammar:
 onlava psql [--app-root <path>] [psql args...]
 ```
 
-`onlava db psql` is the PRD-facing spelling. When `dev.services.postgres` is configured and an agent session is active, it connects to the managed session database; otherwise it falls back to the older beta `onlava psql` behavior. `onlava db reset`, `onlava db drop`, and `onlava db snapshot create|restore` are only available for managed session databases.
+`onlava db psql` is the PRD-facing spelling. When `dev.services.postgres` is configured and an agent session is active, it connects to the managed session database; otherwise it falls back to the older beta `onlava psql` behavior. `onlava db reset`, `onlava db drop`, and `onlava db snapshot create|restore` are only available for managed session databases. `onlava db sync` is beta and runs only an explicit `database.apply` provider before dependent SQLC generation.
 
 Inspect rules:
 - `onlava inspect` requires a subject.
 - `onlava inspect` currently requires `--json`.
 - `--app-root` is optional. When omitted, onlava walks upward from the current working directory to find `.onlava.json`.
 - Stable inspect subjects for v0 are `app`, `routes`, `services`, `endpoints`, `wire`, `build`, `paths`, and `docs`.
-- `temporal`, `traces`, and `metrics` are beta diagnostic subjects. `temporal` reports effective Temporal config and, when enabled, a short connectivity check. `traces` and `metrics` prefer local VictoriaTraces reads when those sidecars are available, and fall back to the onlava dashboard SQLite store. If no local state exists, they return valid JSON with a warning and empty result sets.
+- `generators`, `temporal`, `traces`, and `metrics` are beta diagnostic subjects. `generators` reports configured generation graph inputs and outputs. `temporal` reports effective Temporal config and, when enabled, a short connectivity check. `traces` and `metrics` prefer local VictoriaTraces reads when those sidecars are available, and fall back to the onlava dashboard SQLite store. If no local state exists, they return valid JSON with a warning and empty result sets.
 - The `onlava.inspect.traces.v1` and `onlava.inspect.metrics.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable v0 API yet.
 - `--since` accepts Go duration strings such as `15m`, `1h`, or `24h`.
 - `--min-duration-ms` filters root traces by duration in milliseconds.
@@ -301,6 +361,10 @@ Command split:
 - `onlava dev --port <n>` and `onlava dev --listen <addr>` force a manual TCP app backend. The default agent path uses a session-private Unix socket and should be preferred for worktree-safe development.
 - `onlava run` builds once and starts the app runtime headlessly. It does not start the dashboard, MCP server, local proxy, frontend proxy, or file watcher.
 - `onlava run` starts the generated binary with `ONLAVA_ROLE=api`, so it serves HTTP APIs without registering worker-only workflow or activity handlers.
+- `onlava script list|inspect|run` is the canonical local operational script surface. Script discovery is filesystem-first and does not parse or type-check the onlava app model. Targets use `<domain>:<script>` and map to `<app-root>/<domain>/scripts/<script>...`; the domain is a top-level path segment, not an onlava service name.
+- `onlava run <domain>:<script> [script args...]` is sugar for `onlava script run <domain>:<script> [script args...]`. Onlava flags for the sugar form must appear before the target, such as `onlava run --env production billing:reconcile --dry-run`. Arguments after the target belong to the script; `--` is accepted but not required.
+- Supported script layouts are `<domain>/scripts/<name>.script.go`, `<domain>/scripts/<name>.script.ts`, `<domain>/scripts/<name>/main.go`, and `<domain>/scripts/<name>/index.ts`. Single-file Go scripts must start with `//go:build ignore` so normal app package loading cannot accidentally include them. If multiple candidates match a target, onlava fails unless `--lang go|typescript` selects a single language.
+- Scripts execute with cwd set to the app root. Go scripts use `go run`; TypeScript scripts prefer `bun` and fall back to `node --import tsx`. Script processes receive `ONLAVA_APP_ID`, `ONLAVA_APP_ROOT`, and `ONLAVA_ENV`/`ONLAVA_RUNTIME_ENV` when `--env` is set, with `.env` and `.env.local` loaded when present.
 - Cron declarations use Temporal Schedules when Temporal is enabled. `onlava run` reconciles schedules from the API role, while `onlava worker` runs the cron workflow/activity worker on `onlava.<app>.cron.go`. Temporal cron executions derive their onlava request start/idempotency metadata from the workflow scheduled start time.
 - `onlava worker` builds once and starts the app runtime in worker-only mode with no public HTTP server. In this beta implementation it runs cron and native Temporal workers; generated binaries use `ONLAVA_ROLE=worker`.
 - `onlava worker bindings` validates `.onlava/workers/*.json` manifests and writes language-specific activity starter files. Python manifests produce `onlava_worker.py`; TypeScript/JavaScript manifests produce `onlava_worker.ts`; unknown languages receive a normalized JSON binding file.
@@ -522,7 +586,9 @@ Implemented now:
 - [onlava.wire.capabilities.v1.schema.json](schemas/onlava.wire.capabilities.v1.schema.json)
 - [onlava.inspect.build.v1.schema.json](schemas/onlava.inspect.build.v1.schema.json)
 - [onlava.inspect.paths.v1.schema.json](schemas/onlava.inspect.paths.v1.schema.json)
+- [onlava.inspect.generators.v1.schema.json](schemas/onlava.inspect.generators.v1.schema.json)
 - [onlava.inspect.temporal.v1.schema.json](schemas/onlava.inspect.temporal.v1.schema.json)
+- [onlava.task.graph.v1.schema.json](schemas/onlava.task.graph.v1.schema.json)
 - [onlava.worker.manifest.v1.schema.json](schemas/onlava.worker.manifest.v1.schema.json)
 - [onlava.worker.manifest.v2.schema.json](schemas/onlava.worker.manifest.v2.schema.json)
 - [onlava.gen.manifest.v1.schema.json](schemas/onlava.gen.manifest.v1.schema.json)
