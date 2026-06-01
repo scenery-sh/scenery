@@ -86,6 +86,8 @@ onlava dev [--app-root <path>] [--session <id>|--new-session] [--json] [--detach
 onlava attach [--app-root <path>] [--session current|<id>] [--jsonl]
 onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]
 onlava serve [--app-root <path>] [--env <name>] [--log-format text|json]
+onlava run list [--app-root <path>] [--json]
+onlava run inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
 onlava run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
 onlava worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <name>]
 onlava build [--app-root <path>] [-o <path>]

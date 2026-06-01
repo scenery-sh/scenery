@@ -7,7 +7,6 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 onlava needs a small, boring local script runner for domain-owned operational scripts such as data backfills, reconciliations, one-off inspections, and fixture loaders. The runner should let contributors invoke a script by app-local namespace:
 
 ```sh
-onlava script run billing:reconcile --dry-run --limit 100
 onlava run billing:reconcile --dry-run --limit 100
 ```
 
@@ -19,8 +18,7 @@ The final behavior should support simple single-file scripts and robust director
 
 - [x] 2026-06-01: Created this ExecPlan and linked it from `docs/plans/active.md`.
 - [x] 2026-06-01: Implemented filesystem-first script discovery under app roots.
-- [x] 2026-06-01: Added `onlava script list`, `onlava script inspect`, and `onlava script run`.
-- [x] 2026-06-01: Added `onlava run <domain>:<script>` as the top-level script runner, equivalent to `onlava script run <domain>:<script>`.
+- [x] 2026-06-01: Added `onlava run list`, `onlava run inspect`, and `onlava run <domain>:<script>`.
 - [x] 2026-06-01: Moved headless API execution to `onlava serve`, leaving `onlava run` dedicated to scripts.
 - [x] 2026-06-01: Implemented safe Go and TypeScript execution conventions.
 - [x] 2026-06-01: Added tests, docs, usage text, fixture coverage, and validation.
@@ -36,8 +34,8 @@ Record implementation findings here with commands, test output, or file referenc
 
 ## Decision Log
 
-- Decision: Keep `onlava script ...` for discovery and explicit subcommands, and dedicate top-level `onlava run` to script execution.
-  Rationale: `onlava serve` now owns headless API execution, so `run` can be the ergonomic operational-script verb while `script list` and `script inspect` keep the discoverability namespace.
+- Decision: Keep all local operational script commands under `onlava run`.
+  Rationale: `onlava serve` now owns headless API execution, so `run` can be the ergonomic operational-script verb and discovery namespace without keeping a second `script` command.
   Date/Author: 2026-06-01 / Codex
 
 - Decision: Discover scripts from the filesystem, not from `parse.App` or service discovery.
@@ -56,7 +54,7 @@ Record implementation findings here with commands, test output, or file referenc
 
 Completed on 2026-06-01.
 
-Implemented a narrow script runner in `cmd/onlava` with filesystem-first discovery, strict `<domain>:<script>` target parsing, ambiguity errors, Go and TypeScript layout support, and process execution from the app root. The command surface is `onlava script list|inspect|run`, plus top-level `onlava run <domain>:<script>` for executing a script target.
+Implemented a narrow script runner in `cmd/onlava` with filesystem-first discovery, strict `<domain>:<script>` target parsing, ambiguity errors, Go and TypeScript layout support, and process execution from the app root. The command surface is `onlava run list|inspect` plus `onlava run <domain>:<script>` for executing a script target.
 
 Single-file Go scripts must start with `//go:build ignore`; directory Go scripts use `go run ./<domain>/scripts/<script>`. TypeScript scripts prefer Bun and fall back to Node with `--import tsx`. Script processes receive app-root/app-id metadata and optional runtime env variables.
 
@@ -67,9 +65,8 @@ Validation completed:
 - `git diff --check` passed.
 - `go install ./cmd/onlava` passed.
 - Focused fixture scenarios passed:
-  - `onlava script list --app-root testdata/apps/script-fixture --json`
-  - `onlava script inspect billing:reconcile --app-root testdata/apps/script-fixture --json`
-  - `onlava script run --app-root testdata/apps/script-fixture billing:reconcile --dry-run`
+  - `onlava run list --app-root testdata/apps/script-fixture --json`
+  - `onlava run inspect billing:reconcile --app-root testdata/apps/script-fixture --json`
   - `onlava run --app-root testdata/apps/script-fixture billing:reconcile --dry-run`
 - `onlava harness self --json --write` wrote `.onlava/harness/self-latest.json`; all feature-relevant checks and the fixture matrix passed, while the overall harness remained red on the pre-existing full-suite timing budget.
 
@@ -79,7 +76,7 @@ Relevant existing code:
 
 ```text
 cmd/onlava/main.go
-cmd/onlava/run.go
+cmd/onlava/serve.go
 cmd/onlava/worker.go
 internal/app/root.go
 internal/parse/parser.go
@@ -139,9 +136,8 @@ Milestone 2: CLI surface.
 Add canonical commands:
 
 ```sh
-onlava script list [--app-root <path>] [--json]
-onlava script inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
-onlava script run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
+onlava run list [--app-root <path>] [--json]
+onlava run inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
 ```
 
 Add sugar:
@@ -152,7 +148,7 @@ onlava run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<s
 
 Acceptance:
 
-- `onlava run billing:reconcile --dry-run` is equivalent to `onlava script run billing:reconcile --dry-run`.
+- `onlava run billing:reconcile --dry-run` executes the `billing:reconcile` script.
 - Script flags must appear before the target. Arguments after `<domain>:<script>` are passed verbatim to the script.
 - `--` remains accepted but is not required.
 
@@ -216,7 +212,7 @@ Acceptance:
 
 Start with a small internal script model in `cmd/onlava` or an internal package if reuse becomes useful. Keep the first implementation local to the CLI unless another package needs the resolver.
 
-Implement target parsing and filesystem discovery before adding execution. Once the resolver is covered by tests, add `onlava script list` and `inspect`, then wire `script run`. Finally, add top-level `onlava run <domain>:<script>` execution.
+Implement target parsing and filesystem discovery before adding execution. Once the resolver is covered by tests, add `onlava run list`, `onlava run inspect`, and `onlava run <domain>:<script>` execution.
 
 Keep the runner intentionally narrow. Do not add scheduling, remote execution, dashboard UI, database helpers, or script metadata files in this pass.
 
@@ -225,7 +221,7 @@ Keep the runner intentionally narrow. Do not add scheduling, remote execution, d
 1. Add target parsing for `<domain>:<script>` with strict validation.
 2. Add filesystem resolver for the four supported layouts.
 3. Add ambiguity detection and `--lang go|typescript`.
-4. Add `onlava script list` and `onlava script inspect`.
+4. Add `onlava run list` and `onlava run inspect`.
 5. Add Go execution with build-tag validation for `*.script.go`.
 6. Add TypeScript execution with Bun/Node runtime selection.
 7. Add top-level `onlava run <domain>:<script>` and argument-splitting tests.
@@ -247,9 +243,8 @@ git diff --check
 Focused scenario validation:
 
 ```sh
-onlava script list --app-root testdata/apps/script-fixture --json
-onlava script inspect billing:reconcile --app-root testdata/apps/script-fixture --json
-onlava script run --app-root testdata/apps/script-fixture billing:reconcile --dry-run
+onlava run list --app-root testdata/apps/script-fixture --json
+onlava run inspect billing:reconcile --app-root testdata/apps/script-fixture --json
 onlava run --app-root testdata/apps/script-fixture billing:reconcile --dry-run
 ```
 
@@ -277,7 +272,7 @@ Expected changed artifacts:
 docs/plans/0058-onlava-script-runner.md
 docs/plans/active.md
 cmd/onlava/main.go
-cmd/onlava/run.go
+cmd/onlava/serve.go
 cmd/onlava/script*.go
 cmd/onlava/script*_test.go
 docs/local-contract.md
@@ -315,9 +310,8 @@ Explicitly out of scope:
 Public CLI:
 
 ```sh
-onlava script list [--app-root <path>] [--json]
-onlava script inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
-onlava script run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
+onlava run list [--app-root <path>] [--json]
+onlava run inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
 onlava run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
 ```
 

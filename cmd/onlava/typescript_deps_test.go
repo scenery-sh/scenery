@@ -74,6 +74,70 @@ func TestEnsureTypeScriptWorkerDependenciesReportsMissingInstaller(t *testing.T)
 	}
 }
 
+func TestEnsureTypeScriptWorkerAppDependenciesRunsBunInstallAndWritesMarker(t *testing.T) {
+	root := t.TempDir()
+	markerDir := filepath.Join(root, ".onlava", "generated", "temporal", "typescript")
+	writeTestAppFile(t, root, "package.json", `{
+  "dependencies": {
+    "@openai/codex-sdk": "^0.134.0"
+  }
+}
+`)
+	writeTestAppFile(t, root, "bun.lock", "# lock\n")
+	binDir := t.TempDir()
+	fakeBun := filepath.Join(binDir, "bun")
+	writeTestAppFile(t, binDir, "bun", `#!/bin/sh
+count=0
+if [ -f install.count ]; then count="$(cat install.count)"; fi
+printf "%s\n" "$((count + 1))" > install.count
+printf "%s\n" "$PWD" > install.cwd
+mkdir -p "node_modules/@openai/codex-sdk"
+printf "{}\n" > "node_modules/@openai/codex-sdk/package.json"
+`)
+	if err := os.Chmod(fakeBun, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := stubTypeScriptWorkerInstaller(t, fakeBun)
+	defer restore()
+
+	installed, err := ensureTypeScriptWorkerAppDependencies(context.Background(), root, markerDir)
+	if err != nil {
+		t.Fatalf("ensureTypeScriptWorkerAppDependencies returned error: %v", err)
+	}
+	if !installed {
+		t.Fatal("expected app dependencies to be installed")
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "install.cwd")); err != nil || strings.TrimSpace(string(data)) != root {
+		t.Fatalf("install cwd = %q, err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(markerDir, typeScriptWorkerAppDepsMarkerFile)); err != nil {
+		t.Fatalf("expected app dependency marker: %v", err)
+	}
+
+	installed, err = ensureTypeScriptWorkerAppDependencies(context.Background(), root, markerDir)
+	if err != nil {
+		t.Fatalf("second ensureTypeScriptWorkerAppDependencies returned error: %v", err)
+	}
+	if installed {
+		t.Fatal("expected second dependency check to reuse installed app dependencies")
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "install.count")); err != nil || strings.TrimSpace(string(data)) != "1" {
+		t.Fatalf("install count = %q, err=%v", data, err)
+	}
+}
+
+func TestEnsureTypeScriptWorkerAppDependenciesNoPackageJSONNoops(t *testing.T) {
+	root := t.TempDir()
+	installed, err := ensureTypeScriptWorkerAppDependencies(context.Background(), root, filepath.Join(root, ".onlava"))
+	if err != nil {
+		t.Fatalf("ensureTypeScriptWorkerAppDependencies returned error: %v", err)
+	}
+	if installed {
+		t.Fatal("expected app dependency install to no-op without package.json")
+	}
+}
+
 func stubTypeScriptWorkerInstaller(t *testing.T, fakeBun string) func() {
 	t.Helper()
 	prevLookPath := typeScriptWorkerLookPath

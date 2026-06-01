@@ -333,7 +333,7 @@ Common failure: committing generated clients without regenerating after endpoint
 
 ## Operational Scripts
 
-Use `onlava script` for app-local operational scripts that should run from the app root without requiring the app model to parse cleanly.
+Use `onlava run` for app-local operational scripts that should run from the app root without requiring the app model to parse cleanly.
 
 Script targets use `<domain>:<script>`, and both segments must match `[A-Za-z0-9_][A-Za-z0-9_-]*`.
 
@@ -358,7 +358,6 @@ billing/scripts/reconcile.script.go
 Run it:
 
 ```sh
-onlava script run billing:reconcile --dry-run
 onlava run billing:reconcile --dry-run
 ```
 
@@ -379,8 +378,8 @@ billing/scripts/reconcile/index.ts
 List and inspect scripts:
 
 ```sh
-onlava script list --json
-onlava script inspect billing:reconcile --json
+onlava run list --json
+onlava run inspect billing:reconcile --json
 ```
 
 Common failure: putting two single-file Go scripts with `package main` in the same directory without `//go:build ignore`. Normal Go package loading may see both files before onlava can filter anything. Use the build tag for `*.script.go`, or use a per-script directory.

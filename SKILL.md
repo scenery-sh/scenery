@@ -178,12 +178,11 @@ Use `onlava db sync` for configured database mutation plus dependent SQLC regene
 
 ## Operational Scripts
 
-Use `onlava script` for app-local operational scripts that should run from the app root without requiring the app model to parse cleanly.
+Use `onlava run` for app-local operational scripts that should run from the app root without requiring the app model to parse cleanly.
 
 ```sh
-onlava script list --json
-onlava script inspect <domain>:<script> --json
-onlava script run <domain>:<script> [script args...]
+onlava run list --json
+onlava run inspect <domain>:<script> --json
 onlava run <domain>:<script> [script args...]
 ```
 
@@ -213,9 +212,8 @@ onlava generate [--app-root <path>] [--dry-run] [--json]
 onlava task list [--app-root <path>] [--json]
 onlava task run <name> [--app-root <path>]
 onlava task graph --json [--app-root <path>]
-onlava script list [--app-root <path>] [--json]
-onlava script inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
-onlava script run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
+onlava run list [--app-root <path>] [--json]
+onlava run inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
 onlava run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
 onlava harness [--app-root <path>] --json --write
 onlava harness self [--repo-root <path>] --json --write

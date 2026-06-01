@@ -155,7 +155,7 @@ Prefer JSON when output will feed another tool or decision.
 | Run configured generation | `onlava generate --dry-run --json`, then `onlava generate` |
 | Sync configured dev DB | `onlava db sync` |
 | Run repo-local task | `onlava task list`, `onlava task run <name>` |
-| Run app-local operational script | `onlava script list --json`, `onlava script run <domain>:<script>` |
+| Run app-local operational script | `onlava run list --json`, `onlava run <domain>:<script>` |
 | Connect to managed Postgres | `onlava db psql` |
 
 Use non-JSON output only for human inspection.
@@ -170,7 +170,7 @@ Use non-JSON output only for human inspection.
 - Use `onlava worker` for worker-role execution of native Temporal workers and cron.
 - Use `onlava build` for a deployable binary artifact.
 - Use `onlava generate` for configured file-producing generators. It is separate from `onlava db sync`, which can mutate the configured development database before refreshing dependent SQLC artifacts.
-- Use `onlava script run <domain>:<script>` or `onlava run <domain>:<script>` for app-local operational scripts. Script flags appear before the target.
+- Use `onlava run list`, `onlava run inspect <domain>:<script>`, and `onlava run <domain>:<script>` for app-local operational scripts. Script flags appear before the target.
 - Use `onlava task run <name>` only for repo-local workflows that are not core onlava lifecycle commands.
 
 ## MCP For Agents

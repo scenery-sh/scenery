@@ -157,6 +157,31 @@ func TestTopLevelRunDispatchesToScriptRunner(t *testing.T) {
 	}
 }
 
+func TestTopLevelRunListAndInspectSubcommands(t *testing.T) {
+	root := scriptFixtureRoot(t)
+	writeTestAppFile(t, root, "billing/scripts/reconcile/main.go", "package main\nfunc main() {}\n")
+
+	out := captureStdout(t, func() error {
+		return run([]string{"run", "list", "--app-root", root, "--json"})
+	})
+	if !strings.Contains(out, `"domain": "billing"`) || !strings.Contains(out, `"name": "reconcile"`) {
+		t.Fatalf("list output = %s", out)
+	}
+
+	out = captureStdout(t, func() error {
+		return run([]string{"run", "inspect", "billing:reconcile", "--app-root", root, "--json"})
+	})
+	if !strings.Contains(out, `"layout": "go-dir"`) {
+		t.Fatalf("inspect output = %s", out)
+	}
+}
+
+func TestScriptCommandIsRemoved(t *testing.T) {
+	if err := run([]string{"script", "list"}); err == nil || !strings.Contains(err.Error(), `unknown command "script"`) {
+		t.Fatalf("run script error = %v", err)
+	}
+}
+
 func TestGoScriptBuildTagValidation(t *testing.T) {
 	t.Parallel()
 

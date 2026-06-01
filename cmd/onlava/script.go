@@ -19,7 +19,7 @@ import (
 const (
 	scriptLangGo         = "go"
 	scriptLangTypeScript = "typescript"
-	scriptRunUsage       = "usage: onlava run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...] (or onlava script run ...)"
+	scriptRunUsage       = "usage: onlava run list|inspect ... OR onlava run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]"
 )
 
 type scriptTarget struct {
@@ -55,9 +55,9 @@ type scriptListOutput struct {
 
 var scriptCommandContext = commandTreeContext
 
-func scriptCommand(args []string) error {
+func runCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: onlava script list|inspect|run ...")
+		return fmt.Errorf(scriptRunUsage)
 	}
 	switch args[0] {
 	case "list":
@@ -72,10 +72,8 @@ func scriptCommand(args []string) error {
 			return err
 		}
 		return runOnlavaScriptInspect(context.Background(), os.Stdout, opts)
-	case "run":
-		return runScriptCommand(args[1:])
 	default:
-		return fmt.Errorf("unknown script command %q", args[0])
+		return runScriptCommand(args)
 	}
 }
 
@@ -139,7 +137,7 @@ func parseScriptInspectArgs(args []string) (scriptOptions, error) {
 		}
 	}
 	if opts.Target == "" {
-		return scriptOptions{}, fmt.Errorf("usage: onlava script inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]")
+		return scriptOptions{}, fmt.Errorf("usage: onlava run inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]")
 	}
 	if _, err := parseScriptTarget(opts.Target); err != nil {
 		return scriptOptions{}, err
@@ -469,7 +467,7 @@ func typeScriptScriptCommand(path string) (string, []string, error) {
 	if node, err := execLookPath("node"); err == nil {
 		return node, []string{"--import", "tsx", filepath.ToSlash(path)}, nil
 	}
-	return "", nil, fmt.Errorf("onlava script run requires bun or node in PATH for TypeScript scripts")
+	return "", nil, fmt.Errorf("onlava run requires bun or node in PATH for TypeScript scripts")
 }
 
 func validateGoScriptBuildTag(path string) error {
@@ -512,7 +510,7 @@ func runScriptProcess(ctx context.Context, root string, cfg app.Config, program 
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("onlava script exited: %w", err)
+		return fmt.Errorf("onlava run exited: %w", err)
 	}
 	return nil
 }

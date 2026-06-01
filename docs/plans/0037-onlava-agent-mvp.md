@@ -69,7 +69,7 @@ cmd/onlava/main.go
 cmd/onlava/watch.go
 cmd/onlava/dev_supervisor.go
 cmd/onlava/dashboard.go
-cmd/onlava/run.go
+cmd/onlava/serve.go
 cmd/onlava/console.go
 runtime/app.go
 runtime/server.go

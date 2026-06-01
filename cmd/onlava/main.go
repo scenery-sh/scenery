@@ -45,11 +45,9 @@ func run(args []string) error {
 	case "console":
 		return consoleCommand(args[1:])
 	case "run":
-		return runScriptCommand(args[1:])
+		return runCommand(args[1:])
 	case "serve":
 		return serveCommand(args[1:])
-	case "script":
-		return scriptCommand(args[1:])
 	case "status":
 		return statusCommand(args[1:])
 	case "down":
@@ -113,9 +111,8 @@ func usageError() error {
     onlava task list [--app-root <path>] [--json]
     onlava task run <name> [--app-root <path>]
     onlava task graph --json [--app-root <path>]
-    onlava script list [--app-root <path>] [--json]
-    onlava script inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
-    onlava script run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
+    onlava run list [--app-root <path>] [--json]
+    onlava run inspect <domain>:<script> [--app-root <path>] [--lang go|typescript] [--json]
     onlava run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<script> [script args...]
     onlava serve [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]

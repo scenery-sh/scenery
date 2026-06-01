@@ -505,6 +505,12 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		}); err != nil {
 			return s.handleCompileError(ctx, metadata, apiEncoding, err)
 		}
+		if err := s.console.Phase("Installing app TypeScript dependencies", func() error {
+			_, installErr := ensureTypeScriptWorkerAppDependencies(ctx, s.root, tsWorker.OutputDir)
+			return installErr
+		}); err != nil {
+			return s.handleCompileError(ctx, metadata, apiEncoding, err)
+		}
 		if err := s.console.Phase("Installing TypeScript worker dependencies", func() error {
 			_, installErr := ensureTypeScriptWorkerDependencies(ctx, tsWorker.OutputDir)
 			return installErr

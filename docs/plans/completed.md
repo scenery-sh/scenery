@@ -16,8 +16,7 @@ truth for stable, beta, dev-only, and compatibility-mode classification.
 
 Shipped:
 
-- `onlava script list`, `onlava script inspect`, and `onlava script run` for app-local operational scripts.
-- `onlava run <domain>:<script> [script args...]` as the top-level script runner, equivalent to `onlava script run`.
+- `onlava run list`, `onlava run inspect`, and `onlava run <domain>:<script> [script args...]` for app-local operational scripts.
 - Filesystem-first discovery for `<domain>/scripts/<name>.script.go`, `<domain>/scripts/<name>.script.ts`, `<domain>/scripts/<name>/main.go`, and `<domain>/scripts/<name>/index.ts`.
 - Strict target parsing, clear missing-script errors, and ambiguity errors unless `--lang go|typescript` disambiguates.
 - Go execution via `go run`, requiring `//go:build ignore` for single-file Go scripts, plus TypeScript execution through Bun or Node with `tsx`.
@@ -29,7 +28,7 @@ Validation:
 - `go test ./...` passed.
 - `git diff --check` passed.
 - `go install ./cmd/onlava` passed.
-- Focused `onlava script` and script-form `onlava run` fixture scenarios passed.
+- Focused `onlava run` fixture scenarios passed.
 - `onlava harness self --json --write` was run after fixes; all feature-relevant checks and fixture matrix passed, but the overall harness remained red on the pre-existing full-suite timing budget tracked by `docs/plans/0050-test-suite-speed-hardening.md`.
 
 ## Typed Lifecycle Graph Phase 1
