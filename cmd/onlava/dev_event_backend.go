@@ -14,22 +14,6 @@ type devEventBackend interface {
 	BackendName() string
 }
 
-type sqliteDevEventBackend struct {
-	store *devdash.Store
-}
-
-func (b sqliteDevEventBackend) ListDevEvents(ctx context.Context, query devdash.DevEventQuery) ([]devdash.DevEvent, error) {
-	return b.store.ListDevEvents(ctx, query)
-}
-
-func (b sqliteDevEventBackend) ListDevSources(ctx context.Context, appID, sessionID string) ([]devdash.DevSource, error) {
-	return b.store.ListDevSources(ctx, appID, sessionID)
-}
-
-func (b sqliteDevEventBackend) BackendName() string {
-	return logsBackendSQLite
-}
-
 type victoriaDevEventBackend struct {
 	stack *victoriaStack
 }
@@ -46,21 +30,16 @@ func (b victoriaDevEventBackend) BackendName() string {
 	return logsBackendVictoria
 }
 
+var resolveLogsVictoriaStackFunc = resolveLogsVictoriaStack
+
 func selectDevEventBackend(ctx context.Context, store *devdash.Store, opts logsOptions) (devEventBackend, error) {
 	switch normalizeLogsBackend(opts.Backend) {
-	case logsBackendSQLite:
-		return sqliteDevEventBackend{store: store}, nil
-	case logsBackendVictoria:
-		victoria := resolveLogsVictoriaStack(ctx, true)
+	case logsBackendAuto, logsBackendVictoria:
+		victoria := resolveLogsVictoriaStackFunc(ctx, true)
 		if victoria == nil {
 			return nil, errors.New("VictoriaLogs is unavailable")
 		}
 		return victoriaDevEventBackend{stack: victoria}, nil
-	case logsBackendAuto:
-		if victoria := resolveLogsVictoriaStack(ctx, false); victoria != nil {
-			return victoriaDevEventBackend{stack: victoria}, nil
-		}
-		return sqliteDevEventBackend{store: store}, nil
 	default:
 		return nil, errors.New("invalid dev event backend")
 	}

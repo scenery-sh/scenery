@@ -1,6 +1,6 @@
 # onlava Agent Guide
 
-This guide is for AI agents using onlava or changing onlava. It explains how to combine repo-local instructions, the installable skill, CLI JSON, MCP, generated artifacts, and app-local instructions.
+This guide is for AI agents using onlava or changing onlava. It explains how to combine repo-local instructions, the installable skill, CLI JSON, MCP, onlava capabilities, and app-local instructions.
 
 For exact command grammar and schemas, use `docs/local-contract.md`. For app recipes, use `docs/app-development-cookbook.md`. For onlava repo edits, `AGENTS.md` is the first file to read.
 
@@ -133,7 +133,7 @@ Use three layers in client apps such as `github.com/pbrazdil/onlv`:
 
 1. **Installable onlava skill** for the onlava app model, CLI, MCP, validation, and generated client workflow.
 2. **App-local `AGENTS.md`** for app root, frontend roots, generated output paths, required environment names, test commands, UI conventions, product invariants, and deployment assumptions.
-3. **Machine-readable onlava artifacts** for the current app shape: `onlava inspect ... --json` and `.onlava/gen/*.json`.
+3. **Machine-readable onlava commands** for the current app shape: `onlava inspect ... --json`.
 
 This avoids duplicating stale runtime documentation into every client app while still giving agents the local context they need.
 
@@ -164,13 +164,13 @@ Prefer JSON when output will feed another tool or decision.
 | Run repo-local task | `onlava task list`, `onlava task run <name>` |
 | Run app-local operational script | `onlava run list --json`, `onlava run <domain>:<script>` |
 
-When local dev fails because the host may be missing Go, disk space, memory, or optional tools, run `onlava doctor --json` first. When the failure is specifically a managed Grafana, Victoria, Temporal CLI, Postgres, or Electric artifact, inspect the managed toolchain next. Do not install global binaries as a hidden fix; use `onlava toolchain sync --json`, set an explicit per-tool env override, or document the configured external service.
+When local dev fails because the host may be missing Go, disk space, memory, or optional tools, run `onlava doctor --json` first. Stay on onlava command surfaces for ordinary app work. Inspect managed Grafana, Victoria, Temporal CLI, Postgres, or Electric details only when intentionally debugging the substrate. Do not install global binaries as a hidden fix; use `onlava toolchain sync --json`, set an explicit per-tool env override, or document the configured external service.
 
 Use non-JSON output only for human inspection.
 
 ## Runtime Command Choice
 
-- Use `onlava dev` for local development, debugging, agent sessions, dashboard, MCP, logs, traces, metrics, managed dev services, and frontend routing.
+- Use `onlava dev` to run the app session and expose capabilities for local development, debugging, agents, dashboard, MCP, logs, traces, metrics, managed dev services, and frontend routing.
 - Use `onlava dev --detach` when the local agent should keep the dev session running.
 - Use `onlava attach` to follow a current detached or agent session.
 - Use `onlava down` to stop a session; add `--db`, `--state`, or `--all` only when destructive cleanup is intended.
@@ -183,7 +183,7 @@ Use non-JSON output only for human inspection.
 
 ## MCP For Agents
 
-`onlava dev` exposes a development MCP server using SSE. The startup banner prints the `MCP SSE URL`. With the local agent router active, session manifests also expose a session-scoped MCP route.
+`onlava dev` exposes MCP as an app-session capability. The startup banner prints the `MCP SSE URL`. With the local agent router active, session manifests also expose a session-scoped MCP route.
 
 Use MCP for interactive local app inspection through the dev runtime. It is useful when a dev session is already running and the agent host supports MCP.
 
@@ -208,9 +208,22 @@ Unsupported compatibility stubs may appear for storage, cache, metrics, and docs
 
 Use CLI JSON rather than MCP for CI, release gates, code review evidence, and durable artifacts. MCP is a session convenience surface; CLI JSON and schemas are the stable contract.
 
-## Generated Artifacts
+## Generated And Cache Artifacts
 
-Agents can read generated repo-local files after inspect/build/harness commands produce them:
+Agents should use command JSON as the integration surface:
+
+```text
+onlava inspect app --json
+onlava inspect routes --json
+onlava inspect services --json
+onlava inspect endpoints --json
+onlava inspect wire --json
+onlava inspect build --json
+onlava harness --json
+onlava harness self --json
+```
+
+Generated repo-local files may exist after inspect/build/harness commands produce them:
 
 ```text
 <app-root>/.onlava/
@@ -225,7 +238,7 @@ Agents can read generated repo-local files after inspect/build/harness commands 
   harness/latest.json
 ```
 
-These mirror `onlava inspect ... --json` outputs and are useful when an agent needs stable snapshots without scraping console output.
+Treat these files as internal cache or local snapshot artifacts. Do not read `.onlava/gen/*` directly unless debugging onlava generation.
 
 Do not edit generated artifacts by hand. Regenerate them with onlava commands.
 

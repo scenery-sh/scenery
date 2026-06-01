@@ -341,8 +341,8 @@ func classifyHarnessChangedFile(path string) string {
 func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands map[string]bool) {
 	if harnessDevEventBackendPath(path) {
 		docs["docs/plans/0056-dev-event-backend-cutover-and-parity.md"] = true
-		risks["dev-event-backend-parity"] = true
-		commands["onlava logs compare --session current --backend-a sqlite --backend-b victoria --limit 500 --json"] = true
+		risks["victoria-dev-event-read-path"] = true
+		commands["onlava logs --session current --backend victoria --limit 500 --jsonl"] = true
 	}
 	switch category {
 	case "cli":

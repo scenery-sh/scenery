@@ -42,7 +42,7 @@
       "freshness": "current",
       "last_reviewed": "2026-05-31",
       "review_after": "2026-06-30",
-      "summary": "Repo-local operating manual for agents changing onlava itself, including validation, MCP, docs, and client-app instruction rules.",
+      "summary": "Repo-local operating manual for agents changing onlava itself, including the session/capability model, validation, MCP, docs, and client-app instruction rules.",
       "tags": ["agents", "repo", "instructions", "workflow"]
     },
     {
@@ -54,7 +54,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-01",
       "review_after": "2026-06-30",
-      "summary": "Concise installed-skill entrypoint for using current onlava apps, including CLI JSON, MCP, managed toolchain diagnostics, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current onlava apps through app sessions and capabilities, including CLI JSON, MCP, managed toolchain diagnostics, debugging, databases, generated clients, and validation loops.",
       "tags": ["skill", "agents", "onboarding", "mcp", "toolchain"]
     },
     {
@@ -66,7 +66,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-01",
       "review_after": "2026-06-30",
-      "summary": "Agent workflow guide for using CLI JSON, MCP, managed toolchain commands, generated artifacts, TypeScript clients, and app-local instruction layering.",
+      "summary": "Agent workflow guide for using CLI JSON, MCP, app-session capabilities, managed toolchain commands, cache artifacts, TypeScript clients, and app-local instruction layering.",
       "tags": ["agents", "mcp", "cli", "apps", "client-integration", "toolchain"]
     },
     {
@@ -114,7 +114,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-01",
       "review_after": "2026-07-01",
-      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, generated artifacts, toolchain store, generators, tasks, scripts, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, cache artifacts, toolchain store, generators, tasks, scripts, and local runtime surfaces.",
       "tags": ["contract", "cli", "agents", "schemas", "toolchain"],
       "schema_refs": ["docs/schemas/onlava.toolchain.v1.schema.json", "docs/schemas/onlava.toolchain.status.v1.schema.json"]
     },
@@ -261,7 +261,7 @@
       "freshness": "current",
       "last_reviewed": "2026-04-27",
       "review_after": "2026-05-27",
-      "summary": "ExecPlan for supervising local VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars while keeping SQLite observability parity.",
+      "summary": "ExecPlan for supervising local VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars as the local observability substrate.",
       "tags": ["plans", "execplans", "observability", "victoria"]
     },
     {

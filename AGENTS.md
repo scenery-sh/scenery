@@ -4,6 +4,13 @@ This file is the repo-local operating manual for AI agents changing `github.com/
 
 Optimize for agents: prefer concise rules, exact commands, and machine-readable contracts over long prose.
 
+## Core Model
+
+- Onlava runs my app session.
+- Onlava gives me capabilities.
+- Onlava lets agents inspect and act safely.
+- Onlava hides the substrate unless I intentionally debug the substrate.
+
 ## Instruction Layers
 
 Use the narrowest current source of truth that applies:
@@ -13,20 +20,20 @@ Use the narrowest current source of truth that applies:
 3. `docs/agent-guide.md` explains agent workflows, MCP, generated artifacts, and client-app integration.
 4. `docs/local-contract.md` is the contract for CLI grammar, JSON schemas, artifact paths, and stability labels.
 5. `docs/app-development-cookbook.md` gives practical app-building recipes.
-6. `onlava inspect ... --json`, `.onlava/gen/*.json`, schemas under `docs/schemas/`, and harness outputs are stronger than old prose when they disagree.
+6. `onlava inspect ... --json`, schemas under `docs/schemas/`, and harness command outputs are stronger than old prose when they disagree. Generated files under `.onlava/gen/` are cache, not an API.
 
 When implementation and docs disagree, treat it as drift. Fix the drift in the same change when practical.
 
 ## Current Mental Model
 
-onlava is a Go-native service runtime and local development platform.
+onlava is a Go-native service runtime and local development platform. Think in app sessions and capability surfaces first; Grafana, Victoria, Temporal dev server, local proxying, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
 - App roots are marked by `.onlava.json`.
 - Go source is the app model: services, endpoints, auth handlers, middleware, Temporal declarations, cron jobs, and generated clients are discovered from code.
 - `onlava serve` builds once and starts a headless API-role runtime.
 - `onlava run <domain>:<script>` runs an app-local operational script.
 - `onlava worker` builds once and starts a worker-role runtime for cron and native Temporal workers.
-- `onlava dev` starts the local development platform: supervised app process, file watching, dashboard, API explorer, MCP endpoint, logs, traces, metrics, Grafana/Victoria sidecars when available, managed dev services, and optional frontend/proxy routing.
+- `onlava dev` starts the app session: supervised app process, file watching, dashboard, API explorer, MCP, logs, traces, metrics, managed dev services, and optional frontend routing.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
@@ -99,15 +106,15 @@ onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path
 onlava db psql|reset|drop|snapshot [--app-root <path>]
 ```
 
-`onlava dev` is the preferred local loop for agents because it exposes dashboard, logs, traces, metrics, MCP, session routing, and managed dev services. `onlava serve` is for headless API execution and must not be expected to expose dev/admin endpoints, dashboard, MCP, proxy, or watch behavior. `onlava run` is for operational scripts.
+`onlava dev` is the preferred local loop for agents because it runs the app session and exposes safe capabilities: dashboard, logs, traces, metrics, MCP, session routing, and managed dev services. `onlava serve` is for headless API execution and must not be expected to expose dev/admin endpoints, dashboard, MCP, proxy, or watch behavior. `onlava run` is for operational scripts.
 
 ## MCP Guidance
 
-MCP is a development-session tool surface exposed by `onlava dev`, not a production API.
+MCP is a development-session capability exposed by `onlava dev`, not a production API.
 
 Agents should use MCP for interactive local app work when a dev session is already running, especially for service metadata, endpoint calls through the local runtime, recent traces, trace spans, and development database inspection.
 
-The MCP server uses the dashboard server's SSE transport. `onlava dev` prints the `MCP SSE URL`; with the agent router active, session manifests also expose a session-scoped MCP route. MCP tool results are convenience views over the local dev runtime and dashboard store. For stable CI, release, and code-review automation, prefer `onlava inspect ... --json`, `onlava logs --jsonl`, schemas, and harness outputs.
+`onlava dev` prints the `MCP SSE URL`; with the agent router active, session manifests also expose a session-scoped MCP route. Treat transport, dashboard store, and routing details as substrate unless you are debugging MCP itself. For stable CI, release, and code-review automation, prefer `onlava inspect ... --json`, `onlava logs --jsonl`, schemas, and harness outputs.
 
 Keep MCP docs in sync with `cmd/onlava/mcp.go` and `docs/agent-guide.md`.
 

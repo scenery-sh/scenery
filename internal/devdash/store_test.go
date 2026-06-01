@@ -2,14 +2,13 @@ package devdash
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
-func TestOpenStoreConfiguresSQLiteForConcurrentDevReaders(t *testing.T) {
+func TestOpenStorePersistsJSONState(t *testing.T) {
 	t.Parallel()
 
 	cacheRoot := t.TempDir()
@@ -21,28 +20,41 @@ func TestOpenStoreConfiguresSQLiteForConcurrentDevReaders(t *testing.T) {
 		_ = store.Close()
 	})
 
-	db, err := sql.Open("sqlite", StoreSQLiteDSN(filepath.Join(cacheRoot, "dev.db")))
+	ctx := context.Background()
+	if err := store.UpsertApp(ctx, AppRecord{ID: "app-test", Name: "app-test", Root: "/tmp/app", Running: true}); err != nil {
+		t.Fatalf("upsert app: %v", err)
+	}
+	if _, err := store.CreateStoredRequest(ctx, StoredRequest{
+		AppID: "app-test",
+		Title: "Persisted",
+		Data:  StoredRequestData{Method: "GET"},
+	}); err != nil {
+		t.Fatalf("create stored request: %v", err)
+	}
+	if _, err := filepath.Abs(filepath.Join(cacheRoot, "devdash.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenStore(cacheRoot)
 	if err != nil {
-		t.Fatalf("open sqlite db: %v", err)
+		t.Fatalf("reopen store: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = db.Close()
+		_ = reopened.Close()
 	})
-
-	var journalMode string
-	if err := db.QueryRowContext(context.Background(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
-		t.Fatalf("query journal_mode: %v", err)
+	app, err := reopened.GetApp(ctx, "app-test")
+	if err != nil {
+		t.Fatalf("get persisted app: %v", err)
 	}
-	if journalMode != "wal" {
-		t.Fatalf("journal_mode = %q, want wal", journalMode)
+	if !app.Running || app.Name != "app-test" {
+		t.Fatalf("persisted app = %+v", app)
 	}
-
-	var busyTimeout int
-	if err := db.QueryRowContext(context.Background(), "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
-		t.Fatalf("query busy_timeout: %v", err)
+	requests, err := reopened.ListStoredRequests(ctx, "app-test")
+	if err != nil {
+		t.Fatalf("list persisted requests: %v", err)
 	}
-	if busyTimeout != SQLiteBusyTimeoutMS {
-		t.Fatalf("busy_timeout = %d, want %d", busyTimeout, SQLiteBusyTimeoutMS)
+	if len(requests) != 1 || requests[0].Title != "Persisted" {
+		t.Fatalf("persisted requests = %+v", requests)
 	}
 }
 
@@ -583,85 +595,5 @@ func TestStoreKeepsTraceSummariesDistinctBySession(t *testing.T) {
 		if len(items) != 1 || items[0].SessionID != sessionID {
 			t.Fatalf("items for %s = %+v", sessionID, items)
 		}
-	}
-}
-
-func TestStoreMigratesTraceSummaryUniquenessToSession(t *testing.T) {
-	t.Parallel()
-
-	cacheRoot := t.TempDir()
-	db, err := sql.Open("sqlite", StoreSQLiteDSN(filepath.Join(cacheRoot, "dev.db")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`
-		create table trace_summaries (
-			id integer primary key autoincrement,
-			app_id text not null,
-			session_id text not null default '',
-			trace_id text not null,
-			span_id text not null,
-			started_at text not null,
-			service_name text not null default '',
-			endpoint_name text,
-			is_root integer not null default 0,
-			is_error integer not null default 0,
-			duration_nanos integer not null default 0,
-			summary_json text not null,
-			unique(app_id, trace_id, span_id)
-		)
-	`); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC()
-	seed := TraceSummary{
-		AppID:       "app-test",
-		SessionID:   "session-a",
-		TraceID:     "trace-replay",
-		SpanID:      "span-root",
-		IsRoot:      true,
-		StartedAt:   now,
-		ServiceName: "svc",
-	}
-	data, err := json.Marshal(seed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`
-		insert into trace_summaries (
-			app_id, session_id, trace_id, span_id, started_at, service_name, is_root, summary_json
-		) values (?, ?, ?, ?, ?, ?, ?, ?)
-	`, seed.AppID, seed.SessionID, seed.TraceID, seed.SpanID, seed.StartedAt.Format(time.RFC3339Nano), seed.ServiceName, 1, string(data)); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	store, err := OpenStore(cacheRoot)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-
-	if err := store.AppendTraceSummary(context.Background(), &TraceSummary{
-		AppID:       "app-test",
-		SessionID:   "session-b",
-		TraceID:     "trace-replay",
-		SpanID:      "span-root",
-		IsRoot:      true,
-		StartedAt:   now.Add(time.Second),
-		ServiceName: "svc",
-	}); err != nil {
-		t.Fatalf("append after migration: %v", err)
-	}
-	items, err := store.GetTraceSummaries(context.Background(), "app-test", "trace-replay")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 2 {
-		t.Fatalf("trace summary count = %d, want 2", len(items))
 	}
 }

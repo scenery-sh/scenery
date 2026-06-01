@@ -5,13 +5,13 @@ description: Use when building, running, debugging, inspecting, validating, or g
 
 # onlava
 
-onlava is a Go-native service runtime and local development platform. Apps are ordinary Go modules with a `.onlava.json` app root and `//onlava:` directives in Go source.
+onlava is a Go-native service runtime and local development platform. It runs app sessions, exposes capabilities for inspection and action, and hides backing substrate details unless you intentionally debug them. Apps are ordinary Go modules with a `.onlava.json` app root and `//onlava:` directives in Go source.
 
 This skill is the portable agent entrypoint. It teaches shared onlava behavior, but it does not replace app-local instructions. Client apps should also keep a small `AGENTS.md` with app root, frontend roots, generated client paths, required environment names, validation commands, and product invariants.
 
 Read next when needed:
 
-- `docs/agent-guide.md` for agent workflow, MCP, generated artifacts, and client-app integration.
+- `docs/agent-guide.md` for agent workflow, MCP, capabilities, generated artifacts, and client-app integration.
 - `docs/local-contract.md` for exact CLI grammar, JSON schemas, artifact paths, and stability labels.
 - `docs/app-development-cookbook.md` for app recipes.
 - `docs/ui-agent-contract.md` before UI work.
@@ -127,7 +127,7 @@ onlava console
 onlava down
 ```
 
-`onlava dev --json` emits JSONL. `onlava dev --detach` starts an agent-backed session. `onlava attach` follows session logs. `onlava attach --tui` and `onlava console` open the source-aware terminal console.
+`onlava dev --json` emits JSONL. `onlava dev --detach` starts an agent-backed app session. `onlava attach` follows session logs. `onlava attach --tui` and `onlava console` open the source-aware terminal console.
 
 ## UI Work
 
@@ -144,7 +144,7 @@ onlava harness ui --json
 
 ## MCP
 
-`onlava dev` exposes a development MCP server over SSE and prints the `MCP SSE URL`. Use MCP for interactive local inspection when a dev session is running. Use CLI JSON and schemas for stable automation.
+`onlava dev` exposes MCP as an app-session capability and prints the `MCP SSE URL`. Use MCP for interactive local inspection when a dev session is running. Use CLI JSON and schemas for stable automation.
 
 ## Debugging
 
@@ -162,7 +162,7 @@ onlava toolchain list --json
 onlava toolchain verify --json
 ```
 
-Onlava-managed tools live under `.onlava/toolchain/` or `ONLAVA_TOOLCHAIN_DIR`. Agents should not rely on system `PATH` binaries for managed Grafana, Victoria, or Temporal CLI issues; use `onlava toolchain sync --json` or an explicit per-tool env override.
+Onlava-managed tools live under `.onlava/toolchain/` or `ONLAVA_TOOLCHAIN_DIR`. Treat managed Grafana, Victoria, and Temporal CLI details as substrate unless intentionally debugging them. Agents should not rely on system `PATH` binaries for those issues; use `onlava toolchain sync --json` or an explicit per-tool env override.
 
 Do not introduce new onlava-owned production environment variables by default. Prefer `.onlava.json`, explicit CLI flags, or checked-in manifests; when an env variable is truly required, update `docs/environment.registry.json`, `docs/environment.md`, and tests together.
 

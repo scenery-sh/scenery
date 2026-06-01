@@ -355,7 +355,7 @@ func Run(ctx context.Context) error { return nil }
 			},
 			Local: appcfg.TemporalLocalConfig{
 				AutoStart:  true,
-				DBFilename: ".onlava/temporal/dev.sqlite",
+				DBFilename: ".onlava/temporal/dev.db",
 			},
 		},
 	})
@@ -378,7 +378,7 @@ func Run(ctx context.Context) error { return nil }
 		`PayloadCodec: "onlava-json-v1"`,
 		`APIKeyEnv: "TEMPORAL_API_KEY"`,
 		`TLS: onlavaruntime.TemporalTLSConfig{Enabled: true, ServerNameEnv: "TEMPORAL_TLS_SERVER_NAME", CACertFileEnv: "TEMPORAL_TLS_CA_CERT_FILE", ClientCertFileEnv: "TEMPORAL_TLS_CERT_FILE", ClientKeyFileEnv: "TEMPORAL_TLS_KEY_FILE"}`,
-		`Local: onlavaruntime.TemporalLocalConfig{AutoStart: true, DBFilename: ".onlava/temporal/dev.sqlite"}`,
+		`Local: onlavaruntime.TemporalLocalConfig{AutoStart: true, DBFilename: ".onlava/temporal/dev.db"}`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected generated main to contain %q, got:\n%s", want, got)

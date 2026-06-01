@@ -2,19 +2,22 @@ package devdash
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 type Store struct {
-	db *sql.DB
+	path string
+	mu   *sync.Mutex
 }
 
 type ProcessEvent struct {
@@ -25,8 +28,61 @@ type ProcessEvent struct {
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
-const sqliteBusyTimeoutMS = 5_000
-const SQLiteBusyTimeoutMS = sqliteBusyTimeoutMS
+type TraceQuery struct {
+	AppID            string
+	SessionID        string
+	TraceID          string
+	ServiceName      string
+	EndpointName     string
+	Status           string
+	Since            time.Time
+	MinDurationNanos uint64
+	Limit            int
+}
+
+type LogLevelCount struct {
+	Level string `json:"level"`
+	Count int64  `json:"count"`
+}
+
+type storeState struct {
+	Version             int                      `json:"version"`
+	Apps                map[string]AppRecord     `json:"apps,omitempty"`
+	AppSessions         map[string]AppRecord     `json:"app_sessions,omitempty"`
+	ProcessEvents       []ProcessEvent           `json:"process_events,omitempty"`
+	ProcessOutput       []ProcessOutput          `json:"process_output,omitempty"`
+	DevSources          map[string]DevSource     `json:"dev_sources,omitempty"`
+	DevEvents           []storedDevEvent         `json:"dev_events,omitempty"`
+	TraceSummaries      []storedTraceSummary     `json:"trace_summaries,omitempty"`
+	TraceEvents         []storedTraceEvent       `json:"trace_events,omitempty"`
+	LogEvents           []LogEvent               `json:"log_events,omitempty"`
+	Onboarding          OnboardingState          `json:"onboarding,omitempty"`
+	StoredRequests      map[string]StoredRequest `json:"stored_requests,omitempty"`
+	NextProcessEventID  int64                    `json:"next_process_event_id,omitempty"`
+	NextProcessOutputID int64                    `json:"next_process_output_id,omitempty"`
+	NextDevEventID      int64                    `json:"next_dev_event_id,omitempty"`
+}
+
+type storedDevEvent struct {
+	DevEvent
+	AppID     string    `json:"app_id"`
+	AppRoot   string    `json:"app_root,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type storedTraceSummary struct {
+	TraceSummary
+	AppID     string `json:"app_id"`
+	TestTrace bool   `json:"test_trace,omitempty"`
+}
+
+type storedTraceEvent struct {
+	TraceEvent
+	AppID string          `json:"app_id"`
+	Data  json.RawMessage `json:"data,omitempty"`
+}
+
+var storeLocks sync.Map
 
 func OpenStore(cacheRoot string) (*Store, error) {
 	if cacheRoot == "" {
@@ -39,590 +95,210 @@ func OpenStore(cacheRoot string) (*Store, error) {
 	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
 		return nil, err
 	}
-
-	dbPath := filepath.Join(cacheRoot, "dev.db")
-	db, err := sql.Open("sqlite", storeSQLiteDSN(dbPath))
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-
-	store := &Store{db: db}
-	if err := store.migrate(context.Background()); err != nil {
-		_ = db.Close()
+	path := filepath.Join(cacheRoot, "devdash.json")
+	lockAny, _ := storeLocks.LoadOrStore(path, &sync.Mutex{})
+	store := &Store{path: path, mu: lockAny.(*sync.Mutex)}
+	if err := store.withState(context.Background(), true, func(*storeState) error { return nil }); err != nil {
 		return nil, err
 	}
 	return store, nil
 }
 
-func storeSQLiteDSN(dbPath string) string {
-	return fmt.Sprintf(
-		"file:%s?_pragma=busy_timeout%%3d%d&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
-		filepath.ToSlash(dbPath),
-		sqliteBusyTimeoutMS,
-	)
-}
+func (s *Store) Close() error { return nil }
 
-func StoreSQLiteDSN(dbPath string) string {
-	return storeSQLiteDSN(dbPath)
-}
-
-func (s *Store) Close() error {
-	if s == nil || s.db == nil {
-		return nil
+func (s *Store) withState(ctx context.Context, write bool, fn func(*storeState) error) error {
+	if s == nil || s.path == "" || s.mu == nil {
+		return errors.New("devdash store is nil")
 	}
-	return s.db.Close()
-}
-
-func (s *Store) migrate(ctx context.Context) error {
-	stmts := []string{
-		`create table if not exists apps (
-			app_id text primary key,
-			base_app_id text not null default '',
-			runtime_app_id text not null default '',
-			session_id text not null default '',
-			name text not null,
-			root text not null,
-			listen_addr text not null default '',
-			metadata_json text not null default '{}',
-			api_encoding_json text not null default '{}',
-			grafana_json text not null default '{}',
-			running integer not null default 0,
-			compiling integer not null default 0,
-			compile_error text not null default '',
-			pid text not null default '',
-			updated_at text not null
-		)`,
-		`create table if not exists app_sessions (
-			record_key text primary key,
-			app_id text not null,
-			base_app_id text not null default '',
-			runtime_app_id text not null default '',
-			session_id text not null default '',
-			name text not null,
-			root text not null,
-			listen_addr text not null default '',
-			metadata_json text not null default '{}',
-			api_encoding_json text not null default '{}',
-			grafana_json text not null default '{}',
-			running integer not null default 0,
-			compiling integer not null default 0,
-			compile_error text not null default '',
-			pid text not null default '',
-			updated_at text not null
-		)`,
-		`create table if not exists process_events (
-			id integer primary key autoincrement,
-			app_id text not null,
-			kind text not null,
-			payload_json text not null,
-			created_at text not null
-		)`,
-		`create table if not exists process_output (
-			id integer primary key autoincrement,
-			app_id text not null,
-			session_id text not null default '',
-			pid text not null,
-			stream text not null,
-			output blob not null,
-			created_at text not null
-		)`,
-		`create table if not exists dev_sources (
-			app_id text not null,
-			session_id text not null default '',
-			source_id text not null,
-			kind text not null default '',
-			name text not null default '',
-			role text not null default '',
-			pid text not null default '',
-			status text not null default '',
-			restart_id text not null default '',
-			url text not null default '',
-			reason text not null default '',
-			updated_at text not null,
-			primary key (app_id, session_id, source_id)
-		)`,
-		`create table if not exists dev_events (
-			id integer primary key autoincrement,
-			app_id text not null,
-			session_id text not null default '',
-			source_id text not null default '',
-			source_kind text not null default '',
-			source_name text not null default '',
-			source_role text not null default '',
-			source_pid text not null default '',
-			source_stream text not null default '',
-			source_restart_id text not null default '',
-			source_status text not null default '',
-			source_url text not null default '',
-			source_reason text not null default '',
-			level text not null default '',
-			message text not null default '',
-			fields_json text not null default '{}',
-			raw_output text not null default '',
-			parse_format text not null default 'raw',
-			parse_ok integer not null default 0,
-			created_at text not null
-		)`,
-		`create table if not exists dev_event_sequence (
-			name text primary key,
-			next_id integer not null
-		)`,
-		`create index if not exists idx_dev_events_app_session_id on dev_events (app_id, session_id, id)`,
-		`create index if not exists idx_dev_events_app_session_source on dev_events (app_id, session_id, source_id, id)`,
-		`create index if not exists idx_dev_events_app_session_kind on dev_events (app_id, session_id, source_kind, id)`,
-		`create index if not exists idx_dev_events_app_session_level on dev_events (app_id, session_id, level, id)`,
-		`create index if not exists idx_dev_events_app_session_time on dev_events (app_id, session_id, created_at)`,
-		`create table if not exists trace_summaries (
-			id integer primary key autoincrement,
-			app_id text not null,
-			session_id text not null default '',
-			trace_id text not null,
-			span_id text not null,
-			started_at text not null,
-			service_name text not null default '',
-			endpoint_name text,
-			is_root integer not null default 0,
-			is_error integer not null default 0,
-			duration_nanos integer not null default 0,
-			summary_json text not null,
-			unique(app_id, session_id, trace_id, span_id)
-		)`,
-		`create table if not exists trace_events (
-			id integer primary key autoincrement,
-			app_id text not null,
-			session_id text not null default '',
-			trace_id text not null,
-			span_id text not null,
-			event_id integer not null,
-			event_time text not null,
-			event_json text not null
-		)`,
-		`create table if not exists log_events (
-			id integer primary key autoincrement,
-			app_id text not null,
-			session_id text not null default '',
-			trace_id text not null default '',
-			span_id text not null default '',
-			level text not null,
-			message text not null,
-			attrs_json text not null default '{}',
-			created_at text not null
-		)`,
-		`create table if not exists onboarding (
-			name text primary key,
-			set_at text not null
-		)`,
-		`create table if not exists stored_requests (
-			app_id text not null,
-			id text not null,
-			title text not null default '',
-			rpc_name text not null default '',
-			svc_name text not null default '',
-			shared integer not null default 0,
-			data_json text not null default '{}',
-			created_at text not null,
-			updated_at text not null,
-			primary key (app_id, id)
-		)`,
-	}
-
-	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return err
-		}
-	}
-	if err := s.ensureColumn(ctx, "apps", "grafana_json", `text not null default '{}'`); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.ensureColumn(ctx, "apps", "base_app_id", `text not null default ''`); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadState()
+	if err != nil {
 		return err
 	}
-	if err := s.ensureColumn(ctx, "apps", "runtime_app_id", `text not null default ''`); err != nil {
+	if err := fn(state); err != nil {
 		return err
 	}
-	if err := s.ensureColumn(ctx, "apps", "session_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "app_sessions", "grafana_json", `text not null default '{}'`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "app_sessions", "base_app_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "app_sessions", "runtime_app_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "app_sessions", "session_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "process_output", "session_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "trace_summaries", "session_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.migrateTraceSummariesSessionUniqueness(ctx); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "trace_events", "session_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "log_events", "session_id", `text not null default ''`); err != nil {
-		return err
-	}
-	if err := s.migrateAppSessions(ctx); err != nil {
-		return err
+	if write {
+		return s.saveState(state)
 	}
 	return nil
 }
 
-func (s *Store) migrateTraceSummariesSessionUniqueness(ctx context.Context) error {
-	ok, err := s.traceSummariesUniqueIndexIncludesSession(ctx)
-	if err != nil || ok {
-		return err
+func (s *Store) loadState() (*storeState, error) {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return newStoreState(), nil
+		}
+		return nil, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return newStoreState(), nil
+	}
+	var state storeState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	normalizeStoreState(&state)
+	return &state, nil
+}
+
+func (s *Store) saveState(state *storeState) error {
+	normalizeStoreState(state)
+	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".devdash-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	ok := false
 	defer func() {
-		_ = tx.Rollback()
+		if !ok {
+			_ = os.Remove(tmpName)
+		}
 	}()
-	if _, err := tx.ExecContext(ctx, `
-		create table trace_summaries_new (
-			id integer primary key autoincrement,
-			app_id text not null,
-			session_id text not null default '',
-			trace_id text not null,
-			span_id text not null,
-			started_at text not null,
-			service_name text not null default '',
-			endpoint_name text,
-			is_root integer not null default 0,
-			is_error integer not null default 0,
-			duration_nanos integer not null default 0,
-			summary_json text not null,
-			unique(app_id, session_id, trace_id, span_id)
-		)
-	`); err != nil {
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into trace_summaries_new (
-			id, app_id, session_id, trace_id, span_id, started_at, service_name,
-			endpoint_name, is_root, is_error, duration_nanos, summary_json
-		)
-		select
-			id, app_id, session_id, trace_id, span_id, started_at, service_name,
-			endpoint_name, is_root, is_error, duration_nanos, summary_json
-		from trace_summaries
-	`); err != nil {
+	if _, err := tmp.Write([]byte("\n")); err != nil {
+		_ = tmp.Close()
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `drop table trace_summaries`); err != nil {
+	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `alter table trace_summaries_new rename to trace_summaries`); err != nil {
+	if err := os.Rename(tmpName, s.path); err != nil {
 		return err
 	}
-	return tx.Commit()
+	ok = true
+	return nil
 }
 
-func (s *Store) traceSummariesUniqueIndexIncludesSession(ctx context.Context) (bool, error) {
-	rows, err := s.db.QueryContext(ctx, `pragma index_list(trace_summaries)`)
-	if err != nil {
-		return false, err
-	}
-	var uniqueIndexes []string
-	for rows.Next() {
-		var seq int
-		var name string
-		var unique int
-		var origin string
-		var partial int
-		if err := rows.Scan(&seq, &name, &unique, &origin, &partial); err != nil {
-			_ = rows.Close()
-			return false, err
-		}
-		if unique != 0 {
-			uniqueIndexes = append(uniqueIndexes, name)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return false, err
-	}
-	if err := rows.Close(); err != nil {
-		return false, err
-	}
-	for _, name := range uniqueIndexes {
-		cols, err := s.indexColumns(ctx, name)
-		if err != nil {
-			return false, err
-		}
-		if equalStrings(cols, []string{"app_id", "session_id", "trace_id", "span_id"}) {
-			return true, nil
-		}
-	}
-	return false, nil
+func newStoreState() *storeState {
+	state := &storeState{Version: 1}
+	normalizeStoreState(state)
+	return state
 }
 
-func (s *Store) indexColumns(ctx context.Context, indexName string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `pragma index_info(`+indexName+`)`)
-	if err != nil {
-		return nil, err
+func normalizeStoreState(state *storeState) {
+	if state.Version == 0 {
+		state.Version = 1
 	}
-	defer rows.Close()
-	var cols []string
-	for rows.Next() {
-		var seqno int
-		var cid int
-		var name string
-		if err := rows.Scan(&seqno, &cid, &name); err != nil {
-			return nil, err
-		}
-		cols = append(cols, name)
+	if state.Apps == nil {
+		state.Apps = map[string]AppRecord{}
 	}
-	return cols, rows.Err()
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+	if state.AppSessions == nil {
+		state.AppSessions = map[string]AppRecord{}
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	if state.DevSources == nil {
+		state.DevSources = map[string]DevSource{}
+	}
+	if state.Onboarding == nil {
+		state.Onboarding = OnboardingState{}
+	}
+	if state.StoredRequests == nil {
+		state.StoredRequests = map[string]StoredRequest{}
+	}
+	if len(state.AppSessions) == 0 && len(state.Apps) > 0 {
+		for _, app := range state.Apps {
+			state.AppSessions[appSessionRecordKey(app)] = app
 		}
 	}
-	return true
+	if state.NextProcessEventID <= 0 {
+		state.NextProcessEventID = maxProcessEventID(state.ProcessEvents) + 1
+	}
+	if state.NextProcessOutputID <= 0 {
+		state.NextProcessOutputID = maxProcessOutputID(state.ProcessOutput) + 1
+	}
+	if state.NextDevEventID <= 0 {
+		state.NextDevEventID = maxDevEventID(state.DevEvents) + 1
+	}
 }
 
-func (s *Store) ensureColumn(ctx context.Context, table, column, definition string) error {
-	rows, err := s.db.QueryContext(ctx, "pragma table_info("+table+")")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var defaultValue any
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
-			return err
-		}
-		if name == column {
-			return rows.Err()
+func maxProcessEventID(events []ProcessEvent) int64 {
+	var maxID int64
+	for _, event := range events {
+		if event.ID > maxID {
+			maxID = event.ID
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, fmt.Sprintf("alter table %s add column %s %s", table, column, definition))
-	return err
+	return maxID
 }
 
-func (s *Store) migrateAppSessions(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-		insert or ignore into app_sessions (
-			record_key, app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr,
-			metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at
-		)
-		select
-			case when session_id != '' then session_id else app_id end,
-			app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr,
-			metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at
-		from apps
-	`)
-	return err
-}
-
-func (s *Store) UpsertApp(ctx context.Context, app AppRecord) error {
-	if app.UpdatedAt.IsZero() {
-		app.UpdatedAt = time.Now().UTC()
-	}
-	if len(app.Metadata) == 0 {
-		app.Metadata = json.RawMessage(`{}`)
-	}
-	if len(app.APIEncoding) == 0 {
-		app.APIEncoding = json.RawMessage(`{}`)
-	}
-	if len(app.Grafana) == 0 {
-		app.Grafana = json.RawMessage(`{}`)
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `
-		insert into apps (app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr, metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at)
-		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		on conflict(app_id) do update set
-			base_app_id = excluded.base_app_id,
-			runtime_app_id = excluded.runtime_app_id,
-			session_id = excluded.session_id,
-			name = excluded.name,
-			root = excluded.root,
-			listen_addr = excluded.listen_addr,
-			metadata_json = excluded.metadata_json,
-			api_encoding_json = excluded.api_encoding_json,
-			grafana_json = excluded.grafana_json,
-			running = excluded.running,
-			compiling = excluded.compiling,
-			compile_error = excluded.compile_error,
-			pid = excluded.pid,
-			updated_at = excluded.updated_at
-	`,
-		app.ID,
-		app.BaseAppID,
-		app.RuntimeAppID,
-		app.SessionID,
-		app.Name,
-		app.Root,
-		app.ListenAddr,
-		string(app.Metadata),
-		string(app.APIEncoding),
-		string(app.Grafana),
-		boolToInt(app.Running),
-		boolToInt(app.Compiling),
-		app.CompileError,
-		app.PID,
-		app.UpdatedAt.Format(time.RFC3339Nano),
-	); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into app_sessions (record_key, app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr, metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at)
-		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		on conflict(record_key) do update set
-			app_id = excluded.app_id,
-			base_app_id = excluded.base_app_id,
-			runtime_app_id = excluded.runtime_app_id,
-			session_id = excluded.session_id,
-			name = excluded.name,
-			root = excluded.root,
-			listen_addr = excluded.listen_addr,
-			metadata_json = excluded.metadata_json,
-			api_encoding_json = excluded.api_encoding_json,
-			grafana_json = excluded.grafana_json,
-			running = excluded.running,
-			compiling = excluded.compiling,
-			compile_error = excluded.compile_error,
-			pid = excluded.pid,
-			updated_at = excluded.updated_at
-	`,
-		appSessionRecordKey(app),
-		app.ID,
-		app.BaseAppID,
-		app.RuntimeAppID,
-		app.SessionID,
-		app.Name,
-		app.Root,
-		app.ListenAddr,
-		string(app.Metadata),
-		string(app.APIEncoding),
-		string(app.Grafana),
-		boolToInt(app.Running),
-		boolToInt(app.Compiling),
-		app.CompileError,
-		app.PID,
-		app.UpdatedAt.Format(time.RFC3339Nano),
-	); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Store) ListApps(ctx context.Context) ([]AppRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr, metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at
-		from apps
-		order by running desc, name asc
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var apps []AppRecord
-	for rows.Next() {
-		var app AppRecord
-		var metadata, apiEncoding, grafana string
-		var running, compiling int
-		var updatedAt string
-		if err := rows.Scan(
-			&app.ID,
-			&app.BaseAppID,
-			&app.RuntimeAppID,
-			&app.SessionID,
-			&app.Name,
-			&app.Root,
-			&app.ListenAddr,
-			&metadata,
-			&apiEncoding,
-			&grafana,
-			&running,
-			&compiling,
-			&app.CompileError,
-			&app.PID,
-			&updatedAt,
-		); err != nil {
-			return nil, err
+func maxProcessOutputID(items []ProcessOutput) int64 {
+	var maxID int64
+	for _, item := range items {
+		if item.ID > maxID {
+			maxID = item.ID
 		}
-		app.Metadata = json.RawMessage(metadata)
-		app.APIEncoding = json.RawMessage(apiEncoding)
-		app.Grafana = json.RawMessage(grafana)
-		app.Running = running == 1
-		app.Compiling = compiling == 1
-		app.Offline = !app.Running
-		app.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
-		app.RouteID = app.ID
-		apps = append(apps, app)
 	}
-	return apps, rows.Err()
+	return maxID
 }
 
-type appRecordScanner interface {
-	Scan(dest ...any) error
+func maxDevEventID(events []storedDevEvent) int64 {
+	var maxID int64
+	for _, event := range events {
+		if event.ID > maxID {
+			maxID = event.ID
+		}
+	}
+	return maxID
 }
 
-func scanAppSessionRecord(row appRecordScanner) (AppRecord, error) {
-	var app AppRecord
-	var metadata, apiEncoding, grafana string
-	var running, compiling int
-	var updatedAt string
-	if err := row.Scan(
-		&app.RouteID,
-		&app.ID,
-		&app.BaseAppID,
-		&app.RuntimeAppID,
-		&app.SessionID,
-		&app.Name,
-		&app.Root,
-		&app.ListenAddr,
-		&metadata,
-		&apiEncoding,
-		&grafana,
-		&running,
-		&compiling,
-		&app.CompileError,
-		&app.PID,
-		&updatedAt,
-	); err != nil {
-		return AppRecord{}, err
+func storeDevEvent(event DevEvent) storedDevEvent {
+	return storedDevEvent{
+		DevEvent:  event,
+		AppID:     event.AppID,
+		AppRoot:   event.AppRoot,
+		CreatedAt: event.CreatedAt,
 	}
-	app.Metadata = json.RawMessage(metadata)
-	app.APIEncoding = json.RawMessage(apiEncoding)
-	app.Grafana = json.RawMessage(grafana)
-	app.Running = running == 1
-	app.Compiling = compiling == 1
-	app.Offline = !app.Running
-	app.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
-	return app, nil
+}
+
+func (event storedDevEvent) toDevEvent() DevEvent {
+	item := event.DevEvent
+	item.AppID = event.AppID
+	item.AppRoot = event.AppRoot
+	item.CreatedAt = event.CreatedAt
+	item.Fields = compactRawMessage(item.Fields)
+	return item
+}
+
+func storeTraceSummary(summary TraceSummary) storedTraceSummary {
+	return storedTraceSummary{
+		TraceSummary: summary,
+		AppID:        summary.AppID,
+		TestTrace:    summary.TestTrace,
+	}
+}
+
+func (summary storedTraceSummary) toTraceSummary() TraceSummary {
+	item := summary.TraceSummary
+	item.AppID = summary.AppID
+	item.TestTrace = summary.TestTrace
+	return item
+}
+
+func storeTraceEvent(event TraceEvent) storedTraceEvent {
+	return storedTraceEvent{
+		TraceEvent: event,
+		AppID:      event.AppID,
+		Data:       event.Data,
+	}
+}
+
+func (event storedTraceEvent) toTraceEvent() TraceEvent {
+	item := event.TraceEvent
+	item.AppID = event.AppID
+	item.Data = event.Data
+	return item
 }
 
 func appSessionRecordKey(app AppRecord) string {
@@ -635,115 +311,149 @@ func appSessionRecordKey(app AppRecord) string {
 	return app.ID
 }
 
-func (s *Store) ListAppSessions(ctx context.Context) ([]AppRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select record_key, app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr, metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at
-		from app_sessions
-		order by running desc, name asc, session_id asc, updated_at desc
-	`)
-	if err != nil {
-		return nil, err
+func normalizeAppRecord(app AppRecord) AppRecord {
+	if app.UpdatedAt.IsZero() {
+		app.UpdatedAt = time.Now().UTC()
 	}
-	defer rows.Close()
+	if len(app.Metadata) == 0 {
+		app.Metadata = json.RawMessage(`{}`)
+	}
+	if len(app.APIEncoding) == 0 {
+		app.APIEncoding = json.RawMessage(`{}`)
+	}
+	if len(app.Grafana) == 0 {
+		app.Grafana = json.RawMessage(`{}`)
+	}
+	return app
+}
 
+func (s *Store) UpsertApp(ctx context.Context, app AppRecord) error {
+	app = normalizeAppRecord(app)
+	return s.withState(ctx, true, func(state *storeState) error {
+		legacy := app
+		legacy.RouteID = legacy.ID
+		state.Apps[app.ID] = legacy
+		session := app
+		session.RouteID = appSessionRecordKey(app)
+		state.AppSessions[session.RouteID] = session
+		return nil
+	})
+}
+
+func (s *Store) ListApps(ctx context.Context) ([]AppRecord, error) {
 	var apps []AppRecord
-	for rows.Next() {
-		app, err := scanAppSessionRecord(rows)
-		if err != nil {
-			return nil, err
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for _, app := range state.Apps {
+			app.RouteID = app.ID
+			app.Offline = !app.Running
+			apps = append(apps, app)
 		}
-		apps = append(apps, app)
-	}
-	return apps, rows.Err()
+		sort.SliceStable(apps, func(i, j int) bool {
+			if apps[i].Running != apps[j].Running {
+				return apps[i].Running
+			}
+			return apps[i].Name < apps[j].Name
+		})
+		return nil
+	})
+	return apps, err
+}
+
+func (s *Store) ListAppSessions(ctx context.Context) ([]AppRecord, error) {
+	var apps []AppRecord
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for routeID, app := range state.AppSessions {
+			app.RouteID = routeID
+			app.Offline = !app.Running
+			apps = append(apps, app)
+		}
+		sort.SliceStable(apps, func(i, j int) bool {
+			if apps[i].Running != apps[j].Running {
+				return apps[i].Running
+			}
+			if apps[i].Name != apps[j].Name {
+				return apps[i].Name < apps[j].Name
+			}
+			if apps[i].SessionID != apps[j].SessionID {
+				return apps[i].SessionID < apps[j].SessionID
+			}
+			return apps[i].UpdatedAt.After(apps[j].UpdatedAt)
+		})
+		return nil
+	})
+	return apps, err
 }
 
 func (s *Store) GetApp(ctx context.Context, appID string) (AppRecord, error) {
 	var app AppRecord
-	var metadata, apiEncoding, grafana string
-	var running, compiling int
-	var updatedAt string
-	err := s.db.QueryRowContext(ctx, `
-		select app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr, metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at
-		from apps where app_id = ?
-	`, appID).Scan(
-		&app.ID,
-		&app.BaseAppID,
-		&app.RuntimeAppID,
-		&app.SessionID,
-		&app.Name,
-		&app.Root,
-		&app.ListenAddr,
-		&metadata,
-		&apiEncoding,
-		&grafana,
-		&running,
-		&compiling,
-		&app.CompileError,
-		&app.PID,
-		&updatedAt,
-	)
-	if err != nil {
-		return AppRecord{}, err
-	}
-	app.Metadata = json.RawMessage(metadata)
-	app.APIEncoding = json.RawMessage(apiEncoding)
-	app.Grafana = json.RawMessage(grafana)
-	app.Running = running == 1
-	app.Compiling = compiling == 1
-	app.Offline = !app.Running
-	app.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
-	app.RouteID = app.ID
-	return app, nil
+	err := s.withState(ctx, false, func(state *storeState) error {
+		var found bool
+		app, found = state.Apps[appID]
+		if !found {
+			return sql.ErrNoRows
+		}
+		app.RouteID = app.ID
+		app.Offline = !app.Running
+		return nil
+	})
+	return app, err
 }
 
 func (s *Store) GetAppSession(ctx context.Context, routeID string) (AppRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select record_key, app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr, metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at
-		from app_sessions
-		where record_key = ? or session_id = ?
-		order by running desc, updated_at desc
-		limit 1
-	`, routeID, routeID)
-	if err != nil {
-		return AppRecord{}, err
-	}
-	defer rows.Close()
-	if !rows.Next() {
-		return AppRecord{}, sql.ErrNoRows
-	}
-	app, err := scanAppSessionRecord(rows)
-	if err != nil {
-		return AppRecord{}, err
-	}
-	if err := rows.Err(); err != nil {
-		return AppRecord{}, err
-	}
-	return app, nil
+	var app AppRecord
+	err := s.withState(ctx, false, func(state *storeState) error {
+		if found, ok := state.AppSessions[routeID]; ok {
+			app = found
+			app.RouteID = routeID
+			app.Offline = !app.Running
+			return nil
+		}
+		var matches []AppRecord
+		for key, candidate := range state.AppSessions {
+			if candidate.SessionID == routeID {
+				candidate.RouteID = key
+				matches = append(matches, candidate)
+			}
+		}
+		if len(matches) == 0 {
+			return sql.ErrNoRows
+		}
+		sortRunningUpdated(matches)
+		app = matches[0]
+		app.Offline = !app.Running
+		return nil
+	})
+	return app, err
 }
 
 func (s *Store) GetAppForSession(ctx context.Context, appID, sessionID string) (AppRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select record_key, app_id, base_app_id, runtime_app_id, session_id, name, root, listen_addr, metadata_json, api_encoding_json, grafana_json, running, compiling, compile_error, pid, updated_at
-		from app_sessions
-		where app_id = ? and session_id = ?
-		order by running desc, updated_at desc
-		limit 1
-	`, appID, sessionID)
-	if err != nil {
-		return AppRecord{}, err
-	}
-	defer rows.Close()
-	if !rows.Next() {
-		return AppRecord{}, sql.ErrNoRows
-	}
-	app, err := scanAppSessionRecord(rows)
-	if err != nil {
-		return AppRecord{}, err
-	}
-	if err := rows.Err(); err != nil {
-		return AppRecord{}, err
-	}
-	return app, nil
+	var app AppRecord
+	err := s.withState(ctx, false, func(state *storeState) error {
+		var matches []AppRecord
+		for key, candidate := range state.AppSessions {
+			if candidate.ID == appID && candidate.SessionID == sessionID {
+				candidate.RouteID = key
+				matches = append(matches, candidate)
+			}
+		}
+		if len(matches) == 0 {
+			return sql.ErrNoRows
+		}
+		sortRunningUpdated(matches)
+		app = matches[0]
+		app.Offline = !app.Running
+		return nil
+	})
+	return app, err
+}
+
+func sortRunningUpdated(apps []AppRecord) {
+	sort.SliceStable(apps, func(i, j int) bool {
+		if apps[i].Running != apps[j].Running {
+			return apps[i].Running
+		}
+		return apps[i].UpdatedAt.After(apps[j].UpdatedAt)
+	})
 }
 
 func (s *Store) WriteProcessEvent(ctx context.Context, appID, kind string, payload any) error {
@@ -751,57 +461,52 @@ func (s *Store) WriteProcessEvent(ctx context.Context, appID, kind string, paylo
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
-		insert into process_events (app_id, kind, payload_json, created_at)
-		values (?, ?, ?, ?)
-	`, appID, kind, string(data), time.Now().UTC().Format(time.RFC3339Nano))
-	return err
+	return s.withState(ctx, true, func(state *storeState) error {
+		event := ProcessEvent{
+			ID:          state.NextProcessEventID,
+			AppID:       appID,
+			Kind:        kind,
+			PayloadJSON: data,
+			CreatedAt:   time.Now().UTC(),
+		}
+		state.NextProcessEventID++
+		state.ProcessEvents = append(state.ProcessEvents, event)
+		return nil
+	})
 }
 
 func (s *Store) ListProcessEvents(ctx context.Context, appID string, limit int) ([]ProcessEvent, error) {
 	if limit <= 0 {
 		limit = 200
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		select id, app_id, kind, payload_json, created_at
-		from process_events
-		where app_id = ?
-		order by id desc
-		limit ?
-	`, appID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var events []ProcessEvent
-	for rows.Next() {
-		var event ProcessEvent
-		var payload string
-		var created string
-		if err := rows.Scan(&event.ID, &event.AppID, &event.Kind, &payload, &created); err != nil {
-			return nil, err
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for _, event := range state.ProcessEvents {
+			if event.AppID == appID {
+				events = append(events, event)
+			}
 		}
-		event.PayloadJSON = append(json.RawMessage(nil), payload...)
-		if t, err := time.Parse(time.RFC3339Nano, created); err == nil {
-			event.CreatedAt = t
+		sort.SliceStable(events, func(i, j int) bool {
+			return events[i].ID > events[j].ID
+		})
+		if len(events) > limit {
+			events = events[:limit]
 		}
-		events = append(events, event)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return events, nil
+		return nil
+	})
+	return events, err
 }
 
 func (s *Store) WriteProcessOutput(ctx context.Context, output ProcessOutput) error {
 	if output.CreatedAt.IsZero() {
 		output.CreatedAt = time.Now().UTC()
 	}
-	_, err := s.db.ExecContext(ctx, `
-		insert into process_output (app_id, session_id, pid, stream, output, created_at)
-		values (?, ?, ?, ?, ?, ?)
-	`, output.AppID, output.SessionID, output.PID, output.Stream, output.Output, output.CreatedAt.Format(time.RFC3339Nano))
-	return err
+	return s.withState(ctx, true, func(state *storeState) error {
+		output.ID = state.NextProcessOutputID
+		state.NextProcessOutputID++
+		state.ProcessOutput = append(state.ProcessOutput, output)
+		return nil
+	})
 }
 
 func (s *Store) ListProcessOutput(ctx context.Context, appID string, limit int) ([]ProcessOutput, error) {
@@ -809,45 +514,7 @@ func (s *Store) ListProcessOutput(ctx context.Context, appID string, limit int) 
 }
 
 func (s *Store) ListProcessOutputForSession(ctx context.Context, appID, sessionID string, limit int) ([]ProcessOutput, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-	query := `
-		select id, app_id, session_id, pid, stream, output, created_at
-		from process_output
-		where app_id = ?
-	`
-	args := []any{appID}
-	if sessionID != "" {
-		query += ` and session_id = ?`
-		args = append(args, sessionID)
-	}
-	query += ` order by id desc limit ?`
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var items []ProcessOutput
-	for rows.Next() {
-		var item ProcessOutput
-		var createdAt string
-		if err := rows.Scan(&item.ID, &item.AppID, &item.SessionID, &item.PID, &item.Stream, &item.Output, &createdAt); err != nil {
-			return nil, err
-		}
-		item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
-		items[i], items[j] = items[j], items[i]
-	}
-	return items, nil
+	return s.listProcessOutput(ctx, appID, sessionID, 0, limit)
 }
 
 func (s *Store) ListProcessOutputSince(ctx context.Context, appID string, afterID int64, limit int) ([]ProcessOutput, error) {
@@ -855,74 +522,259 @@ func (s *Store) ListProcessOutputSince(ctx context.Context, appID string, afterI
 }
 
 func (s *Store) ListProcessOutputSinceForSession(ctx context.Context, appID, sessionID string, afterID int64, limit int) ([]ProcessOutput, error) {
+	return s.listProcessOutput(ctx, appID, sessionID, afterID, limit)
+}
+
+func (s *Store) listProcessOutput(ctx context.Context, appID, sessionID string, afterID int64, limit int) ([]ProcessOutput, error) {
 	if limit <= 0 {
 		limit = 200
 	}
-	query := `
-		select id, app_id, session_id, pid, stream, output, created_at
-		from process_output
-		where app_id = ? and id > ?
-	`
-	args := []any{appID, afterID}
-	if sessionID != "" {
-		query += ` and session_id = ?`
-		args = append(args, sessionID)
-	}
-	query += ` order by id asc limit ?`
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var items []ProcessOutput
-	for rows.Next() {
-		var item ProcessOutput
-		var createdAt string
-		if err := rows.Scan(&item.ID, &item.AppID, &item.SessionID, &item.PID, &item.Stream, &item.Output, &createdAt); err != nil {
-			return nil, err
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for _, item := range state.ProcessOutput {
+			if item.AppID != appID || item.ID <= afterID {
+				continue
+			}
+			if sessionID != "" && item.SessionID != sessionID {
+				continue
+			}
+			items = append(items, item)
 		}
-		item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
-		items = append(items, item)
+		if afterID > 0 {
+			sort.SliceStable(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+		} else {
+			sort.SliceStable(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+		}
+		if len(items) > limit {
+			items = items[:limit]
+		}
+		if afterID == 0 {
+			for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+		return nil
+	})
+	return items, err
+}
+
+func (s *Store) UpsertDevSource(ctx context.Context, appID, sessionID string, source DevSource) error {
+	source = normalizeDevSource(source)
+	if appID == "" || source.ID == "" {
+		return nil
 	}
-	return items, rows.Err()
+	return s.withState(ctx, true, func(state *storeState) error {
+		state.DevSources[devSourceKey(appID, sessionID, source.ID)] = source
+		return nil
+	})
+}
+
+func (s *Store) WriteDevEvent(ctx context.Context, event DevEvent) error {
+	_, err := s.WriteDevEventReturningID(ctx, event)
+	return err
+}
+
+func (s *Store) WriteDevEventReturningID(ctx context.Context, event DevEvent) (int64, error) {
+	var id int64
+	err := s.withState(ctx, true, func(state *storeState) error {
+		event = normalizeDevEvent(event)
+		if event.ID <= 0 {
+			event.ID = state.NextDevEventID
+		}
+		if state.NextDevEventID <= event.ID {
+			state.NextDevEventID = event.ID + 1
+		}
+		state.DevSources[devSourceKey(event.AppID, event.SessionID, event.Source.ID)] = event.Source
+		state.DevEvents = append(state.DevEvents, storeDevEvent(event))
+		id = event.ID
+		return nil
+	})
+	return id, err
+}
+
+func (s *Store) NextDevEventID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.withState(ctx, true, func(state *storeState) error {
+		id = state.NextDevEventID
+		state.NextDevEventID++
+		return nil
+	})
+	return id, err
+}
+
+func (s *Store) AdvanceDevEventID(ctx context.Context, nextID int64) error {
+	if nextID <= 0 {
+		return nil
+	}
+	return s.withState(ctx, true, func(state *storeState) error {
+		if state.NextDevEventID < nextID {
+			state.NextDevEventID = nextID
+		}
+		return nil
+	})
+}
+
+func (s *Store) ListDevSources(ctx context.Context, appID, sessionID string) ([]DevSource, error) {
+	var sources []DevSource
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for key, source := range state.DevSources {
+			kAppID, kSessionID, _ := splitDevSourceKey(key)
+			if kAppID != appID {
+				continue
+			}
+			if sessionID != "" && kSessionID != sessionID {
+				continue
+			}
+			sources = append(sources, source)
+		}
+		sort.SliceStable(sources, func(i, j int) bool { return sources[i].ID < sources[j].ID })
+		return nil
+	})
+	return sources, err
+}
+
+func (s *Store) DeleteDevEventsForSession(ctx context.Context, appID, sessionID string) (int64, int64, error) {
+	if strings.TrimSpace(appID) == "" || strings.TrimSpace(sessionID) == "" {
+		return 0, 0, nil
+	}
+	var eventCount, sourceCount int64
+	err := s.withState(ctx, true, func(state *storeState) error {
+		events := state.DevEvents[:0]
+		for _, stored := range state.DevEvents {
+			event := stored.toDevEvent()
+			if event.AppID == appID && event.SessionID == sessionID {
+				eventCount++
+				continue
+			}
+			events = append(events, stored)
+		}
+		state.DevEvents = events
+		for key := range state.DevSources {
+			kAppID, kSessionID, _ := splitDevSourceKey(key)
+			if kAppID == appID && kSessionID == sessionID {
+				delete(state.DevSources, key)
+				sourceCount++
+			}
+		}
+		return nil
+	})
+	return eventCount, sourceCount, err
+}
+
+func (s *Store) ListDevEvents(ctx context.Context, query DevEventQuery) ([]DevEvent, error) {
+	if query.Limit <= 0 {
+		query.Limit = 200
+	}
+	var items []DevEvent
+	err := s.withState(ctx, false, func(state *storeState) error {
+		grep := strings.ToLower(strings.TrimSpace(query.Grep))
+		for _, stored := range state.DevEvents {
+			event := stored.toDevEvent()
+			if !devEventMatchesQuery(event, query, grep) {
+				continue
+			}
+			items = append(items, event)
+		}
+		if query.AfterID > 0 {
+			sort.SliceStable(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+		} else {
+			sort.SliceStable(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+		}
+		if len(items) > query.Limit {
+			items = items[:query.Limit]
+		}
+		if query.AfterID == 0 {
+			for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+		return nil
+	})
+	return items, err
+}
+
+func normalizeDevEvent(event DevEvent) DevEvent {
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	event.Source = normalizeDevSource(event.Source)
+	event.Level = normalizeDevLevel(event.Level, event.Source.Stream)
+	event.Message = strings.TrimSpace(event.Message)
+	if event.Message == "" {
+		event.Message = strings.TrimSpace(event.Raw)
+	}
+	if event.Message == "" {
+		event.Message = event.Level
+	}
+	if len(event.Fields) == 0 || !json.Valid(event.Fields) {
+		event.Fields = json.RawMessage(`{}`)
+	}
+	if event.Parse.Format == "" {
+		event.Parse.Format = "raw"
+	}
+	return event
+}
+
+func devEventMatchesQuery(event DevEvent, query DevEventQuery, grep string) bool {
+	if event.AppID != query.AppID {
+		return false
+	}
+	if query.SessionID != "" && event.SessionID != query.SessionID {
+		return false
+	}
+	if query.AfterID > 0 && event.ID <= query.AfterID {
+		return false
+	}
+	if query.SourceID != "" && event.Source.ID != query.SourceID {
+		return false
+	}
+	if query.Kind != "" && event.Source.Kind != query.Kind {
+		return false
+	}
+	if query.Level != "" && event.Level != query.Level {
+		return false
+	}
+	if query.Stream != "" && query.Stream != "all" && event.Source.Stream != query.Stream {
+		return false
+	}
+	if !query.Since.IsZero() && event.CreatedAt.Before(query.Since.UTC()) {
+		return false
+	}
+	if grep == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(event.Message), grep) ||
+		strings.Contains(strings.ToLower(event.Raw), grep) ||
+		strings.Contains(strings.ToLower(string(event.Fields)), grep)
+}
+
+func devSourceKey(appID, sessionID, sourceID string) string {
+	return appID + "\x00" + sessionID + "\x00" + sourceID
+}
+
+func splitDevSourceKey(key string) (string, string, string) {
+	parts := strings.SplitN(key, "\x00", 3)
+	for len(parts) < 3 {
+		parts = append(parts, "")
+	}
+	return parts[0], parts[1], parts[2]
 }
 
 func (s *Store) AppendTraceSummary(ctx context.Context, summary *TraceSummary) error {
 	if summary == nil {
 		return errors.New("trace summary is nil")
 	}
-	data, err := json.Marshal(summary)
-	if err != nil {
-		return err
-	}
-	endpointName := nullableString(summary.EndpointName)
-	_, err = s.db.ExecContext(ctx, `
-		insert into trace_summaries (app_id, session_id, trace_id, span_id, started_at, service_name, endpoint_name, is_root, is_error, duration_nanos, summary_json)
-		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		on conflict(app_id, session_id, trace_id, span_id) do update set
-			started_at = excluded.started_at,
-			service_name = excluded.service_name,
-			endpoint_name = excluded.endpoint_name,
-			is_root = excluded.is_root,
-			is_error = excluded.is_error,
-			duration_nanos = excluded.duration_nanos,
-			summary_json = excluded.summary_json
-	`,
-		summary.AppID,
-		summary.SessionID,
-		summary.TraceID,
-		summary.SpanID,
-		summary.StartedAt.UTC().Format(time.RFC3339Nano),
-		summary.ServiceName,
-		endpointName,
-		boolToInt(summary.IsRoot),
-		boolToInt(summary.IsError),
-		summary.DurationNanos,
-		string(data),
-	)
-	return err
+	return s.withState(ctx, true, func(state *storeState) error {
+		replacement := storeTraceSummary(*summary)
+		for i, existing := range state.TraceSummaries {
+			if existing.AppID == replacement.AppID && existing.SessionID == replacement.SessionID && existing.TraceID == replacement.TraceID && existing.SpanID == replacement.SpanID {
+				state.TraceSummaries[i] = replacement
+				return nil
+			}
+		}
+		state.TraceSummaries = append(state.TraceSummaries, replacement)
+		return nil
+	})
 }
 
 func (s *Store) ListTraceSummaries(ctx context.Context, appID string, limit int, messageID string) ([]*TraceSummary, error) {
@@ -930,49 +782,9 @@ func (s *Store) ListTraceSummaries(ctx context.Context, appID string, limit int,
 }
 
 func (s *Store) ListTraceSummariesForSession(ctx context.Context, appID, sessionID string, limit int, messageID string) ([]*TraceSummary, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	query := `
-		select summary_json
-		from trace_summaries
-		where app_id = ? and is_root = 1
-	`
-	args := []any{appID}
-	if sessionID != "" {
-		query += ` and session_id = ?`
-		args = append(args, sessionID)
-	}
-	if messageID != "" {
-		query += ` and summary_json like ?`
-		args = append(args, "%"+messageID+"%")
-	}
-	query += ` order by started_at desc limit ?`
-	args = append(args, limit)
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []*TraceSummary
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return nil, err
-		}
-		var summary TraceSummary
-		if err := json.Unmarshal([]byte(data), &summary); err != nil {
-			return nil, err
-		}
-		summary.AppID = appID
-		if summary.SessionID == "" {
-			summary.SessionID = sessionID
-		}
-		list = append(list, &summary)
-	}
-	return list, rows.Err()
+	query := TraceQuery{AppID: appID, SessionID: sessionID, Limit: limit}
+	items, err := s.queryTraceSummaries(ctx, query, messageID, false)
+	return items, err
 }
 
 func (s *Store) GetTraceSummaries(ctx context.Context, appID, traceID string) ([]*TraceSummary, error) {
@@ -980,38 +792,442 @@ func (s *Store) GetTraceSummaries(ctx context.Context, appID, traceID string) ([
 }
 
 func (s *Store) GetTraceSummariesForSession(ctx context.Context, appID, sessionID, traceID string) ([]*TraceSummary, error) {
-	query := `
-		select summary_json
-		from trace_summaries
-		where app_id = ? and trace_id = ?
-	`
-	args := []any{appID, traceID}
-	if sessionID != "" {
-		query += ` and session_id = ?`
-		args = append(args, sessionID)
-	}
-	query += ` order by is_root desc, started_at asc`
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	query := TraceQuery{AppID: appID, SessionID: sessionID, TraceID: traceID, Limit: 0}
+	items, err := s.queryTraceSummaries(ctx, query, "", true)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].IsRoot != items[j].IsRoot {
+			return items[i].IsRoot
+		}
+		return items[i].StartedAt.Before(items[j].StartedAt)
+	})
+	return items, nil
+}
 
-	var list []*TraceSummary
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return nil, err
-		}
-		var summary TraceSummary
-		if err := json.Unmarshal([]byte(data), &summary); err != nil {
-			return nil, err
-		}
-		summary.AppID = appID
-		if summary.SessionID == "" {
-			summary.SessionID = sessionID
-		}
-		list = append(list, &summary)
+func (s *Store) QueryTraceSummaries(ctx context.Context, query TraceQuery) ([]*TraceSummary, error) {
+	if query.Limit <= 0 {
+		query.Limit = 100
 	}
-	return list, rows.Err()
+	return s.queryTraceSummaries(ctx, query, "", false)
+}
+
+func (s *Store) QueryTraceMetrics(ctx context.Context, query TraceQuery) ([]*TraceSummary, error) {
+	if query.Limit <= 0 {
+		query.Limit = 10000
+	}
+	return s.QueryTraceSummaries(ctx, query)
+}
+
+func (s *Store) queryTraceSummaries(ctx context.Context, query TraceQuery, messageID string, includeChildren bool) ([]*TraceSummary, error) {
+	if query.Limit <= 0 && !includeChildren {
+		query.Limit = 100
+	}
+	var items []*TraceSummary
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for _, stored := range state.TraceSummaries {
+			summary := stored.toTraceSummary()
+			if !traceSummaryMatches(summary, query, messageID, includeChildren) {
+				continue
+			}
+			item := summary
+			items = append(items, &item)
+		}
+		sort.SliceStable(items, func(i, j int) bool {
+			return items[i].StartedAt.After(items[j].StartedAt)
+		})
+		if query.Limit > 0 && len(items) > query.Limit {
+			items = items[:query.Limit]
+		}
+		return nil
+	})
+	return items, err
+}
+
+func traceSummaryMatches(summary TraceSummary, query TraceQuery, messageID string, includeChildren bool) bool {
+	if summary.AppID != query.AppID {
+		return false
+	}
+	if !includeChildren && !summary.IsRoot {
+		return false
+	}
+	if query.SessionID != "" && summary.SessionID != query.SessionID {
+		return false
+	}
+	if query.TraceID != "" && summary.TraceID != query.TraceID {
+		return false
+	}
+	if query.ServiceName != "" && summary.ServiceName != query.ServiceName {
+		return false
+	}
+	if query.EndpointName != "" && (summary.EndpointName == nil || *summary.EndpointName != query.EndpointName) {
+		return false
+	}
+	switch query.Status {
+	case "ok":
+		if summary.IsError {
+			return false
+		}
+	case "error":
+		if !summary.IsError {
+			return false
+		}
+	}
+	if !query.Since.IsZero() && summary.StartedAt.Before(query.Since.UTC()) {
+		return false
+	}
+	if query.MinDurationNanos > 0 && summary.DurationNanos < query.MinDurationNanos {
+		return false
+	}
+	if messageID != "" {
+		data, _ := json.Marshal(summary)
+		if !strings.Contains(string(data), messageID) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) AppendTraceEvent(ctx context.Context, event *TraceEvent) error {
+	if event == nil {
+		return errors.New("trace event is nil")
+	}
+	return s.withState(ctx, true, func(state *storeState) error {
+		state.TraceEvents = append(state.TraceEvents, storeTraceEvent(*event))
+		return nil
+	})
+}
+
+func (s *Store) GetTraceEvents(ctx context.Context, appID, traceID, spanID string) ([]*TraceEvent, error) {
+	return s.GetTraceEventsForSession(ctx, appID, "", traceID, spanID)
+}
+
+func (s *Store) GetTraceEventsForSession(ctx context.Context, appID, sessionID, traceID, spanID string) ([]*TraceEvent, error) {
+	var list []*TraceEvent
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for _, stored := range state.TraceEvents {
+			event := stored.toTraceEvent()
+			if event.AppID != appID || event.TraceID != traceID || event.SpanID != spanID {
+				continue
+			}
+			if sessionID != "" && event.SessionID != sessionID {
+				continue
+			}
+			item := event
+			if item.SessionID == "" {
+				item.SessionID = sessionID
+			}
+			list = append(list, &item)
+		}
+		sort.SliceStable(list, func(i, j int) bool { return list[i].EventID < list[j].EventID })
+		return nil
+	})
+	return list, err
+}
+
+func (s *Store) WriteLogEvent(ctx context.Context, event *LogEvent) error {
+	if event == nil {
+		return errors.New("log event is nil")
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
+	return s.withState(ctx, true, func(state *storeState) error {
+		state.LogEvents = append(state.LogEvents, *event)
+		return nil
+	})
+}
+
+func (s *Store) ClearTraces(ctx context.Context, appID string) error {
+	return s.ClearTracesForSession(ctx, appID, "")
+}
+
+func (s *Store) ClearTracesForSession(ctx context.Context, appID, sessionID string) error {
+	return s.withState(ctx, true, func(state *storeState) error {
+		state.TraceSummaries = filterTraceSummaries(state.TraceSummaries, appID, sessionID)
+		state.TraceEvents = filterTraceEvents(state.TraceEvents, appID, sessionID)
+		state.LogEvents = filterLogEvents(state.LogEvents, appID, sessionID)
+		return nil
+	})
+}
+
+func filterTraceSummaries(items []storedTraceSummary, appID, sessionID string) []storedTraceSummary {
+	out := items[:0]
+	for _, item := range items {
+		if item.AppID == appID && (sessionID == "" || item.SessionID == sessionID) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func filterTraceEvents(items []storedTraceEvent, appID, sessionID string) []storedTraceEvent {
+	out := items[:0]
+	for _, item := range items {
+		if item.AppID == appID && (sessionID == "" || item.SessionID == sessionID) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func filterLogEvents(items []LogEvent, appID, sessionID string) []LogEvent {
+	out := items[:0]
+	for _, item := range items {
+		if item.AppID == appID && (sessionID == "" || item.SessionID == sessionID) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func (s *Store) CountTraceEvents(ctx context.Context, appID string, since time.Time) (int64, error) {
+	return s.CountTraceEventsForSession(ctx, appID, "", since)
+}
+
+func (s *Store) CountTraceEventsForSession(ctx context.Context, appID, sessionID string, since time.Time) (int64, error) {
+	var count int64
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for _, stored := range state.TraceEvents {
+			event := stored.toTraceEvent()
+			if event.AppID != appID {
+				continue
+			}
+			if sessionID != "" && event.SessionID != sessionID {
+				continue
+			}
+			if !since.IsZero() && event.EventTime.Before(since.UTC()) {
+				continue
+			}
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
+func (s *Store) CountLogsByLevel(ctx context.Context, appID string, since time.Time) ([]LogLevelCount, error) {
+	return s.CountLogsByLevelForSession(ctx, appID, "", since)
+}
+
+func (s *Store) CountLogsByLevelForSession(ctx context.Context, appID, sessionID string, since time.Time) ([]LogLevelCount, error) {
+	counts := map[string]int64{}
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for _, event := range state.LogEvents {
+			if event.AppID != appID {
+				continue
+			}
+			if sessionID != "" && event.SessionID != sessionID {
+				continue
+			}
+			if !since.IsZero() && event.Timestamp.Before(since.UTC()) {
+				continue
+			}
+			counts[event.Level]++
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]LogLevelCount, 0, len(counts))
+	for level, count := range counts {
+		items = append(items, LogLevelCount{Level: level, Count: count})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Count != items[j].Count {
+			return items[i].Count > items[j].Count
+		}
+		return items[i].Level < items[j].Level
+	})
+	return items, nil
+}
+
+func (s *Store) GetOnboarding(ctx context.Context) (OnboardingState, error) {
+	stateOut := OnboardingState{}
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for name, setAt := range state.Onboarding {
+			stateOut[name] = setAt
+		}
+		return nil
+	})
+	return stateOut, err
+}
+
+func (s *Store) SetOnboarding(ctx context.Context, props []string) error {
+	return s.withState(ctx, true, func(state *storeState) error {
+		now := time.Now().UTC()
+		for _, prop := range props {
+			if prop == "" {
+				continue
+			}
+			state.Onboarding[prop] = now
+		}
+		return nil
+	})
+}
+
+func (s *Store) ListStoredRequests(ctx context.Context, appID string) ([]StoredRequest, error) {
+	var list []StoredRequest
+	err := s.withState(ctx, false, func(state *storeState) error {
+		for key, req := range state.StoredRequests {
+			kAppID, _ := splitStoredRequestKey(key)
+			if kAppID != appID {
+				continue
+			}
+			req.AppID = appID
+			list = append(list, sanitizeStoredRequest(req))
+		}
+		sort.SliceStable(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+		return nil
+	})
+	return list, err
+}
+
+func (s *Store) CreateStoredRequest(ctx context.Context, req StoredRequest) (StoredRequest, error) {
+	if req.AppID == "" {
+		return StoredRequest{}, errors.New("stored request app id is required")
+	}
+	req = sanitizeStoredRequest(req)
+	if req.ID == "" {
+		id, err := newStoredRequestID()
+		if err != nil {
+			return StoredRequest{}, err
+		}
+		req.ID = id
+	}
+	err := s.withState(ctx, true, func(state *storeState) error {
+		key := storedRequestKey(req.AppID, req.ID)
+		if _, exists := state.StoredRequests[key]; exists {
+			return fmt.Errorf("stored request %q already exists", req.ID)
+		}
+		state.StoredRequests[key] = req
+		return nil
+	})
+	return req, err
+}
+
+func (s *Store) UpdateStoredRequest(ctx context.Context, req StoredRequest) (StoredRequest, error) {
+	if req.AppID == "" {
+		return StoredRequest{}, errors.New("stored request app id is required")
+	}
+	if req.ID == "" {
+		return StoredRequest{}, errors.New("stored request id is required")
+	}
+	req = sanitizeStoredRequest(req)
+	err := s.withState(ctx, true, func(state *storeState) error {
+		key := storedRequestKey(req.AppID, req.ID)
+		if _, exists := state.StoredRequests[key]; !exists {
+			return sql.ErrNoRows
+		}
+		state.StoredRequests[key] = req
+		return nil
+	})
+	return req, err
+}
+
+func (s *Store) DeleteStoredRequest(ctx context.Context, appID, id string) error {
+	if appID == "" {
+		return errors.New("stored request app id is required")
+	}
+	if id == "" {
+		return errors.New("stored request id is required")
+	}
+	return s.withState(ctx, true, func(state *storeState) error {
+		key := storedRequestKey(appID, id)
+		if _, exists := state.StoredRequests[key]; !exists {
+			return sql.ErrNoRows
+		}
+		delete(state.StoredRequests, key)
+		return nil
+	})
+}
+
+func storedRequestKey(appID, id string) string {
+	return appID + "\x00" + id
+}
+
+func splitStoredRequestKey(key string) (string, string) {
+	appID, id, ok := strings.Cut(key, "\x00")
+	if !ok {
+		return "", key
+	}
+	return appID, id
+}
+
+func SortTraceSummariesByDuration(items []*TraceSummary) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].DurationNanos == items[j].DurationNanos {
+			return items[i].StartedAt.After(items[j].StartedAt)
+		}
+		return items[i].DurationNanos > items[j].DurationNanos
+	})
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseOptionalTime(value string) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339Nano, value)
+}
+
+func sanitizeStoredRequest(req StoredRequest) StoredRequest {
+	req.Data.PathParams = normalizeStoredRequestJSON(req.Data.PathParams)
+	req.Data.Payload = normalizeStoredRequestJSON(req.Data.Payload)
+	return req
+}
+
+func normalizeStoredRequestJSON(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	return compactRawMessage(value)
+}
+
+func compactRawMessage(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return value
+	}
+	var decoded any
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		return append(json.RawMessage(nil), value...)
+	}
+	normalized, err := json.Marshal(decoded)
+	if err != nil {
+		return append(json.RawMessage(nil), value...)
+	}
+	return normalized
+}
+
+func newStoredRequestID() (string, error) {
+	var data [12]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("sr_%x", data[:]), nil
 }

@@ -6,13 +6,13 @@ onlava is a Go-native local runtime and toolchain for building service applicati
 
 Applications mark their root with `.onlava.json`, declare endpoints with `//onlava:` directives, and run as one local HTTP server. onlava handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, MCP, and TypeScript client generation.
 
-onlava is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, MCP endpoint, Victoria observability sidecars, Grafana workbench, local HTTPS proxy, Temporal worker tooling, and cron UI are development-focused companion tools.
+onlava is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, MCP endpoint, observability, Grafana workbench, local HTTPS routing, Temporal worker tooling, and cron UI are development-focused capabilities. Their backing services and files are substrate details unless you intentionally debug them.
 
 ## Why onlava?
 
 - **Go source is the app model.** Services, APIs, auth handlers, middleware, Temporal workflows and activities, and cron jobs are discovered from Go code.
 - **One local app server.** `onlava serve` builds once and starts a headless, production-like HTTP server.
-- **Full local dev loop.** `onlava dev` adds file watching, rebuild/restart supervision, dashboard, API explorer, MCP, logs, traces, metrics, Grafana, and optional HTTPS local domains.
+- **Full local dev loop.** `onlava dev` runs the app session with file watching, rebuild/restart supervision, dashboard, API explorer, MCP, logs, traces, metrics, Grafana, and optional HTTPS local domains.
 - **Typed HTTP by default.** onlava decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
 - **Inspectable by tools and agents.** `onlava inspect`, `onlava check`, `onlava logs`, and `onlava harness` expose machine-readable JSON contracts.
@@ -32,7 +32,7 @@ Available now:
 - private/internal endpoint calls
 - secrets from environment and local `.env`
 - local logs, traces, and metrics inspection
-- local Grafana provisioning over Victoria observability sidecars
+- local observability and Grafana capabilities
 - Temporal workflow/activity and cron local runtime support
 - local HTTPS/frontend proxy with optional trust-store installation
 - dashboard, API explorer, and MCP endpoint
@@ -156,7 +156,7 @@ onlava attach --tui
 onlava console
 ```
 
-`--detach` starts an agent-backed dev session in the background and returns after the session is registered. `onlava attach` follows the current session logs. Structured logs prefer VictoriaLogs with SQLite fallback; use `--backend victoria` or `--backend sqlite` to compare during the migration. `onlava attach --tui` or `onlava console` opens a source-aware terminal console when attached to a real TTY. `onlava down` stops the current or selected session.
+`--detach` starts an agent-backed dev session in the background and returns after the session is registered. `onlava attach` follows the current session logs from VictoriaLogs. `onlava attach --tui` or `onlava console` opens a source-aware terminal console when attached to a real TTY. `onlava down` stops the current or selected session.
 
 `--proxy` enables local HTTPS/frontend domains from `.onlava.json` proxy config. `--trust` allows onlava to install the local development CA into the OS trust store. Without `--trust`, onlava skips trust-store changes.
 
@@ -187,7 +187,7 @@ Example proxy config:
 
 ## MCP
 
-`onlava dev` exposes a development MCP server over SSE. Use the printed `MCP SSE URL` from the startup banner or the session-scoped MCP route from the local agent manifest.
+`onlava dev` exposes MCP as an app-session capability. Use the printed `MCP SSE URL` from the startup banner or the session-scoped MCP route from the local agent manifest.
 
 Current MCP tools cover app metadata, service and endpoint lists, middleware, auth handlers, cron jobs, endpoint calls, source-file reads, referenced environment names, recent traces and spans, discovered PostgreSQL metadata, and SQL queries. MCP is a development convenience surface for agents. Stable automation should use `onlava inspect ... --json`, `onlava logs --jsonl`, schemas, and harness outputs.
 
@@ -197,8 +197,8 @@ See [docs/agent-guide.md](docs/agent-guide.md) for the tool list and usage guida
 
 ```text
 onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [--session <id>|--new-session] [-v|--verbose] [--json] [--proxy] [--trust] [--detach]
-onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [--jsonl|--json] [--tui]
-onlava console [--app-root <path>] [--session current|<id>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite]
+onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [--jsonl|--json] [--tui]
+onlava console [--app-root <path>] [--session current|<id>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria]
 onlava agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 onlava agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 onlava status --json [--app-root <path>] [--session <id>] [--watch]
@@ -234,8 +234,7 @@ onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] 
 onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|traces|metrics --json [--app-root <path>]
 onlava inspect docs --json [--repo-root <path>]
 onlava admin traces clear --json [--app-root <path>]
-onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [-f|--follow] [--jsonl|--json]
-onlava logs compare [--app-root <path>] [--session current|<id>] [--backend-a sqlite|victoria] [--backend-b sqlite|victoria] [--limit <n>] [--json]
+onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [-f|--follow] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
 onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 onlava db psql [--app-root <path>] [psql args...]
@@ -281,11 +280,11 @@ onlava toolchain sync --json
 onlava toolchain verify --json
 ```
 
-Grafana, Victoria sidecars, and the local Temporal CLI use explicit env overrides or the managed store. They do not silently fall back to system `PATH` binaries.
+Grafana, Victoria sidecars, and the local Temporal CLI are backing substrate for local capabilities. When intentionally debugging them, use explicit env overrides or the managed store; they do not silently fall back to system `PATH` binaries.
 
 ## Observability And Inspection
 
-onlava writes local development logs and traces, and `onlava dev` can run VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana for richer local inspection.
+onlava exposes local development logs, traces, metrics, and Grafana through app-session capabilities. The current backing substrate can run VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana for richer local inspection.
 
 Useful commands:
 
@@ -301,7 +300,7 @@ onlava inspect metrics --json --session current --since 1h
 onlava harness --json --write
 ```
 
-Grafana files are generated under `.onlava/grafana/`. Set `ONLAVA_DEV_GRAFANA=0` to disable it or `ONLAVA_DEV_GRAFANA=1` to require it during `onlava dev` startup.
+Grafana substrate files are generated under `.onlava/grafana/` when you need to debug them. Set `ONLAVA_DEV_GRAFANA=0` to disable Grafana or `ONLAVA_DEV_GRAFANA=1` to require it during `onlava dev` startup.
 
 ## Development
 

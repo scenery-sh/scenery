@@ -1886,7 +1886,7 @@
         "tests"
       ],
       "owner": "onlava runtime",
-      "rationale": "Selects the dev-event backend for logs, attach, TUI, and console while SQLite/Victoria parity is being verified.",
+      "rationale": "Selects the dev-event backend for logs, attach, TUI, and console when debugging the VictoriaLogs read path.",
       "preferred_surface": ".onlava.json, explicit CLI flags, or onlava.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

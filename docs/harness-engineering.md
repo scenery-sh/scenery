@@ -4,7 +4,7 @@ onlava treats agent support as a runtime feature, not as prompt folklore.
 
 The harness contract gives Codex and other agents a short feedback loop:
 
-1. discover the app and its stable generated metadata
+1. discover the app through stable inspect command output
 2. compile the generated runtime exactly like `onlava serve` would
 3. report diagnostics as structured JSON
 4. expose inspect outputs and artifact paths without scraping terminal text
@@ -87,7 +87,7 @@ duration budget when maintainers intentionally want a hard speed gate.
 
 - Keep `AGENTS.md` short. It should point to source-of-truth docs instead of becoming an encyclopedia.
 - Prefer stable JSON commands over terminal scraping.
-- Prefer repo-local generated artifacts over hidden cache discovery.
+- Inspect commands are the API; generated files are cache.
 - Put remediation text in diagnostics so agents know what to do next.
 - Promote repeated review feedback into docs, schemas, or mechanical checks.
 

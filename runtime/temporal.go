@@ -30,7 +30,7 @@ const (
 	DefaultOnlavaSessionIDEnv       = "ONLAVA_SESSION_ID"
 	DefaultTemporalMode             = "local"
 	DefaultTemporalConnectWait      = 5 * time.Second
-	DefaultTemporalLocalDBFile      = ".onlava/temporal/dev.sqlite"
+	DefaultTemporalLocalDBFile      = ".onlava/temporal/dev.db"
 	defaultTemporalTaskQueuePart    = "onlava"
 )
 

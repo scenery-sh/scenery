@@ -273,11 +273,11 @@ Local observability is part of the product surface. Runtime traces, logs,
 metrics, dashboard state, and inspect commands should give enough evidence to
 debug a local app without relying on external services.
 
-`onlava dev` uses a Victoria-plus-SQLite posture for local observability. The
-dashboard report path writes SQLite first for parity and fallback, then exports
-OTLP protobuf to supervised VictoriaMetrics, VictoriaLogs, and VictoriaTraces
-sidecars when available. Dashboard and inspect trace reads prefer Victoria and
-fall back to SQLite. Runtime remains decoupled from Victoria server packages;
+`onlava dev` uses supervised VictoriaMetrics, VictoriaLogs, and VictoriaTraces
+sidecars for local observability when their managed binaries are available.
+Dashboard session metadata and saved request state live in a small JSON store
+under the dev cache root; the project does not carry an embedded SQL driver for
+dashboard state. Runtime remains decoupled from Victoria server packages;
 the stable boundary is HTTP/OTLP, not Go library imports.
 
 ### File Size And Placement

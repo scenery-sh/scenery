@@ -42,46 +42,13 @@ func TestParseLogsArgsTreatsJSONAsAliasForJSONL(t *testing.T) {
 func TestAttachLogArgsDefaultsToCurrentSessionFollow(t *testing.T) {
 	t.Parallel()
 
-	args, err := attachLogArgs([]string{"--app-root", "/tmp/app", "--limit", "25", "--stream", "stderr", "--json", "--backend", "sqlite"})
+	args, err := attachLogArgs([]string{"--app-root", "/tmp/app", "--limit", "25", "--stream", "stderr", "--json"})
 	if err != nil {
 		t.Fatalf("attachLogArgs returned error: %v", err)
 	}
-	want := []string{"--follow", "--session", "current", "--limit", "25", "--stream", "stderr", "--app-root", "/tmp/app", "--jsonl", "--backend", "sqlite"}
+	want := []string{"--follow", "--session", "current", "--limit", "25", "--stream", "stderr", "--app-root", "/tmp/app", "--jsonl"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("attach args = %#v, want %#v", args, want)
-	}
-}
-
-func TestParseLogsCompareArgs(t *testing.T) {
-	t.Parallel()
-
-	opts, err := parseLogsCompareArgs([]string{"--app-root", "/tmp/app", "--session", "session-a", "--backend-a", "sqlite", "--backend-b", "victoria", "--limit", "25", "--json"})
-	if err != nil {
-		t.Fatalf("parseLogsCompareArgs returned error: %v", err)
-	}
-	if opts.AppRoot != "/tmp/app" || opts.Session != "session-a" || opts.BackendA != logsBackendSQLite || opts.BackendB != logsBackendVictoria || opts.Limit != 25 || !opts.JSON {
-		t.Fatalf("unexpected compare options: %#v", opts)
-	}
-}
-
-func TestCompareDevEventBackendsReportsParity(t *testing.T) {
-	t.Parallel()
-
-	at := time.Date(2026, 5, 31, 12, 44, 1, 0, time.UTC)
-	events := []devdash.DevEvent{
-		devdash.NewDevEvent("logsapp", "session-a", devdash.DevSource{ID: "api", Kind: "app"}, "info", "ok", map[string]any{"path": "/health"}, at),
-	}
-	events[0].ID = 7
-	result := compareDevEventBackends(logsBackendSQLite, logsBackendVictoria, "logsapp", "/repo/logsapp", events, events)
-	if !result.Equal || len(result.Mismatches) != 0 {
-		t.Fatalf("result = %+v, want equal", result)
-	}
-
-	changed := append([]devdash.DevEvent(nil), events...)
-	changed[0].Message = "changed"
-	result = compareDevEventBackends(logsBackendSQLite, logsBackendVictoria, "logsapp", "/repo/logsapp", events, changed)
-	if result.Equal || len(result.Mismatches) == 0 || result.Mismatches[0].Field != "message" {
-		t.Fatalf("result = %+v, want message mismatch", result)
 	}
 }
 
@@ -129,22 +96,10 @@ func TestRunOnlavaLogsReadsStoredOutput(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertApp: %v", err)
 	}
-	if err := store.WriteProcessOutput(ctx, devdash.ProcessOutput{
-		AppID:  "logsapp",
-		PID:    "123",
-		Stream: "stdout",
-		Output: []byte("first line\n"),
-	}); err != nil {
-		t.Fatalf("WriteProcessOutput stdout: %v", err)
-	}
-	if err := store.WriteProcessOutput(ctx, devdash.ProcessOutput{
-		AppID:  "logsapp",
-		PID:    "123",
-		Stream: "stderr",
-		Output: []byte("second line\n"),
-	}); err != nil {
-		t.Fatalf("WriteProcessOutput stderr: %v", err)
-	}
+	installLogsVictoriaStack(t,
+		testOutputEvent("logsapp", "", 1, "stdout", "first line\n"),
+		testOutputEvent("logsapp", "", 2, "stderr", "second line\n"),
+	)
 
 	var buf bytes.Buffer
 	if err := runOnlavaLogs(ctx, &buf, []string{"--app-root", root, "--limit", "10"}); err != nil {
@@ -179,14 +134,10 @@ func TestRunOnlavaLogsFiltersStream(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertApp: %v", err)
 	}
-	for _, item := range []devdash.ProcessOutput{
-		{AppID: "logsapp", PID: "123", Stream: "stdout", Output: []byte("out\n")},
-		{AppID: "logsapp", PID: "123", Stream: "stderr", Output: []byte("err\n")},
-	} {
-		if err := store.WriteProcessOutput(ctx, item); err != nil {
-			t.Fatalf("WriteProcessOutput: %v", err)
-		}
-	}
+	installLogsVictoriaStack(t,
+		testOutputEvent("logsapp", "", 1, "stdout", "out\n"),
+		testOutputEvent("logsapp", "", 2, "stderr", "err\n"),
+	)
 
 	var buf bytes.Buffer
 	if err := runOnlavaLogs(ctx, &buf, []string{"--app-root", root, "--stream", "stderr"}); err != nil {
@@ -221,14 +172,10 @@ func TestRunOnlavaLogsFiltersSession(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertApp: %v", err)
 	}
-	for _, item := range []devdash.ProcessOutput{
-		{AppID: "logsapp", SessionID: "session-a", PID: "123", Stream: "stdout", Output: []byte("a\n")},
-		{AppID: "logsapp", SessionID: "session-b", PID: "456", Stream: "stdout", Output: []byte("b\n")},
-	} {
-		if err := store.WriteProcessOutput(ctx, item); err != nil {
-			t.Fatalf("WriteProcessOutput: %v", err)
-		}
-	}
+	installLogsVictoriaStack(t,
+		testOutputEvent("logsapp", "session-a", 1, "stdout", "a\n"),
+		testOutputEvent("logsapp", "session-b", 2, "stdout", "b\n"),
+	)
 
 	var buf bytes.Buffer
 	if err := runOnlavaLogs(ctx, &buf, []string{"--app-root", root, "--session", "session-a"}); err != nil {
@@ -262,15 +209,7 @@ func TestRunOnlavaLogsUsesSessionAppRecordWhenLatestAppRootDiffers(t *testing.T)
 			t.Fatalf("UpsertApp: %v", err)
 		}
 	}
-	if err := store.WriteProcessOutput(ctx, devdash.ProcessOutput{
-		AppID:     "logsapp",
-		SessionID: "session-a",
-		PID:       "123",
-		Stream:    "stdout",
-		Output:    []byte("session-a\n"),
-	}); err != nil {
-		t.Fatalf("WriteProcessOutput: %v", err)
-	}
+	installLogsVictoriaStack(t, testOutputEvent("logsapp", "session-a", 1, "stdout", "session-a\n"))
 
 	var buf bytes.Buffer
 	if err := runOnlavaLogs(ctx, &buf, []string{"--app-root", root, "--session", "session-a"}); err != nil {
@@ -305,15 +244,7 @@ func TestRunOnlavaLogsJSONL(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertApp: %v", err)
 	}
-	if err := store.WriteProcessOutput(ctx, devdash.ProcessOutput{
-		AppID:     "logsapp",
-		SessionID: "session-json",
-		PID:       "123",
-		Stream:    "stdout",
-		Output:    []byte("json line\n"),
-	}); err != nil {
-		t.Fatalf("WriteProcessOutput stdout: %v", err)
-	}
+	installLogsVictoriaStack(t, testOutputEvent("logsapp", "session-json", 1, "stdout", "json line\n"))
 
 	var buf bytes.Buffer
 	if err := runOnlavaLogs(ctx, &buf, []string{"--app-root", root, "--jsonl"}); err != nil {
@@ -384,14 +315,10 @@ func TestRunOnlavaLogsFiltersStructuredEvents(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertApp: %v", err)
 	}
-	for _, event := range []devdash.DevEvent{
+	installLogsVictoriaStack(t, []devdash.DevEvent{
 		devdash.DevEventFromOutput("logsapp", "session-a", devdash.DevSource{ID: "api", Kind: "app", Name: "api", Stream: "stdout"}, []byte("INFO request ok path=/health\n"), time.Now().UTC().Add(-time.Second)),
 		devdash.DevEventFromOutput("logsapp", "session-a", devdash.DevSource{ID: "worker:typescript", Kind: "worker", Name: "typescript", Stream: "stderr"}, []byte("ERROR activity failed activity=SyncUser\n"), time.Now().UTC()),
-	} {
-		if err := store.WriteDevEvent(ctx, event); err != nil {
-			t.Fatalf("WriteDevEvent: %v", err)
-		}
-	}
+	}...)
 
 	var buf bytes.Buffer
 	if err := runOnlavaLogs(ctx, &buf, []string{"--app-root", root, "--session", "session-a", "--source", "worker:typescript", "--level", "error", "--grep", "SyncUser"}); err != nil {
@@ -492,4 +419,46 @@ func TestVictoriaListDevEventsReconstructsStructuredEvents(t *testing.T) {
 	if item.Message != "ERROR activity failed activity=SyncUser" || item.Raw != "ERROR activity failed activity=SyncUser" || !item.Parse.OK || item.Parse.Format != "logfmt" {
 		t.Fatalf("unexpected event payload: %+v", item)
 	}
+}
+
+func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) {
+	t.Helper()
+	for i := range events {
+		if events[i].ID == 0 {
+			events[i].ID = int64(i + 1)
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/select/logsql/query" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		for _, event := range events {
+			data, err := json.Marshal(victoriaDevEventRecord(event))
+			if err != nil {
+				t.Fatalf("marshal event: %v", err)
+			}
+			_, _ = w.Write(append(data, '\n'))
+		}
+	}))
+	t.Cleanup(server.Close)
+	stack := &victoriaStack{components: []*victoriaComponent{{spec: victoriaComponentSpec{Name: "logs"}, baseURL: server.URL}}}
+	prev := resolveLogsVictoriaStackFunc
+	resolveLogsVictoriaStackFunc = func(ctx context.Context, allowDefault bool) *victoriaStack {
+		return stack
+	}
+	t.Cleanup(func() {
+		resolveLogsVictoriaStackFunc = prev
+	})
+}
+
+func testOutputEvent(appID, sessionID string, id int64, stream, text string) devdash.DevEvent {
+	event := devdash.DevEventFromOutput(appID, sessionID, devdash.DevSource{
+		ID:     "process:123",
+		Kind:   "process",
+		Name:   "process",
+		PID:    "123",
+		Stream: stream,
+	}, []byte(text), time.Date(2026, 6, 1, 12, 0, int(id), 0, time.UTC))
+	event.ID = id
+	return event
 }

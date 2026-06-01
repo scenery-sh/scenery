@@ -9,11 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pbrazdil/onlava/internal/clientgen"
 	"github.com/pbrazdil/onlava/internal/model"
 	"github.com/pbrazdil/onlava/internal/parse"
 )
 
-func TestParseBasicApp(t *testing.T) {
+func TestBasicAppParseAndClientgen(t *testing.T) {
 	t.Parallel()
 
 	appRoot := filepath.Join(repoRoot(t), "testdata", "apps", "basic")
@@ -60,20 +61,90 @@ func TestParseBasicApp(t *testing.T) {
 	if !foundEcho || !foundCallPrivate {
 		t.Fatalf("missing expected endpoints, Echo=%v CallPrivate=%v", foundEcho, foundCallPrivate)
 	}
+
+	out, err := clientgen.GenerateTypeScript(app, clientgen.TypeScriptOptions{AppSlug: "basicapp"})
+	if err != nil {
+		t.Fatalf("GenerateTypeScript() error = %v", err)
+	}
+	got := string(out)
+
+	for _, want := range []string{
+		`export namespace service {`,
+		`public async Echo(name: string, params: EchoRequest, options?: CallParameters): Promise<EchoResponse> {`,
+		`public async EchoWithMeta(name: string, params: EchoRequest, options?: CallParameters): Promise<APIResponse<EchoResponse>> {`,
+		`this.EchoWithMeta = this.EchoWithMeta.bind(this)`,
+		`title: encodeQueryValue(params.Title),`,
+		`"X-Echo": encodeHeaderValue(params.Header),`,
+		`body: encodeQueryValue(params.body),`,
+		`transport?: OnlavaTransport`,
+		`export type CallParameters = Omit<RequestInit, "method" | "body" | "headers"> & {`,
+		`export interface APIResponse<T> {`,
+		`export type OnlavaTransport = "auto" | "json" | "binary" | "binary-strict" | "wire-json" | "wire-json-strict"`,
+		`const ONLAVA_WIRE_SCHEMA_HASH = `,
+		`const resp = await this.baseClient.callTypedEndpoint({ endpointID: "service.Echo"`,
+		`const resp = await this.baseClient.callTypedEndpointWithMeta({ endpointID: "service.Echo"`,
+		`wirePath: "/_wire/service.Echo"`,
+		"path: `/echo/${encodeURIComponent(String(name))}`",
+		`payload: params`,
+		`payloadJSON: JSON.stringify(params)`,
+		`jsonBody: undefined`,
+		`params: mergeCallParameters(options, { query, headers })`,
+		`return await decodeTypedAPIResponse(resp) as APIResponse<EchoResponse>`,
+		`public async Raw(rest: string, method: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {`,
+		"return await this.baseClient.callAPI(method, `/raw/${encodePathWildcard(String(rest))}`, body, options)",
+		`export interface EchoResponse {`,
+		`message: string`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated client missing %q\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{"protobuf", "grpc", "connect"} {
+		if strings.Contains(strings.ToLower(got), forbidden) {
+			t.Fatalf("generated client should not expose %q\n%s", forbidden, got)
+		}
+	}
 }
 
-func TestParseRuntimeDeclarations(t *testing.T) {
+func TestParseRuntimeDeclarationsNestedServiceAndMiddleware(t *testing.T) {
 	t.Parallel()
 
 	dir := persistentParseTestApp(t, "runtimedecls", map[string]string{
 		"go.mod":       "module example.com/runtimedecls\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
 		".onlava.json": `{"name":"runtimedecls"}`,
-		"svc/api.go": `package svc
+		"solar/projects/api.go": `package projects
 
 import "context"
 
-//onlava:api private
-func Run(ctx context.Context) error { return nil }
+//onlava:service
+type Service struct{}
+
+type ListProjectsResponse struct {
+	Items []string
+}
+
+//onlava:api public method=GET path=/tenants/:tenant_id/projects tag:foo
+func (s *Service) ListProjects(ctx context.Context, tenant_id string) (*ListProjectsResponse, error) {
+	return &ListProjectsResponse{}, nil
+}
+`,
+		"solar/projects/mw/mw.go": `package mw
+
+import "github.com/pbrazdil/onlava/middleware"
+
+//onlava:middleware target=tag:foo
+func ServiceTag(req middleware.Request, next middleware.Next) middleware.Response {
+	return next(req)
+}
+`,
+		"globalmw/mw.go": `package globalmw
+
+import "github.com/pbrazdil/onlava/middleware"
+
+//onlava:middleware global target=all
+func Global(req middleware.Request, next middleware.Next) middleware.Response {
+	return next(req)
+}
 `,
 		"jobs/runtime.go": `package jobs
 
@@ -94,6 +165,9 @@ var _ = temporal.NewWorkflow[In, Out]("orders.Fulfill/v1", temporal.WorkflowConf
 var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConfig{TaskQueue: "orders.activities.go"}, func(ctx context.Context, in In) (Out, error) {
 	return Out{ID: in.ID}, nil
 })
+var _ = temporal.NewActivity[In, Out]("orders.Unkeyed/v1", temporal.ActivityConfig{"orders.unkeyed.go", time.Minute, 0, temporal.RetryPolicy{}}, func(ctx context.Context, in In) (Out, error) {
+	return Out{ID: in.ID}, nil
+})
 var _ = temporal.NewExternalActivity[*In, *Out]("orders.Render/v1", temporal.ActivityConfig{TaskQueue: "orders.render.ts"})
 var _ = cron.NewJob("tick", cron.JobConfig{
 	Every: time.Second,
@@ -106,55 +180,78 @@ var _ = cron.NewJob("tick", cron.JobConfig{
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	if len(app.Runtime) != 4 {
+	if len(app.Runtime) != 5 {
 		t.Fatalf("runtime declarations = %#v", app.Runtime)
 	}
-	got := make(map[model.RuntimeDeclarationKind]string)
+	got := make(map[string]*model.RuntimeDeclaration)
 	for _, decl := range app.Runtime {
-		got[decl.Kind] = decl.Name
+		got[decl.Name] = decl
 		if decl.Package == nil || decl.File == nil || decl.CallName == "" {
 			t.Fatalf("incomplete runtime declaration: %#v", decl)
 		}
-		if decl.Kind == model.RuntimeDeclarationTemporalActivity && (!decl.TaskQueueExplicit || decl.TaskQueue != "orders.activities.go") {
-			t.Fatalf("activity task queue = %q explicit=%v", decl.TaskQueue, decl.TaskQueueExplicit)
-		}
-		if decl.Kind == model.RuntimeDeclarationTemporalExternalActivity && (!decl.TaskQueueExplicit || decl.TaskQueue != "orders.render.ts" || decl.InputType != "*In" || decl.OutputType != "*Out") {
-			t.Fatalf("external activity declaration = %#v", decl)
-		}
-		if decl.Kind == model.RuntimeDeclarationTemporalWorkflow && !decl.TaskQueueResolved {
-			t.Fatalf("workflow task queue should be resolved as defaultable")
+	}
+	for _, name := range []string{"orders.Fulfill/v1", "orders.Capture/v1", "orders.Unkeyed/v1", "orders.Render/v1", "tick"} {
+		if got[name] == nil {
+			t.Fatalf("missing runtime declaration %q (all: %#v)", name, got)
 		}
 	}
-	want := map[model.RuntimeDeclarationKind]string{
-		model.RuntimeDeclarationTemporalWorkflow:         "orders.Fulfill/v1",
-		model.RuntimeDeclarationTemporalActivity:         "orders.Capture/v1",
-		model.RuntimeDeclarationTemporalExternalActivity: "orders.Render/v1",
-		model.RuntimeDeclarationCronJob:                  "tick",
+	if decl := got["orders.Fulfill/v1"]; decl.Kind != model.RuntimeDeclarationTemporalWorkflow || !decl.TaskQueueResolved {
+		t.Fatalf("workflow declaration = %#v", decl)
 	}
-	for kind, name := range want {
-		if got[kind] != name {
-			t.Fatalf("runtime declaration %s = %q, want %q (all: %#v)", kind, got[kind], name, got)
-		}
+	if decl := got["orders.Capture/v1"]; decl.Kind != model.RuntimeDeclarationTemporalActivity || !decl.TaskQueueExplicit || !decl.TaskQueueResolved || decl.TaskQueue != "orders.activities.go" {
+		t.Fatalf("activity declaration = %#v", decl)
+	}
+	if decl := got["orders.Unkeyed/v1"]; decl.Kind != model.RuntimeDeclarationTemporalActivity || !decl.TaskQueueExplicit || !decl.TaskQueueResolved || decl.TaskQueue != "orders.unkeyed.go" {
+		t.Fatalf("unkeyed activity declaration = %#v", decl)
+	}
+	if decl := got["orders.Render/v1"]; decl.Kind != model.RuntimeDeclarationTemporalExternalActivity || !decl.TaskQueueExplicit || decl.TaskQueue != "orders.render.ts" || decl.InputType != "*In" || decl.OutputType != "*Out" {
+		t.Fatalf("external activity declaration = %#v", decl)
+	}
+	if decl := got["tick"]; decl.Kind != model.RuntimeDeclarationCronJob {
+		t.Fatalf("cron declaration = %#v", decl)
+	}
+	if len(app.Services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(app.Services))
+	}
+	svc := app.Services[0]
+	if svc.Name != "projects" {
+		t.Fatalf("service name = %q, want %q", svc.Name, "projects")
+	}
+	if svc.RootRelDir != filepath.Join("solar", "projects") {
+		t.Fatalf("service root = %q, want %q", svc.RootRelDir, filepath.Join("solar", "projects"))
+	}
+	if svc.Struct == nil || svc.Struct.TypeName != "Service" {
+		t.Fatalf("expected Service struct, got %+v", svc.Struct)
+	}
+	if len(svc.Endpoints) != 1 || svc.Endpoints[0].Name != "ListProjects" {
+		t.Fatalf("unexpected endpoints: %+v", svc.Endpoints)
+	}
+	if len(app.Middleware) != 2 {
+		t.Fatalf("expected 2 middleware declarations, got %d", len(app.Middleware))
+	}
+	ep := svc.Endpoints[0]
+	if got := strings.Join(ep.Tags, ","); got != "foo" {
+		t.Fatalf("unexpected endpoint tags: %s", got)
+	}
+	if len(ep.Middleware) != 2 {
+		t.Fatalf("expected endpoint middleware to include global and service match, got %d", len(ep.Middleware))
+	}
+	if !ep.Middleware[0].Global || ep.Middleware[1].Global {
+		t.Fatalf("expected global middleware to sort before service middleware: %+v", ep.Middleware)
 	}
 }
 
-func TestParseRejectsEmptyTemporalActivityTaskQueue(t *testing.T) {
+func TestParseRejectsInvalidRuntimeAndEndpointDiagnostics(t *testing.T) {
 	t.Parallel()
 
-	dir := persistentParseTestApp(t, "emptyactivityqueue", map[string]string{
-		"go.mod":       "module example.com/emptyactivityqueue\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"emptyactivityqueue"}`,
+	dir := persistentParseTestApp(t, "invalidruntime", map[string]string{
+		"go.mod":       "module example.com/invalidruntime\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
+		".onlava.json": `{"name":"invalidruntime"}`,
 		"svc/api.go": `package svc
-
-import "context"
-
-//onlava:api public
-func Ping(ctx context.Context) error { return nil }
-`,
-		"jobs/runtime.go": `package jobs
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/pbrazdil/onlava/temporal"
 )
@@ -173,83 +270,6 @@ var zero temporal.ActivityConfig
 var _ = temporal.NewActivity[In, Out]("orders.Zero/v1", zero, func(ctx context.Context, in In) (Out, error) {
 	return Out{}, nil
 })
-`,
-	})
-
-	_, err := parse.App(dir, "emptyactivityqueue")
-	if err == nil {
-		t.Fatal("expected empty activity task queue error")
-	}
-	if got := err.Error(); strings.Count(got, "temporal.NewActivity requires temporal.ActivityConfig.TaskQueue") != 3 {
-		t.Fatalf("expected two activity task queue diagnostics, got %v", err)
-	}
-}
-
-func TestParseAcceptsUnkeyedTemporalActivityConfig(t *testing.T) {
-	t.Parallel()
-
-	dir := persistentParseTestApp(t, "unkeyedactivityqueue", map[string]string{
-		"go.mod":       "module example.com/unkeyedactivityqueue\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"unkeyedactivityqueue"}`,
-		"svc/api.go": `package svc
-
-import "context"
-
-//onlava:api public
-func Ping(ctx context.Context) error { return nil }
-`,
-		"jobs/runtime.go": `package jobs
-
-import (
-	"context"
-	"time"
-
-	"github.com/pbrazdil/onlava/temporal"
-)
-
-type In struct{}
-type Out struct{}
-
-var _ = temporal.NewActivity[In, Out]("orders.Capture/v1", temporal.ActivityConfig{"orders.activities.go", time.Minute, 0, temporal.RetryPolicy{}}, func(ctx context.Context, in In) (Out, error) {
-	return Out{}, nil
-})
-`,
-	})
-
-	app, err := parse.App(dir, "unkeyedactivityqueue")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
-	var found bool
-	for _, decl := range app.Runtime {
-		if decl.Kind == model.RuntimeDeclarationTemporalActivity {
-			found = true
-			if decl.TaskQueue != "orders.activities.go" || !decl.TaskQueueExplicit || !decl.TaskQueueResolved {
-				t.Fatalf("activity declaration = %#v", decl)
-			}
-		}
-	}
-	if !found {
-		t.Fatal("expected temporal activity declaration")
-	}
-}
-
-func TestParseRejectsLegacyTemporalStartCall(t *testing.T) {
-	t.Parallel()
-
-	dir := persistentParseTestApp(t, "legacystart", map[string]string{
-		"go.mod":       "module example.com/legacystart\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"legacystart"}`,
-		"svc/api.go": `package svc
-
-import (
-	"context"
-
-	"github.com/pbrazdil/onlava/temporal"
-)
-
-type In struct{}
-type Out struct{}
 
 var wf = temporal.NewWorkflow[In, Out]("orders.Fulfill/v1", temporal.WorkflowConfig{}, func(ctx temporal.WorkflowContext, in In) (Out, error) {
 	return Out{}, nil
@@ -260,107 +280,47 @@ func Ping(ctx context.Context) error {
 	_, err := temporal.Start(ctx, wf, In{})
 	return err
 }
-`,
-	})
-
-	_, err := parse.App(dir, "legacystart")
-	if err == nil || !strings.Contains(err.Error(), "temporal.Start requires a workflow identity argument") {
-		t.Fatalf("expected legacy temporal.Start diagnostic, got %v", err)
-	}
-}
-
-func TestParseRejectsRawEndpointCalls(t *testing.T) {
-	t.Parallel()
-
-	dir := persistentParseTestApp(t, "rawcall", map[string]string{
-		"go.mod":       "module example.com/rawcall\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"rawcall"}`,
-		"svc/api.go": `package svc
-
-import (
-	"net/http"
-)
 
 //onlava:api public raw
 func Raw(w http.ResponseWriter, req *http.Request) {}
 
 //onlava:api public
-func Call(w http.ResponseWriter, req *http.Request) {
+func CallRaw(w http.ResponseWriter, req *http.Request) {
 	Raw(w, req)
 }
-`,
-	})
 
-	_, err := parse.App(dir, "rawcall")
-	if err == nil || !strings.Contains(err.Error(), "raw endpoint calls are not supported") {
-		t.Fatalf("expected raw endpoint call error, got %v", err)
-	}
-}
-
-func TestParseAllowsNestedPackageServiceStruct(t *testing.T) {
-	t.Parallel()
-
-	dir := persistentParseTestApp(t, "nestedservice", map[string]string{
-		"go.mod":       "module example.com/nestedservice\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"nestedservice"}`,
-		"solar/projects/api.go": `package projects
-
-import "context"
+//onlava:api public path=/hello/:name
+func Hello(ctx context.Context, wrong string) error { return nil }
 
 //onlava:service
 type Service struct{}
 
-type ListProjectsResponse struct {
-	Items []string
-}
+func (s *Service) Shutdown() {}
 
-//onlava:api public method=GET path=/tenants/:tenant_id/projects
-func (s *Service) ListProjects(ctx context.Context, tenant_id string) (*ListProjectsResponse, error) {
-	return &ListProjectsResponse{}, nil
-}
+//onlava:api public
+func (s *Service) ServiceHello(ctx context.Context) error { return nil }
 `,
 	})
 
-	app, err := parse.App(dir, "nestedservice")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
+	_, err := parse.App(dir, "invalidruntime")
+	if err == nil {
+		t.Fatal("expected invalid runtime diagnostics")
 	}
-	if len(app.Services) != 1 {
-		t.Fatalf("expected 1 service, got %d", len(app.Services))
+	got := err.Error()
+	if count := strings.Count(got, "temporal.NewActivity requires temporal.ActivityConfig.TaskQueue"); count != 3 {
+		t.Fatalf("activity task queue diagnostics = %d, want 3\n%v", count, err)
 	}
-	svc := app.Services[0]
-	if svc.Name != "projects" {
-		t.Fatalf("service name = %q, want %q", svc.Name, "projects")
+	for _, want := range []string{
+		"temporal.Start requires a workflow identity argument",
+		"raw endpoint calls are not supported",
+		"Shutdown method must have signature func(context.Context)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected diagnostic %q, got %v", want, err)
+		}
 	}
-	if svc.RootRelDir != filepath.Join("solar", "projects") {
-		t.Fatalf("service root = %q, want %q", svc.RootRelDir, filepath.Join("solar", "projects"))
-	}
-	if svc.Struct == nil || svc.Struct.TypeName != "Service" {
-		t.Fatalf("expected Service struct, got %+v", svc.Struct)
-	}
-	if len(svc.Endpoints) != 1 || svc.Endpoints[0].Name != "ListProjects" {
-		t.Fatalf("unexpected endpoints: %+v", svc.Endpoints)
-	}
-}
-
-func TestParseRejectsPathParamMismatch(t *testing.T) {
-	t.Parallel()
-
-	dir := persistentParseTestApp(t, "pathmismatch", map[string]string{
-		"go.mod":       "module example.com/pathmismatch\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"pathmismatch"}`,
-		"svc/api.go": `package svc
-
-import "context"
-
-//onlava:api public path=/hello/:name
-func Hello(ctx context.Context, wrong string) error { return nil }
-`,
-	})
-
-	_, err := parse.App(dir, "pathmismatch")
-	if err == nil || !strings.Contains(err.Error(), "path param name must match") && !strings.Contains(err.Error(), "must match function param") {
-		t.Fatalf("expected path param mismatch error, got %v", err)
+	if !strings.Contains(got, "path param name must match") && !strings.Contains(got, "must match function param") {
+		t.Fatalf("expected path param mismatch diagnostic, got %v", err)
 	}
 }
 
@@ -385,73 +345,6 @@ func Hello(ctx context.Context) error { return nil }
 	}
 }
 
-func TestParseMiddlewareTargetsAndTags(t *testing.T) {
-	t.Parallel()
-
-	dir := persistentParseTestApp(t, "middlewareapp", map[string]string{
-		"go.mod":       "module example.com/middlewareapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"middlewareapp"}`,
-		"svc/api.go": `package svc
-
-import "context"
-
-//onlava:api public tag:foo
-func Hello(ctx context.Context) error { return nil }
-`,
-		"svc/mw/mw.go": `package mw
-
-import "github.com/pbrazdil/onlava/middleware"
-
-//onlava:middleware target=tag:foo
-func ServiceTag(req middleware.Request, next middleware.Next) middleware.Response {
-	return next(req)
-}
-`,
-		"globalmw/mw.go": `package globalmw
-
-import "github.com/pbrazdil/onlava/middleware"
-
-//onlava:middleware global target=all
-func Global(req middleware.Request, next middleware.Next) middleware.Response {
-	return next(req)
-}
-`,
-	})
-
-	app, err := parse.App(dir, "middlewareapp")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
-	if len(app.Middleware) != 2 {
-		t.Fatalf("expected 2 middleware declarations, got %d", len(app.Middleware))
-	}
-	var svcFound bool
-	var svc = app.Services[0]
-	for _, candidate := range app.Services {
-		if candidate.Name == "svc" {
-			svc = candidate
-			svcFound = true
-			break
-		}
-	}
-	if !svcFound {
-		t.Fatalf("expected to find svc service, got %+v", app.Services)
-	}
-	if len(svc.Endpoints) != 1 {
-		t.Fatalf("expected 1 endpoint, got %d", len(svc.Endpoints))
-	}
-	ep := svc.Endpoints[0]
-	if got := strings.Join(ep.Tags, ","); got != "foo" {
-		t.Fatalf("unexpected endpoint tags: %s", got)
-	}
-	if len(ep.Middleware) != 2 {
-		t.Fatalf("expected endpoint middleware to include global and service match, got %d", len(ep.Middleware))
-	}
-	if !ep.Middleware[0].Global || ep.Middleware[1].Global {
-		t.Fatalf("expected global middleware to sort before service middleware: %+v", ep.Middleware)
-	}
-}
-
 func TestParseRejectsAppsWithoutOnlavaDirectives(t *testing.T) {
 	t.Parallel()
 
@@ -467,32 +360,6 @@ func Helper() {}
 	_, err := parse.App(dir, "noonlava")
 	if err == nil || !strings.Contains(err.Error(), "no onlava directives found in application") {
 		t.Fatalf("expected no onlava directives error, got %v", err)
-	}
-}
-
-func TestParseRejectsInvalidServiceShutdownSignature(t *testing.T) {
-	t.Parallel()
-
-	dir := persistentParseTestApp(t, "badshutdown", map[string]string{
-		"go.mod":       "module example.com/badshutdown\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => " + repoRoot(t) + "\n",
-		".onlava.json": `{"name":"badshutdown"}`,
-		"svc/api.go": `package svc
-
-import "context"
-
-//onlava:service
-type Service struct{}
-
-func (s *Service) Shutdown() {}
-
-//onlava:api public
-func (s *Service) Hello(ctx context.Context) error { return nil }
-`,
-	})
-
-	_, err := parse.App(dir, "badshutdown")
-	if err == nil || !strings.Contains(err.Error(), "Shutdown method must have signature func(context.Context)") {
-		t.Fatalf("expected invalid shutdown signature error, got %v", err)
 	}
 }
 

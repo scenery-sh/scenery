@@ -125,7 +125,7 @@ func TestResolveTemporalConfigPrefersExplicitValues(t *testing.T) {
 		},
 		Local: TemporalLocalConfig{
 			AutoStart:  true,
-			DBFilename: ".state/temporal.sqlite",
+			DBFilename: ".state/temporal.db",
 		},
 	})
 	if info.Mode != "production" {
@@ -143,7 +143,7 @@ func TestResolveTemporalConfigPrefersExplicitValues(t *testing.T) {
 	if info.APIKeyEnv != "CUSTOM_TEMPORAL_API_KEY" || !info.TLSEnabled || info.TLSServerNameEnv != "CUSTOM_TEMPORAL_TLS_SERVER_NAME" {
 		t.Fatalf("security config = %+v", info)
 	}
-	if info.LocalDBFilename != ".state/temporal.sqlite" {
+	if info.LocalDBFilename != ".state/temporal.db" {
 		t.Fatalf("local db filename = %q", info.LocalDBFilename)
 	}
 }

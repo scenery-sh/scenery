@@ -34,7 +34,6 @@ var allowedDirectGoDeps = map[string]string{
 	"golang.org/x/sys":                   "portable OS syscalls for doctor disk and memory readiness probes",
 	"golang.org/x/tools":                 "Go package loading/parser pipeline",
 	"gopkg.in/yaml.v3":                   "SQLC generator graph inspection from sqlc.yaml without shell parsing",
-	"modernc.org/sqlite":                 "CGO-free local dashboard state store",
 }
 
 var forbiddenSourceImports = map[string]string{

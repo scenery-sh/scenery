@@ -66,11 +66,13 @@ type devSupervisor struct {
 	agent        *localagent.Client
 	agentSession *localagent.Session
 
-	closeOnce  sync.Once
-	mu         sync.RWMutex
-	current    *runningApp
-	typescript *runningTypeScriptWorker
-	status     devdash.AppRecord
+	closeOnce        sync.Once
+	mu               sync.RWMutex
+	current          *runningApp
+	typescript       *runningTypeScriptWorker
+	status           devdash.AppRecord
+	pendingDevEvents []devdash.DevEvent
+	victoriaStarted  bool
 }
 
 const (
@@ -282,9 +284,17 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	if err := s.ensureTemporalDevServer(ctx); err != nil {
 		return err
 	}
-	s.victoria = s.startVictoriaStack(ctx)
+	victoria := s.startVictoriaStack(ctx)
+	s.mu.Lock()
+	s.victoria = victoria
+	s.victoriaStarted = true
+	pendingDevEvents := append([]devdash.DevEvent(nil), s.pendingDevEvents...)
+	s.pendingDevEvents = nil
+	s.mu.Unlock()
 	if s.victoria != nil {
-		s.backfillVictoriaDevEvents(ctx)
+		for _, event := range pendingDevEvents {
+			s.exportVictoriaDevEvent(event)
+		}
 		s.emitDevEvent(ctx, devdash.DevSource{ID: "victoria", Kind: "substrate", Name: "victoria", Role: "observability", Status: "running"}, "info", "Victoria stack ready", map[string]any{
 			"urls": s.victoria.URLs(),
 		})
@@ -1010,12 +1020,8 @@ func (s *devSupervisor) captureServiceOutput(ctx context.Context, source devdash
 				Output:    plain,
 				CreatedAt: time.Now().UTC(),
 			}
-			_ = s.store.WriteProcessOutput(ctx, output)
-			event := devdash.DevEventFromOutput(s.activeAppID(), s.currentSessionID(), source, plain, output.CreatedAt)
-			if id, err := s.store.WriteDevEventReturningID(ctx, event); err == nil {
-				event.ID = id
-				s.exportVictoriaDevEvent(event)
-			}
+			event := assignDevEventID(devdash.DevEventFromOutput(s.activeAppID(), s.currentSessionID(), source, plain, output.CreatedAt))
+			s.exportVictoriaDevEvent(event)
 			s.dashboard.notify(&devdash.Notification{
 				Method: "process/output",
 				Params: map[string]any{
@@ -1047,48 +1053,37 @@ func (s *devSupervisor) captureServiceOutput(ctx context.Context, source devdash
 }
 
 func (s *devSupervisor) emitDevEvent(ctx context.Context, source devdash.DevSource, level, message string, fields map[string]any) {
-	if s == nil || s.store == nil {
+	if s == nil {
 		return
 	}
-	event := devdash.NewDevEvent(s.activeAppID(), s.currentSessionID(), source, level, message, fields, time.Now().UTC())
-	if id, err := s.store.WriteDevEventReturningID(ctx, event); err == nil {
-		event.ID = id
-		s.exportVictoriaDevEvent(event)
-	}
+	event := assignDevEventID(devdash.NewDevEvent(s.activeAppID(), s.currentSessionID(), source, level, message, fields, time.Now().UTC()))
+	s.exportVictoriaDevEvent(event)
 }
 
 func (s *devSupervisor) exportVictoriaDevEvent(event devdash.DevEvent) {
-	if s == nil || s.victoria == nil {
+	if s == nil {
 		return
 	}
+	s.mu.RLock()
 	victoria := s.victoria
+	s.mu.RUnlock()
+	if victoria == nil {
+		s.mu.Lock()
+		if s.victoria == nil {
+			if !s.victoriaStarted {
+				s.pendingDevEvents = append(s.pendingDevEvents, event)
+			}
+			s.mu.Unlock()
+			return
+		}
+		victoria = s.victoria
+		s.mu.Unlock()
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		_ = victoria.ExportDevEvent(ctx, event)
 	}()
-}
-
-func (s *devSupervisor) backfillVictoriaDevEvents(ctx context.Context) {
-	if s == nil || s.store == nil || s.victoria == nil {
-		return
-	}
-	items, err := s.store.ListDevEvents(ctx, devdash.DevEventQuery{
-		AppID:     s.activeAppID(),
-		SessionID: s.currentSessionID(),
-		Limit:     10000,
-	})
-	if err != nil || len(items) == 0 {
-		return
-	}
-	victoria := s.victoria
-	go func(events []devdash.DevEvent) {
-		for _, event := range events {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = victoria.ExportDevEvent(ctx, event)
-			cancel()
-		}
-	}(append([]devdash.DevEvent(nil), items...))
 }
 
 func isExpectedOutputReadError(err error) bool {

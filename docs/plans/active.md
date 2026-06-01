@@ -56,7 +56,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: onlava runtime / agent DX
   - Created: 2026-05-31
-  - Focus: unify SQLite and VictoriaLogs dev-event read/follow behavior behind one backend abstraction, then prove parity before making VictoriaLogs preferred.
+  - Focus: completed VictoriaLogs dev-event cutover and JSON-backed dashboard/session metadata.
 - [0059 Frozen Toolchain Manifest and Managed Tool Store](0059-frozen-toolchain-manifest.md)
   - Status: active
   - Owner: onlava runtime / release tooling / agent DX

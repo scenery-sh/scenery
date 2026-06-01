@@ -6,7 +6,8 @@ The goal is to make onlava deterministic and inspectable:
 - app shape is explicit
 - CLI grammar is explicit
 - machine-readable JSON outputs have versioned schemas
-- generated and cache artifact locations are named, even where some paths are still reserved for upcoming work
+- inspect commands are the API; generated files are cache
+- app sessions and capabilities are the user-facing model; substrate paths, ports, and backing services are debug details
 
 If implementation and this document disagree, treat that as a bug.
 
@@ -52,19 +53,10 @@ same as the stable v0 support surface.
 - `onlava inspect metrics --json`
 - `onlava inspect docs --json`
 - `onlava logs --jsonl`
-- `.onlava/gen/app.json`
-- `.onlava/gen/routes.json`
-- `.onlava/gen/services.json`
-- `.onlava/gen/endpoints.json`
-- `.onlava/gen/wire/capabilities.json`
-- `.onlava/gen/manifest.json`
-- `.onlava/build/latest.json`
-- `.onlava/harness/latest.json`
-- `.onlava/harness/self-latest.json`
 
 Reserved by contract, implementation pending:
 - other `onlava admin ... --json` commands beyond `traces clear`
-- repo-local runtime and state manifests beyond `.onlava/build/latest.json`, `.onlava/gen/*`, and `.onlava/harness/latest.json`
+- repo-local runtime and state manifests beyond the command JSON surfaces above
 
 Stable v0 surface:
 - `.onlava.json`
@@ -107,7 +99,7 @@ Dev-only or beta surface:
 - MCP server
 - local HTTPS/frontend proxy
 - trust-store installation
-- Victoria sidecars, Grafana, automatic observability binary downloads, and Victoria-backed local observability reads
+- local observability and Grafana capabilities, backed today by Victoria/Grafana substrate and managed binary downloads
 - Temporal workflow/activity and cron runtime/admin affordances until their lifecycle, retry, scheduling, and clear/delete semantics are frozen
 - cron UI
 - `github.com/pbrazdil/onlava/temporal` workflow/activity declarations and worker registration
@@ -220,7 +212,7 @@ Current shape:
     },
     "local": {
       "auto_start": false,
-      "db_filename": ".onlava/temporal/dev.sqlite"
+      "db_filename": ".onlava/temporal/dev.db"
     },
     "typescript": {
       "enabled": false,
@@ -281,8 +273,8 @@ Current implemented grammar:
 
 ```text
 onlava dev [--port <n>] [--listen <addr>] [--app-root <path>] [--session <id>|--new-session] [-v|--verbose] [--json] [--proxy] [--trust] [--detach]
-onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [--jsonl|--json] [--tui]
-onlava console [--app-root <path>] [--session current|<id>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite]
+onlava attach [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [--jsonl|--json] [--tui]
+onlava console [--app-root <path>] [--session current|<id>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria]
 onlava agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 onlava agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 onlava status --json [--app-root <path>] [--session <id>] [--watch]
@@ -325,8 +317,7 @@ onlava inspect docs --json [--repo-root <path>]
 onlava inspect traces --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 onlava inspect metrics --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
 onlava admin traces clear --json [--app-root <path>]
-onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria|sqlite] [-f|--follow] [--jsonl|--json]
-onlava logs compare [--app-root <path>] [--session current|<id>] [--backend-a sqlite|victoria] [--backend-b sqlite|victoria] [--limit <n>] [--json]
+onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [-f|--follow] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]
 onlava gen client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 ```
@@ -352,7 +343,7 @@ Inspect rules:
 - `onlava inspect` currently requires `--json`.
 - `--app-root` is optional. When omitted, onlava walks upward from the current working directory to find `.onlava.json`.
 - Stable inspect subjects for v0 are `app`, `routes`, `services`, `endpoints`, `wire`, `build`, `paths`, and `docs`.
-- `generators`, `temporal`, `traces`, and `metrics` are beta diagnostic subjects. `generators` reports configured generation graph inputs and outputs. `temporal` reports effective Temporal config and, when enabled, a short connectivity check. `traces` and `metrics` prefer local VictoriaTraces reads when those sidecars are available, and fall back to the onlava dashboard SQLite store. If no local state exists, they return valid JSON with a warning and empty result sets.
+- `generators`, `temporal`, `traces`, and `metrics` are beta diagnostic subjects. `generators` reports configured generation graph inputs and outputs. `temporal` reports effective Temporal config and, when enabled, a short connectivity check. `traces` and `metrics` read onlava-managed local observability data. Victoria is the current backing substrate, not the integration API. If no local state exists, they return valid JSON with a warning and empty result sets.
 - The `onlava.inspect.traces.v1` and `onlava.inspect.metrics.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable v0 API yet.
 - `--since` accepts Go duration strings such as `15m`, `1h`, or `24h`.
 - `--min-duration-ms` filters root traces by duration in milliseconds.
@@ -372,22 +363,21 @@ Toolchain rules:
 
 Command split:
 
-- `onlava dev` starts the local development platform: app process, file watching, and rebuild/restart supervision.
+- `onlava dev` starts the app session: app process, file watching, and rebuild/restart supervision.
 - `onlava dev --session <id>` registers the dev process under an explicit session ID. `onlava dev --new-session` creates a fresh session ID for this run, even when the app root and branch already have a deterministic default session. These flags are mutually exclusive.
 - `onlava dev --detach` requires the local agent, starts the same dev supervisor in a background child process, waits for that child PID to register as the app root's agent session owner, prints the session URLs plus attach/stop commands, and returns. Detached child stdout/stderr from the supervisor is written under the agent directory; app process output continues to flow through the session-scoped dashboard log store.
 - `onlava attach` follows the current agent session's logs by default. It is equivalent to `onlava logs --session current --follow` with the same app-root, limit, stream, source, kind, level, grep, since, backend, and JSONL options, and it does not mutate session state.
-- `onlava logs`, plain `onlava attach`, `onlava attach --tui`, and `onlava console` use the same dev-event backend selector. `--backend victoria` and `--backend sqlite` force either side while the migration is being verified; `ONLAVA_LOGS_BACKEND` accepts the same values and applies to the TUI as well.
-- `--backend auto` prefers the shared agent VictoriaLogs dev-event stream when the agent has registered one. Non-following plain logs still fall back to SQLite or legacy process output when Victoria returns no rows for an existing local session. Fresh `--follow --backend auto` keeps following the selected backend even when the initial result set is empty, so new Victoria events are not missed.
-- `onlava logs compare` reads both selected backends and emits either a short human summary or machine-readable JSON mismatch diagnostics for event counts, IDs, source data, levels, messages, raw output, parsed fields, parse metadata, and timestamps.
+- `onlava logs`, plain `onlava attach`, `onlava attach --tui`, and `onlava console` read structured dev events for the selected session. `--backend auto` and `--backend victoria` currently select the same Victoria-backed substrate path; use backend selection only when intentionally debugging that substrate. `ONLAVA_LOGS_BACKEND` accepts the same values and applies to the TUI as well.
+- If the backing dev-event substrate is unavailable, structured dev-event read commands fail loudly instead of falling back to the deprecated local process-output cache.
 - `onlava attach --tui` and `onlava console` open the source-aware terminal console when stdin/stdout are real TTYs. In CI, dumb terminals, or redirected output they fall back to normal log following with the same backend option.
 - Structured dev logs carry source identity. Current source ids include `api`, `worker:typescript`, `build`, `supervisor`, `temporal`, `electric`, `grafana`, `victoria`, and `frontend:<name>`.
 - `onlava agent restart` stops the currently reachable local agent process, starts a new background agent, waits until the control socket is reachable, and returns. The same `--socket`, `--router-listen`, `--router-tls`, `--trust`, and `--json` options apply to the restarted agent.
 - `onlava down` stops and unregisters the selected session but is non-destructive by default. `--db` drops that session's managed Postgres database, `--state` removes that session's `.onlava/sessions/<id>` state root, and `--all` enables both.
-- `onlava prune --older-than <duration>` prunes old agent sessions whose recorded owner is gone or mismatched, removes their `.onlava/sessions/<id>` state roots, and deletes matching SQLite `dev_events`/`dev_sources` compatibility-cache rows. It accepts Go durations such as `336h` plus day shorthand such as `14d`. It does not drop managed databases or delete VictoriaLogs storage; use `onlava down --db` or `onlava db drop` for destructive database cleanup.
+- `onlava prune --older-than <duration>` prunes old agent sessions whose recorded owner is gone or mismatched and removes their `.onlava/sessions/<id>` state roots. It accepts Go durations such as `336h` plus day shorthand such as `14d`. It does not drop managed databases or delete VictoriaLogs storage; use `onlava down --db` or `onlava db drop` for destructive database cleanup.
 - When the local agent is active, the agent starts the visible dashboard backend and routes `console.onlava.localhost/s/<session_id>` to it. The Unix-socket control API remains protected by filesystem permissions.
 - The agent router serves HTTPS by default, and newly registered sessions receive `https://...onlava.localhost` routes. `onlava agent --router-http` or `ONLAVA_AGENT_ROUTER_TLS=0` explicitly keeps the router on HTTP for local debugging. `onlava agent --router-tls` and `ONLAVA_AGENT_ROUTER_TLS=1` force HTTPS when an explicit setting is needed. `onlava agent --trust` and `ONLAVA_AGENT_TRUST=1` also enable router TLS and attempt to trust the existing onlava local CA. Trust installation failures are logged; the router still starts.
 - Agent session manifests always include `dashboard` and `mcp` routes for the global agent-owned dashboard. With the agent dashboard active, the manifest does not need matching per-session `dashboard` or `mcp` backends; direct/per-session dashboard endpoints are kept for agent-disabled, unavailable-agent, or explicit local-proxy fallback paths.
-- `onlava dev` also starts local VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana by default when their managed toolchain binaries are installed or can be downloaded. When the local agent is active, Victoria and Grafana are registered as shared agent substrates and later dev sessions reuse their endpoints. Grafana is also registered as the session `grafana` backend, so manifests expose `https://grafana.<session_id>.onlava.localhost:<agent-router-port>/` by default, or HTTP when the agent router is explicitly started with `--router-http` or `ONLAVA_AGENT_ROUTER_TLS=0`. SQLite dashboard storage is stored under the agent directory when the agent is active and `ONLAVA_DEV_CACHE_DIR` is unset; the store keeps session-addressable app records so multiple worktrees for the same base app can appear in the global dashboard. Agent-disabled fallback keeps the previous user-cache behavior. This is a dev-only beta implementation detail, not a stable production API.
+- `onlava dev` exposes local observability and Grafana capabilities for the session. The current substrate may start local VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana when their managed toolchain binaries are installed or can be downloaded. When the local agent is active, those backing services are registered as shared agent substrates and later dev sessions reuse their endpoints. Grafana is also registered as the session `grafana` backend, so manifests expose `https://grafana.<session_id>.onlava.localhost:<agent-router-port>/` by default, or HTTP when the agent router is explicitly started with `--router-http` or `ONLAVA_AGENT_ROUTER_TLS=0`. Dashboard session metadata is stored as JSON under the agent directory when the agent is active and `ONLAVA_DEV_CACHE_DIR` is unset, so multiple worktrees for the same base app can appear in the global dashboard. These details are documented for intentional substrate debugging and are not the stable app-facing API.
 - The local agent home defaults to `~/.onlava` unless `ONLAVA_AGENT_HOME` is set. `ONLAVA_DEV_CACHE_DIR` controls build and dashboard cache locations, not machine-wide agent identity.
 - Managed frontend services start on session-private hidden loopback ports. A manual `ONLAVA_FRONTEND_<NAME>_ADDR` override is accepted, but configured frontend upstreams are ignored unless that frontend sets `"allow_shared_upstream": true`.
 - `onlava dev --proxy` enables the legacy local HTTPS/frontend proxy. This is a manual debugging escape hatch that binds machine-global proxy ports and is not the recommended path for parallel worktrees.
@@ -415,15 +405,14 @@ Runtime safety:
 
 Local observability:
 
-- onlava keeps SQLite observability writes active in `onlava dev`.
-- When Victoria sidecars are available, onlava also exports OTLP protobuf to:
+- The user-facing observability surface is `onlava logs`, `onlava inspect traces --json`, `onlava inspect metrics --json`, the dashboard, and Grafana routes. The current backing substrate exports local observability to Victoria sidecars:
   - VictoriaMetrics: `/opentelemetry/v1/metrics`
   - VictoriaLogs: `/insert/opentelemetry/v1/logs`
   - VictoriaTraces: `/insert/opentelemetry/v1/traces`
-- Dashboard trace reads and `onlava inspect traces|metrics --json` prefer Victoria data and fall back to SQLite data.
+- Dashboard trace reads and `onlava inspect traces|metrics --json` use onlava-managed observability data. Victoria is the current substrate when local sidecars are available.
 - Victoria sidecars store data under `.onlava/victoria/` by default when running without the agent. With an active agent, shared Victoria state is stored under the agent directory and registered in the agent substrate registry; the dev supervisor reuses registered endpoints instead of owning per-worktree Victoria processes.
 - `ONLAVA_DEV_VICTORIA=0` disables Victoria sidecars. `ONLAVA_DEV_VICTORIA_DOWNLOAD=0` disables automatic Victoria binary downloads. When enabled, missing Victoria binaries are downloaded into `.onlava/toolchain/` or `ONLAVA_TOOLCHAIN_DIR`.
-- Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta. They are documented so local development is debuggable, but they are not part of the stable v0 runtime contract.
+- Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta substrate details. They are documented so local development is debuggable, but they are hidden during ordinary app work and are not part of the stable v0 runtime contract.
 - Grafana binds to loopback and stores generated config, provisioning, and plugin state under `.onlava/grafana/` when running without the agent; downloaded Grafana binaries live under `.onlava/toolchain/` or `ONLAVA_TOOLCHAIN_DIR`. With an active agent, shared Grafana state is stored under the agent directory and registered in the agent substrate registry; later dev sessions reuse the verified shared Grafana and expose a per-session `grafana.<session>.onlava.localhost` route that points at the shared upstream.
 - Grafana controls are `ONLAVA_DEV_GRAFANA=auto|1|0`, `ONLAVA_DEV_GRAFANA_DOWNLOAD=1|0`, `ONLAVA_GRAFANA_BIN`, `ONLAVA_GRAFANA_VERSION`, `ONLAVA_GRAFANA_PORT`, `ONLAVA_GRAFANA_DIR`, `ONLAVA_GRAFANA_PUBLIC_URL`, `ONLAVA_GRAFANA_REUSE_EXTERNAL`, `ONLAVA_GRAFANA_PRESERVE_GF_ENV`, `ONLAVA_GRAFANA_DOWNLOAD_URL`, `ONLAVA_GRAFANA_DOWNLOAD_SHA256`, and `ONLAVA_GRAFANA_PLUGINS_PREINSTALL_SYNC`.
 - Default Grafana, Grafana plugin, Victoria sidecar, Temporal CLI, and managed image versions are pinned in `onlava.toolchain.json`; environment variables override explicit startup controls for local testing.
@@ -535,9 +524,9 @@ onlava logs --json
 - `--json` is an alias for `--jsonl`
 - output is JSONL
 - each line conforms to `onlava.dev.event.v1`
-- one JSON object is emitted per stored structured dev event or legacy process-output chunk
+- one JSON object is emitted per VictoriaLogs-backed structured dev event
 - structured events include app id/root, session id, source id/kind/name/role/pid/stream/status, level, message, parsed fields, raw output, and parse metadata
-- structured dev events are assigned a stable integer ID before storage, then dual-written to SQLite and VictoriaLogs during the migration; the JSONL output shape is the same for both `--backend sqlite` and `--backend victoria`
+- structured dev events are assigned a stable integer ID before export to VictoriaLogs
 - human-readable raw output remains the default when neither flag is used
 
 Reserved grammar:
@@ -568,7 +557,7 @@ Today onlava uses:
 - built app binary: `<workspace>/onlava-app`
 - build state: `<workspace>/.onlava-build-state.json`
 
-### Stable repo-local locations
+### Repo-Local Cache Locations
 
 Implemented now:
 
@@ -598,14 +587,13 @@ Reserved for upcoming work:
 ```
 
 Rules:
-- `app.json`, `routes.json`, `services.json`, and `endpoints.json` mirror the current `onlava inspect ... --json` outputs for those subjects
-- `wire/capabilities.json` mirrors `onlava inspect wire --json` and the runtime `GET /_wire/capabilities` response
-- `manifest.json` ties the generated inspect artifacts to schema versions, stable artifact paths, and deterministic content hashes
-- `build/latest.json` is the stable repo-local pointer to the latest prepared or compiled build workspace
-- `harness/latest.json` is the stable repo-local pointer to the latest agent validation run
-- `harness/self-latest.json` is the stable repo-local pointer to the latest onlava repo validation run
-- agents can use either `onlava inspect ... --json` or the corresponding `.onlava/gen/*.json` files
-- future implementation should conform to these locations instead of inventing a different layout
+- Use `onlava inspect ... --json` for app, route, service, endpoint, wire, build, path, docs, trace, and metric metadata.
+- Do not read `.onlava/gen/*` directly unless debugging onlava generation. These files are internal cache artifacts that may mirror inspect output today, but they are not the supported API.
+- `wire/capabilities.json` is an internal cache for `onlava inspect wire --json` and the runtime `GET /_wire/capabilities` response.
+- `manifest.json` ties generated cache artifacts to schema versions, artifact paths, and deterministic content hashes for debugging generation.
+- Use `onlava inspect build --json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
+- Use `onlava harness --json` and `onlava harness self --json` for validation results. `harness/latest.json` and `harness/self-latest.json` are local snapshots written by `--write`.
+- Future implementation should keep cache paths predictable for debugging, but external tools and agents should integrate through command JSON output.
 
 ## JSON Schemas
 
@@ -829,7 +817,7 @@ Example output:
 
 Beta diagnostic subject. Use this when an agent needs a metrics-style rollup
 over locally captured traces and logs. The JSON shape is versioned, but rollup
-definitions, percentile calculations, default limits, and Victoria/SQLite source
+definitions, percentile calculations, default limits, and Victoria source
 selection may change before this is promoted to stable v0.
 
 Example:

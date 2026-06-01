@@ -77,7 +77,7 @@ func TestAppDiscoverRootAcceptsTemporalConfig(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"temporalapp","temporal":{"enabled":true,"mode":"local","namespace":"default","address_env":"TEMPORAL_ADDRESS","task_queue_prefix":"onlava.temporalapp","payload_codec":"onlava-json-v1","api_key_env":"TEMPORAL_API_KEY","tls":{"enabled":true,"server_name_env":"TEMPORAL_TLS_SERVER_NAME","ca_cert_file_env":"TEMPORAL_TLS_CA_CERT_FILE","client_cert_file_env":"TEMPORAL_TLS_CERT_FILE","client_key_file_env":"TEMPORAL_TLS_KEY_FILE"},"local":{"auto_start":true,"db_filename":".onlava/temporal/dev.sqlite"},"typescript":{"enabled":true,"runtime":"bun","auto_start":true}}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".onlava.json"), []byte(`{"name":"temporalapp","temporal":{"enabled":true,"mode":"local","namespace":"default","address_env":"TEMPORAL_ADDRESS","task_queue_prefix":"onlava.temporalapp","payload_codec":"onlava-json-v1","api_key_env":"TEMPORAL_API_KEY","tls":{"enabled":true,"server_name_env":"TEMPORAL_TLS_SERVER_NAME","ca_cert_file_env":"TEMPORAL_TLS_CA_CERT_FILE","client_cert_file_env":"TEMPORAL_TLS_CERT_FILE","client_key_file_env":"TEMPORAL_TLS_KEY_FILE"},"local":{"auto_start":true,"db_filename":".onlava/temporal/dev.db"},"typescript":{"enabled":true,"runtime":"bun","auto_start":true}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestAppDiscoverRootAcceptsTemporalConfig(t *testing.T) {
 	if !cfg.Temporal.Local.AutoStart {
 		t.Fatalf("temporal booleans = %+v", cfg.Temporal)
 	}
-	if cfg.Temporal.Local.DBFilename != ".onlava/temporal/dev.sqlite" {
+	if cfg.Temporal.Local.DBFilename != ".onlava/temporal/dev.db" {
 		t.Fatalf("temporal local db = %q", cfg.Temporal.Local.DBFilename)
 	}
 	if !cfg.Temporal.TypeScript.Enabled || cfg.Temporal.TypeScript.Runtime != "bun" || !cfg.Temporal.TypeScript.AutoStart {
@@ -354,65 +354,12 @@ func TestDevtoolsPinnedVersionsRejectsMissingValues(t *testing.T) {
 	}
 }
 
-func TestClientgenGenerateTypeScriptIncludesStructuredRequestHandling(t *testing.T) {
-	t.Parallel()
-
-	appRoot := filepath.Join(appcfg.RepoRoot(), "testdata", "apps", "basic")
-	model, err := parse.App(appRoot, "basicapp")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
-
-	out, err := clientgen.GenerateTypeScript(model, clientgen.TypeScriptOptions{AppSlug: "basicapp"})
-	if err != nil {
-		t.Fatalf("GenerateTypeScript() error = %v", err)
-	}
-	got := string(out)
-
-	for _, want := range []string{
-		`export namespace service {`,
-		`public async Echo(name: string, params: EchoRequest, options?: CallParameters): Promise<EchoResponse> {`,
-		`public async EchoWithMeta(name: string, params: EchoRequest, options?: CallParameters): Promise<APIResponse<EchoResponse>> {`,
-		`this.EchoWithMeta = this.EchoWithMeta.bind(this)`,
-		`title: encodeQueryValue(params.Title),`,
-		`"X-Echo": encodeHeaderValue(params.Header),`,
-		`body: encodeQueryValue(params.body),`,
-		`transport?: OnlavaTransport`,
-		`export type CallParameters = Omit<RequestInit, "method" | "body" | "headers"> & {`,
-		`export interface APIResponse<T> {`,
-		`export type OnlavaTransport = "auto" | "json" | "binary" | "binary-strict" | "wire-json" | "wire-json-strict"`,
-		`const ONLAVA_WIRE_SCHEMA_HASH = `,
-		`const resp = await this.baseClient.callTypedEndpoint({ endpointID: "service.Echo"`,
-		`const resp = await this.baseClient.callTypedEndpointWithMeta({ endpointID: "service.Echo"`,
-		`wirePath: "/_wire/service.Echo"`,
-		"path: `/echo/${encodeURIComponent(String(name))}`",
-		`payload: params`,
-		`payloadJSON: JSON.stringify(params)`,
-		`jsonBody: undefined`,
-		`params: mergeCallParameters(options, { query, headers })`,
-		`return await decodeTypedAPIResponse(resp) as APIResponse<EchoResponse>`,
-		`public async Raw(rest: string, method: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {`,
-		"return await this.baseClient.callAPI(method, `/raw/${encodePathWildcard(String(rest))}`, body, options)",
-		`export interface EchoResponse {`,
-		`message: string`,
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("generated client missing %q\n%s", want, got)
-		}
-	}
-	for _, forbidden := range []string{"protobuf", "grpc", "connect"} {
-		if strings.Contains(strings.ToLower(got), forbidden) {
-			t.Fatalf("generated client should not expose %q\n%s", forbidden, got)
-		}
-	}
-}
-
-func TestClientgenGenerateTypeScriptIncludesNamedAliases(t *testing.T) {
+func TestClientgenNamedAliasesAndWireCapabilities(t *testing.T) {
 	t.Parallel()
 
 	appRoot := t.TempDir()
-	writeRelocatedUnitTestFile(t, appRoot, "go.mod", "module example.com/clientapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
-	writeRelocatedUnitTestFile(t, appRoot, ".onlava.json", `{"name":"clientapp"}`)
+	writeRelocatedUnitTestFile(t, appRoot, "go.mod", "module example.com/clientwireapp\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
+	writeRelocatedUnitTestFile(t, appRoot, ".onlava.json", `{"name":"clientwireapp"}`)
 	writeRelocatedUnitTestFile(t, appRoot, "point/point.go", `package point
 
 type Point3 struct {
@@ -426,7 +373,7 @@ type Point3 struct {
 import (
 	"context"
 
-	"example.com/clientapp/point"
+	"example.com/clientwireapp/point"
 )
 
 type TaskStatus string
@@ -436,18 +383,26 @@ type Response struct {
 	Point  point.Point3 `+"`json:\"point\"`"+`
 }
 
+type UnsupportedResponse struct {
+	Meta map[string]any `+"`json:\"meta\"`"+`
+}
+
 //onlava:api public
 func Get(ctx context.Context) (*Response, error) {
 	return &Response{}, nil
 }
-`)
 
-	model, err := parse.App(appRoot, "clientapp")
+//onlava:api public
+func Unsupported(ctx context.Context) (*UnsupportedResponse, error) {
+	return &UnsupportedResponse{}, nil
+}
+`)
+	model, err := parse.App(appRoot, "clientwireapp")
 	if err != nil {
-		t.Fatalf("parse app: %v", err)
+		t.Fatalf("parse.App() error = %v", err)
 	}
 
-	out, err := clientgen.GenerateTypeScript(model, clientgen.TypeScriptOptions{AppSlug: "clientapp"})
+	out, err := clientgen.GenerateTypeScript(model, clientgen.TypeScriptOptions{AppSlug: "clientwireapp"})
 	if err != nil {
 		t.Fatalf("GenerateTypeScript() error = %v", err)
 	}
@@ -463,45 +418,12 @@ func Get(ctx context.Context) (*Response, error) {
 			t.Fatalf("generated client missing %q", want)
 		}
 	}
-}
 
-func TestWiremodelAppCapabilitiesMarksUnsupportedEndpointJSONOnly(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeRelocatedUnitTestFile(t, root, "go.mod", "module example.com/wiretest\n\ngo 1.26.3\n\nrequire github.com/pbrazdil/onlava v0.0.0\n\nreplace github.com/pbrazdil/onlava => "+appcfg.RepoRoot()+"\n")
-	writeRelocatedUnitTestFile(t, root, ".onlava.json", `{"name":"wiretest"}`)
-	writeRelocatedUnitTestFile(t, root, "svc/api.go", `package svc
-
-import "context"
-
-type SupportedRequest struct {
-	Name string `+"`json:\"name\"`"+`
-}
-
-type UnsupportedResponse struct {
-	Meta map[string]any `+"`json:\"meta\"`"+`
-}
-
-//onlava:api public
-func Supported(ctx context.Context, req *SupportedRequest) (*SupportedRequest, error) {
-	return req, nil
-}
-
-//onlava:api public
-func Unsupported(ctx context.Context) (*UnsupportedResponse, error) {
-	return &UnsupportedResponse{}, nil
-}
-`)
-	model, err := parse.App(root, "wiretest")
-	if err != nil {
-		t.Fatalf("parse.App() error = %v", err)
-	}
 	caps := wiremodel.AppCapabilities(model)
-	if got := caps.Endpoints["svc.Supported"]; !got.Available {
+	if got := caps.Endpoints["maps.Get"]; !got.Available {
 		t.Fatalf("supported endpoint = %+v", got)
 	}
-	if got := caps.Endpoints["svc.Unsupported"]; got.Available || got.UnsupportedReason == "" {
+	if got := caps.Endpoints["maps.Unsupported"]; got.Available || got.UnsupportedReason == "" {
 		t.Fatalf("unsupported endpoint = %+v", got)
 	}
 	if caps.SchemaHash == "" {

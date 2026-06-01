@@ -24,12 +24,13 @@ import (
 const managedFrontendStartupTimeout = 30 * time.Second
 
 type managedFrontendProcess struct {
-	Name    string
-	Root    string
-	Addr    string
-	Command *exec.Cmd
-	LogFile *os.File
-	Store   *devdash.Store
+	Name     string
+	Root     string
+	Addr     string
+	Command  *exec.Cmd
+	LogFile  *os.File
+	Store    *devdash.Store
+	Victoria *victoriaStack
 }
 
 type packageJSONForFrontend struct {
@@ -148,12 +149,13 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 		return nil, err
 	}
 	process := &managedFrontendProcess{
-		Name:    frontend.Name,
-		Root:    root,
-		Addr:    addr,
-		Command: cmd,
-		LogFile: logFile,
-		Store:   store,
+		Name:     frontend.Name,
+		Root:     root,
+		Addr:     addr,
+		Command:  cmd,
+		LogFile:  logFile,
+		Store:    store,
+		Victoria: resolveLogsVictoriaStackFunc(ctx, false),
 	}
 	go captureManagedFrontendOutput(ctx, store, appID, session.SessionID, process, "stdout", stdout, logFile)
 	go captureManagedFrontendOutput(ctx, store, appID, session.SessionID, process, "stderr", stderr, logFile)
@@ -189,15 +191,18 @@ func captureManagedFrontendOutput(ctx context.Context, store *devdash.Store, app
 			_, _ = dst.Write(chunk)
 			plain := stripANSI(chunk)
 			now := time.Now().UTC()
-			_ = store.WriteProcessOutput(ctx, devdash.ProcessOutput{
-				AppID:     appID,
-				SessionID: sessionID,
-				PID:       pid,
-				Stream:    stream,
-				Output:    plain,
-				CreatedAt: now,
-			})
-			_ = store.WriteDevEvent(ctx, devdash.DevEventFromOutput(appID, sessionID, source, plain, now))
+			event := assignDevEventID(devdash.DevEventFromOutput(appID, sessionID, source, plain, now))
+			victoria := process.Victoria
+			if victoria == nil {
+				victoria = resolveLogsVictoriaStackFunc(ctx, false)
+			}
+			if victoria != nil {
+				go func(event devdash.DevEvent) {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+					defer cancel()
+					_ = victoria.ExportDevEvent(ctx, event)
+				}(event)
+			}
 		}
 		if err != nil {
 			return

@@ -198,10 +198,10 @@ func TestBuildHarnessChangedAreaReportRecommendsDevEventParity(t *testing.T) {
 	})
 
 	report := buildHarnessChangedAreaReport(context.Background(), root)
-	if !stringSliceContains(report.RecommendedCommands, "onlava logs compare --session current --backend-a sqlite --backend-b victoria --limit 500 --json") {
+	if !stringSliceContains(report.RecommendedCommands, "onlava logs --session current --backend victoria --limit 500 --jsonl") {
 		t.Fatalf("recommended commands = %+v", report.RecommendedCommands)
 	}
-	if !stringSliceContains(report.RiskFlags, "dev-event-backend-parity") {
+	if !stringSliceContains(report.RiskFlags, "victoria-dev-event-read-path") {
 		t.Fatalf("risk flags = %+v", report.RiskFlags)
 	}
 	if !stringSliceContains(report.RelevantDocs, "docs/plans/0056-dev-event-backend-cutover-and-parity.md") {

@@ -296,7 +296,7 @@ func TestTemporalDevHelpers(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	if got, want := temporalLocalDBPath(root, ".onlava/temporal/dev.sqlite"), filepath.Join(root, ".onlava/temporal/dev.sqlite"); got != want {
+	if got, want := temporalLocalDBPath(root, ".onlava/temporal/dev.db"), filepath.Join(root, ".onlava/temporal/dev.db"); got != want {
 		t.Fatalf("temporalLocalDBPath = %q, want %q", got, want)
 	}
 
@@ -306,7 +306,7 @@ func TestTemporalDevHelpers(t *testing.T) {
 		Namespace:  "orders",
 		Local: app.TemporalLocalConfig{
 			AutoStart:  true,
-			DBFilename: ".onlava/temporal/dev.sqlite",
+			DBFilename: ".onlava/temporal/dev.db",
 		},
 	}
 	rtCfg := temporalRuntimeConfigFromApp(cfg)
@@ -417,7 +417,7 @@ func TestTemporalSubstrateRoundTrip(t *testing.T) {
 	server := &temporalDevServer{
 		info:   onlavaRuntimeInfoForTest(),
 		uiURL:  "http://127.0.0.1:8233",
-		dbPath: filepath.Join(t.TempDir(), "temporal.sqlite"),
+		dbPath: filepath.Join(t.TempDir(), "temporal.db"),
 	}
 	req := server.SubstrateRequest(123)
 	if req.Kind != localagent.SubstrateTemporal || req.OwnerPID != 123 {
