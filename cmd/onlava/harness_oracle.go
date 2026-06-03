@@ -135,7 +135,15 @@ func runHarnessChangedAreaStep(ctx context.Context, repoRoot string) (harnessSte
 }
 
 func buildHarnessChangedAreaReport(ctx context.Context, repoRoot string) *harnessChangedAreaReport {
-	report := &harnessChangedAreaReport{SchemaVersion: harnessChangedAreaSchema}
+	report := &harnessChangedAreaReport{
+		SchemaVersion:       harnessChangedAreaSchema,
+		ChangedFiles:        []harnessChangedFile{},
+		AffectedPackages:    []string{},
+		RecommendedCommands: []string{},
+		RelevantDocs:        []string{},
+		RiskFlags:           []string{},
+		Diagnostics:         []checkDiagnostic{},
+	}
 	changes, diagnostics := harnessCollectChangedFiles(ctx, repoRoot)
 
 	packages, err := harnessListGoPackages(ctx, repoRoot)
@@ -642,6 +650,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 		},
 		CurrentBranch:       strings.TrimSpace(branch),
 		CurrentCommit:       strings.TrimSpace(commit),
+		DirtyFiles:          []harnessChangedFile{},
 		ChangedArea:         resp.ChangedArea,
 		RecommendedCommands: append([]string{}, resp.NextActions...),
 		DocsEntrypoints:     entrypoints,

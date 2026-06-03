@@ -36,8 +36,8 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Check data platform fixture app
-        run: go run ./cmd/onlava check --app-root testdata/apps/data-platform --json
+      - name: Check basic fixture app
+        run: go run ./cmd/onlava check --app-root testdata/apps/basic --json
 
       - name: Clean install
         run: go install ./cmd/onlava

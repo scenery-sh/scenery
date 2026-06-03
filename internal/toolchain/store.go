@@ -468,12 +468,10 @@ func (s *Store) buildArtifact(ctx context.Context, data []byte, artifact Artifac
 		if command == "" {
 			continue
 		}
+		command = expandBuildCommand(command, srcDir, installDir)
 		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 		cmd.Dir = srcDir
-		cmd.Env = append(envpolicy.Environ(),
-			"ONLAVA_TOOLCHAIN_BUILD_SOURCE_DIR="+srcDir,
-			"ONLAVA_TOOLCHAIN_BUILD_INSTALL_DIR="+installDir,
-		)
+		cmd.Env = envpolicy.Environ()
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("build %s: %w: %s", artifact.Name, err, strings.TrimSpace(string(output)))
@@ -485,6 +483,19 @@ func (s *Store) buildArtifact(ctx context.Context, data []byte, artifact Artifac
 		return fmt.Errorf("install built %s from %s: %w", artifact.Name, entry.BuildOutput, err)
 	}
 	return nil
+}
+
+func expandBuildCommand(command, sourceDir, installDir string) string {
+	command = strings.ReplaceAll(command, "{source}", shellQuote(sourceDir))
+	command = strings.ReplaceAll(command, "{install}", shellQuote(installDir))
+	return command
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func (s *Store) extractArtifact(data []byte, artifact Artifact, entry PlatformArtifact, dir string) error {

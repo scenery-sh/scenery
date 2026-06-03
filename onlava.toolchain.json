@@ -80,7 +80,7 @@
           "extract": "dnsmasq",
           "strip_components": 1,
           "build": [
-            "make install PREFIX=\"$ONLAVA_TOOLCHAIN_BUILD_INSTALL_DIR\""
+            "make install PREFIX={install}"
           ],
           "build_output": "sbin/dnsmasq"
         },
@@ -91,7 +91,7 @@
           "extract": "dnsmasq",
           "strip_components": 1,
           "build": [
-            "make install PREFIX=\"$ONLAVA_TOOLCHAIN_BUILD_INSTALL_DIR\" CFLAGS=\"-D__APPLE_USE_RFC_3542\""
+            "make install PREFIX={install} CFLAGS=\"-D__APPLE_USE_RFC_3542\""
           ],
           "build_output": "sbin/dnsmasq"
         }
