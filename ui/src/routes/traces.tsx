@@ -25,7 +25,11 @@ function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: s
   const primaryURL = traceDashboardURL(grafana, trace);
 
   return (
-    <div className="h-[calc(100vh-var(--header-height))] overflow-auto">
+    <div
+      data-onlava-ui="TracesRoute"
+      data-onlava-trace-count={traces.length}
+      className="h-[calc(100vh-var(--header-height))] overflow-auto"
+    >
       <div className="px-8 py-6">
         <div className="max-w-5xl space-y-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -56,8 +60,48 @@ function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: s
             ) : null}
           </section>
 
-          {traceId ? (
+          {!traceId ? (
             <section className="rounded-md border border-border p-6">
+              <h2 className="text-base font-medium">Recent traces</h2>
+              {traces.length === 0 ? (
+                <p
+                  data-onlava-ui="TraceEmptyState"
+                  data-onlava-state="intentional-empty"
+                  className="mt-4 text-sm text-muted-foreground"
+                >
+                  No local traces recorded yet.
+                </p>
+              ) : (
+                <div data-onlava-ui="TraceTable" className="mt-4 divide-y divide-border">
+                  {traces.slice(0, 25).map((item) => (
+                    <Link
+                      key={`${item.trace_id}-${item.span_id}`}
+                      data-onlava-ui="TraceTableRow"
+                      to="/$appId/envs/local/traces/$traceId"
+                      params={{ appId, traceId: item.trace_id }}
+                      className="grid grid-cols-[minmax(180px,1fr)_120px_120px] gap-4 py-3 text-sm transition-colors hover:text-foreground"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          {item.service_name || "unknown"}.{item.endpoint_name || item.type}
+                        </span>
+                        <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">
+                          {item.trace_id}
+                        </span>
+                      </span>
+                      <span className={item.is_error ? "text-red-500" : "text-muted-foreground"}>
+                        {item.is_error ? "error" : "ok"}
+                      </span>
+                      <span className="text-muted-foreground">{formatDurationNanos(item.duration_nanos)}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {traceId ? (
+            <section data-onlava-ui="TraceDetail" className="rounded-md border border-border p-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <h2 className="text-base font-medium">Selected Trace</h2>

@@ -114,9 +114,9 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, harness evidence artifacts, cache artifacts, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, harness evidence artifacts, UI harness journey artifacts, cache artifacts, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": ["contract", "cli", "agents", "schemas", "toolchain"],
-      "schema_refs": ["docs/schemas/onlava.toolchain.v1.schema.json", "docs/schemas/onlava.toolchain.status.v1.schema.json", "docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json"]
+      "schema_refs": ["docs/schemas/onlava.toolchain.v1.schema.json", "docs/schemas/onlava.toolchain.status.v1.schema.json", "docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json", "docs/schemas/onlava.harness.ui.v1.schema.json", "docs/schemas/onlava.harness.ui.dom.v1.schema.json"]
     },
     {
       "path": "docs/environment.md",
@@ -165,9 +165,9 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness contract, self-harness contract, and doc-gardening rules for review-due and drift handling.",
+      "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, self-harness contract, and doc-gardening rules for review-due and drift handling.",
       "tags": ["harness", "agents", "testing"],
-      "schema_refs": ["docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json", "docs/schemas/onlava.agent_context.v1.schema.json"]
+      "schema_refs": ["docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json", "docs/schemas/onlava.agent_context.v1.schema.json", "docs/schemas/onlava.harness.ui.v1.schema.json", "docs/schemas/onlava.harness.ui.dom.v1.schema.json"]
     },
     {
       "path": "docs/app-development-cookbook.md",
@@ -502,7 +502,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Known cleanup and follow-up work, including browser harness route-specific journey depth rather than a missing harness.",
+      "summary": "Known cleanup and follow-up work, including browser harness fixture-backed mutation depth rather than missing route-specific journeys.",
       "tags": ["debt", "risk", "agents"]
     }
   ],

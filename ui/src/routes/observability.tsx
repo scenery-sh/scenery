@@ -10,7 +10,7 @@ export function ObservabilityPage() {
   const dashboards = grafanaAvailable ? (grafana?.dashboards ?? []) : [];
 
   return (
-    <div className="max-h-[calc(100vh-var(--header-height))] overflow-auto">
+    <div data-onlava-ui="ObservabilityRoute" className="max-h-[calc(100vh-var(--header-height))] overflow-auto">
       <div className="min-h-0 grow px-8 pb-12 pt-6 leading-6">
         <div className="max-w-6xl space-y-8">
           <div>
@@ -20,7 +20,11 @@ export function ObservabilityPage() {
             </p>
           </div>
 
-          <section className="rounded-md border border-border p-6">
+          <section
+            data-onlava-ui="TemporalStatusCard"
+            data-onlava-state={grafana?.temporal_url ? "available" : "unavailable"}
+            className="rounded-md border border-border p-6"
+          >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="text-base font-medium">Grafana</h2>
@@ -43,6 +47,22 @@ export function ObservabilityPage() {
               <GrafanaLink href={grafanaAvailable ? grafana?.logs_url : undefined} label="Logs" />
               <GrafanaLink href={grafanaAvailable ? grafana?.endpoint_url : undefined} label="Endpoint Debugger" />
               <GrafanaLink href={grafanaAvailable ? grafana?.temporal_url : undefined} label="Temporal" />
+            </div>
+          </section>
+
+          <section
+            data-onlava-ui="WorkerStatusCard"
+            data-onlava-state="intentional-empty"
+            className="rounded-md border border-border p-6"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-medium">Workers</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  No dedicated worker status is reported for this dev session.
+                </p>
+              </div>
+              <StatusPill status="not reported" />
             </div>
           </section>
 
@@ -171,7 +191,7 @@ function StatusPill({ status }: { status: string }) {
           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
           : normalized === "starting"
             ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-            : normalized === "disabled"
+            : normalized === "disabled" || normalized === "not reported"
               ? "border-border bg-muted text-muted-foreground"
               : "border-red-500/30 bg-red-500/10 text-red-300",
       )}

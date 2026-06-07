@@ -70,7 +70,12 @@
           "type": "array",
           "items": { "$ref": "#/$defs/marker" }
         },
+        "journey": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/journey_result" }
+        },
         "screenshot": { "type": "string" },
+        "dom_snapshot": { "type": "string" },
         "evidence": {
           "$ref": "#/$defs/evidence"
         },
@@ -126,6 +131,25 @@
         "selector": { "type": "string" },
         "count": { "type": "integer" },
         "found": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "journey_result": {
+      "type": "object",
+      "required": ["name", "kind", "found", "required"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "selectors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "selector": { "type": "string" },
+        "count": { "type": "integer" },
+        "found": { "type": "boolean" },
+        "required": { "type": "boolean" },
+        "skipped": { "type": "boolean" },
+        "detail": { "type": "string" }
       },
       "additionalProperties": false
     },

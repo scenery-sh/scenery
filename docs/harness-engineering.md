@@ -65,8 +65,12 @@ API yet; see [local-contract.md](local-contract.md).
 
 `onlava harness ui --json` is the implemented browser-backed dashboard route
 check. It starts a temporary dashboard target unless `--dashboard-url` is
-provided, visits stable dashboard routes, checks `data-onlava-ui` markers, and
-writes screenshots plus console/network artifacts under `.onlava/harness/ui/`.
+provided, visits stable dashboard routes, runs route-specific semantic journeys,
+checks durable `data-onlava-ui` markers, and writes screenshots, DOM snapshots,
+console, and network artifacts under `.onlava/harness/ui/`. The route journeys
+prove behavior such as API Explorer endpoint/form rendering, service metadata,
+trace empty/table/detail states, database availability or intentional empty
+states, cron status, and temporal/worker status cards.
 
 `onlava inspect harness --json` reads the latest app, self, and UI harness
 outputs from `.onlava/harness/` and returns their artifacts plus normalized
@@ -79,6 +83,8 @@ JSON output conforms to:
 - [onlava.harness.result.v1.schema.json](schemas/onlava.harness.result.v1.schema.json)
 - [onlava.harness.artifact.v1.schema.json](schemas/onlava.harness.artifact.v1.schema.json)
 - [onlava.inspect.harness.v1.schema.json](schemas/onlava.inspect.harness.v1.schema.json)
+- [onlava.harness.ui.v1.schema.json](schemas/onlava.harness.ui.v1.schema.json)
+- [onlava.harness.ui.dom.v1.schema.json](schemas/onlava.harness.ui.dom.v1.schema.json)
 
 When `--write` is present, onlava writes:
 
@@ -100,6 +106,20 @@ large evidence payloads such as Go test JSONL are written under:
 The same evidence model is shared by the app harness, self-harness, UI harness,
 release gate, and future ONLV gates so agents can inspect failures without
 scraping terminal scrollback.
+
+When `onlava harness ui --json --write` is present, the browser harness writes:
+
+```text
+<app-root>/.onlava/harness/ui/latest.json
+<app-root>/.onlava/harness/ui/screenshots/<route>.png
+<app-root>/.onlava/harness/ui/dom/<route>.json
+<app-root>/.onlava/harness/ui/console.jsonl
+<app-root>/.onlava/harness/ui/network.jsonl
+```
+
+The DOM snapshots are compact semantic snapshots of elements carrying
+`data-onlava-ui`, not full HTML dumps. They exist so agents can reproduce,
+repair, restart, and verify browser behavior from machine-readable route state.
 
 The self-harness writes `.onlava/harness/agent-context.json` as the default
 handoff file for agents. It includes current failing steps, the first file to

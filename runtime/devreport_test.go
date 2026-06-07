@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -94,14 +95,14 @@ func TestDevReportBackoffDelay(t *testing.T) {
 }
 
 func TestDevReporterBacksOffAfterFailedPost(t *testing.T) {
-	var calls int
+	var calls atomic.Int64
 	reporter := &devReporter{
 		appID: "app",
 		url:   "http://dashboard.test/__onlava/report",
 		token: "token",
 		client: &http.Client{
 			Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-				calls++
+				calls.Add(1)
 				return &http.Response{
 					StatusCode: http.StatusUnauthorized,
 					Status:     "401 Unauthorized",
@@ -119,14 +120,14 @@ func TestDevReporterBacksOffAfterFailedPost(t *testing.T) {
 	reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
 
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && calls < 2 {
+	for time.Now().Before(deadline) && calls.Load() < 2 {
 		time.Sleep(10 * time.Millisecond)
 	}
 	close(reporter.stop)
 	<-reporter.done
 
-	if calls != 2 {
-		t.Fatalf("post calls = %d, want 2", calls)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("post calls = %d, want 2", got)
 	}
 	if reporter.failures.Load() != 2 {
 		t.Fatalf("failures = %d, want 2", reporter.failures.Load())

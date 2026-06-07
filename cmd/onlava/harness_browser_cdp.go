@@ -25,6 +25,9 @@ func runCDPBrowserChecks(ctx context.Context, routes []harnessUIRouteSpec, artif
 	if err := os.MkdirAll(filepath.Join(artifactRoot, "screenshots"), 0o755); err != nil {
 		return harnessUIBrowserResult{}, err
 	}
+	if err := os.MkdirAll(filepath.Join(artifactRoot, "dom"), 0o755); err != nil {
+		return harnessUIBrowserResult{}, err
+	}
 	browserCtx, cancel := context.WithTimeout(ctx, time.Duration(len(routes))*25*time.Second)
 	defer cancel()
 
@@ -73,6 +76,21 @@ func runCDPBrowserChecks(ctx context.Context, routes []harnessUIRouteSpec, artif
 				}
 			}
 		}
+		if err == nil {
+			journeyResults, journeyErr := runHarnessUIJourney(browserCtx, client, spec)
+			route.Journey = journeyResults
+			if journeyErr != nil {
+				err = journeyErr
+			}
+		}
+		domPath := filepath.Join("dom", spec.Name+".json")
+		if snapshot, domErr := harnessCaptureDOMSnapshot(browserCtx, client, spec.Name); domErr == nil {
+			abs := filepath.Join(artifactRoot, domPath)
+			if writeErr := writeHarnessUIDOMSnapshot(abs, snapshot); writeErr == nil {
+				route.DOMSnapshot = filepath.ToSlash(filepath.Join(".onlava", "harness", "ui", domPath))
+				result.Artifacts = append(result.Artifacts, harnessArtifact{Name: "dom:" + spec.Name, Path: route.DOMSnapshot, SchemaVersion: "onlava.harness.ui.dom.v1", Exists: true})
+			}
+		}
 		screenshotPath := filepath.Join("screenshots", spec.Name+".png")
 		if screenshot, shotErr := harnessCaptureScreenshot(browserCtx, client); shotErr == nil && len(screenshot) > 0 {
 			abs := filepath.Join(artifactRoot, screenshotPath)
@@ -99,6 +117,155 @@ func runCDPBrowserChecks(ctx context.Context, routes []harnessUIRouteSpec, artif
 	if err := writeHarnessBrowserJSONL(filepath.Join(artifactRoot, "network.jsonl"), result.NetworkFailures); err == nil {
 		result.Artifacts = append(result.Artifacts, harnessArtifact{Name: "network", Path: ".onlava/harness/ui/network.jsonl", Exists: true})
 	}
+	return result, nil
+}
+
+func runHarnessUIJourney(ctx context.Context, client *harnessCDPClient, spec harnessUIRouteSpec) ([]harnessUIJourneyResult, error) {
+	results := []harnessUIJourneyResult{}
+	var failures []string
+	for _, check := range spec.Checks {
+		result, err := runHarnessUIJourneyCheck(ctx, client, check)
+		results = append(results, result)
+		if err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
+	for _, action := range spec.Actions {
+		result, err := runHarnessUIJourneyAction(ctx, client, action)
+		results = append(results, result)
+		if err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
+	if len(failures) > 0 {
+		return results, fmt.Errorf("%s", strings.Join(failures, "; "))
+	}
+	return results, nil
+}
+
+func runHarnessUIJourneyCheck(ctx context.Context, client *harnessCDPClient, check harnessUIJourneyCheckSpec) (harnessUIJourneyResult, error) {
+	required := check.Required
+	result := harnessUIJourneyResult{
+		Name:     check.Name,
+		Kind:     "selector",
+		Selector: check.Selector,
+		Required: required,
+	}
+	if len(check.AnySelectors) > 0 {
+		result.Kind = "any-selector"
+		result.Selectors = append([]string(nil), check.AnySelectors...)
+		if required {
+			selector, count, err := waitForHarnessAnySelector(ctx, client, check.AnySelectors, 5*time.Second)
+			if err != nil {
+				result.Detail = err.Error()
+				return result, fmt.Errorf("%s: %w", check.Name, err)
+			}
+			result.Selector = selector
+			result.Count = count
+			result.Found = true
+			return result, nil
+		}
+		for _, selector := range check.AnySelectors {
+			count, err := harnessQuerySelectorCount(ctx, client, selector)
+			if err != nil {
+				result.Detail = err.Error()
+				if required {
+					return result, fmt.Errorf("%s: %w", check.Name, err)
+				}
+				return result, nil
+			}
+			if count > 0 {
+				result.Selector = selector
+				result.Count = count
+				result.Found = true
+				return result, nil
+			}
+		}
+		result.Detail = "none of the expected selectors were found"
+		if required {
+			return result, fmt.Errorf("%s: %s", check.Name, result.Detail)
+		}
+		return result, nil
+	}
+	if required {
+		if err := waitForHarnessSelector(ctx, client, check.Selector, 5*time.Second); err != nil {
+			result.Detail = err.Error()
+			return result, fmt.Errorf("%s: %w", check.Name, err)
+		}
+	}
+	count, err := harnessQuerySelectorCount(ctx, client, check.Selector)
+	result.Count = count
+	result.Found = count > 0
+	if err != nil {
+		result.Detail = err.Error()
+		if required {
+			return result, fmt.Errorf("%s: %w", check.Name, err)
+		}
+		return result, nil
+	}
+	if required && count == 0 {
+		result.Detail = "selector was not found"
+		return result, fmt.Errorf("%s: %s %s", check.Name, result.Detail, check.Selector)
+	}
+	return result, nil
+}
+
+func runHarnessUIJourneyAction(ctx context.Context, client *harnessCDPClient, action harnessUIJourneyActionSpec) (harnessUIJourneyResult, error) {
+	result := harnessUIJourneyResult{
+		Name:     action.Name,
+		Kind:     "action",
+		Selector: action.Click,
+		Required: !action.Optional,
+	}
+	if action.WaitSelector != "" {
+		waitCount, waitErr := harnessQuerySelectorCount(ctx, client, action.WaitSelector)
+		if waitErr == nil && waitCount > 0 {
+			result.Found = true
+			result.Count = waitCount
+			result.Selectors = []string{action.WaitSelector}
+			result.Detail = "target already visible"
+			return result, nil
+		}
+	}
+	count, err := harnessQuerySelectorCount(ctx, client, action.Click)
+	result.Count = count
+	result.Found = count > 0
+	if err != nil {
+		result.Detail = err.Error()
+		if action.Optional {
+			result.Skipped = true
+			return result, nil
+		}
+		return result, fmt.Errorf("%s: %w", action.Name, err)
+	}
+	if count == 0 {
+		result.Detail = "action target was not found"
+		if action.Optional {
+			result.Skipped = true
+			return result, nil
+		}
+		return result, fmt.Errorf("%s: %s %s", action.Name, result.Detail, action.Click)
+	}
+	if err := harnessClickSelector(ctx, client, action.Click); err != nil {
+		result.Detail = err.Error()
+		if action.Optional {
+			result.Skipped = true
+			return result, nil
+		}
+		return result, fmt.Errorf("%s: %w", action.Name, err)
+	}
+	if action.WaitSelector != "" {
+		if err := waitForHarnessSelector(ctx, client, action.WaitSelector, 5*time.Second); err != nil {
+			result.Detail = err.Error()
+			if action.Optional {
+				result.Skipped = true
+				return result, nil
+			}
+			return result, fmt.Errorf("%s: %w", action.Name, err)
+		}
+		result.Selectors = []string{action.WaitSelector}
+	}
+	result.Found = true
 	return result, nil
 }
 
@@ -500,6 +667,127 @@ func harnessQuerySelectorCount(ctx context.Context, client *harnessCDPClient, se
 		return 0, err
 	}
 	return out.Result.ValueInt(), nil
+}
+
+func harnessClickSelector(ctx context.Context, client *harnessCDPClient, selector string) error {
+	var out harnessEvaluateResult
+	err := client.call(ctx, "Runtime.evaluate", map[string]any{
+		"expression": fmt.Sprintf(`(() => {
+const el = document.querySelector(%q);
+if (!el) return false;
+el.scrollIntoView({ block: "center", inline: "center" });
+el.click();
+return true;
+})()`, selector),
+		"returnByValue": true,
+	}, &out)
+	if err != nil {
+		return err
+	}
+	if !out.Result.ValueBool() {
+		return fmt.Errorf("selector %s was not clickable", selector)
+	}
+	return nil
+}
+
+func waitForHarnessSelector(ctx context.Context, client *harnessCDPClient, selector string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		count, err := harnessQuerySelectorCount(ctx, client, selector)
+		if err == nil && count > 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("timed out waiting for selector %s", selector)
+}
+
+func waitForHarnessAnySelector(ctx context.Context, client *harnessCDPClient, selectors []string, timeout time.Duration) (string, int, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, selector := range selectors {
+			count, err := harnessQuerySelectorCount(ctx, client, selector)
+			if err == nil && count > 0 {
+				return selector, count, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return "", 0, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return "", 0, fmt.Errorf("timed out waiting for any selector: %s", strings.Join(selectors, ", "))
+}
+
+type harnessUIDOMSnapshot struct {
+	SchemaVersion string             `json:"schema_version"`
+	Route         string             `json:"route"`
+	URL           string             `json:"url"`
+	Title         string             `json:"title,omitempty"`
+	ReadyState    string             `json:"ready_state"`
+	SemanticNodes []harnessUIDOMNode `json:"semantic_nodes"`
+}
+
+type harnessUIDOMNode struct {
+	Marker string `json:"marker"`
+	State  string `json:"state,omitempty"`
+	Tag    string `json:"tag,omitempty"`
+	Role   string `json:"role,omitempty"`
+	Href   string `json:"href,omitempty"`
+	Text   string `json:"text,omitempty"`
+}
+
+func harnessCaptureDOMSnapshot(ctx context.Context, client *harnessCDPClient, routeName string) (harnessUIDOMSnapshot, error) {
+	var out harnessEvaluateResult
+	err := client.call(ctx, "Runtime.evaluate", map[string]any{
+		"expression": `(() => {
+const compact = (value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, 300);
+return {
+  url: window.location.href,
+  title: document.title,
+  ready_state: document.readyState,
+  semantic_nodes: Array.from(document.querySelectorAll("[data-onlava-ui]")).slice(0, 200).map((el) => ({
+    marker: el.getAttribute("data-onlava-ui") || "",
+    state: el.getAttribute("data-onlava-state") || "",
+    tag: el.tagName ? el.tagName.toLowerCase() : "",
+    role: el.getAttribute("role") || "",
+    href: el.getAttribute("href") || "",
+    text: compact(el.innerText || el.textContent || "")
+  }))
+};
+})()`,
+		"returnByValue": true,
+	}, &out)
+	if err != nil {
+		return harnessUIDOMSnapshot{}, err
+	}
+	var snapshot harnessUIDOMSnapshot
+	if err := json.Unmarshal(out.Result.Value, &snapshot); err != nil {
+		return harnessUIDOMSnapshot{}, err
+	}
+	snapshot.SchemaVersion = "onlava.harness.ui.dom.v1"
+	snapshot.Route = routeName
+	if snapshot.SemanticNodes == nil {
+		snapshot.SemanticNodes = []harnessUIDOMNode{}
+	}
+	return snapshot, nil
+}
+
+func writeHarnessUIDOMSnapshot(path string, snapshot harnessUIDOMSnapshot) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
 }
 
 type harnessEvaluateResult struct {

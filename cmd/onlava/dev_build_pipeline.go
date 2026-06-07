@@ -72,7 +72,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			metadata = append(json.RawMessage(nil), cached.Metadata...)
 			apiEncoding = append(json.RawMessage(nil), cached.APIEncoding...)
 			result = cached.Result
-			if !s.cfg.Temporal.Enabled {
+			if !s.cfg.Temporal.Enabled && len(metadata) > 0 && len(apiEncoding) > 0 {
 				return nil
 			}
 		}
@@ -82,7 +82,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		return nil, devBuildError(nil, nil, err)
 	}
 	if err := s.console.Phase("Analyzing service topology", func() error {
-		if cached != nil {
+		if cached != nil && len(metadata) > 0 && len(apiEncoding) > 0 {
 			return nil
 		}
 		metadata, err = devmeta.BuildMetadataSnapshot(appModel)

@@ -406,7 +406,11 @@ export function RequestsPage() {
   }
 
   return (
-    <section className="w-full h-[calc(100vh-(var(--header-height)))] grid grid-cols-3">
+    <section
+      data-onlava-ui="APIExplorer"
+      data-onlava-endpoint-count={endpointOptions.length}
+      className="w-full h-[calc(100vh-(var(--header-height)))] grid grid-cols-3"
+    >
       <div className="col-span-2 overflow-hidden border-border border-r min-w-0">
         <div className="relative flex max-w-full" style={{ height: "calc(100vh - var(--header-height))" }}>
           <div
@@ -415,6 +419,8 @@ export function RequestsPage() {
             style={{ width: sidebarCollapsed ? 0 : REQUESTS_SIDEBAR_WIDTH }}
           />
           <aside
+            data-onlava-ui="APIExplorerEndpointList"
+            data-onlava-endpoint-count={endpointOptions.length}
             className={cn(
               "absolute inset-y-0 left-0 z-10 overflow-auto border-border border-r bg-sidebar transition-[left] duration-200 ease-linear",
             )}
@@ -518,7 +524,7 @@ export function RequestsPage() {
               {activeTab ? (
                 <div className="p-4 w-full min-w-0 max-w-full">
                   <div className="space-y-5">
-                    <div>
+                    <div data-onlava-ui="APIExplorerEndpointDetail">
                       <EndpointSelector
                         currentKey={`${activeTab.svcName}.${activeTab.rpcName}`}
                         endpoints={endpointOptions}

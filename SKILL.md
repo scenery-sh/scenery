@@ -141,7 +141,7 @@ For Electric-backed frontend writes, generated TypeScript `WithMeta` methods inc
 ## UI Work
 
 Read `docs/ui-agent-contract.md` before dashboard or app UI work. Use onlava-owned primitives and the @onlava registry; add registry components with commands such as `bun run shadcn:add @onlava/button`.
-The browser UI harness is implemented; use it for dashboard route validation when UI behavior changes.
+The browser UI harness is implemented; use it for dashboard route validation when UI behavior changes. Prefer `--write` when debugging so screenshots, DOM snapshots, console JSONL, and network JSONL are available under `.onlava/harness/ui/`.
 
 ```sh
 cd ui
@@ -149,7 +149,7 @@ bun run typecheck
 bun run test
 bun run build
 cd ..
-onlava harness ui --json
+onlava harness ui --json --write
 ```
 
 ## Debugging

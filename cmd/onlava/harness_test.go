@@ -1011,6 +1011,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/onlava.agent_context.v1.schema.json",
 		"docs/schemas/onlava.harness.result.v1.schema.json",
 		"docs/schemas/onlava.harness.ui.v1.schema.json",
+		"docs/schemas/onlava.harness.ui.dom.v1.schema.json",
 		"docs/schemas/onlava.check.result.v1.schema.json",
 		"docs/schemas/onlava.doctor.result.v1.schema.json",
 		"docs/schemas/onlava.gen.manifest.v1.schema.json",

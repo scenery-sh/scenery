@@ -319,7 +319,7 @@ bun run typecheck
 bun run test
 bun run build
 cd ..
-onlava harness ui --json
+onlava harness ui --json --write
 ```
 
 ## Keeping Agent Docs Fresh

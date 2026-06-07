@@ -413,7 +413,7 @@ Command split:
 - `onlava worker bindings` validates `.onlava/workers/*.json` manifests and writes language-specific activity starter files. Python manifests produce `onlava_worker.py`; TypeScript/JavaScript manifests produce `onlava_worker.ts`; unknown languages receive a normalized JSON binding file.
 - `onlava worker deployment set-current`, `ramp`, and `drain` are the explicit operator commands for Temporal Worker Deployment routing changes in non-local environments. They use the app's Temporal connection settings, including TLS/API-key env vars.
 - `onlava build` produces the deployable binary and remains the preferred deployment artifact path.
-- `onlava harness ui --json` is an optional browser-backed dashboard check. It starts a temporary `onlava up` process unless `--dashboard-url` points at an existing dashboard, visits core dashboard routes, checks stable `data-onlava-ui` markers, captures screenshots, and writes console/network artifacts under `.onlava/harness/ui/`.
+- `onlava harness ui --json` is an optional browser-backed dashboard check. It starts a temporary `onlava up` process unless `--dashboard-url` points at an existing dashboard, visits core dashboard routes, runs route-specific semantic journeys, checks stable `data-onlava-ui` markers, captures screenshots, writes compact DOM snapshots, and writes console/network artifacts under `.onlava/harness/ui/`.
 
 Runtime safety:
 
@@ -522,7 +522,7 @@ onlava harness self --json --write
 - UI static architecture checks fail on raw shadcn install scripts, non-`@onlava` registries, unsafe registry item source/target declarations, legacy `components/ui` imports, direct vendor shadcn imports from screens, and direct Radix/styling utility imports outside onlava primitives/layouts/vendor
 - UI static architecture checks scan multiline imports, re-exports, dynamic imports, and CommonJS requires for forbidden UI boundary bypasses
 - UI static architecture checks warn on long or advanced `className` literals and common expression forms such as `cn(...)`, template literals, and conditional literals outside onlava primitives/layouts/vendor while the dashboard is migrated into the stricter slot-layout model
-- `onlava harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation.
+- `onlava harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation. The route journeys cover dashboard home app selector/status, API Explorer endpoint/form behavior, service catalog metadata, traces empty/table/detail behavior, DB list or unavailable states, cron status/empty states, and temporal/worker status cards.
 - `--write` persists the same result to `.onlava/harness/self-latest.json`
 - failed and expensive steps include `evidence` conforming to `onlava.harness.artifact.v1`; Go test JSONL evidence is written as `.onlava/harness/artifacts/<run-id>/go-test.jsonl` when `--write` is present
 - `--write` refreshes `.onlava/harness/agent-context.json` as the one-file agent handoff. It includes current failing steps, first files to read, exact rerun commands, changed-area recommended commands, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and risk classifications: `runtime`, `CLI contract`, `dashboard`, `schema`, `release`, and `onlv-impacting`.
@@ -998,6 +998,10 @@ Source files:
 - `.onlava/harness/latest.json`
 - `.onlava/harness/self-latest.json`
 - `.onlava/harness/ui/latest.json`
+- `.onlava/harness/ui/screenshots/*.png`
+- `.onlava/harness/ui/dom/*.json`
+- `.onlava/harness/ui/console.jsonl`
+- `.onlava/harness/ui/network.jsonl`
 - `.onlava/harness/artifacts/`
 
 Example:

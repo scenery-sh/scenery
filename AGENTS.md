@@ -188,7 +188,7 @@ onlava harness self --json --write
 For browser/dashboard validation when relevant:
 
 ```sh
-onlava harness ui --json
+onlava harness ui --json --write
 ```
 
 If a command cannot be run in the current environment, say exactly which command was skipped and why.

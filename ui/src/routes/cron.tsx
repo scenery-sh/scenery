@@ -29,7 +29,11 @@ export function CronPage() {
   );
 
   return (
-    <div className="max-h-[calc(100vh-var(--header-height))] overflow-auto">
+    <div
+      data-onlava-ui="CronRoute"
+      data-onlava-job-count={jobs.length}
+      className="max-h-[calc(100vh-var(--header-height))] overflow-auto"
+    >
       <div className="min-h-0 grow px-8 pt-6 pb-12 leading-6">
         <div className="max-w-6xl space-y-8">
           <div>
@@ -39,7 +43,7 @@ export function CronPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div data-onlava-ui="CronStatusCards" className="grid grid-cols-3 gap-4">
             <StatCard label="Jobs" value={String(jobs.length)} />
             <StatCard
               label="Jobs with recent runs"
@@ -52,11 +56,15 @@ export function CronPage() {
           </div>
 
           {items.length === 0 ? (
-            <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
+            <div
+              data-onlava-ui="CronEmptyState"
+              data-onlava-state="intentional-empty"
+              className="rounded-md border border-border p-6 text-sm text-muted-foreground"
+            >
               No cron jobs discovered in this app.
             </div>
           ) : (
-            <div className="space-y-6">
+            <div data-onlava-ui="CronJobList" className="space-y-6">
               {items.map(({ job, last, recent }) => (
                 <section key={job.id} className="rounded-md border border-border p-6">
                   <div className="flex items-start justify-between gap-4">

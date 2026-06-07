@@ -22,13 +22,11 @@ import (
 const managedFrontendStartupTimeout = 30 * time.Second
 
 type managedFrontendProcess struct {
-	Name     string
-	Root     string
-	Addr     string
-	Process  *devManagedProcess
-	LogFile  *os.File
-	Store    *devdash.Store
-	Victoria *victoriaStack
+	Name    string
+	Root    string
+	Addr    string
+	Process *devManagedProcess
+	LogFile *os.File
 }
 
 type packageJSONForFrontend struct {
@@ -122,18 +120,11 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 	if err != nil {
 		return nil, err
 	}
-	store, err := openDevdashStore()
-	if err != nil {
-		_ = logFile.Close()
-		return nil, err
-	}
 	process := &managedFrontendProcess{
-		Name:     frontend.Name,
-		Root:     root,
-		Addr:     addr,
-		LogFile:  logFile,
-		Store:    store,
-		Victoria: resolveLogsVictoriaStackFunc(ctx, false),
+		Name:    frontend.Name,
+		Root:    root,
+		Addr:    addr,
+		LogFile: logFile,
 	}
 	runner, err := startDevManagedProcess(ctx, devProcessStartRequest{
 		Name:    frontend.Name,
@@ -146,11 +137,11 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 		Stdout:  logFile,
 		Stderr:  logFile,
 		OnOutput: func(pid int, stream string, data []byte) {
-			captureManagedFrontendOutput(ctx, store, appID, session.SessionID, process, pid, stream, data)
+			plain := append([]byte(nil), data...)
+			go captureManagedFrontendOutput(ctx, appID, session.SessionID, process, pid, stream, plain)
 		},
 	})
 	if err != nil {
-		_ = store.Close()
 		_ = logFile.Close()
 		return nil, err
 	}
@@ -162,8 +153,8 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 	return process, nil
 }
 
-func captureManagedFrontendOutput(ctx context.Context, store *devdash.Store, appID, sessionID string, process *managedFrontendProcess, pidValue int, stream string, plain []byte) {
-	if process == nil || store == nil || len(plain) == 0 {
+func captureManagedFrontendOutput(ctx context.Context, appID, sessionID string, process *managedFrontendProcess, pidValue int, stream string, plain []byte) {
+	if process == nil || len(plain) == 0 {
 		return
 	}
 	pid := ""
@@ -182,11 +173,7 @@ func captureManagedFrontendOutput(ctx context.Context, store *devdash.Store, app
 	}
 	now := time.Now().UTC()
 	event := assignDevEventID(devdash.DevEventFromOutput(appID, sessionID, source, plain, now))
-	victoria := process.Victoria
-	if victoria == nil {
-		victoria = resolveLogsVictoriaStackFunc(ctx, false)
-	}
-	if victoria != nil {
+	if victoria := resolveLogsVictoriaStackFunc(ctx, false); victoria != nil {
 		go func(event devdash.DevEvent) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
@@ -452,14 +439,7 @@ func (p *managedFrontendProcess) Stop() error {
 		_ = p.Process.Stop(stopTimeout)
 	}
 	if p.LogFile != nil {
-		err := p.LogFile.Close()
-		if p.Store != nil {
-			_ = p.Store.Close()
-		}
-		return err
-	}
-	if p.Store != nil {
-		return p.Store.Close()
+		return p.LogFile.Close()
 	}
 	return nil
 }

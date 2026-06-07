@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.harness.ui.dom.v1.schema.json",
+  "title": "onlava UI harness DOM snapshot",
+  "type": "object",
+  "required": ["schema_version", "route", "url", "ready_state", "semantic_nodes"],
+  "properties": {
+    "schema_version": {
+      "const": "onlava.harness.ui.dom.v1"
+    },
+    "route": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "ready_state": {
+      "type": "string"
+    },
+    "semantic_nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/semantic_node" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "semantic_node": {
+      "type": "object",
+      "required": ["marker"],
+      "properties": {
+        "marker": { "type": "string" },
+        "state": { "type": "string" },
+        "tag": { "type": "string" },
+        "role": { "type": "string" },
+        "href": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

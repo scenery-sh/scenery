@@ -31,6 +31,23 @@ var (
 	buildOnlavaBinaryErr  error
 )
 
+type lockedOutput struct {
+	mu      sync.Mutex
+	builder strings.Builder
+}
+
+func (o *lockedOutput) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.builder.Write(p)
+}
+
+func (o *lockedOutput) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.builder.String()
+}
+
 func TestMain(m *testing.M) {
 	code := 0
 	if err := prebuildOnlavaBinaryForSelectedTests(); err != nil {
@@ -493,7 +510,7 @@ func Concurrency(ctx context.Context) (*Response, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var output strings.Builder
+	var output lockedOutput
 	cmd := exec.CommandContext(ctx, binary, "serve", "--listen", addr)
 	cmd.Env = onlavaServeEnv(repo, dashAddr, cacheDir)
 	cmd.Stdout = &output
@@ -547,7 +564,7 @@ func TestOnlavaServeExecutesCronJobs(t *testing.T) {
 		}
 	}()
 
-	var apiOutput strings.Builder
+	var apiOutput lockedOutput
 	cmd := exec.CommandContext(ctx, binary, "serve", "--listen", addr)
 	cmd.Env = apiEnv
 	cmd.Stdout = &apiOutput
@@ -562,7 +579,7 @@ func TestOnlavaServeExecutesCronJobs(t *testing.T) {
 
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	defer workerCancel()
-	var workerOutput strings.Builder
+	var workerOutput lockedOutput
 	workerCmd := exec.CommandContext(workerCtx, binary, "worker")
 	workerCmd.Env = workerEnv
 	workerCmd.Stdout = &workerOutput
@@ -842,7 +859,7 @@ func TestOnlavaDevDashboardNotificationsAndRoutes(t *testing.T) {
 
 	cmd := exec.CommandContext(ctx, binary, "up", "--listen", addr)
 	cmd.Env = onlavaDevAgentEnv(repo, dashAddr, cacheDir, agentHome, frontendAddr)
-	var devOutput strings.Builder
+	var devOutput lockedOutput
 	cmd.Stdout = &devOutput
 	cmd.Stderr = &devOutput
 	cmd.Stdin = nil

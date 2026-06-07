@@ -14,7 +14,7 @@ This file tracks known project debt that should be visible to agents before they
 
 The editable dashboard source exists, but parity should continue to be verified visually for complex pages such as traces, API Explorer, Cron, and DB Explorer.
 
-### Browser Harness Route-Specific Journey Depth
+### Browser Harness Fixture-Backed Mutation Depth
 
 - Area: harness
 - Severity: medium
@@ -22,7 +22,7 @@ The editable dashboard source exists, but parity should continue to be verified 
 - Created: 2026-06-07
 - Review after: 2026-07-07
 
-The browser UI harness exists and captures route status, screenshots, console events, and failed network requests. Remaining debt is deeper route-specific journey coverage for flows such as API Explorer requests, trace drilldowns, DB/Data Explorer interactions, Cron inspection, and docs/help routes.
+The browser UI harness now captures route-specific semantic journeys, screenshots, console events, network requests, and DOM snapshots for the core dashboard routes. Remaining debt is deeper fixture-backed mutation coverage for flows such as actually sending API Explorer requests, running DB queries against managed fixtures, clearing traces, and validating docs/help routes when those pages exist.
 
 ### Deeper Architecture Checks
 

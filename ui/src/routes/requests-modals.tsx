@@ -151,10 +151,11 @@ export function EndpointSelector({
   }, [endpoints, query]);
 
   return (
-    <div className="w-full" data-endpoint-selector="">
+    <div className="w-full" data-endpoint-selector="" data-onlava-ui="APIExplorerEndpointSelector">
       <Button
         tone="secondary"
         size="lg"
+        data-onlava-ui="APIExplorerEndpointSelectorButton"
         className="w-full justify-between px-3 text-left"
         disabled={endpoints.length === 0}
         onClick={() => (open ? onClose() : onOpen())}
@@ -166,7 +167,10 @@ export function EndpointSelector({
         </div>
       </Button>
       {open ? (
-        <div className="mt-2 w-full overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg">
+        <div
+          data-onlava-ui="APIExplorerEndpointSelectorMenu"
+          className="mt-2 w-full overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+        >
           <input
             autoFocus
             className="h-11 w-full border-b border-border bg-transparent px-4 text-sm outline-none"
@@ -178,7 +182,7 @@ export function EndpointSelector({
             {filtered.length === 0 ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">No endpoint found.</div>
             ) : (
-              <div>
+              <div data-onlava-ui="APIExplorerEndpointSelectorOptions">
                 {filtered.map((endpoint) => {
                   const selected = endpoint.key === currentKey;
                   return (

@@ -68,7 +68,12 @@ export function ServicesPage() {
   }, [endpointSummary]);
 
   return (
-    <section className="w-full h-[calc(100vh-var(--header-height))] flex overflow-hidden">
+    <section
+      data-onlava-ui="ServiceCatalog"
+      data-onlava-service-count={services.length}
+      data-onlava-endpoint-count={services.reduce((count, service) => count + service.rpcs.length, 0)}
+      className="w-full h-[calc(100vh-var(--header-height))] flex overflow-hidden"
+    >
       <aside className="w-[320px] shrink-0 overflow-auto border-border border-r bg-sidebar">
         <div className="px-3 pt-4 pb-3 border-b border-border">
           <input
@@ -135,7 +140,7 @@ export function ServicesPage() {
         <div className="overflow-auto h-[calc(100vh-var(--header-height)-48px)]">
           <div className="min-h-0 grow px-8 pt-6 pb-12 leading-6">
             <div className="max-w-6xl space-y-8">
-              <div className="grid grid-cols-4 gap-4">
+              <div data-onlava-ui="ServiceCatalogStats" className="grid grid-cols-4 gap-4">
                 <StatCard label="Services" value={String(services.length)} />
                 <StatCard
                   label="Endpoints"
@@ -187,7 +192,11 @@ export function ServicesPage() {
               ) : null}
 
               {endpointSummary ? (
-                <section className="grid grid-cols-[minmax(320px,1fr)_minmax(360px,1.2fr)] gap-6">
+                <section
+                  data-onlava-ui="ServiceCatalogRouteMetadata"
+                  data-onlava-access={endpointSummary.accessType}
+                  className="grid grid-cols-[minmax(320px,1fr)_minmax(360px,1.2fr)] gap-6"
+                >
                   <div className="space-y-6">
                     <div className="rounded-md border border-border p-6">
                       <div className="flex items-center justify-between gap-4">
@@ -261,12 +270,13 @@ export function ServicesPage() {
                   </div>
                 </section>
               ) : selectedService ? (
-                <section className="rounded-md border border-border p-6">
+                <section data-onlava-ui="ServiceCatalogEndpointList" className="rounded-md border border-border p-6">
                   <h2 className="text-base font-medium">Endpoints</h2>
                   <div className="mt-4 space-y-3">
                     {selectedService.rpcs.map((rpc) => (
                       <Link
                         key={`${selectedService.name}.${rpc.name}`}
+                        data-onlava-ui="ServiceCatalogEndpointLink"
                         to="/$appId/envs/local/api/$serviceSlug/$rpcSlug"
                         params={{ appId, serviceSlug: selectedService.name, rpcSlug: rpc.name }}
                         className="block rounded-md border border-border px-4 py-3 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -283,7 +293,11 @@ export function ServicesPage() {
                   </div>
                 </section>
               ) : (
-                <div className="rounded-md border border-border p-6 text-sm text-muted-foreground">
+                <div
+                  data-onlava-ui="ServiceCatalogEmptyState"
+                  data-onlava-state="intentional-empty"
+                  className="rounded-md border border-border p-6 text-sm text-muted-foreground"
+                >
                   No services found for this app.
                 </div>
               )}

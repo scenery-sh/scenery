@@ -18,7 +18,7 @@ work.
 ## Progress
 
 - [x] 2026-06-07: Created plan `0064-agent-first-development-control-plane.md` without renumbering historical plan IDs.
-- [x] 2026-06-07: Reconciled roadmap and tech-debt language so the browser UI harness is implemented baseline, while remaining debt is route-specific journey depth.
+- [x] 2026-06-07: Reconciled roadmap and tech-debt language so the browser UI harness is implemented baseline. Later route-specific journey work moved the remaining debt to fixture-backed mutation depth.
 - [x] 2026-06-07: Added active ExecPlans to `docs/knowledge.json` for machine-readable discovery.
 - [x] 2026-06-07: Documented `review_due` visibility and the docs/behavior drift rule in agent-facing docs.
 - [ ] Add generated or self-harness-enforced active ExecPlan indexing once a later PR is allowed to change code.

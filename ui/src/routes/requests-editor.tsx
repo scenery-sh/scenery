@@ -42,7 +42,7 @@ export function CompactRequestEditor({
   onUpdatePathParams: (value: string) => void;
 }) {
   return (
-    <div className="overflow-visible">
+    <div data-onlava-ui="APIExplorerRequestForm" className="overflow-visible">
       <div className="space-y-4 rounded-md bg-secondary p-3 min-w-0 max-w-full">
         <EditorSection
           title={

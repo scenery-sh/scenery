@@ -97,8 +97,6 @@ func startDevManagedProcess(ctx context.Context, req devProcessStartRequest) (*d
 	go func() {
 		wg.Wait()
 		close(p.outputDone)
-	}()
-	go func() {
 		err := cmd.Wait()
 		p.mu.Lock()
 		p.waitErr = err
@@ -272,7 +270,7 @@ func (p *devManagedProcess) waitBrieflyForOutput() {
 	}
 	select {
 	case <-p.outputDone:
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 	}
 }
 

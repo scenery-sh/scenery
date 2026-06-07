@@ -21,7 +21,11 @@ export function HomePage() {
   const cards = useMemo(() => buildServiceCards(status?.routes ?? {}), [status?.routes]);
 
   return (
-    <main className="h-[calc(100vh-var(--header-height))] overflow-auto">
+    <main
+      data-onlava-ui="DashboardHome"
+      data-onlava-service-count={cards.length}
+      className="h-[calc(100vh-var(--header-height))] overflow-auto"
+    >
       <div className="mx-auto w-full max-w-7xl px-8 py-8">
         <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -36,7 +40,10 @@ export function HomePage() {
         </header>
 
         {cards.length > 0 ? (
-          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <section
+            data-onlava-ui="DashboardHomeServiceRoutes"
+            className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+          >
             {cards.map((card) => (
               <a
                 key={card.key}
@@ -63,7 +70,11 @@ export function HomePage() {
             ))}
           </section>
         ) : (
-          <section className="rounded-md border border-border px-5 py-6 text-sm text-muted-foreground">
+          <section
+            data-onlava-ui="DashboardHomeNoServiceRoutes"
+            data-onlava-state="intentional-empty"
+            className="rounded-md border border-border px-5 py-6 text-sm text-muted-foreground"
+          >
             No public service URLs are available.
           </section>
         )}

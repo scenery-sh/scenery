@@ -50,7 +50,9 @@ type harnessUIRoute struct {
 	OK              bool                      `json:"ok"`
 	DurationMS      int64                     `json:"duration_ms"`
 	Markers         []harnessUIMarker         `json:"markers"`
+	Journey         []harnessUIJourneyResult  `json:"journey,omitempty"`
 	Screenshot      string                    `json:"screenshot,omitempty"`
+	DOMSnapshot     string                    `json:"dom_snapshot,omitempty"`
 	Evidence        *harnessEvidence          `json:"evidence,omitempty"`
 	ConsoleErrors   []harnessUIConsoleMessage `json:"console_errors,omitempty"`
 	NetworkFailures []harnessUINetworkFailure `json:"network_failures,omitempty"`
@@ -61,6 +63,18 @@ type harnessUIMarker struct {
 	Selector string `json:"selector"`
 	Count    int    `json:"count"`
 	Found    bool   `json:"found"`
+}
+
+type harnessUIJourneyResult struct {
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Selectors []string `json:"selectors,omitempty"`
+	Selector  string   `json:"selector,omitempty"`
+	Count     int      `json:"count,omitempty"`
+	Found     bool     `json:"found"`
+	Required  bool     `json:"required"`
+	Skipped   bool     `json:"skipped,omitempty"`
+	Detail    string   `json:"detail,omitempty"`
 }
 
 type harnessUIConsoleMessage struct {
@@ -80,6 +94,22 @@ type harnessUIRouteSpec struct {
 	Name    string
 	Path    string
 	Markers []string
+	Checks  []harnessUIJourneyCheckSpec
+	Actions []harnessUIJourneyActionSpec
+}
+
+type harnessUIJourneyCheckSpec struct {
+	Name         string
+	Selector     string
+	AnySelectors []string
+	Required     bool
+}
+
+type harnessUIJourneyActionSpec struct {
+	Name         string
+	Click        string
+	WaitSelector string
+	Optional     bool
 }
 
 type harnessUIBrowserResult struct {
@@ -264,6 +294,7 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 	cmd.Dir = appRoot
 	cmd.Env = append(envpolicy.Environ(),
 		"ONLAVA_DEV_DASHBOARD_ADDR="+dashboardAddr,
+		"ONLAVA_AGENT_DISABLE=1",
 		"ONLAVA_DEV_VICTORIA=0",
 		"ONLAVA_DEV_VICTORIA_DOWNLOAD=0",
 		"ONLAVA_LOCAL_PROXY=0",
@@ -385,11 +416,80 @@ func runHarnessUIBrowserChecks(ctx context.Context, routes []harnessUIRouteSpec,
 
 func buildHarnessUIRoutes(appURL string) []harnessUIRouteSpec {
 	return []harnessUIRouteSpec{
-		{Name: "dashboard-home", Path: appURL, Markers: []string{`[data-onlava-ui="AppShell"]`}},
-		{Name: "api-explorer", Path: joinDashboardPath(appURL, "requests"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
-		{Name: "service-catalog", Path: joinDashboardPath(appURL, "envs/local/api"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
-		{Name: "traces", Path: joinDashboardPath(appURL, "envs/local/traces"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
-		{Name: "db-explorer", Path: joinDashboardPath(appURL, "db"), Markers: []string{`[data-onlava-ui="AppShell"]`}},
+		{
+			Name:    "dashboard-home",
+			Path:    appURL,
+			Markers: []string{`[data-onlava-ui="AppShell"]`},
+			Checks: []harnessUIJourneyCheckSpec{
+				{Name: "session/app selector visible", Selector: `[data-onlava-ui="AppSelector"]`, Required: true},
+				{Name: "app status visible", Selector: `[data-onlava-ui="AppStatus"]`, Required: true},
+				{Name: "home route rendered", Selector: `[data-onlava-ui="DashboardHome"]`, Required: true},
+				{Name: "home service routes state visible", AnySelectors: []string{`[data-onlava-ui="DashboardHomeServiceRoutes"]`, `[data-onlava-ui="DashboardHomeNoServiceRoutes"][data-onlava-state="intentional-empty"]`}, Required: true},
+			},
+		},
+		{
+			Name:    "api-explorer",
+			Path:    joinDashboardPath(appURL, "requests"),
+			Markers: []string{`[data-onlava-ui="AppShell"]`},
+			Checks: []harnessUIJourneyCheckSpec{
+				{Name: "endpoint list loads", Selector: `[data-onlava-ui="APIExplorerEndpointList"]`, Required: true},
+				{Name: "endpoint detail visible", Selector: `[data-onlava-ui="APIExplorerEndpointDetail"]`, Required: true},
+				{Name: "request form renders", Selector: `[data-onlava-ui="APIExplorerRequestForm"]`, Required: true},
+			},
+			Actions: []harnessUIJourneyActionSpec{
+				{Name: "endpoint selector opens", Click: `[data-onlava-ui="APIExplorerEndpointSelectorButton"]`, WaitSelector: `[data-onlava-ui="APIExplorerEndpointSelectorMenu"]`},
+			},
+		},
+		{
+			Name:    "service-catalog",
+			Path:    joinDashboardPath(appURL, "envs/local/api"),
+			Markers: []string{`[data-onlava-ui="AppShell"]`},
+			Checks: []harnessUIJourneyCheckSpec{
+				{Name: "service count visible", Selector: `[data-onlava-ui="ServiceCatalogStats"]`, Required: true},
+				{Name: "service catalog state visible", AnySelectors: []string{`[data-onlava-ui="ServiceCatalogEndpointList"]`, `[data-onlava-ui="ServiceCatalogRouteMetadata"]`, `[data-onlava-ui="ServiceCatalogEmptyState"][data-onlava-state="intentional-empty"]`}, Required: true},
+			},
+			Actions: []harnessUIJourneyActionSpec{
+				{Name: "route/access metadata opens", Click: `[data-onlava-ui="ServiceCatalogEndpointLink"]`, WaitSelector: `[data-onlava-ui="ServiceCatalogRouteMetadata"]`, Optional: true},
+			},
+		},
+		{
+			Name:    "traces",
+			Path:    joinDashboardPath(appURL, "envs/local/traces"),
+			Markers: []string{`[data-onlava-ui="AppShell"]`},
+			Checks: []harnessUIJourneyCheckSpec{
+				{Name: "trace table or empty state visible", AnySelectors: []string{`[data-onlava-ui="TraceTable"]`, `[data-onlava-ui="TraceEmptyState"][data-onlava-state="intentional-empty"]`}, Required: true},
+			},
+			Actions: []harnessUIJourneyActionSpec{
+				{Name: "trace detail opens when fixture trace exists", Click: `[data-onlava-ui="TraceTableRow"]`, WaitSelector: `[data-onlava-ui="TraceDetail"]`, Optional: true},
+			},
+		},
+		{
+			Name:    "db-explorer",
+			Path:    joinDashboardPath(appURL, "db"),
+			Markers: []string{`[data-onlava-ui="AppShell"]`},
+			Checks: []harnessUIJourneyCheckSpec{
+				{Name: "database list or unavailable state visible", Selector: `[data-onlava-ui="DBExplorer"]`, Required: true},
+				{Name: "database route state visible", AnySelectors: []string{`[data-onlava-ui="DatabaseList"]`, `[data-onlava-ui="DBUnavailableState"][data-onlava-state="intentional-empty"]`}, Required: true},
+			},
+		},
+		{
+			Name:    "cron",
+			Path:    joinDashboardPath(appURL, "cron"),
+			Markers: []string{`[data-onlava-ui="AppShell"]`},
+			Checks: []harnessUIJourneyCheckSpec{
+				{Name: "cron status cards visible", Selector: `[data-onlava-ui="CronStatusCards"]`, Required: true},
+				{Name: "cron list or intentional empty state visible", AnySelectors: []string{`[data-onlava-ui="CronJobList"]`, `[data-onlava-ui="CronEmptyState"][data-onlava-state="intentional-empty"]`}, Required: true},
+			},
+		},
+		{
+			Name:    "observability",
+			Path:    joinDashboardPath(appURL, "observability"),
+			Markers: []string{`[data-onlava-ui="AppShell"]`},
+			Checks: []harnessUIJourneyCheckSpec{
+				{Name: "temporal status card visible", Selector: `[data-onlava-ui="TemporalStatusCard"]`, Required: true},
+				{Name: "worker status card visible", Selector: `[data-onlava-ui="WorkerStatusCard"]`, Required: true},
+			},
+		},
 	}
 }
 
@@ -452,6 +552,13 @@ func attachHarnessUIRouteEvidence(routes []harnessUIRoute, appRoot string) []har
 			artifacts = append(artifacts, harnessEvidenceArtifact{
 				Name: "screenshot:" + out[i].Name,
 				Path: out[i].Screenshot,
+			})
+		}
+		if out[i].DOMSnapshot != "" {
+			artifacts = append(artifacts, harnessEvidenceArtifact{
+				Name:          "dom:" + out[i].Name,
+				Path:          out[i].DOMSnapshot,
+				SchemaVersion: "onlava.harness.ui.dom.v1",
 			})
 		}
 		finalizeHarnessEvidence(&evidence, time.Duration(out[i].DurationMS)*time.Millisecond, out[i].OK, "", out[i].Error, nil, artifacts)
