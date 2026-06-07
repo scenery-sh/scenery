@@ -320,6 +320,7 @@ onlava harness self [--repo-root <path>] [--json] [--write]
 onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal --json [--app-root <path>]
 onlava inspect docs --json [--repo-root <path>]
+onlava inspect harness --json [--app-root <path>] [--repo-root <path>]
 onlava traces list --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
 onlava metrics list --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
 onlava traces clear --json [--app-root <path>]
@@ -501,7 +502,9 @@ onlava harness --json --write
 - it composes `onlava check --json` and the stable `onlava inspect ... --json` surfaces
 - success returns `ok: true`
 - failure returns `ok: false`, per-step errors, diagnostics, and `next_actions`
+- failed and expensive steps include `evidence` conforming to `onlava.harness.artifact.v1`
 - `--write` persists the same result to `.onlava/harness/latest.json`
+- `--write` persists large evidence payloads under `.onlava/harness/artifacts/<run-id>/`
 
 Implemented `harness self --json` rules:
 
@@ -521,6 +524,21 @@ onlava harness self --json --write
 - UI static architecture checks warn on long or advanced `className` literals and common expression forms such as `cn(...)`, template literals, and conditional literals outside onlava primitives/layouts/vendor while the dashboard is migrated into the stricter slot-layout model
 - `onlava harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation.
 - `--write` persists the same result to `.onlava/harness/self-latest.json`
+- failed and expensive steps include `evidence` conforming to `onlava.harness.artifact.v1`; Go test JSONL evidence is written as `.onlava/harness/artifacts/<run-id>/go-test.jsonl` when `--write` is present
+
+Implemented `inspect harness --json` rules:
+
+```text
+onlava inspect harness --json
+onlava inspect harness --json --app-root <path>
+onlava inspect harness --json --repo-root <path>
+```
+
+- output conforms to `onlava.inspect.harness.v1`
+- from an app root, it reports `.onlava/harness/latest.json`, `.onlava/harness/ui/latest.json`, and `.onlava/harness/artifacts/`
+- from the onlava repo root, it reports `.onlava/harness/self-latest.json`, `.onlava/harness/ui/latest.json`, and `.onlava/harness/artifacts/`
+- it reads latest harness outputs when present and returns their normalized `artifacts` and `evidence` arrays
+- evidence records use `onlava.harness.artifact.v1` and include `command`, `cwd`, `started_at`, `duration_ms`, `exit_code`, output tails, artifact references, and `repro_command`
 
 Release gate:
 
@@ -530,6 +548,7 @@ scripts/release-gate.sh
 
 - this is the high-signal pre-release gate, not the normal inner-loop developer check
 - it runs documentation/architecture checks, a parallel dev-session safety check, a real ONLV two-worktree smoke when an ONLV checkout is available, focused Go tests, dashboard UI typecheck/build, installed-binary freshness checks, and artifact hygiene checks
+- release-gate logs and future ONLV gates should use the same `onlava.harness.artifact.v1` evidence shape for failed or expensive steps
 - `ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT` may point at a read-only onlava app for the optional external app smoke
 - `ONLAVA_RELEASE_GATE_LOG_DIR` may override the log directory; otherwise logs are written under `.onlava/release-gate/`
 - `ONLAVA_ONLV_SMOKE_ROOT` may point at the ONLV checkout used by `scripts/onlv-two-worktree-smoke.sh`; otherwise the release gate uses `ONLAVA_RELEASE_GATE_EXTERNAL_APP_ROOT` when set, then `/Users/petrbrazdil/Repos/onlv` when present. The smoke starts two temporary ONLV git worktrees with the current `ONLAVA_BIN`, expects edge DNS and the privileged edge helper to be installed, runs `onlava system edge install` for trusted HTTPS `127.0.0.1:443` routing, asserts session-scoped `local.dev` API, Pulse, Blog, Electric, Grafana, Temporal, and Console routes without `.onlava.localhost`, `:9440`, or explicit HTTPS ports, checks managed database, Electric stream, Temporal queue, and alias exclusivity, then tears the sessions, edge, and worktrees down. The smoke uses managed dnsmasq and Caddy.
@@ -948,5 +967,60 @@ Example output:
     "path": "docs/tech-debt.md",
     "exists": true
   }
+}
+```
+
+### `onlava inspect harness --json`
+
+Use this when an agent needs the latest harness evidence without parsing
+terminal output.
+
+Source files:
+
+- `.onlava/harness/latest.json`
+- `.onlava/harness/self-latest.json`
+- `.onlava/harness/ui/latest.json`
+- `.onlava/harness/artifacts/`
+
+Example:
+
+```text
+onlava inspect harness --json
+```
+
+Example output:
+
+```json
+{
+  "schema_version": "onlava.inspect.harness.v1",
+  "scope": "repo",
+  "root": "/repo/onlava",
+  "latest": [
+    {
+      "name": "self-harness",
+      "path": ".onlava/harness/self-latest.json",
+      "schema_version": "onlava.harness.self.v1",
+      "exists": true
+    }
+  ],
+  "evidence": [
+    {
+      "schema_version": "onlava.harness.artifact.v1",
+      "command": ["go", "test", "-count=1", "-json", "./..."],
+      "cwd": "/repo/onlava",
+      "started_at": "2026-06-07T20:45:00Z",
+      "duration_ms": 1234,
+      "exit_code": 1,
+      "stdout_tail": "{\"Action\":\"fail\"}",
+      "artifacts": [
+        {
+          "name": "go-tests-stdout",
+          "path": ".onlava/harness/artifacts/20260607T204500Z/go-test.jsonl",
+          "schema_version": "go.test.jsonl"
+        }
+      ],
+      "repro_command": "cd /repo/onlava && go test -count=1 -json ./..."
+    }
+  ]
 }
 ```

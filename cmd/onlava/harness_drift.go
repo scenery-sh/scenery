@@ -266,6 +266,10 @@ func buildHarnessCLIContractReport(repoRoot string, diagnostics []checkDiagnosti
 			var out bytes.Buffer
 			return runOnlavaInspect([]string{"docs", "--repo-root", repoRoot, "--json"}, &out)
 		}},
+		{name: "inspect harness", needle: "onlava inspect harness --json [--app-root <path>] [--repo-root <path>]", mode: "execute", smoke: func() error {
+			var out bytes.Buffer
+			return runOnlavaInspect([]string{"harness", "--repo-root", repoRoot, "--json"}, &out)
+		}},
 		{name: "harness self", needle: "onlava harness self [--repo-root <path>] [--json] [--write]", mode: "parse", smoke: func() error {
 			_, err := parseHarnessSelfArgs([]string{"--repo-root", repoRoot, "--json"})
 			return err
@@ -745,7 +749,7 @@ func runHarnessFixtureInspect(repoRoot, subject, appRoot string) harnessStep {
 	return step
 }
 
-func runHarnessAffectedPackageTestsStep(ctx context.Context, repoRoot string, changedArea *harnessChangedAreaReport) harnessStep {
+func runHarnessAffectedPackageTestsStep(ctx context.Context, repoRoot string, changedArea *harnessChangedAreaReport, artifactCtxs ...harnessArtifactContext) harnessStep {
 	patternSet := map[string]bool{}
 	if changedArea != nil {
 		for _, file := range changedArea.ChangedFiles {
@@ -772,7 +776,7 @@ func runHarnessAffectedPackageTestsStep(ctx context.Context, repoRoot string, ch
 		}
 	}
 	command := append([]string{"go", "test", "-count=1"}, patterns...)
-	return runHarnessExecStep(ctx, repoRoot, "affected package tests", command)
+	return runHarnessExecStep(ctx, repoRoot, "affected package tests", command, artifactCtxs...)
 }
 
 func annotateHarnessStepEffects(steps []harnessStep) {

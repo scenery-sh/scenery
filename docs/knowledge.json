@@ -112,11 +112,11 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-06-01",
-      "review_after": "2026-07-01",
-      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, cache artifacts, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "last_reviewed": "2026-06-07",
+      "review_after": "2026-07-07",
+      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, harness evidence artifacts, cache artifacts, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": ["contract", "cli", "agents", "schemas", "toolchain"],
-      "schema_refs": ["docs/schemas/onlava.toolchain.v1.schema.json", "docs/schemas/onlava.toolchain.status.v1.schema.json"]
+      "schema_refs": ["docs/schemas/onlava.toolchain.v1.schema.json", "docs/schemas/onlava.toolchain.status.v1.schema.json", "docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json"]
     },
     {
       "path": "docs/environment.md",
@@ -165,8 +165,9 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Agent validation loop, browser UI harness contract, self-harness contract, and doc-gardening rules for review-due and drift handling.",
-      "tags": ["harness", "agents", "testing"]
+      "summary": "Agent validation loop, shared harness evidence model, browser UI harness contract, self-harness contract, and doc-gardening rules for review-due and drift handling.",
+      "tags": ["harness", "agents", "testing"],
+      "schema_refs": ["docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json"]
     },
     {
       "path": "docs/app-development-cookbook.md",

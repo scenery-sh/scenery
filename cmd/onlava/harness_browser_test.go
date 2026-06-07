@@ -56,6 +56,12 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 	if payload.Wrote == "" {
 		t.Fatal("expected wrote path")
 	}
+	if len(payload.Evidence) == 0 || payload.Evidence[0].ReproCommand == "" {
+		t.Fatalf("expected top-level evidence: %+v", payload.Evidence)
+	}
+	if len(payload.Routes) == 0 || payload.Routes[0].Evidence == nil {
+		t.Fatalf("expected route evidence: %+v", payload.Routes)
+	}
 	if _, err := os.Stat(payload.Wrote); err != nil {
 		t.Fatalf("expected written result: %v", err)
 	}

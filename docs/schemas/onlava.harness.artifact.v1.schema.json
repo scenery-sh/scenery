@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.harness.artifact.v1.schema.json",
+  "title": "onlava harness evidence artifact",
+  "type": "object",
+  "required": ["schema_version", "duration_ms"],
+  "properties": {
+    "schema_version": {
+      "const": "onlava.harness.artifact.v1"
+    },
+    "command": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "duration_ms": {
+      "type": "integer"
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "stdout_tail": {
+      "type": "string"
+    },
+    "stderr_tail": {
+      "type": "string"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence_artifact" }
+    },
+    "repro_command": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "evidence_artifact": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "schema_version": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

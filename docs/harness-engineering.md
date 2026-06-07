@@ -16,6 +16,7 @@ The harness contract gives Codex and other agents a short feedback loop:
 onlava harness [--app-root <path>] [--json] [--write]
 onlava harness self [--repo-root <path>] [--json] [--write]
 onlava harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [--json] [--write]
+onlava inspect harness --json [--app-root <path>] [--repo-root <path>]
 ```
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
@@ -57,11 +58,17 @@ check. It starts a temporary dashboard target unless `--dashboard-url` is
 provided, visits stable dashboard routes, checks `data-onlava-ui` markers, and
 writes screenshots plus console/network artifacts under `.onlava/harness/ui/`.
 
+`onlava inspect harness --json` reads the latest app, self, and UI harness
+outputs from `.onlava/harness/` and returns their artifacts plus normalized
+evidence records.
+
 ## Output
 
 JSON output conforms to:
 
 - [onlava.harness.result.v1.schema.json](schemas/onlava.harness.result.v1.schema.json)
+- [onlava.harness.artifact.v1.schema.json](schemas/onlava.harness.artifact.v1.schema.json)
+- [onlava.inspect.harness.v1.schema.json](schemas/onlava.inspect.harness.v1.schema.json)
 
 When `--write` is present, onlava writes:
 
@@ -70,6 +77,19 @@ When `--write` is present, onlava writes:
 ```
 
 That file is intentionally stable. Agents should use it as the latest local validation snapshot instead of guessing from cache directories or parsing human logs.
+
+Every failed or expensive step should include an `evidence` object with the
+command, cwd, start time, duration, exit code, stdout/stderr tails, artifact
+references, and a copy-pasteable `repro_command`. When `--write` is present,
+large evidence payloads such as Go test JSONL are written under:
+
+```text
+<root>/.onlava/harness/artifacts/<run-id>/
+```
+
+The same evidence model is shared by the app harness, self-harness, UI harness,
+release gate, and future ONLV gates so agents can inspect failures without
+scraping terminal scrollback.
 
 For the onlava repo itself, `onlava harness self --json --write` writes:
 

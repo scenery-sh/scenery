@@ -423,7 +423,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".onlava/harness/self-latest.json", Exists: true}},
 	}
 	report := buildHarnessSchemaValidationReport(root, resp)
-	if len(report.Validated) != 9 {
+	if len(report.Validated) != 11 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {
@@ -845,6 +845,9 @@ func TestRunOnlavaHarnessJSONSuccessWritesLatest(t *testing.T) {
 	if len(payload.Steps) != 10 {
 		t.Fatalf("steps = %d, want 10", len(payload.Steps))
 	}
+	if payload.Steps[0].Evidence == nil || payload.Steps[0].Evidence.ReproCommand == "" {
+		t.Fatalf("expected step evidence with repro command: %+v", payload.Steps[0])
+	}
 	if payload.Wrote == "" {
 		t.Fatal("expected wrote path")
 	}
@@ -853,6 +856,18 @@ func TestRunOnlavaHarnessJSONSuccessWritesLatest(t *testing.T) {
 	}
 	if !harnessArtifactExists(payload.Artifacts, "latest-harness") {
 		t.Fatalf("expected latest-harness artifact to exist: %+v", payload.Artifacts)
+	}
+
+	var inspectOut bytes.Buffer
+	if err := runOnlavaInspect([]string{"harness", "--app-root", root, "--json"}, &inspectOut); err != nil {
+		t.Fatalf("inspect harness: %v\n%s", err, inspectOut.String())
+	}
+	var inspectPayload inspectHarnessResponse
+	if err := json.Unmarshal(inspectOut.Bytes(), &inspectPayload); err != nil {
+		t.Fatalf("decode inspect harness: %v\n%s", err, inspectOut.String())
+	}
+	if inspectPayload.SchemaVersion != inspectHarnessSchema || len(inspectPayload.Evidence) == 0 {
+		t.Fatalf("inspect harness payload = %+v", inspectPayload)
 	}
 }
 
@@ -948,6 +963,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/onlava.build.latest.v1.schema.json",
 		"docs/schemas/onlava.docs.index.v1.schema.json",
 		"docs/schemas/onlava.environment.registry.v1.schema.json",
+		"docs/schemas/onlava.harness.artifact.v1.schema.json",
 		"docs/schemas/onlava.harness.self.v1.schema.json",
 		"docs/schemas/onlava.harness.toolchain.v1.schema.json",
 		"docs/schemas/onlava.harness.changed_area.v1.schema.json",
@@ -965,6 +981,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/onlava.inspect.build.v1.schema.json",
 		"docs/schemas/onlava.inspect.docs.v1.schema.json",
 		"docs/schemas/onlava.inspect.endpoints.v1.schema.json",
+		"docs/schemas/onlava.inspect.harness.v1.schema.json",
 		"docs/schemas/onlava.inspect.metrics.v1.schema.json",
 		"docs/schemas/onlava.inspect.paths.v1.schema.json",
 		"docs/schemas/onlava.inspect.temporal.v1.schema.json",

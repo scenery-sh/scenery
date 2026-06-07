@@ -410,25 +410,27 @@ func harnessDevEventBackendPath(path string) bool {
 	}
 }
 
-func runHarnessGoTestTimingStep(ctx context.Context, repoRoot string) (harnessStep, *harnessTestTimingReport) {
-	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, defaultHarnessTestTimingBudgets())
+func runHarnessGoTestTimingStep(ctx context.Context, repoRoot string, artifactCtxs ...harnessArtifactContext) (harnessStep, *harnessTestTimingReport) {
+	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, defaultHarnessTestTimingBudgets(), artifactCtxs...)
 }
 
-func runHarnessGoTestTimingStepForMode(ctx context.Context, repoRoot, mode string) (harnessStep, *harnessTestTimingReport) {
+func runHarnessGoTestTimingStepForMode(ctx context.Context, repoRoot, mode string, artifactCtxs ...harnessArtifactContext) (harnessStep, *harnessTestTimingReport) {
 	budgets := defaultHarnessTestTimingBudgets()
 	if mode == harnessSelfModeRelease {
 		budgets.Mode = "enforce-total"
 	}
-	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, budgets)
+	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, budgets, artifactCtxs...)
 }
 
-func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string, budgets harnessTestTimingBudgets) (harnessStep, *harnessTestTimingReport) {
+func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string, budgets harnessTestTimingBudgets, artifactCtxs ...harnessArtifactContext) (harnessStep, *harnessTestTimingReport) {
 	started := time.Now()
 	command := harnessSelfGoTestCommand()
 	testEnv := harnessSelfGoTestEnv()
+	evidence := newHarnessEvidence(command, repoRoot, started)
 	step := harnessStep{
-		Name:    "go tests",
-		Command: command,
+		Name:     "go tests",
+		Command:  command,
+		Evidence: &evidence,
 	}
 	path, err := exec.LookPath(command[0])
 	if err != nil {
@@ -441,6 +443,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 			Message:         step.Error,
 			SuggestedAction: installSuggestion("go"),
 		}}
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
 		return step, &harnessTestTimingReport{
 			SchemaVersion: harnessTestTimingSchema,
 			Command:       command,
@@ -464,6 +467,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 			Message:         step.Error,
 			SuggestedAction: "Check temporary directory permissions and available disk space, then rerun `onlava harness self --json`.",
 		}}
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
 		return step, &harnessTestTimingReport{
 			SchemaVersion: harnessTestTimingSchema,
 			Command:       command,
@@ -497,6 +501,8 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		"env":           testEnv,
 	}
 	step.Diagnostics = report.Diagnostics
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "go-test.jsonl", "go.test.jsonl", output, nil)
+	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 	if runErr != nil {
 		step.OK = false
 		step.Error = strings.TrimSpace(runErr.Error())
@@ -508,9 +514,11 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 			SuggestedAction: rerunSuggestion(command, repoRoot),
 		})
 		report.Diagnostics = step.Diagnostics
+		finalizeHarnessEvidence(step.Evidence, elapsed, step.OK, string(output), "", exitCodeFromError(runErr), artifacts)
 		return step, report
 	}
 	step.OK = !hasErrorDiagnostics(step.Diagnostics)
+	finalizeHarnessEvidence(step.Evidence, elapsed, step.OK, string(output), "", exitCodeFromError(runErr), artifacts)
 	return step, report
 }
 

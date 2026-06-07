@@ -38,6 +38,7 @@ type harnessUIResponse struct {
 	DashboardURL  string            `json:"dashboard_url"`
 	Routes        []harnessUIRoute  `json:"routes"`
 	Artifacts     []harnessArtifact `json:"artifacts"`
+	Evidence      []harnessEvidence `json:"evidence,omitempty"`
 	Diagnostics   []checkDiagnostic `json:"diagnostics,omitempty"`
 	NextActions   []string          `json:"next_actions,omitempty"`
 	Wrote         string            `json:"wrote,omitempty"`
@@ -50,6 +51,7 @@ type harnessUIRoute struct {
 	DurationMS      int64                     `json:"duration_ms"`
 	Markers         []harnessUIMarker         `json:"markers"`
 	Screenshot      string                    `json:"screenshot,omitempty"`
+	Evidence        *harnessEvidence          `json:"evidence,omitempty"`
 	ConsoleErrors   []harnessUIConsoleMessage `json:"console_errors,omitempty"`
 	NetworkFailures []harnessUINetworkFailure `json:"network_failures,omitempty"`
 	Error           string                    `json:"error,omitempty"`
@@ -97,6 +99,7 @@ type harnessUIDevProcess struct {
 var runHarnessUIBrowserChecksFunc = runHarnessUIBrowserChecks
 
 func runOnlavaHarnessUI(ctx context.Context, stdout io.Writer, args []string) error {
+	started := time.Now()
 	opts, err := parseHarnessUIArgs(args)
 	if err != nil {
 		return err
@@ -123,6 +126,8 @@ func runOnlavaHarnessUI(ctx context.Context, stdout io.Writer, args []string) er
 			Root:       appRoot,
 			ConfigPath: filepath.Join(appRoot, ".onlava.json"),
 		},
+		Routes:    []harnessUIRoute{},
+		Artifacts: []harnessArtifact{},
 	}
 
 	dashboardURL := strings.TrimSpace(opts.DashboardURL)
@@ -137,7 +142,7 @@ func runOnlavaHarnessUI(ctx context.Context, stdout io.Writer, args []string) er
 				Message:         err.Error(),
 				SuggestedAction: "Run `onlava up --json` for the app or pass --dashboard-url to an existing dashboard.",
 			})
-			return finishHarnessUI(stdout, appRoot, opts, resp)
+			return finishHarnessUI(stdout, appRoot, opts, resp, started, harnessUICommand(args))
 		}
 		defer dev.Stop()
 		dashboardURL = dev.dashboardURL
@@ -156,7 +161,7 @@ func runOnlavaHarnessUI(ctx context.Context, stdout io.Writer, args []string) er
 			SuggestedAction: "Install Chrome/Chromium or rerun with a reachable dashboard URL.",
 		})
 	}
-	resp.Routes = result.Routes
+	resp.Routes = attachHarnessUIRouteEvidence(result.Routes, appRoot)
 	resp.Artifacts = result.Artifacts
 	for _, route := range resp.Routes {
 		if !route.OK {
@@ -196,10 +201,13 @@ func runOnlavaHarnessUI(ctx context.Context, stdout io.Writer, args []string) er
 	resp.NextActions = buildHarnessUINextActions(resp)
 	if opts.Write {
 		resp.Wrote = filepath.Join(appRoot, ".onlava", "harness", "ui", "latest.json")
+		resp.Artifacts = markHarnessUIArtifacts(resp.Artifacts, resp.Wrote)
+		finalizeHarnessUIResponseEvidence(&resp, appRoot, started, harnessUICommand(args))
 		if err := writeHarnessUIResult(resp.Wrote, resp); err != nil {
 			return err
 		}
-		resp.Artifacts = markHarnessUIArtifacts(resp.Artifacts, resp.Wrote)
+	} else {
+		finalizeHarnessUIResponseEvidence(&resp, appRoot, started, harnessUICommand(args))
 	}
 	if err := writeHarnessUIJSON(stdout, resp); err != nil {
 		return err
@@ -407,13 +415,17 @@ func joinDashboardPath(appURL, suffix string) string {
 	return parsed.String()
 }
 
-func finishHarnessUI(stdout io.Writer, appRoot string, opts harnessUIOptions, resp harnessUIResponse) error {
+func finishHarnessUI(stdout io.Writer, appRoot string, opts harnessUIOptions, resp harnessUIResponse, started time.Time, command []string) error {
 	resp.NextActions = buildHarnessUINextActions(resp)
 	if opts.Write {
 		resp.Wrote = filepath.Join(appRoot, ".onlava", "harness", "ui", "latest.json")
+		resp.Artifacts = markHarnessUIArtifacts(resp.Artifacts, resp.Wrote)
+		finalizeHarnessUIResponseEvidence(&resp, appRoot, started, command)
 		if err := writeHarnessUIResult(resp.Wrote, resp); err != nil {
 			return err
 		}
+	} else {
+		finalizeHarnessUIResponseEvidence(&resp, appRoot, started, command)
 	}
 	if err := writeHarnessUIJSON(stdout, resp); err != nil {
 		return err
@@ -422,6 +434,45 @@ func finishHarnessUI(stdout io.Writer, appRoot string, opts harnessUIOptions, re
 		return &silentCLIError{err: fmt.Errorf("onlava harness ui failed")}
 	}
 	return nil
+}
+
+func harnessUICommand(args []string) []string {
+	command := []string{"onlava", "harness", "ui"}
+	command = append(command, args...)
+	return command
+}
+
+func attachHarnessUIRouteEvidence(routes []harnessUIRoute, appRoot string) []harnessUIRoute {
+	out := append([]harnessUIRoute(nil), routes...)
+	for i := range out {
+		started := time.Now().UTC().Add(-time.Duration(out[i].DurationMS) * time.Millisecond)
+		evidence := newHarnessEvidence([]string{"browser", "goto", out[i].URL}, appRoot, started)
+		var artifacts []harnessEvidenceArtifact
+		if out[i].Screenshot != "" {
+			artifacts = append(artifacts, harnessEvidenceArtifact{
+				Name: "screenshot:" + out[i].Name,
+				Path: out[i].Screenshot,
+			})
+		}
+		finalizeHarnessEvidence(&evidence, time.Duration(out[i].DurationMS)*time.Millisecond, out[i].OK, "", out[i].Error, nil, artifacts)
+		out[i].Evidence = &evidence
+	}
+	return out
+}
+
+func finalizeHarnessUIResponseEvidence(resp *harnessUIResponse, appRoot string, started time.Time, command []string) {
+	if resp == nil {
+		return
+	}
+	evidence := newHarnessEvidence(command, appRoot, started)
+	diagnostics := make([]string, 0, len(resp.Diagnostics))
+	for _, diag := range resp.Diagnostics {
+		if strings.TrimSpace(diag.Message) != "" {
+			diagnostics = append(diagnostics, diag.Message)
+		}
+	}
+	finalizeHarnessEvidence(&evidence, time.Since(started), resp.OK, "", strings.Join(diagnostics, "\n"), nil, evidenceArtifactsFromHarnessArtifacts(resp.Artifacts))
+	resp.Evidence = []harnessEvidence{evidence}
 }
 
 func buildHarnessUINextActions(resp harnessUIResponse) []string {
@@ -447,7 +498,7 @@ func markHarnessUIArtifacts(items []harnessArtifact, latest string) []harnessArt
 		Name:          "ui-harness",
 		Path:          ".onlava/harness/ui/latest.json",
 		SchemaVersion: "onlava.harness.ui.v1",
-		Exists:        pathExists(latest),
+		Exists:        latest != "" || pathExists(latest),
 	})
 	return items
 }

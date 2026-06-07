@@ -48,18 +48,12 @@ type harnessStep struct {
 	Command     []string          `json:"command"`
 	OK          bool              `json:"ok"`
 	DurationMS  int64             `json:"duration_ms"`
+	Evidence    *harnessEvidence  `json:"evidence,omitempty"`
 	Effects     []string          `json:"effects,omitempty"`
 	Summary     map[string]any    `json:"summary,omitempty"`
 	Diagnostics []checkDiagnostic `json:"diagnostics,omitempty"`
 	Error       string            `json:"error,omitempty"`
 	OutputTail  string            `json:"output_tail,omitempty"`
-}
-
-type harnessArtifact struct {
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	SchemaVersion string `json:"schema_version,omitempty"`
-	Exists        bool   `json:"exists"`
 }
 
 func harnessCommand(args []string) error {
@@ -100,8 +94,9 @@ func runOnlavaHarness(ctx context.Context, stdout io.Writer, args []string) erro
 		},
 		Knowledge: buildHarnessKnowledge(appRoot),
 	}
+	artifactCtx := newHarnessArtifactContext(appRoot, opts.Write)
 
-	checkStep, checkApp := runHarnessCheck(ctx, appRoot)
+	checkStep, checkApp := runHarnessCheck(ctx, appRoot, artifactCtx)
 	if checkApp.ModulePath != "" {
 		resp.App.ModulePath = checkApp.ModulePath
 	}
@@ -111,20 +106,21 @@ func runOnlavaHarness(ctx context.Context, stdout io.Writer, args []string) erro
 	}
 
 	for _, subject := range []string{"app", "routes", "services", "endpoints", "wire", "build", "paths"} {
-		step := runHarnessInspect(subject, appRoot)
+		step := runHarnessInspect(subject, appRoot, artifactCtx)
 		resp.Steps = append(resp.Steps, step)
 		if !step.OK {
 			resp.OK = false
 		}
 	}
 	for _, subject := range []string{"traces", "metrics"} {
-		step := runHarnessObservability(subject, appRoot)
+		step := runHarnessObservability(subject, appRoot, artifactCtx)
 		resp.Steps = append(resp.Steps, step)
 		if !step.OK {
 			resp.OK = false
 		}
 	}
 
+	annotateHarnessEvidence(resp.Steps, appRoot)
 	resp.NextActions = buildHarnessNextActions(resp.Steps)
 
 	if opts.Write {
@@ -178,62 +174,78 @@ func parseHarnessArgs(args []string) (harnessOptions, error) {
 	return opts, nil
 }
 
-func runHarnessCheck(ctx context.Context, appRoot string) (harnessStep, inspect.AppRef) {
+func runHarnessCheck(ctx context.Context, appRoot string, artifactCtxs ...harnessArtifactContext) (harnessStep, inspect.AppRef) {
 	started := time.Now()
+	command := []string{"onlava", "check", "--app-root", appRoot, "--json"}
+	evidence := newHarnessEvidence(command, appRoot, started)
 	var out bytes.Buffer
 	err := runOnlavaCheck(ctx, &out, []string{"--app-root", appRoot, "--json"})
 	step := harnessStep{
 		Name:       "check",
-		Command:    []string{"onlava", "check", "--app-root", appRoot, "--json"},
+		Command:    command,
 		OK:         err == nil,
 		DurationMS: time.Since(started).Milliseconds(),
+		Evidence:   &evidence,
 	}
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "check.json", "onlava.check.result.v1", out.Bytes(), nil)
+	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 
 	var payload checkResponse
 	if out.Len() > 0 && json.Unmarshal(out.Bytes(), &payload) == nil {
 		step.OK = payload.OK
-		step.Diagnostics = payload.Diagnostics
+		step.Diagnostics = append(step.Diagnostics, payload.Diagnostics...)
 		step.Summary = map[string]any{
 			"diagnostics": len(payload.Diagnostics),
 		}
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 		return step, payload.App
 	}
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
 		step.OK = false
 	}
+	finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 	return step, inspect.AppRef{}
 }
 
-func runHarnessInspect(subject, appRoot string) harnessStep {
+func runHarnessInspect(subject, appRoot string, artifactCtxs ...harnessArtifactContext) harnessStep {
 	started := time.Now()
+	command := []string{"onlava", "inspect", subject, "--app-root", appRoot, "--json"}
+	evidence := newHarnessEvidence(command, appRoot, started)
 	var out bytes.Buffer
 	err := runOnlavaInspect([]string{subject, "--app-root", appRoot, "--json"}, &out)
 	step := harnessStep{
 		Name:       "inspect " + subject,
-		Command:    []string{"onlava", "inspect", subject, "--app-root", appRoot, "--json"},
+		Command:    command,
 		OK:         err == nil,
 		DurationMS: time.Since(started).Milliseconds(),
+		Evidence:   &evidence,
 	}
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "inspect-"+subject+".json", "onlava.inspect."+subject+".v1", out.Bytes(), nil)
+	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 		return step
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		step.OK = false
 		step.Error = "invalid inspect JSON: " + err.Error()
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 		return step
 	}
 	step.Summary = summarizeHarnessInspect(subject, payload)
+	finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 	return step
 }
 
-func runHarnessObservability(subject, appRoot string) harnessStep {
+func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArtifactContext) harnessStep {
 	started := time.Now()
 	var out bytes.Buffer
 	var err error
 	command := []string{"onlava", subject, "list", "--app-root", appRoot, "--json"}
+	evidence := newHarnessEvidence(command, appRoot, started)
 	switch subject {
 	case "traces":
 		err = runObservabilityList(context.Background(), &out, "traces", []string{"--app-root", appRoot, "--json"})
@@ -247,18 +259,24 @@ func runHarnessObservability(subject, appRoot string) harnessStep {
 		Command:    command,
 		OK:         err == nil,
 		DurationMS: time.Since(started).Milliseconds(),
+		Evidence:   &evidence,
 	}
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, subject+".json", "onlava.inspect."+subject+".v1", out.Bytes(), nil)
+	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 		return step
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		step.OK = false
 		step.Error = "invalid observability JSON: " + err.Error()
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 		return step
 	}
 	step.Summary = summarizeHarnessInspect(subject, payload)
+	finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
 	return step
 }
 
@@ -334,7 +352,9 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 	schemas := []string{
 		"docs/schemas/onlava.config.v1.schema.json",
 		"docs/schemas/onlava.check.result.v1.schema.json",
+		"docs/schemas/onlava.harness.artifact.v1.schema.json",
 		"docs/schemas/onlava.harness.result.v1.schema.json",
+		"docs/schemas/onlava.inspect.harness.v1.schema.json",
 		"docs/schemas/onlava.inspect.app.v1.schema.json",
 		"docs/schemas/onlava.inspect.routes.v1.schema.json",
 		"docs/schemas/onlava.inspect.services.v1.schema.json",

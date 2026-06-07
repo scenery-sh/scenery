@@ -190,6 +190,13 @@ func runOnlavaInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	}
+	if opts.Subject == "harness" {
+		resp, err := buildInspectHarnessResponse(opts)
+		if err != nil {
+			return err
+		}
+		return writeInspectJSON(stdout, resp)
+	}
 
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
@@ -312,8 +319,8 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 			if i >= len(args) {
 				return inspectOptions{}, fmt.Errorf("missing value for --repo-root")
 			}
-			if opts.Subject != "docs" {
-				return inspectOptions{}, fmt.Errorf("--repo-root is only supported for inspect docs")
+			if opts.Subject != "docs" && opts.Subject != "harness" {
+				return inspectOptions{}, fmt.Errorf("--repo-root is only supported for inspect docs and inspect harness")
 			}
 			opts.RepoRoot = args[i]
 		case "--limit", "-n", "--since", "--service", "--endpoint", "--trace-id", "--session", "--status", "--min-duration-ms":

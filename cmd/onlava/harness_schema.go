@@ -70,6 +70,32 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			SuggestedAction: "Fix docs/environment.registry.json so it can be validated.",
 		})
 	}
+	var inspectHarnessPayload any
+	if payload, inspectHarnessErr := buildInspectHarnessResponse(inspectOptions{Subject: "harness", RepoRoot: repoRoot}); inspectHarnessErr != nil {
+		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+			Stage:           "schema validation",
+			Severity:        "error",
+			Message:         "failed to build inspect harness JSON for schema validation: " + inspectHarnessErr.Error(),
+			SuggestedAction: "Run `onlava inspect harness --json --repo-root <repo>` and fix the command before relying on schema validation.",
+		})
+	} else {
+		inspectHarnessPayload = payload
+	}
+	artifactEvidencePayload := harnessEvidence{
+		SchemaVersion: harnessArtifactEvidenceSchema,
+		Command:       []string{"go", "test", "-count=1", "-json", "./..."},
+		CWD:           repoRoot,
+		StartedAt:     "2026-06-07T00:00:00Z",
+		DurationMS:    1234,
+		ExitCode:      intPtr(1),
+		StdoutTail:    "{}",
+		Artifacts: []harnessEvidenceArtifact{{
+			Name:          "go-test-json",
+			Path:          ".onlava/harness/artifacts/20260607T000000Z/go-test.jsonl",
+			SchemaVersion: "go.test.jsonl",
+		}},
+		ReproCommand: "cd " + repoRoot + " && go test -count=1 -json ./...",
+	}
 	items := []struct {
 		name      string
 		schemaRel string
@@ -79,6 +105,8 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "version", schemaRel: "docs/schemas/onlava.version.v1.schema.json", payload: versionPayload},
 		{name: "doctor", schemaRel: "docs/schemas/onlava.doctor.result.v1.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
 		{name: "inspect.docs", schemaRel: "docs/schemas/onlava.inspect.docs.v1.schema.json", payload: inspectDocsPayload},
+		{name: "inspect.harness", schemaRel: "docs/schemas/onlava.inspect.harness.v1.schema.json", payload: inspectHarnessPayload},
+		{name: "harness.artifact", schemaRel: "docs/schemas/onlava.harness.artifact.v1.schema.json", payload: artifactEvidencePayload},
 		{name: "harness.self", schemaRel: "docs/schemas/onlava.harness.self.v1.schema.json", payload: resp},
 		{name: "harness.toolchain", schemaRel: "docs/schemas/onlava.harness.toolchain.v1.schema.json", payload: resp.Toolchain},
 		{name: "harness.changed_area", schemaRel: "docs/schemas/onlava.harness.changed_area.v1.schema.json", payload: resp.ChangedArea},

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.inspect.harness.v1.schema.json",
+  "title": "onlava inspect harness",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "scope", "root", "latest"],
+  "properties": {
+    "schema_version": {
+      "const": "onlava.inspect.harness.v1"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "scope": {
+      "enum": ["app", "repo"]
+    },
+    "root": {
+      "type": "string"
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "repo": {
+      "type": "object",
+      "required": ["root", "module_path", "go_mod_path"],
+      "properties": {
+        "root": { "type": "string" },
+        "module_path": { "const": "github.com/pbrazdil/onlava" },
+        "go_mod_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "latest": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/latest" }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "latest": {
+      "type": "object",
+      "required": ["name", "path", "schema_version", "exists"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "exists": { "type": "boolean" },
+        "size_bytes": { "type": "integer" },
+        "modified_at": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["name", "path", "exists"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "exists": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["schema_version", "duration_ms"],
+      "properties": {
+        "schema_version": { "const": "onlava.harness.artifact.v1" },
+        "command": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "cwd": { "type": "string" },
+        "started_at": { "type": "string" },
+        "duration_ms": { "type": "integer" },
+        "exit_code": { "type": "integer" },
+        "stdout_tail": { "type": "string" },
+        "stderr_tail": { "type": "string" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence_artifact" }
+        },
+        "repro_command": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "evidence_artifact": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "schema_version": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

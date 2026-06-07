@@ -73,6 +73,7 @@ func runOnlavaHarnessSelf(ctx context.Context, stdout io.Writer, args []string) 
 		},
 		Knowledge: buildHarnessSelfKnowledge(repoRoot),
 	}
+	artifactCtx := newHarnessArtifactContext(repoRoot, opts.Write)
 
 	toolchainStep, toolchain := runHarnessToolchainPreflightStep(ctx, repoRoot)
 	resp.Toolchain = toolchain
@@ -94,29 +95,29 @@ func runOnlavaHarnessSelf(ctx context.Context, stdout io.Writer, args []string) 
 
 	switch opts.Mode {
 	case harnessSelfModeQuick:
-		resp.Steps = append(resp.Steps, runHarnessAffectedPackageTestsStep(ctx, repoRoot, changedArea))
+		resp.Steps = append(resp.Steps, runHarnessAffectedPackageTestsStep(ctx, repoRoot, changedArea, artifactCtx))
 	case harnessSelfModeDefault, harnessSelfModeRace, harnessSelfModeRelease:
 		resp.Steps = append(resp.Steps,
-			runHarnessExecStep(ctx, repoRoot, "install onlava binary", []string{"go", "install", "./cmd/onlava"}),
+			runHarnessExecStep(ctx, repoRoot, "install onlava binary", []string{"go", "install", "./cmd/onlava"}, artifactCtx),
 			runHarnessOnlavaBinaryStep(repoRoot),
 		)
-		goTestStep, testTiming := runHarnessGoTestTimingStepForMode(ctx, repoRoot, opts.Mode)
+		goTestStep, testTiming := runHarnessGoTestTimingStepForMode(ctx, repoRoot, opts.Mode, artifactCtx)
 		resp.TestTiming = testTiming
 		resp.Steps = append(resp.Steps,
 			goTestStep,
 			runHarnessParallelDevStep(ctx, repoRoot),
-			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui typecheck", []string{"bun", "run", "typecheck"}),
-			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui build", []string{"bun", "run", "build"}),
+			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
+			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
 			runHarnessFreshnessStep("dashboard ui fresh", filepath.Join(repoRoot, "ui"), dashboardUIBuildStale, "Run `bun run build` inside `ui/`, then rerun `onlava harness self --json`."),
 		)
 		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
 		resp.FixtureMatrix = fixtureMatrix
 		resp.Steps = append(resp.Steps, fixtureStep)
 		if opts.Mode == harnessSelfModeRace {
-			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race shortlist", []string{"go", "test", "-race", "./internal/agent", "./internal/localproxy", "./runtime", "./cmd/onlava"}))
+			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race shortlist", []string{"go", "test", "-race", "./internal/agent", "./internal/localproxy", "./runtime", "./cmd/onlava"}, artifactCtx))
 		}
 		if opts.Mode == harnessSelfModeRelease {
-			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}))
+			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race full suite", []string{"go", "test", "-race", "./..."}, artifactCtx))
 		}
 	default:
 		return fmt.Errorf("unknown harness self mode %q", opts.Mode)
@@ -126,11 +127,14 @@ func runOnlavaHarnessSelf(ctx context.Context, stdout io.Writer, args []string) 
 		resp.Wrote = filepath.Join(repoRoot, ".onlava", "harness", "self-latest.json")
 	}
 	resp.Artifacts = buildHarnessSelfArtifacts(repoRoot, opts.Write, resp)
+	annotateHarnessStepEffects(resp.Steps)
+	annotateHarnessEvidence(resp.Steps, repoRoot)
 
 	schemaValidationStep, schemaValidation := runHarnessSchemaValidationStep(repoRoot, resp)
 	resp.SchemaValidation = schemaValidation
 	resp.Steps = append(resp.Steps, schemaValidationStep)
 	annotateHarnessStepEffects(resp.Steps)
+	annotateHarnessEvidence(resp.Steps, repoRoot)
 	for _, step := range resp.Steps {
 		if !step.OK {
 			resp.OK = false
@@ -310,16 +314,20 @@ func findOnlavaRepoRoot(start string) (string, bool) {
 	}
 }
 
-func runHarnessExecStep(ctx context.Context, dir, name string, command []string) harnessStep {
+func runHarnessExecStep(ctx context.Context, dir, name string, command []string, artifactCtxs ...harnessArtifactContext) harnessStep {
 	started := time.Now()
+	evidence := newHarnessEvidence(command, dir, started)
 	step := harnessStep{
 		Name:       name,
 		Command:    command,
 		DurationMS: 0,
+		Evidence:   &evidence,
 	}
 	if len(command) == 0 {
 		step.OK = false
 		step.Error = "missing command"
+		code := 1
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", "", &code, nil)
 		return step
 	}
 	path, err := exec.LookPath(command[0])
@@ -333,30 +341,40 @@ func runHarnessExecStep(ctx context.Context, dir, name string, command []string)
 			Message:         step.Error,
 			SuggestedAction: installSuggestion(command[0]),
 		}}
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
 		return step
 	}
 
 	cmd := commandTreeContext(ctx, path, command[1:]...)
 	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
 	step.DurationMS = time.Since(started).Milliseconds()
+	stdoutBytes := stdout.Bytes()
+	stderrBytes := stderr.Bytes()
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), name, sanitizeHarnessArtifactName(name)+".stdout.log", "", stdoutBytes, stderrBytes)
 	step.Summary = map[string]any{
 		"cwd":          dir,
-		"output_bytes": len(output),
+		"output_bytes": len(stdoutBytes) + len(stderrBytes),
 	}
+	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 	if err != nil {
 		step.OK = false
 		step.Error = strings.TrimSpace(err.Error())
-		step.OutputTail = tailString(string(output), 8192)
-		step.Diagnostics = []checkDiagnostic{{
+		step.OutputTail = tailString(firstNonEmpty(stderr.String(), stdout.String()), 8192)
+		step.Diagnostics = append(step.Diagnostics, checkDiagnostic{
 			Stage:           name,
 			Severity:        "error",
 			Message:         firstNonEmpty(strings.TrimSpace(step.OutputTail), step.Error),
 			SuggestedAction: rerunSuggestion(command, dir),
-		}}
+		})
+		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, stdout.String(), stderr.String(), exitCodeFromError(err), artifacts)
 		return step
 	}
 	step.OK = true
+	finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, stdout.String(), stderr.String(), exitCodeFromError(err), artifacts)
 	return step
 }
 
@@ -897,6 +915,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/onlava.build.latest.v1.schema.json",
 		"docs/schemas/onlava.docs.index.v1.schema.json",
 		"docs/schemas/onlava.environment.registry.v1.schema.json",
+		"docs/schemas/onlava.harness.artifact.v1.schema.json",
 		"docs/schemas/onlava.harness.self.v1.schema.json",
 		"docs/schemas/onlava.harness.toolchain.v1.schema.json",
 		"docs/schemas/onlava.harness.changed_area.v1.schema.json",
@@ -913,6 +932,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/onlava.inspect.build.v1.schema.json",
 		"docs/schemas/onlava.inspect.docs.v1.schema.json",
 		"docs/schemas/onlava.inspect.endpoints.v1.schema.json",
+		"docs/schemas/onlava.inspect.harness.v1.schema.json",
 		"docs/schemas/onlava.inspect.metrics.v1.schema.json",
 		"docs/schemas/onlava.inspect.paths.v1.schema.json",
 		"docs/schemas/onlava.inspect.temporal.v1.schema.json",
