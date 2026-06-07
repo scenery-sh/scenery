@@ -179,7 +179,11 @@
         "docs/schemas/onlava.harness.artifact.v1.schema.json",
         "docs/schemas/onlava.inspect.harness.v1.schema.json",
         "docs/schemas/onlava.harness.ui.v1.schema.json",
-        "docs/schemas/onlava.harness.ui.dom.v1.schema.json"
+        "docs/schemas/onlava.harness.ui.dom.v1.schema.json",
+        "docs/schemas/onlava.db.branch.v1.schema.json",
+        "docs/schemas/onlava.db.branch.status.v1.schema.json",
+        "docs/schemas/onlava.db.branch.list.v1.schema.json",
+        "docs/schemas/onlava.db.neon.status.v1.schema.json"
       ]
     },
     {

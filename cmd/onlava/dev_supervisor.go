@@ -791,6 +791,9 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	s.eventSink().Emit(ctx, source, "info", "database setup completed", map[string]any{
 		"seeds": seedResult.Summary,
 	})
+	if err := snapshotNeonBranchAfterSetup(ctx, s.cfg, s.root); err != nil {
+		return err
+	}
 	s.dbSetupFingerprint = setup.Fingerprint
 	return nil
 }

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.db.branch.status.v1.schema.json",
+  "title": "onlava.db.branch.status.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "database"],
+  "properties": {
+    "schema_version": { "const": "onlava.db.branch.status.v1" },
+    "app": { "type": "object" },
+    "database": {
+      "type": "object",
+      "required": [
+        "provider",
+        "mode",
+        "project",
+        "branch",
+        "branch_id",
+        "parent_branch",
+        "database_url_env",
+        "status",
+        "psql_command",
+        "reset_command",
+        "restore_command",
+        "diff_command",
+        "expire_command",
+        "logs_command",
+        "connection"
+      ],
+      "properties": {
+        "provider": { "const": "neon" },
+        "mode": { "const": "self-hosted" },
+        "project": { "type": "string" },
+        "branch": { "type": "string" },
+        "branch_id": { "type": "string" },
+        "parent_branch": { "type": "string" },
+        "database_url_env": { "type": "string" },
+        "status": { "type": "string" },
+        "ttl": { "type": "string" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "psql_command": { "type": "string" },
+        "reset_command": { "type": "string" },
+        "restore_command": { "type": "string" },
+        "diff_command": { "type": "string" },
+        "expire_command": { "type": "string" },
+        "logs_command": { "type": "string" },
+        "connection": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -134,7 +134,7 @@ onlava down
 
 Use `onlava system edge dns install`, `onlava system edge privileged install`, `onlava system edge install`, then `onlava system edge trust` when a browser needs trusted wildcard local HTTPS on `127.0.0.1:443`. The DNS command owns wildcard `local.dev` resolution through managed dnsmasq; the privileged helper owns only the default HTTPS loopback listener and forwards raw TCP to user-owned Caddy on an unprivileged loopback port. Do not run Caddy, the agent router, or `onlava system edge install` as root. `onlava system edge` uses managed dnsmasq and Caddy from the toolchain. `onlava system edge trust` uses a temporary admin-only Caddy process and does not require the port-443 edge to already be running.
 
-For managed Postgres, app processes, setup commands, DB setup, and workers receive `DatabaseURL` as the app database authority. Onlava does not inject `DATABASE_URL` into those app-facing environments; treat `ONLAVA_MANAGED_DATABASE_URL` as tooling/debug metadata. The shared Postgres substrate records only physical-server metadata; the session database URL/name is a session env lease, not a global substrate key. To use an explicit external DB with declared managed Postgres, set `ONLAVA_DEV_POSTGRES_EXTERNAL=1` and provide `DatabaseURL`; `DATABASE_URL` is ignored.
+For managed Postgres, app processes, setup commands, DB setup, and workers receive `DatabaseURL` as the app database authority. Onlava does not inject `DATABASE_URL` into those app-facing environments; treat `ONLAVA_MANAGED_DATABASE_URL` as tooling/debug metadata. The shared Postgres substrate records only physical-server metadata; the session database URL/name is a session env lease, not a global substrate key. With `dev.services.postgres.kind: "neon"`, Onlava uses the local Neon dev cell and `.onlava/worktree-db.json` branch pin while preserving the same env names. Use `onlava db branch status --json` to inspect the current branch without exposing raw URLs. To use an explicit external DB with declared managed Postgres, set `ONLAVA_DEV_POSTGRES_EXTERNAL=1` and provide `DatabaseURL`; `DATABASE_URL` is ignored.
 
 For Electric-backed frontend writes, generated TypeScript `WithMeta` methods include parsed `txid` metadata. Use `observeAPIResponseTxid` around the app's Electric/TanStack observer so a post-commit sync timeout is reported as `SyncObservationError` instead of an API mutation failure.
 
@@ -192,7 +192,7 @@ onlava generate
 
 Keep `onlava generate` for file generation only. `onlava generate sqlc` may refresh generated schema SQL and run `sqlc generate`, but it must not apply database schema or seed data.
 
-Use `onlava db apply` for schema/app database mutation only. Use `onlava db seed` for initial data such as `SERVICE/db/seed.sql`; changed previously-applied seeds and destructive seed SQL fail closed with path/line diagnostics. Use `onlava db setup` for apply then seed. `onlava up` runs this setup lifecycle before app startup when DB setup inputs exist, then skips it on ordinary rebuilds until `database.apply` config or seed file hashes change.
+Use `onlava db apply` for schema/app database mutation only. Use `onlava db seed` for initial data such as `SERVICE/db/seed.sql`; changed previously-applied seeds and destructive seed SQL fail closed with path/line diagnostics. Use `onlava db setup` for apply then seed. `onlava up` runs this setup lifecycle before app startup when DB setup inputs exist, then skips it on ordinary rebuilds until `database.apply` config or seed file hashes change. For Neon branch-isolated apps, use `onlava db branch status --json`, `onlava db branch reset --yes`, `onlava db branch restore --at <restore-point> --yes`, `onlava db branch diff <branch>`, `onlava db branch expire --after <duration>`, and `onlava db neon status --json`; `onlava down --db` removes only the current branch lease/database and leaves the shared cell running.
 
 ## Tasks
 
@@ -253,6 +253,9 @@ onlava db apply [--app-root <path>] [--json]
 onlava db seed [--app-root <path>] [--dry-run] [--json]
 onlava db setup [--app-root <path>] [--json]
 onlava db reset|drop|snapshot [--app-root <path>]
+onlava db neon install|status|logs|restart|uninstall [--app-root <path>] [--json]
+onlava db branch status|list|checkout|reset|restore|diff|delete|expire|prune [--app-root <path>] [--json]
+onlava worktree create|list|remove <name> [--app-root <path>] [--from <branch>] [--db] [--json]
 ```
 
 ## Validation Before Finishing

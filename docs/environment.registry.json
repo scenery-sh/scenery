@@ -203,7 +203,7 @@
         "tests"
       ],
       "owner": "onlava runtime",
-      "rationale": "Electric replication stream ID. onlava sets a deterministic session-scoped default",
+      "rationale": "Electric replication stream ID. onlava sets a deterministic session-scoped default and includes the Neon branch id for branch-isolated sessions.",
       "preferred_surface": ".onlava.json, explicit CLI flags, or onlava.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -1129,7 +1129,7 @@
       "name": "ONLAVA_DEV_POSTGRES_ADMIN_URL",
       "match": "exact",
       "scope": "runtime",
-      "direction": "user_input",
+      "direction": "user_input_injected",
       "category": "dev.services",
       "stability": "dev_escape_hatch",
       "secret": false,
@@ -1139,7 +1139,7 @@
         "tests"
       ],
       "owner": "onlava runtime",
-      "rationale": "Explicit admin Postgres URL for the managed dev database planner",
+      "rationale": "Explicit or internally injected admin Postgres URL for the managed dev database planner and Neon self-hosted dev cell.",
       "preferred_surface": ".onlava.json, explicit CLI flags, or onlava.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

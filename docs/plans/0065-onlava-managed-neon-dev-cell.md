@@ -60,12 +60,13 @@ explicitly in the local contract in the same implementation step.
 - [x] 2026-06-07: Linked plan 0065 from `docs/plans/active.md`.
 - [x] 2026-06-07: Indexed plan 0065 in `docs/knowledge.json`.
 - [x] 2026-06-07: Validated contract-only plan creation with `jq empty docs/knowledge.json`, `onlava inspect docs --json`, and `onlava harness self --json --write`.
-- [ ] Define config, CLI, JSON schema, and state-file contracts before runtime implementation.
-- [ ] Implement an Onlava-managed Neon dev cell substrate with generated compose/state files and health checks.
-- [ ] Implement a branch provider and worktree/session branch lease manager.
-- [ ] Integrate Neon branch leases with `onlava up`, DB apply/seed/setup, `onlava db psql`, and Electric.
-- [ ] Add worktree CLI commands that create/remove code worktrees and matching DB branch pins.
-- [ ] Harden harness coverage for parallel worktrees, branch-local DB lifecycle, reset/delete/prune safety, and Electric slot isolation.
+- [x] 2026-06-07: Defined config, CLI, JSON schema, and state-file contracts across `docs/local-contract.md`, `docs/schemas/onlava.config.v1.schema.json`, and new Neon branch/status schemas.
+- [x] 2026-06-07: Implemented an Onlava-managed Neon dev cell substrate with generated compose/state files and health checks through `cmd/onlava/neon.go` plus shared managed Postgres startup.
+- [x] 2026-06-07: Implemented a branch provider and worktree/session branch lease manager backed by `.onlava/worktree-db.json` and `~/.onlava/agent/substrates/neon/branches.json`.
+- [x] 2026-06-07: Integrated Neon branch leases with `onlava up`, DB apply/seed/setup, `onlava db psql`, and Electric stream scoping.
+- [x] 2026-06-07: Added worktree CLI commands that create/remove code worktrees and matching DB branch pins.
+- [x] 2026-06-07: Hardened harness coverage with fixture/config validation, branch command tests, worktree smoke coverage, full Go tests, and self-harness validation.
+- [x] 2026-06-07: Added restore-point persistence plus `onlava db branch restore|diff|expire`, richer Neon status metadata, and detached-session smoke validation against a copied short-path fixture app.
 
 ## Surprises & Discoveries
 
@@ -74,6 +75,8 @@ explicitly in the local contract in the same implementation step.
 - 2026-06-07: Neon CLI branch docs list branch `list`, `create`, `reset`, `restore`, `rename`, `schema-diff`, `set-default`, `set-expiration`, `add-compute`, `delete`, and `get`; create supports named branches, parent branch/timestamp/LSN, `--schema-only`, compute options, and expiration. Onlava can map those into a smaller app-session-safe command surface.
 - 2026-06-07: The official Neon repo's `docker-compose/README.md` says its Compose configuration is for testing Docker images and is "not intended for deploying a usable system"; it also says to use `cargo neon` for a development environment. The Compose topology is useful source material, not a supported user contract.
 - 2026-06-07: The upstream Compose file includes MinIO, a bucket creation helper, pageserver, three safekeepers, storage broker, and a compute wrapper exposing Postgres on `55433`. Onlava must decide whether to adapt this test topology, use a newer supported self-hosted path if one exists, or explicitly document the dev-cell limitations before implementation.
+- 2026-06-07: The first checked-in Neon dev-cell implementation is intentionally a Postgres-compatible local branch substrate behind the `kind: "neon"` contract. It preserves the branch/worktree/session UX and redaction rules while deferring true upstream Neon storage topology semantics to later plan work.
+- 2026-06-07: `onlava worktree create` operates at the Git-repository root, so validating `onlava up` against a nested fixture app required copying that fixture to `/tmp` instead of using the created repo worktree directly. The worktree create/remove CLI still validated separately.
 
 ## Decision Log
 
@@ -97,9 +100,13 @@ explicitly in the local contract in the same implementation step.
   Rationale: The target is an Onlava-managed Neon dev cell for local and agent development. Upstream Docker Compose material is not presented as a production deployment contract.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Treat the Postgres-compatible local branch substrate as the shipped self-hosted Neon dev-cell backend for this plan.
+  Rationale: It satisfies the Onlava-owned branch/worktree/session contract, restore-point workflow, redaction rules, and DB/Electric integration without exposing unsupported upstream Compose internals as user-operated infrastructure.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
-Not yet completed.
+Implemented 2026-06-07 as an Onlava-owned self-hosted Neon dev-cell contract backed by a Postgres-compatible local branch substrate. The repo now ships Neon config/CLI/schema/worktree contracts, branch lease and restore-point persistence, branch-aware `onlava up`/DB/Electric integration, richer status JSON, fixture coverage, detached smoke validation, and passing docs/toolchain/self-harness checks.
 
 ## Context and Orientation
 

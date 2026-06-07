@@ -235,6 +235,9 @@ onlava db setup [--app-root <path>] [--json]
 onlava db reset [--app-root <path>]
 onlava db drop [--app-root <path>]
 onlava db snapshot create|restore <name> [--app-root <path>]
+onlava db neon install|status|logs|restart|uninstall [--app-root <path>] [--json]
+onlava db branch status|list|checkout|reset|restore|diff|delete|expire|prune [--app-root <path>] [--json]
+onlava worktree create|list|remove <name> [--app-root <path>] [--from <branch>] [--db] [--json]
 ```
 
 See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
@@ -268,6 +271,8 @@ Apps can also configure `generators.clients` and use `onlava generate client` or
 The DB lifecycle split uses `onlava db apply` for schema/app database mutation, `onlava db seed` for initial data such as `SERVICE/db/seed.sql`, and `onlava db setup` for apply then seed. Seed files fail closed when previously-applied content changes or destructive SQL is detected.
 
 `onlava up` runs the setup lifecycle before app startup when DB setup inputs exist, using the same managed `DatabaseURL` that the app receives. Rebuilds skip setup until the apply config or seed file hashes change.
+
+For branch-isolated local databases, set `dev.services.postgres.kind` to `neon`. `onlava up` creates or reuses a worktree/session branch, writes `.onlava/worktree-db.json`, preserves the existing `DatabaseURL`/`ONLAVA_MANAGED_DATABASE_URL` env contract, and keeps the shared Neon dev cell running until explicitly uninstalled. Inspect with `onlava db neon status --json` and `onlava db branch status --json`; use `onlava db branch restore --at <restore-point> --yes`, `onlava db branch diff <branch>`, and `onlava db branch expire --after <duration>` for branch lifecycle work; `onlava down --db` removes only the current branch lease/database.
 
 ## Managed Toolchain
 

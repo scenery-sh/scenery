@@ -519,6 +519,9 @@ func downCommand(args []string) error {
 		if err := removeSessionStateRoot(deletedSession); err != nil {
 			return err
 		}
+		if strings.TrimSpace(appRoot) != "" {
+			_ = os.Remove(neonWorktreeLeasePath(appRoot))
+		}
 		fmt.Fprintf(os.Stdout, "removed onlava session state %s\n", deletedSession.StateRoot)
 	}
 	fmt.Fprintf(os.Stdout, "stopped onlava session %s\n", deletedSession.SessionID)
@@ -815,6 +818,19 @@ func dropSessionManagedDatabase(ctx context.Context, appRoot string, session loc
 	}
 	if plan == nil {
 		return fmt.Errorf("dev.services.postgres is not configured")
+	}
+	if _, _, ok := managedPostgresUsesNeon(cfg); ok {
+		lease, leaseErr := readNeonWorktreeLease(appRoot)
+		if leaseErr == nil {
+			if lease.Branch == lease.ParentBranch {
+				return fmt.Errorf("refusing to drop protected parent branch %s", lease.ParentBranch)
+			}
+			if err := dropManagedPostgresDatabase(ctx, plan.AdminURL, lease.DatabaseName); err != nil {
+				return err
+			}
+			_ = removeNeonGlobalBranch(lease.BranchID)
+			return nil
+		}
 	}
 	return dropManagedPostgresDatabase(ctx, plan.AdminURL, plan.DatabaseName)
 }

@@ -705,6 +705,12 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 	riskClassification := classifyHarnessAgentRisk(resp.ChangedArea)
 	relevantPlans := buildHarnessAgentRelevantExecPlans(repoRoot, resp.ChangedArea)
 	failedArtifacts := buildHarnessAgentFailedArtifacts(repoRoot, failingSteps)
+	if relevantPlans == nil {
+		relevantPlans = []harnessAgentExecPlan{}
+	}
+	if failedArtifacts == nil {
+		failedArtifacts = []harnessAgentFailedArtifact{}
+	}
 	changedAreaCommands := []string{}
 	if resp.ChangedArea != nil {
 		changedAreaCommands = append(changedAreaCommands, resp.ChangedArea.RecommendedCommands...)

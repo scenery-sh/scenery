@@ -213,6 +213,32 @@
       ]
     },
     {
+      "name": "neon",
+      "kind": "image",
+      "version": "unstable",
+      "images": [
+        {
+          "ref": "neondatabase/neon:unstable",
+          "optional": true,
+          "usage": "dev.services.postgres.neon",
+          "stability": "unstable"
+        }
+      ]
+    },
+    {
+      "name": "neon-compute",
+      "kind": "image",
+      "version": "unstable",
+      "images": [
+        {
+          "ref": "neondatabase/compute-node-v17:unstable",
+          "optional": true,
+          "usage": "dev.services.postgres.neon.compute",
+          "stability": "unstable"
+        }
+      ]
+    },
+    {
       "name": "temporal-cli",
       "kind": "binary",
       "version": "1.7.0",

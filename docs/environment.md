@@ -89,17 +89,17 @@ App-defined auth env names such as `JWTSecret`, `GoogleOAuthClientID`, `GoogleOA
 
 Managed toolchain artifacts come from `onlava.toolchain.json` and manifest-driven downloads into the managed store. Some app-root tools also expose documented per-tool env overrides. They do not fall back to ambient system `PATH` binaries.
 
-## Managed Postgres And Electric
+## Managed Postgres, Neon, And Electric
 
 | Variable | Direction | Description |
 | --- | --- | --- |
-| `ONLAVA_DEV_POSTGRES_ADMIN_URL` | user input | Explicit admin Postgres URL for the managed dev database planner. |
+| `ONLAVA_DEV_POSTGRES_ADMIN_URL` | user input/internal | Explicit admin Postgres URL for the managed dev database planner. Neon self-hosted dev cells use the same internal URL after cell startup; branch URLs are not written to env files. |
 | `ONLAVA_DEV_POSTGRES_BIN` | user input | Explicit local `postgres` binary path; onlava does not search `PATH` for it. |
 | `ONLAVA_DEV_POSTGRES_INITDB` | user input | Explicit local `initdb` binary path; onlava does not search `PATH` for it. |
-| `ONLAVA_DEV_POSTGRES_EXTERNAL` | user input | `1` keeps an explicit external `DatabaseURL` instead of creating a managed session database. External mode requires `DatabaseURL`; `DATABASE_URL` is ignored as the app database authority. |
+| `ONLAVA_DEV_POSTGRES_EXTERNAL` | user input | `1` keeps an explicit external `DatabaseURL` instead of creating a managed session database. External mode requires `DatabaseURL`; `DATABASE_URL` is ignored as the app database authority. Not used for Neon branch leases. |
 | `ONLAVA_DEV_ELECTRIC_UPSTREAM` | user input | Explicit Electric upstream; onlava registers it as the session Electric backend. |
 | `ONLAVA_DEV_ELECTRIC_BIN` | user input | Explicit local Electric binary path; onlava does not search `PATH` for it. |
-| `ELECTRIC_REPLICATION_STREAM_ID` | user input/injected | Electric replication stream ID. onlava sets a deterministic session-scoped default. |
+| `ELECTRIC_REPLICATION_STREAM_ID` | user input/injected | Electric replication stream ID. onlava sets a deterministic session-scoped default; Neon branch leases include the branch id in the default to avoid worktree collisions. |
 
 ## Temporal
 

@@ -55,13 +55,21 @@ type DevConfig struct {
 }
 
 type DevServiceConfig struct {
-	Kind      string            `json:"kind"`
-	Version   string            `json:"version"`
-	Isolation string            `json:"isolation"`
-	Image     string            `json:"image"`
-	Database  string            `json:"database"`
-	Route     string            `json:"route"`
-	Env       map[string]string `json:"env"`
+	Kind               string            `json:"kind"`
+	Version            string            `json:"version"`
+	Isolation          string            `json:"isolation"`
+	Image              string            `json:"image"`
+	Database           string            `json:"database"`
+	Route              string            `json:"route"`
+	Env                map[string]string `json:"env"`
+	Mode               string            `json:"mode"`
+	Project            string            `json:"project"`
+	ParentBranch       string            `json:"parent_branch"`
+	BranchPolicy       string            `json:"branch_policy"`
+	BranchNameTemplate string            `json:"branch_name_template"`
+	TTL                string            `json:"ttl"`
+	Role               string            `json:"role"`
+	DatabaseURLEnv     string            `json:"database_url_env"`
 }
 
 type GeneratorsConfig struct {

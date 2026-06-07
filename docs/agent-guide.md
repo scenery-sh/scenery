@@ -164,10 +164,14 @@ Prefer JSON when output will feed another tool or decision.
 | Apply service seed data | `onlava db seed --json` |
 | Setup local DB lifecycle | `onlava db setup --json` |
 | Connect to managed Postgres | `onlava db psql` |
+| Inspect Neon branch lease | `onlava db branch status --json` |
+| Inspect Neon dev cell | `onlava db neon status --json` |
+| Restore or diff a Neon branch | `onlava db branch restore --at <restore-point> --yes`, `onlava db branch diff <branch>` |
+| Create worktree with DB branch | `onlava worktree create <name> --from <branch>` |
 | Run repo-local task | `onlava task list`, `onlava task run <name>` |
 | Run app-local code task | `onlava task list --json`, `onlava task run <domain>:<name> -- [args...]` |
 
-When local dev fails because the host may be missing Go, disk space, memory, or optional tools, run `onlava doctor --json` first. Stay on onlava command surfaces for ordinary app work. Inspect managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, Postgres, or Electric details only when intentionally debugging the substrate. Shared substrate failures are visible in `onlava ps --json` under `substrates`, including exit metadata and stdout/stderr log paths. Managed Postgres substrate rows describe the reusable physical server only; per-session database URL/name values are exposed through session env. Electric remains session-scoped and is published as a session backend, not a global substrate. Do not install global binaries as a hidden fix; use `onlava system edge dns install` for wildcard local DNS, `onlava system edge install` for Caddy, `onlava system toolchain sync --json` for managed app-root tools, set documented per-tool env overrides for tools that have them, or document the configured external service.
+When local dev fails because the host may be missing Go, disk space, memory, or optional tools, run `onlava doctor --json` first. Stay on onlava command surfaces for ordinary app work. Inspect managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, Postgres, Neon, or Electric details only when intentionally debugging the substrate. Shared substrate failures are visible in `onlava ps --json` under `substrates`, including exit metadata and stdout/stderr log paths. Managed Postgres substrate rows describe the reusable physical server only; per-session database URL/name values are exposed through session env. Neon branch leases live in `.onlava/worktree-db.json` and `onlava db branch status --json`; raw connection URLs stay redacted. Electric remains session-scoped and is published as a session backend, not a global substrate. Do not install global binaries as a hidden fix; use `onlava system toolchain ... --json` where available.
 
 Use non-JSON output only for human inspection.
 
@@ -177,12 +181,13 @@ Use non-JSON output only for human inspection.
 - Use `onlava up --detach` when the local agent should keep the dev session running.
 - Use `onlava system edge dns install`, `onlava system edge privileged install`, `onlava system edge install`, and `onlava system edge trust` when the browser needs trusted wildcard local HTTPS on `127.0.0.1:443`; dnsmasq owns wildcard local DNS, the privileged helper owns that port, forwards raw TCP to user-owned Caddy, and the edge syncs managed dnsmasq/Caddy as needed.
 - Use `onlava logs --follow` to follow a current detached or agent session.
-- Use `onlava down` to stop a session; add `--db`, `--state`, or `--all` only when destructive cleanup is intended.
+- Use `onlava down` to stop a session; add `--db`, `--state`, or `--all` only when destructive cleanup is intended. For Neon apps, `--db` removes only the current branch lease/database and leaves the shared dev cell running.
 - Use `onlava serve` for headless API-role execution. Do not expect dashboard, proxy, watch mode, or dev/admin endpoints.
 - Use `onlava worker` for worker-role execution of native Temporal workers and cron.
 - Use `onlava build` for a deployable binary artifact.
 - Use `onlava generate` for configured file-producing generators. `onlava generate sqlc` is generated-source work only; it must not apply schema or seed data.
 - Use `onlava db apply` to mutate schema/app database setup only. Use `onlava db seed` to apply service-local initial data only; changed previously-applied seeds and destructive seed SQL fail closed with path/line diagnostics. Use `onlava db setup` for the one-command local setup path: apply then seed. `onlava up` runs that setup lifecycle before app startup when DB setup inputs exist, and skips it on ordinary rebuilds until `database.apply` config or seed file hashes change.
+- Use `onlava db neon status --json`, `onlava db branch status --json`, `onlava db branch restore --at <restore-point> --yes`, `onlava db branch diff <branch>`, `onlava db branch expire --after <duration>`, and `onlava worktree create <name>` for branch-isolated Neon dev workflows.
 - Use `onlava task list`, `onlava task inspect <target>`, and `onlava task run <target>` for configured repo tasks and app-local code tasks. Configured tasks use plain names; code tasks use `<domain>:<name>`, and task arguments must appear after `--`.
 - Use `onlava task run <name>` only for repo-local workflows that are not core onlava lifecycle commands.
 

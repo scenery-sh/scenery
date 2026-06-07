@@ -16,6 +16,7 @@ const (
 
 	SubstrateGrafana  = "grafana"
 	SubstratePostgres = "postgres"
+	SubstrateNeon     = "neon"
 	SubstrateTemporal = "temporal"
 	SubstrateVictoria = "victoria"
 )

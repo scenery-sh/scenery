@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.db.neon.status.v1.schema.json",
+  "title": "onlava.db.neon.status.v1",
+  "type": "object",
+  "required": ["schema_version", "provider", "mode", "status", "backend", "version", "root", "compose_path", "admin_url", "components"],
+  "properties": {
+    "schema_version": { "const": "onlava.db.neon.status.v1" },
+    "provider": { "const": "neon-self-hosted" },
+    "mode": { "const": "self-hosted" },
+    "status": { "type": "string" },
+    "backend": { "type": "string" },
+    "version": { "type": "string" },
+    "root": { "type": "string" },
+    "compose_path": { "type": "string" },
+    "admin_url": { "type": "string" },
+    "components": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string" },
+          "health": { "type": "string" },
+          "source": { "type": "string" },
+          "version": { "type": "string" },
+          "endpoint": { "type": "string" },
+          "port": { "type": "integer" },
+          "log_path": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

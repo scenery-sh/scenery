@@ -404,6 +404,8 @@ onlava db setup
 
 During `onlava up`, the supervisor runs this DB setup lifecycle before starting the app when `database.apply` or seed files are present. It reuses the session-managed `DatabaseURL` env and skips setup on ordinary rebuilds until the `database.apply` config or seed file hashes change.
 
+For branch-isolated local development, configure `dev.services.postgres.kind: "neon"`, `mode: "self-hosted"`, and `isolation: "branch"`. `onlava up` resolves the branch from `.onlava/worktree-db.json`, the Git/worktree name, or the session id, then runs the same apply/seed/setup lifecycle against that branch while preserving `DatabaseURL`. Use `onlava db branch status --json` to inspect the lease, `onlava db branch reset --yes` to reset the current non-parent branch to its parent, `onlava db branch restore --at <restore-point> --yes` to restore the current branch from an Onlava-managed restore point, `onlava db branch diff <branch>` to compare branch schemas, `onlava db branch expire --after <duration>` to update branch TTL, and `onlava worktree create <name>` to create a code worktree with a matching branch pin.
+
 `SERVICE/db/seed.sql` is data, not Atlas schema input and not SQLC input. The first seed implementation fails closed when a previously-applied seed changes or destructive seed SQL is detected, rather than offering force or reseed escape hatches.
 
 ## Electric Txid Observation

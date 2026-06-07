@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.db.branch.list.v1.schema.json",
+  "title": "onlava.db.branch.list.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "project", "branches"],
+  "properties": {
+    "schema_version": { "const": "onlava.db.branch.list.v1" },
+    "app": { "type": "object" },
+    "project": { "type": "string" },
+    "branches": { "type": "array", "items": { "$ref": "onlava.db.branch.v1.schema.json" } }
+  },
+  "additionalProperties": false
+}

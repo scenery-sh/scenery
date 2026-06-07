@@ -117,11 +117,8 @@ var postgresAdminVersionMatchesFn = postgresAdminVersionMatches
 
 func managedPostgresDeclared(cfg app.Config) (string, app.DevServiceConfig, bool) {
 	for name, svc := range cfg.Dev.Services {
-		kind := strings.TrimSpace(svc.Kind)
-		if kind == "" && name == "postgres" {
-			kind = "postgres"
-		}
-		if kind == "postgres" {
+		kind := postgresServiceKind(svc, name)
+		if kind == "postgres" || kind == "neon" {
 			return name, svc, true
 		}
 	}
@@ -148,6 +145,26 @@ func resolveManagedPostgresPlan(cfg app.Config, session *localagent.Session, env
 	}
 	if session == nil || strings.TrimSpace(session.SessionID) == "" {
 		return nil, fmt.Errorf("dev.services.%s requires an active onlava agent session", name)
+	}
+	kind := postgresServiceKind(svc, name)
+	if kind == "neon" {
+		adminURL, _ := lookupEnvValue(env, devPostgresAdminURLEnv)
+		if adminURL == "" {
+			return nil, fmt.Errorf("dev.services.%s kind %q requires a ready Onlava Neon dev cell", name, kind)
+		}
+		lease, dbURL, err := ensureNeonBranchLease(context.Background(), cfg, session, adminURL)
+		if err != nil {
+			return nil, err
+		}
+		return &managedPostgresPlan{
+			ServiceName:  name,
+			Version:      firstNonEmpty(strings.TrimSpace(svc.Version), devPostgresDefaultVersion),
+			Isolation:    neonDefaultIsolation,
+			AdminURL:     adminURL,
+			AdminURLFrom: devPostgresAdminURLEnv,
+			DatabaseName: lease.DatabaseName,
+			DatabaseURL:  dbURL,
+		}, nil
 	}
 	isolation := firstNonEmpty(strings.TrimSpace(svc.Isolation), devPostgresDefaultIsolation)
 	if isolation != devPostgresDefaultIsolation {
@@ -329,6 +346,9 @@ func startManagedElectricService(ctx context.Context, root string, cfg app.Confi
 		return nil, localagent.Backend{}, err
 	}
 	streamID := managedElectricReplicationStreamID(session)
+	if lease, err := readNeonWorktreeLease(root); err == nil && strings.TrimSpace(lease.BranchID) != "" {
+		streamID = managedPostgresDatabaseName("onlava", strings.TrimSpace(session.SessionID)+"_"+lease.BranchID)
+	}
 	if err := cleanupManagedElectricStreamProcesses(ctx, root, session, streamID); err != nil {
 		return nil, localagent.Backend{}, err
 	}
@@ -1074,6 +1094,11 @@ func managedPostgresPlanForCurrentSession(ctx context.Context, appRoot string, c
 }
 
 func envWithManagedPostgresAdminURL(ctx context.Context, cfg app.Config, env []string, agent *localagent.Client) ([]string, error) {
+	if withNeon, err := envWithManagedNeonAdminURL(ctx, cfg, env); err != nil {
+		return nil, err
+	} else if hasEnvValue(withNeon, devPostgresAdminURLEnv) {
+		return withNeon, nil
+	}
 	if hasEnvValue(env, devPostgresAdminURLEnv) {
 		return env, nil
 	}

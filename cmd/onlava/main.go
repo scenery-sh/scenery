@@ -51,6 +51,8 @@ func run(args []string) error {
 		return pruneCommand(args[1:])
 	case "db":
 		return dbCommand(args[1:])
+	case "worktree":
+		return worktreeCommand(args[1:])
 	case "generate":
 		return generateCommand(args[1:])
 	case "task":
@@ -100,6 +102,9 @@ func usageError() error {
     onlava db reset [--app-root <path>]
     onlava db drop [--app-root <path>]
     onlava db snapshot create|restore <name> [--app-root <path>]
+    onlava db neon install|status|logs|restart|uninstall [--app-root <path>] [--json]
+    onlava db branch status|list|checkout|reset|restore|diff|delete|expire|prune [--app-root <path>] [--json]
+    onlava worktree create|list|remove <name> [--app-root <path>] [--from <branch>] [--db] [--json]
     onlava generate [--app-root <path>] [--dry-run] [--json]
     onlava generate client [<app-id>] [--lang typescript] [--output <path>] [--app-root <path>] [--dry-run] [--json]
     onlava generate sqlc [--app-root <path>] [--dry-run] [--json]
