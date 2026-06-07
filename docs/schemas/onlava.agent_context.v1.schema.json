@@ -8,7 +8,14 @@
     "generated_at",
     "repo",
     "dirty_files",
+    "failing_steps",
+    "rerun_commands",
+    "changed_area_recommended_commands",
     "recommended_commands",
+    "relevant_active_execplans",
+    "recent_failed_harness_artifacts",
+    "docs_freshness",
+    "risk_classification",
     "docs_entrypoints",
     "schemas",
     "known_fast_loop",
@@ -40,9 +47,38 @@
       "type": "object",
       "additionalProperties": true
     },
+    "failing_steps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/failing_step" }
+    },
+    "rerun_commands": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "changed_area_recommended_commands": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "recommended_commands": {
       "type": "array",
       "items": { "type": "string" }
+    },
+    "relevant_active_execplans": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/exec_plan" }
+    },
+    "recent_failed_harness_artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/failed_artifact" }
+    },
+    "docs_freshness": {
+      "$ref": "#/$defs/docs_freshness"
+    },
+    "risk_classification": {
+      "type": "array",
+      "items": {
+        "enum": ["runtime", "CLI contract", "dashboard", "schema", "release", "onlv-impacting"]
+      }
     },
     "docs_entrypoints": {
       "type": "array",
@@ -73,6 +109,87 @@
         "status": { "type": "string" },
         "category": { "type": "string" },
         "package": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "failing_step": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "error": { "type": "string" },
+        "first_file_to_read": { "type": "string" },
+        "rerun_command": { "type": "string" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence_artifact" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "exec_plan": {
+      "type": "object",
+      "required": ["path", "title"],
+      "properties": {
+        "path": { "type": "string" },
+        "title": { "type": "string" },
+        "owner": { "type": "string" },
+        "summary": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "failed_artifact": {
+      "type": "object",
+      "required": ["step", "name", "path"],
+      "properties": {
+        "step": { "type": "string" },
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "rerun_command": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "docs_freshness": {
+      "type": "object",
+      "required": ["document_count", "missing_count", "review_due_count", "stale_count"],
+      "properties": {
+        "schema_version": { "type": "string" },
+        "document_count": { "type": "integer" },
+        "missing_count": { "type": "integer" },
+        "review_due_count": { "type": "integer" },
+        "stale_count": { "type": "integer" },
+        "missing_documents": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "review_due_docs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "stale_docs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "evidence_artifact": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "schema_version": { "type": "string" }
       },
       "additionalProperties": false
     }

@@ -277,13 +277,35 @@ func TestWriteHarnessSelfOracleArtifacts(t *testing.T) {
 		},
 		ChangedArea: &harnessChangedAreaReport{
 			SchemaVersion:       harnessChangedAreaSchema,
+			ChangedFiles:        []harnessChangedFile{{Path: "cmd/onlava/harness.go", Status: "modified", Category: "cli"}},
 			RecommendedCommands: []string{"go test -count=1 ./cmd/onlava"},
+			RiskFlags:           []string{"harness-contract"},
 		},
 		TestTiming: &harnessTestTimingReport{
 			SchemaVersion: harnessTestTimingSchema,
 			Command:       harnessSelfGoTestCommand(),
 			Budgets:       defaultHarnessTestTimingBudgets(),
 		},
+		Steps: []harnessStep{{
+			Name:    "go tests",
+			Command: harnessSelfGoTestCommand(),
+			OK:      false,
+			Error:   "exit status 1",
+			Evidence: &harnessEvidence{
+				SchemaVersion: harnessArtifactEvidenceSchema,
+				Command:       harnessSelfGoTestCommand(),
+				CWD:           root,
+				StartedAt:     "2026-05-29T00:00:00Z",
+				DurationMS:    1234,
+				ExitCode:      intPtr(1),
+				Artifacts: []harnessEvidenceArtifact{{
+					Name:          "go-tests-stdout",
+					Path:          ".onlava/harness/artifacts/20260529T000000Z/go-test.jsonl",
+					SchemaVersion: "go.test.jsonl",
+				}},
+				ReproCommand: "cd " + root + " && go test -count=1 -json ./...",
+			},
+		}},
 		NextActions: []string{"onlava harness self --json --write"},
 	}
 
@@ -312,6 +334,21 @@ func TestWriteHarnessSelfOracleArtifacts(t *testing.T) {
 	}
 	if !stringSliceContains(contextPack.RecommendedCommands, "go test -count=1 ./cmd/onlava") {
 		t.Fatalf("agent context commands = %+v", contextPack.RecommendedCommands)
+	}
+	if len(contextPack.FailingSteps) != 1 || contextPack.FailingSteps[0].FirstFileToRead != ".onlava/harness/test-timing-latest.json" {
+		t.Fatalf("failing steps = %+v", contextPack.FailingSteps)
+	}
+	if !stringSliceContains(contextPack.RerunCommands, "cd "+root+" && go test -count=1 -json ./...") {
+		t.Fatalf("rerun commands = %+v", contextPack.RerunCommands)
+	}
+	if !stringSliceContains(contextPack.ChangedAreaRecommendedCommands, "go test -count=1 ./cmd/onlava") {
+		t.Fatalf("changed-area commands = %+v", contextPack.ChangedAreaRecommendedCommands)
+	}
+	if !stringSliceContains(contextPack.RiskClassification, "CLI contract") || !stringSliceContains(contextPack.RiskClassification, "release") {
+		t.Fatalf("risk classification = %+v", contextPack.RiskClassification)
+	}
+	if len(contextPack.RecentFailedHarnessArtifacts) == 0 {
+		t.Fatalf("recent failed artifacts = %+v", contextPack.RecentFailedHarnessArtifacts)
 	}
 }
 

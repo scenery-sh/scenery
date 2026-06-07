@@ -525,6 +525,24 @@ onlava harness self --json --write
 - `onlava harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation.
 - `--write` persists the same result to `.onlava/harness/self-latest.json`
 - failed and expensive steps include `evidence` conforming to `onlava.harness.artifact.v1`; Go test JSONL evidence is written as `.onlava/harness/artifacts/<run-id>/go-test.jsonl` when `--write` is present
+- `--write` refreshes `.onlava/harness/agent-context.json` as the one-file agent handoff. It includes current failing steps, first files to read, exact rerun commands, changed-area recommended commands, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and risk classifications: `runtime`, `CLI contract`, `dashboard`, `schema`, `release`, and `onlv-impacting`.
+
+Default agent loop:
+
+```text
+onlava doctor --json
+onlava harness self --quick --json --write
+cat .onlava/harness/agent-context.json
+# implement
+onlava harness self --json --write
+```
+
+Release-risk loop:
+
+```text
+onlava harness self --release --json --write
+scripts/release-gate.sh
+```
 
 Implemented `inspect harness --json` rules:
 

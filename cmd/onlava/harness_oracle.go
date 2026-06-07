@@ -90,26 +90,70 @@ type goTestJSONEvent struct {
 }
 
 type harnessAgentContext struct {
-	SchemaVersion       string                    `json:"schema_version"`
-	GeneratedAt         string                    `json:"generated_at"`
-	Repo                harnessAgentContextRepo   `json:"repo"`
-	CurrentBranch       string                    `json:"current_branch,omitempty"`
-	CurrentCommit       string                    `json:"current_commit,omitempty"`
-	DirtyFiles          []harnessChangedFile      `json:"dirty_files"`
-	ChangedArea         *harnessChangedAreaReport `json:"changed_area,omitempty"`
-	RecommendedCommands []string                  `json:"recommended_commands"`
-	DocsEntrypoints     []string                  `json:"docs_entrypoints"`
-	Schemas             []string                  `json:"schemas"`
-	KnownFastLoop       string                    `json:"known_fast_loop"`
-	KnownReleaseLoop    string                    `json:"known_release_loop"`
-	ArchitectureRules   []string                  `json:"architecture_rules"`
-	RecentFailures      []string                  `json:"recent_failures,omitempty"`
+	SchemaVersion                  string                       `json:"schema_version"`
+	GeneratedAt                    string                       `json:"generated_at"`
+	Repo                           harnessAgentContextRepo      `json:"repo"`
+	CurrentBranch                  string                       `json:"current_branch,omitempty"`
+	CurrentCommit                  string                       `json:"current_commit,omitempty"`
+	DirtyFiles                     []harnessChangedFile         `json:"dirty_files"`
+	ChangedArea                    *harnessChangedAreaReport    `json:"changed_area,omitempty"`
+	FailingSteps                   []harnessAgentFailingStep    `json:"failing_steps"`
+	RerunCommands                  []string                     `json:"rerun_commands"`
+	ChangedAreaRecommendedCommands []string                     `json:"changed_area_recommended_commands"`
+	RecommendedCommands            []string                     `json:"recommended_commands"`
+	RelevantActiveExecPlans        []harnessAgentExecPlan       `json:"relevant_active_execplans"`
+	RecentFailedHarnessArtifacts   []harnessAgentFailedArtifact `json:"recent_failed_harness_artifacts"`
+	DocsFreshness                  harnessAgentDocsFreshness    `json:"docs_freshness"`
+	RiskClassification             []string                     `json:"risk_classification"`
+	DocsEntrypoints                []string                     `json:"docs_entrypoints"`
+	Schemas                        []string                     `json:"schemas"`
+	KnownFastLoop                  string                       `json:"known_fast_loop"`
+	KnownReleaseLoop               string                       `json:"known_release_loop"`
+	ArchitectureRules              []string                     `json:"architecture_rules"`
+	RecentFailures                 []string                     `json:"recent_failures,omitempty"`
 }
 
 type harnessAgentContextRepo struct {
 	Root       string `json:"root"`
 	ModulePath string `json:"module_path"`
 	GoModPath  string `json:"go_mod_path"`
+}
+
+type harnessAgentFailingStep struct {
+	Name            string                    `json:"name"`
+	Error           string                    `json:"error,omitempty"`
+	FirstFileToRead string                    `json:"first_file_to_read,omitempty"`
+	RerunCommand    string                    `json:"rerun_command,omitempty"`
+	Artifacts       []harnessEvidenceArtifact `json:"artifacts,omitempty"`
+	Diagnostics     []checkDiagnostic         `json:"diagnostics,omitempty"`
+}
+
+type harnessAgentExecPlan struct {
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Owner   string `json:"owner,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type harnessAgentFailedArtifact struct {
+	Step          string `json:"step"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	SchemaVersion string `json:"schema_version,omitempty"`
+	RerunCommand  string `json:"rerun_command,omitempty"`
+}
+
+type harnessAgentDocsFreshness struct {
+	SchemaVersion    string   `json:"schema_version,omitempty"`
+	DocumentCount    int      `json:"document_count"`
+	MissingCount     int      `json:"missing_count"`
+	ReviewDueCount   int      `json:"review_due_count"`
+	StaleCount       int      `json:"stale_count"`
+	MissingDocuments []string `json:"missing_documents,omitempty"`
+	ReviewDueDocs    []string `json:"review_due_docs,omitempty"`
+	StaleDocs        []string `json:"stale_docs,omitempty"`
+	Error            string   `json:"error,omitempty"`
 }
 
 func runHarnessChangedAreaStep(ctx context.Context, repoRoot string) (harnessStep, *harnessChangedAreaReport) {
@@ -631,13 +675,6 @@ func defaultHarnessTestTimingBudgets() harnessTestTimingBudgets {
 }
 
 func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harnessAgentContext {
-	var failures []string
-	for _, step := range resp.Steps {
-		if step.OK {
-			continue
-		}
-		failures = append(failures, step.Name)
-	}
 	var entrypoints []string
 	for _, item := range resp.Knowledge.Entrypoints {
 		entrypoints = append(entrypoints, item.Path)
@@ -648,6 +685,20 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 	}
 	branch, _ := runHarnessGit(context.Background(), repoRoot, "branch", "--show-current")
 	commit, _ := runHarnessGit(context.Background(), repoRoot, "rev-parse", "HEAD")
+	failingSteps := buildHarnessAgentFailingSteps(repoRoot, resp.Steps)
+	rerunCommands := harnessAgentRerunCommands(failingSteps)
+	recentFailures := make([]string, 0, len(failingSteps))
+	for _, step := range failingSteps {
+		recentFailures = append(recentFailures, step.Name)
+	}
+	docsFreshness := buildHarnessAgentDocsFreshness(repoRoot)
+	riskClassification := classifyHarnessAgentRisk(resp.ChangedArea)
+	relevantPlans := buildHarnessAgentRelevantExecPlans(repoRoot, resp.ChangedArea)
+	failedArtifacts := buildHarnessAgentFailedArtifacts(repoRoot, failingSteps)
+	changedAreaCommands := []string{}
+	if resp.ChangedArea != nil {
+		changedAreaCommands = append(changedAreaCommands, resp.ChangedArea.RecommendedCommands...)
+	}
 	contextPack := harnessAgentContext{
 		SchemaVersion: harnessAgentContextSchema,
 		GeneratedAt:   resp.GeneratedAt,
@@ -656,34 +707,349 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 			ModulePath: resp.Repo.ModulePath,
 			GoModPath:  resp.Repo.GoModPath,
 		},
-		CurrentBranch:       strings.TrimSpace(branch),
-		CurrentCommit:       strings.TrimSpace(commit),
-		DirtyFiles:          []harnessChangedFile{},
-		ChangedArea:         resp.ChangedArea,
-		RecommendedCommands: append([]string{}, resp.NextActions...),
-		DocsEntrypoints:     entrypoints,
-		Schemas:             schemas,
-		KnownFastLoop:       "go test -count=1 ./... && onlava harness self --json --write",
-		KnownReleaseLoop:    "scripts/release-gate.sh",
+		CurrentBranch:                  strings.TrimSpace(branch),
+		CurrentCommit:                  strings.TrimSpace(commit),
+		DirtyFiles:                     []harnessChangedFile{},
+		ChangedArea:                    resp.ChangedArea,
+		FailingSteps:                   failingSteps,
+		RerunCommands:                  rerunCommands,
+		ChangedAreaRecommendedCommands: changedAreaCommands,
+		RecommendedCommands:            append([]string{}, resp.NextActions...),
+		RelevantActiveExecPlans:        relevantPlans,
+		RecentFailedHarnessArtifacts:   failedArtifacts,
+		DocsFreshness:                  docsFreshness,
+		RiskClassification:             riskClassification,
+		DocsEntrypoints:                entrypoints,
+		Schemas:                        schemas,
+		KnownFastLoop:                  "onlava doctor --json\nonlava harness self --quick --json --write\ncat .onlava/harness/agent-context.json\n# implement\nonlava harness self --json --write",
+		KnownReleaseLoop:               "onlava harness self --release --json --write\nscripts/release-gate.sh",
 		ArchitectureRules: []string{
 			"Prefer Go standard library dependencies unless the payoff is concrete.",
 			"Do not add legacy aliases or backwards-compatibility shims for renamed onlava APIs.",
 			"After repository changes, run go install ./cmd/onlava.",
 			"For substantial repository changes, run onlava harness self --json --write when practical.",
 		},
-		RecentFailures: failures,
+		RecentFailures: recentFailures,
 	}
 	if resp.ChangedArea != nil {
 		contextPack.DirtyFiles = resp.ChangedArea.ChangedFiles
 		contextPack.RecommendedCommands = appendUniqueSorted(contextPack.RecommendedCommands, resp.ChangedArea.RecommendedCommands...)
 	}
+	contextPack.RecommendedCommands = appendUniqueSorted(contextPack.RecommendedCommands, contextPack.RerunCommands...)
 	if len(contextPack.RecommendedCommands) == 0 {
-		contextPack.RecommendedCommands = []string{"go test -count=1 ./...", "onlava harness self --json --write"}
+		contextPack.RecommendedCommands = []string{"onlava doctor --json", "onlava harness self --quick --json --write", "onlava harness self --json --write"}
 	}
 	sort.Strings(contextPack.DocsEntrypoints)
 	sort.Strings(contextPack.Schemas)
 	sort.Strings(contextPack.RecentFailures)
+	sort.Strings(contextPack.ChangedAreaRecommendedCommands)
+	sort.Strings(contextPack.RerunCommands)
+	sort.Strings(contextPack.RiskClassification)
 	return contextPack
+}
+
+func buildHarnessAgentFailingSteps(repoRoot string, steps []harnessStep) []harnessAgentFailingStep {
+	failures := []harnessAgentFailingStep{}
+	for _, step := range steps {
+		if step.OK {
+			continue
+		}
+		item := harnessAgentFailingStep{
+			Name:            step.Name,
+			Error:           firstNonEmpty(step.Error, strings.TrimSpace(step.OutputTail)),
+			FirstFileToRead: firstFileForHarnessStep(repoRoot, step),
+			RerunCommand:    harnessStepRerunCommand(repoRoot, step),
+			Diagnostics:     step.Diagnostics,
+		}
+		if step.Evidence != nil {
+			item.Artifacts = append(item.Artifacts, step.Evidence.Artifacts...)
+		}
+		failures = append(failures, item)
+	}
+	sort.Slice(failures, func(i, j int) bool {
+		return failures[i].Name < failures[j].Name
+	})
+	return failures
+}
+
+func harnessAgentRerunCommands(steps []harnessAgentFailingStep) []string {
+	set := map[string]bool{}
+	for _, step := range steps {
+		if step.RerunCommand != "" {
+			set[step.RerunCommand] = true
+		}
+	}
+	return sortedStringSet(set)
+}
+
+func firstFileForHarnessStep(repoRoot string, step harnessStep) string {
+	for _, diag := range step.Diagnostics {
+		if strings.TrimSpace(diag.File) == "" {
+			continue
+		}
+		return harnessRelPath(repoRoot, diag.File)
+	}
+	switch step.Name {
+	case "toolchain preflight":
+		return "docs/harness-engineering.md"
+	case "knowledge contract", "inspect docs":
+		return "docs/knowledge.json"
+	case "changed area oracle":
+		return ".onlava/harness/changed-area-latest.json"
+	case "architecture checks":
+		return "docs/harness-engineering.md"
+	case "contract drift checks":
+		return "docs/local-contract.md"
+	case "ui static architecture":
+		return "docs/ui-agent-contract.md"
+	case "go tests":
+		return ".onlava/harness/test-timing-latest.json"
+	case "fixture matrix":
+		return ".onlava/harness/fixture-matrix-latest.json"
+	case "schema validation":
+		return ".onlava/harness/schema-validation-latest.json"
+	case "dashboard ui typecheck", "dashboard ui build", "dashboard ui fresh":
+		return "ui"
+	case "parallel dev sessions":
+		return ".onlava/harness/agent-context.json"
+	default:
+		if step.Evidence != nil && len(step.Evidence.Artifacts) > 0 {
+			return step.Evidence.Artifacts[0].Path
+		}
+		return ""
+	}
+}
+
+func harnessStepRerunCommand(repoRoot string, step harnessStep) string {
+	if step.Evidence != nil && strings.TrimSpace(step.Evidence.ReproCommand) != "" {
+		return step.Evidence.ReproCommand
+	}
+	if len(step.Command) > 0 {
+		return reproCommand(step.Command, firstNonEmpty(harnessStepEvidenceCWD(step), repoRoot))
+	}
+	return ""
+}
+
+func harnessRelPath(repoRoot, path string) string {
+	path = filepath.Clean(path)
+	if filepath.IsAbs(path) {
+		if rel, err := filepath.Rel(repoRoot, path); err == nil && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(path)
+}
+
+func buildHarnessAgentDocsFreshness(repoRoot string) harnessAgentDocsFreshness {
+	resp, err := buildInspectDocsResponse(repoRoot)
+	if err != nil {
+		return harnessAgentDocsFreshness{
+			SchemaVersion: inspectDocsSchema,
+			Error:         err.Error(),
+		}
+	}
+	state := harnessAgentDocsFreshness{
+		SchemaVersion:  resp.SchemaVersion,
+		DocumentCount:  resp.Summary.DocumentCount,
+		MissingCount:   resp.Summary.MissingCount,
+		ReviewDueCount: resp.Summary.ReviewDueCount,
+		StaleCount:     resp.Summary.StaleCount,
+	}
+	for _, doc := range resp.Documents {
+		if !doc.Exists {
+			state.MissingDocuments = append(state.MissingDocuments, doc.Path)
+		}
+		if doc.ReviewDue {
+			state.ReviewDueDocs = append(state.ReviewDueDocs, doc.Path)
+		}
+		if doc.Stale {
+			state.StaleDocs = append(state.StaleDocs, doc.Path)
+		}
+	}
+	sort.Strings(state.MissingDocuments)
+	sort.Strings(state.ReviewDueDocs)
+	sort.Strings(state.StaleDocs)
+	return state
+}
+
+func buildHarnessAgentRelevantExecPlans(repoRoot string, changedArea *harnessChangedAreaReport) []harnessAgentExecPlan {
+	if changedArea == nil {
+		return nil
+	}
+	relevant := map[string]string{}
+	for _, path := range changedArea.RelevantDocs {
+		if strings.HasPrefix(path, "docs/plans/") && strings.HasSuffix(path, ".md") {
+			relevant[path] = "changed-area relevant doc"
+		}
+	}
+	for _, file := range changedArea.ChangedFiles {
+		if strings.HasPrefix(file.Path, "docs/plans/") && strings.HasSuffix(file.Path, ".md") {
+			relevant[file.Path] = "changed ExecPlan"
+		}
+	}
+	if len(relevant) == 0 {
+		return nil
+	}
+	index, err := readDocsKnowledgeIndex(repoRoot)
+	if err != nil {
+		return nil
+	}
+	var plans []harnessAgentExecPlan
+	for _, doc := range index.Documents {
+		reason, ok := relevant[doc.Path]
+		if !ok || doc.Status != "active" {
+			continue
+		}
+		plans = append(plans, harnessAgentExecPlan{
+			Path:    doc.Path,
+			Title:   doc.Title,
+			Owner:   doc.Owner,
+			Summary: doc.Summary,
+			Reason:  reason,
+		})
+	}
+	sort.Slice(plans, func(i, j int) bool {
+		return plans[i].Path < plans[j].Path
+	})
+	return plans
+}
+
+func buildHarnessAgentFailedArtifacts(repoRoot string, failures []harnessAgentFailingStep) []harnessAgentFailedArtifact {
+	items := map[string]harnessAgentFailedArtifact{}
+	add := func(stepName, rerun string, artifacts []harnessEvidenceArtifact) {
+		for _, artifact := range artifacts {
+			if artifact.Path == "" {
+				continue
+			}
+			item := harnessAgentFailedArtifact{
+				Step:          stepName,
+				Name:          artifact.Name,
+				Path:          artifact.Path,
+				SchemaVersion: artifact.SchemaVersion,
+				RerunCommand:  rerun,
+			}
+			key := item.Name + "\x00" + item.Path
+			if existing, ok := items[key]; ok {
+				if existing.Step == "" {
+					existing.Step = item.Step
+				}
+				if existing.SchemaVersion == "" {
+					existing.SchemaVersion = item.SchemaVersion
+				}
+				if existing.RerunCommand == "" {
+					existing.RerunCommand = item.RerunCommand
+				}
+				items[key] = existing
+				continue
+			}
+			items[key] = item
+		}
+	}
+	for _, failure := range failures {
+		add(failure.Name, failure.RerunCommand, failure.Artifacts)
+	}
+	if inspectResp, err := buildInspectHarnessResponse(inspectOptions{Subject: "harness", RepoRoot: repoRoot}); err == nil {
+		for _, evidence := range inspectResp.Evidence {
+			if evidence.ExitCode == nil || *evidence.ExitCode == 0 {
+				continue
+			}
+			stepName := firstNonEmpty(harnessEvidenceCommandName(evidence), "previous harness failure")
+			add(stepName, evidence.ReproCommand, evidence.Artifacts)
+		}
+	}
+	out := make([]harnessAgentFailedArtifact, 0, len(items))
+	for _, item := range items {
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Step == out[j].Step {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Step < out[j].Step
+	})
+	return out
+}
+
+func harnessEvidenceCommandName(evidence harnessEvidence) string {
+	if len(evidence.Command) == 0 {
+		return ""
+	}
+	return strings.Join(evidence.Command, " ")
+}
+
+func classifyHarnessAgentRisk(changedArea *harnessChangedAreaReport) []string {
+	if changedArea == nil {
+		return nil
+	}
+	classes := map[string]bool{}
+	for _, file := range changedArea.ChangedFiles {
+		switch file.Category {
+		case "runtime", "internal", "dependency":
+			classes["runtime"] = true
+		case "cli":
+			classes["CLI contract"] = true
+		case "ui":
+			classes["dashboard"] = true
+		case "schema":
+			classes["schema"] = true
+		case "script":
+			classes["release"] = true
+		}
+		if strings.HasPrefix(file.Path, "cmd/onlava/harness") || strings.HasPrefix(file.Path, "cmd/onlava/inspect") || strings.HasPrefix(file.Path, "docs/local-contract.md") {
+			classes["CLI contract"] = true
+		}
+		if strings.HasPrefix(file.Path, "docs/schemas/") || file.Path == "docs/knowledge.json" {
+			classes["schema"] = true
+		}
+		if harnessOnlvImpactingPath(file.Path) {
+			classes["onlv-impacting"] = true
+		}
+		if file.Path == "go.mod" || file.Path == "go.sum" || strings.HasPrefix(file.Path, "scripts/") {
+			classes["release"] = true
+		}
+	}
+	for _, flag := range changedArea.RiskFlags {
+		switch flag {
+		case "runtime-contract", "temporal-runtime", "build-cache", "dependency-graph":
+			classes["runtime"] = true
+		case "cli-contract", "harness-contract":
+			classes["CLI contract"] = true
+		case "dashboard-ui", "victoria-dev-event-read-path":
+			classes["dashboard"] = true
+		case "json-schema-contract":
+			classes["schema"] = true
+		case "exec-plan":
+			classes["release"] = true
+		}
+	}
+	if classes["schema"] || classes["CLI contract"] || classes["runtime"] {
+		classes["release"] = true
+	}
+	return sortedStringSet(classes)
+}
+
+func harnessOnlvImpactingPath(path string) bool {
+	for _, needle := range []string{
+		"onlv",
+		"cmd/onlava/dev_session",
+		"cmd/onlava/dev_services",
+		"cmd/onlava/dev_supervisor",
+		"cmd/onlava/edge",
+		"cmd/onlava/db",
+		"internal/agent",
+		"internal/localproxy",
+		"internal/workers",
+		"temporal/",
+		"docs/plans/0045-",
+		"docs/plans/0048-",
+		"docs/plans/0049-",
+		"docs/plans/0063-",
+	} {
+		if strings.Contains(path, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitCommandLines(output string) []string {

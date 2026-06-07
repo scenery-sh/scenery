@@ -24,8 +24,18 @@ Use this before large edits and after fixes when an agent needs a single machine
 Recommended agent loop:
 
 ```text
-onlava harness --json --write
+onlava doctor --json
+onlava harness self --quick --json --write
+cat .onlava/harness/agent-context.json
+# implement
 onlava harness self --json --write
+```
+
+For release-risk changes, also run:
+
+```text
+onlava harness self --release --json --write
+scripts/release-gate.sh
 ```
 
 For dashboard route or UI behavior changes, also run:
@@ -90,6 +100,13 @@ large evidence payloads such as Go test JSONL are written under:
 The same evidence model is shared by the app harness, self-harness, UI harness,
 release gate, and future ONLV gates so agents can inspect failures without
 scraping terminal scrollback.
+
+The self-harness writes `.onlava/harness/agent-context.json` as the default
+handoff file for agents. It includes current failing steps, the first file to
+read for each failure, exact rerun commands, changed-area recommended commands,
+relevant active ExecPlans, recent failed harness artifacts, docs freshness, and
+risk classification across runtime, CLI contract, dashboard, schema, release,
+and ONLV-impacting changes.
 
 For the onlava repo itself, `onlava harness self --json --write` writes:
 

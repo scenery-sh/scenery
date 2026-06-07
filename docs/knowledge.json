@@ -165,9 +165,9 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Agent validation loop, shared harness evidence model, browser UI harness contract, self-harness contract, and doc-gardening rules for review-due and drift handling.",
+      "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness contract, self-harness contract, and doc-gardening rules for review-due and drift handling.",
       "tags": ["harness", "agents", "testing"],
-      "schema_refs": ["docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json"]
+      "schema_refs": ["docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json", "docs/schemas/onlava.agent_context.v1.schema.json"]
     },
     {
       "path": "docs/app-development-cookbook.md",
