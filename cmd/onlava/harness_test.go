@@ -838,13 +838,14 @@ func TestRunHarnessKnowledgeStepValidAndInvalidFixtures(t *testing.T) {
 	})
 }
 
-func TestArchitectureChecksAllowLongExecPlans(t *testing.T) {
+func TestArchitectureChecksIgnoreMarkdownLineCount(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	longMarkdown := strings.Repeat("line\n", architectureWarnLines+1)
 	writeTestAppFile(t, root, "docs/plans/0060-long-plan.md", longMarkdown)
 	writeTestAppFile(t, root, "docs/reference.md", longMarkdown)
+	writeTestAppFile(t, root, "src/large.ts", strings.Repeat("const value = 1\n", architectureWarnLines+1))
 
 	summary := architectureSummary{}
 	diagnostics, err := checkArchitectureSource(root, &summary)
@@ -852,23 +853,22 @@ func TestArchitectureChecksAllowLongExecPlans(t *testing.T) {
 		t.Fatalf("checkArchitectureSource() error = %v", err)
 	}
 
-	var execPlanWarned bool
-	var referenceWarned bool
+	var markdownWarned bool
+	var sourceWarned bool
 	for _, diag := range diagnostics {
-		switch filepath.ToSlash(diag.File) {
-		case filepath.ToSlash(filepath.Join(root, "docs/plans/0060-long-plan.md")):
-			execPlanWarned = true
-		case filepath.ToSlash(filepath.Join(root, "docs/reference.md")):
-			if strings.Contains(diag.Message, "over warning threshold") {
-				referenceWarned = true
-			}
+		file := filepath.ToSlash(diag.File)
+		if strings.HasSuffix(file, ".md") && strings.Contains(diag.Message, "over warning threshold") {
+			markdownWarned = true
+		}
+		if strings.HasSuffix(file, "src/large.ts") && strings.Contains(diag.Message, "over warning threshold") {
+			sourceWarned = true
 		}
 	}
-	if execPlanWarned {
-		t.Fatalf("long ExecPlan produced architecture diagnostic: %+v", diagnostics)
+	if markdownWarned {
+		t.Fatalf("markdown produced architecture size diagnostic: %+v", diagnostics)
 	}
-	if !referenceWarned {
-		t.Fatalf("ordinary long markdown did not produce warning: %+v", diagnostics)
+	if !sourceWarned {
+		t.Fatalf("ordinary long source file did not produce warning: %+v", diagnostics)
 	}
 }
 

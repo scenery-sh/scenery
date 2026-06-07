@@ -4,8 +4,17 @@
   "owner_default": "onlava maintainers",
   "freshness_policy": {
     "default_review_days": 30,
-    "quality_grades": ["A", "B", "C", "D"],
-    "freshness_states": ["current", "review_due", "stale"]
+    "quality_grades": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "freshness_states": [
+      "current",
+      "review_due",
+      "stale"
+    ]
   },
   "documents": [
     {
@@ -18,7 +27,11 @@
       "last_reviewed": "2026-05-31",
       "review_after": "2026-06-30",
       "summary": "Human entry point for the repo knowledge base, with explicit agent entry points and current-contract guidance.",
-      "tags": ["docs", "agents", "index"]
+      "tags": [
+        "docs",
+        "agents",
+        "index"
+      ]
     },
     {
       "path": "docs/knowledge.json",
@@ -30,8 +43,15 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Machine-readable docs metadata for agents and harness validation, including active ExecPlan entries until deterministic plan indexing exists.",
-      "tags": ["docs", "agents", "json", "contract"],
-      "schema_refs": ["docs/schemas/onlava.docs.index.v1.schema.json"]
+      "tags": [
+        "docs",
+        "agents",
+        "json",
+        "contract"
+      ],
+      "schema_refs": [
+        "docs/schemas/onlava.docs.index.v1.schema.json"
+      ]
     },
     {
       "path": "AGENTS.md",
@@ -43,7 +63,12 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Repo-local operating manual for agents changing onlava itself, including the session/capability model, validation, docs review-due signals, drift handling, and client-app instruction rules.",
-      "tags": ["agents", "repo", "instructions", "workflow"]
+      "tags": [
+        "agents",
+        "repo",
+        "instructions",
+        "workflow"
+      ]
     },
     {
       "path": "SKILL.md",
@@ -55,7 +80,12 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Concise installed-skill entrypoint for using current onlava apps through app sessions and capabilities, including CLI JSON, managed toolchain diagnostics, browser UI harness validation, docs review-due signals, debugging, databases, generated clients, and validation loops.",
-      "tags": ["skill", "agents", "onboarding", "toolchain"]
+      "tags": [
+        "skill",
+        "agents",
+        "onboarding",
+        "toolchain"
+      ]
     },
     {
       "path": "docs/agent-guide.md",
@@ -67,7 +97,13 @@
       "last_reviewed": "2026-06-01",
       "review_after": "2026-06-30",
       "summary": "Agent workflow guide for using CLI JSON, app-session capabilities, managed toolchain commands, cache artifacts, TypeScript clients, and app-local instruction layering.",
-      "tags": ["agents", "cli", "apps", "client-integration", "toolchain"]
+      "tags": [
+        "agents",
+        "cli",
+        "apps",
+        "client-integration",
+        "toolchain"
+      ]
     },
     {
       "path": "PLAN.md",
@@ -79,7 +115,12 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Root plan translating OpenAI harness engineering ideas into onlava implementation priorities, with the browser UI harness marked as implemented baseline and route-depth work tracked separately.",
-      "tags": ["plans", "harness", "agents", "roadmap"]
+      "tags": [
+        "plans",
+        "harness",
+        "agents",
+        "roadmap"
+      ]
     },
     {
       "path": "PLANS.md",
@@ -88,10 +129,15 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Required structure for long-running agent-executable implementation plans.",
-      "tags": ["plans", "execplans", "agents", "contract"]
+      "last_reviewed": "2026-06-07",
+      "review_after": "2026-07-07",
+      "summary": "Required structure for long-running agent-executable implementation plans; reviewed against current self-harness ExecPlan section enforcement.",
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "contract"
+      ]
     },
     {
       "path": "ARCHITECTURE.md",
@@ -100,10 +146,15 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns.",
-      "tags": ["architecture", "agents", "boundaries", "codemap"]
+      "last_reviewed": "2026-06-07",
+      "review_after": "2026-07-07",
+      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, updated for current onlava up/serve command naming.",
+      "tags": [
+        "architecture",
+        "agents",
+        "boundaries",
+        "codemap"
+      ]
     },
     {
       "path": "docs/local-contract.md",
@@ -115,8 +166,21 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, harness evidence artifacts, UI harness journey artifacts, cache artifacts, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
-      "tags": ["contract", "cli", "agents", "schemas", "toolchain"],
-      "schema_refs": ["docs/schemas/onlava.toolchain.v1.schema.json", "docs/schemas/onlava.toolchain.status.v1.schema.json", "docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json", "docs/schemas/onlava.harness.ui.v1.schema.json", "docs/schemas/onlava.harness.ui.dom.v1.schema.json"]
+      "tags": [
+        "contract",
+        "cli",
+        "agents",
+        "schemas",
+        "toolchain"
+      ],
+      "schema_refs": [
+        "docs/schemas/onlava.toolchain.v1.schema.json",
+        "docs/schemas/onlava.toolchain.status.v1.schema.json",
+        "docs/schemas/onlava.harness.artifact.v1.schema.json",
+        "docs/schemas/onlava.inspect.harness.v1.schema.json",
+        "docs/schemas/onlava.harness.ui.v1.schema.json",
+        "docs/schemas/onlava.harness.ui.dom.v1.schema.json"
+      ]
     },
     {
       "path": "docs/environment.md",
@@ -128,8 +192,17 @@
       "last_reviewed": "2026-06-01",
       "review_after": "2026-06-26",
       "summary": "Human reference for onlava-owned environment variables, app-injected process identity, managed toolchain controls, local dev overrides, and tooling escape hatches.",
-      "tags": ["environment", "env", "contract", "dev", "runtime", "toolchain"],
-      "schema_refs": ["docs/schemas/onlava.environment.registry.v1.schema.json"]
+      "tags": [
+        "environment",
+        "env",
+        "contract",
+        "dev",
+        "runtime",
+        "toolchain"
+      ],
+      "schema_refs": [
+        "docs/schemas/onlava.environment.registry.v1.schema.json"
+      ]
     },
     {
       "path": "docs/environment.registry.json",
@@ -141,8 +214,16 @@
       "last_reviewed": "2026-06-01",
       "review_after": "2026-07-01",
       "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness.",
-      "tags": ["environment", "env", "json", "contract", "harness"],
-      "schema_refs": ["docs/schemas/onlava.environment.registry.v1.schema.json"]
+      "tags": [
+        "environment",
+        "env",
+        "json",
+        "contract",
+        "harness"
+      ],
+      "schema_refs": [
+        "docs/schemas/onlava.environment.registry.v1.schema.json"
+      ]
     },
     {
       "path": "docs/grafana.md",
@@ -154,7 +235,13 @@
       "last_reviewed": "2026-06-01",
       "review_after": "2026-06-24",
       "summary": "Dev-only Grafana supervision, managed toolchain binary resolution, provisioning paths, stable datasource/dashboard UIDs, and environment controls.",
-      "tags": ["grafana", "observability", "dev", "victoria", "toolchain"]
+      "tags": [
+        "grafana",
+        "observability",
+        "dev",
+        "victoria",
+        "toolchain"
+      ]
     },
     {
       "path": "docs/harness-engineering.md",
@@ -166,8 +253,18 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, self-harness contract, and doc-gardening rules for review-due and drift handling.",
-      "tags": ["harness", "agents", "testing"],
-      "schema_refs": ["docs/schemas/onlava.harness.artifact.v1.schema.json", "docs/schemas/onlava.inspect.harness.v1.schema.json", "docs/schemas/onlava.agent_context.v1.schema.json", "docs/schemas/onlava.harness.ui.v1.schema.json", "docs/schemas/onlava.harness.ui.dom.v1.schema.json"]
+      "tags": [
+        "harness",
+        "agents",
+        "testing"
+      ],
+      "schema_refs": [
+        "docs/schemas/onlava.harness.artifact.v1.schema.json",
+        "docs/schemas/onlava.inspect.harness.v1.schema.json",
+        "docs/schemas/onlava.agent_context.v1.schema.json",
+        "docs/schemas/onlava.harness.ui.v1.schema.json",
+        "docs/schemas/onlava.harness.ui.dom.v1.schema.json"
+      ]
     },
     {
       "path": "docs/app-development-cookbook.md",
@@ -179,7 +276,12 @@
       "last_reviewed": "2026-06-01",
       "review_after": "2026-07-01",
       "summary": "Practical recipes for building onlava apps, endpoints, auth, middleware, Temporal workers, cron, configured generators, code tasks, generated clients, proxy config, and validation workflows.",
-      "tags": ["cookbook", "apps", "agents", "runtime"]
+      "tags": [
+        "cookbook",
+        "apps",
+        "agents",
+        "runtime"
+      ]
     },
     {
       "path": "docs/ui-agent-contract.md",
@@ -191,43 +293,13 @@
       "last_reviewed": "2026-05-09",
       "review_after": "2026-06-08",
       "summary": "Rules for composing dashboard and app UI from onlava-owned primitives, layouts, and the @onlava registry instead of direct shadcn usage.",
-      "tags": ["ui", "agents", "shadcn", "registry", "guardrails"]
-    },
-    {
-      "path": "docs/PRD-2-proto.md",
-      "title": "Proto/Wire PRD",
-      "owner": "onlava runtime",
-      "status": "reference",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Binary wire transport and generated client plan.",
-      "tags": ["wire", "proto", "codegen"]
-    },
-    {
-      "path": "docs/PRD-3-release.md",
-      "title": "Release Readiness PRD",
-      "owner": "onlava runtime",
-      "status": "reference",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Audit and recommendations for freezing a smaller production-ready onlava v0.",
-      "tags": ["release", "runtime", "security", "contract"]
-    },
-    {
-      "path": "docs/PRD-4-devrun.md",
-      "title": "Dev/Run Command Split PRD",
-      "owner": "onlava runtime",
-      "status": "reference",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Historical recommendation to split local development behavior from headless runtime execution; the current headless command is onlava serve.",
-      "tags": ["cli", "runtime", "dev", "production"]
+      "tags": [
+        "ui",
+        "agents",
+        "shadcn",
+        "registry",
+        "guardrails"
+      ]
     },
     {
       "path": "docs/plans/0064-agent-first-development-control-plane.md",
@@ -239,7 +311,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for aligning repo knowledge, active plan indexing, review-due signals, tech debt, and docs/behavior drift handling before implementation work.",
-      "tags": ["plans", "execplans", "agents", "docs", "harness"]
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "docs",
+        "harness"
+      ]
     },
     {
       "path": "docs/plans/0065-onlava-managed-neon-dev-cell.md",
@@ -251,7 +329,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for an Onlava-owned local Neon dev cell, branch-isolated managed Postgres provider, worktree/session branch pins, and agent-safe branch/worktree workflows.",
-      "tags": ["plans", "execplans", "database", "neon", "agents"]
+      "tags": [
+        "plans",
+        "execplans",
+        "database",
+        "neon",
+        "agents"
+      ]
     },
     {
       "path": "docs/plans/0035-temporal-worker-production-hardening.md",
@@ -263,7 +347,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for task-queue scoping, deterministic workflow starts, durable ONLV async flows, worker deployment promotion, cron policy, and manifest/connection hardening.",
-      "tags": ["plans", "execplans", "temporal", "workers", "onlv"]
+      "tags": [
+        "plans",
+        "execplans",
+        "temporal",
+        "workers",
+        "onlv"
+      ]
     },
     {
       "path": "docs/plans/0045-onlv-agent-native-dev-migration.md",
@@ -274,20 +364,32 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Active ExecPlan for making ONLV consume the PRD-5 agent model by default through onlava-owned dev sessions, routes, Postgres, Electric, and docs.",
-      "tags": ["plans", "execplans", "agents", "onlv", "dev"]
+      "summary": "Active ExecPlan for making ONLV consume the agent-native local development model by default through onlava-owned dev sessions, routes, Postgres, Electric, and docs.",
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "onlv",
+        "dev"
+      ]
     },
     {
       "path": "docs/plans/0046-prd5-dev-safety-hardening.md",
-      "title": "PRD-5 Dev Safety Hardening",
+      "title": "Agent Dev Safety Hardening",
       "owner": "onlava runtime",
       "status": "active",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Active ExecPlan for PRD-5 hardening around ownership fingerprints, cleanup, explicit sessions, legacy escape hatches, and parallel validation.",
-      "tags": ["plans", "execplans", "agents", "dev", "safety"]
+      "summary": "Active ExecPlan for agent-dev hardening around ownership fingerprints, cleanup, explicit sessions, legacy escape hatches, and parallel validation.",
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "dev",
+        "safety"
+      ]
     },
     {
       "path": "docs/plans/0048-agent-runtime-operational-hardening.md",
@@ -299,7 +401,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, setup policy, and the two-worktree ONLV gate.",
-      "tags": ["plans", "execplans", "agents", "runtime", "hardening"]
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "runtime",
+        "hardening"
+      ]
     },
     {
       "path": "docs/plans/0049-browser-direct-api-routing.md",
@@ -311,7 +419,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for replacing Pulse's same-origin Vite API proxy with direct browser calls to the agent-routed API origin, with explicit auth, CORS, and sync validation.",
-      "tags": ["plans", "execplans", "browser", "api", "onlv"]
+      "tags": [
+        "plans",
+        "execplans",
+        "browser",
+        "api",
+        "onlv"
+      ]
     },
     {
       "path": "docs/plans/0050-test-suite-speed-hardening.md",
@@ -323,7 +437,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for fixing flaky Grafana version probing, expected CLI warnings, timing reports, and warm-cache Go test runtime.",
-      "tags": ["plans", "execplans", "tests", "performance", "stability"]
+      "tags": [
+        "plans",
+        "execplans",
+        "tests",
+        "performance",
+        "stability"
+      ]
     },
     {
       "path": "docs/plans/0051-harness-self-agent-oracle.md",
@@ -335,7 +455,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for making self-harness a machine-readable development oracle with full tests, recommendations, timing budgets, schema validation, context pack, and drift checks.",
-      "tags": ["plans", "execplans", "harness", "agents", "oracle"]
+      "tags": [
+        "plans",
+        "execplans",
+        "harness",
+        "agents",
+        "oracle"
+      ]
     },
     {
       "path": "docs/plans/0054-remove-objectstore-functionality.md",
@@ -347,7 +473,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for removing the beta data/objectstore feature surface without compatibility aliases or dormant code paths.",
-      "tags": ["plans", "execplans", "objectstore", "cleanup", "runtime"]
+      "tags": [
+        "plans",
+        "execplans",
+        "objectstore",
+        "cleanup",
+        "runtime"
+      ]
     },
     {
       "path": "docs/plans/0055-structured-dev-events-and-console.md",
@@ -359,7 +491,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for a structured source-aware dev event spine, log filters, observing-only terminal console, and error summaries over the same stream.",
-      "tags": ["plans", "execplans", "events", "console", "agents"]
+      "tags": [
+        "plans",
+        "execplans",
+        "events",
+        "console",
+        "agents"
+      ]
     },
     {
       "path": "docs/plans/0056-dev-event-backend-cutover-and-parity.md",
@@ -371,7 +509,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for VictoriaLogs dev-event cutover and JSON-backed dashboard/session metadata parity.",
-      "tags": ["plans", "execplans", "events", "victoria", "dashboard"]
+      "tags": [
+        "plans",
+        "execplans",
+        "events",
+        "victoria",
+        "dashboard"
+      ]
     },
     {
       "path": "docs/plans/0059-frozen-toolchain-manifest.md",
@@ -383,7 +527,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for a frozen toolchain manifest, managed local tool store, toolchain CLI, and removal of implicit system PATH resolution for Onlava-managed tools.",
-      "tags": ["plans", "execplans", "toolchain", "release", "agents"]
+      "tags": [
+        "plans",
+        "execplans",
+        "toolchain",
+        "release",
+        "agents"
+      ]
     },
     {
       "path": "docs/plans/0060-onlava-doctor-command.md",
@@ -395,7 +545,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for a fast, read-only doctor command that reports host readiness, resources, version metadata, dependency checks, and app-sensitive diagnostics.",
-      "tags": ["plans", "execplans", "doctor", "diagnostics", "agents"]
+      "tags": [
+        "plans",
+        "execplans",
+        "doctor",
+        "diagnostics",
+        "agents"
+      ]
     },
     {
       "path": "docs/plans/0047-typescript-temporal-workers.md",
@@ -407,7 +563,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for domain-local TypeScript Temporal activities, generated worker runtime files, external Go activity declarations, and validation.",
-      "tags": ["plans", "execplans", "typescript", "temporal", "workers"]
+      "tags": [
+        "plans",
+        "execplans",
+        "typescript",
+        "temporal",
+        "workers"
+      ]
     },
     {
       "path": "docs/plans/0062-remove-legacy-agent-transport.md",
@@ -419,7 +581,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for removing obsolete agent transport from config, routing, dashboard, tests, docs, and self-harness checks.",
-      "tags": ["plans", "execplans", "agents", "transport", "cleanup"]
+      "tags": [
+        "plans",
+        "execplans",
+        "agents",
+        "transport",
+        "cleanup"
+      ]
     },
     {
       "path": "docs/plans/0063-db-lifecycle-split.md",
@@ -431,7 +599,13 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Active ExecPlan for splitting DB apply, seed, and setup from generated SQLC artifacts and migrating ONLV to the new lifecycle.",
-      "tags": ["plans", "execplans", "database", "sqlc", "onlv"]
+      "tags": [
+        "plans",
+        "execplans",
+        "database",
+        "sqlc",
+        "onlv"
+      ]
     },
     {
       "path": "docs/plans/0001-devrun-command-split.md",
@@ -440,10 +614,15 @@
       "status": "completed",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Completed ExecPlan for splitting development supervisor behavior from headless runtime execution; current local startup is onlava up and headless runtime execution is onlava serve.",
-      "tags": ["plans", "execplans", "cli", "runtime"]
+      "last_reviewed": "2026-06-07",
+      "review_after": "2026-07-07",
+      "summary": "Completed historical ExecPlan for splitting development supervisor behavior from headless runtime execution; current local startup is onlava up and headless runtime execution is onlava serve.",
+      "tags": [
+        "plans",
+        "execplans",
+        "cli",
+        "runtime"
+      ]
     },
     {
       "path": "docs/plans/0002-v0-release-readiness.md",
@@ -452,10 +631,15 @@
       "status": "completed",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "Completed ExecPlan for hardening a narrow production-ready v0 contract.",
-      "tags": ["plans", "execplans", "release", "runtime"]
+      "last_reviewed": "2026-06-07",
+      "review_after": "2026-07-07",
+      "summary": "Completed historical ExecPlan for hardening a narrow production-ready v0 contract; current command contract lives in docs/local-contract.md.",
+      "tags": [
+        "plans",
+        "execplans",
+        "release",
+        "runtime"
+      ]
     },
     {
       "path": "docs/plans/0003-victoria-observability-sidecars.md",
@@ -464,10 +648,15 @@
       "status": "completed",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-04-27",
-      "review_after": "2026-05-27",
-      "summary": "ExecPlan for supervising local VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars as the local observability substrate.",
-      "tags": ["plans", "execplans", "observability", "victoria"]
+      "last_reviewed": "2026-06-07",
+      "review_after": "2026-07-07",
+      "summary": "Completed historical ExecPlan for supervising local VictoriaMetrics, VictoriaLogs, and VictoriaTraces sidecars as the local observability substrate.",
+      "tags": [
+        "plans",
+        "execplans",
+        "observability",
+        "victoria"
+      ]
     },
     {
       "path": "docs/plans/active.md",
@@ -479,7 +668,11 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Current plans that should inform agent decisions, using permanent historical IDs and linking active ExecPlans also indexed in docs/knowledge.json.",
-      "tags": ["plans", "roadmap", "agents"]
+      "tags": [
+        "plans",
+        "roadmap",
+        "agents"
+      ]
     },
     {
       "path": "docs/plans/completed.md",
@@ -491,7 +684,11 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Completed milestones and shipped behavior, including the implemented browser UI harness baseline.",
-      "tags": ["plans", "history", "agents"]
+      "tags": [
+        "plans",
+        "history",
+        "agents"
+      ]
     },
     {
       "path": "docs/runbooks/standard-auth-migration.md",
@@ -500,10 +697,15 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-05-08",
-      "review_after": "2026-06-07",
-      "summary": "Operator checklist and SQL template for preserving existing app-owned auth data when moving to onlava standard auth.",
-      "tags": ["runbook", "auth", "migration", "postgres"]
+      "last_reviewed": "2026-06-07",
+      "review_after": "2026-07-07",
+      "summary": "Operator checklist and SQL template for preserving existing app-owned auth data when moving to onlava standard auth; reviewed against current standard auth schema fields.",
+      "tags": [
+        "runbook",
+        "auth",
+        "migration",
+        "postgres"
+      ]
     },
     {
       "path": "docs/tech-debt.md",
@@ -515,7 +717,11 @@
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
       "summary": "Known cleanup and follow-up work, including browser harness fixture-backed mutation depth rather than missing route-specific journeys.",
-      "tags": ["debt", "risk", "agents"]
+      "tags": [
+        "debt",
+        "risk",
+        "agents"
+      ]
     }
   ],
   "plans": {

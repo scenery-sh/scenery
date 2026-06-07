@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` makes `onlava dev` an agent client and defines an attached/detached lifecycle:
+the agent-native local-dev ExecPlan series makes `onlava dev` an agent client and defines an attached/detached lifecycle:
 
 ```text
 onlava dev              # attached; Ctrl-C stops session
@@ -13,7 +13,7 @@ onlava attach           # attach to logs
 onlava down             # stop current session
 ```
 
-The current PRD-5 implementation has agent sessions, routed URLs, `onlava status`, `onlava down`, and session-scoped logs, but `onlava dev` is still only an attached foreground process and there is no `onlava attach` command.
+The current agent-native local-dev implementation has agent sessions, routed URLs, `onlava status`, `onlava down`, and session-scoped logs, but `onlava dev` is still only an attached foreground process and there is no `onlava attach` command.
 
 After this work, `onlava dev --detach` starts a normal dev supervisor as a background agent-owned session, returns after that session is registered, and prints enough information for tools and humans to inspect or attach. `onlava attach` follows the current session's logs by default and can target a specific session. `onlava down` remains the stopping surface by signalling the detached session owner PID recorded in the agent registry.
 
@@ -22,7 +22,7 @@ After this work, `onlava dev --detach` starts a normal dev supervisor as a backg
 * [x] 2026-05-27: Create this ExecPlan and link it from `docs/plans/active.md`.
 * [x] 2026-05-27: Implement `onlava dev --detach` argument parsing, detached child spawning, startup polling, and output.
 * [x] 2026-05-27: Make detached child processes survive the launcher returning without disabling normal parent-death cleanup for attached dev sessions.
-* [x] 2026-05-27: Add `onlava attach` as the PRD-facing log attachment command.
+* [x] 2026-05-27: Add `onlava attach` as the current-contract log attachment command.
 * [x] 2026-05-27: Update command usage, local contract docs, README command list, and tests.
 * [x] 2026-05-27: Run focused tests and full repository tests.
 * [x] 2026-05-27: Run binary install, self harness, and diff checks.
@@ -38,7 +38,7 @@ Record implementation findings here with commands, test output, or file referenc
 ## Decision Log
 
 * Decision: Make detached dev require the local agent.
-  Rationale: The PRD lifecycle is agent-owned. A detached process without an agent session has no stable route, owner PID record, or reliable `down`/`attach` target.
+  Rationale: The agent lifecycle is agent-owned. A detached process without an agent session has no stable route, owner PID record, or reliable `down`/`attach` target.
   Date/Author: 2026-05-27 / Codex
 
 * Decision: Implement `onlava attach` on top of the existing session-scoped log store.
@@ -73,7 +73,7 @@ All validation commands passed. The self harness wrote `.onlava/harness/self-lat
 Relevant files:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 cmd/onlava/main.go
 cmd/onlava/watch.go
 cmd/onlava/logs.go
@@ -104,7 +104,7 @@ Milestone 4 validates process/session behavior with focused tests plus the norma
 
 ## Plan of Work
 
-Start with the smallest agent-native lifecycle that satisfies PRD-5: detached mode spawns the same `onlava dev` implementation in a background child, with an environment marker that only affects parent monitoring. The parent waits for the child PID to appear as the owner of an agent session for the app root, then returns a concise human or JSON result. Keep logs in the existing dashboard store so `onlava attach` and `onlava logs` share output semantics.
+Start with the smallest agent-native lifecycle that satisfies agent-native local-dev: detached mode spawns the same `onlava dev` implementation in a background child, with an environment marker that only affects parent monitoring. The parent waits for the child PID to appear as the owner of an agent session for the app root, then returns a concise human or JSON result. Keep logs in the existing dashboard store so `onlava attach` and `onlava logs` share output semantics.
 
 ## Concrete Steps
 

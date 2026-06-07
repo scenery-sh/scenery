@@ -14,7 +14,7 @@ Use this order when instructions overlap:
 4. `docs/local-contract.md`.
 5. This guide.
 6. `SKILL.md`.
-7. README and historical PRDs.
+7. README and completed ExecPlans.
 
 If old prose disagrees with current JSON or tests, fix the drift. Do not add legacy aliases unless an active plan explicitly requires compatibility.
 

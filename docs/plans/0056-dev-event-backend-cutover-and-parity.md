@@ -42,7 +42,7 @@ Completed on 2026-06-01.
 
 The implementation now has one current dev-event read path for logs, attach, TUI, and console: VictoriaLogs. Local dashboard/session metadata, saved dashboard requests, and compatibility observability snapshots are stored in `devdash.json`.
 
-The module graph and active source/docs no longer reference an embedded local SQL driver. Historical plans and PRDs may still describe the migration history, but they are not current contract.
+The module graph and active source/docs no longer reference an embedded local SQL driver. Historical plans may still describe the migration history, but they are not current contract.
 
 ## Context and Orientation
 
@@ -103,7 +103,7 @@ onlava harness self --json --write
 git diff --check
 go list -m all | rg -n "sqlite|modernc"
 go list -deps ./... | rg -n "sqlite|modernc"
-rg -n "sqlite|SQLite" --glob '!docs/plans/**' --glob '!docs/PRD-*' --glob '!pbcopy' --glob '!vendor/**' --glob '!node_modules/**' .
+rg -n "sqlite|SQLite" --glob '!docs/plans/**' --glob '!pbcopy' --glob '!vendor/**' --glob '!node_modules/**' .
 ```
 
 The test, install, and diff commands passed. The dependency and active-tree scans returned no matches. The final self-harness run should report `ok: true`; advisory timing and review-due warnings are acceptable in default mode.

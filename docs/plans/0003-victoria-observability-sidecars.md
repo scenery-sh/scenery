@@ -2,6 +2,11 @@
 
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
+Current contract note, reviewed 2026-06-07: this completed plan uses the earlier
+`onlava dev` wording. Current local app sessions start with `onlava up`; the
+Victoria sidecar contract is now documented in `docs/local-contract.md`,
+`docs/grafana.md`, and `docs/environment.md`.
+
 ## Purpose / Big Picture
 
 onlava currently keeps local development traces, logs, and metrics in its own dashboard store. That is useful for agent-visible JSON and dashboard parity, but it is not the long-term storage/query engine we want.

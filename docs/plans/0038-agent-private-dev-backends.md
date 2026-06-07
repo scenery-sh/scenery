@@ -4,11 +4,11 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` says worktrees should not bind stable host ports. The shipped 0037 agent MVP created the daemon, control socket, router, session registry, and routed session URLs, but `onlava dev` still starts the app on `127.0.0.1:4000` by default and enables the older local HTTPS proxy unless disabled by environment.
+the agent-native local-dev ExecPlan series says worktrees should not bind stable host ports. The shipped 0037 agent MVP created the daemon, control socket, router, session registry, and routed session URLs, but `onlava dev` still starts the app on `127.0.0.1:4000` by default and enables the older local HTTPS proxy unless disabled by environment.
 
 After this work, the default `onlava dev` path starts the app on a session-private backend, preferably a Unix domain socket under `.onlava/sessions/<session_id>/run/api.sock`, registers that backend with the agent, and prints the agent route as the public API URL. Explicit `--listen`, `--port`, `--proxy`, and `--trust` flags remain available for compatibility and debugging, but they are no longer the default public surface.
 
-This plan intentionally does not move Grafana, Victoria, Temporal, Postgres, Electric, or frontend process ownership. Those are covered by later PRD-5 plans.
+This plan intentionally does not move Grafana, Victoria, Temporal, Postgres, Electric, or frontend process ownership. Those are covered by later agent-native local-dev plans.
 
 ## Progress
 
@@ -28,7 +28,7 @@ Record implementation findings here with commands, test output, or file referenc
 ## Decision Log
 
 * Decision: Preserve explicit TCP flags while changing the no-flag default to agent/private.
-  Rationale: The PRD wants humans to stop seeing per-worktree API ports, but keeping explicit TCP flags gives developers an escape hatch and keeps existing CI helpers simple.
+  Rationale: The agent-native local-dev plan wants humans to stop seeing per-worktree API ports, but keeping explicit TCP flags gives developers an escape hatch and keeps existing CI helpers simple.
   Date/Author: 2026-05-26 / Codex
 
 * Decision: Make the existing local HTTPS proxy opt-in during this phase.
@@ -64,7 +64,7 @@ All validation commands passed. The self harness wrote `.onlava/harness/self-lat
 Relevant files:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 cmd/onlava/main.go
 cmd/onlava/watch.go
 cmd/onlava/dev_supervisor.go

@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` describes the local agent as the single machine-local router that owns `https://console.onlava.localhost` and `https://<route>.<session>.onlava.localhost`. The current agent router is global and session-aware, but it only serves HTTP. The older local proxy owns HTTPS when explicitly enabled, which keeps the HTTPS story tied to the compatibility proxy instead of the agent.
+the agent-native local-dev ExecPlan series describes the local agent as the single machine-local router that owns `https://console.onlava.localhost` and `https://<route>.<session>.onlava.localhost`. The current agent router is global and session-aware, but it only serves HTTP. The older local proxy owns HTTPS when explicitly enabled, which keeps the HTTPS story tied to the compatibility proxy instead of the agent.
 
 After this work, the agent can run its router in TLS mode on a configurable address, generate HTTPS session routes, and use the existing onlava local CA/trust machinery for dynamic `*.onlava.localhost` style names, including two-label session hosts such as `api.<session>.onlava.localhost`.
 
@@ -24,7 +24,7 @@ After this work, the agent can run its router in TLS mode on a configurable addr
 
 Record implementation findings here with commands, test output, or file references.
 
-* 2026-05-27: A static wildcard certificate is not enough for PRD route hosts. `*.onlava.localhost` does not cover `api.<session>.onlava.localhost`, so the agent now uses SNI-based on-demand leaf certificates signed by the existing local CA.
+* 2026-05-27: A static wildcard certificate is not enough for agent route hosts. `*.onlava.localhost` does not cover `api.<session>.onlava.localhost`, so the agent now uses SNI-based on-demand leaf certificates signed by the existing local CA.
 
 * 2026-05-27: The agent control API remains Unix-socket-only. TLS mode applies only to the public router listener and route URL generation.
 
@@ -35,7 +35,7 @@ Record implementation findings here with commands, test output, or file referenc
   Date/Author: 2026-05-27 / Codex
 
 * Decision: Use on-demand per-host leaf certificates rather than one static wildcard certificate.
-  Rationale: `*.onlava.localhost` does not cover PRD session hosts like `api.<session>.onlava.localhost`. The agent needs SNI-based certificate generation signed by the local CA.
+  Rationale: `*.onlava.localhost` does not cover agent session hosts like `api.<session>.onlava.localhost`. The agent needs SNI-based certificate generation signed by the local CA.
   Date/Author: 2026-05-27 / Codex
 
 ## Outcomes & Retrospective
@@ -68,7 +68,7 @@ All validation commands passed. The self harness wrote `.onlava/harness/self-lat
 Relevant files:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 internal/agent/server.go
 internal/agent/router.go
 internal/agent/session.go

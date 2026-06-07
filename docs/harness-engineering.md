@@ -188,12 +188,12 @@ Hard failures:
 - forbidden CLI/router/color framework imports are rejected in source
 - packages outside `cmd/onlava` may not import `github.com/pbrazdil/onlava/cmd/onlava`
 - required generated/vendored ignore markers must exist in `.gitignore` and `.gitattributes`
-- non-generated source files over 2500 lines are rejected
+- non-generated source/code files over 2500 lines are rejected; Markdown docs are not subject to line-count size checks
 - UI code must use the onlava `@onlava` shadcn registry namespace and wrapper script, registry items must declare safe source/target files, and screens must not import legacy `components/ui`, vendor shadcn, Radix, or low-level styling utilities directly
 
 Warnings:
 
-- non-generated source files over 1000 lines
+- non-generated source/code files over 1000 lines; Markdown docs are not subject to line-count size checks
 - cgo imports, because they require native build handling
 - `.DS_Store` files found in the working tree
 - long or advanced `className` literals, including common expression forms such as `cn(...)`, template literals, and conditional literals, outside onlava primitives/layouts/vendor while existing dashboard screens are migrated

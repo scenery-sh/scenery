@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-The current `main` branch is close to the intended PRD-5 local-runtime end state: `onlava dev` defaults to agent-routed sessions, owner metadata exists for sessions and substrates, frontend routes are session-scoped, ONLV has moved to agent-native defaults, and the router preserves public host/proto/port context.
+The current `main` branch is close to the intended agent-native local-dev local-runtime end state: `onlava dev` defaults to agent-routed sessions, owner metadata exists for sessions and substrates, frontend routes are session-scoped, ONLV has moved to agent-native defaults, and the router preserves public host/proto/port context.
 
 The remaining work is operational hardening. The default path must stay agent-safe even when older environment variables are exported, cleanup must not leave managed databases behind, ordinary agent restarts must not interrupt live shared substrates, the legacy machine-global proxy must be removed from the normal `onlava dev` surface, `dev.setup` needs a lifecycle policy, and the real two-worktree ONLV smoke must be an executable release gate.
 
@@ -14,7 +14,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 
 ## Progress
 
-- [x] 2026-05-27: Created this follow-on ExecPlan from a source review of current `main` and the remaining PRD-5 operational risks.
+- [x] 2026-05-27: Created this follow-on ExecPlan from a source review of current `main` and the remaining agent-native local-dev operational risks.
 - [x] 2026-05-28: Revalidated the missing-work list against source and refreshed this plan as the active source-review ExecPlan. The cleanup command is now `onlava prune`, and the obsolete spelling has no compatibility alias.
 - [ ] Phase 0: Record the current agent-safe default baseline with tests, install, harness, and live ONLV URL checks.
 - [ ] Phase 1.1: Make dev dashboard/log storage agent-owned in agent mode even when `ONLAVA_DEV_CACHE_DIR` is exported.
@@ -37,7 +37,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 
 ## Decision Log
 
-- Decision: Keep this as a follow-on hardening plan instead of reopening the PRD-5 architecture.
+- Decision: Keep this as a follow-on hardening plan instead of reopening the agent-native local-dev architecture.
   Rationale: The current implementation has reached the right shape. The remaining risks are operational edges around storage ownership, destructive cleanup, restart semantics, legacy escape hatches, setup frequency, and release gating.
   Date/Author: 2026-05-27 / Codex.
 - Decision: Prioritize the `ONLAVA_DEV_CACHE_DIR` dashboard split first.

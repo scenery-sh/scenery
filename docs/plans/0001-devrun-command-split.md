@@ -2,7 +2,12 @@
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-This plan follows the standard in [../../PLANS.md](../../PLANS.md). It is based on [../PRD-4-devrun.md](../PRD-4-devrun.md), but this file is self-contained so an agent can execute it without prior chat context.
+This plan follows the standard in [../../PLANS.md](../../PLANS.md). It supersedes a removed historical dev/run product prompt and remains self-contained so an agent can read it without prior chat context.
+
+Current contract note, reviewed 2026-06-07: this completed plan records the
+historical split that later evolved into `onlava up` for the local development
+app session and `onlava serve` for headless API execution. Keep this plan as
+history; use `docs/local-contract.md` for the current command contract.
 
 ## Purpose / Big Picture
 
@@ -14,7 +19,7 @@ The result is observable from the command line. Running `onlava dev --app-root /
 
 ## Progress
 
-- [x] (2026-04-27 16:12Z) Created this ExecPlan from `docs/PRD-4-devrun.md`.
+- [x] (2026-04-27 16:12Z) Created this ExecPlan from the removed historical dev/run product prompt.
 - [x] (2026-04-27 14:24Z) Inventory current `onlava run` behavior and tests that assume development behavior.
 - [x] (2026-04-27 14:24Z) Add the `onlava dev` command as an alias for the current development supervisor path.
 - [x] (2026-04-27 14:25Z) Implement a new headless `onlava run` path that builds once and starts the app without dev services.
@@ -182,7 +187,7 @@ If an external app cannot run because of local environment requirements, switch 
 
 ## Artifacts and Notes
 
-Source PRD summary:
+Source prompt summary:
 
     onlava dev is the interactive development experience.
     onlava run is the headless production-like runtime command.

@@ -56,12 +56,13 @@ parser-derived decisions downstream when the model can represent them once.
 
 This is the CLI entrypoint and orchestration layer. `main`, `run`, and the
 command-specific functions parse flags and connect internal packages into user
-commands such as `dev`, `run`, `build`, `check`, `inspect`, `harness`, `logs`,
-`admin`, `test`, and `gen`.
+commands such as `up`, `serve`, `worker`, `build`, `check`, `inspect`,
+`harness`, `logs`, `console`, `db`, `task`, and `generate`.
 
-`onlava serve` is the headless app execution path. `onlava dev` wraps the same app
-build/run loop with the local development platform: dashboard, proxy, live
-rebuild behavior, logs, traces, metrics, and process supervision.
+`onlava serve` is the headless app execution path. `onlava up` starts the local
+app session around that runtime: dashboard, agent routing, live rebuild behavior,
+logs, traces, metrics, managed dev services, optional frontend routing, and
+process supervision.
 
 Architecture invariant: non-CLI packages must not import `cmd/onlava`. Shared
 logic belongs in `internal/` or a public package, depending on whether user apps
@@ -148,7 +149,7 @@ context, current request metadata, structured error responses, middleware,
 observability reports, secrets, DB tracing, Temporal workers, cron, and graceful shutdown.
 
 Architecture invariant: there is one local app server per generated app process.
-`onlava dev` may run extra development services around it, but app API execution
+`onlava up` may run extra development services around it, but app API execution
 stays inside the generated app binary.
 
 Architecture invariant: runtime request state must be scoped to the current
@@ -217,8 +218,8 @@ runtime behavior.
 
 ### `docs`, `PLANS.md`, and `PLAN.md`
 
-`docs` contains local contracts, schemas, PRDs, active plans, completed plans,
-and the agent-readable knowledge index. `PLANS.md` defines the execution-plan
+`docs` contains local contracts, schemas, active plans, completed plans,
+runbooks, and the agent-readable knowledge index. `PLANS.md` defines the execution-plan
 format. `PLAN.md` is strategic roadmap material, not the place to track
 step-by-step implementation progress.
 
@@ -273,7 +274,7 @@ Local observability is part of the product surface. Runtime traces, logs,
 metrics, dashboard state, and inspect commands should give enough evidence to
 debug a local app without relying on external services.
 
-`onlava dev` uses supervised VictoriaMetrics, VictoriaLogs, and VictoriaTraces
+`onlava up` uses supervised VictoriaMetrics, VictoriaLogs, and VictoriaTraces
 sidecars for local observability when their managed binaries are available.
 Dashboard session metadata and saved request state live in a small JSON store
 under the dev cache root; the project does not carry an embedded SQL driver for

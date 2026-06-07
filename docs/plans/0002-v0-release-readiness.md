@@ -2,7 +2,12 @@
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-This plan follows the standard in [../../PLANS.md](../../PLANS.md). It is based on [../PRD-3-release.md](../PRD-3-release.md), but this file is self-contained so an agent can execute it without prior chat context.
+This plan follows the standard in [../../PLANS.md](../../PLANS.md). It supersedes a removed historical release-readiness product prompt and remains self-contained so an agent can read it without prior chat context.
+
+Current contract note, reviewed 2026-06-07: this completed plan is historical
+release-hardening context. The current command contract uses `onlava up` for the
+local app session and `onlava serve` for headless API execution; use
+`docs/local-contract.md` as the source of truth.
 
 ## Purpose / Big Picture
 
@@ -14,7 +19,7 @@ The outcome should be observable from a clean checkout. A contributor should be 
 
 ## Progress
 
-- [x] (2026-04-27 16:34Z) Created this ExecPlan from `docs/PRD-3-release.md`.
+- [x] (2026-04-27 16:34Z) Created this ExecPlan from the removed historical release-readiness product prompt.
 - [x] (2026-04-27 17:36Z) Defined the stable v0 surface and marked everything else dev-only, beta, or compatibility-mode in `docs/local-contract.md`.
 - [x] (2026-04-27 17:36Z) Confirmed the `onlava dev` / headless `onlava run` split is implemented and kept [0001-devrun-command-split.md](0001-devrun-command-split.md) as the detailed dependency.
 - [x] (2026-04-27 17:36Z) Confirmed current checkout has `ui/dist`, added `onlava version --json`, and added `onlava.version.v1` schema.
@@ -32,7 +37,7 @@ The outcome should be observable from a clean checkout. A contributor should be 
 
 ## Surprises & Discoveries
 
-Known audit findings from the PRD:
+Known audit findings from the source prompt:
 
 - `onlava run` previously started development supervisor behavior, including dashboard, local HTTPS proxy, removed agent transport, and file watching.
 - Generated app binaries could carry dev-platform behavior through `github.com/pbrazdil/onlava/runtimeapp`.
@@ -113,7 +118,7 @@ The v0 release-hardening slice now has explicit docs for stable/dev/beta/compati
 
 ## Context and Orientation
 
-The release-readiness source audit is stored in `docs/PRD-3-release.md`. It recommends not freezing the current feature set as-is. It names the main risk as the mixing of app runtime, development supervisor, dashboard, local HTTPS proxy, Pub/Sub, cron, and removed agent transport.
+The release-readiness source audit was folded into this ExecPlan after the historical product prompt was removed. It recommends not freezing the current feature set as-is. It names the main risk as the mixing of app runtime, development supervisor, dashboard, local HTTPS proxy, Pub/Sub, cron, and removed agent transport.
 
 The CLI dispatcher lives in `cmd/onlava/main.go`. The stable commands to freeze for v0 are expected to be `onlava run`, `onlava build`, `onlava check --json`, `onlava inspect ... --json`, `onlava logs --jsonl`, `onlava test`, and `onlava gen client`. `onlava dev` is the development-platform command after the command split.
 
@@ -257,7 +262,6 @@ When moving dev/admin endpoints, keep local dashboard functionality working by r
 
 Primary source:
 
-    docs/PRD-3-release.md
 
 Related active ExecPlan:
 

@@ -314,13 +314,10 @@ func architectureAllowsLongFile(rel string) bool {
 	case ".json":
 		return true
 	case ".md":
+		return true
 	default:
 		return false
 	}
-	if rel == "docs/plans/active.md" || rel == "docs/plans/completed.md" {
-		return false
-	}
-	return strings.HasPrefix(rel, "docs/plans/")
 }
 
 func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {

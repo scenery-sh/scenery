@@ -159,7 +159,7 @@ Expected removed or heavily edited artifacts:
 
 ```text
 pubsub/
-docs/PRD-1-pubsub.md
+removed historical pubsub product prompt
 ui/src/routes/pubsub.tsx
 ui/src/routes/pubsub-components.tsx
 runtime/pubsub.go

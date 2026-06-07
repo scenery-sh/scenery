@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` requires every local development session to have isolated identity in runtime metadata, auth/local URLs, logs, traces, metrics, and Temporal task queues. The 0037 agent MVP records `session_id` and `runtime_app_id` in the session manifest, but the app runtime still primarily runs under the source app ID and most emitted signals are not session-scoped.
+the agent-native local-dev ExecPlan series requires every local development session to have isolated identity in runtime metadata, auth/local URLs, logs, traces, metrics, and Temporal task queues. The 0037 agent MVP records `session_id` and `runtime_app_id` in the session manifest, but the app runtime still primarily runs under the source app ID and most emitted signals are not session-scoped.
 
 After this work, the runtime receives and exposes the agent session identity, dev output and observability records can be filtered by session, and Temporal local development uses session-specific task queue/build identifiers so parallel worktrees cannot consume each other's work.
 
@@ -57,7 +57,7 @@ go test ./cmd/onlava ./internal/devdash ./runtime
 go test ./...
 ```
 
-Focused and full Go tests passed. Final install and self-harness validation are tracked by the surrounding PRD-5 worktree validation.
+Focused and full Go tests passed. Final install and self-harness validation are tracked by the surrounding agent-native local-dev worktree validation.
 
 ## Context and Orientation
 

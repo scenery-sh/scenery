@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` calls for one machine-local daemon/router and one dashboard. The current PRD-5 implementation has an agent router and hidden session dashboard backends, but `onlava dev` still starts a dashboard server per attached worktree and the agent mainly routes browser traffic to those per-session servers.
+the agent-native local-dev ExecPlan series calls for one machine-local daemon/router and one dashboard. The current agent-native local-dev implementation has an agent router and hidden session dashboard backends, but `onlava dev` still starts a dashboard server per attached worktree and the agent mainly routes browser traffic to those per-session servers.
 
 After this work, the local agent owns the dashboard HTTP surface and dashboard store, `console.onlava.localhost` is a true global dashboard, and `/s/<session_id>` selects session context inside that global UI. Per-session app processes continue to report status, logs, traces, metrics, and removed agent transport data through the same JSON contracts, but the visible dashboard process no longer belongs to one worktree.
 
@@ -65,7 +65,7 @@ All validation passed. The self harness wrote `.onlava/harness/self-latest.json`
 Relevant files:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 cmd/onlava/agent.go
 cmd/onlava/dashboard.go
 cmd/onlava/dashboard_rpc.go

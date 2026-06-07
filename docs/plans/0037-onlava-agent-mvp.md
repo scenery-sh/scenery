@@ -4,11 +4,11 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` describes moving local development from many public per-worktree ports to one machine-local agent that owns a control socket, a routed ingress, and session state. The immediate goal is an onlava-native agent MVP that can run today without replacing every existing dev substrate.
+the agent-native local-dev ExecPlan series describes moving local development from many public per-worktree ports to one machine-local agent that owns a control socket, a routed ingress, and session state. The immediate goal is an onlava-native agent MVP that can run today without replacing every existing dev substrate.
 
 After this work, `onlava dev` auto-starts or connects to a local `onlava agent`, registers the current worktree as a session, writes a session manifest under `.onlava/sessions/<session_id>/manifest.json`, and exposes routed session URLs through the agent. The existing app, dashboard, Temporal, Victoria, Grafana, and optional local proxy remain supervised by `onlava dev` for this milestone, but their public identity moves behind agent session records. `onlava status --json` and `onlava down` become agent-backed controls.
 
-This plan deliberately does not move shared Postgres, Temporal, Victoria, or Grafana into daemon-owned substrates. Those are later PRD phases. The MVP must keep existing `onlava dev --listen ...` and `--proxy` behavior working while adding the daemon path.
+This plan deliberately does not move shared Postgres, Temporal, Victoria, or Grafana into daemon-owned substrates. Those are later agent-native local-dev phases. The MVP must keep existing `onlava dev --listen ...` and `--proxy` behavior working while adding the daemon path.
 
 ## Progress
 
@@ -28,7 +28,7 @@ Record implementation findings here with commands, test output, or file referenc
 ## Decision Log
 
 * Decision: Ship an agent MVP without moving Temporal, Victoria, Grafana, Postgres, or Electric into daemon-owned shared substrates.
-  Rationale: The PRD explicitly phases those moves after the daemon/router/session model. Keeping current supervision intact makes the first change testable and preserves current dev workflows.
+  Rationale: The agent-native local-dev plan explicitly phases those moves after the daemon/router/session model. Keeping current supervision intact makes the first change testable and preserves current dev workflows.
   Date/Author: 2026-05-26 / Codex
 
 * Decision: Preserve explicit `onlava dev --listen` direct app binding during the MVP.
@@ -64,7 +64,7 @@ All validation commands passed. The self harness wrote `.onlava/harness/self-lat
 Relevant files:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 cmd/onlava/main.go
 cmd/onlava/watch.go
 cmd/onlava/dev_supervisor.go

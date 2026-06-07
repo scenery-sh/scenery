@@ -181,7 +181,7 @@ Shipped:
 - Session-scoped Temporal task queue/deployment/build env for app child processes.
 - Agent-routed frontend URLs for configured frontend upstreams.
 - Beta `.onlava.json` `dev.services` declarations for Postgres and Electric.
-- `onlava db psql` as the PRD-facing alias for the existing beta Postgres shell helper.
+- `onlava db psql` as the current managed database shell helper.
 - Follow-up Postgres/Electric lifecycle work split to [0041 Agent Managed Postgres and Electric](0041-agent-managed-postgres-and-electric.md).
 
 ## Grafana Dev Hardening

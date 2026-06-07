@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` targets one machine-local daemon/router with shared or hidden substrates instead of each worktree publishing its own Grafana, Victoria, Temporal, Postgres, Electric, frontend, and proxy ports. Earlier PRD-5 work establishes the agent and private app backends; this plan moves the remaining local platform pieces under daemon/session ownership.
+the agent-native local-dev ExecPlan series targets one machine-local daemon/router with shared or hidden substrates instead of each worktree publishing its own Grafana, Victoria, Temporal, Postgres, Electric, frontend, and proxy ports. Earlier agent-native local-dev work establishes the agent and private app backends; this plan moves the remaining local platform pieces under daemon/session ownership.
 
 After this work, Grafana and Victoria are daemon-owned shared observability substrates, Temporal local dev is shared with session isolation, Postgres can be shared with a per-session database, Electric and frontend tools are routed through the daemon, and checked-in app config no longer needs per-worktree port orchestration.
 
@@ -17,7 +17,7 @@ After this work, Grafana and Victoria are daemon-owned shared observability subs
 * [x] 2026-05-26: Move VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana to agent-registered shared processes by default when the local agent is active.
 * [x] 2026-05-26: Move Temporal dev server ownership to the agent substrate registry while keeping per-session task queue prefixes for isolation.
 * [x] 2026-05-26: Design and implement the `.onlava.json` `dev.services` config surface for Postgres and Electric declarations.
-* [x] 2026-05-26: Add `onlava db psql` as the PRD-facing alias for the existing beta Postgres shell helper.
+* [x] 2026-05-26: Add `onlava db psql` as the current-contract alias for the existing beta Postgres shell helper.
 * [x] 2026-05-26: Route configured frontend upstreams through the agent router and expose stable `<frontend>.<session>.onlava.localhost` URLs.
 * [x] 2026-05-26: Split onlava-managed Postgres/Electric lifecycle plus `db reset`/snapshot commands into ExecPlan 0041.
 * [x] 2026-05-27: Register shared Grafana and Temporal UI upstreams as per-session agent routes so live sessions expose `grafana` and `temporal` URLs in their manifests.
@@ -31,7 +31,7 @@ Record implementation findings here with commands, test output, or file referenc
 * 2026-05-26: Existing Victoria startup already reuses occupied default ports as external components, but the first owning dev session previously killed its started components on shutdown. Registered shared Victoria components are now marked external from the dev supervisor's point of view after agent registration, so shutdown no longer tears down the shared substrate.
 * 2026-05-26: Grafana has the same ownership issue as Victoria plus a `root_url` wrinkle. Shared agent Grafana now uses the direct loopback URL for provisioning by default and lets the per-session proxy update dashboard links after proxy startup, avoiding a first-session-specific `root_url` in the shared config.
 * 2026-05-26: Temporal local dev already supported external-server reuse, so the shared-agent change is mostly lifecycle ownership: store the local SQLite state under the agent directory, register the Temporal address/UI URL/PID, and let app child env continue to isolate workers with `ONLAVA_TEMPORAL_TASK_QUEUE_PREFIX`.
-* 2026-05-26: The repo already had `onlava psql`; PRD-5 uses `onlava db psql`. The new command keeps the old helper as a beta compatibility alias while making the PRD spelling available.
+* 2026-05-26: The repo already had `onlava psql`; agent-native local-dev uses `onlava db psql`. The new command keeps the old helper as a beta compatibility alias while making the current managed-DB spelling available.
 * 2026-05-26: Frontend routing does not start frontend dev servers. It discovers configured/reachable upstreams through the existing localproxy frontend resolver, registers them as agent session backends, and lets the agent router serve stable session hostnames.
 * 2026-05-27: Shared Grafana and Temporal were daemon-owned but still surfaced primarily through direct local URLs in session state. Registering them as session backends gives every app session routed `grafana.<session>.onlava.localhost` and `temporal.<session>.onlava.localhost` URLs without changing the shared process model.
 * 2026-05-27: The first frontend-ownership slice keeps the generic localproxy resolver as a fallback but starts package-local Vite/Astro dev servers directly when an agent session is active. This gives ONLV hidden `pulse` and `blog` loopback ports, and the checked-in ONLV config no longer needs a fixed blog upstream fallback.
@@ -54,7 +54,7 @@ Record implementation findings here with commands, test output, or file referenc
 
 Completed 2026-05-26.
 
-This plan delivered the agent substrate control-plane contract and used it for shared Victoria, Grafana, and Temporal dev processes. It also added session-aware Grafana dashboards, registered configured frontend upstreams plus shared Grafana and Temporal UI upstreams with the agent router, started supported frontends on hidden agent-owned loopback ports, introduced the beta `dev.services` config surface for Postgres/Electric declarations, and added the PRD-facing `onlava db psql` command alias.
+This plan delivered the agent substrate control-plane contract and used it for shared Victoria, Grafana, and Temporal dev processes. It also added session-aware Grafana dashboards, registered configured frontend upstreams plus shared Grafana and Temporal UI upstreams with the agent router, started supported frontends on hidden agent-owned loopback ports, introduced the beta `dev.services` config surface for Postgres/Electric declarations, and added the current-contract `onlava db psql` command alias.
 
 Full onlava-managed Postgres cluster lifecycle, per-session database reset/snapshot behavior, and Electric process ownership are intentionally split to [0041 Agent Managed Postgres and Electric](0041-agent-managed-postgres-and-electric.md) because that work needs its own database lifecycle contract and validation strategy.
 
@@ -63,7 +63,7 @@ Full onlava-managed Postgres cluster lifecycle, per-session database reset/snaps
 Relevant files:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 cmd/onlava/dev_supervisor.go
 cmd/onlava/victoria.go
 cmd/onlava/grafana.go

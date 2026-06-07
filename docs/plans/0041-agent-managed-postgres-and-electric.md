@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-PRD-5 removes fixed per-worktree Postgres and Electric ports by moving database-adjacent dev services behind the local onlava agent. ExecPlan 0040 added the `dev.services` config surface and shared substrate registry; this plan implements the managed database lifecycle behind that contract.
+agent-native local-dev removes fixed per-worktree Postgres and Electric ports by moving database-adjacent dev services behind the local onlava agent. ExecPlan 0040 added the `dev.services` config surface and shared substrate registry; this plan implements the managed database lifecycle behind that contract.
 
 After this work, `onlava dev` can create or reuse an agent-owned local Postgres substrate, allocate an isolated database per agent session, expose the effective `DatabaseURL` to the app process, route Electric through the agent as a hidden per-session backend, and provide `onlava db reset`, `onlava db psql`, and snapshot commands that operate on the current session.
 
@@ -29,7 +29,7 @@ Record implementation findings here with commands, test output, or file referenc
 
 * 2026-05-27: The existing `cmd/onlava` targeted test set can hit Docker-dependent dashboard data coverage. A focused run for the new managed Postgres helpers passed, while a broader `go test ./cmd/onlava ./internal/agent ./internal/app` attempt timed out in `TestDashboardDataRPC` while Docker was unavailable.
 
-* 2026-05-27: The least surprising first managed Postgres path is reuse of an explicit admin URL. This avoids silently depending on Docker/Homebrew/system Postgres and still gives PRD-5 its key per-session database semantics for environments that provide a local cluster.
+* 2026-05-27: The least surprising first managed Postgres path is reuse of an explicit admin URL. This avoids silently depending on Docker/Homebrew/system Postgres and still gives agent-native local-dev its key per-session database semantics for environments that provide a local cluster.
 
 * 2026-05-27: Electric can be routed through the agent without owning its process yet by registering an explicit `ONLAVA_DEV_ELECTRIC_UPSTREAM`. This matches the hidden-port direction while leaving container/process startup for the next slice.
 
@@ -49,15 +49,15 @@ Record implementation findings here with commands, test output, or file referenc
 ## Decision Log
 
 * Decision: Keep the first Postgres implementation optional and explicitly local-dev only.
-  Rationale: PRD-5 needs port isolation and repeatable local sessions, but onlava should not make Docker, Homebrew Postgres, or a specific system package manager mandatory for the whole CLI.
+  Rationale: agent-native local-dev needs port isolation and repeatable local sessions, but onlava should not make Docker, Homebrew Postgres, or a specific system package manager mandatory for the whole CLI.
   Date/Author: 2026-05-26 / Codex
 
 * Decision: When `dev.services.postgres` is declared, managed Postgres wins over local app DB URLs by default and exposes the session database through `DatabaseURL`.
-  Rationale: The PRD-5 end state makes onlava own local dev services. Preserving stale `.env` DB URLs silently leaves apps on old or remote databases even though the repo has opted into managed session DBs. Developers who intentionally want an external DB can set `ONLAVA_DEV_POSTGRES_EXTERNAL=1`.
+  Rationale: The agent-native local-dev end state makes onlava own local dev services. Preserving stale `.env` DB URLs silently leaves apps on old or remote databases even though the repo has opted into managed session DBs. Developers who intentionally want an external DB can set `ONLAVA_DEV_POSTGRES_EXTERNAL=1`.
   Date/Author: 2026-05-27 / Codex
 
 * Decision: Prefer local Postgres binaries over a Docker-managed cluster for the default startup path.
-  Rationale: The PRD requires removing stable per-worktree ports, not requiring Docker for all users. `initdb`/`postgres` plus a private Unix socket gives onlava an owned substrate with a smaller dependency surface.
+  Rationale: The agent-native local-dev contract requires removing stable per-worktree ports, not requiring Docker for all users. `initdb`/`postgres` plus a private Unix socket gives onlava an owned substrate with a smaller dependency surface.
   Date/Author: 2026-05-27 / Codex
 
 * Decision: Prefer Docker when the configured Postgres major version does not match the local binary and Docker is available.
@@ -67,7 +67,7 @@ Record implementation findings here with commands, test output, or file referenc
 * Decision: Start Electric only from explicit local sources.
   Rationale: Automatically pulling an arbitrary Electric image would be surprising. `ONLAVA_DEV_ELECTRIC_UPSTREAM`, `ONLAVA_DEV_ELECTRIC_BIN`, or an explicit `dev.services.electric.image` keeps startup behavior visible.
 * Decision: Default managed Electric's replication stream id to a sanitized onlava session identifier.
-  Rationale: Postgres replication slot names are cluster-wide, while PRD-5 intentionally shares one local Postgres substrate across sessions. Session-scoped stream ids preserve parallel worktree isolation without requiring separate Postgres containers.
+  Rationale: Postgres replication slot names are cluster-wide, while agent-native local-dev intentionally shares one local Postgres substrate across sessions. Session-scoped stream ids preserve parallel worktree isolation without requiring separate Postgres containers.
   Date/Author: 2026-05-27 / Codex
 
 ## Outcomes & Retrospective
@@ -110,7 +110,7 @@ Both commands passed on 2026-05-27. The live ONLV session also verified Postgres
 Relevant files:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 docs/plans/0040-agent-shared-substrates-and-dev-services.md
 internal/app/root.go
 internal/agent/*

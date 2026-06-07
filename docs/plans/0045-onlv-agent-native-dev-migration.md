@@ -4,14 +4,14 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-`docs/PRD-5-agent.md` is mostly implemented on the onlava runtime side, and ONLV has been moved to the agent-native local-dev path. The target state is that `onlava dev` owns the session, routes frontends through the agent, manages Postgres/Electric through `dev.services`, and exposes stable HTTPS routed URLs without humans picking ports.
+the agent-native local-dev ExecPlan series is mostly implemented on the onlava runtime side, and ONLV has been moved to the agent-native local-dev path. The target state is that `onlava dev` owns the session, routes frontends through the agent, manages Postgres/Electric through `dev.services`, and exposes stable HTTPS routed URLs without humans picking ports.
 
 After this work, a developer in `/Users/petrbrazdil/Repos/onlv` should run `just dev` or `onlava dev` and get an agent-backed session. `just down`, `just urls`, and `just psql` should delegate to onlava. Compose may remain only as a manual fallback or be removed when no longer referenced by active docs.
 
 ## Progress
 
-* [x] 2026-05-27: Audit PRD-5 against current onlava and ONLV state.
-* [x] 2026-05-27: Remove stale browser-token language from PRD-5 and the global dashboard plan after the browser token feature was intentionally removed.
+* [x] 2026-05-27: Audit agent-native local-dev against current onlava and ONLV state.
+* [x] 2026-05-27: Remove stale browser-token language from agent-native local-dev and the global dashboard plan after the browser token feature was intentionally removed.
 * [x] 2026-05-27: Migrate ONLV Justfile defaults away from hardcoded local paths and Overmind-first dev.
 * [x] 2026-05-27: Switch ONLV DB export/import recipes to onlava-managed snapshots instead of Compose.
 * [x] 2026-05-27: Add ONLV `.onlava.json` `dev.services` declarations for managed Postgres and Electric.
@@ -30,7 +30,7 @@ After this work, a developer in `/Users/petrbrazdil/Repos/onlv` should run `just
 ## Surprises & Discoveries
 
 * 2026-05-27: ONLV's checked-in `Justfile` still hardcodes `app_root := "/Users/petrbrazdil/Repos/onlv"` and `onlava := "go -C ../pulse run ./cmd/onlava"`, and `just dev` still starts `OVERMIND_ENV=.env overmind start -f Procfile.dev`.
-* 2026-05-27: ONLV has an untracked local `.env` with explicit `DatabaseURL`, `PublicAppURL`, `APIBaseURL`, and `AuthCookieDomain`. This exposed a PRD-5 mismatch: declared managed Postgres must override stale local DB URLs by default, otherwise ONLV can look agent-native while still using the old database.
+* 2026-05-27: ONLV has an untracked local `.env` with explicit `DatabaseURL`, `PublicAppURL`, `APIBaseURL`, and `AuthCookieDomain`. This exposed a agent-native local-dev mismatch: declared managed Postgres must override stale local DB URLs by default, otherwise ONLV can look agent-native while still using the old database.
 * 2026-05-27: Once ONLV actually used the managed per-session DB, startup failed because the fresh database had no Atlas schema. The agent-native path needs a pre-app setup hook that runs with the managed DB env.
 * 2026-05-27: ONLV's local `pg_dump` was version 14 while managed Postgres was version 18, so the setup backup step needed to use a matching Docker `pg_dump` when the local binary is older than the server.
 * 2026-05-27: The agent-routed dashboard now loads without any browser token. A startup-only dev-report 401 was caused by an Electric route session update clearing the private report token, not by browser authentication.
@@ -41,14 +41,14 @@ After this work, a developer in `/Users/petrbrazdil/Repos/onlv` should run `just
 * 2026-05-27: A temporary detached worktree initially exposed an Electric collision: both sessions tried to use Electric's default `electric_slot_default` on the shared Postgres cluster. onlava now sets a session-scoped Electric replication stream id, and the parallel smoke showed active slots `electric_slot_default` for `main-dbe32e` and `electric_slot_onlava_onlv_prd5_parallel_6cfa10` for the temporary session.
 * 2026-05-27: The temporary worktree needed its own frontend dependency install; symlinking `apps/blog/node_modules` back to the original worktree made Astro generate invalid virtual module paths. That is a test-worktree setup issue, not an onlava route collision.
 * 2026-05-27: After deleting the temporary worktree, the dashboard store still had a historical session row marked running and the legacy app row pointed at `/tmp/onlv-prd5-parallel`. `onlava logs --session current` and `onlava inspect ... --session current` now prefer the session-specific app record, and the agent dashboard normalizes stored session liveness against the live agent registry.
-* 2026-05-27: The PRD requires emitted observability signals to carry session identity plus worktree context. The runtime now injects `ONLAVA_APP_ROOT_HASH`, `ONLAVA_BRANCH`, and `ONLAVA_WORKTREE` alongside the session/runtime app IDs and exports those fields as Victoria trace/log attributes and metric labels.
+* 2026-05-27: The agent-native local-dev contract requires emitted observability signals to carry session identity plus worktree context. The runtime now injects `ONLAVA_APP_ROOT_HASH`, `ONLAVA_BRANCH`, and `ONLAVA_WORKTREE` alongside the session/runtime app IDs and exports those fields as Victoria trace/log attributes and metric labels.
 * 2026-05-27: ONLV declares several explicit Temporal task queues. Prefixing only default worker/cron queues was insufficient because explicit workflow/activity workers could still poll shared queue names on the shared Temporal dev server. onlava now session-prefixes explicit queues when `ONLAVA_SESSION_ID` is present and scopes `ExecuteActivity`/workflow starts the same way.
 * 2026-05-27: A second ONLV session from `/tmp/onlv-prd5-audit` ran concurrently as `prd5-audit-parallel-8c8fab`. It reused the shared Grafana, Temporal, Victoria, and Postgres substrate PIDs, received its own database `onlvnext_o5o2_prd5_audit_parallel_8c8fab`, and app PID `33759` started only `onlava.onlvnext-o5o2.prd5-audit-parallel-8c8fab...` Temporal task queues. No current-pid `TaskQueue onlv.` lines were present.
 
 ## Decision Log
 
 * Decision: Make `just dev` call `onlava dev --app-root {{app_root}}`.
-  Rationale: PRD-5 makes `onlava dev` the agent client. Keeping Overmind as the top-level dev owner preserves the old port orchestration model.
+  Rationale: agent-native local-dev makes `onlava dev` the agent client. Keeping Overmind as the top-level dev owner preserves the old port orchestration model.
   Date/Author: 2026-05-27 / Codex
 
 * Decision: Keep user-local `.env` values out of the committed migration.
@@ -95,7 +95,7 @@ Relevant ONLV files:
 
 ## Milestones
 
-Milestone 1 aligns the onlava PRD and dashboard plan with the current no-browser-token decision.
+Milestone 1 aligns the onlava agent-native plan series and dashboard plan with the current no-browser-token decision.
 
 Milestone 2 migrates ONLV's command/config/docs defaults to the agent-native path.
 
@@ -144,7 +144,7 @@ The migration must not delete local developer databases or Docker volumes. If Co
 Expected changed artifacts:
 
 ```text
-docs/PRD-5-agent.md
+docs/plans/0037-onlava-agent-mvp.md
 docs/plans/0042-agent-global-dashboard.md
 docs/plans/0045-onlv-agent-native-dev-migration.md
 /Users/petrbrazdil/Repos/onlv/Justfile

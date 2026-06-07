@@ -36,14 +36,6 @@ onlava harness self --json
 
 - [Standard Auth Production Migration](runbooks/standard-auth-migration.md): operator checklist and SQL template for preserving existing users, tenants, memberships, password hashes, and sessions when moving an app to onlava standard auth.
 
-## PRDs
-
-Historical PRDs may describe shipped design intent rather than the current contract. Prefer [Local Contract](local-contract.md), [Agent Guide](agent-guide.md), and current CLI JSON for exact behavior.
-
-- [Proto/Wire PRD](PRD-2-proto.md): binary wire and generated transport plan.
-- [Release Readiness PRD](PRD-3-release.md): audit and recommendations for freezing a smaller production-ready v0.
-- [Dev/Run Command Split PRD](PRD-4-devrun.md): historical product direction for the local/headless command split, the headless runtime command now spelled `onlava serve`, and `onlava build`.
-
 ## Schemas
 
 JSON schemas live in [schemas/](schemas/). They are part of the local agent contract and must stay in sync with CLI output.

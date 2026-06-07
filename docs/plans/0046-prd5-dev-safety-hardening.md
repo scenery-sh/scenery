@@ -1,10 +1,10 @@
-# PRD-5 Dev Safety Hardening
+# agent-native local-dev Dev Safety Hardening
 
 This ExecPlan is a living document. Update the Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective sections as work proceeds.
 
 ## Purpose / Big Picture
 
-Finish the remaining PRD-5 local-dev safety work so `onlava dev` is robust for parallel worktrees. The target state is that the default development path is agent-routed, session-scoped, explicit about unsafe escape hatches, safe when cleaning up or signaling processes, and backed by validation that can catch regressions.
+Finish the remaining agent-native local-dev local-dev safety work so `onlava dev` is robust for parallel worktrees. The target state is that the default development path is agent-routed, session-scoped, explicit about unsafe escape hatches, safe when cleaning up or signaling processes, and backed by validation that can catch regressions.
 
 The immediate user-facing problem is that several legacy/manual paths can still reintroduce global ports, ambiguous ownership, or mixed session state. This plan records the remaining work so future agents can continue without relying on chat history.
 
@@ -47,7 +47,7 @@ The immediate user-facing problem is that several legacy/manual paths can still 
 
 ## Outcomes & Retrospective
 
-Completed on 2026-05-27. The remaining PRD-5 review risks were addressed with explicit session control, cleanup/prune commands, stronger process ownership, explicit legacy escape-hatch warnings, shared Victoria dashboard wiring, and a self-harness parallel-session check. Validation is recorded in `.onlava/harness/self-latest.json`.
+Completed on 2026-05-27. The remaining agent-native local-dev review risks were addressed with explicit session control, cleanup/prune commands, stronger process ownership, explicit legacy escape-hatch warnings, shared Victoria dashboard wiring, and a self-harness parallel-session check. Validation is recorded in `.onlava/harness/self-latest.json`.
 
 ## Context and Orientation
 
