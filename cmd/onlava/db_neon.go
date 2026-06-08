@@ -709,10 +709,10 @@ func defaultNeonPorts() map[string]int {
 
 func defaultNeonImages() []neonImageStatus {
 	return []neonImageStatus{
-		{Name: "neon", Ref: "ghcr.io/neondatabase/neon:latest", Optional: true, Stability: "unstable"},
-		{Name: "neon-compute-node-v16", Ref: "ghcr.io/neondatabase/compute-node-v16:latest", Optional: true, Stability: "unstable"},
+		{Name: "neon", Ref: "ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f", Optional: true, Stability: "unstable"},
+		{Name: "neon-compute-node-v16", Ref: "ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249", Optional: true, Stability: "unstable"},
 		{Name: "minio", Ref: "quay.io/minio/minio:RELEASE.2022-10-20T00-55-09Z", Optional: true, Stability: "unstable"},
-		{Name: "minio-client", Ref: "minio/mc:latest", Optional: true, Stability: "unstable"},
+		{Name: "minio-client", Ref: "minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727", Optional: true, Stability: "unstable"},
 	}
 }
 
@@ -774,7 +774,7 @@ services:
       onlava.substrate: neon
       onlava.component: minio
   pageserver:
-    image: ghcr.io/neondatabase/neon:latest
+    image: ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f
     container_name: onlava-neon-pageserver
     ports:
       - "127.0.0.1:55434:9898"
@@ -782,7 +782,7 @@ services:
       onlava.substrate: neon
       onlava.component: pageserver
   safekeeper1:
-    image: ghcr.io/neondatabase/neon:latest
+    image: ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f
     container_name: onlava-neon-safekeeper-1
     ports:
       - "127.0.0.1:55435:5454"
@@ -790,7 +790,7 @@ services:
       onlava.substrate: neon
       onlava.component: safekeeper-1
   safekeeper2:
-    image: ghcr.io/neondatabase/neon:latest
+    image: ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f
     container_name: onlava-neon-safekeeper-2
     ports:
       - "127.0.0.1:55436:5454"
@@ -798,7 +798,7 @@ services:
       onlava.substrate: neon
       onlava.component: safekeeper-2
   safekeeper3:
-    image: ghcr.io/neondatabase/neon:latest
+    image: ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f
     container_name: onlava-neon-safekeeper-3
     ports:
       - "127.0.0.1:55437:5454"
@@ -806,7 +806,7 @@ services:
       onlava.substrate: neon
       onlava.component: safekeeper-3
   storage_broker:
-    image: ghcr.io/neondatabase/neon:latest
+    image: ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f
     container_name: onlava-neon-storage-broker
     ports:
       - "127.0.0.1:55432:50051"
@@ -814,7 +814,7 @@ services:
       onlava.substrate: neon
       onlava.component: storage-broker
   compute:
-    image: ghcr.io/neondatabase/compute-node-v16:latest
+    image: ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249
     container_name: onlava-neon-compute
     ports:
       - "127.0.0.1:55433:5432"

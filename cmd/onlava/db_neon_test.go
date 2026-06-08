@@ -105,7 +105,7 @@ if [ "$1" = "version" ]; then
 fi
 if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
   case "$3" in
-    ghcr.io/neondatabase/neon:latest|ghcr.io/neondatabase/compute-node-v16:latest)
+    ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f|ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249)
       echo "[]"
       exit 0
       ;;

@@ -215,10 +215,11 @@
     {
       "name": "neon",
       "kind": "image",
-      "version": "latest",
+      "version": "sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f",
       "images": [
         {
-          "ref": "ghcr.io/neondatabase/neon:latest",
+          "ref": "ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f",
+          "digest": "sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f",
           "optional": true,
           "usage": "dev.services.postgres.kind=neon",
           "stability": "unstable"
@@ -228,10 +229,11 @@
     {
       "name": "neon-compute-node-v16",
       "kind": "image",
-      "version": "latest",
+      "version": "sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249",
       "images": [
         {
-          "ref": "ghcr.io/neondatabase/compute-node-v16:latest",
+          "ref": "ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249",
+          "digest": "sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249",
           "optional": true,
           "usage": "dev.services.postgres.kind=neon.compute",
           "stability": "unstable"
@@ -250,7 +252,8 @@
           "stability": "unstable"
         },
         {
-          "ref": "minio/mc:latest",
+          "ref": "minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+          "digest": "sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
           "optional": true,
           "usage": "dev.services.postgres.kind=neon.object-storage-init",
           "stability": "unstable"
