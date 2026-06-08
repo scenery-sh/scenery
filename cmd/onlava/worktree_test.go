@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseWorktreeArgs(t *testing.T) {
@@ -135,6 +136,80 @@ func TestWorktreeCreateListAndRemoveWithNeonPin(t *testing.T) {
 	}
 }
 
+func TestWorktreeCreateRollsBackWhenNeonPinWriteFails(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"neon","mode":"self-hosted","isolation":"branch","project":"demo","branch_name_template":"{app}/{git_branch}"}}}}`)
+	runGitForTest(t, root, "init", "-b", "main")
+	runGitForTest(t, root, "config", "user.email", "test@example.com")
+	runGitForTest(t, root, "config", "user.name", "Test User")
+	runGitForTest(t, root, "add", ".onlava.json")
+	runGitForTest(t, root, "commit", "-m", "initial")
+
+	foreignPin := neonPinForTest("demo", "demo/collision", "")
+	foreignPin.CreatedBy = "external"
+	registryRoot, err := neonSubstrateRoot()
+	if err != nil {
+		t.Fatalf("neonSubstrateRoot: %v", err)
+	}
+	if err := writeNeonBranchRegistry(registryRoot, neonBranchRegistry{
+		SchemaVersion: dbBranchRegistrySchemaVersion,
+		Provider:      neonSelfhostProvider,
+		Leases: []neonBranchLease{{
+			Pin:       foreignPin,
+			Status:    "pending",
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		}},
+	}); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+
+	target := defaultWorktreePath(root, "collision")
+	err = runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"create", "collision", "--from", "main", "--app-root", root, "--json"})
+	if err == nil || !strings.Contains(err.Error(), "refusing to reuse foreign local Neon branch lease") {
+		t.Fatalf("create error = %v", err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("rolled-back worktree still exists, stat err=%v", err)
+	}
+	worktrees, err := listGitWorktrees(t.Context(), root)
+	if err != nil {
+		t.Fatalf("list worktrees: %v", err)
+	}
+	for _, wt := range worktrees {
+		if evalPathForTestAllowMissing(t, wt.Path) == target {
+			t.Fatalf("rolled-back worktree still registered: %+v", worktrees)
+		}
+	}
+}
+
+func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"demo"}`)
+	runGitForTest(t, root, "init", "-b", "main")
+	runGitForTest(t, root, "config", "user.email", "test@example.com")
+	runGitForTest(t, root, "config", "user.name", "Test User")
+	runGitForTest(t, root, "add", ".onlava.json")
+	runGitForTest(t, root, "commit", "-m", "initial")
+
+	unlisted := defaultWorktreePath(root, "mistyped")
+	writeTestAppFile(t, unlisted, ".onlava/worktree-db.json", `{"sentinel":true}`)
+	err := runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"remove", "mistyped", "--app-root", root, "--db", "--json"})
+	if err == nil || !strings.Contains(err.Error(), "is not registered") {
+		t.Fatalf("remove error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(unlisted, ".onlava", "worktree-db.json")); err != nil {
+		t.Fatalf("unlisted target state was removed: %v", err)
+	}
+}
+
 func runGitForTest(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -150,6 +225,15 @@ func evalPathForTest(t *testing.T, path string) string {
 	evaluated, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		t.Fatalf("eval symlinks %s: %v", path, err)
+	}
+	return evaluated
+}
+
+func evalPathForTestAllowMissing(t *testing.T, path string) string {
+	t.Helper()
+	evaluated, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
 	}
 	return evaluated
 }

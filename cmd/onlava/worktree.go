@@ -156,15 +156,18 @@ func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	if _, svc, ok := managedPostgresDeclared(cfg); ok && strings.TrimSpace(svc.Kind) == "neon" {
 		targetRoot, targetCfg, err := appcfg.DiscoverRoot(target)
 		if err != nil {
+			rollbackCreatedWorktree(ctx, appRoot, target)
 			return err
 		}
 		targetService := neonPostgresService(targetCfg)
 		template := firstNonEmpty(strings.TrimSpace(targetService.BranchNameTemplate), neonDefaultBranchNameTemplate)
 		pin, err := buildWorktreeDBPinForSession(targetRoot, targetCfg, nil, renderNeonBranchTemplate(template, targetRoot, targetCfg, nil))
 		if err != nil {
+			rollbackCreatedWorktree(ctx, appRoot, target)
 			return err
 		}
 		if err := writeWorktreeDBPin(targetRoot, pin); err != nil {
+			rollbackCreatedWorktree(ctx, appRoot, target)
 			return err
 		}
 		result.DBPin = &pin
@@ -212,7 +215,7 @@ func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	if err != nil {
 		return err
 	}
-	target, err := resolveWorktreeTarget(ctx, appRoot, opts.Name)
+	target, err := resolveExistingWorktreeTarget(ctx, appRoot, opts.Name)
 	if err != nil {
 		return err
 	}
@@ -222,11 +225,15 @@ func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptio
 		Name:          sanitizeNeonBranchSegment(opts.Name),
 		Path:          target,
 	}
+	var dbPinPresent bool
 	if opts.DB {
-		pinPath := worktreeDBPinPath(target)
-		if err := os.Remove(pinPath); err == nil {
-			result.DBPinRemoved = true
+		if _, err := os.Stat(worktreeDBPinPath(target)); err == nil {
+			dbPinPresent = true
 		} else if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		pinPath := worktreeDBPinPath(target)
+		if err := os.Remove(pinPath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		_ = os.Remove(filepath.Join(target, ".onlava", ".gitignore"))
@@ -234,6 +241,9 @@ func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	}
 	if err := runGitCommand(ctx, "-C", appRoot, "worktree", "remove", target); err != nil {
 		return err
+	}
+	if opts.DB {
+		result.DBPinRemoved = dbPinPresent
 	}
 	result.Message = "Git worktree removed. Backend Neon branch deletion is not implemented yet."
 	if opts.JSON {
@@ -247,7 +257,7 @@ func defaultWorktreePath(appRoot, name string) string {
 	return filepath.Join(filepath.Dir(appRoot), filepath.Base(appRoot)+"-"+name)
 }
 
-func resolveWorktreeTarget(ctx context.Context, appRoot, name string) (string, error) {
+func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string) (string, error) {
 	cleanName := sanitizeNeonBranchSegment(name)
 	if cleanName == "" {
 		return "", fmt.Errorf("worktree name is empty after sanitization")
@@ -262,7 +272,11 @@ func resolveWorktreeTarget(ctx context.Context, appRoot, name string) (string, e
 			return wt.Path, nil
 		}
 	}
-	return defaultPath, nil
+	return "", fmt.Errorf("git worktree %q is not registered", cleanName)
+}
+
+func rollbackCreatedWorktree(ctx context.Context, appRoot, target string) {
+	_ = runGitCommand(ctx, "-C", appRoot, "worktree", "remove", "--force", target)
 }
 
 func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, error) {

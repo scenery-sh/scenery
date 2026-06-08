@@ -807,7 +807,7 @@ func dropSessionManagedDatabase(ctx context.Context, appRoot string, session loc
 		return "", err
 	}
 	if appConfigUsesNeonPostgres(cfg) {
-		branch, removed, err := removeCurrentNeonBranchLease(appRoot)
+		branch, removed, err := removeNeonBranchLeaseForSession(appRoot, session)
 		if err != nil {
 			return "", err
 		}

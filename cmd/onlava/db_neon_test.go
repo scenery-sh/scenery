@@ -85,6 +85,126 @@ func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	}
 }
 
+func TestDBNeonUninstallRemovesContainersWhenStateCorrupt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ONLAVA_AGENT_HOME", home)
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppFile(t, root, "cell.json", `{`)
+
+	logPath := filepath.Join(t.TempDir(), "docker.log")
+	fakeDocker := filepath.Join(t.TempDir(), "docker")
+	if err := os.WriteFile(fakeDocker, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = "ps" ]; then
+  printf 'onlava-neon-compute\nonlava-neon-pageserver\n'
+  exit 0
+fi
+if [ "$1" = "rm" ]; then
+  exit 0
+fi
+echo "unexpected docker $*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_LOG", logPath)
+	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"uninstall", "--destroy-data", "--json"}); err != nil {
+		t.Fatalf("uninstall returned error: %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("root should be removed after container cleanup, stat err=%v", err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "rm -f -v onlava-neon-compute onlava-neon-pageserver") {
+		t.Fatalf("docker log = %q", string(logBytes))
+	}
+}
+
+func TestDBNeonUninstallFallsBackWhenComposeMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ONLAVA_AGENT_HOME", home)
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("install returned error: %v", err)
+	}
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	if err := os.Remove(filepath.Join(root, "compose.generated.yml")); err != nil {
+		t.Fatalf("remove compose: %v", err)
+	}
+
+	logPath := filepath.Join(t.TempDir(), "docker.log")
+	fakeDocker := filepath.Join(t.TempDir(), "docker")
+	if err := os.WriteFile(fakeDocker, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = "ps" ]; then
+  printf 'onlava-neon-minio\n'
+  exit 0
+fi
+if [ "$1" = "rm" ]; then
+  exit 0
+fi
+echo "unexpected docker $*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_LOG", logPath)
+	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"uninstall", "--destroy-data", "--json"}); err != nil {
+		t.Fatalf("uninstall returned error: %v", err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "rm -f -v onlava-neon-minio") {
+		t.Fatalf("docker log = %q", string(logBytes))
+	}
+}
+
+func TestDBNeonUninstallKeepsStateWhenFallbackCleanupFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ONLAVA_AGENT_HOME", home)
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestAppFile(t, root, "cell.json", `{`)
+
+	logPath := filepath.Join(t.TempDir(), "docker.log")
+	fakeDocker := filepath.Join(t.TempDir(), "docker")
+	if err := os.WriteFile(fakeDocker, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_LOG", logPath)
+	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"uninstall", "--destroy-data", "--json"}); err == nil {
+		t.Fatal("uninstall should fail when fallback cleanup fails")
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("state should remain when teardown fails, stat err=%v", err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	if !strings.Contains(string(logBytes), "ps -a --filter label=onlava.substrate=neon") {
+		t.Fatalf("docker log = %q", string(logBytes))
+	}
+}
+
 func TestDBNeonStatusProbesDockerHealth(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
@@ -1195,6 +1315,57 @@ func TestDBBranchExpireAndPruneLocalRegistry(t *testing.T) {
 	}
 }
 
+func TestDBBranchPruneDoesNotRemoveOtherProjectLeases(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"branchapp","dev":{"services":{"postgres":{"kind":"neon","mode":"self-hosted","isolation":"branch","project":"branchapp"}}}}`)
+
+	for _, branch := range []string{"feature/old", "feature/current"} {
+		if err := runDBBranchCommand(t.Context(), io.Discard, []string{"checkout", branch, "--app-root", root, "--json"}); err != nil {
+			t.Fatalf("checkout %s returned error: %v", branch, err)
+		}
+	}
+	if err := runDBBranchCommand(t.Context(), io.Discard, []string{"expire", "feature/old", "--after", "-1h", "--app-root", root, "--json"}); err != nil {
+		t.Fatalf("expire returned error: %v", err)
+	}
+	now := time.Now().UTC()
+	otherPin := neonPinForTest("otherapp", "feature/old", "")
+	registry, _, err := readNeonBranchRegistryForDefaultRoot()
+	if err != nil {
+		t.Fatalf("read registry: %v", err)
+	}
+	registry.Leases = append(registry.Leases, neonBranchLease{
+		Pin:       otherPin,
+		Status:    "expired",
+		CreatedAt: now.Add(-3 * time.Hour).Format(time.RFC3339),
+		UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339),
+		ExpiresAt: now.Add(-1 * time.Hour).Format(time.RFC3339),
+	})
+	rootDir, err := neonSubstrateRoot()
+	if err != nil {
+		t.Fatalf("neonSubstrateRoot: %v", err)
+	}
+	if err := writeNeonBranchRegistry(rootDir, registry); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+
+	if err := runDBBranchCommand(t.Context(), io.Discard, []string{"prune", "--app-root", root, "--json"}); err != nil {
+		t.Fatalf("prune returned error: %v", err)
+	}
+	registry, _, err = readNeonBranchRegistryForDefaultRoot()
+	if err != nil {
+		t.Fatalf("read registry after prune: %v", err)
+	}
+	var sameProjectOld, otherProjectOld bool
+	for _, lease := range registry.Leases {
+		sameProjectOld = sameProjectOld || (lease.Pin.Project == "branchapp" && lease.Pin.Branch == "feature/old")
+		otherProjectOld = otherProjectOld || (lease.Pin.Project == "otherapp" && lease.Pin.Branch == "feature/old")
+	}
+	if sameProjectOld || !otherProjectOld {
+		t.Fatalf("registry after project-scoped prune = %+v", registry.Leases)
+	}
+}
+
 func TestDBBranchDeleteRemovesPendingLocalLease(t *testing.T) {
 	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
 	root := t.TempDir()
@@ -1315,6 +1486,57 @@ func TestNeonDownCleanupRemovesCurrentLeaseAndPin(t *testing.T) {
 	}
 	if _, err := os.Stat(worktreeDBPinPath(root)); !os.IsNotExist(err) {
 		t.Fatalf("worktree pin still exists or stat failed: %v", err)
+	}
+}
+
+func TestDownDBRemovesSelectedSessionLeaseOnly(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"branchapp","dev":{"services":{"postgres":{"kind":"neon","mode":"self-hosted","isolation":"branch","project":"branchapp","branch_policy":"session"}}}}`)
+
+	pinA := neonPinForTest("branchapp", "branchapp/session-a", "session-a")
+	pinB := neonPinForTest("branchapp", "branchapp/session-b", "session-b")
+	if err := upsertNeonBranchLease(pinA); err != nil {
+		t.Fatalf("upsert pin A: %v", err)
+	}
+	if err := writeWorktreeDBPin(root, pinB); err != nil {
+		t.Fatalf("write current pin B: %v", err)
+	}
+
+	message, err := dropSessionManagedDatabase(t.Context(), root, localagent.Session{SessionID: "session-a"})
+	if err != nil {
+		t.Fatalf("dropSessionManagedDatabase returned error: %v", err)
+	}
+	if !strings.Contains(message, "branchapp/session-a") {
+		t.Fatalf("message = %q", message)
+	}
+	registry, _, err := readNeonBranchRegistryForDefaultRoot()
+	if err != nil {
+		t.Fatalf("read registry: %v", err)
+	}
+	var foundA, foundB bool
+	for _, lease := range registry.Leases {
+		foundA = foundA || lease.Pin.SessionID == "session-a"
+		foundB = foundB || lease.Pin.SessionID == "session-b"
+	}
+	if foundA || !foundB {
+		t.Fatalf("registry after selected-session cleanup = %+v", registry.Leases)
+	}
+	current, ok, err := readWorktreeDBPin(worktreeDBPinPath(root))
+	if err != nil || !ok || current.SessionID != "session-b" {
+		t.Fatalf("current pin after selected-session cleanup ok=%v err=%v pin=%+v", ok, err, current)
+	}
+
+	message, err = dropSessionManagedDatabase(t.Context(), root, localagent.Session{SessionID: "session-a"})
+	if err != nil {
+		t.Fatalf("second dropSessionManagedDatabase returned error: %v", err)
+	}
+	if !strings.Contains(message, "no local Neon branch lease") {
+		t.Fatalf("second message = %q", message)
+	}
+	current, ok, err = readWorktreeDBPin(worktreeDBPinPath(root))
+	if err != nil || !ok || current.SessionID != "session-b" {
+		t.Fatalf("current pin after no-op cleanup ok=%v err=%v pin=%+v", ok, err, current)
 	}
 }
 
@@ -1614,4 +1836,20 @@ func markNeonLeaseReadyForTest(t *testing.T, pin worktreeDBPin, endpoint neonEnd
 		}
 	}
 	t.Fatalf("lease not found for pin %+v in %+v", pin, registry.Leases)
+}
+
+func neonPinForTest(project, branch, sessionID string) worktreeDBPin {
+	return worktreeDBPin{
+		SchemaVersion: dbBranchPinSchemaVersion,
+		Provider:      neonSelfhostProvider,
+		Project:       project,
+		ParentBranch:  "main",
+		Branch:        branch,
+		BranchID:      neonLocalBranchID(project, branch),
+		Database:      project,
+		Role:          neonDefaultRole,
+		SessionID:     sessionID,
+		CreatedBy:     "onlava",
+		TTL:           neonDefaultTTL,
+	}
 }
