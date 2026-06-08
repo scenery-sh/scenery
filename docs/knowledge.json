@@ -79,7 +79,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-08",
       "review_after": "2026-07-07",
-      "summary": "Concise installed-skill entrypoint for using current onlava apps through app sessions and capabilities, including CLI JSON, scoped observability queries, managed toolchain diagnostics, browser UI harness validation, docs review-due signals, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current onlava apps through app sessions and capabilities, including CLI JSON, scoped observability queries, managed toolchain diagnostics, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -96,7 +96,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-08",
       "review_after": "2026-06-30",
-      "summary": "Agent workflow guide for using CLI JSON, app-session capabilities, scoped observability queries, managed toolchain commands, cache artifacts, TypeScript clients, and app-local instruction layering.",
+      "summary": "Agent workflow guide for using CLI JSON, app-session capabilities, scoped observability queries, managed toolchain commands, app validation profiles, cache artifacts, TypeScript clients, and app-local instruction layering.",
       "tags": [
         "agents",
         "cli",
@@ -165,7 +165,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-08",
       "review_after": "2026-07-07",
-      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, scoped observability queries, harness evidence artifacts, UI harness journey artifacts, cache artifacts, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for onlava CLI, JSON schemas, app-session capabilities, scoped observability queries, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, cache artifacts, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -197,7 +197,13 @@
         "docs/schemas/onlava.metrics.query.v1.schema.json",
         "docs/schemas/onlava.metrics.series.v1.schema.json",
         "docs/schemas/onlava.harness.ui.v1.schema.json",
-        "docs/schemas/onlava.harness.ui.dom.v1.schema.json"
+        "docs/schemas/onlava.harness.ui.dom.v1.schema.json",
+        "docs/schemas/onlava.inspect.validation.v1.schema.json",
+        "docs/schemas/onlava.validation.list.v1.schema.json",
+        "docs/schemas/onlava.validation.inspect.v1.schema.json",
+        "docs/schemas/onlava.validation.graph.v1.schema.json",
+        "docs/schemas/onlava.validation.plan.v1.schema.json",
+        "docs/schemas/onlava.validation.result.v1.schema.json"
       ]
     },
     {
@@ -318,6 +324,24 @@
         "shadcn",
         "registry",
         "guardrails"
+      ]
+    },
+    {
+      "path": "docs/plans/0068-app-validation-profiles.md",
+      "title": "App Validation Profiles",
+      "owner": "onlava runtime / agent DX",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-08",
+      "review_after": "2026-07-08",
+      "summary": "Completed ExecPlan that added app-owned validation profiles under `.onlava.json`, `onlava validate`, `inspect validation`, harness-style evidence artifacts, changed-file selection, and an optional harness bridge.",
+      "tags": [
+        "plans",
+        "execplans",
+        "validation",
+        "harness",
+        "agents"
       ]
     },
     {

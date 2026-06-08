@@ -49,6 +49,16 @@
       "type": "array",
       "items": { "$ref": "#/$defs/artifact" }
     },
+    "validation": {
+      "type": "object",
+      "required": ["profile", "ok", "result_path"],
+      "properties": {
+        "profile": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "result_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "next_actions": {
       "type": "array",
       "items": { "type": "string" }

@@ -40,6 +40,8 @@ same as the stable v0 support surface.
 - `onlava task list|inspect|run|graph`
 - `onlava task run <name>`
 - `onlava task run <domain>:<name>`
+- `onlava validate list|inspect|graph|changed`
+- `onlava validate <profile> --json`
 - `onlava harness --json`
 - `onlava harness self --json`
 - `onlava harness ui --json`
@@ -53,6 +55,7 @@ same as the stable v0 support surface.
 - `onlava inspect paths --json`
 - `onlava inspect generators --json`
 - `onlava inspect temporal --json`
+- `onlava inspect validation --json`
 - `onlava traces list --json`
 - `onlava metrics list --json`
 - `onlava inspect docs --json`
@@ -94,6 +97,8 @@ Dev-only or beta surface:
 - `onlava task list|inspect|run|graph`
 - `onlava task run <name>`
 - `onlava task run <domain>:<name>`
+- `onlava validate`
+- `onlava inspect validation --json`
 - `onlava traces list|metrics --json`
 - `onlava inspect generators --json`
 - `onlava inspect temporal --json`
@@ -170,6 +175,28 @@ Current shape:
     "ui-harness": {
       "cwd": "apps/web",
       "run": "bun run ui-harness"
+    }
+  },
+  "validation": {
+    "default": "quick",
+    "profiles": {
+      "quick": {
+        "description": "Fast agent handoff gate.",
+        "cost": "low",
+        "steps": ["harness:core", "task:harness"]
+      },
+      "frontend": {
+        "description": "Frontend validation.",
+        "cost": "medium",
+        "paths": ["apps/web/**"],
+        "steps": ["task:ui-harness"],
+        "artifacts": ["test-results/ui-harness/diff-report.md"]
+      },
+      "full": {
+        "description": "Full local quality gate.",
+        "cost": "high",
+        "steps": ["profile:quick", "profile:frontend"]
+      }
     }
   },
   "auth": {
@@ -249,6 +276,8 @@ Rules:
 - Service-local `SERVICE/db/seed.sql` is initial data. It is not Atlas schema input, not SQLC input, and not a generated-source input. The accepted lifecycle applies seed data through `onlava db seed`; the first implementation fails closed on changed previously-applied seed files and obviously destructive seed SQL rather than adding force or reseed escape hatches.
 - `tasks` is a beta thin repo-task layer. Each configured task can define either `run` or `steps`, plus optional `cwd` and string `env`. `run` uses the platform shell from the app root or task cwd. `steps` currently accepts `task:<name>`, `task:<domain>:<name>`, `check`, `test`, `test:go`, `generate`, `generate:client`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`.
 - Code tasks are beta app-local targets under `<domain>/tasks/`. Targets use `<domain>:<name>`, and both segments must match `[A-Za-z0-9_][A-Za-z0-9_-]*`. `onlava task list`, `onlava task inspect`, and `onlava task run <domain>:<name> [-- task args...]` discover and execute them without requiring the app model to parse cleanly.
+- `validation` is a beta app-owned quality-gate layer. It has `default` and `profiles`; each profile can define `description`, `cost` (`low`, `medium`, or `high`), `paths`, `steps`, string `env`, and advisory `artifacts`. Profile names use the configured-task name rule and cannot contain `:`.
+- Validation profile steps are not shell. They accept `profile:<name>`, `task:<name>`, `task:<domain>:<name>`, `harness:core`, `harness:ui`, `harness`, `check`, `test`, `test:go`, `generate`, `generate:client`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`. Shell commands must live behind configured `tasks.<name>.run`.
 - `dev.services.postgres` currently defaults to version `18` and `isolation: "database"`. Other isolation modes are rejected until implemented. With an active agent session, onlava creates or reuses a physical Postgres server substrate, verifies the recorded owner/reachability/version before reuse, and separately allocates a deterministic per-session database. The global Postgres substrate record contains physical-server metadata only: admin URL, version, isolation, data/socket directories, port, source, process owners, and exit metadata. It must not contain `session.<id>` database URLs or names. The session database lease is exposed through session/app env as `DatabaseURL`, `ONLAVA_MANAGED_DATABASE_URL`, and `ONLAVA_MANAGED_DATABASE_NAME`, even when local env files already contain stale database URLs. Managed app, setup, DB setup, and worker environments do not receive Onlava-injected `DATABASE_URL`; `ONLAVA_MANAGED_DATABASE_URL` remains available as tooling/debug metadata. The admin cluster comes from `ONLAVA_DEV_POSTGRES_ADMIN_URL`, a reusable agent Postgres substrate, Docker when available for the requested version, or local `initdb`/`postgres` binaries under the agent state directory. Managed local Postgres starts with logical replication settings so `dev.services.electric` can attach. `ONLAVA_DEV_POSTGRES_INITDB` and `ONLAVA_DEV_POSTGRES_BIN` can point at explicit local binaries. Set `ONLAVA_DEV_POSTGRES_EXTERNAL=1` to keep an explicit external `DatabaseURL` instead of using the managed session database; external mode requires `DatabaseURL` and ignores `DATABASE_URL` as an app database authority. Old substrate records with legacy `session.<id>` keys remain readable during adoption, but new writes omit those keys.
 - `dev.services.postgres.kind: "neon"` is the first contract slice of the branch-isolated Neon provider. It accepts `mode: "self-hosted"`, `isolation: "branch"`, `project`, `parent_branch`, `branch_policy: "manual"|"worktree"|"session"`, `branch_name_template`, `ttl`, `database`, `role`, and `database_url_env`. Unsupported Neon modes or isolation values fail closed. Current commands can install generated local Neon dev-cell state files, inspect that state, inspect a worktree branch pin, resolve/write the local branch pin during `onlava up`, and consume a non-parent ready local lease endpoint. The provider name for the actual self-hosted Neon dev cell is `neon-selfhost`. `ONLAVA_DEV_NEON_SELFHOST_DRIVER` selects the actual self-hosted Neon branch driver executable. `ONLAVA_DEV_LOCAL_POSTGRES_BRANCH_DRIVER` is a development fallback hook for local Postgres-shaped branch endpoints, not the Neon dev-cell backend. Until the provider records a non-parent ready lease with endpoint metadata, app-session startup with `kind: "neon"` fails explicitly after branch-pin resolution instead of silently falling back to database-isolated Postgres.
 - Neon dev-cell state is machine-local and lives under `~/.onlava/agent/substrates/neon/` by default, or under `ONLAVA_AGENT_HOME/agent/substrates/neon/` when the agent home is overridden. `onlava db neon install --json` creates generated `cell.json` and `compose.generated.yml` files and reports `onlava.db.neon.status.v1`; it does not claim a ready database until runtime health checks prove one. `onlava db neon start --json` starts the generated Docker Compose project with `docker compose -f <compose.generated.yml> -p onlava-neon up -d`, then reports probed status. `onlava db neon stop --json` stops that generated project without removing local substrate files or branch leases. `onlava db neon status --json` reports provider, mode, status, generated file presence, Docker availability, optional unstable image presence, labeled component/container status, reserved loopback debug ports, listener checks for running components, component log paths, and the required follow-up action without per-session connection URLs. The initial reserved ports are `55430` MinIO API, `55431` MinIO console, `55432` storage broker, `55433` compute Postgres, `55434` pageserver HTTP, and `55435`-`55437` safekeepers; presence in JSON or Compose does not mean a listener is running. A running component with an unhealthy Docker health state or closed reserved listener is reported as degraded. `onlava db neon restart --json` restarts existing Onlava-owned Neon containers when Docker can see them, but it does not create missing containers. `onlava db neon uninstall --destroy-data` removes this local substrate state.
@@ -340,10 +369,15 @@ onlava task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]
 onlava task run <name> [--app-root <path>]
 onlava task run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<name> [-- task args...]
 onlava task graph --json [--app-root <path>]
-onlava harness [--app-root <path>] [--json] [--write]
+onlava validate [<profile>] [--app-root <path>] [--json] [--write] [--dry-run]
+onlava validate list [--app-root <path>] [--json]
+onlava validate inspect <profile> [--app-root <path>] [--json]
+onlava validate graph [<profile>] [--app-root <path>] --json
+onlava validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [--dry-run]
+onlava harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 onlava harness self [--repo-root <path>] [--summary|--json|--json=summary|--json=full] [--write] [--quick|--race|--release]
 onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|observability --json [--app-root <path>]
+onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|observability|validation --json [--app-root <path>]
 onlava inspect docs --json [--repo-root <path>]
 onlava inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
 onlava traces list --json [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
@@ -459,6 +493,10 @@ Command split:
 - Onlava task flags must appear before the target. Code task arguments must appear after `--`, for example `onlava task run --env production billing:reconcile -- --dry-run`. Configured tasks do not accept `--env`, `--lang`, or extra runtime arguments.
 - Supported code task layouts are `<domain>/tasks/<name>.task.go`, `<domain>/tasks/<name>.task.ts`, `<domain>/tasks/<name>/main.go`, and `<domain>/tasks/<name>/index.ts`. Single-file Go tasks must start with `//go:build ignore` so normal app package loading cannot accidentally include them. If multiple candidates match a target, onlava fails unless `--lang go|typescript` selects a single language.
 - Code tasks execute with cwd set to the app root. Go tasks use `go run`; TypeScript tasks prefer `bun` and fall back to `node --import tsx`. Task processes receive `ONLAVA_APP_ID`, `ONLAVA_APP_ROOT`, and `ONLAVA_ENV`/`ONLAVA_RUNTIME_ENV` when `--env` is set, with `.env` and `.env.local` loaded when present.
+- `onlava inspect validation --json` is read-only and returns `onlava.inspect.validation.v1` with app metadata, default profile, profile records, advisory artifacts, and diagnostics.
+- `onlava validate list|inspect|graph --json` returns `onlava.validation.list.v1`, `onlava.validation.inspect.v1`, and `onlava.validation.graph.v1`. `onlava validate <profile> --dry-run --json` returns `onlava.validation.plan.v1` and must not execute shell, task, code-task, harness, database, or generation steps.
+- `onlava validate [<profile>] --json --write` runs the resolved profile sequentially, fails fast, keeps stdout as one JSON document, captures child output as bounded evidence tails and artifacts, returns `onlava.validation.result.v1`, and writes `.onlava/harness/validation/latest.json` plus `.onlava/harness/validation/<profile>-latest.json`.
+- `onlava validate changed --base <ref>` computes `git diff --name-only <base>...HEAD`, includes the default profile, adds profiles whose `paths` globs match changed files, resolves nested `profile:` steps, deduplicates profiles, and reports selection reasoning in JSON.
 - Cron declarations use Temporal Schedules when Temporal is enabled. `onlava serve` reconciles schedules from the API role, while `onlava worker` runs the cron workflow/activity worker on `onlava.<app>.cron.go`. Temporal cron executions derive their onlava request start/idempotency metadata from the workflow scheduled start time.
 - `onlava worker` builds once and starts the app runtime in worker-only mode with no public HTTP server. In this beta implementation it runs cron and native Temporal workers; generated binaries use `ONLAVA_ROLE=worker`.
 - `onlava worker bindings` validates `.onlava/workers/*.json` manifests and writes language-specific activity starter files. Python manifests produce `onlava_worker.py`; TypeScript/JavaScript manifests produce `onlava_worker.ts`; unknown languages receive a normalized JSON binding file.
@@ -557,6 +595,7 @@ onlava harness --json --write
 - failed and expensive steps include `evidence` conforming to `onlava.harness.artifact.v1`
 - `--write` persists the same result to `.onlava/harness/latest.json`
 - `--write` persists large evidence payloads under `.onlava/harness/artifacts/<run-id>/`
+- `--with-validation` and `--with-validation=<profile>` run app validation after the core harness and add a small `validation` pointer with `profile`, `ok`, and `result_path`; the validation result itself stays in `.onlava/harness/validation/latest.json`
 
 Implemented `harness self` JSON rules:
 
@@ -690,6 +729,11 @@ Implemented now:
     latest.json
   harness/
     latest.json
+    validation/
+      latest.json
+      <profile>-latest.json
+      artifacts/
+        <run-id>/
     self-latest.json
 ```
 
@@ -707,7 +751,7 @@ Rules:
 - `wire/capabilities.json` is an internal cache for `onlava inspect wire --json` and the runtime `GET /_wire/capabilities` response.
 - `manifest.json` ties generated cache artifacts to schema versions, artifact paths, and deterministic content hashes for debugging generation.
 - Use `onlava inspect build --json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
-- Use `onlava harness --json` and `onlava harness self --summary` for validation results. `harness/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `--json=full` is the explicit full archive stdout mode.
+- Use `onlava harness --json` for framework app-model proof, `onlava validate <profile> --json` for app-owned quality gates, and `onlava harness self --summary` for onlava repo validation. `harness/latest.json`, `harness/validation/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `--json=full` is the explicit full archive stdout mode.
 - Future implementation should keep cache paths predictable for debugging, but external tools and agents should integrate through command JSON output.
 
 ## JSON Schemas
@@ -738,6 +782,12 @@ Implemented now:
 - [onlava.task.list.v1.schema.json](schemas/onlava.task.list.v1.schema.json)
 - [onlava.task.inspect.v1.schema.json](schemas/onlava.task.inspect.v1.schema.json)
 - [onlava.task.graph.v1.schema.json](schemas/onlava.task.graph.v1.schema.json)
+- [onlava.inspect.validation.v1.schema.json](schemas/onlava.inspect.validation.v1.schema.json)
+- [onlava.validation.list.v1.schema.json](schemas/onlava.validation.list.v1.schema.json)
+- [onlava.validation.inspect.v1.schema.json](schemas/onlava.validation.inspect.v1.schema.json)
+- [onlava.validation.graph.v1.schema.json](schemas/onlava.validation.graph.v1.schema.json)
+- [onlava.validation.plan.v1.schema.json](schemas/onlava.validation.plan.v1.schema.json)
+- [onlava.validation.result.v1.schema.json](schemas/onlava.validation.result.v1.schema.json)
 - [onlava.traces.clear.v1.schema.json](schemas/onlava.traces.clear.v1.schema.json)
 - [onlava.worker.manifest.v1.schema.json](schemas/onlava.worker.manifest.v1.schema.json)
 - [onlava.worker.manifest.v2.schema.json](schemas/onlava.worker.manifest.v2.schema.json)

@@ -15,7 +15,7 @@ onlava is used in production. The stable v0 surface is intentionally small and G
 - **Full local dev loop.** `onlava up` runs the app session with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, Grafana, and optional HTTPS local domains.
 - **Typed HTTP by default.** onlava decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
-- **Inspectable by tools and agents.** `onlava inspect`, `onlava check`, `onlava logs`, and `onlava harness` expose machine-readable JSON contracts.
+- **Inspectable by tools and agents.** `onlava inspect`, `onlava check`, `onlava logs`, `onlava harness`, and `onlava validate` expose machine-readable JSON contracts.
 - **Generated clients.** onlava can generate a TypeScript client with JSON and local wire-format support.
 
 ## Status
@@ -23,7 +23,7 @@ onlava is used in production. The stable v0 surface is intentionally small and G
 Available now:
 
 - `.onlava.json` root discovery
-- `onlava up`, `onlava serve`, `onlava task`, `onlava build`, `onlava check`
+- `onlava up`, `onlava serve`, `onlava task`, `onlava validate`, `onlava build`, `onlava check`
 - typed and raw HTTP endpoints
 - public, auth, and private endpoints
 - auth handlers and request auth helpers
@@ -217,7 +217,9 @@ onlava task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]
 onlava task run <name> [--app-root <path>]
 onlava task run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<name> [-- task args...]
 onlava task graph --json [--app-root <path>]
-onlava harness [--app-root <path>] [--json] [--write]
+onlava validate [<profile>] [--app-root <path>] [--json] [--write] [--dry-run]
+onlava validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [--dry-run]
+onlava harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 onlava harness self [--repo-root <path>] [--json] [--write] [--quick|--race|--release]
 onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
 onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal --json [--app-root <path>]

@@ -63,6 +63,17 @@
       "type": ["object", "null"],
       "additionalProperties": { "$ref": "#/$defs/task" }
     },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "default": { "type": "string" },
+        "profiles": {
+          "type": ["object", "null"],
+          "additionalProperties": { "$ref": "#/$defs/validationProfile" }
+        }
+      },
+      "additionalProperties": false
+    },
     "auth": {
       "type": "object",
       "properties": {
@@ -223,6 +234,30 @@
         "env": {
           "type": ["object", "null"],
           "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "validationProfile": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "cost": { "type": "string", "enum": ["", "low", "medium", "high"] },
+        "paths": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "steps": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": ["object", "null"],
+          "additionalProperties": { "type": "string" }
+        },
+        "artifacts": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
         }
       },
       "additionalProperties": false

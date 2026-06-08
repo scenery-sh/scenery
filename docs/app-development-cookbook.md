@@ -387,6 +387,49 @@ onlava task inspect billing:reconcile --json
 
 Common failure: putting two single-file Go tasks with `package main` in the same directory without `//go:build ignore`. Normal Go package loading may see both files before onlava can filter anything. Use the build tag for `*.task.go`, or use a per-task directory.
 
+## Validation Profiles
+
+Use `validation` profiles in `.onlava.json` when an app has quality gates beyond the core framework harness:
+
+```json
+{
+  "tasks": {
+    "repo-harness": { "run": "go run ./cmd/repoharness" },
+    "web-typecheck": { "cwd": "apps/web", "run": "bun run typecheck" }
+  },
+  "validation": {
+    "default": "quick",
+    "profiles": {
+      "quick": {
+        "description": "Fast handoff gate.",
+        "cost": "low",
+        "steps": ["harness:core", "task:repo-harness"]
+      },
+      "frontend": {
+        "description": "Frontend validation.",
+        "cost": "medium",
+        "paths": ["apps/web/**"],
+        "steps": ["task:web-typecheck"]
+      },
+      "full": {
+        "description": "Full local quality gate.",
+        "cost": "high",
+        "steps": ["profile:quick", "profile:frontend"]
+      }
+    }
+  }
+}
+```
+
+Agents can inspect and run these gates without scraping repo-specific prose:
+
+```sh
+onlava inspect validation --json
+onlava validate quick --json --write
+onlava validate changed --base origin/main --json --write
+onlava validate full --dry-run --json
+```
+
 ## Configured SQLC And DB Lifecycle
 
 Use `onlava generate sqlc` for file generation. It reads `sqlc.yaml`, refreshes convention-matched Atlas schema SQL such as `auth/db/gen/schema.sql` from `auth/db/schema.hcl`, and then runs `sqlc generate`.

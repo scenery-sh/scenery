@@ -22,6 +22,7 @@ type Config struct {
 	Generators    GeneratorsConfig      `json:"generators"`
 	Database      DatabaseConfig        `json:"database"`
 	Tasks         map[string]TaskConfig `json:"tasks"`
+	Validation    ValidationConfig      `json:"validation"`
 	Auth          AuthConfig            `json:"auth"`
 	Observability ObservabilityConfig   `json:"observability"`
 	Temporal      TemporalConfig        `json:"temporal"`
@@ -117,6 +118,20 @@ type TaskConfig struct {
 	Run   string            `json:"run"`
 	Steps []string          `json:"steps"`
 	Env   map[string]string `json:"env"`
+}
+
+type ValidationConfig struct {
+	Default  string                             `json:"default"`
+	Profiles map[string]ValidationProfileConfig `json:"profiles"`
+}
+
+type ValidationProfileConfig struct {
+	Description string            `json:"description"`
+	Cost        string            `json:"cost"`
+	Paths       []string          `json:"paths"`
+	Steps       []string          `json:"steps"`
+	Env         map[string]string `json:"env"`
+	Artifacts   []string          `json:"artifacts"`
 }
 
 type AuthConfig struct {

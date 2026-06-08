@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,10 @@ func testCommand(args []string) error {
 }
 
 func runOnlavaTest(ctx context.Context, args []string) error {
+	return runOnlavaTestOutput(ctx, args, os.Stdout)
+}
+
+func runOnlavaTestOutput(ctx context.Context, args []string, stdout io.Writer) error {
 	opts, err := parseTestArgs(args)
 	if err != nil {
 		return err
@@ -60,10 +65,10 @@ func runOnlavaTest(ctx context.Context, args []string) error {
 	goArgs := append([]string{"test"}, opts.GoArgs...)
 	err, output := runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
 	if err == nil {
-		_, _ = os.Stdout.Write(output)
+		_, _ = stdout.Write(output)
 		return nil
 	}
-	_, _ = os.Stdout.Write(output)
+	_, _ = stdout.Write(output)
 	return err
 }
 

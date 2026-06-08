@@ -16,21 +16,30 @@ import (
 )
 
 type harnessOptions struct {
-	AppRoot string
-	JSON    bool
-	Write   bool
+	AppRoot           string
+	JSON              bool
+	Write             bool
+	WithValidation    bool
+	ValidationProfile string
 }
 
 type harnessResponse struct {
-	SchemaVersion string            `json:"schema_version"`
-	OK            bool              `json:"ok"`
-	GeneratedAt   string            `json:"generated_at"`
-	App           inspect.AppRef    `json:"app"`
-	Knowledge     harnessKnowledge  `json:"knowledge"`
-	Steps         []harnessStep     `json:"steps"`
-	Artifacts     []harnessArtifact `json:"artifacts"`
-	NextActions   []string          `json:"next_actions,omitempty"`
-	Wrote         string            `json:"wrote,omitempty"`
+	SchemaVersion string             `json:"schema_version"`
+	OK            bool               `json:"ok"`
+	GeneratedAt   string             `json:"generated_at"`
+	App           inspect.AppRef     `json:"app"`
+	Knowledge     harnessKnowledge   `json:"knowledge"`
+	Steps         []harnessStep      `json:"steps"`
+	Artifacts     []harnessArtifact  `json:"artifacts"`
+	Validation    *harnessValidation `json:"validation,omitempty"`
+	NextActions   []string           `json:"next_actions,omitempty"`
+	Wrote         string             `json:"wrote,omitempty"`
+}
+
+type harnessValidation struct {
+	Profile    string `json:"profile"`
+	OK         bool   `json:"ok"`
+	ResultPath string `json:"result_path"`
 }
 
 type harnessKnowledge struct {
@@ -128,6 +137,14 @@ func runOnlavaHarness(ctx context.Context, stdout io.Writer, args []string) erro
 	}
 	resp.Artifacts = buildHarnessArtifacts(appRoot, opts.Write)
 
+	if opts.WithValidation {
+		validation := runHarnessValidation(ctx, appRoot, opts.ValidationProfile)
+		resp.Validation = &validation
+		if !validation.OK {
+			resp.OK = false
+		}
+	}
+
 	if opts.Write {
 		if err := writeHarnessResult(resp.Wrote, resp); err != nil {
 			return err
@@ -167,11 +184,41 @@ func parseHarnessArgs(args []string) (harnessOptions, error) {
 			opts.JSON = true
 		case "--write":
 			opts.Write = true
+		case "--with-validation":
+			opts.WithValidation = true
 		default:
+			if strings.HasPrefix(args[i], "--with-validation=") {
+				opts.WithValidation = true
+				opts.ValidationProfile = strings.TrimSpace(strings.TrimPrefix(args[i], "--with-validation="))
+				if opts.ValidationProfile == "" {
+					return harnessOptions{}, fmt.Errorf("--with-validation profile must not be empty")
+				}
+				continue
+			}
 			return harnessOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
 	}
 	return opts, nil
+}
+
+func runHarnessValidation(ctx context.Context, appRoot, profile string) harnessValidation {
+	args := []string{"--app-root", appRoot, "--json", "--write"}
+	if strings.TrimSpace(profile) != "" {
+		args = append([]string{profile}, args...)
+	}
+	var out bytes.Buffer
+	err := runOnlavaValidate(ctx, &out, args)
+	var result validationResultResponse
+	if json.Unmarshal(out.Bytes(), &result) == nil && result.SchemaVersion == validationResultSchema {
+		resultPath := ".onlava/harness/validation/latest.json"
+		if result.Wrote != "" {
+			if rel, relErr := filepath.Rel(appRoot, result.Wrote); relErr == nil {
+				resultPath = filepath.ToSlash(rel)
+			}
+		}
+		return harnessValidation{Profile: result.Profile, OK: result.OK && err == nil, ResultPath: resultPath}
+	}
+	return harnessValidation{Profile: profile, OK: false, ResultPath: ".onlava/harness/validation/latest.json"}
 }
 
 func runHarnessCheck(ctx context.Context, appRoot string, artifactCtxs ...harnessArtifactContext) (harnessStep, inspect.AppRef) {

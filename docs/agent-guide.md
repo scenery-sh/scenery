@@ -50,6 +50,7 @@ Before finishing app work:
 onlava check --json
 go test ./...
 onlava harness --json --write
+onlava validate quick --json --write
 ```
 
 Before finishing onlava repo work:
@@ -162,6 +163,8 @@ Prefer JSON when output will feed another tool or decision.
 | Install managed local tools | `onlava system toolchain sync --json` or `onlava system toolchain sync --tool <name> --json` |
 | Inspect local HTTPS edge | `onlava system edge status --json` |
 | Run app validation snapshot | `onlava harness --json --write` |
+| Run app quality gate | `onlava validate quick --json --write`, `onlava validate changed --json --write`, or `onlava validate full --json --write` |
+| Inspect app validation gates | `onlava inspect validation --json`, `onlava validate graph full --json` |
 | Run repo validation snapshot | `onlava harness self --summary --write` |
 | Follow logs | `onlava logs --jsonl --session current --limit 200` |
 | Query logs | `onlava logs query --json --session current --query 'error OR panic'` |
@@ -201,6 +204,7 @@ Use non-JSON output only for human inspection.
 - Use `onlava db neon status --json`, `onlava db neon start --json`, `onlava db neon stop --json`, `onlava db branch status --json`, and `onlava db branch list --json` for the current Neon contract slice: generated local dev-cell state with Docker/image/container health probes and listener checks for running components, generated Compose lifecycle, worktree branch-pin inspection, and Onlava-owned local lease registry inspection. Branch status includes `backend_status`; branch status and list can report `pending`, `missing`, `expired`, `protected`, or `ready` when a provider records redacted endpoint metadata, and protected parent leases suppress endpoint metadata in both status and list output. Pending status messages include generated dev-cell prerequisite state. `onlava db branch checkout <name> --json` can write the local branch pin and run the branch-provider ensure boundary; `ONLAVA_DEV_NEON_SELFHOST_DRIVER` selects the actual `neon-selfhost` branch driver, while `ONLAVA_DEV_LOCAL_POSTGRES_BRANCH_DRIVER` is only a local Postgres-shaped development fallback. Without either driver checkout only renews the local lease; a configured driver can mark the branch ready by returning endpoint metadata through the JSON contract. Checkout refuses to reuse matching foreign local leases. `delete` can remove pending local leases after the documented parent/current guards and delegates ready branch deletion to the configured driver; `reset`, `restore`, and `diff` also delegate to the driver when configured. `expire`, same-project `prune`, and selected-session `onlava down --db` update only Onlava-owned local registry metadata; `onlava down --state` removes the local worktree pin; and `onlava worktree create <name> --json` can create a Git worktree and write the target pin for Neon apps, rolling the worktree back if pin creation fails. `onlava worktree remove <name> --db` verifies the Git worktree before removing local `.onlava` state. `onlava up`, `onlava db psql`, and Electric can consume a non-parent ready lease endpoint and fail explicitly while the lease is not ready or protected. Do not assume built-in Neon branch creation or Electric slot lifecycle hardening is complete until the branch-provider milestone lands.
 - Use `onlava task list`, `onlava task inspect <target>`, and `onlava task run <target>` for configured repo tasks and app-local code tasks. Configured tasks use plain names; code tasks use `<domain>:<name>`, and task arguments must appear after `--`.
 - Use `onlava task run <name>` only for repo-local workflows that are not core onlava lifecycle commands.
+- Use `onlava validate` for app-owned quality gates defined in `.onlava.json`. `onlava harness` remains the framework-owned app-model proof; `onlava validate quick|changed|full --json --write` runs app-specific tasks/profiles and writes `.onlava/harness/validation/latest.json`.
 
 ## Generated And Cache Artifacts
 
@@ -214,6 +218,7 @@ onlava inspect endpoints --json
 onlava inspect wire --json
 onlava inspect build --json
 onlava harness --json
+onlava validate quick --json
 onlava harness self --summary
 ```
 
@@ -230,6 +235,7 @@ Generated repo-local files may exist after inspect/build/harness commands produc
     manifest.json
   build/latest.json
   harness/latest.json
+  harness/validation/latest.json
 ```
 
 Treat these files as internal cache or local snapshot artifacts. Do not read `.onlava/gen/*` directly unless debugging onlava generation.

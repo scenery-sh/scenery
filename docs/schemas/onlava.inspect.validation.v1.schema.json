@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.inspect.validation.v1.schema.json",
+  "title": "onlava.inspect.validation.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "profiles", "diagnostics"],
+  "properties": {
+    "schema_version": { "const": "onlava.inspect.validation.v1" },
+    "app": { "$ref": "#/$defs/appRef" },
+    "default": { "type": "string" },
+    "profiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/profile" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": ["name", "root", "config_path"],
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "type": "string" },
+        "root": { "type": "string" },
+        "config_path": { "type": "string" },
+        "module_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "required": ["name", "paths", "steps", "artifacts"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "cost": { "type": "string" },
+        "paths": { "type": "array", "items": { "type": "string" } },
+        "steps": { "type": "array", "items": { "type": "string" } },
+        "env_keys": { "type": "array", "items": { "type": "string" } },
+        "artifacts": { "type": "array", "items": { "type": "string" } },
+        "default": { "type": "boolean" },
+        "step_count": { "type": "integer" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

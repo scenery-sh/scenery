@@ -32,6 +32,31 @@ Validation:
 - `go test ./internal/observability ./cmd/onlava` passed during implementation.
 - Full validation was run before PR creation for the implementation change.
 
+## App Validation Profiles
+
+- Status: completed
+- Owner: onlava runtime / agent DX
+- Completed: 2026-06-08
+- Quality: B+
+- ExecPlan: [0068 App Validation Profiles](0068-app-validation-profiles.md)
+
+Shipped:
+
+- `.onlava.json` `validation` profiles with default profile selection, metadata, cost, path globs, env overlays, steps, and advisory artifacts.
+- `onlava inspect validation --json`, `onlava validate list|inspect|graph`, `onlava validate <profile> --dry-run --json`, `onlava validate <profile> --json --write`, and `onlava validate changed --base <ref>`.
+- Sequential fail-fast execution over nested profiles, configured tasks, code-backed tasks, core harness/UI harness, check/test/generate, and DB lifecycle built-ins.
+- Harness-style evidence with output tails, repro commands, validation artifacts under `.onlava/harness/validation/artifacts/<run-id>/`, and latest result files.
+- Optional `onlava harness --with-validation[=<profile>]` bridge that adds a compact validation pointer to the harness result.
+- JSON schemas, local contract docs, agent guide, installable skill, app cookbook recipe, README command list, self-harness schema inventory, and focused tests.
+
+Validation:
+
+- `go test ./cmd/onlava` passed.
+- `go test ./...` passed.
+- `python3 -m json.tool docs/knowledge.json docs/schemas/*.json` passed.
+- `onlava inspect docs --json` passed.
+- Source-driven CLI smoke tests with `go run ./cmd/onlava` passed for inspect, dry-run, execution/write, and harness bridge paths.
+
 ## Harness Self Summary Output
 
 - Status: completed

@@ -57,6 +57,8 @@ func run(args []string) error {
 		return generateCommand(args[1:])
 	case "task":
 		return taskCommand(args[1:])
+	case "validate":
+		return validateCommand(args[1:])
 	case "worker":
 		return workerCommand(args[1:])
 	case "version":
@@ -116,6 +118,11 @@ func usageError() error {
     onlava task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]
     onlava task run <target> [--app-root <path>] [--env <name>] [--lang go|typescript] [-- script args...]
     onlava task graph --json [--app-root <path>]
+    onlava validate [<profile>] [--app-root <path>] [--json] [--write] [--dry-run]
+    onlava validate list [--app-root <path>] [--json]
+    onlava validate inspect <profile> [--app-root <path>] [--json]
+    onlava validate graph [<profile>] [--app-root <path>] --json
+    onlava validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [--dry-run]
     onlava serve [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]
     onlava worker bindings [--app-root <path>] [--out <dir>] [--json]
@@ -127,10 +134,10 @@ func usageError() error {
     onlava version [--json]
     onlava build [--app-root <path>] [-o <path>]
     onlava check [--app-root <path>] [--json]
-    onlava harness [--app-root <path>] [--json] [--write]
+    onlava harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
     onlava harness self [--repo-root <path>] [--summary|--json|--json=summary|--json=full] [--write] [--quick|--race|--release]
     onlava harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-    onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|observability --json [--app-root <path>]
+    onlava inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|observability|validation --json [--app-root <path>]
     onlava inspect docs --json [--repo-root <path>]
     onlava inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
     onlava traces list [--json] [--session current|<id>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest] [--app-root <path>]

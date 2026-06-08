@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.validation.list.v1.schema.json",
+  "title": "onlava.validation.list.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "profiles"],
+  "properties": {
+    "schema_version": { "const": "onlava.validation.list.v1" },
+    "app": { "type": "object", "additionalProperties": true },
+    "default": { "type": "string" },
+    "profiles": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true }
+    }
+  },
+  "additionalProperties": false
+}
