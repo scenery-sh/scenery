@@ -102,7 +102,7 @@ func usageError() error {
     onlava db reset [--app-root <path>]
     onlava db drop [--app-root <path>]
     onlava db snapshot create|restore <name> [--app-root <path>]
-    onlava db branch status|list|checkout|reset|delete|expire|prune [--app-root <path>] [--json]
+    onlava db branch status|list|checkout|reset|delete|restore|diff|expire|prune [--app-root <path>] [--json]
     onlava db neon install|start|status|logs|stop|restart|uninstall [--json]
     onlava worktree create <name> [--from <branch>] [--app-root <path>] [--json]
     onlava worktree list [--app-root <path>] [--json]

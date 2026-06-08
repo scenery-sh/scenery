@@ -15,9 +15,11 @@ import (
 )
 
 type neonBranchDriverResult struct {
-	Status   string        `json:"status,omitempty"`
-	Message  string        `json:"message,omitempty"`
-	Endpoint *neonEndpoint `json:"endpoint,omitempty"`
+	Status       string                  `json:"status,omitempty"`
+	Message      string                  `json:"message,omitempty"`
+	Diff         string                  `json:"diff,omitempty"`
+	Endpoint     *neonEndpoint           `json:"endpoint,omitempty"`
+	RestorePoint *neonBranchRestorePoint `json:"restore_point,omitempty"`
 }
 
 type selfHostedNeonBranchDriver struct {
@@ -50,7 +52,16 @@ func (d selfHostedNeonBranchDriver) EnsureBranch(ctx context.Context, pin worktr
 	if err != nil {
 		return neonBranchBackendStatus{Status: "unknown", Message: err.Error()}, err
 	}
-	return updateNeonBranchLeaseFromDriver(pin, result)
+	status, err := updateNeonBranchLeaseFromDriver(pin, result)
+	if err != nil {
+		return status, err
+	}
+	if status.Status == "ready" {
+		if err := ensureInitialNeonRestorePoint(pin); err != nil {
+			return neonBranchBackendStatus{Status: "unknown", Message: err.Error()}, err
+		}
+	}
+	return status, nil
 }
 
 func (d selfHostedNeonBranchDriver) ResetBranch(ctx context.Context, pin worktreeDBPin) error {
@@ -58,17 +69,42 @@ func (d selfHostedNeonBranchDriver) ResetBranch(ctx context.Context, pin worktre
 	if err != nil {
 		return err
 	}
-	_, err = updateNeonBranchLeaseFromDriver(pin, result)
+	if _, err := updateNeonBranchLeaseFromDriver(pin, result); err != nil {
+		return err
+	}
+	_, err = recordNeonRestorePoint(pin, "branch-reset", "")
 	return err
 }
 
-func (d selfHostedNeonBranchDriver) RestoreBranch(ctx context.Context, pin worktreeDBPin, at string) error {
+func (d selfHostedNeonBranchDriver) RestoreBranch(ctx context.Context, pin worktreeDBPin, at string) (neonBranchRestorePoint, error) {
+	restoreFrom, _ := resolveNeonRestorePoint(pin.BranchID, at)
 	result, err := d.run(ctx, "restore", pin, []string{"--at", strings.TrimSpace(at)})
 	if err != nil {
-		return err
+		return neonBranchRestorePoint{}, err
 	}
-	_, err = updateNeonBranchLeaseFromDriver(pin, result)
-	return err
+	if _, err := updateNeonBranchLeaseFromDriver(pin, result); err != nil {
+		return neonBranchRestorePoint{}, err
+	}
+	if result.RestorePoint != nil {
+		return *result.RestorePoint, nil
+	}
+	restoredFrom := restoreFrom.Ref
+	point, err := recordNeonRestorePoint(pin, "branch-restore", restoredFrom)
+	if err != nil {
+		return neonBranchRestorePoint{}, err
+	}
+	if restoreFrom.Ref != "" {
+		return restoreFrom, nil
+	}
+	return point, nil
+}
+
+func (d selfHostedNeonBranchDriver) DiffBranch(ctx context.Context, pin worktreeDBPin, target string) (string, error) {
+	result, err := d.run(ctx, "diff", pin, []string{"--target", strings.TrimSpace(target)})
+	if err != nil {
+		return "", err
+	}
+	return result.Diff, nil
 }
 
 func (d selfHostedNeonBranchDriver) DeleteBranch(ctx context.Context, pin worktreeDBPin) error {

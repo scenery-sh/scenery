@@ -228,8 +228,8 @@ type neonBranchProvider interface {
 	Connection(context.Context, worktreeDBPin) (neonBranchConnectionInfo, error)
 	ResetBranch(context.Context, worktreeDBPin, dbBranchOptions) error
 	DeleteBranch(context.Context, worktreeDBPin, string, dbBranchOptions) error
-	RestoreBranch(context.Context, worktreeDBPin, dbBranchOptions) error
-	DiffBranch(context.Context, worktreeDBPin, string, dbBranchOptions) error
+	RestoreBranch(context.Context, worktreeDBPin, dbBranchOptions) (neonBranchRestorePoint, error)
+	DiffBranch(context.Context, worktreeDBPin, string, dbBranchOptions) (string, error)
 }
 
 type selfHostedNeonBranchProvider struct{}
@@ -1412,49 +1412,6 @@ func runDBBranchDelete(ctx context.Context, _ io.Writer, opts dbBranchOptions) e
 	return neonBranchProviderForConfig(cfg).DeleteBranch(ctx, pin, branch, opts)
 }
 
-func runDBBranchRestore(ctx context.Context, _ io.Writer, opts dbBranchOptions) error {
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(opts.At) == "" {
-		return fmt.Errorf("onlava db branch restore requires --at <timestamp-or-lsn>")
-	}
-	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(appRoot))
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("no worktree database branch pin exists; run `onlava db branch checkout <name>` first")
-	}
-	if isProtectedNeonParentBranch(pin) {
-		return fmt.Errorf("refusing to restore protected parent branch %q", pin.Branch)
-	}
-	if !opts.Yes {
-		return fmt.Errorf("onlava db branch restore requires --yes")
-	}
-	return neonBranchProviderForConfig(cfg).RestoreBranch(ctx, pin, opts)
-}
-
-func runDBBranchDiff(ctx context.Context, _ io.Writer, opts dbBranchOptions) error {
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	target := strings.TrimSpace(opts.Branch)
-	if target == "" {
-		return fmt.Errorf("usage: onlava db branch diff <branch> [--app-root <path>] [--json]")
-	}
-	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(appRoot))
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("no worktree database branch pin exists; run `onlava db branch checkout <name>` first")
-	}
-	return neonBranchProviderForConfig(cfg).DiffBranch(ctx, pin, target, opts)
-}
-
 func buildDBBranchStatus(ctx context.Context, appRoot string, cfg appcfg.Config) (dbBranchStatusResult, error) {
 	pinPath := worktreeDBPinPath(appRoot)
 	pin, ok, err := readWorktreeDBPin(pinPath)
@@ -2075,6 +2032,9 @@ func (selfHostedNeonBranchProvider) DeleteBranch(ctx context.Context, pin worktr
 	if err := writeNeonBranchRegistry(root, registry); err != nil {
 		return err
 	}
+	if err := deleteNeonRestorePoints(neonLocalBranchID(pin.Project, branch)); err != nil {
+		return err
+	}
 	if pin.Branch == branch && strings.TrimSpace(opts.AppRoot) != "" {
 		if err := os.Remove(worktreeDBPinPath(opts.AppRoot)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -2093,25 +2053,32 @@ func neonLeaseMatchesBranchForDelete(lease neonBranchLease, current worktreeDBPi
 	return true
 }
 
-func (selfHostedNeonBranchProvider) RestoreBranch(ctx context.Context, pin worktreeDBPin, opts dbBranchOptions) error {
+func (selfHostedNeonBranchProvider) RestoreBranch(ctx context.Context, pin worktreeDBPin, opts dbBranchOptions) (neonBranchRestorePoint, error) {
 	driver, ok, err := configuredSelfHostedNeonBranchDriver()
 	if err != nil {
-		return err
+		return neonBranchRestorePoint{}, err
 	}
 	if ok {
 		return driver.RestoreBranch(ctx, pin, opts.At)
 	}
 	if err := selfHostedNeonMutationPreflight(ctx, "restore"); err != nil {
-		return err
+		return neonBranchRestorePoint{}, err
 	}
-	return fmt.Errorf("db branch restore validated %q at %q but Neon backend restore is not implemented yet", pin.Branch, strings.TrimSpace(opts.At))
+	return neonBranchRestorePoint{}, fmt.Errorf("db branch restore validated %q at %q but Neon backend restore is not implemented yet", pin.Branch, strings.TrimSpace(opts.At))
 }
 
-func (selfHostedNeonBranchProvider) DiffBranch(ctx context.Context, pin worktreeDBPin, target string, _ dbBranchOptions) error {
-	if err := selfHostedNeonMutationPreflight(ctx, "diff"); err != nil {
-		return err
+func (selfHostedNeonBranchProvider) DiffBranch(ctx context.Context, pin worktreeDBPin, target string, _ dbBranchOptions) (string, error) {
+	driver, ok, err := configuredSelfHostedNeonBranchDriver()
+	if err != nil {
+		return "", err
 	}
-	return fmt.Errorf("db branch diff validated %q against %q but Neon backend diff is not implemented yet", pin.Branch, target)
+	if ok {
+		return driver.DiffBranch(ctx, pin, target)
+	}
+	if err := selfHostedNeonMutationPreflight(ctx, "diff"); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("db branch diff validated %q against %q but Neon backend diff is not implemented yet", pin.Branch, target)
 }
 
 func selfHostedNeonMutationPreflight(ctx context.Context, action string) error {

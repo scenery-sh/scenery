@@ -885,6 +885,128 @@ exit 1
 	}
 }
 
+func TestDBBranchDriverRestoreDiffAndRestorePoints(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".onlava.json", `{"name":"branchapp","dev":{"services":{"postgres":{"kind":"neon","mode":"self-hosted","isolation":"branch","project":"branchapp"}}}}`)
+
+	binDir := t.TempDir()
+	driverLog := filepath.Join(binDir, "driver.log")
+	driver := filepath.Join(binDir, "neon-branch-driver")
+	if err := os.WriteFile(driver, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$DRIVER_LOG"
+case "$1" in
+  ensure|reset|restore)
+    printf '{"status":"ready","message":"driver marked branch ready","endpoint":{"host":"127.0.0.1","port":55433,"database":"branchapp","role":"cloud_admin","sslmode":"disable","source":"test-driver"}}\n'
+    exit 0
+    ;;
+  diff)
+    printf '%s\n' '{"diff":"--- branchapp/feature\\n+++ main\\n"}'
+    exit 0
+    ;;
+esac
+echo "unexpected driver action $1" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DRIVER_LOG", driverLog)
+	t.Setenv(neonBranchDriverEnv, driver)
+
+	if err := runDBBranchCommand(t.Context(), io.Discard, []string{"checkout", "branchapp/feature", "--app-root", root, "--json"}); err != nil {
+		t.Fatalf("checkout returned error: %v", err)
+	}
+	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(root))
+	if err != nil || !ok {
+		t.Fatalf("read worktree pin ok=%v err=%v", ok, err)
+	}
+	state, _, err := readNeonRestorePointsState()
+	if err != nil {
+		t.Fatalf("read restore points: %v", err)
+	}
+	points := state.Points[pin.BranchID]
+	if len(points) != 1 || points[0].Source != "branch-created" {
+		t.Fatalf("restore points after checkout = %+v", points)
+	}
+	firstRef := points[0].Ref
+
+	if err := runDBBranchCommand(t.Context(), io.Discard, []string{"reset", "--app-root", root, "--yes"}); err != nil {
+		t.Fatalf("reset returned error: %v", err)
+	}
+	var restoreOut bytes.Buffer
+	if err := runDBBranchCommand(t.Context(), &restoreOut, []string{"restore", "--at", firstRef, "--app-root", root, "--yes", "--json"}); err != nil {
+		t.Fatalf("restore returned error: %v", err)
+	}
+	var restorePayload struct {
+		SchemaVersion string                 `json:"schema_version"`
+		RestorePoint  neonBranchRestorePoint `json:"restore_point"`
+		Status        string                 `json:"status"`
+	}
+	if err := json.Unmarshal(restoreOut.Bytes(), &restorePayload); err != nil {
+		t.Fatalf("decode restore JSON: %v\n%s", err, restoreOut.String())
+	}
+	if restorePayload.SchemaVersion != "onlava.db.branch.restore.v1" || restorePayload.Status != "restored" || restorePayload.RestorePoint.Ref != firstRef {
+		t.Fatalf("restore payload = %+v", restorePayload)
+	}
+	state, _, err = readNeonRestorePointsState()
+	if err != nil {
+		t.Fatalf("read restore points after restore: %v", err)
+	}
+	points = state.Points[pin.BranchID]
+	if len(points) < 3 || points[len(points)-1].Source != "branch-restore" || points[len(points)-1].RestoredFrom != firstRef {
+		t.Fatalf("restore points after restore = %+v", points)
+	}
+
+	var diffOut bytes.Buffer
+	if err := runDBBranchCommand(t.Context(), &diffOut, []string{"diff", "main", "--app-root", root, "--json"}); err != nil {
+		t.Fatalf("diff returned error: %v", err)
+	}
+	var diffPayload struct {
+		SchemaVersion string `json:"schema_version"`
+		Diff          string `json:"diff"`
+	}
+	if err := json.Unmarshal(diffOut.Bytes(), &diffPayload); err != nil {
+		t.Fatalf("decode diff JSON: %v\n%s", err, diffOut.String())
+	}
+	if diffPayload.SchemaVersion != "onlava.db.branch.diff.v1" || !strings.Contains(diffPayload.Diff, "+++ main") {
+		t.Fatalf("diff payload = %+v", diffPayload)
+	}
+	if strings.Contains(restoreOut.String(), "postgres://") || strings.Contains(diffOut.String(), "postgres://") {
+		t.Fatalf("branch JSON leaked connection URL: restore=%s diff=%s", restoreOut.String(), diffOut.String())
+	}
+	logBytes, err := os.ReadFile(driverLog)
+	if err != nil {
+		t.Fatalf("read driver log: %v", err)
+	}
+	logText := string(logBytes)
+	for _, want := range []string{"restore", "--at " + firstRef, "diff", "--target main"} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("driver log missing %q in %q", want, logText)
+		}
+	}
+}
+
+func TestNeonFixtureConfigLoads(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(appcfg.RepoRoot(), "testdata", "apps", "neon-basic")
+	_, cfg, err := appcfg.DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot(neon-basic) error = %v", err)
+	}
+	_, svc, ok := managedPostgresDeclared(cfg)
+	if !ok || svc.Kind != "neon" {
+		t.Fatalf("managed Postgres service = %+v, ok=%v", svc, ok)
+	}
+	pin, err := buildWorktreeDBPin(root, cfg, "neonbasic/fixture")
+	if err != nil {
+		t.Fatalf("buildWorktreeDBPin(neon-basic) error = %v", err)
+	}
+	if pin.Project != "neonbasic" || pin.Database != "neonbasic" || pin.Role != "cloud_admin" {
+		t.Fatalf("pin = %+v", pin)
+	}
+}
+
 func TestDBBranchExpireAndPruneLocalRegistry(t *testing.T) {
 	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
 	root := t.TempDir()

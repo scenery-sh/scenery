@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.dev/schemas/onlava.db.branch.restore.v1.schema.json",
+  "title": "onlava DB Branch Restore Result v1",
+  "type": "object",
+  "required": ["schema_version", "branch", "branch_id", "restore_point", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "onlava.db.branch.restore.v1" },
+    "branch": { "type": "string" },
+    "branch_id": { "type": "string" },
+    "restore_point": { "$ref": "onlava.db.neon.restore_points.v1.schema.json#/$defs/restore_point" },
+    "status": { "const": "restored" }
+  }
+}

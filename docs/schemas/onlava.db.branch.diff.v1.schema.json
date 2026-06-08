@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.dev/schemas/onlava.db.branch.diff.v1.schema.json",
+  "title": "onlava DB Branch Diff Result v1",
+  "type": "object",
+  "required": ["schema_version", "branch", "target", "diff"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "onlava.db.branch.diff.v1" },
+    "branch": { "type": "string" },
+    "target": { "type": "string" },
+    "diff": { "type": "string" }
+  }
+}

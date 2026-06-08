@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.dev/schemas/onlava.db.neon.restore_points.v1.schema.json",
+  "title": "onlava Neon Restore Points v1",
+  "type": "object",
+  "required": ["schema_version", "points", "updated_at"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "onlava.db.neon.restore_points.v1" },
+    "points": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/restore_point" }
+      }
+    },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "restore_point": {
+      "type": "object",
+      "required": ["ref", "branch_id", "branch", "project", "database_name", "source", "created_at"],
+      "additionalProperties": false,
+      "properties": {
+        "ref": { "type": "string" },
+        "branch_id": { "type": "string" },
+        "branch": { "type": "string" },
+        "project": { "type": "string" },
+        "database_name": { "type": "string" },
+        "source": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "restored_from": { "type": "string" }
+      }
+    }
+  }
+}

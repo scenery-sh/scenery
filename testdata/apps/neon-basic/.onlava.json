@@ -1,0 +1,21 @@
+{
+  "name": "neonbasic",
+  "dev": {
+    "services": {
+      "postgres": {
+        "kind": "neon",
+        "mode": "self-hosted",
+        "version": "18",
+        "isolation": "branch",
+        "project": "neonbasic",
+        "parent_branch": "main",
+        "branch_policy": "worktree",
+        "branch_name_template": "{app}/{git_branch}",
+        "ttl": "168h",
+        "database": "neonbasic",
+        "role": "cloud_admin",
+        "database_url_env": "DatabaseURL"
+      }
+    }
+  }
+}
