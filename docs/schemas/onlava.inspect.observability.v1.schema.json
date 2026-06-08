@@ -18,6 +18,21 @@
       },
       "additionalProperties": false
     },
+    "debug": {
+      "type": "object",
+      "properties": {
+        "base_urls": {
+          "type": "object",
+          "properties": {
+            "logs": { "type": "string" },
+            "metrics": { "type": "string" },
+            "traces": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "examples": { "type": "array", "items": { "type": "string" } },
     "warnings": { "type": "array", "items": { "type": "string" } }
   },

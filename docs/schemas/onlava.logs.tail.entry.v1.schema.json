@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.logs.tail.entry.v1.schema.json",
+  "title": "onlava.logs.tail.entry.v1",
+  "type": "object",
+  "required": ["schema_version", "scope", "backend", "query", "log"],
+  "properties": {
+    "schema_version": { "const": "onlava.logs.tail.entry.v1" },
+    "scope": { "$ref": "onlava.inspect.observability.v1.schema.json#/$defs/scope" },
+    "backend": { "$ref": "onlava.inspect.observability.v1.schema.json#/$defs/backend" },
+    "query": { "$ref": "onlava.logs.query.v1.schema.json#/$defs/query" },
+    "log": { "$ref": "onlava.logs.query.v1.schema.json#/$defs/log" }
+  },
+  "additionalProperties": false
+}

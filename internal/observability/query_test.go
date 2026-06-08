@@ -45,10 +45,13 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 		t.Fatalf("unexpected form: %+v", form)
 	}
 	filters := strings.Join(form["extra_filters"], "\n")
-	for _, want := range []string{`onlava.application_id:"demo"`, `onlava_session_id:"session-a"`, `onlava.app_root_hash:"root123"`} {
+	for _, want := range []string{`onlava.application_id:"demo"`, `onlava_session_id:"session-a"`} {
 		if !strings.Contains(filters, want) {
 			t.Fatalf("extra_filters %q missing %q", filters, want)
 		}
+	}
+	if strings.Contains(filters, "app_root_hash") {
+		t.Fatalf("logs scope should not require app root hash: %q", filters)
 	}
 	if result.SchemaVersion != LogsQuerySchema || len(result.Logs) != 1 {
 		t.Fatalf("unexpected result: %+v", result)
@@ -59,6 +62,44 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 	}
 	if len(entry.Raw) != 1 || entry.Raw["message"] != "failed" {
 		t.Fatalf("field selection not applied: %+v", entry.Raw)
+	}
+}
+
+func TestTailLogsUsesStartOffsetAndSelfDescribingEntries(t *testing.T) {
+	t.Parallel()
+
+	var form url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/select/logsql/tail" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		form = r.Form
+		_, _ = io.WriteString(w, `{"_time":"2026-06-08T10:00:00Z","message":"tailed"}`+"\n")
+	}))
+	defer server.Close()
+
+	var entries []LogsTailEntry
+	err := TailLogs(context.Background(), LogsQuery{
+		BaseURL: server.URL,
+		Scope:   testScope(),
+		Query:   "*",
+		Bounds:  testBounds(),
+		Timeout: time.Second,
+	}, func(entry LogsTailEntry) error {
+		entries = append(entries, entry)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("TailLogs: %v", err)
+	}
+	if form.Get("start_offset") != "15m" || form.Get("start") != "" || form.Get("end") != "" {
+		t.Fatalf("unexpected tail form: %+v", form)
+	}
+	if len(entries) != 1 || entries[0].SchemaVersion != LogsTailEntrySchema || entries[0].Log.Message != "tailed" || entries[0].Scope.SessionID != "session-a" {
+		t.Fatalf("unexpected tail entries: %+v", entries)
 	}
 }
 
@@ -110,6 +151,12 @@ func TestMetricsLabelsAndSeriesDecodeCatalogs(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/prometheus/api/v1/labels":
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("ParseForm: %v", err)
+			}
+			if r.Form.Get("match[]") != `onlava_request_duration_seconds` {
+				t.Fatalf("labels match[] = %q", r.Form.Get("match[]"))
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": []string{"z", "a"}})
 		case "/prometheus/api/v1/series":
 			if err := r.ParseForm(); err != nil {
@@ -125,7 +172,7 @@ func TestMetricsLabelsAndSeriesDecodeCatalogs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	labels, err := MetricsLabels(context.Background(), MetricsCatalogQuery{BaseURL: server.URL, Scope: testScope(), Bounds: testBounds(), Limit: 10})
+	labels, err := MetricsLabels(context.Background(), MetricsCatalogQuery{BaseURL: server.URL, Scope: testScope(), Bounds: testBounds(), Match: "onlava_request_duration_seconds", Limit: 10, Timeout: time.Second})
 	if err != nil {
 		t.Fatalf("MetricsLabels: %v", err)
 	}

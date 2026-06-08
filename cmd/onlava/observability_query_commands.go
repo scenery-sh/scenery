@@ -14,6 +14,12 @@ import (
 	obs "github.com/pbrazdil/onlava/internal/observability"
 )
 
+const (
+	logsQueryLimitMax      = 2000
+	metricsQueryLimitMax   = 10000
+	metricsCatalogLimitMax = 10000
+)
+
 type logsQueryOptions struct {
 	AppRoot  string
 	Session  string
@@ -27,6 +33,7 @@ type logsQueryOptions struct {
 	Timeout  time.Duration
 	Fields   []string
 	JSONL    bool
+	Warnings []string
 }
 
 type metricsQueryOptions struct {
@@ -41,6 +48,7 @@ type metricsQueryOptions struct {
 	Timeout  time.Duration
 	Limit    int
 	Instant  bool
+	Warnings []string
 }
 
 type metricsCatalogOptions struct {
@@ -52,15 +60,18 @@ type metricsCatalogOptions struct {
 	Start    time.Time
 	End      time.Time
 	Limit    int
+	Timeout  time.Duration
+	Warnings []string
 }
 
 type inspectObservabilityResponse struct {
-	SchemaVersion string             `json:"schema_version"`
-	App           inspectAppRefLite  `json:"app"`
-	Scope         obs.QueryScope     `json:"scope"`
-	Backends      observabilityKinds `json:"backends"`
-	Examples      []string           `json:"examples"`
-	Warnings      []string           `json:"warnings,omitempty"`
+	SchemaVersion string              `json:"schema_version"`
+	App           inspectAppRefLite   `json:"app"`
+	Scope         obs.QueryScope      `json:"scope"`
+	Backends      observabilityKinds  `json:"backends"`
+	Debug         *observabilityDebug `json:"debug,omitempty"`
+	Examples      []string            `json:"examples"`
+	Warnings      []string            `json:"warnings,omitempty"`
 }
 
 type inspectAppRefLite struct {
@@ -73,6 +84,10 @@ type observabilityKinds struct {
 	Logs    obs.QueryBackend `json:"logs"`
 	Metrics obs.QueryBackend `json:"metrics"`
 	Traces  obs.QueryBackend `json:"traces"`
+}
+
+type observabilityDebug struct {
+	BaseURLs map[string]string `json:"base_urls,omitempty"`
 }
 
 func runLogsQueryCommand(ctx context.Context, stdout io.Writer, args []string) error {
@@ -90,13 +105,14 @@ func runLogsQueryCommand(ctx context.Context, stdout io.Writer, args []string) e
 		baseURL = stack.BaseURL("logs")
 	}
 	result, err := obs.QueryLogs(ctx, obs.LogsQuery{
-		BaseURL: baseURL,
-		Scope:   scope,
-		Query:   opts.Query,
-		Bounds:  queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
-		Limit:   opts.Limit,
-		Timeout: opts.Timeout,
-		Fields:  opts.Fields,
+		BaseURL:  baseURL,
+		Scope:    scope,
+		Query:    opts.Query,
+		Bounds:   queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
+		Limit:    opts.Limit,
+		Timeout:  opts.Timeout,
+		Fields:   opts.Fields,
+		Warnings: opts.Warnings,
 	})
 	if err != nil {
 		return err
@@ -135,7 +151,7 @@ func runLogsTailCommand(ctx context.Context, stdout io.Writer, args []string) er
 		Limit:   opts.Limit,
 		Timeout: opts.Timeout,
 		Fields:  opts.Fields,
-	}, func(entry obs.LogEntry) error {
+	}, func(entry obs.LogsTailEntry) error {
 		return enc.Encode(entry)
 	})
 }
@@ -155,14 +171,15 @@ func runMetricsQueryCommand(ctx context.Context, stdout io.Writer, args []string
 		baseURL = stack.BaseURL("metrics")
 	}
 	result, err := obs.QueryMetrics(ctx, obs.MetricsQuery{
-		BaseURL: baseURL,
-		Scope:   scope,
-		PromQL:  opts.PromQL,
-		Bounds:  queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
-		Step:    opts.Step,
-		Instant: opts.Instant,
-		Timeout: opts.Timeout,
-		Limit:   opts.Limit,
+		BaseURL:  baseURL,
+		Scope:    scope,
+		PromQL:   opts.PromQL,
+		Bounds:   queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
+		Step:     opts.Step,
+		Instant:  opts.Instant,
+		Timeout:  opts.Timeout,
+		Limit:    opts.Limit,
+		Warnings: opts.Warnings,
 	})
 	if err != nil {
 		return err
@@ -185,10 +202,13 @@ func runMetricsLabelsCommand(ctx context.Context, stdout io.Writer, args []strin
 		baseURL = stack.BaseURL("metrics")
 	}
 	result, err := obs.MetricsLabels(ctx, obs.MetricsCatalogQuery{
-		BaseURL: baseURL,
-		Scope:   scope,
-		Bounds:  queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
-		Limit:   opts.Limit,
+		BaseURL:  baseURL,
+		Scope:    scope,
+		Bounds:   queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
+		Match:    opts.Match,
+		Limit:    opts.Limit,
+		Timeout:  opts.Timeout,
+		Warnings: opts.Warnings,
 	})
 	if err != nil {
 		return err
@@ -211,11 +231,13 @@ func runMetricsSeriesCommand(ctx context.Context, stdout io.Writer, args []strin
 		baseURL = stack.BaseURL("metrics")
 	}
 	result, err := obs.MetricsSeries(ctx, obs.MetricsCatalogQuery{
-		BaseURL: baseURL,
-		Scope:   scope,
-		Bounds:  queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
-		Match:   opts.Match,
-		Limit:   opts.Limit,
+		BaseURL:  baseURL,
+		Scope:    scope,
+		Bounds:   queryBounds(opts.Since, opts.SinceRaw, opts.Start, opts.End),
+		Match:    opts.Match,
+		Limit:    opts.Limit,
+		Timeout:  opts.Timeout,
+		Warnings: opts.Warnings,
 	})
 	if err != nil {
 		return err
@@ -244,14 +266,15 @@ func buildInspectObservabilityResponse(ctx context.Context, appRoot string, cfg 
 		},
 		Scope: scope,
 		Backends: observabilityKinds{
-			Logs:    obs.QueryBackend{Kind: "victorialogs", Dialect: "LogsQL", BaseURL: logsBase, Ready: logsBase != "", QueryPath: "/select/logsql/query", TailPath: "/select/logsql/tail"},
-			Metrics: obs.QueryBackend{Kind: "victoriametrics", Dialect: "PromQL/MetricsQL", BaseURL: metricsBase, Ready: metricsBase != "", QueryPath: "/prometheus/api/v1/query_range"},
-			Traces:  obs.QueryBackend{Kind: "victoriatraces", Dialect: "Jaeger query API", BaseURL: tracesBase, Ready: tracesBase != "", QueryPath: "/select/jaeger/api/traces"},
+			Logs:    obs.QueryBackend{Kind: "victorialogs", Dialect: "LogsQL", Ready: logsBase != "", QueryPath: "/select/logsql/query", TailPath: "/select/logsql/tail"},
+			Metrics: obs.QueryBackend{Kind: "victoriametrics", Dialect: "PromQL/MetricsQL", Ready: metricsBase != "", QueryPath: "/prometheus/api/v1/query_range"},
+			Traces:  obs.QueryBackend{Kind: "victoriatraces", Dialect: "Jaeger query API", Ready: tracesBase != "", QueryPath: "/select/jaeger/api/traces"},
 		},
+		Debug: observabilityDebugFor(logsBase, metricsBase, tracesBase),
 		Examples: []string{
 			"onlava logs query --json --since 15m --query 'error OR panic'",
 			"onlava metrics query --json --since 15m --step 5s --promql 'max_over_time(onlava_request_duration_seconds[15m])'",
-			"onlava metrics labels --json --since 1h",
+			"onlava metrics labels --json --since 1h --match 'onlava_request_duration_seconds'",
 		},
 	}
 	if logsBase == "" {
@@ -367,6 +390,7 @@ func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 	if opts.Query == "" {
 		return logsQueryOptions{}, fmt.Errorf("missing required --query")
 	}
+	opts.Limit, opts.Warnings = clampLimit(opts.Limit, logsQueryLimitMax, opts.Warnings)
 	return opts, nil
 }
 
@@ -375,8 +399,12 @@ func parseLogsTailArgs(args []string) (logsQueryOptions, error) {
 	if err != nil {
 		return logsQueryOptions{}, err
 	}
+	if !opts.Start.IsZero() || !opts.End.IsZero() {
+		return logsQueryOptions{}, fmt.Errorf("logs tail does not support --start or --end; use --since for VictoriaLogs start_offset")
+	}
 	opts.JSONL = true
 	opts.Limit = 0
+	opts.Warnings = nil
 	return opts, nil
 }
 
@@ -476,11 +504,12 @@ func parseMetricsQueryArgs(args []string) (metricsQueryOptions, error) {
 	if opts.PromQL == "" {
 		return metricsQueryOptions{}, fmt.Errorf("missing required --promql")
 	}
+	opts.Limit, opts.Warnings = clampLimit(opts.Limit, metricsQueryLimitMax, opts.Warnings)
 	return opts, nil
 }
 
 func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOptions, error) {
-	opts := metricsCatalogOptions{Session: "current", Since: time.Hour, SinceRaw: "1h", Limit: 1000}
+	opts := metricsCatalogOptions{Session: "current", Since: time.Hour, SinceRaw: "1h", Limit: 1000, Timeout: 3 * time.Second}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--json":
@@ -546,6 +575,16 @@ func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOp
 				return metricsCatalogOptions{}, err
 			}
 			opts.Limit = limit
+		case "--timeout":
+			i++
+			if i >= len(args) {
+				return metricsCatalogOptions{}, fmt.Errorf("missing value for --timeout")
+			}
+			timeout, err := parsePositiveDuration(args[i], "timeout")
+			if err != nil {
+				return metricsCatalogOptions{}, err
+			}
+			opts.Timeout = timeout
 		default:
 			return metricsCatalogOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -553,6 +592,7 @@ func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOp
 	if requireMatch && opts.Match == "" {
 		return metricsCatalogOptions{}, fmt.Errorf("missing required --match")
 	}
+	opts.Limit, opts.Warnings = clampLimit(opts.Limit, metricsCatalogLimitMax, opts.Warnings)
 	return opts, nil
 }
 
@@ -594,18 +634,27 @@ func resolveQueryScopeForApp(ctx context.Context, appRoot string, cfg appcfg.Con
 		}
 		return scope, nil
 	}
-	scope.SessionID = sessionFlag
-	if client, err := localagent.DefaultClient(); err == nil {
-		if sessions, err := client.List(ctx, appRoot); err == nil {
-			for _, session := range sessions {
-				if session.SessionID == sessionFlag {
-					scope.Branch = session.Branch
-					break
-				}
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		return obs.QueryScope{}, err
+	}
+	sessions, err := client.List(ctx, appRoot)
+	if err != nil {
+		return obs.QueryScope{}, err
+	}
+	for _, session := range sessions {
+		if session.SessionID == sessionFlag {
+			scope.SessionID = session.SessionID
+			scope.Branch = session.Branch
+			if strings.TrimSpace(session.AppRoot) != "" {
+				scope.AppRoot = session.AppRoot
+				scope.AppRootHash = appRootHash(session.AppRoot)
+				scope.Worktree = appWorktreeName(session.AppRoot)
 			}
+			return scope, nil
 		}
 	}
-	return scope, nil
+	return obs.QueryScope{}, fmt.Errorf("onlava agent session %q was not found for app root %s", sessionFlag, appRoot)
 }
 
 func queryBounds(since time.Duration, sinceRaw string, start, end time.Time) obs.TimeBounds {
@@ -655,4 +704,29 @@ func splitCSV(value string) []string {
 		}
 	}
 	return out
+}
+
+func clampLimit(limit, max int, warnings []string) (int, []string) {
+	if limit > max {
+		warnings = append(warnings, fmt.Sprintf("limit clamped from %d to %d", limit, max))
+		return max, warnings
+	}
+	return limit, warnings
+}
+
+func observabilityDebugFor(logsBase, metricsBase, tracesBase string) *observabilityDebug {
+	out := map[string]string{}
+	if logsBase != "" {
+		out["logs"] = logsBase
+	}
+	if metricsBase != "" {
+		out["metrics"] = metricsBase
+	}
+	if tracesBase != "" {
+		out["traces"] = tracesBase
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return &observabilityDebug{BaseURLs: out}
 }

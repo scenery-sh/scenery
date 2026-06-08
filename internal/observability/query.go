@@ -18,7 +18,7 @@ import (
 const (
 	InspectObservabilitySchema = "onlava.inspect.observability.v1"
 	LogsQuerySchema            = "onlava.logs.query.v1"
-	LogsTailSchema             = "onlava.logs.tail.v1"
+	LogsTailEntrySchema        = "onlava.logs.tail.entry.v1"
 	MetricsQuerySchema         = "onlava.metrics.query.v1"
 	MetricsLabelsSchema        = "onlava.metrics.labels.v1"
 	MetricsSeriesSchema        = "onlava.metrics.series.v1"
@@ -50,13 +50,14 @@ type QueryBackend struct {
 }
 
 type LogsQuery struct {
-	BaseURL string
-	Scope   QueryScope
-	Query   string
-	Bounds  TimeBounds
-	Limit   int
-	Timeout time.Duration
-	Fields  []string
+	BaseURL  string
+	Scope    QueryScope
+	Query    string
+	Bounds   TimeBounds
+	Limit    int
+	Timeout  time.Duration
+	Fields   []string
+	Warnings []string
 }
 
 type LogsQueryRecord struct {
@@ -89,15 +90,24 @@ type LogsQueryResult struct {
 	Logs          []LogEntry      `json:"logs"`
 }
 
+type LogsTailEntry struct {
+	SchemaVersion string          `json:"schema_version"`
+	Scope         QueryScope      `json:"scope"`
+	Backend       QueryBackend    `json:"backend"`
+	Query         LogsQueryRecord `json:"query"`
+	Log           LogEntry        `json:"log"`
+}
+
 type MetricsQuery struct {
-	BaseURL string
-	Scope   QueryScope
-	PromQL  string
-	Bounds  TimeBounds
-	Step    time.Duration
-	Instant bool
-	Timeout time.Duration
-	Limit   int
+	BaseURL  string
+	Scope    QueryScope
+	PromQL   string
+	Bounds   TimeBounds
+	Step     time.Duration
+	Instant  bool
+	Timeout  time.Duration
+	Limit    int
+	Warnings []string
 }
 
 type MetricsQueryRecord struct {
@@ -133,19 +143,22 @@ type MetricsQueryResult struct {
 }
 
 type MetricsCatalogQuery struct {
-	BaseURL string
-	Scope   QueryScope
-	Bounds  TimeBounds
-	Match   string
-	Limit   int
+	BaseURL  string
+	Scope    QueryScope
+	Bounds   TimeBounds
+	Match    string
+	Limit    int
+	Timeout  time.Duration
+	Warnings []string
 }
 
 type MetricsCatalogRecord struct {
-	Match string `json:"match,omitempty"`
-	Since string `json:"since,omitempty"`
-	Start string `json:"start"`
-	End   string `json:"end"`
-	Limit int    `json:"limit,omitempty"`
+	Match   string `json:"match,omitempty"`
+	Since   string `json:"since,omitempty"`
+	Start   string `json:"start"`
+	End     string `json:"end"`
+	Timeout string `json:"timeout,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 type MetricsLabelsResult struct {
@@ -172,11 +185,17 @@ func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 		Scope:         q.Scope,
 		Backend:       logsBackend(q.BaseURL),
 		Query:         logsQueryRecord(q),
+		Warnings:      append([]string(nil), q.Warnings...),
 		Logs:          []LogEntry{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaLogs is unavailable")
 		return result, nil
+	}
+	if q.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
+		defer cancel()
 	}
 	rows, err := fetchLogs(ctx, q.BaseURL, "/select/logsql/query", logValues(q))
 	if err != nil {
@@ -186,16 +205,23 @@ func QueryLogs(ctx context.Context, q LogsQuery) (LogsQueryResult, error) {
 	return result, nil
 }
 
-func TailLogs(ctx context.Context, q LogsQuery, emit func(LogEntry) error) error {
+func TailLogs(ctx context.Context, q LogsQuery, emit func(LogsTailEntry) error) error {
 	if strings.TrimSpace(q.BaseURL) == "" {
 		return fmt.Errorf("VictoriaLogs is unavailable")
 	}
-	return streamLogs(ctx, q.BaseURL, "/select/logsql/tail", logValues(q), func(row map[string]any) error {
+	record := logsQueryRecord(q)
+	return streamLogs(ctx, q.BaseURL, "/select/logsql/tail", logTailValues(q), func(row map[string]any) error {
 		entries := normalizeLogRows([]map[string]any{row}, q.Fields, 1)
 		if len(entries) == 0 {
 			return nil
 		}
-		return emit(entries[0])
+		return emit(LogsTailEntry{
+			SchemaVersion: LogsTailEntrySchema,
+			Scope:         q.Scope,
+			Backend:       logsBackend(q.BaseURL),
+			Query:         record,
+			Log:           entries[0],
+		})
 	})
 }
 
@@ -205,11 +231,17 @@ func QueryMetrics(ctx context.Context, q MetricsQuery) (MetricsQueryResult, erro
 		Scope:         q.Scope,
 		Backend:       metricsBackend(q.BaseURL),
 		Query:         metricsQueryRecord(q),
+		Warnings:      append([]string(nil), q.Warnings...),
 		Series:        []MetricSeries{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")
 		return result, nil
+	}
+	if q.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
+		defer cancel()
 	}
 	values := url.Values{}
 	values.Set("query", q.PromQL)
@@ -241,13 +273,22 @@ func MetricsLabels(ctx context.Context, q MetricsCatalogQuery) (MetricsLabelsRes
 		Scope:         q.Scope,
 		Backend:       metricsBackend(q.BaseURL),
 		Query:         metricsCatalogRecord(q),
+		Warnings:      append([]string(nil), q.Warnings...),
 		Labels:        []string{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")
 		return result, nil
 	}
+	if q.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
+		defer cancel()
+	}
 	values := catalogValues(q)
+	if q.Match != "" {
+		values.Add("match[]", q.Match)
+	}
 	payload, err := fetchMetrics(ctx, q.BaseURL, "/prometheus/api/v1/labels", values)
 	if err != nil {
 		return MetricsLabelsResult{}, err
@@ -268,11 +309,17 @@ func MetricsSeries(ctx context.Context, q MetricsCatalogQuery) (MetricsSeriesRes
 		Scope:         q.Scope,
 		Backend:       metricsBackend(q.BaseURL),
 		Query:         metricsCatalogRecord(q),
+		Warnings:      append([]string(nil), q.Warnings...),
 		Series:        []map[string]string{},
 	}
 	if strings.TrimSpace(q.BaseURL) == "" {
 		result.Warnings = append(result.Warnings, "VictoriaMetrics is unavailable")
 		return result, nil
+	}
+	if q.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, q.Timeout+time.Second)
+		defer cancel()
 	}
 	values := catalogValues(q)
 	if q.Match != "" {
@@ -316,6 +363,21 @@ func logValues(q LogsQuery) url.Values {
 	return values
 }
 
+func logTailValues(q LogsQuery) url.Values {
+	values := url.Values{}
+	values.Set("query", q.Query)
+	if q.Bounds.Since != "" {
+		values.Set("start_offset", q.Bounds.Since)
+	}
+	if q.Timeout > 0 {
+		values.Set("timeout", q.Timeout.String())
+	}
+	for _, filter := range logScopeFilters(q.Scope) {
+		values.Add("extra_filters", filter)
+	}
+	return values
+}
+
 func logScopeFilters(scope QueryScope) []string {
 	var out []string
 	if scope.AppID != "" {
@@ -323,9 +385,6 @@ func logScopeFilters(scope QueryScope) []string {
 	}
 	if scope.SessionID != "" {
 		out = append(out, fmt.Sprintf(`(onlava.session_id:%s OR onlava_session_id:%s)`, logsQLQuote(scope.SessionID), logsQLQuote(scope.SessionID)))
-	}
-	if scope.AppRootHash != "" {
-		out = append(out, fmt.Sprintf(`onlava.app_root_hash:%s`, logsQLQuote(scope.AppRootHash)))
 	}
 	return out
 }
@@ -627,11 +686,12 @@ func metricsQueryRecord(q MetricsQuery) MetricsQueryRecord {
 
 func metricsCatalogRecord(q MetricsCatalogQuery) MetricsCatalogRecord {
 	return MetricsCatalogRecord{
-		Match: q.Match,
-		Since: q.Bounds.Since,
-		Start: q.Bounds.Start.UTC().Format(time.RFC3339Nano),
-		End:   q.Bounds.End.UTC().Format(time.RFC3339Nano),
-		Limit: q.Limit,
+		Match:   q.Match,
+		Since:   q.Bounds.Since,
+		Start:   q.Bounds.Start.UTC().Format(time.RFC3339Nano),
+		End:     q.Bounds.End.UTC().Format(time.RFC3339Nano),
+		Timeout: durationString(q.Timeout),
+		Limit:   q.Limit,
 	}
 }
 

@@ -167,15 +167,15 @@ surface, so schema files, `docs/local-contract.md`, `docs/agent-guide.md`,
    `schema_version` values should be:
    - `onlava.inspect.observability.v1`
    - `onlava.logs.query.v1`
-   - `onlava.logs.tail.v1` for finite JSON envelopes, while streaming tail may
-     use JSONL events with the same record schema.
+   - `onlava.logs.tail.entry.v1` for self-describing streaming JSONL records.
    - `onlava.metrics.query.v1`
    - `onlava.metrics.labels.v1`
    - `onlava.metrics.series.v1`
 4. Implement VictoriaLogs query support against `/select/logsql/query`. Pass
    `query`, `start`, `end`, `limit`, and `timeout` using HTTP parameters. Apply
-   app/session/root scope through `extra_filters`, not by modifying the LogsQL
-   text.
+   app/session scope through `extra_filters`, not by modifying the LogsQL text.
+   Do not require app root hash for logs unless the backend row schema is known
+   to include it.
 5. Implement VictoriaLogs tail support against `/select/logsql/tail` with the
    same scope behavior. Ensure cancellation propagates from `context.Context`
    and the command exits cleanly on interrupt.

@@ -250,9 +250,10 @@ onlava inspect docs --json [--repo-root <path>]
 onlava traces list --json [--app-root <path>]
 onlava metrics list --json [--app-root <path>]
 onlava logs query [--app-root <path>] [--session current|<id>] --query <logsql> [--json]
-onlava logs tail [--app-root <path>] [--session current|<id>] --query <logsql> [--jsonl]
+onlava logs tail [--app-root <path>] [--session current|<id>] --query <logsql> [--since <duration>] [--jsonl]
 onlava metrics query --json [--app-root <path>] [--session current|<id>] --promql <query>
-onlava metrics labels|series --json [--app-root <path>] [--session current|<id>]
+onlava metrics labels --json [--app-root <path>] [--session current|<id>] [--match <selector>]
+onlava metrics series --json [--app-root <path>] [--session current|<id>] --match <selector>
 onlava traces clear --json [--app-root <path>]
 onlava logs [--app-root <path>] [--session current|<id>] [--limit <n>] [--jsonl|--json]
 onlava test [--app-root <path>] [go test flags/packages...]

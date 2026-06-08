@@ -22,6 +22,7 @@
         "since": { "type": "string" },
         "start": { "type": "string" },
         "end": { "type": "string" },
+        "timeout": { "type": "string" },
         "limit": { "type": "integer" }
       },
       "additionalProperties": false
