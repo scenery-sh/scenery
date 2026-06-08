@@ -213,6 +213,51 @@
       ]
     },
     {
+      "name": "neon",
+      "kind": "image",
+      "version": "latest",
+      "images": [
+        {
+          "ref": "ghcr.io/neondatabase/neon:latest",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon",
+          "stability": "unstable"
+        }
+      ]
+    },
+    {
+      "name": "neon-compute-node-v16",
+      "kind": "image",
+      "version": "latest",
+      "images": [
+        {
+          "ref": "ghcr.io/neondatabase/compute-node-v16:latest",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon.compute",
+          "stability": "unstable"
+        }
+      ]
+    },
+    {
+      "name": "minio",
+      "kind": "image",
+      "version": "RELEASE.2022-10-20T00-55-09Z",
+      "images": [
+        {
+          "ref": "quay.io/minio/minio:RELEASE.2022-10-20T00-55-09Z",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon.object-storage",
+          "stability": "unstable"
+        },
+        {
+          "ref": "minio/mc:latest",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon.object-storage-init",
+          "stability": "unstable"
+        }
+      ]
+    },
+    {
       "name": "temporal-cli",
       "kind": "binary",
       "version": "1.7.0",

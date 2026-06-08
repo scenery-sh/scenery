@@ -22,7 +22,7 @@ type psqlOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: onlava db psql|apply|seed|setup|reset|drop|snapshot [--app-root <path>]")
+		return fmt.Errorf("usage: onlava db psql|apply|seed|setup|reset|drop|snapshot|branch|neon [--app-root <path>]")
 	}
 	switch args[0] {
 	case "psql":
@@ -39,6 +39,10 @@ func dbCommand(args []string) error {
 		return dbDropCommand(args[1:])
 	case "snapshot":
 		return dbSnapshotCommand(args[1:])
+	case "branch":
+		return dbBranchCommand(args[1:])
+	case "neon":
+		return dbNeonCommand(args[1:])
 	default:
 		return fmt.Errorf("unknown db command %q", args[0])
 	}
@@ -386,8 +390,17 @@ func buildPSQLInvocationForConfig(ctx context.Context, appRoot string, cfg appcf
 
 func resolveDatabaseURLForConfig(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string, useManaged bool) (string, error) {
 	if useManaged {
-		if _, _, ok := managedPostgresDeclared(cfg); ok && managedPostgresUsesExternalDatabase(baseEnv) {
-			return externalPostgresDatabaseURL(baseEnv)
+		if _, svc, ok := managedPostgresDeclared(cfg); ok {
+			if managedPostgresUsesExternalDatabase(baseEnv) {
+				return externalPostgresDatabaseURL(baseEnv)
+			}
+			if strings.TrimSpace(svc.Kind) == "neon" {
+				dsn, err := resolveNeonBranchDatabaseURL(ctx, appRoot, cfg)
+				if err != nil {
+					return "", fmt.Errorf("dev.services.postgres kind %q could not resolve Neon branch connection: %w", svc.Kind, err)
+				}
+				return dsn, nil
+			}
 		}
 		plan, err := managedPostgresPlanForCurrentSession(ctx, appRoot, cfg, baseEnv)
 		if err != nil {

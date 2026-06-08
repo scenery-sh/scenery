@@ -37,7 +37,7 @@ func TestParsePSQLArgsRequiresAppRootValue(t *testing.T) {
 func TestDBCommandRejectsMissingOrUnknownSubcommand(t *testing.T) {
 	t.Parallel()
 
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: onlava db psql|apply|seed|setup|reset|drop|snapshot [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: onlava db psql|apply|seed|setup|reset|drop|snapshot|branch|neon [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
 	if err := dbCommand([]string{"vacuum"}); err == nil || err.Error() != `unknown db command "vacuum"` {
@@ -164,6 +164,87 @@ func TestResolveDatabaseURLForConfigExternalModeRequiresDatabaseURL(t *testing.T
 	}, true)
 	if err == nil || !strings.Contains(err.Error(), "requires DatabaseURL") || !strings.Contains(err.Error(), "DATABASE_URL is ignored") {
 		t.Fatalf("resolveDatabaseURLForConfig external error = %v", err)
+	}
+}
+
+func TestResolveDatabaseURLForConfigUsesReadyNeonBranchConnection(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"postgres": {Kind: "neon", Mode: "self-hosted", Isolation: "branch", Project: "demo"},
+		}},
+	}
+	_, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, nil, true)
+	if err == nil || !strings.Contains(err.Error(), "has no worktree branch pin") {
+		t.Fatalf("missing pin error = %v", err)
+	}
+	writeTestAppFile(t, root, ".onlava/worktree-db.json", `{
+		"schema_version": "onlava.db.branch.v1",
+		"provider": "neon-self-hosted",
+		"project": "demo",
+		"parent_branch": "main",
+		"branch": "demo/review-a",
+		"branch_id": "br-local-review",
+		"database": "demo",
+		"role": "cloud_admin",
+		"created_by": "onlava"
+	}`)
+	_, err = resolveDatabaseURLForConfig(context.Background(), root, cfg, nil, true)
+	if err == nil || !strings.Contains(err.Error(), `pin "demo/review-a"`) || !strings.Contains(err.Error(), "no Onlava-owned lease") {
+		t.Fatalf("pending connection error = %v", err)
+	}
+	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(root))
+	if err != nil || !ok {
+		t.Fatalf("read pin ok=%v err=%v", ok, err)
+	}
+	if err := upsertNeonBranchLease(pin); err != nil {
+		t.Fatalf("upsert lease: %v", err)
+	}
+	markNeonLeaseReadyForTest(t, pin, neonEndpoint{
+		Host:     "127.0.0.1",
+		Port:     55434,
+		Database: "demo",
+		Role:     "cloud_admin",
+		SSLMode:  "disable",
+	})
+	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, nil, true)
+	if err != nil {
+		t.Fatalf("resolve ready Neon URL: %v", err)
+	}
+	if got != "postgres://cloud_admin@127.0.0.1:55434/demo?sslmode=disable" {
+		t.Fatalf("database URL = %q", got)
+	}
+}
+
+func TestResolveDatabaseURLForConfigRefusesProtectedParentNeonBranch(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"postgres": {Kind: "neon", Mode: "self-hosted", Isolation: "branch", Project: "demo", ParentBranch: "main"},
+		}},
+	}
+	pin, err := buildWorktreeDBPin(root, cfg, "main")
+	if err != nil {
+		t.Fatalf("build pin: %v", err)
+	}
+	if err := writeWorktreeDBPin(root, pin); err != nil {
+		t.Fatalf("write pin: %v", err)
+	}
+	markNeonLeaseReadyForTest(t, pin, neonEndpoint{
+		Host:     "127.0.0.1",
+		Port:     55434,
+		Database: "demo",
+		Role:     "cloud_admin",
+		SSLMode:  "disable",
+	})
+
+	_, err = resolveDatabaseURLForConfig(context.Background(), root, cfg, nil, true)
+	if err == nil || !strings.Contains(err.Error(), "protected parent branch") {
+		t.Fatalf("protected parent URL error = %v", err)
 	}
 }
 

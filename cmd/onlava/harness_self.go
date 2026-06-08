@@ -108,6 +108,7 @@ func runOnlavaHarnessSelf(ctx context.Context, stdout io.Writer, args []string) 
 		resp.Steps = append(resp.Steps,
 			goTestStep,
 			runHarnessParallelDevStep(ctx, repoRoot),
+			runHarnessNeonLocalLifecycleStep(ctx, repoRoot),
 			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
 			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
 			runHarnessFreshnessStep("dashboard ui fresh", filepath.Join(repoRoot, "ui"), dashboardUIBuildStale, "Run `bun run build` inside `ui/`, then rerun `onlava harness self --json`."),

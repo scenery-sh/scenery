@@ -398,6 +398,13 @@ The DB lifecycle split is:
 onlava db apply
 onlava db seed
 onlava db setup
+onlava db neon status --json
+onlava db branch status --json
+onlava db branch checkout feature/my-branch --json
+onlava db branch list --json
+onlava db branch expire feature/my-branch --after 24h --json
+onlava db branch prune --older-than 336h --json
+onlava worktree create feature-my-branch --from main --json
 ```
 
 `onlava db apply` mutates schema or app-owned database setup only. It does not run SQLC generation or seed files. `onlava db seed` applies initial data such as `SERVICE/db/seed.sql` only, records successful runs in a small internal ledger, skips unchanged seeds, and fails closed if a previously-applied seed changes or if seed SQL contains destructive setup patterns such as `DROP`, `TRUNCATE`, or broad `DELETE`. `onlava db setup` runs apply, then seed.
@@ -405,6 +412,8 @@ onlava db setup
 During `onlava up`, the supervisor runs this DB setup lifecycle before starting the app when `database.apply` or seed files are present. It reuses the session-managed `DatabaseURL` env and skips setup on ordinary rebuilds until the `database.apply` config or seed file hashes change.
 
 `SERVICE/db/seed.sql` is data, not Atlas schema input and not SQLC input. The first seed implementation fails closed when a previously-applied seed changes or destructive seed SQL is detected, rather than offering force or reseed escape hatches.
+
+For Neon configs, the current slice is contract, branch-pin local state, generated dev-cell lifecycle, and ready-lease consumption only: `.onlava.json` can declare `dev.services.postgres.kind: "neon"` with `mode: "self-hosted"` and `isolation: "branch"`, `onlava db neon install --json` writes generated dev-cell state files under the agent home, `onlava db neon start --json` and `stop --json` manage the generated Docker Compose project, `onlava db neon status --json` probes Docker/image/container health and reserved listeners for running components, `onlava db branch checkout <name> --json` writes `.onlava/worktree-db.json`, `onlava db branch list --json` reads Onlava-owned local leases from `branches.json` under the agent home, and `onlava db branch status --json` can report pending, missing, expired, or ready local leases. Branch list also includes lease entries with status, timestamps, and optional redacted endpoint metadata. A ready lease may expose redacted endpoint metadata so `onlava up`, `onlava db psql`, and Electric can synthesize a process-local `DatabaseURL`; pending, missing, expired, or endpoint-less leases fail explicitly. `expire`, `prune`, and `onlava down --db` update only local registry metadata, `onlava down --state` removes the local worktree pin, and `onlava worktree create <name> --json` creates a Git worktree and writes the target pin. Onlava does not yet create backend branches.
 
 ## Electric Txid Observation
 

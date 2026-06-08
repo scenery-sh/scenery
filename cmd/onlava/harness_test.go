@@ -210,6 +210,22 @@ func TestBuildHarnessChangedAreaReportRecommendsDevEventParity(t *testing.T) {
 	}
 }
 
+func TestHarnessNeonLocalLifecycleCoversDevCellComposeLifecycle(t *testing.T) {
+	summary, diagnostics, err := runHarnessNeonLocalLifecycleCheck(t.Context())
+	if err != nil {
+		t.Fatalf("runHarnessNeonLocalLifecycleCheck returned error: %v\ndiagnostics=%+v", err, diagnostics)
+	}
+	if hasErrorDiagnostics(diagnostics) {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	if summary["dev_cell_lifecycle"] != true {
+		t.Fatalf("summary = %+v, want dev_cell_lifecycle=true", summary)
+	}
+	if summary["branch_driver"] != true || summary["backend_required"] != true {
+		t.Fatalf("summary = %+v, want branch_driver/backend_required=true", summary)
+	}
+}
+
 func TestParseHarnessGoTestTimingReportsBudgets(t *testing.T) {
 	t.Parallel()
 
@@ -984,6 +1000,28 @@ func TestRunHarnessParallelDevStep(t *testing.T) {
 	}
 	if got, _ := step.Summary["databases"].(int); got != 2 {
 		t.Fatalf("databases summary = %v, want 2", step.Summary["databases"])
+	}
+}
+
+func TestRunHarnessNeonLocalLifecycleStep(t *testing.T) {
+	prev := runHarnessNeonLocalLifecycleCheckFunc
+	t.Cleanup(func() { runHarnessNeonLocalLifecycleCheckFunc = prev })
+	runHarnessNeonLocalLifecycleCheckFunc = func(context.Context) (map[string]any, []checkDiagnostic, error) {
+		return map[string]any{
+			"worktrees": 2,
+			"leases":    2,
+		}, nil, nil
+	}
+
+	step := runHarnessNeonLocalLifecycleStep(context.Background(), t.TempDir())
+	if !step.OK {
+		t.Fatalf("Neon lifecycle step failed: error=%s diagnostics=%+v summary=%+v", step.Error, step.Diagnostics, step.Summary)
+	}
+	if got, _ := step.Summary["worktrees"].(int); got != 2 {
+		t.Fatalf("worktrees summary = %v, want 2", step.Summary["worktrees"])
+	}
+	if got, _ := step.Summary["leases"].(int); got != 2 {
+		t.Fatalf("leases summary = %v, want 2", step.Summary["leases"])
 	}
 }
 

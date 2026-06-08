@@ -235,6 +235,18 @@ onlava db setup [--app-root <path>] [--json]
 onlava db reset [--app-root <path>]
 onlava db drop [--app-root <path>]
 onlava db snapshot create|restore <name> [--app-root <path>]
+onlava db branch status|list [--app-root <path>] [--json]
+onlava db branch checkout <name> [--app-root <path>] [--json]
+onlava db branch reset [--app-root <path>] [--yes]
+onlava db branch delete <name> [--app-root <path>] [--force]
+onlava db branch restore --at <timestamp-or-lsn> [--app-root <path>] [--yes]
+onlava db branch diff <branch> [--app-root <path>] [--json]
+onlava db branch expire [<name>] --after <duration> [--app-root <path>] [--json]
+onlava db branch prune [--older-than <duration>] [--app-root <path>] [--json]
+onlava db neon install|start|status|logs|stop|restart|uninstall [--json]
+onlava worktree create <name> [--from <branch>] [--app-root <path>] [--json]
+onlava worktree list [--app-root <path>] [--json]
+onlava worktree remove <name> [--app-root <path>] [--db] [--json]
 ```
 
 See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
@@ -268,6 +280,8 @@ Apps can also configure `generators.clients` and use `onlava generate client` or
 The DB lifecycle split uses `onlava db apply` for schema/app database mutation, `onlava db seed` for initial data such as `SERVICE/db/seed.sql`, and `onlava db setup` for apply then seed. Seed files fail closed when previously-applied content changes or destructive SQL is detected.
 
 `onlava up` runs the setup lifecycle before app startup when DB setup inputs exist, using the same managed `DatabaseURL` that the app receives. Rebuilds skip setup until the apply config or seed file hashes change.
+
+The first Neon dev-cell slices expose `onlava db neon status --json` for generated local Neon substrate state plus Docker/image/container health probes, reserved loopback debug ports, and listener checks for running components, `onlava db neon start --json` and `onlava db neon stop --json` for the generated Docker Compose project, `onlava db neon restart --json` for restarting existing Onlava-owned Neon containers, `onlava db branch status --json` for the worktree branch pin at `.onlava/worktree-db.json`, and `onlava db branch list --json` for Onlava-owned local branch leases in `branches.json` under the agent home. Branch status and list can distinguish pending, missing, expired, protected parent, and ready local leases; pending branch status also reports whether the generated dev-cell is missing or not ready yet. Ready leases may include redacted endpoint metadata but never raw connection URLs, and protected parent leases do not expose endpoint or app-session connection metadata. `onlava db branch checkout <name> --json` writes the local pin and runs the branch-provider ensure boundary; without `ONLAVA_DEV_NEON_BRANCH_DRIVER` this only renews the local lease, while a configured driver can mark the branch ready by returning endpoint metadata through the JSON contract. Checkout refuses to reuse a matching foreign local lease. `delete` can remove pending local leases after the documented parent/current guards and delegates ready branch deletion to the configured driver; `reset` and `restore` also delegate to the driver when configured. Without the driver, ready branch delete/reset/restore still return the explicit backend placeholder. `expire`, `prune`, and `down --db` update only Onlava-owned local registry metadata for now and leave foreign leases alone. `diff` still reports the provider backend diff placeholder after safety checks. `onlava down --state` removes the local worktree pin. `onlava worktree create <name> --json` creates a Git worktree and writes the target pin for Neon apps. `onlava up`, `onlava db psql`, and Electric can consume a non-parent ready lease endpoint, but full built-in Neon branch creation and Electric slot lifecycle hardening are still tracked in the active ExecPlan.
 
 ## Managed Toolchain
 

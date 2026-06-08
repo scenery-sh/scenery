@@ -759,6 +759,45 @@ func TestManagedElectricDatabaseURLPrefersManagedPostgres(t *testing.T) {
 	}
 }
 
+func TestManagedElectricDatabaseURLUsesReadyNeonBranch(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"postgres": {Kind: "neon", Mode: "self-hosted", Isolation: "branch", Project: "demo"},
+			"electric": {Kind: "electric"},
+		}},
+	}
+	pin, err := buildWorktreeDBPin(root, cfg, "demo/review-a")
+	if err != nil {
+		t.Fatalf("build pin: %v", err)
+	}
+	if err := writeWorktreeDBPin(root, pin); err != nil {
+		t.Fatalf("write pin: %v", err)
+	}
+	markNeonLeaseReadyForTest(t, pin, neonEndpoint{
+		Host:     "127.0.0.1",
+		Port:     55436,
+		Database: "demo",
+		Role:     "cloud_admin",
+		SSLMode:  "disable",
+	})
+	got, err := managedElectricDatabaseURL(t.Context(), root, cfg, &localagent.Session{
+		SessionID: "review-a",
+		BaseAppID: "demo",
+	}, &managedElectricPlan{ServiceName: "electric"}, []string{
+		appDatabaseURLEnv + "=postgres://localhost/stale",
+		legacyDatabaseURLEnv + "=postgres://localhost/poison",
+	}, nil)
+	if err != nil {
+		t.Fatalf("managedElectricDatabaseURL returned error: %v", err)
+	}
+	if got != "postgres://cloud_admin@127.0.0.1:55436/demo?sslmode=disable" {
+		t.Fatalf("database URL = %q", got)
+	}
+}
+
 func TestManagedElectricDatabaseURLRequiresManagedResolutionWhenPostgresManaged(t *testing.T) {
 	t.Parallel()
 

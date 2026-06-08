@@ -510,16 +510,24 @@ func downCommand(args []string) error {
 		return nil
 	}
 	if opts.DB {
-		if err := dropSessionManagedDatabase(ctx, appRoot, deletedSession); err != nil {
+		message, err := dropSessionManagedDatabase(ctx, appRoot, deletedSession)
+		if err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stdout, "dropped onlava managed database for session %s\n", deletedSession.SessionID)
+		fmt.Fprintln(os.Stdout, message)
 	}
 	if opts.State {
 		if err := removeSessionStateRoot(deletedSession); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stdout, "removed onlava session state %s\n", deletedSession.StateRoot)
+		removedPin, err := removeNeonWorktreeDBPinIfConfigured(appRoot)
+		if err != nil {
+			return err
+		}
+		if removedPin {
+			fmt.Fprintf(os.Stdout, "removed onlava Neon branch pin for session %s\n", deletedSession.SessionID)
+		}
 	}
 	fmt.Fprintf(os.Stdout, "stopped onlava session %s\n", deletedSession.SessionID)
 	return nil
@@ -790,33 +798,72 @@ func pruneSessionEligible(session localagent.Session, cutoff time.Time) bool {
 	return true
 }
 
-func dropSessionManagedDatabase(ctx context.Context, appRoot string, session localagent.Session) error {
+func dropSessionManagedDatabase(ctx context.Context, appRoot string, session localagent.Session) (string, error) {
 	if strings.TrimSpace(appRoot) == "" {
-		return fmt.Errorf("app root is required to drop a managed database")
+		return "", fmt.Errorf("app root is required to drop a managed database")
 	}
 	_, cfg, err := app.DiscoverRoot(appRoot)
 	if err != nil {
-		return err
+		return "", err
+	}
+	if appConfigUsesNeonPostgres(cfg) {
+		branch, removed, err := removeCurrentNeonBranchLease(appRoot)
+		if err != nil {
+			return "", err
+		}
+		if !removed {
+			return fmt.Sprintf("no local Neon branch lease to remove for session %s", session.SessionID), nil
+		}
+		return fmt.Sprintf("removed local Neon branch lease %s for session %s", branch, session.SessionID), nil
 	}
 	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
-		return err
+		return "", err
 	}
 	client, err := localagent.DefaultClient()
 	if err == nil {
 		baseEnv, err = envWithManagedPostgresAdminURL(ctx, cfg, baseEnv, client)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 	plan, err := resolveManagedPostgresPlan(cfg, &session, baseEnv)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if plan == nil {
-		return fmt.Errorf("dev.services.postgres is not configured")
+		return "", fmt.Errorf("dev.services.postgres is not configured")
 	}
-	return dropManagedPostgresDatabase(ctx, plan.AdminURL, plan.DatabaseName)
+	if err := dropManagedPostgresDatabase(ctx, plan.AdminURL, plan.DatabaseName); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("dropped onlava managed database for session %s", session.SessionID), nil
+}
+
+func removeNeonWorktreeDBPinIfConfigured(appRoot string) (bool, error) {
+	if strings.TrimSpace(appRoot) == "" {
+		return false, nil
+	}
+	_, cfg, err := app.DiscoverRoot(appRoot)
+	if err != nil {
+		return false, nil
+	}
+	if !appConfigUsesNeonPostgres(cfg) {
+		return false, nil
+	}
+	path := worktreeDBPinPath(appRoot)
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func appConfigUsesNeonPostgres(cfg app.Config) bool {
+	_, svc, ok := managedPostgresDeclared(cfg)
+	return ok && strings.TrimSpace(svc.Kind) == "neon"
 }
 
 func resolveStatusAppRoot(value string) (string, error) {

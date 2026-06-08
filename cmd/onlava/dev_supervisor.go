@@ -796,6 +796,26 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 }
 
 func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]string, error) {
+	if _, svc, ok := managedPostgresDeclared(s.cfg); ok && strings.TrimSpace(svc.Kind) == "neon" {
+		env, resolution, connection, err := neonManagedPostgresEnv(ctx, s.root, s.cfg, s.agentSession)
+		status := "running"
+		message := "Neon branch lease ready"
+		if err != nil {
+			status = "pending"
+			message = "Neon branch lease resolved"
+		}
+		s.eventSink().Emit(ctx, devdash.DevSource{ID: "neon", Kind: "substrate", Name: "neon", Role: "database", Status: status}, "info", message, map[string]any{
+			"branch":  resolution.Pin.Branch,
+			"source":  resolution.Source,
+			"created": resolution.Created,
+			"host":    connection.Endpoint.Host,
+			"port":    connection.Endpoint.Port,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("dev.services.postgres kind %q resolved branch %q, but Neon branch connection is not ready: %w", svc.Kind, resolution.Pin.Branch, err)
+		}
+		return env, nil
+	}
 	env, err := managedPostgresEnv(ctx, s.cfg, s.agentSession, baseEnv, s.agent)
 	if err != nil {
 		return nil, err

@@ -156,6 +156,7 @@ The self harness validates the local onlava development loop:
 - `onlava inspect docs --json`
 - docs review-due and stale summaries from `onlava inspect docs --json`
 - architecture checks for dependency policy, package boundaries, generated-file hygiene, and oversized source files
+- parallel dev-session safety and local Neon generated dev-cell start/stop plus branch pin/lease lifecycle safety
 - dashboard UI typecheck and build
 - dashboard build freshness
 - worktree-local `go build -o .onlava/harness/bin/onlava ./cmd/onlava`

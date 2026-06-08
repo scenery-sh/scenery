@@ -829,6 +829,10 @@ func harnessStepEffects(step harnessStep) []string {
 		set["ports"] = true
 		set["agent-socket"] = true
 		set["tempdir"] = true
+	case "neon local branch lifecycle":
+		set["external-binary"] = true
+		set["filesystem-write"] = true
+		set["tempdir"] = true
 	case "go tests", "go test timing", "affected package tests", "race shortlist", "race full suite":
 		set["test-cache"] = true
 		set["external-binary"] = true

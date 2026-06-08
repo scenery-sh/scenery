@@ -97,6 +97,7 @@ Managed toolchain artifacts come from `onlava.toolchain.json` and manifest-drive
 | `ONLAVA_DEV_POSTGRES_BIN` | user input | Explicit local `postgres` binary path; onlava does not search `PATH` for it. |
 | `ONLAVA_DEV_POSTGRES_INITDB` | user input | Explicit local `initdb` binary path; onlava does not search `PATH` for it. |
 | `ONLAVA_DEV_POSTGRES_EXTERNAL` | user input | `1` keeps an explicit external `DatabaseURL` instead of creating a managed session database. External mode requires `DatabaseURL`; `DATABASE_URL` is ignored as the app database authority. |
+| `ONLAVA_DEV_NEON_BRANCH_DRIVER` | user input | Explicit local self-hosted Neon branch driver executable path. onlava invokes it with the documented JSON contract to ensure, reset, restore, or delete local Neon branches. |
 | `ONLAVA_DEV_ELECTRIC_UPSTREAM` | user input | Explicit Electric upstream; onlava registers it as the session Electric backend. |
 | `ONLAVA_DEV_ELECTRIC_BIN` | user input | Explicit local Electric binary path; onlava does not search `PATH` for it. |
 | `ELECTRIC_REPLICATION_STREAM_ID` | user input/injected | Electric replication stream ID. onlava sets a deterministic session-scoped default. |

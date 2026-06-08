@@ -194,6 +194,8 @@ Keep `onlava generate` for file generation only. `onlava generate sqlc` may refr
 
 Use `onlava db apply` for schema/app database mutation only. Use `onlava db seed` for initial data such as `SERVICE/db/seed.sql`; changed previously-applied seeds and destructive seed SQL fail closed with path/line diagnostics. Use `onlava db setup` for apply then seed. `onlava up` runs this setup lifecycle before app startup when DB setup inputs exist, then skips it on ordinary rebuilds until `database.apply` config or seed file hashes change.
 
+For the current Neon contract slice, use `onlava db neon status --json` to inspect generated local dev-cell state plus Docker/image/container health probes, reserved loopback debug ports, and listener checks for running components, `onlava db neon start --json`/`stop --json` to start or stop the generated Docker Compose project, `onlava db neon restart --json` to restart existing Onlava-owned Neon containers, `onlava db branch status --json` to inspect `.onlava/worktree-db.json`, and `onlava db branch list --json` to inspect Onlava-owned local branch leases in `branches.json` under the agent home. Branch status includes `backend_status`; branch status and list can report `pending`, `missing`, `expired`, `protected`, or `ready` when a provider records redacted endpoint metadata, and protected parent leases suppress endpoint metadata in both status and list output. Pending status messages include generated dev-cell prerequisite state. `onlava db branch checkout <name> --json` can write the local branch pin and run the branch-provider ensure boundary; without `ONLAVA_DEV_NEON_BRANCH_DRIVER` this only renews the local lease, while a configured driver can mark the branch ready by returning endpoint metadata through the JSON contract. Checkout refuses to reuse matching foreign local leases. `delete` can remove pending local leases after the documented parent/current guards and delegates ready branch deletion to the configured driver; `reset` and `restore` also delegate to the driver when configured. `expire`, `prune`, and `down --db` update only Onlava-owned local registry metadata, `diff` still returns the provider backend diff placeholder after safety checks, `onlava down --state` removes the local worktree pin, and `onlava worktree create <name> --json` can create a Git worktree and write the target pin for Neon apps. `onlava up`, `onlava db psql`, and Electric can consume a non-parent ready lease endpoint and synthesize a process-local `DatabaseURL`; they fail explicitly while the lease is pending, missing, expired, protected, or lacks endpoint metadata. Do not assume built-in Onlava Neon branch creation or Electric slot lifecycle hardening is complete until the branch-provider milestone lands.
+
 ## Tasks
 
 Use `onlava task` for configured repo tasks and app-local code tasks. Configured tasks use plain names from `.onlava.json`. Code tasks use `<domain>:<name>` and run from the app root without requiring the app model to parse cleanly.
@@ -253,6 +255,18 @@ onlava db apply [--app-root <path>] [--json]
 onlava db seed [--app-root <path>] [--dry-run] [--json]
 onlava db setup [--app-root <path>] [--json]
 onlava db reset|drop|snapshot [--app-root <path>]
+onlava db branch status|list [--app-root <path>] [--json]
+onlava db branch checkout <name> [--app-root <path>] [--json]
+onlava db branch reset [--app-root <path>] [--yes]
+onlava db branch delete <name> [--app-root <path>] [--force]
+onlava db branch restore --at <timestamp-or-lsn> [--app-root <path>] [--yes]
+onlava db branch diff <branch> [--app-root <path>] [--json]
+onlava db branch expire [<name>] --after <duration> [--app-root <path>] [--json]
+onlava db branch prune [--older-than <duration>] [--app-root <path>] [--json]
+onlava db neon install|start|status|logs|stop|restart|uninstall [--json]
+onlava worktree create <name> [--from <branch>] [--app-root <path>] [--json]
+onlava worktree list [--app-root <path>] [--json]
+onlava worktree remove <name> [--app-root <path>] [--db] [--json]
 ```
 
 ## Validation Before Finishing

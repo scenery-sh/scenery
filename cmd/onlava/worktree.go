@@ -1,0 +1,331 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	appcfg "github.com/pbrazdil/onlava/internal/app"
+)
+
+const worktreeListSchemaVersion = "onlava.worktree.list.v1"
+const worktreeCreateSchemaVersion = "onlava.worktree.create.v1"
+const worktreeRemoveSchemaVersion = "onlava.worktree.remove.v1"
+
+type worktreeOptions struct {
+	Command string
+	Name    string
+	AppRoot string
+	From    string
+	JSON    bool
+	DB      bool
+}
+
+type worktreeRecord struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"`
+	Head   string `json:"head,omitempty"`
+	Bare   bool   `json:"bare,omitempty"`
+}
+
+type worktreeCreateResult struct {
+	SchemaVersion string         `json:"schema_version"`
+	OK            bool           `json:"ok"`
+	Name          string         `json:"name"`
+	Path          string         `json:"path"`
+	Branch        string         `json:"branch"`
+	From          string         `json:"from,omitempty"`
+	DBPin         *worktreeDBPin `json:"db_pin,omitempty"`
+	NextCommand   string         `json:"next_command"`
+	Message       string         `json:"message,omitempty"`
+}
+
+type worktreeListResult struct {
+	SchemaVersion string           `json:"schema_version"`
+	OK            bool             `json:"ok"`
+	AppRoot       string           `json:"app_root"`
+	Worktrees     []worktreeRecord `json:"worktrees"`
+}
+
+type worktreeRemoveResult struct {
+	SchemaVersion string `json:"schema_version"`
+	OK            bool   `json:"ok"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	DBPinRemoved  bool   `json:"db_pin_removed"`
+	Message       string `json:"message,omitempty"`
+}
+
+func worktreeCommand(args []string) error {
+	return runWorktreeCommand(context.Background(), os.Stdout, args)
+}
+
+func runWorktreeCommand(ctx context.Context, stdout io.Writer, args []string) error {
+	opts, err := parseWorktreeArgs(args)
+	if err != nil {
+		return err
+	}
+	switch opts.Command {
+	case "create":
+		return runWorktreeCreate(ctx, stdout, opts)
+	case "list":
+		return runWorktreeList(ctx, stdout, opts)
+	case "remove":
+		return runWorktreeRemove(ctx, stdout, opts)
+	default:
+		return fmt.Errorf("unknown worktree command %q", opts.Command)
+	}
+}
+
+func parseWorktreeArgs(args []string) (worktreeOptions, error) {
+	if len(args) == 0 {
+		return worktreeOptions{}, fmt.Errorf("usage: onlava worktree create|list|remove ...")
+	}
+	opts := worktreeOptions{Command: args[0]}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--app-root":
+			i++
+			if i >= len(args) {
+				return worktreeOptions{}, fmt.Errorf("missing value for --app-root")
+			}
+			opts.AppRoot = args[i]
+		case "--from":
+			i++
+			if i >= len(args) {
+				return worktreeOptions{}, fmt.Errorf("missing value for --from")
+			}
+			opts.From = args[i]
+		case "--json":
+			opts.JSON = true
+		case "--db":
+			opts.DB = true
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				return worktreeOptions{}, fmt.Errorf("unknown flag %q", args[i])
+			}
+			if opts.Name != "" {
+				return worktreeOptions{}, fmt.Errorf("unexpected argument %q", args[i])
+			}
+			opts.Name = args[i]
+		}
+	}
+	switch opts.Command {
+	case "create", "remove":
+		if strings.TrimSpace(opts.Name) == "" {
+			return worktreeOptions{}, fmt.Errorf("onlava worktree %s requires <name>", opts.Command)
+		}
+	case "list":
+	default:
+		return worktreeOptions{}, fmt.Errorf("unknown worktree command %q", opts.Command)
+	}
+	return opts, nil
+}
+
+func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
+	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
+	if err != nil {
+		return err
+	}
+	name := sanitizeNeonBranchSegment(opts.Name)
+	if name == "" {
+		return fmt.Errorf("worktree name is empty after sanitization")
+	}
+	target := defaultWorktreePath(appRoot, name)
+	args := []string{"-C", appRoot, "worktree", "add", "-b", name, target}
+	if strings.TrimSpace(opts.From) != "" {
+		args = append(args, opts.From)
+	}
+	if err := runGitCommand(ctx, args...); err != nil {
+		return err
+	}
+	result := worktreeCreateResult{
+		SchemaVersion: worktreeCreateSchemaVersion,
+		OK:            true,
+		Name:          name,
+		Path:          target,
+		Branch:        name,
+		From:          strings.TrimSpace(opts.From),
+		NextCommand:   "cd " + target + " && onlava up",
+	}
+	if _, svc, ok := managedPostgresDeclared(cfg); ok && strings.TrimSpace(svc.Kind) == "neon" {
+		targetRoot, targetCfg, err := appcfg.DiscoverRoot(target)
+		if err != nil {
+			return err
+		}
+		targetService := neonPostgresService(targetCfg)
+		template := firstNonEmpty(strings.TrimSpace(targetService.BranchNameTemplate), neonDefaultBranchNameTemplate)
+		pin, err := buildWorktreeDBPinForSession(targetRoot, targetCfg, nil, renderNeonBranchTemplate(template, targetRoot, targetCfg, nil))
+		if err != nil {
+			return err
+		}
+		if err := writeWorktreeDBPin(targetRoot, pin); err != nil {
+			return err
+		}
+		result.DBPin = &pin
+		result.Message = "Git worktree created and local Neon branch pin written. Backend Neon branch creation is not implemented yet."
+	} else {
+		result.Message = "Git worktree created."
+	}
+	if opts.JSON {
+		return writeInspectJSON(stdout, result)
+	}
+	fmt.Fprintf(stdout, "created worktree %s at %s\n", name, target)
+	if result.DBPin != nil {
+		fmt.Fprintf(stdout, "pinned db branch %s\n", result.DBPin.Branch)
+	}
+	fmt.Fprintf(stdout, "next: %s\n", result.NextCommand)
+	return nil
+}
+
+func runWorktreeList(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
+	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
+	if err != nil {
+		return err
+	}
+	worktrees, err := listGitWorktrees(ctx, appRoot)
+	if err != nil {
+		return err
+	}
+	result := worktreeListResult{
+		SchemaVersion: worktreeListSchemaVersion,
+		OK:            true,
+		AppRoot:       appRoot,
+		Worktrees:     worktrees,
+	}
+	if opts.JSON {
+		return writeInspectJSON(stdout, result)
+	}
+	for _, wt := range worktrees {
+		fmt.Fprintf(stdout, "%s %s\n", wt.Path, wt.Branch)
+	}
+	return nil
+}
+
+func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
+	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
+	if err != nil {
+		return err
+	}
+	target, err := resolveWorktreeTarget(ctx, appRoot, opts.Name)
+	if err != nil {
+		return err
+	}
+	result := worktreeRemoveResult{
+		SchemaVersion: worktreeRemoveSchemaVersion,
+		OK:            true,
+		Name:          sanitizeNeonBranchSegment(opts.Name),
+		Path:          target,
+	}
+	if opts.DB {
+		pinPath := worktreeDBPinPath(target)
+		if err := os.Remove(pinPath); err == nil {
+			result.DBPinRemoved = true
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		_ = os.Remove(filepath.Join(target, ".onlava", ".gitignore"))
+		_ = os.Remove(filepath.Join(target, ".onlava"))
+	}
+	if err := runGitCommand(ctx, "-C", appRoot, "worktree", "remove", target); err != nil {
+		return err
+	}
+	result.Message = "Git worktree removed. Backend Neon branch deletion is not implemented yet."
+	if opts.JSON {
+		return writeInspectJSON(stdout, result)
+	}
+	fmt.Fprintf(stdout, "removed worktree %s\n", target)
+	return nil
+}
+
+func defaultWorktreePath(appRoot, name string) string {
+	return filepath.Join(filepath.Dir(appRoot), filepath.Base(appRoot)+"-"+name)
+}
+
+func resolveWorktreeTarget(ctx context.Context, appRoot, name string) (string, error) {
+	cleanName := sanitizeNeonBranchSegment(name)
+	if cleanName == "" {
+		return "", fmt.Errorf("worktree name is empty after sanitization")
+	}
+	worktrees, err := listGitWorktrees(ctx, appRoot)
+	if err != nil {
+		return "", err
+	}
+	defaultPath := defaultWorktreePath(appRoot, cleanName)
+	for _, wt := range worktrees {
+		if cleanAbsPath(wt.Path) == cleanAbsPath(defaultPath) || strings.TrimPrefix(wt.Branch, "refs/heads/") == cleanName || filepath.Base(wt.Path) == cleanName {
+			return wt.Path, nil
+		}
+	}
+	return defaultPath, nil
+}
+
+func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, error) {
+	output, err := gitCommandOutput(ctx, appRoot, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	var result []worktreeRecord
+	var current *worktreeRecord
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if current != nil {
+				result = append(result, *current)
+				current = nil
+			}
+			continue
+		}
+		key, value, _ := strings.Cut(line, " ")
+		if key == "worktree" {
+			if current != nil {
+				result = append(result, *current)
+			}
+			current = &worktreeRecord{Path: value}
+			continue
+		}
+		if current == nil {
+			continue
+		}
+		switch key {
+		case "HEAD":
+			current.Head = value
+		case "branch":
+			current.Branch = strings.TrimPrefix(value, "refs/heads/")
+		case "bare":
+			current.Bare = true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if current != nil {
+		result = append(result, *current)
+	}
+	return result, nil
+}
+
+func runGitCommand(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func gitCommandOutput(ctx context.Context, appRoot string, args ...string) (string, error) {
+	all := append([]string{"-C", appRoot}, args...)
+	cmd := exec.CommandContext(ctx, "git", all...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
+}

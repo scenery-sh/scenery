@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.worktree.list.v1.schema.json",
+  "title": "onlava worktree list result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ok", "app_root", "worktrees"],
+  "properties": {
+    "schema_version": { "const": "onlava.worktree.list.v1" },
+    "ok": { "type": "boolean" },
+    "app_root": { "type": "string" },
+    "worktrees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string" },
+          "branch": { "type": "string" },
+          "head": { "type": "string" },
+          "bare": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

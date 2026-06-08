@@ -1104,6 +1104,28 @@
       ]
     },
     {
+      "name": "ONLAVA_DEV_NEON_BRANCH_DRIVER",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "dev.services",
+      "stability": "dev_escape_hatch",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "onlava runtime",
+      "rationale": "Explicit local self-hosted Neon branch driver executable path for ensure/reset/restore/delete branch operations",
+      "preferred_surface": ".onlava.json for stable provider configuration; this env is an explicit local dev-cell driver escape hatch",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "ONLAVA_DEV_OBSERVABILITY_BACKEND",
       "match": "exact",
       "scope": "runtime",

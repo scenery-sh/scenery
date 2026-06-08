@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://onlava.com/schemas/onlava.db.neon.status.v1.schema.json",
+  "title": "onlava db neon status",
+  "type": "object",
+  "required": ["schema_version", "ok", "provider", "mode", "status", "root", "images", "components"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "onlava.db.neon.status.v1" },
+    "ok": { "type": "boolean" },
+    "provider": { "const": "neon-self-hosted" },
+    "mode": { "const": "self-hosted" },
+    "status": { "type": "string", "enum": ["not_installed", "installed", "ready", "degraded", "exited"] },
+    "root": { "type": "string", "minLength": 1 },
+    "cell": { "$ref": "#/$defs/cell" },
+    "generated_files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/generated_file" }
+    },
+    "images": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/image" }
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "ports": { "$ref": "#/$defs/ports" },
+    "log_dir": { "type": "string" },
+    "message": { "type": "string" },
+    "required_action": { "type": "string" }
+  },
+  "$defs": {
+    "cell": {
+      "type": "object",
+      "required": ["schema_version", "provider", "mode", "status", "root", "compose_path", "log_dir", "images", "components"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": "onlava.db.neon.cell.v1" },
+        "provider": { "const": "neon-self-hosted" },
+        "mode": { "const": "self-hosted" },
+        "status": { "type": "string" },
+        "root": { "type": "string" },
+        "compose_path": { "type": "string" },
+        "log_dir": { "type": "string" },
+        "ports": { "$ref": "#/$defs/ports" },
+        "images": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/image" }
+        },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" }
+      }
+    },
+    "ports": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535
+      }
+    },
+    "generated_file": {
+      "type": "object",
+      "required": ["path", "kind", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "kind": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["name", "ref", "optional", "stability"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "ref": { "type": "string" },
+        "optional": { "type": "boolean" },
+        "stability": { "type": "string", "enum": ["stable", "unstable"] },
+        "status": { "type": "string", "enum": ["present", "missing", "unknown"] },
+        "message": { "type": "string" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": ["name", "role", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "log": { "type": "string" },
+        "container": { "type": "string" },
+        "health": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "required": ["name", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "status": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}

@@ -121,7 +121,7 @@ func managedPostgresDeclared(cfg app.Config) (string, app.DevServiceConfig, bool
 		if kind == "" && name == "postgres" {
 			kind = "postgres"
 		}
-		if kind == "postgres" {
+		if kind == "postgres" || kind == "neon" {
 			return name, svc, true
 		}
 	}
@@ -148,6 +148,15 @@ func resolveManagedPostgresPlan(cfg app.Config, session *localagent.Session, env
 	}
 	if session == nil || strings.TrimSpace(session.SessionID) == "" {
 		return nil, fmt.Errorf("dev.services.%s requires an active onlava agent session", name)
+	}
+	if strings.TrimSpace(svc.Kind) == "neon" {
+		if mode := firstNonEmpty(strings.TrimSpace(svc.Mode), neonDefaultMode); mode != neonDefaultMode {
+			return nil, fmt.Errorf("dev.services.%s mode %q is not supported for Neon; use %q", name, mode, neonDefaultMode)
+		}
+		if isolation := firstNonEmpty(strings.TrimSpace(svc.Isolation), neonDefaultIsolation); isolation != neonDefaultIsolation {
+			return nil, fmt.Errorf("dev.services.%s isolation %q is not supported for Neon; use %q", name, isolation, neonDefaultIsolation)
+		}
+		return nil, fmt.Errorf("dev.services.%s kind %q is accepted by config, but Neon branch-isolated app-session startup is not implemented yet; use `onlava db neon status --json` and `onlava db branch status --json` for the current contract slice", name, svc.Kind)
 	}
 	isolation := firstNonEmpty(strings.TrimSpace(svc.Isolation), devPostgresDefaultIsolation)
 	if isolation != devPostgresDefaultIsolation {
@@ -371,7 +380,14 @@ func managedElectricDatabaseURL(ctx context.Context, root string, cfg app.Config
 		if _, _, ok := managedPostgresDeclared(cfg); ok && managedPostgresUsesExternalDatabase(baseEnv) {
 			return externalPostgresDatabaseURL(baseEnv)
 		}
-		if _, _, ok := managedPostgresDeclared(cfg); ok {
+		if _, svc, ok := managedPostgresDeclared(cfg); ok {
+			if strings.TrimSpace(svc.Kind) == "neon" {
+				dbURL, err := resolveNeonBranchDatabaseURL(ctx, root, cfg)
+				if err != nil {
+					return "", fmt.Errorf("dev.services.%s could not resolve database URL from managed dev.services.postgres: %w", plan.ServiceName, err)
+				}
+				return dbURL, nil
+			}
 			env, err := envWithManagedPostgresAdminURL(ctx, cfg, baseEnv, agent)
 			if err != nil {
 				return "", fmt.Errorf("dev.services.%s could not resolve database URL from managed dev.services.postgres: %w", plan.ServiceName, err)

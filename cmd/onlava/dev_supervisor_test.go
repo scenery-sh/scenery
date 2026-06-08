@@ -581,6 +581,63 @@ func TestDevSetupUsesManagedDatabaseURLWithoutLegacyDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestManagedAppEnvUsesReadyNeonBranchLease(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	s := &devSupervisor{
+		root: root,
+		cfg: app.Config{
+			Name: "demo",
+			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+				"postgres": {
+					Kind:               "neon",
+					Mode:               "self-hosted",
+					Isolation:          "branch",
+					Project:            "demo",
+					BranchPolicy:       "session",
+					BranchNameTemplate: "{app}/{session}",
+				},
+			}},
+		},
+		status: devdash.AppRecord{ID: "demo"},
+		agentSession: &localagent.Session{
+			SessionID: "review-a",
+			BaseAppID: "demo",
+		},
+	}
+	env, err := s.managedAppEnv(context.Background(), []string{"A=1"})
+	if err == nil || !strings.Contains(err.Error(), `resolved branch "demo/review-a"`) || !strings.Contains(err.Error(), "not ready") {
+		t.Fatalf("managedAppEnv env=%v err=%v", env, err)
+	}
+	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(root))
+	if err != nil || !ok {
+		t.Fatalf("read pin ok=%v err=%v", ok, err)
+	}
+	if pin.Branch != "demo/review-a" || pin.SessionID != "review-a" {
+		t.Fatalf("pin = %+v", pin)
+	}
+	markNeonLeaseReadyForTest(t, pin, neonEndpoint{
+		Host:     "127.0.0.1",
+		Port:     55435,
+		Database: "demo",
+		Role:     "cloud_admin",
+		SSLMode:  "disable",
+	})
+	env, err = s.managedAppEnv(context.Background(), []string{"A=1", appDatabaseURLEnv + "=postgres://localhost/stale", legacyDatabaseURLEnv + "=postgres://localhost/poison"})
+	if err != nil {
+		t.Fatalf("managedAppEnv ready: %v", err)
+	}
+	for _, want := range []string{
+		appDatabaseURLEnv + "=postgres://cloud_admin@127.0.0.1:55435/demo?sslmode=disable",
+		"ONLAVA_MANAGED_DATABASE_URL=postgres://cloud_admin@127.0.0.1:55435/demo?sslmode=disable",
+		"ONLAVA_MANAGED_DATABASE_NAME=demo",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("managed env missing %q: %+v", want, env)
+		}
+	}
+}
+
 func TestTypeScriptWorkerAutoStartRequiresTemporalEnabled(t *testing.T) {
 	cfg := app.Config{
 		Name: "demo",
