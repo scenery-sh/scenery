@@ -4,6 +4,16 @@ This file tracks known project debt that should be visible to agents before they
 
 ## Open
 
+### onlava console TUI Broken Formatting
+
+- Area: console
+- Severity: medium
+- Owner: onlava runtime
+- Created: 2026-06-09
+- Review after: 2026-07-09
+
+`onlava console` TUI behavior is not working as expected. It causes weird terminal issues and the formatting is completely broken. Treat console/TUI changes as suspect until this is diagnosed and fixed with terminal-rendering coverage.
+
 ### Full Dashboard Parity
 
 - Area: dashboard

@@ -376,6 +376,156 @@ func TestRouteNamespaceForConfigFallbacks(t *testing.T) {
 	}
 }
 
+func TestPrepareDevAgentSessionConfiguredRouteBaseDomainPublishesPortlessEdgeRoutes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	agentDone := startTestAgentServerWithPathSetup(t, ctx, func(paths localagent.Paths) {
+		if err := localagent.WriteEdgeState(paths.EdgeStatePath, localagent.EdgeState{
+			Kind:         localagent.EdgeKindCaddy,
+			Status:       localagent.EdgeStatusRunning,
+			PID:          os.Getpid(),
+			PublicAddr:   "127.0.0.1:443",
+			PublicScheme: "https",
+			UpstreamAddr: "127.0.0.1:9440",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	restoreHooks := withConfiguredEdgeTestHooks(t,
+		func(_ context.Context, _ *localagent.Client, domain string) (edgeStatusResult, error) {
+			if domain != "onlv.dev" {
+				t.Fatalf("edge readiness domain = %q, want onlv.dev", domain)
+			}
+			return healthyEdgeStatus(), nil
+		},
+		func(_ context.Context, route string) error {
+			if strings.Contains(route, ":9440") {
+				t.Fatalf("edge probe route used internal router port: %s", route)
+			}
+			if !strings.HasPrefix(route, "https://console.") || !strings.HasSuffix(route, ".onlv.dev/") {
+				t.Fatalf("edge probe route = %q, want portless console onlv.dev URL", route)
+			}
+			return nil
+		},
+	)
+	defer restoreHooks()
+
+	_, session, _, restore, err := prepareDevAgentSession(ctx, t.TempDir(), app.Config{
+		Name:  "demo",
+		Proxy: app.ProxyConfig{RouteBaseDomain: "onlv.dev"},
+	}, devListenRequest{})
+	defer restore()
+	if err != nil {
+		t.Fatalf("prepareDevAgentSession: %v", err)
+	}
+	for route, raw := range session.Routes {
+		if strings.Contains(raw, ":9440") {
+			t.Fatalf("route %s = %q, should not expose internal router port", route, raw)
+		}
+	}
+	if got := session.Routes[localagent.RouteDashboard]; !strings.HasPrefix(got, "https://console."+session.SessionID+".onlv.dev/") {
+		t.Fatalf("dashboard route = %q, want portless onlv.dev", got)
+	}
+	if got := session.Routes[localagent.RouteAPI]; !strings.HasPrefix(got, "https://api."+session.SessionID+".onlv.dev/") {
+		t.Fatalf("api route = %q, want portless onlv.dev", got)
+	}
+
+	cancel()
+	waitForTestAgentServer(t, agentDone)
+}
+
+func TestPrepareDevAgentSessionConfiguredRouteBaseDomainFailsLoudWhenEdgeStopped(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	agentDone := startTestAgentServer(t, ctx)
+	restoreHooks := withConfiguredEdgeTestHooks(t,
+		func(_ context.Context, _ *localagent.Client, domain string) (edgeStatusResult, error) {
+			status := healthyEdgeStatus()
+			status.Ready = false
+			status.Edge.State = localagent.EdgeStatusStopped
+			return status, configuredEdgeNotReadyError(domain, status)
+		},
+		func(_ context.Context, route string) error {
+			t.Fatalf("edge probe should not run after failed readiness check for %s", route)
+			return nil
+		},
+	)
+	defer restoreHooks()
+
+	root := t.TempDir()
+	_, session, _, restore, err := prepareDevAgentSession(ctx, root, app.Config{
+		Name:  "demo",
+		Proxy: app.ProxyConfig{RouteBaseDomain: "onlv.dev"},
+	}, devListenRequest{})
+	defer restore()
+	if err == nil {
+		t.Fatal("prepareDevAgentSession succeeded, want edge readiness failure")
+	}
+	if session != nil {
+		t.Fatalf("session = %+v, want nil", session)
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"Edge is not ready; refusing to publish portless onlv.dev URLs.",
+		"DNS: ready",
+		"Privileged listener: ready",
+		"Caddy: stopped",
+		"Router: ready at 127.0.0.1:9440 (internal/diagnostic)",
+		"onlava system edge restart",
+		"onlava system edge status",
+		"onlava system edge install",
+		"onlava system edge trust",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("edge error missing %q:\n%s", want, message)
+		}
+	}
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := client.List(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("sessions after failed edge preflight = %+v, want none", sessions)
+	}
+
+	cancel()
+	waitForTestAgentServer(t, agentDone)
+}
+
+func TestPrepareDevAgentSessionWithoutConfiguredRouteBaseDomainAllowsDirectRouterRoutes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	agentDone := startTestAgentServer(t, ctx)
+	restoreHooks := withConfiguredEdgeTestHooks(t,
+		func(_ context.Context, _ *localagent.Client, domain string) (edgeStatusResult, error) {
+			t.Fatalf("edge readiness should not run for unconfigured route_base_domain %q", domain)
+			return edgeStatusResult{}, nil
+		},
+		func(_ context.Context, route string) error {
+			t.Fatalf("edge probe should not run for unconfigured route_base_domain %s", route)
+			return nil
+		},
+	)
+	defer restoreHooks()
+
+	_, session, _, restore, err := prepareDevAgentSession(ctx, t.TempDir(), app.Config{Name: "demo"}, devListenRequest{})
+	defer restore()
+	if err != nil {
+		t.Fatalf("prepareDevAgentSession: %v", err)
+	}
+	route := session.Routes[localagent.RouteDashboard]
+	if !strings.Contains(route, "."+localagent.DefaultRouteBaseDomain+":") {
+		t.Fatalf("dashboard route = %q, want direct router URL with explicit port", route)
+	}
+
+	cancel()
+	waitForTestAgentServer(t, agentDone)
+}
+
 func TestPrepareDevAgentSessionPrefersTCPWhenRequested(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -634,8 +784,22 @@ func TestPrepareDevAgentSessionFallsBackWhenAgentDisabled(t *testing.T) {
 }
 
 func startTestAgentServer(t *testing.T, ctx context.Context) <-chan error {
+	return startTestAgentServerWithPathSetup(t, ctx, nil)
+}
+
+func startTestAgentServerWithPathSetup(t *testing.T, ctx context.Context, setup func(localagent.Paths)) <-chan error {
 	t.Helper()
 	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localagent.EnsureDirs(paths); err != nil {
+		t.Fatal(err)
+	}
+	if setup != nil {
+		setup(paths)
+	}
 	server, err := localagent.NewServer(localagent.RunOptions{
 		RouterAddr: "127.0.0.1:0",
 		DashboardBackend: localagent.Backend{
@@ -656,6 +820,39 @@ func startTestAgentServer(t *testing.T, ctx context.Context) <-chan error {
 		t.Fatal(err)
 	}
 	return done
+}
+
+func withConfiguredEdgeTestHooks(t *testing.T, readiness configuredEdgeReadinessChecker, probe configuredEdgeRouteProber) func() {
+	t.Helper()
+	oldReadiness := checkConfiguredEdgeReadiness
+	oldProbe := probeConfiguredEdgeRoute
+	checkConfiguredEdgeReadiness = readiness
+	probeConfiguredEdgeRoute = probe
+	return func() {
+		checkConfiguredEdgeReadiness = oldReadiness
+		probeConfiguredEdgeRoute = oldProbe
+	}
+}
+
+func healthyEdgeStatus() edgeStatusResult {
+	return edgeStatusResult{
+		Ready: true,
+		Edge: edgeStatusCaddy{
+			State:       localagent.EdgeStatusRunning,
+			Upstream:    "127.0.0.1:9440",
+			AgentRouter: "127.0.0.1:9440",
+		},
+		DNS: edgeDNSStatusResult{
+			Ready: true,
+			DNSMasq: edgeDNSMasqStatus{
+				State: "running",
+			},
+		},
+		PrivilegedListener: edgeStatusPrivilegedListener{
+			State:  "running",
+			Target: defaultEdgeTargetAddr,
+		},
+	}
 }
 
 func waitForTestAgentServer(t *testing.T, done <-chan error) {

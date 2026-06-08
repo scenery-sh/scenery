@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -430,6 +431,27 @@ func classifySessionStatus(session localagent.Session) (string, string) {
 		}
 		if _, ok := inspectProcess(pid); !ok {
 			return "degraded", fmt.Sprintf("app process %d is not running", pid)
+		}
+	}
+	if status, reason := classifyConfiguredEdgeRoutesStatus(session); status != "" {
+		return status, reason
+	}
+	return "", ""
+}
+
+func classifyConfiguredEdgeRoutesStatus(session localagent.Session) (string, string) {
+	baseDomain := normalizeRouteNamespaceHost(session.RouteNamespace.BaseDomain)
+	if baseDomain == "" || baseDomain == localagent.DefaultRouteBaseDomain {
+		return "", ""
+	}
+	for route, raw := range session.Routes {
+		parsed, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || parsed.Host == "" {
+			continue
+		}
+		port := parsed.Port()
+		if parsed.Scheme == "https" && port != "" && port != "443" {
+			return "degraded", fmt.Sprintf("configured route base domain %s requires edge, but route %s uses internal/diagnostic router port %s; run `onlava system edge status`", baseDomain, route, port)
 		}
 	}
 	return "", ""

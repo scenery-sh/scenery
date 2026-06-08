@@ -205,9 +205,9 @@ func edgeRestart(opts edgeOptions) error {
 		return err
 	}
 	if opts.JSON {
-		return writeEdgeStatusJSON(edgeStatusForState(paths, state))
+		return writeEdgeStatusJSON(edgeStatusForStateDomain(paths, state, opts.Domain))
 	}
-	status := edgeStatusForState(paths, state)
+	status := edgeStatusForStateDomain(paths, state, opts.Domain)
 	if status.Ready {
 		fmt.Fprintf(os.Stdout, "onlava system edge running at https://%s\n", state.PublicAddr)
 		return nil
@@ -249,7 +249,7 @@ func edgeStatus(opts edgeOptions) error {
 	} else if !localagent.EdgeStateRunning(state) {
 		state.Status = localagent.EdgeStatusStopped
 	}
-	status := edgeStatusForState(paths, state)
+	status := edgeStatusForStateDomain(paths, state, opts.Domain)
 	if opts.JSON {
 		return writeEdgeStatusJSON(status)
 	}
@@ -313,7 +313,7 @@ func edgeUninstall(opts edgeOptions) error {
 	}
 	_ = os.Remove(paths.EdgeTargetPath)
 	if opts.JSON {
-		return writeEdgeStatusJSON(edgeStatusForState(paths, state))
+		return writeEdgeStatusJSON(edgeStatusForStateDomain(paths, state, opts.Domain))
 	}
 	fmt.Fprintln(os.Stdout, "stopped onlava system edge")
 	fmt.Fprintln(os.Stdout, "privileged listener is still installed if previously configured")
@@ -1029,6 +1029,10 @@ type edgeStatusPrivilegedListener struct {
 }
 
 func edgeStatusForState(paths localagent.Paths, state localagent.EdgeState) edgeStatusResult {
+	return edgeStatusForStateDomain(paths, state, defaultEdgeDNSDomain)
+}
+
+func edgeStatusForStateDomain(paths localagent.Paths, state localagent.EdgeState, domain string) edgeStatusResult {
 	edgeState := state.Status
 	if edgeState == "" {
 		edgeState = localagent.EdgeStatusStopped
@@ -1039,7 +1043,7 @@ func edgeStatusForState(paths localagent.Paths, state localagent.EdgeState) edge
 	caddyUID, _ := processUID(state.PID)
 	helper := privilegedListenerStatus(paths)
 	agentRouter := liveAgentRouterAddr(paths)
-	dns := edgeDNSStatusFor(paths, defaultEdgeDNSDomain)
+	dns := edgeDNSStatusFor(paths, domain)
 	return edgeStatusResult{
 		SchemaVersion: "onlava.edge.status.v1",
 		Ready:         edgeState == localagent.EdgeStatusRunning && dns.Ready && helper.State == "running" && helper.Target == state.HTTPSListen && agentRouter == state.UpstreamAddr,

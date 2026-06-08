@@ -178,6 +178,31 @@ func TestMarkInconsistentStatusSessionsMarksDeadOwnerStale(t *testing.T) {
 	}
 }
 
+func TestMarkInconsistentStatusSessionsMarksConfiguredEdgeInternalRouterRouteDegraded(t *testing.T) {
+	sessions := markInconsistentStatusSessions([]localagent.Session{
+		{
+			SessionID: "custom-domain",
+			Status:    "running",
+			OwnerPID:  os.Getpid(),
+			Owner:     localagent.CurrentOwner("test"),
+			RouteNamespace: localagent.RouteNamespace{
+				BaseDomain: "onlv.dev",
+			},
+			Routes: map[string]string{
+				localagent.RouteDashboard: "https://console.custom-domain.onlv.dev:9440/",
+			},
+		},
+	})
+	if sessions[0].Status != "degraded" {
+		t.Fatalf("status = %q, want degraded", sessions[0].Status)
+	}
+	for _, want := range []string{"onlv.dev", "internal/diagnostic router port 9440", "onlava system edge status"} {
+		if !strings.Contains(sessions[0].StatusReason, want) {
+			t.Fatalf("status reason missing %q: %q", want, sessions[0].StatusReason)
+		}
+	}
+}
+
 func TestPruneSessionEligibleKeepsLiveOwnerPIDWhenOwnerFieldIsStale(t *testing.T) {
 	session := localagent.Session{
 		SessionID: "review-a",

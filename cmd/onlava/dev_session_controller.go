@@ -64,7 +64,12 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	if fallback.Addr == "" {
 		fallback.Addr = resolveListenAddr("", 4000)
 	}
+	routeNamespace := routeNamespaceForConfig(cfg)
+	requiresPortlessEdge := configRequiresPortlessEdge(cfg)
 	if localagent.DisabledByEnv() {
+		if requiresPortlessEdge {
+			return prepared, fmt.Errorf("proxy.route_base_domain %q requires the onlava agent and local edge; unset ONLAVA_AGENT_DISABLE or remove proxy.route_base_domain", routeNamespace.BaseDomain)
+		}
 		prepared.Backend = fallback
 		return prepared, nil
 	}
@@ -80,11 +85,17 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	client, err := localagent.Ensure(ctx)
 	if err != nil {
+		if requiresPortlessEdge {
+			return prepared, fmt.Errorf("proxy.route_base_domain %q requires the onlava agent and local edge; agent unavailable: %w", routeNamespace.BaseDomain, err)
+		}
 		fmt.Fprintf(os.Stderr, "onlava: agent unavailable; continuing without routed session URLs: %v\n", err)
 		prepared.Backend = fallback
 		return prepared, nil
 	}
 	if err := ensureDevAgentDashboardBackend(ctx, client); err != nil {
+		if requiresPortlessEdge {
+			return prepared, fmt.Errorf("proxy.route_base_domain %q requires the onlava agent dashboard for edge probing; dashboard unavailable: %w", routeNamespace.BaseDomain, err)
+		}
 		fmt.Fprintf(os.Stderr, "onlava: agent dashboard unavailable; continuing without routed session URLs: %v\n", err)
 		prepared.Backend = fallback
 		return prepared, nil
@@ -118,7 +129,6 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	for name, backend := range electricBackends {
 		backends[name] = backend
 	}
-	routeNamespace := routeNamespaceForConfig(cfg)
 	if listen.Addr != "" {
 		backends[localagent.RouteAPI] = localagent.Backend{Network: "tcp", Addr: listen.Addr}
 	}
@@ -133,6 +143,11 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	if err := rejectLiveDuplicateDevSession(root, sessionID, existingSessions); err != nil {
 		return prepared, err
 	}
+	if requiresPortlessEdge {
+		if _, err := checkConfiguredEdgeReadiness(ctx, client, routeNamespace.BaseDomain); err != nil {
+			return prepared, err
+		}
+	}
 	session, err := client.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:      cfg.AppID(),
 		AppRoot:        root,
@@ -146,6 +161,12 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	})
 	if err != nil {
 		return prepared, err
+	}
+	if requiresPortlessEdge {
+		if err := verifyConfiguredEdgeSessionRoute(ctx, client, session, routeNamespace.BaseDomain, true); err != nil {
+			_, _ = client.Delete(ctx, session.SessionID, false)
+			return prepared, err
+		}
 	}
 	if err := cleanupStaleDevSessionProcesses(ctx, session, existingSessions); err != nil {
 		return prepared, err
@@ -170,6 +191,12 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		})
 		if err != nil {
 			return prepared, err
+		}
+		if requiresPortlessEdge {
+			if err := verifyConfiguredEdgeSessionRoute(ctx, client, session, routeNamespace.BaseDomain, false); err != nil {
+				_, _ = client.Delete(ctx, session.SessionID, false)
+				return prepared, err
+			}
 		}
 	}
 	frontendBackends, frontendProcesses, err := managedFrontendBackendsForSession(ctx, root, cfg, baseEnv, session)
@@ -200,6 +227,12 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		})
 		if err != nil {
 			return prepared, err
+		}
+		if requiresPortlessEdge {
+			if err := verifyConfiguredEdgeSessionRoute(ctx, client, session, routeNamespace.BaseDomain, false); err != nil {
+				_, _ = client.Delete(ctx, session.SessionID, false)
+				return prepared, err
+			}
 		}
 	}
 	prepared.Client = client
