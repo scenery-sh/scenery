@@ -93,7 +93,7 @@ Keep these layers synchronized when behavior changes:
 
 ## Working In An onlava App
 
-Use app-local `AGENTS.md` first, then this skill/guide.
+Use app-local `AGENTS.md` first, then this skill/guide. In target apps, read the root `AGENTS.md` and every child `AGENTS.md` on the path to files you expect to touch before editing non-trivial changes.
 
 A target app should not copy all onlava docs. It should define only app-specific rules:
 
