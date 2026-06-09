@@ -57,6 +57,34 @@ func TestBundledManifestMatchesRootFile(t *testing.T) {
 	}
 }
 
+func TestBundledManifestDeclaresNeonSelfhostUmbrella(t *testing.T) {
+	manifest, err := LoadBundledManifest()
+	if err != nil {
+		t.Fatalf("LoadBundledManifest() error = %v", err)
+	}
+	artifact, ok := manifest.Artifact("neon-selfhost")
+	if !ok {
+		t.Fatal("neon-selfhost artifact missing")
+	}
+	if artifact.Kind != "image" {
+		t.Fatalf("neon-selfhost kind = %q, want image", artifact.Kind)
+	}
+	refs := map[string]bool{}
+	for _, image := range artifact.Images {
+		refs[image.Ref] = true
+	}
+	for _, want := range []string{
+		"ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f",
+		"ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249",
+		"quay.io/minio/minio:RELEASE.2022-10-20T00-55-09Z",
+		"minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+	} {
+		if !refs[want] {
+			t.Fatalf("neon-selfhost images missing %s: %+v", want, artifact.Images)
+		}
+	}
+}
+
 func TestParseManifestRejectsUnknownFields(t *testing.T) {
 	_, err := ParseManifest([]byte(`{
 		"schema_version":"onlava.toolchain.v1",
@@ -175,6 +203,36 @@ func TestStoreSyncHonorsDownloadDisable(t *testing.T) {
 	_, err = store.Sync(context.Background(), Options{Platform: store.Platform, Tool: "demo"})
 	if err == nil || !strings.Contains(err.Error(), "ONLAVA_TOOLCHAIN_DOWNLOAD=0") {
 		t.Fatalf("Sync download-disabled error = %v", err)
+	}
+}
+
+func TestStoreUnknownToolFailsClosed(t *testing.T) {
+	store, err := NewStore(t.TempDir(), testManifest("https://example.com/demo.tar.gz", strings.Repeat("0", 64)))
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	cases := map[string]func() error{
+		"list": func() error {
+			_, err := store.List(context.Background(), Options{Tool: "missing"})
+			return err
+		},
+		"verify": func() error {
+			_, err := store.Verify(context.Background(), Options{Tool: "missing"})
+			return err
+		},
+		"sync": func() error {
+			_, err := store.Sync(context.Background(), Options{Tool: "missing"})
+			return err
+		},
+	}
+	for name, run := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := run()
+			if err == nil || !strings.Contains(err.Error(), `unknown toolchain artifact "missing"`) {
+				t.Fatalf("%s unknown tool error = %v", name, err)
+			}
+		})
 	}
 }
 

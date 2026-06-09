@@ -100,7 +100,7 @@
       "required": ["kind", "tool", "status"],
       "additionalProperties": false,
       "properties": {
-        "kind": { "const": "toolchain" },
+        "kind": { "enum": ["builtin", "toolchain"] },
         "tool": { "const": "neon-selfhost-driver" },
         "path": { "type": "string" },
         "version": { "type": "string" },

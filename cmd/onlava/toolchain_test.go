@@ -113,6 +113,23 @@ func TestRunToolchainPathJSON(t *testing.T) {
 	}
 }
 
+func TestRunToolchainUnknownToolFailsClosed(t *testing.T) {
+	t.Setenv("ONLAVA_TOOLCHAIN_DIR", t.TempDir())
+	for _, args := range [][]string{
+		{"sync", "--json", "--tool", "missing"},
+		{"path", "--json", "--tool", "missing"},
+	} {
+		var out bytes.Buffer
+		err := runToolchain(t.Context(), &out, args)
+		if err == nil || !strings.Contains(err.Error(), `unknown toolchain artifact "missing"`) {
+			t.Fatalf("runToolchain(%v) unknown tool error = %v", args, err)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("runToolchain(%v) wrote output: %s", args, out.String())
+		}
+	}
+}
+
 func TestRunToolchainStrictImagesRejectsTagOnlyRefs(t *testing.T) {
 	t.Setenv("ONLAVA_TOOLCHAIN_DIR", t.TempDir())
 	var out bytes.Buffer

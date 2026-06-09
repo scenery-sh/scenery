@@ -351,20 +351,20 @@
     },
     {
       "path": "docs/plans/0070-toolchain-managed-neon-selfhost-driver.md",
-      "title": "Toolchain-Managed Neon Selfhost Driver",
+      "title": "Built-In Neon Selfhost Driver",
       "owner": "onlava runtime / agent DX",
       "status": "active",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Active ExecPlan for making the real neon-selfhost branch driver a toolchain-managed Onlava binary that auto-installs, auto-resolves, owns tenant/timeline/compute lifecycle, implements branch mutations and schema diff, and proves branch/Electric isolation.",
+      "summary": "Active ExecPlan for making the real neon-selfhost branch driver a built-in Onlava CLI capability that auto-records, auto-resolves, owns tenant/timeline/compute lifecycle, implements branch mutations and schema diff, and proves branch/Electric isolation.",
       "tags": [
         "plans",
         "execplans",
         "database",
         "neon",
-        "toolchain",
+        "cli",
         "agents"
       ]
     },

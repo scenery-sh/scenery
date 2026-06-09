@@ -1,10 +1,13 @@
 package main
 
 import (
+	"net"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pbrazdil/onlava/internal/neonselfhost"
 )
 
 var neonDockerCommandTestMu sync.Mutex
@@ -23,6 +26,66 @@ func useFakeNeonDocker(t *testing.T, path string) {
 func useMissingNeonDocker(t *testing.T) {
 	t.Helper()
 	useFakeNeonDocker(t, filepath.Join(t.TempDir(), "missing-docker"))
+}
+
+func closedLoopbackPortForTest(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	return port
+}
+
+func forceNeonCellPortsForTest(t *testing.T, port int) {
+	t.Helper()
+	root, err := neonSubstrateRoot()
+	if err != nil {
+		t.Fatalf("neonSubstrateRoot: %v", err)
+	}
+	state, ok, err := readNeonCellState(root)
+	if err != nil || !ok {
+		t.Fatalf("read Neon cell state ok=%v err=%v", ok, err)
+	}
+	for key := range state.Ports {
+		state.Ports[key] = port
+	}
+	if err := writeNeonCellState(state); err != nil {
+		t.Fatalf("write Neon cell state: %v", err)
+	}
+}
+
+func forceNeonBackendBranchPortForTest(t *testing.T, project, branch string, port int) {
+	t.Helper()
+	root, err := neonSubstrateRoot()
+	if err != nil {
+		t.Fatalf("neonSubstrateRoot: %v", err)
+	}
+	path := filepath.Join(root, "backend.json")
+	state, ok, err := neonselfhost.ReadBackendState(path)
+	if err != nil {
+		t.Fatalf("read Neon backend state: %v", err)
+	}
+	if !ok {
+		state = neonselfhost.NewBackendState("", 16)
+	}
+	branch = normalizeNeonBranchName(branch)
+	state.Branches[neonLocalBranchID(project, branch)] = neonselfhost.BackendBranch{
+		Project:  project,
+		Branch:   branch,
+		Host:     "127.0.0.1",
+		Port:     port,
+		Database: sanitizeNeonIdentifier(project),
+		Role:     neonDefaultRole,
+		Status:   "pending",
+	}
+	if err := neonselfhost.WriteBackendState(path, state); err != nil {
+		t.Fatalf("write Neon backend state: %v", err)
+	}
 }
 
 func markNeonLeaseReadyForTest(t *testing.T, pin worktreeDBPin, endpoint neonEndpoint) {

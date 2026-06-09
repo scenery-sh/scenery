@@ -90,7 +90,7 @@ func DefaultCapabilities() Capabilities {
 		Version:       DriverVersion,
 		Status:        "ready",
 		Actions:       []string{"capabilities", "status", "ensure", "reset", "restore", "delete", "diff"},
-		Capabilities:  []string{"toolchain-source-build", "backend-state", "pageserver-tenant-timeline-bootstrap", "docker-compute-startup", "postgres-readiness", "postgres-database-setup", "stateful-branch-mutations", "schema-diff", "recorded-compute-readiness"},
+		Capabilities:  []string{"builtin-onlava-cli", "backend-state", "pageserver-tenant-timeline-bootstrap", "docker-compute-startup", "postgres-readiness", "postgres-database-setup", "stateful-branch-mutations", "schema-diff", "recorded-compute-readiness"},
 		Message:       "driver command is installed and supports tenant/timeline bootstrap, branch compute startup, Postgres readiness, branch mutations, and schema diff",
 	}
 }
@@ -294,7 +294,7 @@ func writePayload(stdout io.Writer, jsonMode bool, payload any, text string) err
 }
 
 func usageError() error {
-	return fmt.Errorf("usage: onlava-neon-selfhost-driver capabilities|status|ensure|reset|restore|diff|delete --json")
+	return fmt.Errorf("usage: onlava internal neon-selfhost-driver capabilities|status|ensure|reset|restore|diff|delete --json")
 }
 
 func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {

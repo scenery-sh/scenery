@@ -1117,8 +1117,8 @@
         "tests"
       ],
       "owner": "onlava runtime",
-      "rationale": "Explicit neon-selfhost branch driver executable path for the actual self-hosted Neon dev-cell backend",
-      "preferred_surface": ".onlava.json for stable provider configuration; this env selects the executable backend while the dev-cell driver is still toolchain-managed separately",
+      "rationale": "Explicit external neon-selfhost branch driver executable path for overriding the built-in self-hosted Neon dev-cell backend",
+      "preferred_surface": ".onlava.json for stable provider configuration; this env is a development escape hatch and the normal dev-cell driver is built into onlava",
       "replacement": "",
       "sunset": "",
       "docs": [

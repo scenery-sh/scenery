@@ -50,7 +50,7 @@ func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	if payload.Storage == nil || payload.Cell.Storage == nil || payload.Storage.Mode != "bind" || payload.Storage.Root != filepath.Join(root, "data") {
 		t.Fatalf("storage status missing or wrong: result=%+v cell=%+v", payload.Storage, payload.Cell.Storage)
 	}
-	if payload.Driver == nil || payload.Cell.Driver == nil || payload.Driver.Tool != neonSelfhostDriverToolchainArtifact {
+	if payload.Driver == nil || payload.Cell.Driver == nil || payload.Driver.Kind != "builtin" || payload.Driver.Tool != neonSelfhostDriverTool {
 		t.Fatalf("driver status missing from payload: result=%+v cell=%+v", payload.Driver, payload.Cell.Driver)
 	}
 	if payload.Backend == nil || !payload.Backend.Present || payload.Backend.BranchCount != 0 {

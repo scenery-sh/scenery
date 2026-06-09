@@ -333,7 +333,7 @@ func runDBNeonInstall(ctx context.Context, stdout io.Writer, opts dbNeonOptions)
 	now := time.Now().UTC().Format(time.RFC3339)
 	state.CreatedAt = now
 	state.UpdatedAt = now
-	driver := ensureNeonSelfhostDriverToolchain(ctx)
+	driver := ensureBuiltinNeonSelfhostDriver(ctx)
 	state.Driver = &driver
 	if err := writeGeneratedNeonFiles(state); err != nil {
 		return err
@@ -734,7 +734,7 @@ func buildDBNeonStatus(ctx context.Context) (dbNeonStatusResult, error) {
 		cell.Storage = &storage
 	}
 	if cell.Driver == nil {
-		driver := inspectNeonSelfhostDriverToolchain()
+		driver := inspectBuiltinNeonSelfhostDriver()
 		cell.Driver = &driver
 	}
 	cell.Images = images

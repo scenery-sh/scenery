@@ -89,6 +89,9 @@ func runToolchain(ctx context.Context, stdout io.Writer, args []string) error {
 		if opts.Tool == "" {
 			return fmt.Errorf("onlava system toolchain path requires --tool <name>")
 		}
+		if _, ok := manifest.Artifact(opts.Tool); !ok {
+			return fmt.Errorf("unknown toolchain artifact %q", opts.Tool)
+		}
 		status, err := store.Path(ctx, opts.Tool, opts.Platform)
 		if err != nil && !opts.JSON {
 			return err

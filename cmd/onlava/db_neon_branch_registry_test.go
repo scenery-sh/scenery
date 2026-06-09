@@ -453,16 +453,17 @@ func TestDBBranchResetAndDeleteGuards(t *testing.T) {
 	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
 		t.Fatalf("install dev-cell returned error: %v", err)
 	}
+	forceNeonCellPortsForTest(t, closedLoopbackPortForTest(t))
 	err = runDBBranchCommand(t.Context(), io.Discard, []string{"reset", "--app-root", root, "--yes"})
-	if err == nil || !strings.Contains(err.Error(), `no Neon branch driver is configured`) {
+	if err != nil {
 		t.Fatalf("reset backend error = %v", err)
 	}
 	err = runDBBranchCommand(t.Context(), io.Discard, []string{"restore", "--at", "2026-06-08T00:00:00Z", "--app-root", root, "--yes"})
-	if err == nil || !strings.Contains(err.Error(), `no Neon branch driver is configured`) {
+	if err != nil {
 		t.Fatalf("restore backend error = %v", err)
 	}
 	err = runDBBranchCommand(t.Context(), io.Discard, []string{"diff", "main", "--app-root", root, "--json"})
-	if err == nil || !strings.Contains(err.Error(), `no Neon branch driver is configured`) {
+	if err == nil || !strings.Contains(err.Error(), `could not find target backend branch "main"`) {
 		t.Fatalf("diff backend error = %v", err)
 	}
 }

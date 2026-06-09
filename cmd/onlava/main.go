@@ -86,6 +86,8 @@ func run(args []string) error {
 		return metricsCommand(args[1:])
 	case "system":
 		return systemCommand(args[1:])
+	case "internal":
+		return internalCommand(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q; use `onlava help`", args[0])
 	}

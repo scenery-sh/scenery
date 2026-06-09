@@ -3,92 +3,52 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
+	"os"
 	"strings"
 
-	localagent "github.com/pbrazdil/onlava/internal/agent"
-	"github.com/pbrazdil/onlava/internal/envpolicy"
-	"github.com/pbrazdil/onlava/internal/toolchain"
+	"github.com/pbrazdil/onlava/internal/neonselfhost"
 )
 
-const neonSelfhostDriverToolchainArtifact = "neon-selfhost-driver"
+const neonSelfhostDriverTool = "neon-selfhost-driver"
 
-func ensureNeonSelfhostDriverToolchain(ctx context.Context) neonCellDriver {
-	storeDir, err := neonSelfhostDriverToolchainStoreDir()
-	if err != nil {
-		return neonCellDriver{
-			Kind:    "toolchain",
-			Tool:    neonSelfhostDriverToolchainArtifact,
-			Status:  "missing",
-			Message: err.Error(),
-		}
-	}
-	status, err := syncManagedToolchainArtifactInDir(ctx, storeDir, neonSelfhostDriverToolchainArtifact)
-	return neonCellDriverFromArtifactStatus(status, err)
+func ensureBuiltinNeonSelfhostDriver(_ context.Context) neonCellDriver {
+	return inspectBuiltinNeonSelfhostDriver()
 }
 
-func inspectNeonSelfhostDriverToolchain() neonCellDriver {
-	storeDir, err := neonSelfhostDriverToolchainStoreDir()
-	if err != nil {
-		return neonCellDriver{
-			Kind:    "toolchain",
-			Tool:    neonSelfhostDriverToolchainArtifact,
-			Status:  "missing",
-			Message: err.Error(),
-		}
-	}
-	status, err := managedToolchainArtifactStatusInDir(storeDir, neonSelfhostDriverToolchainArtifact)
-	return neonCellDriverFromArtifactStatus(status, err)
-}
-
-func neonCellDriverFromArtifactStatus(status toolchain.ArtifactStatus, err error) neonCellDriver {
+func inspectBuiltinNeonSelfhostDriver() neonCellDriver {
 	driver := neonCellDriver{
-		Kind:   "toolchain",
-		Tool:   neonSelfhostDriverToolchainArtifact,
-		Status: "missing",
+		Kind:    "builtin",
+		Tool:    neonSelfhostDriverTool,
+		Version: neonselfhost.DriverVersion,
+		Status:  "installed",
+		Message: "Neon self-host driver is built into the onlava CLI as `onlava internal neon-selfhost-driver`.",
 	}
-	if err != nil {
-		driver.Message = err.Error()
-		return driver
-	}
-	driver.Path = status.ManagedPath
-	driver.Version = status.Version
-	driver.Status = status.Status
-	driver.Message = status.Message
-	if driver.Status == "" {
-		driver.Status = "missing"
+	if exe, err := os.Executable(); err == nil {
+		driver.Path = exe
+	} else {
+		driver.Message = fmt.Sprintf("%s Current executable path was unavailable: %v", driver.Message, err)
 	}
 	return driver
 }
 
-func neonSelfhostDriverToolchainStoreDir() (string, error) {
-	if strings.TrimSpace(envpolicy.Get("ONLAVA_TOOLCHAIN_DIR")) != "" {
-		return toolchain.DefaultStoreDir(""), nil
-	}
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(paths.Home, "toolchain"), nil
-}
-
-func configuredManagedNeonSelfhostBranchDriver() (executableNeonBranchDriver, bool, error) {
+func configuredManagedNeonSelfhostBranchDriver() (neonBranchDriver, bool, error) {
 	root, err := neonSubstrateRoot()
 	if err != nil {
-		return executableNeonBranchDriver{}, false, err
+		return nil, false, err
 	}
 	state, ok, err := readNeonCellState(root)
 	if err != nil {
-		return executableNeonBranchDriver{}, false, err
+		return nil, false, err
 	}
-	if ok && state.Driver != nil && strings.TrimSpace(state.Driver.Path) != "" {
+	if !ok || state.Driver == nil {
+		return nil, false, nil
+	}
+	if state.Driver.Kind == "builtin" {
+		return newBuiltinNeonSelfhostBranchDriver(), true, nil
+	}
+	if strings.TrimSpace(state.Driver.Path) != "" {
 		driver, err := executableNeonBranchDriverFromPath(state.Driver.Path, "neon-selfhost driver", "cell.json driver.path", neonSelfhostBranchDriverEndpointSource)
 		return driver, err == nil, err
 	}
-	status := inspectNeonSelfhostDriverToolchain()
-	if strings.TrimSpace(status.Path) == "" || status.Status != "installed" {
-		return executableNeonBranchDriver{}, false, nil
-	}
-	driver, err := executableNeonBranchDriverFromPath(status.Path, "neon-selfhost driver", fmt.Sprintf("toolchain artifact %s", neonSelfhostDriverToolchainArtifact), neonSelfhostBranchDriverEndpointSource)
-	return driver, err == nil, err
+	return nil, false, nil
 }

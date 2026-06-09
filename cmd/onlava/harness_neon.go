@@ -169,7 +169,7 @@ func runHarnessNeonSelfhostCheck(parent context.Context, repoRoot string) (map[s
 	if err := json.Unmarshal(startOut.Bytes(), &startStatus); err != nil {
 		return nil, diagnostics, fmt.Errorf("decode Neon start JSON: %w: %s", err, startOut.String())
 	}
-	check(startStatus.Driver != nil && startStatus.Driver.Tool == neonSelfhostDriverToolchainArtifact, "install/start must resolve the managed neon-selfhost-driver toolchain artifact")
+	check(startStatus.Driver != nil && startStatus.Driver.Kind == "builtin" && startStatus.Driver.Tool == neonSelfhostDriverTool, "install/start must resolve the built-in neon-selfhost driver")
 
 	createdA, err := harnessCreateNeonWorktree(ctx, root, "selfhost-a")
 	if err != nil {

@@ -261,16 +261,38 @@
       ]
     },
     {
-      "name": "neon-selfhost-driver",
-      "kind": "binary",
-      "version": "dev",
-      "license": "Apache-2.0",
-      "default_binary": "onlava-neon-selfhost-driver",
-      "binaries": ["onlava-neon-selfhost-driver"],
-      "source_build": {
-        "kind": "go",
-        "package": "./cmd/onlava-neon-selfhost-driver"
-      }
+      "name": "neon-selfhost",
+      "kind": "image",
+      "version": "2026-06-09",
+      "images": [
+        {
+          "ref": "ghcr.io/neondatabase/neon@sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f",
+          "digest": "sha256:7a4f124917bb929964b2d696d710f19584f80bb9bd51b2af4a6e2425434c761f",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon.selfhost.storage-cell",
+          "stability": "unstable"
+        },
+        {
+          "ref": "ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249",
+          "digest": "sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon.selfhost.compute",
+          "stability": "unstable"
+        },
+        {
+          "ref": "quay.io/minio/minio:RELEASE.2022-10-20T00-55-09Z",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon.selfhost.object-storage",
+          "stability": "unstable"
+        },
+        {
+          "ref": "minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+          "digest": "sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727",
+          "optional": true,
+          "usage": "dev.services.postgres.kind=neon.selfhost.object-storage-init",
+          "stability": "unstable"
+        }
+      ]
     },
     {
       "name": "temporal-cli",

@@ -402,7 +402,7 @@ External dependencies:
 
 - Docker and Docker Compose for the local Neon storage cell.
 - Existing Neon images from `onlava.toolchain.json`.
-- The source-built `neon-selfhost-driver` from plan 0070.
+- The built-in `neon-selfhost-driver` from plan 0070.
 - MinIO remains the remote-storage stand-in used by self-hosted Neon; the change
   is where MinIO stores its `/data` on the host.
 

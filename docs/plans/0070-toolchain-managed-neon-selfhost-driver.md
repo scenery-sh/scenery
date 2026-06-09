@@ -1,4 +1,4 @@
-# Toolchain-Managed Neon Selfhost Driver
+# Built-In Neon Selfhost Driver
 
 This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`,
 `Decision Log`, and `Outcomes & Retrospective` current as work proceeds.
@@ -13,12 +13,11 @@ install|start|status`, and an executable branch-driver interface selected by
 that executable is an env-var-only escape hatch, and without it Onlava can only
 create pending local leases.
 
-This plan makes the real self-hosted Neon branch driver a first-class Onlava
-toolchain/runtime surface. A normal developer or agent should not need to set
+This plan makes the real self-hosted Neon branch driver a first-class built-in
+Onlava runtime surface. A normal developer or agent should not need to set
 `ONLAVA_DEV_NEON_SELFHOST_DRIVER` by hand. The default path should be:
 
 ```sh
-onlava system toolchain sync --tool neon-selfhost-driver --json
 onlava system toolchain sync --tool neon-selfhost --images --json
 onlava db neon install --json
 onlava db neon start --json
@@ -41,7 +40,7 @@ Electric against the same branch, and keep the parent branch protected.
 This plan is a follow-on to `docs/plans/0065-onlava-managed-neon-dev-cell.md`.
 Plan 0065 established the local contract, branch pins, lease registry, generated
 dev-cell scaffolding, driver delegation, and cleanup safety. This plan narrows
-the remaining work to the toolchain-managed `neon-selfhost-driver`, real
+the remaining work to the built-in `neon-selfhost-driver`, real
 tenant/timeline/compute lifecycle, and opt-in harness proof against an actual
 local Neon cell.
 
@@ -50,9 +49,9 @@ local Neon cell.
 - [x] 2026-06-09: Created ExecPlan `0070-toolchain-managed-neon-selfhost-driver.md` from the requested Neon driver brief.
 - [x] 2026-06-09: Linked plan 0070 from `docs/plans/active.md`.
 - [x] 2026-06-09: Indexed plan 0070 in `docs/knowledge.json`.
-- [x] 2026-06-09: Added the first toolchain-owned driver slice. `neon-selfhost-driver` is now a source-built toolchain artifact backed by `cmd/onlava-neon-selfhost-driver` and `internal/neonselfhost`; it exposes `capabilities --json`, `status --json`, strict schemas for capabilities/backend state, and a pending `ensure` response while real branch lifecycle is still unimplemented.
-- [x] 2026-06-09: Added source-built binary support to the managed toolchain manifest/store and regenerated `internal/toolchain/manifest_gen.go`.
-- [x] 2026-06-09: Wired `onlava db neon install --json` to attempt driver installation, record `cell.json.driver`, include driver status in `onlava.db.neon.status.v1`, and resolve branch drivers in the order explicit env, `cell.json.driver.path`, installed toolchain artifact, then local Postgres-shaped fallback.
+- [x] 2026-06-09: Added the first driver slice backed by `internal/neonselfhost`; it exposes `capabilities --json`, `status --json`, strict schemas for capabilities/backend state, and a pending `ensure` response while real branch lifecycle is still unimplemented.
+- [x] 2026-06-09: Added source build support to the managed toolchain manifest/store and regenerated `internal/toolchain/manifest_gen.go` for other Onlava-owned binaries.
+- [x] 2026-06-09: Wired `onlava db neon install --json` to record `cell.json.driver`, include driver status in `onlava.db.neon.status.v1`, and resolve branch drivers in the order explicit env, installed cell built-in or legacy path, then local Postgres-shaped fallback.
 - [x] 2026-06-09: Added driver-owned backend state helpers for future `backend.json` lifecycle: schema/version validation, atomic writes, branch metadata structs, stable branch-port allocation from `branch_id`, existing-port reuse, and collision avoidance.
 - [x] 2026-06-09: Replaced the generated Compose placeholder with a storage-cell topology: MinIO, bucket init, storage broker, pageserver config, three safekeepers, compute templates, and empty `backend.json`. Static app compute is no longer part of the generated Compose project; branch compute remains driver-owned.
 - [x] 2026-06-09: Taught the managed driver `ensure` path to write idempotent pending branch metadata into `backend.json`, including deterministic branch port and compute container identity, while still returning public `pending` until real Neon timeline/compute startup exists.
@@ -67,15 +66,17 @@ local Neon cell.
 - [x] 2026-06-09: Made the generated storage-cell topology boot against real Docker Neon images by generating `pageserver_config/identity.toml`, aligning pageserver config with upstream emergency-mode Docker Compose settings, and replacing the compute template's `nc` dependency with Bash TCP probing.
 - [x] 2026-06-09: Completed the real branch compute readiness loop. `worktree create` now runs the existing branch-provider ensure boundary for auto-pinned Neon worktrees; the managed selfhost driver starts fresh branch compute containers, verifies Postgres with non-interactive credentials, creates the requested database, and returns ready endpoint metadata with a password-bearing managed `DatabaseURL` while keeping public endpoint metadata redacted.
 - [x] 2026-06-09: Added opt-in real Neon self-harness coverage with `onlava harness self --json --write --with-neon-selfhost`, while keeping the default fake-driver lifecycle deterministic. The opt-in harness now proves managed driver installation, generated storage-cell startup, two ready worktree branches, branch data isolation, managed `onlava db psql`, managed app env, Electric DB URL resolution, reset, restore, schema diff, delete, and cleanup of driver-owned compute containers.
-- [x] 2026-06-09: Promoted source-built driver reset/restore from backend metadata placeholders to pageserver timeline mutations. Reset removes the old compute endpoint, creates a replacement timeline from the parent branch timeline, and restarts compute on the persisted port when possible; restore accepts LSN refs directly or resolves RFC3339 timestamps through pageserver before creating the replacement timeline.
+- [x] 2026-06-09: Promoted driver reset/restore from backend metadata placeholders to pageserver timeline mutations. Reset removes the old compute endpoint, creates a replacement timeline from the parent branch timeline, and restarts compute on the persisted port when possible; restore accepts LSN refs directly or resolves RFC3339 timestamps through pageserver before creating the replacement timeline.
 - [x] 2026-06-09: Closed the reset/restore validation loop with focused `internal/neonselfhost` and `cmd/onlava` tests, `go test ./...`, `jq empty` on changed JSON/schema files, `git diff --check`, and `onlava harness self --json --write --with-neon-selfhost`. The opt-in real harness passed with warnings only for the existing review-due UI doc, large-file warnings, and slow-test timing warnings.
+- [x] 2026-06-09: Folded the driver into the main `onlava` CLI as `onlava internal neon-selfhost-driver`, removed the source-built `neon-selfhost-driver` toolchain artifact and standalone `cmd/onlava-neon-selfhost-driver`, and updated `onlava db neon install --json` to record `cell.json.driver.kind: "builtin"` while preserving explicit external-driver and legacy `cell.json.driver.path` support.
+- [x] 2026-06-09: Added the `neon-selfhost` umbrella image artifact to the toolchain manifest so `onlava system toolchain sync --tool neon-selfhost --images --json` selects the storage-cell, compute-node, MinIO, and MinIO client images. Unknown `--tool` selectors now fail closed instead of returning an empty successful status.
 
 ## Surprises & Discoveries
 
 - 2026-06-09: `onlava inspect docs --json` reports 43 documents, 1 review-due document, and 0 stale documents. The only review-due document is `docs/ui-agent-contract.md`, which is unrelated to this database/toolchain plan.
-- 2026-06-09: The current checked-in branch provider already prefers `ONLAVA_DEV_NEON_SELFHOST_DRIVER` over `ONLAVA_DEV_LOCAL_POSTGRES_BRANCH_DRIVER`, records ready lease endpoints from driver JSON, protects parent branch consumption, and delegates reset/restore/delete/diff when a driver is configured. The missing behavior is toolchain auto-resolution plus a real self-hosted Neon implementation.
+- 2026-06-09: The current checked-in branch provider already prefers `ONLAVA_DEV_NEON_SELFHOST_DRIVER` over `ONLAVA_DEV_LOCAL_POSTGRES_BRANCH_DRIVER`, records ready lease endpoints from driver JSON, protects parent branch consumption, and delegates reset/restore/delete/diff when a driver is configured. The missing behavior is a default built-in driver plus a real self-hosted Neon implementation.
 - 2026-06-09: `cmd/onlava/db_neon.go` and the surrounding Neon command files are already large enough that this feature should add `internal/neonselfhost/` and small CLI integration files instead of continuing to grow the existing command file.
-- 2026-06-09: The source-built `neon-selfhost-driver` must return a successful `pending` JSON result for `ensure` until real tenant/timeline/compute lifecycle lands. Otherwise, simply installing the managed skeleton driver would turn branch checkout from the existing pending-backend behavior into a hard failure.
+- 2026-06-09: The `neon-selfhost-driver` must return a successful `pending` JSON result for `ensure` until real tenant/timeline/compute lifecycle lands. Otherwise, simply enabling the skeleton driver would turn branch checkout from the existing pending-backend behavior into a hard failure.
 - 2026-06-09: Upstream Neon's Docker example still includes a static compute wrapper, but Onlava's branch-isolation contract needs Compose to own only the shared storage cell. The generated compute template files are now driver inputs rather than a started Compose service.
 - 2026-06-09: A recorded reachable branch compute is enough for the driver to prove and return a ready endpoint, which gives `onlava up`, `db psql`, DB lifecycle, and Electric the same redacted endpoint contract before the driver can create computes itself.
 - 2026-06-09: The pageserver OpenAPI states that `POST /v1/tenant/{tenant_id}/timeline` can recreate the same timeline successfully when parameters match, and that callers should retry timeline creation until success for durability. The driver now uses that idempotent shape for parent and branch timeline bootstrap.
@@ -85,15 +86,17 @@ local Neon cell.
 - 2026-06-09: The compute image used by upstream Docker Compose does not include `nc`, so generated compute startup scripts must avoid depending on netcat. Bash `/dev/tcp` probing is sufficient because the script already runs under Bash.
 - 2026-06-09: Ready selfhost endpoints require a password-bearing DSN for non-interactive `psql` and Electric consumption. Onlava keeps public endpoint metadata redacted, but synthesizes `postgres://cloud_admin:***@...` in managed `DatabaseURL` values for the `neon-selfhost-driver` source.
 - 2026-06-09: Reset/restore need to distinguish the durable Onlava parent branch from the pageserver ancestor used for a specific restore. Restore may branch from the previous branch timeline at an LSN/timestamp, but later reset should still target the configured parent branch timeline.
+- 2026-06-09: A source-built driver artifact is not enough for prebuilt CLI users because `go build ./cmd/onlava-neon-selfhost-driver` only works inside the Onlava source checkout. Folding the driver into `onlava` keeps the branch-driver contract without requiring a second release artifact.
+- 2026-06-09: The toolchain manifest needs an image umbrella separate from the built-in branch driver. `neon-selfhost` selects the Docker images, while `onlava internal neon-selfhost-driver` is the executable driver surface.
 
 ## Decision Log
 
-- Decision: Implement `neon-selfhost-driver` as a separate Go binary under `cmd/onlava-neon-selfhost-driver`.
-  Rationale: The current executable branch-driver boundary is already tested and keeps backend-specific Neon lifecycle code out of the main CLI process. A separate binary also makes `onlava system toolchain path --tool neon-selfhost-driver` meaningful.
+- Decision: Fold `neon-selfhost-driver` into the main `onlava` CLI as `onlava internal neon-selfhost-driver`.
+  Rationale: The driver is part of Onlava's built-in self-hosted Neon dev-cell behavior, and source-built-only toolchain installation fails for normal prebuilt CLI users inside app repositories. Keeping the JSON command shape under `onlava internal` preserves the tested driver contract while removing the second-binary packaging problem.
   Date/Author: 2026-06-09 / Codex
 
 - Decision: Keep `ONLAVA_DEV_NEON_SELFHOST_DRIVER` as the highest-priority override, but make it an explicit development/testing escape hatch instead of the normal user path.
-  Rationale: Agents and users should get the managed driver through `onlava db neon install` and toolchain resolution, while tests and local experiments still need a direct executable override.
+  Rationale: Agents and users should get the built-in driver through `onlava db neon install`, while tests and local experiments still need a direct executable override.
   Date/Author: 2026-06-09 / Codex
 
 - Decision: Keep `ONLAVA_DEV_LOCAL_POSTGRES_BRANCH_DRIVER` as the last fallback only.
@@ -162,7 +165,7 @@ driver implementation state.
 
 ## Milestones
 
-1. Toolchain Driver Contract: declare `neon-selfhost-driver` as a managed toolchain artifact, add a separate driver binary, define capabilities/status schemas, and keep the existing executable branch-driver result shape compatible.
+1. Built-In Driver Contract: expose `neon-selfhost-driver` through `onlava internal neon-selfhost-driver`, define capabilities/status schemas, and keep the existing branch-driver result shape compatible.
 2. Real Dev-Cell Topology: generate a working local Neon storage cell with MinIO, bucket init, storage broker, pageserver, three safekeepers, and no static app compute as the branch substrate.
 3. Tenant and Parent Bootstrap: driver `ensure` can create or reuse tenant/main timeline state and a protected parent compute endpoint for admin/bootstrap checks.
 4. Branch Ensure and Runtime Consumption: driver `ensure` creates branch timelines and compute endpoints, returns ready endpoint metadata, and lets `onlava up`, DB lifecycle, `db psql`, and Electric consume non-parent ready branches.
@@ -172,18 +175,18 @@ driver implementation state.
 
 ## Plan of Work
 
-First add the driver as a real toolchain concept. Add `cmd/onlava-neon-selfhost-driver/` and `internal/neonselfhost/`, with the driver initially able to answer `capabilities --json` and `status --json`. Add schemas for driver capabilities and backend state. Add a toolchain manifest entry named `neon-selfhost-driver` with `default_binary: "onlava-neon-selfhost-driver"`. Source installs can build from the current checkout; release installs can later publish prebuilt artifacts through the same managed store used by other Onlava tools.
+First add the driver as a real built-in CLI concept. Keep backend-specific implementation in `internal/neonselfhost/`, expose it through `onlava internal neon-selfhost-driver`, and keep it able to answer `capabilities --json` and `status --json`. Add schemas for driver capabilities and backend state. The self-hosted Neon branch driver is not a toolchain artifact.
 
-Then wire install and resolution. `onlava db neon install --json` should ensure the driver toolchain artifact and required images when downloads are available, then write the resolved driver path into `cell.json`:
+Then wire install and resolution. `onlava db neon install --json` should record the built-in driver and generated state in `cell.json`:
 
 ```json
 {
   "provider": "neon-selfhost",
   "driver": {
-    "kind": "toolchain",
+    "kind": "builtin",
     "tool": "neon-selfhost-driver",
-    "path": "/Users/.../.onlava/toolchain/.../onlava-neon-selfhost-driver",
-    "version": "..."
+    "path": "/usr/local/bin/onlava",
+    "version": "dev"
   }
 }
 ```
@@ -192,8 +195,8 @@ Driver lookup order should be:
 
 ```text
 1. ONLAVA_DEV_NEON_SELFHOST_DRIVER
-2. cell.json driver.path
-3. onlava system toolchain path --tool neon-selfhost-driver
+2. cell.json driver.kind=builtin
+3. legacy cell.json driver.path
 4. ONLAVA_DEV_LOCAL_POSTGRES_BRANCH_DRIVER
 5. none, with a clear action to install/start the Neon dev cell
 ```
@@ -273,16 +276,16 @@ writes, and safe cleanup.
 ## Concrete Steps
 
 1. Run `onlava inspect docs --json` and review `summary.review_due_count`, `review_due`, and `stale` fields before implementation.
-2. Add `cmd/onlava-neon-selfhost-driver/main.go` and `internal/neonselfhost/` with `capabilities --json`, `status --json`, argument parsing, strict JSON output, and focused tests.
+2. Add `internal/neonselfhost/` and expose it through `onlava internal neon-selfhost-driver` with `capabilities --json`, `status --json`, argument parsing, strict JSON output, and focused tests.
 3. Add `docs/schemas/onlava.db.neon.driver.capabilities.v1.schema.json` and `docs/schemas/onlava.db.neon.selfhost.backend.v1.schema.json`; include them in schema inventory/harness checks.
-4. Add the `neon-selfhost-driver` artifact to `onlava.toolchain.json`, regenerate `internal/toolchain/manifest_gen.go` using the existing generator, and add toolchain tests for list/verify/path behavior.
-5. Teach `onlava db neon install --json` to resolve or sync the driver and write `cell.json.driver`; keep install idempotent and honest when downloads/images are unavailable.
-6. Add driver lookup from `cell.json` and managed toolchain path before the local Postgres-shaped fallback.
+4. Keep self-hosted Neon image refs in `onlava.toolchain.json`, regenerate `internal/toolchain/manifest_gen.go` using the existing generator, and keep toolchain tests focused on external artifacts/images.
+5. Teach `onlava db neon install --json` to record the built-in driver and write `cell.json.driver`; keep install idempotent and honest when downloads/images are unavailable.
+6. Add driver lookup from explicit env, installed cell built-in or legacy `cell.json.driver.path`, then the local Postgres-shaped fallback.
 7. Replace generated Neon Compose/config output with the working storage-cell topology and update status probes for required containers/listeners.
 8. Implement `backend.json` read/write helpers with ownership checks, schema versioning, atomic writes, and corruption errors that tell users how to recover.
 9. Implement driver `ensure` for parent and branch timelines, compute startup, readiness polling, database/role creation, endpoint JSON, and restore-point creation.
 10. Implement `reset`, `delete`, `restore`, and schema-only `diff`, reusing existing Onlava safety checks and preserving public `br-local-*` branch identity.
-11. Update `docs/local-contract.md`, `docs/agent-guide.md`, `SKILL.md`, `docs/environment.md`, `docs/environment.registry.json`, `docs/app-development-cookbook.md`, and `docs/knowledge.json` for the new toolchain-managed driver behavior.
+11. Update `docs/local-contract.md`, `docs/agent-guide.md`, `SKILL.md`, `docs/environment.md`, `docs/environment.registry.json`, `docs/app-development-cookbook.md`, and `docs/knowledge.json` for the built-in driver behavior.
 12. Add an opt-in real Neon self-harness path and keep default fake-driver coverage.
 13. Update plan 0065 progress or outcomes to point at this plan when the implementation absorbs its remaining real-provider milestone.
 
@@ -296,15 +299,13 @@ onlava inspect docs --json
 git diff --check
 ```
 
-For the first driver/toolchain slice, validate with:
+For the first built-in driver slice, validate with:
 
 ```sh
 go test ./cmd/onlava ./internal/toolchain ./internal/neonselfhost
 go test ./...
 go build -o "$(mktemp -d)/onlava" ./cmd/onlava
-go build -o "$(mktemp -d)/onlava-neon-selfhost-driver" ./cmd/onlava-neon-selfhost-driver
-onlava system toolchain verify --tool neon-selfhost-driver --json
-onlava-neon-selfhost-driver capabilities --json
+onlava internal neon-selfhost-driver capabilities --json
 onlava inspect docs --json
 git diff --check
 ```
@@ -370,7 +371,7 @@ that can be safely recreated.
 Expected new or changed files include:
 
 ```text
-cmd/onlava-neon-selfhost-driver/main.go
+cmd/onlava/internal.go
 cmd/onlava/db_neon_toolchain.go
 internal/neonselfhost/cell.go
 internal/neonselfhost/compose.go
@@ -396,13 +397,13 @@ The branch driver command contract should stay compatible with the current main
 CLI runner:
 
 ```sh
-onlava-neon-selfhost-driver capabilities --json
-onlava-neon-selfhost-driver status --json
-onlava-neon-selfhost-driver ensure --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --ttl 168h --json
-onlava-neon-selfhost-driver reset --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --json
-onlava-neon-selfhost-driver restore --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --at <ref> --json
-onlava-neon-selfhost-driver diff --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --target main --json
-onlava-neon-selfhost-driver delete --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --json
+onlava internal neon-selfhost-driver capabilities --json
+onlava internal neon-selfhost-driver status --json
+onlava internal neon-selfhost-driver ensure --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --ttl 168h --json
+onlava internal neon-selfhost-driver reset --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --json
+onlava internal neon-selfhost-driver restore --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --at <ref> --json
+onlava internal neon-selfhost-driver diff --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --target main --json
+onlava internal neon-selfhost-driver delete --project onlv --parent-branch main --branch onlv/pricing-agent --branch-id br-local-example --database onlv --role cloud_admin --json
 ```
 
 Ready output should continue to look like:
@@ -435,7 +436,7 @@ Ready output should continue to look like:
 
 Primary CLI surfaces:
 
-- `onlava system toolchain list|sync|verify|path [--json] [--tool neon-selfhost-driver]`
+- `onlava system toolchain list|sync|verify [--json] [--tool neon-selfhost] [--images]`
 - `onlava system toolchain sync --tool neon-selfhost --images --json`
 - `onlava db neon install|start|status|logs|stop|restart|uninstall [--json]`
 - `onlava db branch checkout|status|list|reset|restore|diff|delete|expire|prune`
@@ -465,7 +466,7 @@ External runtime dependencies:
 
 - Docker with Compose support for the local dev cell.
 - Managed Docker images for Neon, Neon compute node, MinIO, and MinIO client as declared in `onlava.toolchain.json`.
-- A managed or source-built `onlava-neon-selfhost-driver` binary.
+- The built-in `onlava internal neon-selfhost-driver` command.
 - `pg_dump` availability for schema diff, either from the compute image, managed toolchain, or a documented host dependency selected during implementation.
 
 The hard dependency risk is Neon lifecycle semantics, not CLI parsing. Treat

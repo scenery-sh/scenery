@@ -158,7 +158,11 @@ func (s *Store) Sync(ctx context.Context, opts Options) (Status, error) {
 	if opts.Platform.String() == "" {
 		opts.Platform = s.Platform
 	}
-	for _, artifact := range s.selectedArtifacts(opts.Tool) {
+	selected, err := s.selectedArtifacts(opts.Tool)
+	if err != nil {
+		return Status{}, err
+	}
+	for _, artifact := range selected {
 		if artifact.Kind != "binary" {
 			continue
 		}
@@ -184,7 +188,7 @@ func (s *Store) Sync(ctx context.Context, opts Options) (Status, error) {
 		}
 	}
 	if opts.Images {
-		for _, artifact := range s.selectedArtifacts(opts.Tool) {
+		for _, artifact := range selected {
 			if err := s.syncImages(ctx, artifact.Images); err != nil {
 				return Status{}, err
 			}
@@ -226,7 +230,11 @@ func (s *Store) status(ctx context.Context, opts Options, verify bool) (Status, 
 	for _, lock := range s.Manifest.SourceLocks {
 		status.SourceLocks = append(status.SourceLocks, sourceLockStatus(root, lock))
 	}
-	for _, artifact := range s.selectedArtifacts(opts.Tool) {
+	selected, err := s.selectedArtifacts(opts.Tool)
+	if err != nil {
+		return Status{}, err
+	}
+	for _, artifact := range selected {
 		item := s.artifactStatus(artifact, opts.Platform, verify)
 		if opts.Images || artifact.Kind == "image" {
 			item.Images = s.imageStatuses(ctx, artifact.Images, opts.Strict, opts.Images || artifact.Kind == "image")
@@ -260,14 +268,14 @@ func sourceLockStatus(root string, lock SourceLock) SourceLockStatus {
 	return status
 }
 
-func (s *Store) selectedArtifacts(tool string) []Artifact {
+func (s *Store) selectedArtifacts(tool string) ([]Artifact, error) {
 	if tool == "" {
-		return s.Manifest.Artifacts
+		return s.Manifest.Artifacts, nil
 	}
 	if artifact, ok := s.Manifest.Artifact(tool); ok {
-		return []Artifact{artifact}
+		return []Artifact{artifact}, nil
 	}
-	return nil
+	return nil, fmt.Errorf("unknown toolchain artifact %q", tool)
 }
 
 func (s *Store) artifactStatus(artifact Artifact, platform Platform, verify bool) ArtifactStatus {

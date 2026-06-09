@@ -363,6 +363,8 @@ func TestDBBranchCheckoutReportsPendingWhenDevCellInstalled(t *testing.T) {
 	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
 		t.Fatalf("install returned error: %v", err)
 	}
+	forceNeonCellPortsForTest(t, closedLoopbackPortForTest(t))
+	forceNeonBackendBranchPortForTest(t, "branchapp", "feature/pending", closedLoopbackPortForTest(t))
 
 	var out bytes.Buffer
 	if err := runDBBranchCommand(t.Context(), &out, []string{"checkout", "feature/pending", "--app-root", root, "--json"}); err != nil {
@@ -437,9 +439,9 @@ exit 1
 
 	status := neonSelfhostPendingBranchStatus(t.Context())
 	if status.Status != "pending" ||
-		!strings.Contains(status.Message, "no Neon branch driver is configured") ||
-		!strings.Contains(status.Message, neonSelfhostBranchDriverEnv) ||
-		strings.Contains(status.Message, "not implemented") {
+		!strings.Contains(status.Message, "built-in branch driver") ||
+		strings.Contains(status.Message, "not implemented") ||
+		strings.Contains(status.Message, "no Neon branch driver is configured") {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -620,7 +622,7 @@ printf '{"status":"ready","message":"local driver should not be selected","endpo
 	state := defaultNeonCellState(neonRoot, "installed")
 	state.Driver = &neonCellDriver{
 		Kind:    "toolchain",
-		Tool:    neonSelfhostDriverToolchainArtifact,
+		Tool:    neonSelfhostDriverTool,
 		Path:    cellDriver,
 		Version: "dev",
 		Status:  "installed",
