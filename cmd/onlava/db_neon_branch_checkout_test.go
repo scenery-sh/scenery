@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -356,6 +357,7 @@ func TestDBBranchStatusProtectsReadyParentBranch(t *testing.T) {
 
 func TestDBBranchCheckoutReportsPendingWhenDevCellInstalled(t *testing.T) {
 	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	useMissingNeonDocker(t)
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".onlava.json", `{"name":"branchapp","dev":{"services":{"postgres":{"kind":"neon","mode":"self-hosted","isolation":"branch","project":"branchapp"}}}}`)
 	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
@@ -370,8 +372,75 @@ func TestDBBranchCheckoutReportsPendingWhenDevCellInstalled(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decode checkout JSON: %v\n%s", err, out.String())
 	}
-	if payload.BackendStatus != "pending" || !strings.Contains(payload.BackendMessage, "Neon dev-cell is") {
+	if payload.BackendStatus != "pending" ||
+		!strings.Contains(payload.BackendMessage, "Neon dev-cell is installed") ||
+		strings.Contains(payload.BackendMessage, "not implemented") {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestNeonSelfhostPendingBranchStatusReportsMissingDriverWhenCellReady(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ONLAVA_AGENT_HOME", home)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeDocker := filepath.Join(bin, "docker")
+	if err := os.WriteFile(fakeDocker, []byte(`#!/bin/sh
+if [ "$1" = "version" ]; then
+  echo "29.0.0"
+  exit 0
+fi
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
+  echo "[]"
+  exit 0
+fi
+if [ "$1" = "ps" ]; then
+  printf 'onlava-neon-minio\tUp 2 minutes (health: healthy)\n'
+  printf 'onlava-neon-bucket-init\tExited (0) 1 minute ago\n'
+  printf 'onlava-neon-pageserver\tUp 2 minutes\n'
+  printf 'onlava-neon-safekeeper-1\tUp 2 minutes\n'
+  printf 'onlava-neon-safekeeper-2\tUp 2 minutes\n'
+  printf 'onlava-neon-safekeeper-3\tUp 2 minutes\n'
+  printf 'onlava-neon-storage-broker\tUp 2 minutes\n'
+  exit 0
+fi
+echo "unexpected docker $*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("install returned error: %v", err)
+	}
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	state, ok, err := readNeonCellState(root)
+	if err != nil || !ok {
+		t.Fatalf("read state ok=%v err=%v", ok, err)
+	}
+	for key := range state.Ports {
+		state.Ports[key] = port
+	}
+	if err := writeNeonCellState(state); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	status := neonSelfhostPendingBranchStatus(t.Context())
+	if status.Status != "pending" ||
+		!strings.Contains(status.Message, "no Neon branch driver is configured") ||
+		!strings.Contains(status.Message, neonSelfhostBranchDriverEnv) ||
+		strings.Contains(status.Message, "not implemented") {
+		t.Fatalf("status = %+v", status)
 	}
 }
 

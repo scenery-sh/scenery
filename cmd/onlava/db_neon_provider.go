@@ -107,7 +107,7 @@ func neonSelfhostPendingBranchStatus(ctx context.Context) neonBranchBackendStatu
 	case "ready":
 		return neonBranchBackendStatus{
 			Status:  "pending",
-			Message: "Neon dev-cell is ready, but backend branch creation is not implemented yet.",
+			Message: fmt.Sprintf("Neon dev-cell is ready, but no Neon branch driver is configured; set %s for neon-selfhost or %s for the local fallback.", neonSelfhostBranchDriverEnv, localPostgresBranchDriverEnv),
 		}
 	default:
 		return neonBranchBackendStatus{

@@ -29,7 +29,7 @@ func TestRunCapabilitiesJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode capabilities: %v\n%s", err, stdout.String())
 	}
-	if payload.SchemaVersion != CapabilitiesSchemaVersion || payload.Provider != "neon-selfhost" || payload.Driver != "neon-selfhost-driver" {
+	if payload.SchemaVersion != CapabilitiesSchemaVersion || payload.Provider != "neon-selfhost" || payload.Driver != "neon-selfhost-driver" || payload.Status != "ready" {
 		t.Fatalf("unexpected capabilities payload: %+v", payload)
 	}
 	if len(payload.Actions) != 7 || payload.Actions[0] != "capabilities" || payload.Actions[1] != "status" || payload.Actions[2] != "ensure" {
@@ -54,7 +54,7 @@ func TestRunStatusJSONReportsBackendSummary(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode status: %v\n%s", err, stdout.String())
 	}
-	if payload.Root != root || payload.Backend == nil {
+	if payload.Status != "ready" || payload.Root != root || payload.Backend == nil {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
@@ -64,14 +64,22 @@ func TestRunStatusText(t *testing.T) {
 	if err := Run(&stdout, &stderr, []string{"status"}); err != nil {
 		t.Fatalf("Run status returned error: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "neon-selfhost-driver partial") {
+	if !strings.Contains(stdout.String(), "neon-selfhost-driver ready") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
 
 func TestRunEnsureReturnsPendingWhenRecordedComputeIsUnreachable(t *testing.T) {
+	root := t.TempDir()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	closedPort := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	writeCellStateForTest(t, root, closedPort)
 	var stdout, stderr bytes.Buffer
-	err := Run(&stdout, &stderr, []string{
+	err = Run(&stdout, &stderr, []string{
 		"ensure",
 		"--project", "onlv",
 		"--parent-branch", "main",
@@ -79,7 +87,7 @@ func TestRunEnsureReturnsPendingWhenRecordedComputeIsUnreachable(t *testing.T) {
 		"--branch-id", "br-local-test",
 		"--database", "onlv",
 		"--role", "cloud_admin",
-		"--root", t.TempDir(),
+		"--root", root,
 		"--json",
 	})
 	if err != nil {
@@ -280,6 +288,54 @@ func TestRunEnsureBootstrapsPageserverTenantAndTimelines(t *testing.T) {
 	}
 }
 
+func TestRunEnsureBranchesFromReadyRecordedParentTimeline(t *testing.T) {
+	root := t.TempDir()
+	server, port, seen := startFakePageserver(t)
+	defer server.Close()
+	writeCellStateForTest(t, root, port)
+	writeComputeTemplatesForTest(t, root)
+	t.Setenv("PATH", t.TempDir())
+	parentTimelineID := "11111111111111111111111111111111"
+	state := NewBackendState("tenant-test", 16)
+	state.Branches["br-local-main"] = BackendBranch{
+		Project:    "onlv",
+		Branch:     "onlvnext-o5o2/main",
+		TimelineID: parentTimelineID,
+		EndpointID: "onlvnext-o5o2-main",
+		Status:     "ready",
+	}
+	if err := WriteBackendState(filepath.Join(root, "backend.json"), state); err != nil {
+		t.Fatalf("write backend: %v", err)
+	}
+
+	err := Run(&bytes.Buffer{}, &bytes.Buffer{}, []string{
+		"ensure",
+		"--project", "onlv",
+		"--parent-branch", "main",
+		"--branch", "feature/x",
+		"--branch-id", "br-local-feature",
+		"--database", "onlv",
+		"--role", "cloud_admin",
+		"--root", root,
+		"--json",
+	})
+	if err != nil {
+		t.Fatalf("Run ensure returned error: %v", err)
+	}
+	state, ok, err := ReadBackendState(filepath.Join(root, "backend.json"))
+	if err != nil || !ok {
+		t.Fatalf("read backend ok=%v err=%v", ok, err)
+	}
+	branch := state.Branches["br-local-feature"]
+	if branch.ParentTimelineID != parentTimelineID {
+		t.Fatalf("parent timeline = %q, want %q", branch.ParentTimelineID, parentTimelineID)
+	}
+	requests := strings.Join(seen(), "\n")
+	if !strings.Contains(requests, `"ancestor_timeline_id":"`+parentTimelineID+`"`) {
+		t.Fatalf("requests missing parent ancestor timeline:\n%s", requests)
+	}
+}
+
 func TestRunEnsureStartsBranchComputeContainer(t *testing.T) {
 	root := t.TempDir()
 	server, port, _ := startFakePageserver(t)
@@ -349,6 +405,11 @@ exit 1
 	}
 	if !strings.Contains(log, "-e TENANT_ID=") || !strings.Contains(log, "-e TIMELINE_ID=") {
 		t.Fatalf("docker log missing tenant/timeline env: %q", log)
+	}
+	if !strings.Contains(log, "--add-host host.docker.internal:host-gateway") ||
+		!strings.Contains(log, "-e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://host.docker.internal:10428/insert/opentelemetry/v1/traces") ||
+		!strings.Contains(log, "-e OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf") {
+		t.Fatalf("docker log missing Victoria OTLP env: %q", log)
 	}
 }
 
@@ -644,6 +705,71 @@ func TestRunResetAndRestoreRewritePendingBackendTimeline(t *testing.T) {
 	}
 	if resetOut.Len() == 0 {
 		t.Fatal("reset wrote no output")
+	}
+}
+
+func TestRunResetBranchesFromReadyRecordedParentTimeline(t *testing.T) {
+	root := t.TempDir()
+	server, port, seen := startFakePageserver(t)
+	defer server.Close()
+	writeCellStateForTest(t, root, port)
+	writeComputeTemplatesForTest(t, root)
+	t.Setenv("PATH", t.TempDir())
+	parentTimelineID := "22222222222222222222222222222222"
+	oldParentTimelineID := "33333333333333333333333333333333"
+	state := NewBackendState("tenant-test", 16)
+	state.Branches["br-local-main"] = BackendBranch{
+		Project:    "onlv",
+		Branch:     "onlvnext-o5o2/main",
+		TimelineID: parentTimelineID,
+		EndpointID: "onlvnext-o5o2-main",
+		Status:     "ready",
+	}
+	state.Branches["br-local-feature"] = BackendBranch{
+		Project:          "onlv",
+		Branch:           "feature/x",
+		TimelineID:       "44444444444444444444444444444444",
+		ParentTimelineID: oldParentTimelineID,
+		EndpointID:       "feature-x",
+		ComputeContainer: "onlava-neon-compute-feature-x",
+		Host:             "127.0.0.1",
+		Port:             55441,
+		Database:         "onlv",
+		Role:             "cloud_admin",
+		Status:           "starting",
+	}
+	if err := WriteBackendState(filepath.Join(root, "backend.json"), state); err != nil {
+		t.Fatalf("write backend: %v", err)
+	}
+
+	err := Run(&bytes.Buffer{}, &bytes.Buffer{}, []string{
+		"reset",
+		"--project", "onlv",
+		"--parent-branch", "main",
+		"--branch", "feature/x",
+		"--branch-id", "br-local-feature",
+		"--database", "onlv",
+		"--role", "cloud_admin",
+		"--root", root,
+		"--json",
+	})
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	state, _, err = ReadBackendState(filepath.Join(root, "backend.json"))
+	if err != nil {
+		t.Fatalf("read reset backend: %v", err)
+	}
+	branch := state.Branches["br-local-feature"]
+	if branch.ParentTimelineID != parentTimelineID {
+		t.Fatalf("parent timeline = %q, want %q", branch.ParentTimelineID, parentTimelineID)
+	}
+	requests := strings.Join(seen(), "\n")
+	if !strings.Contains(requests, `"new_timeline_id":"`+branch.TimelineID+`"`) || !strings.Contains(requests, `"ancestor_timeline_id":"`+parentTimelineID+`"`) {
+		t.Fatalf("requests missing reset branch from parent timeline:\n%s", requests)
+	}
+	if strings.Contains(requests, `"ancestor_timeline_id":"`+oldParentTimelineID+`"`) {
+		t.Fatalf("reset branched from stale parent timeline:\n%s", requests)
 	}
 }
 

@@ -30,6 +30,7 @@ func TestParseDBNeonArgs(t *testing.T) {
 func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
+	useMissingNeonDocker(t)
 
 	var out bytes.Buffer
 	if err := runDBNeonCommand(t.Context(), &out, []string{"install", "--json"}); err != nil {
@@ -62,6 +63,9 @@ func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	}
 	if !strings.Contains(payload.Message, "onlava db neon start") {
 		t.Fatalf("message = %q", payload.Message)
+	}
+	if strings.Contains(payload.Message, "pending implementation") {
+		t.Fatalf("stale implementation message = %q", payload.Message)
 	}
 	compose, err := os.ReadFile(filepath.Join(root, "compose.generated.yml"))
 	if err != nil {
@@ -128,13 +132,6 @@ exit 1
 func TestDBNeonUninstallFallsBackWhenComposeMissing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
-	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
-		t.Fatalf("install returned error: %v", err)
-	}
-	root := filepath.Join(home, "agent", "substrates", "neon")
-	if err := os.Remove(filepath.Join(root, "compose.generated.yml")); err != nil {
-		t.Fatalf("remove compose: %v", err)
-	}
 
 	logPath := filepath.Join(t.TempDir(), "docker.log")
 	fakeDocker := filepath.Join(t.TempDir(), "docker")
@@ -155,6 +152,14 @@ exit 1
 	t.Setenv("DOCKER_LOG", logPath)
 	useFakeNeonDocker(t, fakeDocker)
 
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("install returned error: %v", err)
+	}
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	if err := os.Remove(filepath.Join(root, "compose.generated.yml")); err != nil {
+		t.Fatalf("remove compose: %v", err)
+	}
+
 	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"uninstall", "--destroy-data", "--json"}); err != nil {
 		t.Fatalf("uninstall returned error: %v", err)
 	}
@@ -170,9 +175,6 @@ exit 1
 func TestDBNeonUninstallRemovesDriverComputeAfterComposeDown(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
-	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
-		t.Fatalf("install returned error: %v", err)
-	}
 
 	logPath := filepath.Join(t.TempDir(), "docker.log")
 	fakeDocker := filepath.Join(t.TempDir(), "docker")
@@ -195,6 +197,10 @@ exit 1
 	}
 	t.Setenv("DOCKER_LOG", logPath)
 	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("install returned error: %v", err)
+	}
 
 	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"uninstall", "--destroy-data", "--json"}); err != nil {
 		t.Fatalf("uninstall returned error: %v", err)
@@ -248,10 +254,6 @@ func TestDBNeonStatusProbesDockerHealth(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
 
-	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
-		t.Fatalf("runDBNeonCommand install returned error: %v", err)
-	}
-
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -286,6 +288,19 @@ exit 1
 		t.Fatal(err)
 	}
 	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("runDBNeonCommand install returned error: %v", err)
+	}
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	state, ok, err := readNeonCellState(root)
+	if err != nil || !ok {
+		t.Fatalf("read state ok=%v err=%v", ok, err)
+	}
+	state.Ports["minio_api"] = closedTCPPortForTest(t)
+	if err := writeNeonCellState(state); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
 
 	var out bytes.Buffer
 	if err := runDBNeonCommand(t.Context(), &out, []string{"status", "--json"}); err != nil {
@@ -334,10 +349,6 @@ exit 1
 func TestDBNeonStatusReportsOpenRunningComponentPort(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
-
-	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
-		t.Fatalf("runDBNeonCommand install returned error: %v", err)
-	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -351,16 +362,6 @@ func TestDBNeonStatusReportsOpenRunningComponentPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse listener port: %v", err)
 	}
-	root := filepath.Join(home, "agent", "substrates", "neon")
-	state, ok, err := readNeonCellState(root)
-	if err != nil || !ok {
-		t.Fatalf("read state ok=%v err=%v", ok, err)
-	}
-	state.Ports["minio_api"] = port
-	if err := writeNeonCellState(state); err != nil {
-		t.Fatalf("write state: %v", err)
-	}
-
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -385,6 +386,19 @@ exit 1
 		t.Fatal(err)
 	}
 	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("runDBNeonCommand install returned error: %v", err)
+	}
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	state, ok, err := readNeonCellState(root)
+	if err != nil || !ok {
+		t.Fatalf("read state ok=%v err=%v", ok, err)
+	}
+	state.Ports["minio_api"] = port
+	if err := writeNeonCellState(state); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
 
 	var out bytes.Buffer
 	if err := runDBNeonCommand(t.Context(), &out, []string{"status", "--json"}); err != nil {
@@ -413,10 +427,6 @@ exit 1
 func TestDBNeonStartUsesGeneratedComposeProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
-
-	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
-		t.Fatalf("runDBNeonCommand install returned error: %v", err)
-	}
 
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -453,6 +463,10 @@ exit 1
 	}
 	useFakeNeonDocker(t, fakeDocker)
 
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("runDBNeonCommand install returned error: %v", err)
+	}
+
 	var out bytes.Buffer
 	if err := runDBNeonCommand(t.Context(), &out, []string{"start", "--json"}); err != nil {
 		t.Fatalf("runDBNeonCommand start returned error: %v\n%s", err, out.String())
@@ -479,10 +493,6 @@ exit 1
 func TestDBNeonStopUsesGeneratedComposeProject(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
-
-	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
-		t.Fatalf("runDBNeonCommand install returned error: %v", err)
-	}
 
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -518,6 +528,10 @@ exit 1
 	}
 	useFakeNeonDocker(t, fakeDocker)
 
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("runDBNeonCommand install returned error: %v", err)
+	}
+
 	var out bytes.Buffer
 	if err := runDBNeonCommand(t.Context(), &out, []string{"stop", "--json"}); err != nil {
 		t.Fatalf("runDBNeonCommand stop returned error: %v\n%s", err, out.String())
@@ -544,10 +558,6 @@ exit 1
 func TestDBNeonRestartRestartsExistingOnlavaContainers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
-
-	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
-		t.Fatalf("runDBNeonCommand install returned error: %v", err)
-	}
 
 	bin := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -581,6 +591,10 @@ exit 1
 	}
 	useFakeNeonDocker(t, fakeDocker)
 
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("runDBNeonCommand install returned error: %v", err)
+	}
+
 	var out bytes.Buffer
 	if err := runDBNeonCommand(t.Context(), &out, []string{"restart", "--json"}); err != nil {
 		t.Fatalf("runDBNeonCommand restart returned error: %v\n%s", err, out.String())
@@ -611,4 +625,17 @@ func TestDockerHealthFromStatusParsesSteadyStateTokens(t *testing.T) {
 	if got := dockerHealthFromStatus("Up 2 minutes (unhealthy)"); got != "unhealthy" {
 		t.Fatalf("unhealthy status = %q", got)
 	}
+}
+
+func closedTCPPortForTest(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	return port
 }

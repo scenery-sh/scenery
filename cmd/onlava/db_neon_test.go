@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,11 @@ func useFakeNeonDocker(t *testing.T, path string) {
 		neonDockerCommand = previousDockerCommand
 		neonDockerCommandTestMu.Unlock()
 	})
+}
+
+func useMissingNeonDocker(t *testing.T) {
+	t.Helper()
+	useFakeNeonDocker(t, filepath.Join(t.TempDir(), "missing-docker"))
 }
 
 func markNeonLeaseReadyForTest(t *testing.T, pin worktreeDBPin, endpoint neonEndpoint) {

@@ -156,7 +156,7 @@ func resolveManagedPostgresPlan(cfg app.Config, session *localagent.Session, env
 		if isolation := firstNonEmpty(strings.TrimSpace(svc.Isolation), neonDefaultIsolation); isolation != neonDefaultIsolation {
 			return nil, fmt.Errorf("dev.services.%s isolation %q is not supported for Neon; use %q", name, isolation, neonDefaultIsolation)
 		}
-		return nil, fmt.Errorf("dev.services.%s kind %q is accepted by config, but Neon branch-isolated app-session startup is not implemented yet; use `onlava db neon status --json` and `onlava db branch status --json` for the current contract slice", name, svc.Kind)
+		return nil, fmt.Errorf("dev.services.%s kind %q is resolved through the Neon branch provider, not the managed Postgres planner; use `onlava db neon status --json` and `onlava db branch status --json` to inspect branch readiness", name, svc.Kind)
 	}
 	isolation := firstNonEmpty(strings.TrimSpace(svc.Isolation), devPostgresDefaultIsolation)
 	if isolation != devPostgresDefaultIsolation {

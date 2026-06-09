@@ -708,7 +708,7 @@ func buildDBNeonStatus(ctx context.Context) (dbNeonStatusResult, error) {
 		result.Message = "Neon dev-cell generated state is present, but runtime health is degraded."
 		result.RequiredAction = "Inspect generated files, Docker availability, image presence, and component log paths before starting branch-provider work."
 	default:
-		result.Message = "Neon dev-cell files are installed; runtime startup is pending implementation."
+		result.Message = "Neon dev-cell files are installed; storage runtime has not been started yet."
 		result.RequiredAction = "Run `onlava db neon start --json`; branch compute startup requires the storage cell to become reachable."
 	}
 	return result, nil

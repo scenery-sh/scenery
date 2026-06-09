@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pbrazdil/onlava/internal/app"
+	"github.com/pbrazdil/onlava/internal/neonselfhost"
 )
 
 func TestParsePSQLArgs(t *testing.T) {
@@ -73,10 +74,10 @@ func TestParseDBSnapshotArgs(t *testing.T) {
 	if opts.Action != "create" || opts.Name != "before-refactor" || opts.AppRoot != "/tmp/app" {
 		t.Fatalf("opts = %+v", opts)
 	}
-	if _, err := parseDBSnapshotArgs([]string{"create"}); err == nil || err.Error() != "missing snapshot name" {
+	if _, err := parseDBSnapshotArgs([]string{"create"}); err == nil || !strings.Contains(err.Error(), "onlava db snapshot create <name>") {
 		t.Fatalf("missing name error = %v", err)
 	}
-	if _, err := parseDBSnapshotArgs([]string{}); err == nil || err.Error() != "missing db snapshot action create|restore" {
+	if _, err := parseDBSnapshotArgs([]string{}); err == nil || !strings.Contains(err.Error(), "onlava db snapshot create <name>") || !strings.Contains(err.Error(), "onlava db snapshot restore <name>") {
 		t.Fatalf("missing action error = %v", err)
 	}
 }
@@ -121,6 +122,23 @@ func TestBuildPSQLInvocationUsesDatabaseURLFromDotEnv(t *testing.T) {
 	}
 	if !containsEnv(invocation.Env, "OTHER=two") {
 		t.Fatalf("env missing .env value: %+v", invocation.Env)
+	}
+}
+
+func TestBuildPSQLInvocationMovesPasswordToPGPassword(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".env", "DatabaseURL=postgres://cloud_admin:cloud_admin@127.0.0.1:55434/demo?sslmode=disable\n")
+	invocation, err := buildPSQLInvocation(root, []string{"PATH=" + os.Getenv("PATH"), "PGPASSWORD=stale"}, psqlOptions{})
+	if err != nil {
+		t.Fatalf("buildPSQLInvocation returned error: %v", err)
+	}
+	if invocation.Args[0] != "postgres://cloud_admin@127.0.0.1:55434/demo?sslmode=disable" {
+		t.Fatalf("dsn arg = %q", invocation.Args[0])
+	}
+	if got := envValueFromList(invocation.Env, "PGPASSWORD"); got != "cloud_admin" {
+		t.Fatalf("PGPASSWORD = %q", got)
 	}
 }
 
@@ -213,8 +231,196 @@ func TestResolveDatabaseURLForConfigUsesReadyNeonBranchConnection(t *testing.T) 
 	if err != nil {
 		t.Fatalf("resolve ready Neon URL: %v", err)
 	}
-	if got != "postgres://cloud_admin@127.0.0.1:55434/demo?sslmode=disable" {
+	if got != "postgres://cloud_admin:cloud_admin@127.0.0.1:55434/demo?sslmode=disable" {
 		t.Fatalf("database URL = %q", got)
+	}
+}
+
+func TestBuildPSQLInvocationUsesReadyNeonPasswordWithoutPrompt(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"postgres": {Kind: "neon", Mode: "self-hosted", Isolation: "branch", Project: "demo"},
+		}},
+	}
+	pin, err := buildWorktreeDBPin(root, cfg, "demo/review-a")
+	if err != nil {
+		t.Fatalf("build pin: %v", err)
+	}
+	if err := writeWorktreeDBPin(root, pin); err != nil {
+		t.Fatalf("write pin: %v", err)
+	}
+	markNeonLeaseReadyForTest(t, pin, neonEndpoint{
+		Host:     "127.0.0.1",
+		Port:     55434,
+		Database: "demo",
+		Role:     "cloud_admin",
+		SSLMode:  "disable",
+		Source:   neonSelfhostBranchDriverEndpointSource,
+	})
+	invocation, err := buildPSQLInvocationForConfig(context.Background(), root, cfg, []string{"PATH=" + os.Getenv("PATH")}, psqlOptions{UseManaged: true})
+	if err != nil {
+		t.Fatalf("buildPSQLInvocationForConfig returned error: %v", err)
+	}
+	if invocation.Args[0] != "postgres://cloud_admin@127.0.0.1:55434/demo?sslmode=disable" {
+		t.Fatalf("dsn arg = %q", invocation.Args[0])
+	}
+	if got := envValueFromList(invocation.Env, "PGPASSWORD"); got != "cloud_admin" {
+		t.Fatalf("PGPASSWORD = %q", got)
+	}
+}
+
+func TestCreateNeonSelfhostSnapshotUsesComputePgDump(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	root, pin, connection := readyNeonSnapshotTargetForTest(t)
+	path := filepath.Join(t.TempDir(), "snapshot.sql")
+	bin := t.TempDir()
+	logPath := filepath.Join(bin, "docker.log")
+	docker := filepath.Join(bin, "docker")
+	if err := os.WriteFile(docker, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = "exec" ] && [ "$5" = "pg_dump" ]; then
+  printf 'create table public.snapshot_probe(id text);\n'
+  exit 0
+fi
+echo "unexpected docker $*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_LOG", logPath)
+
+	ok, err := createNeonSelfhostSnapshot(context.Background(), dbSnapshotTarget{
+		Kind:        "neon",
+		DatabaseURL: connection.DatabaseURL,
+		NeonPin:     &pin,
+		NeonConn:    &connection,
+	}, path)
+	if err != nil || !ok {
+		t.Fatalf("createNeonSelfhostSnapshot ok=%v err=%v", ok, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	if !strings.Contains(string(data), "snapshot_probe") {
+		t.Fatalf("snapshot data = %q", string(data))
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "exec -e PGPASSWORD=cloud_admin onlava-neon-compute-review pg_dump") ||
+		!strings.Contains(log, "--no-publications --no-subscriptions") ||
+		!strings.Contains(log, "-p 55433") {
+		t.Fatalf("docker log = %q", log)
+	}
+	if root == "" {
+		t.Fatal("unused root")
+	}
+}
+
+func TestRestoreNeonSelfhostSnapshotUsesComputePSQL(t *testing.T) {
+	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	_, pin, connection := readyNeonSnapshotTargetForTest(t)
+	path := filepath.Join(t.TempDir(), "snapshot.sql")
+	if err := os.WriteFile(path, []byte("select 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	logPath := filepath.Join(bin, "docker.log")
+	stdinPath := filepath.Join(bin, "stdin.sql")
+	docker := filepath.Join(bin, "docker")
+	if err := os.WriteFile(docker, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = "exec" ] && [ "$2" = "-i" ] && [ "$6" = "psql" ]; then
+  cat > "$DOCKER_STDIN"
+  exit 0
+fi
+echo "unexpected docker $*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_LOG", logPath)
+	t.Setenv("DOCKER_STDIN", stdinPath)
+
+	ok, err := restoreNeonSelfhostSnapshot(context.Background(), dbSnapshotTarget{
+		Kind:        "neon",
+		DatabaseURL: connection.DatabaseURL,
+		NeonPin:     &pin,
+		NeonConn:    &connection,
+	}, path)
+	if err != nil || !ok {
+		t.Fatalf("restoreNeonSelfhostSnapshot ok=%v err=%v", ok, err)
+	}
+	stdin, err := os.ReadFile(stdinPath)
+	if err != nil {
+		t.Fatalf("read docker stdin: %v", err)
+	}
+	if string(stdin) != "select 1;\n" {
+		t.Fatalf("stdin = %q", string(stdin))
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "exec -i -e PGPASSWORD=cloud_admin onlava-neon-compute-review psql") || !strings.Contains(log, "-p 55433") {
+		t.Fatalf("docker log = %q", log)
+	}
+}
+
+func readyNeonSnapshotTargetForTest(t *testing.T) (string, worktreeDBPin, neonBranchConnectionInfo) {
+	t.Helper()
+	pin := worktreeDBPin{
+		SchemaVersion: dbBranchPinSchemaVersion,
+		Provider:      neonSelfhostProvider,
+		Project:       "demo",
+		ParentBranch:  "main",
+		Branch:        "review",
+		BranchID:      "br-local-review",
+		Database:      "demo",
+		Role:          "cloud_admin",
+		CreatedBy:     "onlava",
+	}
+	root := filepath.Join(os.Getenv("ONLAVA_AGENT_HOME"), "agent", "substrates", "neon")
+	state := neonselfhost.NewBackendState("tenant-test", 16)
+	state.Branches[pin.BranchID] = neonselfhost.BackendBranch{
+		Project:          pin.Project,
+		Branch:           pin.Branch,
+		TimelineID:       "11111111111111111111111111111111",
+		ComputeContainer: "onlava-neon-compute-review",
+		Host:             "127.0.0.1",
+		Port:             55441,
+		Database:         pin.Database,
+		Role:             pin.Role,
+		Status:           "ready",
+	}
+	if err := neonselfhost.WriteBackendState(filepath.Join(root, "backend.json"), state); err != nil {
+		t.Fatalf("write backend state: %v", err)
+	}
+	endpoint := neonEndpoint{
+		Host:     "127.0.0.1",
+		Port:     55441,
+		Database: "demo",
+		Role:     "cloud_admin",
+		SSLMode:  "disable",
+		Source:   neonSelfhostBranchDriverEndpointSource,
+	}
+	dsn, err := neonEndpointDatabaseURL(pin, endpoint)
+	if err != nil {
+		t.Fatalf("database URL: %v", err)
+	}
+	return root, pin, neonBranchConnectionInfo{
+		DatabaseURL:  dsn,
+		DatabaseName: "demo",
+		Endpoint:     endpoint,
 	}
 }
 

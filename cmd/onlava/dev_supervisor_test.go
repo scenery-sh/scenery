@@ -628,8 +628,8 @@ func TestManagedAppEnvUsesReadyNeonBranchLease(t *testing.T) {
 		t.Fatalf("managedAppEnv ready: %v", err)
 	}
 	for _, want := range []string{
-		appDatabaseURLEnv + "=postgres://cloud_admin@127.0.0.1:55435/demo?sslmode=disable",
-		"ONLAVA_MANAGED_DATABASE_URL=postgres://cloud_admin@127.0.0.1:55435/demo?sslmode=disable",
+		appDatabaseURLEnv + "=postgres://cloud_admin:cloud_admin@127.0.0.1:55435/demo?sslmode=disable",
+		"ONLAVA_MANAGED_DATABASE_URL=postgres://cloud_admin:cloud_admin@127.0.0.1:55435/demo?sslmode=disable",
 		"ONLAVA_MANAGED_DATABASE_NAME=demo",
 	} {
 		if !containsString(env, want) {
@@ -685,10 +685,10 @@ func TestManagedAppEnvUsesConfiguredNeonDatabaseURLEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managedAppEnv ready: %v", err)
 	}
-	if !containsString(env, "APP_DATABASE_URL=postgres://cloud_admin@127.0.0.1:55435/demo?sslmode=disable") {
+	if !containsString(env, "APP_DATABASE_URL=postgres://cloud_admin:cloud_admin@127.0.0.1:55435/demo?sslmode=disable") {
 		t.Fatalf("managed env missing configured database URL env: %+v", env)
 	}
-	if containsString(env, appDatabaseURLEnv+"=postgres://cloud_admin@127.0.0.1:55435/demo?sslmode=disable") || containsString(env, legacyDatabaseURLEnv+"=postgres://localhost/poison") {
+	if containsString(env, appDatabaseURLEnv+"=postgres://cloud_admin:cloud_admin@127.0.0.1:55435/demo?sslmode=disable") || containsString(env, legacyDatabaseURLEnv+"=postgres://localhost/poison") {
 		t.Fatalf("managed env leaked unconfigured database URL env: %+v", env)
 	}
 	appBaseEnv := s.appDatabaseAuthorityEnv([]string{
@@ -702,7 +702,7 @@ func TestManagedAppEnvUsesConfiguredNeonDatabaseURLEnv(t *testing.T) {
 		}
 	}
 	setupEnv := managedDatabaseSetupEnv(s.cfg, env)
-	if !containsString(setupEnv, appDatabaseURLEnv+"=postgres://cloud_admin@127.0.0.1:55435/demo?sslmode=disable") {
+	if !containsString(setupEnv, appDatabaseURLEnv+"=postgres://cloud_admin:cloud_admin@127.0.0.1:55435/demo?sslmode=disable") {
 		t.Fatalf("setup env missing canonical database URL: %+v", setupEnv)
 	}
 }

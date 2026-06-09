@@ -449,6 +449,7 @@ func TestDBBranchResetAndDeleteGuards(t *testing.T) {
 		t.Fatalf("diff preflight error = %v", err)
 	}
 
+	useMissingNeonDocker(t)
 	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
 		t.Fatalf("install dev-cell returned error: %v", err)
 	}

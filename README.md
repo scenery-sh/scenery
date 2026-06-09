@@ -252,6 +252,10 @@ onlava worktree list [--app-root <path>] [--json]
 onlava worktree remove <name> [--app-root <path>] [--db] [--json]
 ```
 
+For self-hosted Neon branches, `onlava db snapshot create|restore` uses
+`pg_dump` and `psql` from the branch compute container so the client tools match
+the Neon Postgres server version.
+
 See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
 
 ## Public Go Packages

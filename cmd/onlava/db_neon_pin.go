@@ -92,7 +92,7 @@ func neonEndpointDatabaseURL(pin worktreeDBPin, endpoint neonEndpoint) (string, 
 		Host:   net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port)),
 		Path:   "/" + endpoint.Database,
 	}
-	if endpoint.Source == neonSelfhostBranchDriverEndpointSource {
+	if pin.Provider == neonSelfhostProvider || endpoint.Source == neonSelfhostBranchDriverEndpointSource {
 		u.User = url.UserPassword(endpoint.Role, "cloud_admin")
 	} else {
 		u.User = url.User(endpoint.Role)

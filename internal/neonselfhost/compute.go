@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	computeImageRef     = "ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249"
-	computeDockerNet    = "onlava-neon_default"
-	computeInternalPort = 55433
+	computeImageRef                 = "ghcr.io/neondatabase/compute-node-v16@sha256:b3e151661bd2ee11eb2843c8926001966cb23969227e9673c5f42fc3fbe14249"
+	computeDockerNet                = "onlava-neon_default"
+	computeInternalPort             = 55433
+	computeOTLPTracesEndpoint       = "http://host.docker.internal:10428/insert/opentelemetry/v1/traces"
+	computeOTLPProtocol             = "http/protobuf"
+	computeHostDockerInternalTarget = "host.docker.internal:host-gateway"
 )
 
 var (
@@ -57,12 +60,15 @@ func ensureBranchCompute(ctx context.Context, root string, tenantID string, bran
 			"run", "-d",
 			"--name", container,
 			"--network", computeDockerNet,
+			"--add-host", computeHostDockerInternalTarget,
 			"--label", "onlava.substrate=neon",
 			"--label", "onlava.component=compute",
 			"--label", "onlava.branch=" + safeIdentifier(branch.Branch),
 			"-e", "PG_VERSION=16",
 			"-e", "TENANT_ID=" + strings.TrimSpace(tenantID),
 			"-e", "TIMELINE_ID=" + branch.TimelineID,
+			"-e", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=" + computeOTLPTracesEndpoint,
+			"-e", "OTEL_EXPORTER_OTLP_PROTOCOL=" + computeOTLPProtocol,
 			"-v", configPath + ":/var/db/postgres/configs/config.json:ro",
 			"-v", scriptPath + ":/shell/compute.sh:ro",
 			"-p", fmt.Sprintf("127.0.0.1:%d:%d", branch.Port, computeInternalPort),

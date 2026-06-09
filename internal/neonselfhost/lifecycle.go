@@ -40,7 +40,8 @@ func replaceBackendBranchTimeline(opts branchActionOptions, action string, resto
 	if strings.TrimSpace(previous.ComputeContainer) == "" {
 		previous = branch
 	}
-	ancestorTimelineID := branch.ParentTimelineID
+	parentTimelineID := resolveParentTimelineID(state, opts, branch)
+	ancestorTimelineID := parentTimelineID
 	if action == "restore" && looksLikeHexID(previous.TimelineID) {
 		ancestorTimelineID = previous.TimelineID
 	}
@@ -48,7 +49,6 @@ func replaceBackendBranchTimeline(opts branchActionOptions, action string, resto
 		return BranchActionResult{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	parentTimelineID := stableHexID("parent:" + firstNonEmpty(opts.Project, branch.Project, "onlava") + ":" + firstNonEmpty(opts.ParentBranch, "main"))
 	branch.TimelineID = stableHexID(action + ":" + firstNonEmpty(opts.Project, branch.Project, "onlava") + ":" + firstNonEmpty(opts.BranchID, branch.Branch) + ":" + now)
 	branch.ParentTimelineID = parentTimelineID
 	branch.Status = "pending"

@@ -88,10 +88,10 @@ func DefaultCapabilities() Capabilities {
 		Provider:      "neon-selfhost",
 		Driver:        "neon-selfhost-driver",
 		Version:       DriverVersion,
-		Status:        "partial",
+		Status:        "ready",
 		Actions:       []string{"capabilities", "status", "ensure", "reset", "restore", "delete", "diff"},
 		Capabilities:  []string{"toolchain-source-build", "backend-state", "pageserver-tenant-timeline-bootstrap", "docker-compute-startup", "postgres-readiness", "postgres-database-setup", "stateful-branch-mutations", "schema-diff", "recorded-compute-readiness"},
-		Message:       "driver command is installed; tenant/timeline bootstrap, branch compute startup, and Postgres readiness are partial",
+		Message:       "driver command is installed and supports tenant/timeline bootstrap, branch compute startup, Postgres readiness, branch mutations, and schema diff",
 	}
 }
 
@@ -101,8 +101,8 @@ func DefaultStatus() Status {
 		Provider:      "neon-selfhost",
 		Driver:        "neon-selfhost-driver",
 		Version:       DriverVersion,
-		Status:        "partial",
-		Message:       "driver command is installed; tenant/timeline bootstrap, branch compute startup, and Postgres readiness are partial",
+		Status:        "ready",
+		Message:       "driver command is installed; backend readiness is reported per branch and in the backend summary",
 	}
 }
 
@@ -117,7 +117,7 @@ func Run(stdout, stderr io.Writer, args []string) error {
 		if err != nil {
 			return err
 		}
-		return writePayload(stdout, jsonMode, DefaultCapabilities(), "neon-selfhost-driver partial: capabilities,status,ensure,reset,restore,delete,diff")
+		return writePayload(stdout, jsonMode, DefaultCapabilities(), "neon-selfhost-driver ready: capabilities,status,ensure,reset,restore,delete,diff")
 	case "status":
 		statusOpts, err := parseStatusFlags(args[1:])
 		if err != nil {
@@ -133,7 +133,7 @@ func Run(stdout, stderr io.Writer, args []string) error {
 			status.Root = root
 			status.Backend = &summary
 		}
-		return writePayload(stdout, statusOpts.JSON, status, "neon-selfhost-driver partial")
+		return writePayload(stdout, statusOpts.JSON, status, "neon-selfhost-driver "+status.Status)
 	case "ensure":
 		opts, err := parseBranchActionFlags(args[1:])
 		if err != nil {
@@ -340,7 +340,7 @@ func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {
 			}, nil
 		}
 	}
-	message := fmt.Sprintf("neon-selfhost-driver recorded pending backend state for %q; real Neon branch ensure is not implemented yet", opts.Branch)
+	message := fmt.Sprintf("neon-selfhost-driver recorded pending backend state for %q; storage cell or branch compute is not ready yet", opts.Branch)
 	pageserverReady := false
 	if ok, bootstrapMessage, err := ensurePageserverBackend(ctx, root, &state, &branch); err != nil {
 		return BranchActionResult{}, err

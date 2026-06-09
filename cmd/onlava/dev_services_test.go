@@ -59,6 +59,23 @@ func TestManagedPostgresPlanRejectsUnsupportedIsolation(t *testing.T) {
 	}
 }
 
+func TestManagedPostgresPlanRoutesNeonToBranchProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"postgres": {Kind: "neon", Mode: "self-hosted", Isolation: "branch"},
+		}},
+	}
+	_, err := resolveManagedPostgresPlan(cfg, &localagent.Session{SessionID: "session", BaseAppID: "demo"}, nil)
+	if err == nil ||
+		!strings.Contains(err.Error(), "Neon branch provider") ||
+		strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestManagedPostgresEnvExposesOnlyDatabaseURL(t *testing.T) {
 	cfg := app.Config{
 		Name: "demo",
@@ -793,7 +810,7 @@ func TestManagedElectricDatabaseURLUsesReadyNeonBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managedElectricDatabaseURL returned error: %v", err)
 	}
-	if got != "postgres://cloud_admin@127.0.0.1:55436/demo?sslmode=disable" {
+	if got != "postgres://cloud_admin:cloud_admin@127.0.0.1:55436/demo?sslmode=disable" {
 		t.Fatalf("database URL = %q", got)
 	}
 }

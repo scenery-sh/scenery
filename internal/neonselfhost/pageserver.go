@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -32,10 +33,65 @@ func ensureBackendIDs(state *BackendState, branch *BackendBranch, opts branchAct
 		state.TenantID = stableHexID("tenant:" + firstNonEmpty(opts.Project, branch.Project, "onlava"))
 	}
 	if strings.TrimSpace(branch.ParentTimelineID) == "" || !looksLikeHexID(branch.ParentTimelineID) {
-		branch.ParentTimelineID = stableHexID("parent:" + firstNonEmpty(opts.Project, branch.Project, "onlava") + ":" + firstNonEmpty(opts.ParentBranch, "main"))
+		branch.ParentTimelineID = resolveParentTimelineID(*state, opts, *branch)
 	}
 	if strings.TrimSpace(branch.TimelineID) == "" || !looksLikeHexID(branch.TimelineID) {
 		branch.TimelineID = stableHexID("timeline:" + firstNonEmpty(opts.Project, branch.Project, "onlava") + ":" + firstNonEmpty(opts.BranchID, branch.Branch))
+	}
+}
+
+func resolveParentTimelineID(state BackendState, opts branchActionOptions, branch BackendBranch) string {
+	parentBranch := firstNonEmpty(opts.ParentBranch, "main")
+	project := firstNonEmpty(opts.Project, branch.Project, "onlava")
+	if parent, ok := findReadyParentBackendBranch(state, opts.BranchID, project, parentBranch); ok {
+		return parent.TimelineID
+	}
+	return stableParentTimelineID(project, parentBranch)
+}
+
+func stableParentTimelineID(project, parentBranch string) string {
+	return stableHexID("parent:" + firstNonEmpty(project, "onlava") + ":" + firstNonEmpty(parentBranch, "main"))
+}
+
+func findReadyParentBackendBranch(state BackendState, currentBranchID, project, parentBranch string) (BackendBranch, bool) {
+	keys := make([]string, 0, len(state.Branches))
+	for id := range state.Branches {
+		keys = append(keys, id)
+	}
+	sort.Strings(keys)
+	for priority := 0; priority < 3; priority++ {
+		for _, id := range keys {
+			if id == currentBranchID {
+				continue
+			}
+			branch := state.Branches[id]
+			if !candidateParentBranchMatches(branch, project, parentBranch, priority) {
+				continue
+			}
+			if branch.Status != "ready" || !looksLikeHexID(branch.TimelineID) {
+				continue
+			}
+			return branch, true
+		}
+	}
+	return BackendBranch{}, false
+}
+
+func candidateParentBranchMatches(branch BackendBranch, project, parentBranch string, priority int) bool {
+	if branch.Project != "" && project != "" && branch.Project != project {
+		return false
+	}
+	branchName := strings.TrimSpace(branch.Branch)
+	endpointID := strings.TrimSpace(branch.EndpointID)
+	parentBranch = strings.TrimSpace(parentBranch)
+	parentID := safeIdentifier(parentBranch)
+	switch priority {
+	case 0:
+		return branchName == parentBranch
+	case 1:
+		return endpointID == parentID
+	default:
+		return strings.HasSuffix(branchName, "/"+parentBranch) || strings.HasSuffix(endpointID, "-"+parentID)
 	}
 }
 

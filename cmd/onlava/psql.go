@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/envpolicy"
 	inspectdata "github.com/pbrazdil/onlava/internal/inspect"
+	"github.com/pbrazdil/onlava/internal/neonselfhost"
 )
 
 type psqlOptions struct {
@@ -284,33 +286,20 @@ func dbSnapshotCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	plan, err := managedPostgresPlanForCurrentSession(ctx, appRoot, cfg, baseEnv)
+	path, err := managedPostgresSnapshotPath(appRoot, session.SessionID, opts.Name)
 	if err != nil {
 		return err
 	}
-	if plan == nil {
-		return fmt.Errorf("dev.services.postgres is not configured")
-	}
-	path, err := managedPostgresSnapshotPath(appRoot, session.SessionID, opts.Name)
+	target, err := resolveDBSnapshotTarget(ctx, appRoot, cfg, baseEnv, session)
 	if err != nil {
 		return err
 	}
 	switch opts.Action {
 	case "create":
-		if err := ensureManagedPostgresDatabase(ctx, plan.AdminURL, plan.DatabaseName); err != nil {
-			return err
-		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		program, err := exec.LookPath("pg_dump")
-		if err != nil {
-			return fmt.Errorf("pg_dump not found in PATH")
-		}
-		cmd := exec.Command(program, "--file", path, plan.DatabaseURL)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := createDBSnapshot(ctx, target, path); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stdout, "created onlava database snapshot %s at %s\n", opts.Name, path)
@@ -319,17 +308,7 @@ func dbSnapshotCommand(args []string) error {
 		if _, err := os.Stat(path); err != nil {
 			return err
 		}
-		if err := resetManagedPostgresDatabase(ctx, plan.AdminURL, plan.DatabaseName); err != nil {
-			return err
-		}
-		program, err := exec.LookPath("psql")
-		if err != nil {
-			return fmt.Errorf("psql not found in PATH")
-		}
-		cmd := exec.Command(program, plan.DatabaseURL, "-v", "ON_ERROR_STOP=1", "-f", path)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := restoreDBSnapshot(ctx, appRoot, cfg, target, path); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stdout, "restored onlava database snapshot %s from %s\n", opts.Name, path)
@@ -337,6 +316,213 @@ func dbSnapshotCommand(args []string) error {
 	default:
 		return fmt.Errorf("unknown db snapshot action %q", opts.Action)
 	}
+}
+
+type dbSnapshotTarget struct {
+	Kind        string
+	DatabaseURL string
+	Env         []string
+	Plan        *managedPostgresPlan
+	NeonPin     *worktreeDBPin
+	NeonConn    *neonBranchConnectionInfo
+}
+
+func resolveDBSnapshotTarget(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string, session *localagent.Session) (dbSnapshotTarget, error) {
+	if name, svc, ok := managedPostgresDeclared(cfg); ok {
+		if managedPostgresUsesExternalDatabase(baseEnv) {
+			dsn, err := externalPostgresDatabaseURL(baseEnv)
+			if err != nil {
+				return dbSnapshotTarget{}, err
+			}
+			return dbSnapshotTarget{Kind: "postgres", DatabaseURL: dsn, Env: baseEnv}, nil
+		}
+		if strings.TrimSpace(svc.Kind) == "neon" {
+			var pin worktreeDBPin
+			var connection neonBranchConnectionInfo
+			var err error
+			if firstNonEmpty(strings.TrimSpace(svc.BranchPolicy), neonDefaultBranchPolicy) == "session" {
+				resolution, err := ensureNeonBranchPinForSession(ctx, appRoot, cfg, session)
+				if err != nil {
+					return dbSnapshotTarget{}, err
+				}
+				pin = resolution.Pin
+				connection, err = neonBranchProviderForConfig(cfg).Connection(ctx, pin)
+			} else {
+				pin, connection, err = resolveNeonBranchConnection(ctx, appRoot, cfg)
+			}
+			if err != nil {
+				return dbSnapshotTarget{}, fmt.Errorf("dev.services.%s kind %q could not resolve Neon branch connection: %w", name, svc.Kind, err)
+			}
+			return dbSnapshotTarget{Kind: "neon", DatabaseURL: connection.DatabaseURL, Env: baseEnv, NeonPin: &pin, NeonConn: &connection}, nil
+		}
+	}
+	plan, err := managedPostgresPlanForCurrentSession(ctx, appRoot, cfg, baseEnv)
+	if err != nil {
+		return dbSnapshotTarget{}, err
+	}
+	if plan == nil {
+		return dbSnapshotTarget{}, fmt.Errorf("dev.services.postgres is not configured")
+	}
+	return dbSnapshotTarget{Kind: "postgres", DatabaseURL: plan.DatabaseURL, Env: baseEnv, Plan: plan}, nil
+}
+
+func createDBSnapshot(ctx context.Context, target dbSnapshotTarget, path string) error {
+	if target.Plan != nil {
+		if err := ensureManagedPostgresDatabase(ctx, target.Plan.AdminURL, target.Plan.DatabaseName); err != nil {
+			return err
+		}
+	}
+	if target.Kind == "neon" {
+		ok, err := createNeonSelfhostSnapshot(ctx, target, path)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("Neon database snapshots require a ready self-hosted Neon compute container; run `onlava db branch status --json` and ensure the branch is ready")
+		}
+		return nil
+	}
+	return runPGDumpSnapshot(ctx, target.DatabaseURL, target.Env, path)
+}
+
+func restoreDBSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, target dbSnapshotTarget, path string) error {
+	if target.Plan != nil {
+		if err := resetManagedPostgresDatabase(ctx, target.Plan.AdminURL, target.Plan.DatabaseName); err != nil {
+			return err
+		}
+	}
+	if target.Kind == "neon" && target.NeonPin != nil {
+		if err := neonBranchProviderForConfig(cfg).ResetBranch(ctx, *target.NeonPin, dbBranchOptions{AppRoot: appRoot}); err != nil {
+			return err
+		}
+		pin, connection, err := resolveNeonBranchConnection(ctx, appRoot, cfg)
+		if err != nil {
+			return err
+		}
+		target.NeonPin = &pin
+		target.NeonConn = &connection
+		target.DatabaseURL = connection.DatabaseURL
+		ok, err := restoreNeonSelfhostSnapshot(ctx, target, path)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("Neon database snapshot restore requires a ready self-hosted Neon compute container; run `onlava db branch status --json` and ensure the branch is ready")
+		}
+		return nil
+	}
+	return runPSQLSnapshotRestore(ctx, target.DatabaseURL, target.Env, path)
+}
+
+func runPGDumpSnapshot(ctx context.Context, databaseURL string, env []string, path string) error {
+	program, err := exec.LookPath("pg_dump")
+	if err != nil {
+		return fmt.Errorf("pg_dump not found in PATH")
+	}
+	dsnArg, env := psqlDatabaseArgAndEnv(databaseURL, env)
+	cmd := exec.CommandContext(ctx, program, "--file", path, "--no-publications", "--no-subscriptions", dsnArg)
+	cmd.Env = env
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func runPSQLSnapshotRestore(ctx context.Context, databaseURL string, env []string, path string) error {
+	program, err := exec.LookPath("psql")
+	if err != nil {
+		return fmt.Errorf("psql not found in PATH")
+	}
+	dsnArg, env := psqlDatabaseArgAndEnv(databaseURL, env)
+	cmd := exec.CommandContext(ctx, program, dsnArg, "-v", "ON_ERROR_STOP=1", "-f", path)
+	cmd.Env = env
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+const neonSelfhostComputePostgresPort = "55433"
+
+func createNeonSelfhostSnapshot(ctx context.Context, target dbSnapshotTarget, path string) (bool, error) {
+	container, ok, err := neonSelfhostSnapshotContainer(target)
+	if err != nil || !ok {
+		return ok, err
+	}
+	docker, err := exec.LookPath("docker")
+	if err != nil {
+		return true, fmt.Errorf("docker not found in PATH; self-hosted Neon snapshots use pg_dump from the branch compute container")
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return true, err
+	}
+	defer file.Close()
+	cmd := exec.CommandContext(ctx, docker, append(neonSelfhostDockerExecPrefix(target.DatabaseURL, container, false), "pg_dump", "--clean", "--if-exists", "--no-publications", "--no-subscriptions", "-h", "127.0.0.1", "-p", neonSelfhostComputePostgresPort, "-U", target.NeonConn.Endpoint.Role, "-d", target.NeonConn.DatabaseName)...)
+	cmd.Stdout = file
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func restoreNeonSelfhostSnapshot(ctx context.Context, target dbSnapshotTarget, path string) (bool, error) {
+	container, ok, err := neonSelfhostSnapshotContainer(target)
+	if err != nil || !ok {
+		return ok, err
+	}
+	docker, err := exec.LookPath("docker")
+	if err != nil {
+		return true, fmt.Errorf("docker not found in PATH; self-hosted Neon snapshot restore uses psql from the branch compute container")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return true, err
+	}
+	defer file.Close()
+	cmd := exec.CommandContext(ctx, docker, append(neonSelfhostDockerExecPrefix(target.DatabaseURL, container, true), "psql", "-h", "127.0.0.1", "-p", neonSelfhostComputePostgresPort, "-U", target.NeonConn.Endpoint.Role, "-d", target.NeonConn.DatabaseName, "-v", "ON_ERROR_STOP=1")...)
+	cmd.Stdin = file
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+func neonSelfhostDockerExecPrefix(databaseURL, container string, stdin bool) []string {
+	password := "cloud_admin"
+	if parsed, err := url.Parse(databaseURL); err == nil && parsed.User != nil {
+		if value, ok := parsed.User.Password(); ok && strings.TrimSpace(value) != "" {
+			password = value
+		}
+	}
+	args := []string{"exec"}
+	if stdin {
+		args = append(args, "-i")
+	}
+	return append(args, "-e", "PGPASSWORD="+password, container)
+}
+
+func neonSelfhostSnapshotContainer(target dbSnapshotTarget) (string, bool, error) {
+	if target.NeonPin == nil || target.NeonConn == nil || strings.TrimSpace(target.NeonConn.Endpoint.Host) == "" {
+		return "", false, nil
+	}
+	if target.NeonPin.Provider != neonSelfhostProvider && target.NeonConn.Endpoint.Source != neonSelfhostBranchDriverEndpointSource {
+		return "", false, nil
+	}
+	root, err := neonSubstrateRoot()
+	if err != nil {
+		return "", false, err
+	}
+	state, ok, err := neonselfhost.ReadBackendState(filepath.Join(root, "backend.json"))
+	if err != nil || !ok {
+		return "", false, err
+	}
+	branch, ok := state.Branches[target.NeonPin.BranchID]
+	if !ok || strings.TrimSpace(branch.ComputeContainer) == "" {
+		return "", false, nil
+	}
+	return strings.TrimSpace(branch.ComputeContainer), true, nil
 }
 
 type psqlInvocation struct {
@@ -381,12 +567,26 @@ func buildPSQLInvocationForConfig(ctx context.Context, appRoot string, cfg appcf
 	if err != nil {
 		return psqlInvocation{}, err
 	}
+	dsnArg, env := psqlDatabaseArgAndEnv(dsn, env)
 	return psqlInvocation{
 		Program: program,
-		Args:    append([]string{dsn}, opts.Args...),
+		Args:    append([]string{dsnArg}, opts.Args...),
 		Dir:     appRoot,
 		Env:     env,
 	}, nil
+}
+
+func psqlDatabaseArgAndEnv(dsn string, env []string) (string, []string) {
+	u, err := url.Parse(dsn)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.User == nil {
+		return dsn, env
+	}
+	password, ok := u.User.Password()
+	if !ok {
+		return dsn, env
+	}
+	u.User = url.User(u.User.Username())
+	return u.String(), overlayEnv(env, map[string]string{"PGPASSWORD": password})
 }
 
 func resolveDatabaseURLForConfig(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string, useManaged bool) (string, error) {
@@ -486,7 +686,7 @@ func parseDBSnapshotArgs(args []string) (dbSnapshotOptions, error) {
 			opts.Action = args[i]
 			i++
 			if i >= len(args) {
-				return dbSnapshotOptions{}, fmt.Errorf("missing snapshot name")
+				return dbSnapshotOptions{}, fmt.Errorf("missing snapshot name; expected: onlava db snapshot %s <name> [--app-root <path>]", opts.Action)
 			}
 			opts.Name = args[i]
 		case "--app-root":
@@ -500,10 +700,10 @@ func parseDBSnapshotArgs(args []string) (dbSnapshotOptions, error) {
 		}
 	}
 	if opts.Action == "" {
-		return dbSnapshotOptions{}, fmt.Errorf("missing db snapshot action create|restore")
+		return dbSnapshotOptions{}, fmt.Errorf("missing db snapshot action; expected: onlava db snapshot create <name> [--app-root <path>] or onlava db snapshot restore <name> [--app-root <path>]")
 	}
 	if opts.Name == "" {
-		return dbSnapshotOptions{}, fmt.Errorf("missing snapshot name")
+		return dbSnapshotOptions{}, fmt.Errorf("missing snapshot name; expected: onlava db snapshot %s <name> [--app-root <path>]", opts.Action)
 	}
 	return opts, nil
 }
