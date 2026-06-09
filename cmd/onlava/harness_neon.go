@@ -13,6 +13,7 @@ import (
 
 	localagent "github.com/pbrazdil/onlava/internal/agent"
 	"github.com/pbrazdil/onlava/internal/envpolicy"
+	"github.com/pbrazdil/onlava/internal/neonselfhost"
 )
 
 var runHarnessNeonLocalLifecycleCheckFunc = runHarnessNeonLocalLifecycleCheck
@@ -172,6 +173,35 @@ func runHarnessNeonSelfhostCheck(parent context.Context, repoRoot string) (map[s
 	}
 	check(startStatus.Driver != nil && startStatus.Driver.Kind == "builtin" && startStatus.Driver.Tool == neonSelfhostDriverTool, "install/start must resolve the built-in neon-selfhost driver")
 
+	projectRootA, projectRootB, projectStatusA, projectStatusB, projectTenantsDiffer, projectComputesDiffer, projectPortsDiffer, err := harnessNeonSelfhostProjectTenantProbe(ctx)
+	if err != nil {
+		return nil, diagnostics, err
+	}
+	defer os.RemoveAll(filepath.Dir(projectRootA))
+	check(projectStatusA.BackendStatus == "ready", "project A same-branch checkout must get a ready Neon selfhost branch")
+	check(projectStatusB.BackendStatus == "ready", "project B same-branch checkout must get a ready Neon selfhost branch")
+	check(projectTenantsDiffer, "two Neon projects with the same branch label must use different tenant IDs")
+	check(projectComputesDiffer, "two Neon projects with the same branch label must use different compute containers")
+	check(projectPortsDiffer, "two Neon projects with the same branch label must use different compute ports")
+	if err := harnessManagedPSQL(ctx, projectRootA, "-v", "ON_ERROR_STOP=1", "-c", "create table if not exists onlava_project_tenant_probe(id integer primary key)"); err != nil {
+		return nil, diagnostics, fmt.Errorf("write project-tenant probe data to project A: %w", err)
+	}
+	projectBProbe, err := harnessManagedPSQLOutput(ctx, projectRootB, "-tAc", "select to_regclass('public.onlava_project_tenant_probe') is null")
+	if err != nil {
+		return nil, diagnostics, fmt.Errorf("read project B tenant isolation probe: %w", err)
+	}
+	check(strings.TrimSpace(projectBProbe) == "t", "project B must not observe table created only in project A")
+	if projectStatusA.Pin != nil {
+		if err := runDBBranchCommand(ctx, &bytes.Buffer{}, []string{"delete", projectStatusA.Pin.Branch, "--app-root", projectRootA, "--force"}); err != nil {
+			return nil, diagnostics, fmt.Errorf("delete project A same-branch: %w", err)
+		}
+		projectStatusBAfterDelete, err := harnessNeonBranchStatus(ctx, projectRootB)
+		if err != nil {
+			return nil, diagnostics, err
+		}
+		check(projectStatusBAfterDelete.BackendStatus == "ready", "deleting project A branch must not delete project B branch")
+	}
+
 	createdA, err := harnessCreateNeonWorktree(ctx, root, "selfhost-a")
 	if err != nil {
 		return nil, diagnostics, err
@@ -276,6 +306,7 @@ func runHarnessNeonSelfhostCheck(parent context.Context, repoRoot string) (map[s
 
 	summary := map[string]any{
 		"worktrees":          2,
+		"project_tenants":    projectTenantsDiffer && projectComputesDiffer && projectPortsDiffer,
 		"dev_cell_lifecycle": true,
 		"managed_driver":     true,
 		"branches_ready":     statusA.BackendStatus == "ready" && statusB.BackendStatus == "ready",
@@ -511,6 +542,79 @@ func runHarnessNeonLocalLifecycleCheck(parent context.Context) (map[string]any, 
 		return summary, diagnostics, fmt.Errorf("Neon local branch lifecycle check failed")
 	}
 	return summary, diagnostics, nil
+}
+
+func harnessNeonSelfhostProjectTenantProbe(ctx context.Context) (string, string, dbBranchStatusResult, dbBranchStatusResult, bool, bool, bool, error) {
+	rootBase := filepath.Join(os.TempDir(), "onlava-harness-neon-project-tenants-"+harnessRandomLabel())
+	projectRootA := filepath.Join(rootBase, "project-a")
+	projectRootB := filepath.Join(rootBase, "project-b")
+	for _, spec := range []struct {
+		root     string
+		name     string
+		id       string
+		project  string
+		database string
+	}{
+		{root: projectRootA, name: "neon-selfhost-project-a", id: "neon-selfhost-project-a", project: "neon-selfhost-project-a", database: "project_a"},
+		{root: projectRootB, name: "neon-selfhost-project-b", id: "neon-selfhost-project-b", project: "neon-selfhost-project-b", database: "project_b"},
+	} {
+		if err := os.MkdirAll(spec.root, 0o755); err != nil {
+			return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, err
+		}
+		config := fmt.Sprintf(`{
+			"name": %q,
+			"id": %q,
+			"dev": {
+				"services": {
+					"postgres": {
+						"kind": "neon",
+						"mode": "self-hosted",
+						"isolation": "branch",
+						"project": %q,
+						"database": %q,
+						"branch_policy": "manual"
+					}
+				}
+			}
+		}`, spec.name, spec.id, spec.project, spec.database)
+		if err := os.WriteFile(filepath.Join(spec.root, ".onlava.json"), []byte(config), 0o644); err != nil {
+			return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, err
+		}
+	}
+	if err := runDBBranchCommand(ctx, &bytes.Buffer{}, []string{"checkout", "same-branch", "--app-root", projectRootA, "--json"}); err != nil {
+		return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, fmt.Errorf("checkout project A same-branch: %w", err)
+	}
+	if err := runDBBranchCommand(ctx, &bytes.Buffer{}, []string{"checkout", "same-branch", "--app-root", projectRootB, "--json"}); err != nil {
+		return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, fmt.Errorf("checkout project B same-branch: %w", err)
+	}
+	statusA, err := harnessNeonBranchStatus(ctx, projectRootA)
+	if err != nil {
+		return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, err
+	}
+	statusB, err := harnessNeonBranchStatus(ctx, projectRootB)
+	if err != nil {
+		return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, err
+	}
+	root, err := neonSubstrateRoot()
+	if err != nil {
+		return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, err
+	}
+	state, ok, err := neonselfhost.ReadBackendState(filepath.Join(root, "backend.json"))
+	if err != nil {
+		return "", "", dbBranchStatusResult{}, dbBranchStatusResult{}, false, false, false, err
+	}
+	if !ok || statusA.Pin == nil || statusB.Pin == nil {
+		return projectRootA, projectRootB, statusA, statusB, false, false, false, nil
+	}
+	projectA := state.Projects[statusA.Pin.Project]
+	projectB := state.Projects[statusB.Pin.Project]
+	branchA := projectA.Branches[statusA.Pin.BranchID]
+	branchB := projectB.Branches[statusB.Pin.BranchID]
+	return projectRootA, projectRootB, statusA, statusB,
+		projectA.TenantID != "" && projectB.TenantID != "" && projectA.TenantID != projectB.TenantID,
+		branchA.ComputeContainer != "" && branchB.ComputeContainer != "" && branchA.ComputeContainer != branchB.ComputeContainer,
+		branchA.Port > 0 && branchB.Port > 0 && branchA.Port != branchB.Port,
+		nil
 }
 
 func harnessCreateNeonWorktree(ctx context.Context, appRoot, name string) (worktreeCreateResult, error) {

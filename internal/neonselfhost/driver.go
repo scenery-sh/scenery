@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,11 +15,12 @@ import (
 )
 
 const (
-	CapabilitiesSchemaVersion = "onlava.db.neon.driver.capabilities.v1"
-	StatusSchemaVersion       = "onlava.db.neon.driver.status.v1"
-	BackendSchemaVersion      = "onlava.db.neon.selfhost.backend.v1"
-	DriverVersion             = "dev"
-	DriverRootEnv             = "ONLAVA_NEON_SELFHOST_ROOT"
+	CapabilitiesSchemaVersion  = "onlava.db.neon.driver.capabilities.v1"
+	StatusSchemaVersion        = "onlava.db.neon.driver.status.v1"
+	BackendSchemaVersion       = "onlava.db.neon.selfhost.backend.v2"
+	LegacyBackendSchemaVersion = "onlava.db.neon.selfhost.backend.v1"
+	DriverVersion              = "dev"
+	DriverRootEnv              = "ONLAVA_NEON_SELFHOST_ROOT"
 )
 
 type Capabilities struct {
@@ -74,12 +76,21 @@ type branchActionOptions struct {
 }
 
 type backendStatusSummary struct {
-	SchemaVersion string `json:"schema_version"`
-	Present       bool   `json:"present"`
-	TenantID      string `json:"tenant_id,omitempty"`
-	BranchCount   int    `json:"branch_count"`
-	ComputeCount  int    `json:"compute_count"`
-	Message       string `json:"message,omitempty"`
+	SchemaVersion string                 `json:"schema_version"`
+	Present       bool                   `json:"present"`
+	ProjectCount  int                    `json:"project_count,omitempty"`
+	BranchCount   int                    `json:"branch_count"`
+	ComputeCount  int                    `json:"compute_count"`
+	Projects      []backendProjectStatus `json:"projects,omitempty"`
+	Message       string                 `json:"message,omitempty"`
+}
+
+type backendProjectStatus struct {
+	Project      string         `json:"project"`
+	TenantID     string         `json:"tenant_id"`
+	BranchCount  int            `json:"branch_count"`
+	ComputeCount int            `json:"compute_count"`
+	Statuses     map[string]int `json:"statuses,omitempty"`
 }
 
 func DefaultCapabilities() Capabilities {
@@ -313,10 +324,17 @@ func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {
 		return BranchActionResult{}, err
 	}
 	if !ok {
-		state = NewBackendState("", 16)
+		state = NewBackendState()
 	}
-	branch := backendBranchFromOptions(state, opts)
-	ensureBackendIDs(&state, &branch, opts)
+	project, projectName, err := backendProjectForOptions(&state, opts)
+	if err != nil {
+		return BranchActionResult{}, err
+	}
+	branch, err := backendBranchFromOptions(state, project, projectName, opts)
+	if err != nil {
+		return BranchActionResult{}, err
+	}
+	ensureBackendIDs(&project, &branch, projectName, opts)
 	branch.Status = "pending"
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -325,7 +343,8 @@ func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {
 			return BranchActionResult{}, err
 		} else if ready {
 			branch.Status = "ready"
-			state.Branches[opts.BranchID] = branch
+			project.Branches[opts.BranchID] = branch
+			state.Projects[projectName] = project
 			if err := WriteBackendState(path, state); err != nil {
 				return BranchActionResult{}, err
 			}
@@ -335,7 +354,8 @@ func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {
 				Endpoint: endpointFromBackendBranch(branch),
 			}, nil
 		} else if message != "" {
-			state.Branches[opts.BranchID] = branch
+			project.Branches[opts.BranchID] = branch
+			state.Projects[projectName] = project
 			if err := WriteBackendState(path, state); err != nil {
 				return BranchActionResult{}, err
 			}
@@ -347,7 +367,7 @@ func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {
 	}
 	message := fmt.Sprintf("neon-selfhost-driver recorded pending backend state for %q; storage cell or branch compute is not ready yet", opts.Branch)
 	pageserverReady := false
-	if ok, bootstrapMessage, err := ensurePageserverBackend(ctx, root, &state, &branch); err != nil {
+	if ok, bootstrapMessage, err := ensurePageserverBackend(ctx, root, &project, &branch); err != nil {
 		return BranchActionResult{}, err
 	} else if bootstrapMessage != "" {
 		message = bootstrapMessage
@@ -357,7 +377,7 @@ func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {
 		}
 	}
 	if pageserverReady {
-		if ok, computeMessage, err := ensureBranchCompute(ctx, root, state.TenantID, opts.BranchID, branch); err != nil {
+		if ok, computeMessage, err := ensureBranchCompute(ctx, root, project.TenantID, opts.BranchID, branch); err != nil {
 			return BranchActionResult{}, err
 		} else if computeMessage != "" {
 			message = computeMessage
@@ -368,7 +388,8 @@ func ensurePendingBranch(opts branchActionOptions) (BranchActionResult, error) {
 			}
 		}
 	}
-	state.Branches[opts.BranchID] = branch
+	project.Branches[opts.BranchID] = branch
+	state.Projects[projectName] = project
 	if err := WriteBackendState(path, state); err != nil {
 		return BranchActionResult{}, err
 	}
@@ -402,17 +423,40 @@ func inspectBackendStatus(rootOverride string) (string, backendStatusSummary, er
 		}, nil
 	}
 	computes := 0
-	for _, branch := range state.Branches {
-		if strings.TrimSpace(branch.ComputeContainer) != "" {
-			computes++
+	projects := make([]backendProjectStatus, 0, len(state.Projects))
+	projectNames := make([]string, 0, len(state.Projects))
+	for projectName := range state.Projects {
+		projectNames = append(projectNames, projectName)
+	}
+	sort.Strings(projectNames)
+	for _, projectName := range projectNames {
+		project := state.Projects[projectName]
+		projectComputes := 0
+		statuses := map[string]int{}
+		for _, branch := range project.Branches {
+			if strings.TrimSpace(branch.ComputeContainer) != "" {
+				computes++
+				projectComputes++
+			}
+			if status := strings.TrimSpace(branch.Status); status != "" {
+				statuses[status]++
+			}
 		}
+		projects = append(projects, backendProjectStatus{
+			Project:      projectName,
+			TenantID:     project.TenantID,
+			BranchCount:  len(project.Branches),
+			ComputeCount: projectComputes,
+			Statuses:     statuses,
+		})
 	}
 	return root, backendStatusSummary{
 		SchemaVersion: BackendSchemaVersion,
 		Present:       true,
-		TenantID:      state.TenantID,
-		BranchCount:   len(state.Branches),
+		ProjectCount:  len(state.Projects),
+		BranchCount:   branchCount(state),
 		ComputeCount:  computes,
+		Projects:      projects,
 	}, nil
 }
 

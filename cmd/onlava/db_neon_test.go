@@ -71,10 +71,14 @@ func forceNeonBackendBranchPortForTest(t *testing.T, project, branch string, por
 		t.Fatalf("read Neon backend state: %v", err)
 	}
 	if !ok {
-		state = neonselfhost.NewBackendState("", 16)
+		state = neonselfhost.NewBackendState()
 	}
 	branch = normalizeNeonBranchName(branch)
-	state.Branches[neonLocalBranchID(project, branch)] = neonselfhost.BackendBranch{
+	backendProject := state.Projects[project]
+	if backendProject.Branches == nil {
+		backendProject = neonselfhost.NewBackendProject(project, 16)
+	}
+	backendProject.Branches[neonLocalBranchID(project, branch)] = neonselfhost.BackendBranch{
 		Project:  project,
 		Branch:   branch,
 		Host:     "127.0.0.1",
@@ -83,6 +87,7 @@ func forceNeonBackendBranchPortForTest(t *testing.T, project, branch string, por
 		Role:     neonDefaultRole,
 		Status:   "pending",
 	}
+	state.Projects[project] = backendProject
 	if err := neonselfhost.WriteBackendState(path, state); err != nil {
 		t.Fatalf("write Neon backend state: %v", err)
 	}

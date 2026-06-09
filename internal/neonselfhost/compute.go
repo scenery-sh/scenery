@@ -66,6 +66,7 @@ func ensureBranchCompute(ctx context.Context, root string, tenantID string, bran
 			"--label", "onlava.project=" + strings.TrimSpace(branch.Project),
 			"--label", "onlava.branch_id=" + strings.TrimSpace(branchID),
 			"--label", "onlava.branch=" + strings.TrimSpace(branch.Branch),
+			"--label", "onlava.tenant_id=" + strings.TrimSpace(tenantID),
 			"-e", "PG_VERSION=16",
 			"-e", "TENANT_ID=" + strings.TrimSpace(tenantID),
 			"-e", "TIMELINE_ID=" + branch.TimelineID,

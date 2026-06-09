@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -141,13 +142,22 @@ type neonHealthCheck struct {
 }
 
 type neonBackendStatus struct {
-	SchemaVersion string         `json:"schema_version"`
-	Present       bool           `json:"present"`
-	TenantID      string         `json:"tenant_id,omitempty"`
-	BranchCount   int            `json:"branch_count"`
-	ComputeCount  int            `json:"compute_count"`
-	Statuses      map[string]int `json:"statuses,omitempty"`
-	Message       string         `json:"message,omitempty"`
+	SchemaVersion string                     `json:"schema_version"`
+	Present       bool                       `json:"present"`
+	ProjectCount  int                        `json:"project_count,omitempty"`
+	BranchCount   int                        `json:"branch_count"`
+	ComputeCount  int                        `json:"compute_count"`
+	Statuses      map[string]int             `json:"statuses,omitempty"`
+	Projects      []neonBackendProjectStatus `json:"projects,omitempty"`
+	Message       string                     `json:"message,omitempty"`
+}
+
+type neonBackendProjectStatus struct {
+	Project      string         `json:"project"`
+	TenantID     string         `json:"tenant_id"`
+	BranchCount  int            `json:"branch_count"`
+	ComputeCount int            `json:"compute_count"`
+	Statuses     map[string]int `json:"statuses,omitempty"`
 }
 
 type worktreeDBPin struct {
@@ -929,15 +939,35 @@ func buildNeonBackendStatus(root string) *neonBackendStatus {
 		return summary
 	}
 	summary.Present = true
-	summary.TenantID = state.TenantID
-	summary.BranchCount = len(state.Branches)
-	for _, branch := range state.Branches {
-		if strings.TrimSpace(branch.ComputeContainer) != "" {
-			summary.ComputeCount++
-		}
-		status := firstNonEmpty(branch.Status, "unknown")
-		summary.Statuses[status]++
+	projectNames := make([]string, 0, len(state.Projects))
+	for projectName := range state.Projects {
+		projectNames = append(projectNames, projectName)
 	}
+	sort.Strings(projectNames)
+	for _, projectName := range projectNames {
+		project := state.Projects[projectName]
+		projectSummary := neonBackendProjectStatus{
+			Project:  projectName,
+			TenantID: project.TenantID,
+			Statuses: map[string]int{},
+		}
+		for _, branch := range project.Branches {
+			summary.BranchCount++
+			projectSummary.BranchCount++
+			if strings.TrimSpace(branch.ComputeContainer) != "" {
+				summary.ComputeCount++
+				projectSummary.ComputeCount++
+			}
+			status := firstNonEmpty(branch.Status, "unknown")
+			summary.Statuses[status]++
+			projectSummary.Statuses[status]++
+		}
+		if len(projectSummary.Statuses) == 0 {
+			projectSummary.Statuses = nil
+		}
+		summary.Projects = append(summary.Projects, projectSummary)
+	}
+	summary.ProjectCount = len(summary.Projects)
 	if len(summary.Statuses) == 0 {
 		summary.Statuses = nil
 	}

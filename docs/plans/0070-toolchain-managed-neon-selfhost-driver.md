@@ -220,6 +220,11 @@ onlava-neon-compute-api-7e592dd6e9de
 
 The driver should persist backend metadata separately from Onlava leases:
 
+Current contract note: plan 0072 supersedes this original single-tenant example.
+New writes use `onlava.db.neon.selfhost.backend.v2` with
+`projects[project].tenant_id` and project-local branch maps; v1 remains a
+legacy migration input.
+
 ```json
 {
   "schema_version": "onlava.db.neon.selfhost.backend.v1",

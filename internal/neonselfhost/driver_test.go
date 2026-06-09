@@ -35,7 +35,7 @@ func TestRunCapabilitiesJSON(t *testing.T) {
 
 func TestRunStatusJSONReportsBackendSummary(t *testing.T) {
 	root := t.TempDir()
-	if err := WriteBackendState(filepath.Join(root, "backend.json"), NewBackendState("tenant-test", 16)); err != nil {
+	if err := WriteBackendState(filepath.Join(root, "backend.json"), newTestBackendState("onlv", "tenant-test", 16)); err != nil {
 		t.Fatalf("write backend: %v", err)
 	}
 
@@ -109,8 +109,8 @@ func TestRunEnsureReturnsReadyForReachableRecordedCompute(t *testing.T) {
 	}
 	defer listener.Close()
 	port := listener.Addr().(*net.TCPAddr).Port
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-test"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-test"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "feature/x",
 		TimelineID:       "timeline-feature-x",
@@ -165,8 +165,8 @@ func TestRunEnsureReturnsReadyForReachableRecordedCompute(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("read backend ok=%v err=%v", ok, err)
 	}
-	if state.Branches["br-local-test"].Status != "ready" {
-		t.Fatalf("branch = %+v", state.Branches["br-local-test"])
+	if state.Projects["onlv"].Branches["br-local-test"].Status != "ready" {
+		t.Fatalf("branch = %+v", state.Projects["onlv"].Branches["br-local-test"])
 	}
 	logBytes, err := os.ReadFile(psqlLog)
 	if err != nil {
@@ -186,8 +186,8 @@ func TestRunEnsureKeepsReachableComputePendingWithoutPSQL(t *testing.T) {
 	}
 	defer listener.Close()
 	port := listener.Addr().(*net.TCPAddr).Port
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-test"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-test"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "feature/x",
 		TimelineID:       "timeline-feature-x",
@@ -268,18 +268,18 @@ func TestRunEnsureBootstrapsPageserverTenantAndTimelines(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("read backend ok=%v err=%v", ok, err)
 	}
-	branch := state.Branches["br-local-test"]
-	if !looksLikeHexID(state.TenantID) || !looksLikeHexID(branch.ParentTimelineID) || !looksLikeHexID(branch.TimelineID) {
-		t.Fatalf("ids tenant=%q parent=%q timeline=%q", state.TenantID, branch.ParentTimelineID, branch.TimelineID)
+	branch := state.Projects["onlv"].Branches["br-local-test"]
+	if !looksLikeHexID(state.Projects["onlv"].TenantID) || !looksLikeHexID(branch.ParentTimelineID) || !looksLikeHexID(branch.TimelineID) {
+		t.Fatalf("ids tenant=%q parent=%q timeline=%q", state.Projects["onlv"].TenantID, branch.ParentTimelineID, branch.TimelineID)
 	}
 	if branch.Status != "starting" {
 		t.Fatalf("branch = %+v", branch)
 	}
 	requests := strings.Join(seen(), "\n")
-	if !strings.Contains(requests, "PUT /v1/tenant/"+state.TenantID+"/location_config") {
+	if !strings.Contains(requests, "PUT /v1/tenant/"+state.Projects["onlv"].TenantID+"/location_config") {
 		t.Fatalf("requests missing tenant create:\n%s", requests)
 	}
-	if count := strings.Count(requests, "POST /v1/tenant/"+state.TenantID+"/timeline"); count != 2 {
+	if count := strings.Count(requests, "POST /v1/tenant/"+state.Projects["onlv"].TenantID+"/timeline"); count != 2 {
 		t.Fatalf("timeline create count = %d requests:\n%s", count, requests)
 	}
 }
@@ -292,15 +292,15 @@ func TestRunEnsureBranchesFromReadyRecordedParentTimeline(t *testing.T) {
 	writeComputeTemplatesForTest(t, root)
 	t.Setenv("PATH", t.TempDir())
 	parentTimelineID := "11111111111111111111111111111111"
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-main"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-main"] = BackendBranch{
 		Project:    "onlv",
 		Branch:     "onlvnext-o5o2/main",
 		TimelineID: parentTimelineID,
 		EndpointID: "onlvnext-o5o2-main",
 		Status:     "ready",
 	}
-	state.Branches["br-local-feature"] = BackendBranch{
+	state.Projects["onlv"].Branches["br-local-feature"] = BackendBranch{
 		Project:  "onlv",
 		Branch:   "feature/x",
 		Host:     "127.0.0.1",
@@ -331,7 +331,7 @@ func TestRunEnsureBranchesFromReadyRecordedParentTimeline(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("read backend ok=%v err=%v", ok, err)
 	}
-	branch := state.Branches["br-local-feature"]
+	branch := state.Projects["onlv"].Branches["br-local-feature"]
 	if branch.ParentTimelineID != parentTimelineID {
 		t.Fatalf("parent timeline = %q, want %q", branch.ParentTimelineID, parentTimelineID)
 	}
@@ -451,7 +451,7 @@ func TestRunEnsureWritesPendingBackendBranch(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("read backend ok=%v err=%v", ok, err)
 	}
-	branch := state.Branches["br-local-test"]
+	branch := state.Projects["onlv"].Branches["br-local-test"]
 	if branch.Status != "pending" || branch.Project != "onlv" || branch.Port == 0 || branch.ComputeContainer != "onlava-neon-compute-onlv-test" {
 		t.Fatalf("branch = %+v", branch)
 	}
@@ -505,13 +505,13 @@ func TestRunEnsureSerializesBackendStateMutations(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("read backend ok=%v err=%v", ok, err)
 	}
-	if len(state.Branches) != branchCount {
-		t.Fatalf("backend branches = %d, want %d: %+v", len(state.Branches), branchCount, state.Branches)
+	if len(state.Projects["onlv"].Branches) != branchCount {
+		t.Fatalf("backend branches = %d, want %d: %+v", len(state.Projects["onlv"].Branches), branchCount, state.Projects["onlv"].Branches)
 	}
 	for i := 0; i < branchCount; i++ {
 		branchID := fmt.Sprintf("br-local-%02d", i)
-		if _, ok := state.Branches[branchID]; !ok {
-			t.Fatalf("backend state lost branch %q: %+v", branchID, state.Branches)
+		if _, ok := state.Projects["onlv"].Branches[branchID]; !ok {
+			t.Fatalf("backend state lost branch %q: %+v", branchID, state.Projects["onlv"].Branches)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(root, "backend.lock")); err != nil {

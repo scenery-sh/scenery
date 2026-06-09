@@ -28,34 +28,33 @@ type localCellState struct {
 	Ports map[string]int `json:"ports"`
 }
 
-func ensureBackendIDs(state *BackendState, branch *BackendBranch, opts branchActionOptions) {
-	if strings.TrimSpace(state.TenantID) == "" {
-		state.TenantID = stableHexID("tenant:" + firstNonEmpty(opts.Project, branch.Project, "onlava"))
+func ensureBackendIDs(project *BackendProject, branch *BackendBranch, projectName string, opts branchActionOptions) {
+	if strings.TrimSpace(project.TenantID) == "" {
+		project.TenantID = stableHexID("tenant:" + projectName)
 	}
 	if strings.TrimSpace(branch.ParentTimelineID) == "" || !looksLikeHexID(branch.ParentTimelineID) {
-		branch.ParentTimelineID = resolveParentTimelineID(*state, opts, *branch)
+		branch.ParentTimelineID = resolveParentTimelineID(*project, opts, *branch, projectName)
 	}
 	if strings.TrimSpace(branch.TimelineID) == "" || !looksLikeHexID(branch.TimelineID) {
-		branch.TimelineID = stableHexID("timeline:" + firstNonEmpty(opts.Project, branch.Project, "onlava") + ":" + firstNonEmpty(opts.BranchID, branch.Branch))
+		branch.TimelineID = stableHexID("timeline:" + projectName + ":" + firstNonEmpty(opts.BranchID, branch.Branch))
 	}
 }
 
-func resolveParentTimelineID(state BackendState, opts branchActionOptions, branch BackendBranch) string {
+func resolveParentTimelineID(project BackendProject, opts branchActionOptions, branch BackendBranch, projectName string) string {
 	parentBranch := firstNonEmpty(opts.ParentBranch, "main")
-	project := firstNonEmpty(opts.Project, branch.Project, "onlava")
-	if parent, ok := findReadyParentBackendBranch(state, opts.BranchID, project, parentBranch); ok {
+	if parent, ok := findReadyParentBackendBranch(project, opts.BranchID, projectName, parentBranch); ok {
 		return parent.TimelineID
 	}
-	return stableParentTimelineID(project, parentBranch)
+	return stableParentTimelineID(projectName, parentBranch)
 }
 
 func stableParentTimelineID(project, parentBranch string) string {
 	return stableHexID("parent:" + firstNonEmpty(project, "onlava") + ":" + firstNonEmpty(parentBranch, "main"))
 }
 
-func findReadyParentBackendBranch(state BackendState, currentBranchID, project, parentBranch string) (BackendBranch, bool) {
-	keys := make([]string, 0, len(state.Branches))
-	for id := range state.Branches {
+func findReadyParentBackendBranch(projectState BackendProject, currentBranchID, project, parentBranch string) (BackendBranch, bool) {
+	keys := make([]string, 0, len(projectState.Branches))
+	for id := range projectState.Branches {
 		keys = append(keys, id)
 	}
 	sort.Strings(keys)
@@ -64,7 +63,7 @@ func findReadyParentBackendBranch(state BackendState, currentBranchID, project, 
 			if id == currentBranchID {
 				continue
 			}
-			branch := state.Branches[id]
+			branch := projectState.Branches[id]
 			if !candidateParentBranchMatches(branch, project, parentBranch, priority) {
 				continue
 			}
@@ -95,21 +94,21 @@ func candidateParentBranchMatches(branch BackendBranch, project, parentBranch st
 	}
 }
 
-func ensurePageserverBackend(ctx context.Context, root string, state *BackendState, branch *BackendBranch) (bool, string, error) {
+func ensurePageserverBackend(ctx context.Context, root string, project *BackendProject, branch *BackendBranch) (bool, string, error) {
 	baseURL, ok, message := pageserverBaseURL(root)
 	if !ok {
 		return false, message, nil
 	}
-	if err := ensurePageserverTenant(ctx, baseURL, state.TenantID); err != nil {
+	if err := ensurePageserverTenant(ctx, baseURL, project.TenantID); err != nil {
 		return false, "", err
 	}
-	if err := ensurePageserverTimeline(ctx, baseURL, state.TenantID, branch.ParentTimelineID, "", "", state.DefaultPGVersion); err != nil {
+	if err := ensurePageserverTimeline(ctx, baseURL, project.TenantID, branch.ParentTimelineID, "", "", project.DefaultPGVersion); err != nil {
 		return false, "", fmt.Errorf("ensure parent timeline: %w", err)
 	}
-	if err := ensurePageserverTimeline(ctx, baseURL, state.TenantID, branch.TimelineID, branch.ParentTimelineID, "", state.DefaultPGVersion); err != nil {
+	if err := ensurePageserverTimeline(ctx, baseURL, project.TenantID, branch.TimelineID, branch.ParentTimelineID, "", project.DefaultPGVersion); err != nil {
 		return false, "", fmt.Errorf("ensure branch timeline: %w", err)
 	}
-	return true, fmt.Sprintf("neon-selfhost-driver ensured tenant %s and timeline %s for %q; branch compute is starting", state.TenantID, branch.TimelineID, branch.Branch), nil
+	return true, fmt.Sprintf("neon-selfhost-driver ensured tenant %s and timeline %s for %q; branch compute is starting", project.TenantID, branch.TimelineID, branch.Branch), nil
 }
 
 func pageserverBaseURL(root string) (string, bool, string) {

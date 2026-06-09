@@ -518,7 +518,11 @@ func neonSelfhostSnapshotContainer(target dbSnapshotTarget) (string, bool, error
 	if err != nil || !ok {
 		return "", false, err
 	}
-	branch, ok := state.Branches[target.NeonPin.BranchID]
+	project, ok := state.Projects[target.NeonPin.Project]
+	if !ok {
+		return "", false, nil
+	}
+	branch, ok := project.Branches[target.NeonPin.BranchID]
 	if !ok || strings.TrimSpace(branch.ComputeContainer) == "" {
 		return "", false, nil
 	}

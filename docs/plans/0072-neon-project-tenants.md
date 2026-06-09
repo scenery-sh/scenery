@@ -58,14 +58,14 @@ must all operate inside the selected project tenant.
 - [x] 2026-06-09: Created this ExecPlan as `docs/plans/0072-neon-project-tenants.md`.
 - [x] 2026-06-09: Linked this plan from `docs/plans/active.md`.
 - [x] 2026-06-09: Indexed this plan in `docs/knowledge.json`.
-- [ ] Implement backend state v2 with `projects[project].tenant_id` and project-local branch maps.
-- [ ] Add migration from the existing top-level `tenant_id` / `branches` backend state into v2.
-- [ ] Update tenant/timeline lifecycle to resolve the current project first.
-- [ ] Keep branch compute container names and Docker labels project/branch-ID-safe, and add tenant labels where useful for inspection.
-- [ ] Add project-aware branch port allocation across all projects.
-- [ ] Add focused tests for two projects using the same branch label.
-- [ ] Extend the default real Neon selfhost harness to prove tenant separation.
-- [ ] Update docs and schemas.
+- [x] Implement backend state v2 with `projects[project].tenant_id` and project-local branch maps.
+- [x] Add migration from the existing top-level `tenant_id` / `branches` backend state into v2.
+- [x] Update tenant/timeline lifecycle to resolve the current project first.
+- [x] Keep branch compute container names and Docker labels project/branch-ID-safe, and add tenant labels where useful for inspection.
+- [x] Add project-aware branch port allocation across all projects.
+- [x] Add focused tests for two projects using the same branch label.
+- [x] Extend the default real Neon selfhost harness to prove tenant separation.
+- [x] Update docs and schemas.
 
 ## Surprises & Discoveries
 
@@ -73,6 +73,8 @@ must all operate inside the selected project tenant.
 - 2026-06-09: The current backend ID derivation sets `state.TenantID` only when it is empty. Evidence: `internal/neonselfhost/pageserver.go` derives `state.TenantID` from the first project-like input when the field is blank.
 - 2026-06-09: Branch compute container identity has already been made safer than the original bug report: current code derives container names from project plus branch ID suffix and labels fresh compute containers with `onlava.project`, `onlava.branch_id`, and `onlava.branch`. This plan must preserve that work while moving the tenant and branch maps to project scope.
 - 2026-06-09: The real selfhost proof is now part of default non-quick `onlava harness self`; older opt-in `--with-neon-selfhost` references are stale and must not be reintroduced.
+- 2026-06-09: Go map values cannot be returned as mutable project pointers, so the project resolver returns a project value plus key and callers write the updated project back into `state.Projects`.
+- 2026-06-09: `onlava.db.neon.status.v1` can remain the status envelope version because the backend summary change is additive: it now accepts backend schema v2 and optional `project_count` / `projects`.
 
 ## Decision Log
 
@@ -94,20 +96,24 @@ must all operate inside the selected project tenant.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+The backend state now writes `onlava.db.neon.selfhost.backend.v2`, migrates v1
+on read, and scopes ensure/reset/restore/delete/diff to the selected project.
+Status JSON reports project summaries, compute labels include tenant IDs, and
+the default real Neon selfhost harness includes a two-project same-branch tenant
+separation proof.
 
 ## Context and Orientation
 
 Start with these files:
 
-- `internal/neonselfhost/state.go`: defines `BackendState`, `BackendBranch`, `ReadBackendState`, `WriteBackendState`, and `AllocateBranchPort`. The current state is top-level tenant plus branches.
-- `internal/neonselfhost/pageserver.go`: derives tenant/timeline IDs and calls the pageserver tenant/timeline APIs.
+- `internal/neonselfhost/state.go`: defines v2 `BackendState`, `BackendProject`, `BackendBranch`, v1 migration, `ReadBackendState`, `WriteBackendState`, and host-global `AllocateBranchPort`.
+- `internal/neonselfhost/pageserver.go`: derives project tenant/timeline IDs and calls the pageserver tenant/timeline APIs.
 - `internal/neonselfhost/lifecycle.go`: handles reset, restore, delete, diff, backend branch lookup, and branch metadata derivation.
 - `internal/neonselfhost/compute.go`: starts and inspects branch compute containers.
 - `internal/neonselfhost/postgres.go`: verifies Postgres readiness and creates the requested database.
 - `cmd/onlava/db_neon.go`: emits backend summary in `onlava db neon status --json`.
 - `cmd/onlava/db_neon_pin.go`: builds the public worktree pin and already has a stable `Project` field.
-- `cmd/onlava/harness_neon.go`: contains the real selfhost harness. It currently proves two worktrees in one project; extend it to prove two projects.
+- `cmd/onlava/harness_neon.go`: contains the real selfhost harness. It proves two worktrees in one project and two separate projects using the same branch label.
 
 Definitions:
 

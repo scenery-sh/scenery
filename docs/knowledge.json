@@ -200,6 +200,7 @@
         "docs/schemas/onlava.metrics.series.v1.schema.json",
         "docs/schemas/onlava.db.neon.driver.capabilities.v1.schema.json",
         "docs/schemas/onlava.db.neon.selfhost.backend.v1.schema.json",
+        "docs/schemas/onlava.db.neon.selfhost.backend.v2.schema.json",
         "docs/schemas/onlava.harness.ui.v1.schema.json",
         "docs/schemas/onlava.harness.ui.dom.v1.schema.json",
         "docs/schemas/onlava.inspect.validation.v1.schema.json",

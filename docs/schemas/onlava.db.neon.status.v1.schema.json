@@ -113,16 +113,41 @@
       "required": ["schema_version", "present", "branch_count", "compute_count"],
       "additionalProperties": false,
       "properties": {
-        "schema_version": { "const": "onlava.db.neon.selfhost.backend.v1" },
+        "schema_version": {
+          "enum": [
+            "onlava.db.neon.selfhost.backend.v1",
+            "onlava.db.neon.selfhost.backend.v2"
+          ]
+        },
         "present": { "type": "boolean" },
         "tenant_id": { "type": "string" },
+        "project_count": { "type": "integer", "minimum": 0 },
         "branch_count": { "type": "integer", "minimum": 0 },
         "compute_count": { "type": "integer", "minimum": 0 },
         "statuses": {
           "type": "object",
           "additionalProperties": { "type": "integer", "minimum": 0 }
         },
+        "projects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/backend_project" }
+        },
         "message": { "type": "string" }
+      }
+    },
+    "backend_project": {
+      "type": "object",
+      "required": ["project", "tenant_id", "branch_count", "compute_count"],
+      "additionalProperties": false,
+      "properties": {
+        "project": { "type": "string", "minLength": 1 },
+        "tenant_id": { "type": "string", "minLength": 1 },
+        "branch_count": { "type": "integer", "minimum": 0 },
+        "compute_count": { "type": "integer", "minimum": 0 },
+        "statuses": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
       }
     },
     "generated_file": {

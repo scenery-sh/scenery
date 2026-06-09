@@ -38,13 +38,20 @@ func replaceBackendBranchTimeline(opts branchActionOptions, action string, resto
 	if err != nil {
 		return BranchActionResult{}, err
 	}
-	branch := backendBranchFromOptions(state, opts)
-	ensureBackendIDs(&state, &branch, opts)
-	previous := state.Branches[opts.BranchID]
+	project, projectName, err := backendProjectForOptions(&state, opts)
+	if err != nil {
+		return BranchActionResult{}, err
+	}
+	branch, err := backendBranchFromOptions(state, project, projectName, opts)
+	if err != nil {
+		return BranchActionResult{}, err
+	}
+	ensureBackendIDs(&project, &branch, projectName, opts)
+	previous := project.Branches[opts.BranchID]
 	if strings.TrimSpace(previous.ComputeContainer) == "" {
 		previous = branch
 	}
-	parentTimelineID := resolveParentTimelineID(state, opts, branch)
+	parentTimelineID := resolveParentTimelineID(project, opts, branch, projectName)
 	ancestorTimelineID := parentTimelineID
 	if action == "restore" && looksLikeHexID(previous.TimelineID) {
 		ancestorTimelineID = previous.TimelineID
@@ -53,10 +60,11 @@ func replaceBackendBranchTimeline(opts branchActionOptions, action string, resto
 		return BranchActionResult{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	branch.TimelineID = stableHexID(action + ":" + firstNonEmpty(opts.Project, branch.Project, "onlava") + ":" + firstNonEmpty(opts.BranchID, branch.Branch) + ":" + now)
+	branch.TimelineID = stableHexID(action + ":" + projectName + ":" + firstNonEmpty(opts.BranchID, branch.Branch) + ":" + now)
 	branch.ParentTimelineID = parentTimelineID
 	branch.Status = "pending"
-	state.Branches[opts.BranchID] = branch
+	project.Branches[opts.BranchID] = branch
+	state.Projects[projectName] = project
 	if err := WriteBackendState(path, state); err != nil {
 		return BranchActionResult{}, err
 	}
@@ -67,38 +75,40 @@ func replaceBackendBranchTimeline(opts branchActionOptions, action string, resto
 	if !ok {
 		return BranchActionResult{Status: "pending", Message: message}, nil
 	}
-	if err := ensurePageserverTenant(ctx, baseURL, state.TenantID); err != nil {
+	if err := ensurePageserverTenant(ctx, baseURL, project.TenantID); err != nil {
 		return BranchActionResult{}, err
 	}
-	if err := ensurePageserverTimeline(ctx, baseURL, state.TenantID, branch.ParentTimelineID, "", "", state.DefaultPGVersion); err != nil {
+	if err := ensurePageserverTimeline(ctx, baseURL, project.TenantID, branch.ParentTimelineID, "", "", project.DefaultPGVersion); err != nil {
 		return BranchActionResult{}, fmt.Errorf("ensure parent timeline: %w", err)
 	}
 	if ancestorTimelineID != branch.ParentTimelineID {
-		if err := ensurePageserverTimeline(ctx, baseURL, state.TenantID, ancestorTimelineID, branch.ParentTimelineID, "", state.DefaultPGVersion); err != nil {
+		if err := ensurePageserverTimeline(ctx, baseURL, project.TenantID, ancestorTimelineID, branch.ParentTimelineID, "", project.DefaultPGVersion); err != nil {
 			return BranchActionResult{}, fmt.Errorf("ensure restore ancestor timeline: %w", err)
 		}
 	}
 	ancestorStartLSN := ""
 	if strings.TrimSpace(restoreAt) != "" {
-		lsn, err := resolveRestoreLSN(ctx, baseURL, state.TenantID, ancestorTimelineID, restoreAt)
+		lsn, err := resolveRestoreLSN(ctx, baseURL, project.TenantID, ancestorTimelineID, restoreAt)
 		if err != nil {
 			return BranchActionResult{}, err
 		}
 		ancestorStartLSN = lsn
 	}
-	if err := ensurePageserverTimeline(ctx, baseURL, state.TenantID, branch.TimelineID, ancestorTimelineID, ancestorStartLSN, state.DefaultPGVersion); err != nil {
+	if err := ensurePageserverTimeline(ctx, baseURL, project.TenantID, branch.TimelineID, ancestorTimelineID, ancestorStartLSN, project.DefaultPGVersion); err != nil {
 		return BranchActionResult{}, fmt.Errorf("%s branch timeline: %w", action, err)
 	}
 	branch.Status = "starting"
-	state.Branches[opts.BranchID] = branch
+	project.Branches[opts.BranchID] = branch
+	state.Projects[projectName] = project
 	if err := WriteBackendState(path, state); err != nil {
 		return BranchActionResult{}, err
 	}
-	if ready, computeMessage, err := ensureBranchCompute(ctx, root, state.TenantID, opts.BranchID, branch); err != nil {
+	if ready, computeMessage, err := ensureBranchCompute(ctx, root, project.TenantID, opts.BranchID, branch); err != nil {
 		return BranchActionResult{}, err
 	} else if ready {
 		branch.Status = "ready"
-		state.Branches[opts.BranchID] = branch
+		project.Branches[opts.BranchID] = branch
+		state.Projects[projectName] = project
 		if err := WriteBackendState(path, state); err != nil {
 			return BranchActionResult{}, err
 		}
@@ -110,7 +120,8 @@ func replaceBackendBranchTimeline(opts branchActionOptions, action string, resto
 	} else if computeMessage != "" {
 		message = computeMessage
 	}
-	state.Branches[opts.BranchID] = branch
+	project.Branches[opts.BranchID] = branch
+	state.Projects[projectName] = project
 	if err := WriteBackendState(path, state); err != nil {
 		return BranchActionResult{}, err
 	}
@@ -167,20 +178,25 @@ func deleteBackendBranch(opts branchActionOptions) (BranchActionResult, error) {
 	if !ok {
 		return BranchActionResult{Status: "deleted", Message: "neon-selfhost-driver backend state was already absent"}, nil
 	}
-	branch, exists := state.Branches[opts.BranchID]
+	project, projectName, err := backendProjectForOptions(&state, opts)
+	if err != nil {
+		return BranchActionResult{}, err
+	}
+	branch, exists := project.Branches[opts.BranchID]
 	if !exists {
-		return BranchActionResult{Status: "deleted", Message: fmt.Sprintf("neon-selfhost-driver backend state for %q was already absent", opts.Branch)}, nil
+		return BranchActionResult{Status: "deleted", Message: fmt.Sprintf("neon-selfhost-driver backend state for %q in project %q was already absent", opts.Branch, projectName)}, nil
 	}
 	if err := removeKnownComputeContainer(branch); err != nil {
 		return BranchActionResult{}, err
 	}
-	delete(state.Branches, opts.BranchID)
+	delete(project.Branches, opts.BranchID)
+	state.Projects[projectName] = project
 	if err := WriteBackendState(path, state); err != nil {
 		return BranchActionResult{}, err
 	}
 	return BranchActionResult{
 		Status:  "deleted",
-		Message: fmt.Sprintf("neon-selfhost-driver deleted backend state for %q", opts.Branch),
+		Message: fmt.Sprintf("neon-selfhost-driver deleted backend state for %q in project %q", opts.Branch, projectName),
 	}, nil
 }
 
@@ -200,13 +216,17 @@ func diffReadyBranches(opts branchActionOptions) (BranchActionResult, error) {
 	if !ok {
 		return BranchActionResult{}, fmt.Errorf("neon-selfhost-driver diff requires backend.json")
 	}
-	current, ok := state.Branches[opts.BranchID]
-	if !ok {
-		return BranchActionResult{}, fmt.Errorf("neon-selfhost-driver diff could not find current backend branch %q", opts.BranchID)
+	project, projectName, err := backendProjectForOptions(&state, opts)
+	if err != nil {
+		return BranchActionResult{}, err
 	}
-	targetBranch, ok := findBackendBranch(state, target)
+	current, ok := project.Branches[opts.BranchID]
 	if !ok {
-		return BranchActionResult{}, fmt.Errorf("neon-selfhost-driver diff could not find target backend branch %q", target)
+		return BranchActionResult{}, fmt.Errorf("neon-selfhost-driver diff could not find current backend branch %q in project %q", opts.BranchID, projectName)
+	}
+	targetBranch, ok := findBackendBranch(project, target)
+	if !ok {
+		return BranchActionResult{}, fmt.Errorf("neon-selfhost-driver diff could not find target backend branch %q in project %q", target, projectName)
 	}
 	if current.Status != "ready" {
 		return BranchActionResult{}, fmt.Errorf("neon-selfhost-driver diff requires current branch %q to be ready, got %q", current.Branch, firstNonEmpty(current.Status, "unknown"))
@@ -239,24 +259,27 @@ func readOrCreateBackendState(opts branchActionOptions) (BackendState, string, e
 		return BackendState{}, "", err
 	}
 	if !ok {
-		state = NewBackendState("", 16)
+		state = NewBackendState()
 	}
 	return state, path, nil
 }
 
-func backendBranchFromOptions(state BackendState, opts branchActionOptions) BackendBranch {
-	port := AllocateBranchPort(state, opts.BranchID)
-	branch := state.Branches[opts.BranchID]
-	branch.Project = strings.TrimSpace(opts.Project)
+func backendBranchFromOptions(state BackendState, project BackendProject, projectName string, opts branchActionOptions) (BackendBranch, error) {
+	port, err := AllocateBranchPort(state, projectName, opts.BranchID)
+	if err != nil {
+		return BackendBranch{}, err
+	}
+	branch := project.Branches[opts.BranchID]
+	branch.Project = projectName
 	branch.Branch = strings.TrimSpace(opts.Branch)
 	branch.ParentTimelineID = firstNonEmpty(branch.ParentTimelineID, "pending-"+safeIdentifier(firstNonEmpty(opts.ParentBranch, "main")))
 	branch.EndpointID = firstNonEmpty(branch.EndpointID, safeIdentifier(opts.Branch))
-	branch.ComputeContainer = firstNonEmpty(branch.ComputeContainer, computeContainerName(opts.Project, opts.BranchID))
+	branch.ComputeContainer = firstNonEmpty(branch.ComputeContainer, computeContainerName(projectName, opts.BranchID))
 	branch.Host = "127.0.0.1"
 	branch.Port = port
 	branch.Database = strings.TrimSpace(opts.Database)
 	branch.Role = strings.TrimSpace(opts.Role)
-	return branch
+	return branch, nil
 }
 
 func computeContainerName(project, branchID string) string {
@@ -338,11 +361,11 @@ func removeKnownComputeContainer(branch BackendBranch) error {
 	return nil
 }
 
-func findBackendBranch(state BackendState, target string) (BackendBranch, bool) {
-	if branch, ok := state.Branches[target]; ok {
+func findBackendBranch(project BackendProject, target string) (BackendBranch, bool) {
+	if branch, ok := project.Branches[target]; ok {
 		return branch, true
 	}
-	for _, branch := range state.Branches {
+	for _, branch := range project.Branches {
 		if branch.Branch == target || branch.EndpointID == target {
 			return branch, true
 		}

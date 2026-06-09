@@ -24,7 +24,7 @@ func writeGeneratedNeonFiles(state neonCellState) error {
 		if _, ok, err := readBackendStateForInstall(filepath.Join(state.Root, "backend.json")); err != nil {
 			return err
 		} else if !ok {
-			backend := neonselfhost.NewBackendState("", 16)
+			backend := neonselfhost.NewBackendState()
 			if err := neonselfhost.WriteBackendState(filepath.Join(state.Root, "backend.json"), backend); err != nil {
 				return err
 			}

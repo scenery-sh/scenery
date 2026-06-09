@@ -11,8 +11,8 @@ import (
 
 func TestRunDeleteRemovesBackendBranchAndComputeContainer(t *testing.T) {
 	root := t.TempDir()
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-test"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-test"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "feature/x",
 		TimelineID:       "timeline",
@@ -65,8 +65,8 @@ exit 0
 	if err != nil {
 		t.Fatalf("read backend: %v", err)
 	}
-	if _, ok := state.Branches["br-local-test"]; ok {
-		t.Fatalf("branch still present: %+v", state.Branches)
+	if _, ok := state.Projects["onlv"].Branches["br-local-test"]; ok {
+		t.Fatalf("branch still present: %+v", state.Projects["onlv"].Branches)
 	}
 	logBytes, err := os.ReadFile(logPath)
 	if err != nil {
@@ -77,10 +77,54 @@ exit 0
 	}
 }
 
+func TestRunDeleteOnlyRemovesCurrentProjectBranch(t *testing.T) {
+	root := t.TempDir()
+	state := newTestBackendState("onlv", "tenant-onlv", 16)
+	state.Projects["onlv"].Branches["br-local-shared"] = BackendBranch{
+		Project: "onlv",
+		Branch:  "same-branch",
+		Status:  "pending",
+	}
+	other := NewBackendProject("other", 16)
+	other.TenantID = "tenant-other"
+	other.Branches["br-local-shared"] = BackendBranch{
+		Project: "other",
+		Branch:  "same-branch",
+		Status:  "pending",
+	}
+	state.Projects["other"] = other
+	if err := WriteBackendState(filepath.Join(root, "backend.json"), state); err != nil {
+		t.Fatalf("write backend: %v", err)
+	}
+	if err := Run(&bytes.Buffer{}, &bytes.Buffer{}, []string{
+		"delete",
+		"--project", "onlv",
+		"--parent-branch", "main",
+		"--branch", "same-branch",
+		"--branch-id", "br-local-shared",
+		"--database", "onlv",
+		"--role", "cloud_admin",
+		"--root", root,
+		"--json",
+	}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	state, _, err := ReadBackendState(filepath.Join(root, "backend.json"))
+	if err != nil {
+		t.Fatalf("read backend: %v", err)
+	}
+	if _, ok := state.Projects["onlv"].Branches["br-local-shared"]; ok {
+		t.Fatalf("onlv branch still present: %+v", state.Projects["onlv"].Branches)
+	}
+	if _, ok := state.Projects["other"].Branches["br-local-shared"]; !ok {
+		t.Fatalf("other branch was deleted: %+v", state.Projects["other"].Branches)
+	}
+}
+
 func TestRunDiffUsesPgDumpForReadyBackendBranches(t *testing.T) {
 	root := t.TempDir()
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-current"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-current"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "feature/x",
 		TimelineID:       "timeline-current",
@@ -92,7 +136,7 @@ func TestRunDiffUsesPgDumpForReadyBackendBranches(t *testing.T) {
 		Role:             "cloud_admin",
 		Status:           "ready",
 	}
-	state.Branches["br-local-main"] = BackendBranch{
+	state.Projects["onlv"].Branches["br-local-main"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "main",
 		TimelineID:       "timeline-main",
@@ -164,8 +208,8 @@ esac
 
 func TestRunDiffFallsBackToComputeContainerPgDumpOnVersionMismatch(t *testing.T) {
 	root := t.TempDir()
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-current"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-current"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "feature/x",
 		TimelineID:       "timeline-current",
@@ -177,7 +221,7 @@ func TestRunDiffFallsBackToComputeContainerPgDumpOnVersionMismatch(t *testing.T)
 		Role:             "cloud_admin",
 		Status:           "ready",
 	}
-	state.Branches["br-local-main"] = BackendBranch{
+	state.Projects["onlv"].Branches["br-local-main"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "main",
 		TimelineID:       "timeline-main",
@@ -255,10 +299,60 @@ esac
 	}
 }
 
+func TestRunDiffDoesNotCrossProjectBoundaries(t *testing.T) {
+	root := t.TempDir()
+	state := newTestBackendState("onlv", "tenant-onlv", 16)
+	state.Projects["onlv"].Branches["br-local-current"] = BackendBranch{
+		Project:          "onlv",
+		Branch:           "feature/x",
+		TimelineID:       "timeline-current",
+		EndpointID:       "feature-x",
+		ComputeContainer: "onlava-neon-compute-onlv-current",
+		Host:             "127.0.0.1",
+		Port:             55441,
+		Database:         "onlv",
+		Role:             "cloud_admin",
+		Status:           "ready",
+	}
+	other := NewBackendProject("other", 16)
+	other.TenantID = "tenant-other"
+	other.Branches["br-local-main"] = BackendBranch{
+		Project:          "other",
+		Branch:           "main",
+		TimelineID:       "timeline-main-other",
+		EndpointID:       "main",
+		ComputeContainer: "onlava-neon-compute-other-main",
+		Host:             "127.0.0.1",
+		Port:             55442,
+		Database:         "other",
+		Role:             "cloud_admin",
+		Status:           "ready",
+	}
+	state.Projects["other"] = other
+	if err := WriteBackendState(filepath.Join(root, "backend.json"), state); err != nil {
+		t.Fatalf("write backend: %v", err)
+	}
+	err := Run(&bytes.Buffer{}, &bytes.Buffer{}, []string{
+		"diff",
+		"--project", "onlv",
+		"--parent-branch", "main",
+		"--branch", "feature/x",
+		"--branch-id", "br-local-current",
+		"--database", "onlv",
+		"--role", "cloud_admin",
+		"--target", "main",
+		"--root", root,
+		"--json",
+	})
+	if err == nil || !strings.Contains(err.Error(), `target backend branch "main" in project "onlv"`) {
+		t.Fatalf("diff error = %v", err)
+	}
+}
+
 func TestRunDiffRequiresReadyBackendBranches(t *testing.T) {
 	root := t.TempDir()
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-current"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-current"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "feature/x",
 		TimelineID:       "timeline-current",
@@ -270,7 +364,7 @@ func TestRunDiffRequiresReadyBackendBranches(t *testing.T) {
 		Role:             "cloud_admin",
 		Status:           "pending",
 	}
-	state.Branches["br-local-main"] = BackendBranch{Branch: "main", Status: "ready"}
+	state.Projects["onlv"].Branches["br-local-main"] = BackendBranch{Branch: "main", Status: "ready"}
 	if err := WriteBackendState(filepath.Join(root, "backend.json"), state); err != nil {
 		t.Fatalf("write backend: %v", err)
 	}

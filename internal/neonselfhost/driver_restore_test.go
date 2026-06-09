@@ -111,8 +111,8 @@ func TestRunResetAndRestoreRewritePendingBackendTimeline(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("read backend ok=%v err=%v", ok, err)
 	}
-	initialPort := state.Branches["br-local-test"].Port
-	initialTimeline := state.Branches["br-local-test"].TimelineID
+	initialPort := state.Projects["onlv"].Branches["br-local-test"].Port
+	initialTimeline := state.Projects["onlv"].Branches["br-local-test"].TimelineID
 
 	var resetOut bytes.Buffer
 	resetArgs := append([]string{"reset"}, ensureArgs[1:]...)
@@ -123,7 +123,7 @@ func TestRunResetAndRestoreRewritePendingBackendTimeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read reset backend: %v", err)
 	}
-	resetBranch := state.Branches["br-local-test"]
+	resetBranch := state.Projects["onlv"].Branches["br-local-test"]
 	if !looksLikeHexID(resetBranch.TimelineID) || resetBranch.TimelineID == initialTimeline || resetBranch.Port != initialPort || resetBranch.Status != "starting" {
 		t.Fatalf("reset branch = %+v", resetBranch)
 	}
@@ -137,7 +137,7 @@ func TestRunResetAndRestoreRewritePendingBackendTimeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read restore backend: %v", err)
 	}
-	restoreBranch := state.Branches["br-local-test"]
+	restoreBranch := state.Projects["onlv"].Branches["br-local-test"]
 	if !looksLikeHexID(restoreBranch.TimelineID) || restoreBranch.TimelineID == resetBranch.TimelineID || restoreBranch.Port != initialPort || restoreBranch.Status != "starting" {
 		t.Fatalf("restore branch = %+v", restoreBranch)
 	}
@@ -165,15 +165,15 @@ func TestRunResetBranchesFromReadyRecordedParentTimeline(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	parentTimelineID := "22222222222222222222222222222222"
 	oldParentTimelineID := "33333333333333333333333333333333"
-	state := NewBackendState("tenant-test", 16)
-	state.Branches["br-local-main"] = BackendBranch{
+	state := newTestBackendState("onlv", "tenant-test", 16)
+	state.Projects["onlv"].Branches["br-local-main"] = BackendBranch{
 		Project:    "onlv",
 		Branch:     "onlvnext-o5o2/main",
 		TimelineID: parentTimelineID,
 		EndpointID: "onlvnext-o5o2-main",
 		Status:     "ready",
 	}
-	state.Branches["br-local-feature"] = BackendBranch{
+	state.Projects["onlv"].Branches["br-local-feature"] = BackendBranch{
 		Project:          "onlv",
 		Branch:           "feature/x",
 		TimelineID:       "44444444444444444444444444444444",
@@ -208,7 +208,7 @@ func TestRunResetBranchesFromReadyRecordedParentTimeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read reset backend: %v", err)
 	}
-	branch := state.Branches["br-local-feature"]
+	branch := state.Projects["onlv"].Branches["br-local-feature"]
 	if branch.ParentTimelineID != parentTimelineID {
 		t.Fatalf("parent timeline = %q, want %q", branch.ParentTimelineID, parentTimelineID)
 	}

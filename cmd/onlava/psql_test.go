@@ -390,8 +390,10 @@ func readyNeonSnapshotTargetForTest(t *testing.T) (string, worktreeDBPin, neonBr
 		CreatedBy:     "onlava",
 	}
 	root := filepath.Join(os.Getenv("ONLAVA_AGENT_HOME"), "agent", "substrates", "neon")
-	state := neonselfhost.NewBackendState("tenant-test", 16)
-	state.Branches[pin.BranchID] = neonselfhost.BackendBranch{
+	state := neonselfhost.NewBackendState()
+	project := neonselfhost.NewBackendProject(pin.Project, 16)
+	project.TenantID = "tenant-test"
+	project.Branches[pin.BranchID] = neonselfhost.BackendBranch{
 		Project:          pin.Project,
 		Branch:           pin.Branch,
 		TimelineID:       "11111111111111111111111111111111",
@@ -402,6 +404,7 @@ func readyNeonSnapshotTargetForTest(t *testing.T) (string, worktreeDBPin, neonBr
 		Role:             pin.Role,
 		Status:           "ready",
 	}
+	state.Projects[pin.Project] = project
 	if err := neonselfhost.WriteBackendState(filepath.Join(root, "backend.json"), state); err != nil {
 		t.Fatalf("write backend state: %v", err)
 	}
