@@ -105,13 +105,20 @@ func TestCommandHelpAndJSONManifest(t *testing.T) {
 		t.Fatalf("schema version = %q", manifest.SchemaVersion)
 	}
 	foundPS := false
+	foundDown := false
 	for _, command := range manifest.Commands {
 		if command.Command == "ps" && command.JSON && strings.Contains(strings.Join(command.Usage, "\n"), "onlava ps [--json]") {
 			foundPS = true
 		}
+		if command.Command == "down" && command.JSON && strings.Contains(strings.Join(command.Usage, "\n"), "onlava down") && strings.Contains(strings.Join(command.Flags, "\n"), "--json") {
+			foundDown = true
+		}
 	}
 	if !foundPS {
 		t.Fatalf("help manifest missing ps json command: %+v", manifest.Commands)
+	}
+	if !foundDown {
+		t.Fatalf("help manifest missing down json command: %+v", manifest.Commands)
 	}
 }
 

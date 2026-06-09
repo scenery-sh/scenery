@@ -51,25 +51,26 @@ func (p fakeDoctorResourceProbe) Disk(_ context.Context, path string) (doctorDis
 
 func fakeDoctorDeps(t *testing.T) doctorProbeDeps {
 	t.Helper()
+	agentHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(agentHome, "agent", "substrates", "neon", "data"), 0o755); err != nil {
+		t.Fatalf("mkdir fake agent home: %v", err)
+	}
 	tools := map[string]string{
-		"go":      "/bin/go",
-		"bun":     "/bin/bun",
-		"psql":    "/bin/psql",
-		"pg_dump": "/bin/pg_dump",
-		"docker":  "/bin/docker",
-		"atlas":   "/bin/atlas",
-		"sqlc":    "/bin/sqlc",
-		"git":     "/bin/git",
+		"go":     "/bin/go",
+		"bun":    "/bin/bun",
+		"docker": "/bin/docker",
+		"atlas":  "/bin/atlas",
+		"sqlc":   "/bin/sqlc",
+		"git":    "/bin/git",
 	}
 	versions := map[string]string{
-		"go version":        "go version go1.26.3 linux/amd64",
-		"bun --version":     "1.2.3",
-		"psql --version":    "psql (PostgreSQL) 18.0",
-		"pg_dump --version": "pg_dump (PostgreSQL) 18.0",
-		"docker --version":  "Docker version 29.0.0",
-		"atlas version":     "atlas version v0.38.0",
-		"sqlc version":      "v1.30.0",
-		"git --version":     "git version 2.52.0",
+		"go version":                      "go version go1.26.3 linux/amd64",
+		"bun --version":                   "1.2.3",
+		"docker info --format {{json .}}": `{"ServerVersion":"29.0.0","OperatingSystem":"Docker Desktop","OSType":"linux","Architecture":"aarch64","NCPU":8,"MemTotal":8589934592,"DockerRootDir":"/var/lib/docker","Driver":"overlay2","CgroupVersion":"2","KernelVersion":"6.10.14-linuxkit","Name":"docker-desktop"}`,
+		"docker context show":             "desktop-linux",
+		"atlas version":                   "atlas version v0.38.0",
+		"sqlc version":                    "v1.30.0",
+		"git --version":                   "git version 2.52.0",
 	}
 	return doctorProbeDeps{
 		LookPath: func(file string) (string, error) {
@@ -88,6 +89,7 @@ func fakeDoctorDeps(t *testing.T) doctorProbeDeps {
 		ResourceProbe: fakeDoctorResourceProbe{},
 		Getwd:         func() (string, error) { return "/workspace", nil },
 		CacheRoot:     func() (string, error) { return "/cache/onlava", nil },
+		AgentHome:     func() (string, error) { return agentHome, nil },
 		DiscoverApp: func(start string) (doctorAppInfo, appcfg.Config, bool, error) {
 			return doctorAppInfo{}, appcfg.Config{}, false, errors.New("no app")
 		},
@@ -173,10 +175,88 @@ func TestRunOnlavaDoctorDiscoversAppSensitiveChecks(t *testing.T) {
 	if payload.App == nil || payload.App.Name != "demo" || payload.App.ID != "demo-id" {
 		t.Fatalf("app = %+v", payload.App)
 	}
-	for _, id := range []string{"tool.bun", "tool.docker", "tool.atlas", "tool.sqlc"} {
+	for _, id := range []string{"tool.bun", "tool.atlas", "tool.sqlc"} {
 		if got := doctorCheckByID(payload.Checks, id); got.ID == "" || got.Status != doctorStatusOK {
 			t.Fatalf("%s check = %+v", id, got)
 		}
+	}
+	dockerContext := doctorCheckByID(payload.Checks, "docker.context")
+	if dockerContext.Status != doctorStatusOK || dockerContext.Observed["context"] != "desktop-linux" {
+		t.Fatalf("docker.context check = %+v", dockerContext)
+	}
+	engine := doctorCheckByID(payload.Checks, "docker.engine")
+	if engine.Status != doctorStatusOK || engine.Observed["server_version"] != "29.0.0" {
+		t.Fatalf("docker.engine check = %+v", engine)
+	}
+}
+
+func TestRunOnlavaDoctorWarnsWhenDockerEngineUnavailable(t *testing.T) {
+	t.Parallel()
+
+	deps := fakeDoctorDeps(t)
+	deps.RunCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		key := filepath.Base(name) + " " + strings.Join(args, " ")
+		switch key {
+		case "go version":
+			return []byte("go version go1.26.3 linux/amd64"), nil
+		case "bun --version":
+			return []byte("1.2.3"), nil
+		case "docker info --format {{json .}}":
+			return []byte("Cannot connect to the Docker daemon"), errors.New("daemon unavailable")
+		case "docker context show":
+			return []byte("desktop-linux"), nil
+		case "atlas version":
+			return []byte("atlas version v0.38.0"), nil
+		case "sqlc version":
+			return []byte("v1.30.0"), nil
+		case "git --version":
+			return []byte("git version 2.52.0"), nil
+		default:
+			return nil, errors.New("unexpected command " + key)
+		}
+	}
+
+	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
+	dockerContext := doctorCheckByID(resp.Checks, "docker.context")
+	if dockerContext.Status != doctorStatusOK || dockerContext.Observed["context"] != "desktop-linux" {
+		t.Fatalf("docker.context check = %+v", dockerContext)
+	}
+	engine := doctorCheckByID(resp.Checks, "docker.engine")
+	if engine.Status != doctorStatusWarn || !strings.Contains(engine.Message, "engine is not reachable") || engine.Observed["error_output"] == "" {
+		t.Fatalf("docker.engine check = %+v", engine)
+	}
+}
+
+func TestRunOnlavaDoctorWarnsWhenDockerContextUnavailable(t *testing.T) {
+	t.Parallel()
+
+	deps := fakeDoctorDeps(t)
+	deps.RunCommand = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		key := filepath.Base(name) + " " + strings.Join(args, " ")
+		switch key {
+		case "go version":
+			return []byte("go version go1.26.3 linux/amd64"), nil
+		case "bun --version":
+			return []byte("1.2.3"), nil
+		case "docker info --format {{json .}}":
+			return []byte(`{"ServerVersion":"29.0.0"}`), nil
+		case "docker context show":
+			return []byte("context store is corrupt"), errors.New("context unavailable")
+		case "git --version":
+			return []byte("git version 2.52.0"), nil
+		default:
+			return nil, errors.New("unexpected command " + key)
+		}
+	}
+
+	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
+	dockerContext := doctorCheckByID(resp.Checks, "docker.context")
+	if dockerContext.Status != doctorStatusWarn || !strings.Contains(dockerContext.Message, "context could not be determined") || dockerContext.Observed["error_output"] == "" {
+		t.Fatalf("docker.context check = %+v", dockerContext)
+	}
+	engine := doctorCheckByID(resp.Checks, "docker.engine")
+	if engine.Status != doctorStatusOK || engine.Observed["server_version"] != "29.0.0" {
+		t.Fatalf("docker.engine check = %+v", engine)
 	}
 }
 
@@ -223,6 +303,41 @@ func TestDoctorResourceThresholds(t *testing.T) {
 	}
 	if got := doctorCheckByID(resp.Checks, "resource.disk.cache_root"); got.Status != doctorStatusError {
 		t.Fatalf("cache disk check = %+v", got)
+	}
+}
+
+func TestDoctorReportsOnlavaAndNeonStorageSizes(t *testing.T) {
+	t.Parallel()
+
+	deps := fakeDoctorDeps(t)
+	agentHome := t.TempDir()
+	deps.AgentHome = func() (string, error) { return agentHome, nil }
+	writeTestAppFile(t, agentHome, "agent/substrates/neon/data/pageserver/base.dat", strings.Repeat("p", 2048))
+	writeTestAppFile(t, agentHome, "agent/substrates/neon/data/minio/object.dat", strings.Repeat("m", 1024))
+	writeTestAppFile(t, agentHome, "agent/agent.log", strings.Repeat("l", 512))
+
+	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
+	home := doctorCheckByID(resp.Checks, "storage.onlava_home")
+	if home.Status != doctorStatusOK || home.Observed["size_bytes"] == nil || !strings.Contains(home.Message, agentHome) {
+		t.Fatalf("storage.onlava_home check = %+v", home)
+	}
+	neon := doctorCheckByID(resp.Checks, "storage.neon_database")
+	if neon.Status != doctorStatusOK || neon.Observed["size_bytes"] != uint64(3072) || !strings.Contains(neon.Message, filepath.Join(agentHome, "agent", "substrates", "neon", "data")) {
+		t.Fatalf("storage.neon_database check = %+v", neon)
+	}
+}
+
+func TestDoctorSkipsMissingNeonStorageSize(t *testing.T) {
+	t.Parallel()
+
+	deps := fakeDoctorDeps(t)
+	agentHome := t.TempDir()
+	deps.AgentHome = func() (string, error) { return agentHome, nil }
+
+	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
+	neon := doctorCheckByID(resp.Checks, "storage.neon_database")
+	if neon.Status != doctorStatusSkipped || !strings.Contains(neon.Message, "not present") {
+		t.Fatalf("storage.neon_database check = %+v", neon)
 	}
 }
 

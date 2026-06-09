@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0071 Bind-Mounted Neon Storage](0071-neon-bind-mounted-storage.md)
+  - Status: active
+  - Owner: onlava runtime / agent DX
+  - Created: 2026-06-09
+  - Focus: move self-hosted Neon durable storage from Docker anonymous volumes into Onlava-owned bind-mounted directories under the shared Neon substrate root, while keeping worktrees isolated by branch pins and timelines rather than per-worktree storage copies.
 - [0070 Toolchain-Managed Neon Selfhost Driver](0070-toolchain-managed-neon-selfhost-driver.md)
   - Status: active
   - Owner: onlava runtime / agent DX

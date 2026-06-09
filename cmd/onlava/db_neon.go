@@ -64,6 +64,7 @@ type neonCellState struct {
 	Root          string                `json:"root"`
 	ComposePath   string                `json:"compose_path"`
 	LogDir        string                `json:"log_dir"`
+	Storage       *neonStorageStatus    `json:"storage,omitempty"`
 	Driver        *neonCellDriver       `json:"driver,omitempty"`
 	Ports         map[string]int        `json:"ports,omitempty"`
 	Images        []neonImageStatus     `json:"images"`
@@ -88,6 +89,7 @@ type dbNeonStatusResult struct {
 	Mode           string                `json:"mode"`
 	Status         string                `json:"status"`
 	Root           string                `json:"root"`
+	Storage        *neonStorageStatus    `json:"storage,omitempty"`
 	Driver         *neonCellDriver       `json:"driver,omitempty"`
 	Backend        *neonBackendStatus    `json:"backend,omitempty"`
 	Cell           *neonCellState        `json:"cell,omitempty"`
@@ -105,6 +107,12 @@ type neonGeneratedFile struct {
 	Path   string `json:"path"`
 	Kind   string `json:"kind"`
 	Status string `json:"status"`
+}
+
+type neonStorageStatus struct {
+	Mode     string            `json:"mode"`
+	Root     string            `json:"root"`
+	DataDirs map[string]string `json:"data_dirs"`
 }
 
 type neonImageStatus struct {
@@ -319,6 +327,9 @@ func runDBNeonInstall(ctx context.Context, stdout io.Writer, opts dbNeonOptions)
 		return err
 	}
 	state := defaultNeonCellState(root, "installed")
+	if err := ensureNeonStorageDirs(root); err != nil {
+		return err
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	state.CreatedAt = now
 	state.UpdatedAt = now
@@ -379,6 +390,26 @@ func runDBNeonStart(ctx context.Context, stdout io.Writer, opts dbNeonOptions) e
 		result.OK = false
 		result.Message = "Neon dev-cell compose file is missing; cannot start generated project."
 		result.RequiredAction = "Run `onlava db neon install --json` again to regenerate local substrate files."
+		if opts.JSON {
+			if err := writeInspectJSON(stdout, result); err != nil {
+				return err
+			}
+			return &silentCLIError{err: errors.New(result.Message)}
+		}
+		return errors.New(result.Message)
+	}
+	if legacy, err := legacyAnonymousNeonDataVolumes(ctx); err != nil {
+		return err
+	} else if len(legacy) > 0 {
+		result, statusErr := buildDBNeonStatus(ctx)
+		if statusErr != nil {
+			return statusErr
+		}
+		result.OK = false
+		result.Status = "degraded"
+		result.Message = "Existing Onlava Neon containers still use Docker-managed /data volumes; this storage layout requires a fresh bind-mounted cell."
+		result.RequiredAction = "Run `onlava db neon uninstall --destroy-data --json`, then `onlava db neon install --json` and `onlava db neon start --json` to start fresh with bind-mounted storage."
+		result.Checks = append(result.Checks, neonHealthCheck{Name: "storage.legacy_volumes", Status: "blocked", Message: strings.Join(legacy, ", ")})
 		if opts.JSON {
 			if err := writeInspectJSON(stdout, result); err != nil {
 				return err
@@ -586,9 +617,6 @@ func runDBNeonRestart(ctx context.Context, stdout io.Writer, opts dbNeonOptions)
 }
 
 func runDBNeonUninstall(ctx context.Context, stdout io.Writer, opts dbNeonOptions) error {
-	if !opts.DestroyData {
-		return fmt.Errorf("onlava db neon uninstall requires --destroy-data")
-	}
 	root, err := neonSubstrateRoot()
 	if err != nil {
 		return err
@@ -601,25 +629,38 @@ func runDBNeonUninstall(ctx context.Context, stdout io.Writer, opts dbNeonOption
 	}
 	if ok && fileStatus(state.ComposePath) == "present" {
 		teardownAttempted = true
-		if _, err := runDockerCompose(ctx, 90*time.Second, state, "down", "-v", "--remove-orphans"); err != nil {
+		args := []string{"down", "--remove-orphans"}
+		if opts.DestroyData {
+			args = []string{"down", "-v", "--remove-orphans"}
+		}
+		if _, err := runDockerCompose(ctx, 90*time.Second, state, args...); err != nil {
 			return fmt.Errorf("stop Neon dev-cell before uninstall: %w", err)
 		}
 	}
 	if !teardownAttempted {
-		if err := removeOnlavaNeonContainers(ctx); err != nil {
+		if err := removeOnlavaNeonContainers(ctx, opts.DestroyData); err != nil {
 			return fmt.Errorf("remove Neon dev-cell containers before uninstall: %w", err)
 		}
-	} else if err := removeOnlavaNeonContainers(ctx); err != nil {
+	} else if err := removeOnlavaNeonContainers(ctx, opts.DestroyData); err != nil {
 		return fmt.Errorf("remove remaining Neon dev-cell containers before uninstall: %w", err)
 	}
-	if err := os.RemoveAll(root); err != nil {
+	if opts.DestroyData {
+		if err := os.RemoveAll(root); err != nil {
+			return err
+		}
+	} else if err := removeNeonGeneratedStatePreservingData(root); err != nil {
 		return err
 	}
 	result, err := buildDBNeonStatus(ctx)
 	if err != nil {
 		return err
 	}
-	result.Message = "Neon dev-cell state removed."
+	if opts.DestroyData {
+		result.Message = "Neon dev-cell state and bind-mounted storage data removed."
+	} else {
+		result.Message = "Neon dev-cell state removed. Bind-mounted storage data was preserved."
+		result.RequiredAction = "Run `onlava db neon install --json` to regenerate runtime files around the preserved data, or rerun with --destroy-data to remove data."
+	}
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
@@ -654,12 +695,18 @@ func buildDBNeonStatus(ctx context.Context) (dbNeonStatusResult, error) {
 	generatedFiles := []neonGeneratedFile{
 		{Path: filepath.Join(root, "cell.json"), Kind: "state", Status: fileStatus(filepath.Join(root, "cell.json"))},
 		{Path: state.ComposePath, Kind: "compose", Status: fileStatus(state.ComposePath)},
+		{Path: neonStorageRoot(root), Kind: "storage-root", Status: fileStatus(neonStorageRoot(root))},
 		{Path: filepath.Join(root, "pageserver_config", "pageserver.toml"), Kind: "config", Status: fileStatus(filepath.Join(root, "pageserver_config", "pageserver.toml"))},
 		{Path: filepath.Join(root, "pageserver_config", "identity.toml"), Kind: "config", Status: fileStatus(filepath.Join(root, "pageserver_config", "identity.toml"))},
 		{Path: filepath.Join(root, "compute_templates", "config.json"), Kind: "template", Status: fileStatus(filepath.Join(root, "compute_templates", "config.json"))},
 		{Path: filepath.Join(root, "compute_templates", "compute.sh"), Kind: "template", Status: fileStatus(filepath.Join(root, "compute_templates", "compute.sh"))},
 		{Path: filepath.Join(root, "backend.json"), Kind: "backend-state", Status: fileStatus(filepath.Join(root, "backend.json"))},
 		{Path: neonBranchRegistryPath(root), Kind: "branch-registry", Status: fileStatus(neonBranchRegistryPath(root))},
+	}
+	storageDirs := neonStorageDirs(root)
+	for _, name := range neonStorageDirNames() {
+		path := storageDirs[name]
+		generatedFiles = append(generatedFiles, neonGeneratedFile{Path: path, Kind: "storage-dir", Status: fileStatus(path)})
 	}
 	images, components, checks := probeNeonRuntime(ctx, state)
 	backend := buildNeonBackendStatus(root)
@@ -682,6 +729,10 @@ func buildDBNeonStatus(ctx context.Context) (dbNeonStatusResult, error) {
 	if len(cell.Ports) == 0 {
 		cell.Ports = defaultNeonPorts()
 	}
+	if cell.Storage == nil {
+		storage := neonStorageStatusForRoot(root)
+		cell.Storage = &storage
+	}
 	if cell.Driver == nil {
 		driver := inspectNeonSelfhostDriverToolchain()
 		cell.Driver = &driver
@@ -690,6 +741,7 @@ func buildDBNeonStatus(ctx context.Context) (dbNeonStatusResult, error) {
 	cell.Components = components
 	result.OK = true
 	result.Status = status
+	result.Storage = cell.Storage
 	result.Driver = cell.Driver
 	result.Backend = backend
 	result.Cell = &cell
@@ -722,7 +774,27 @@ func neonSubstrateRoot() (string, error) {
 	return filepath.Join(paths.AgentDir, "substrates", "neon"), nil
 }
 
+func removeNeonGeneratedStatePreservingData(root string) error {
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() == "data" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func defaultNeonCellState(root, status string) neonCellState {
+	storage := neonStorageStatusForRoot(root)
 	return neonCellState{
 		SchemaVersion: neonCellSchemaVersion,
 		Provider:      neonSelfhostProvider,
@@ -731,10 +803,47 @@ func defaultNeonCellState(root, status string) neonCellState {
 		Root:          root,
 		ComposePath:   filepath.Join(root, "compose.generated.yml"),
 		LogDir:        filepath.Join(root, "logs"),
+		Storage:       &storage,
 		Ports:         defaultNeonPorts(),
 		Images:        defaultNeonImages(),
 		Components:    defaultNeonComponents(root, "not_started"),
 	}
+}
+
+func neonStorageRoot(root string) string {
+	return filepath.Join(root, "data")
+}
+
+func neonStorageDirs(root string) map[string]string {
+	base := neonStorageRoot(root)
+	dirs := make(map[string]string, len(neonStorageDirNames()))
+	for _, name := range neonStorageDirNames() {
+		dirs[name] = filepath.Join(base, name)
+	}
+	return dirs
+}
+
+func neonStorageDirNames() []string {
+	return []string{"minio", "pageserver", "safekeeper-1", "safekeeper-2", "safekeeper-3", "storage-broker"}
+}
+
+func neonStorageStatusForRoot(root string) neonStorageStatus {
+	return neonStorageStatus{
+		Mode:     "bind",
+		Root:     neonStorageRoot(root),
+		DataDirs: neonStorageDirs(root),
+	}
+}
+
+func ensureNeonStorageDirs(root string) error {
+	dirs := neonStorageDirs(root)
+	for _, name := range neonStorageDirNames() {
+		path := dirs[name]
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func defaultNeonPorts() map[string]int {

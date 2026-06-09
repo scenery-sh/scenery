@@ -27,7 +27,8 @@ func TestParseWorktreeArgs(t *testing.T) {
 }
 
 func TestWorktreeCreateListAndRemoveWithNeonPin(t *testing.T) {
-	t.Setenv("ONLAVA_AGENT_HOME", t.TempDir())
+	agentHome := t.TempDir()
+	t.Setenv("ONLAVA_AGENT_HOME", agentHome)
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -86,6 +87,16 @@ func TestWorktreeCreateListAndRemoveWithNeonPin(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(createdB.Path, ".onlava", "worktree-db.json")); err != nil {
 		t.Fatalf("target B pin missing: %v", err)
+	}
+	sharedNeonDataRoot := filepath.Join(agentHome, "agent", "substrates", "neon", "data")
+	if _, err := os.Stat(filepath.Join(createdA.Path, ".onlava", "data")); !os.IsNotExist(err) {
+		t.Fatalf("worktree A should not receive a local Neon data root, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(createdB.Path, ".onlava", "data")); !os.IsNotExist(err) {
+		t.Fatalf("worktree B should not receive a local Neon data root, stat err=%v", err)
+	}
+	if _, err := os.Stat(sharedNeonDataRoot); !os.IsNotExist(err) {
+		t.Fatalf("worktree creation should not allocate the shared Neon data root before install, stat err=%v", err)
 	}
 
 	var listOut bytes.Buffer

@@ -31,6 +31,7 @@ func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ONLAVA_AGENT_HOME", home)
 	useMissingNeonDocker(t)
+	root := filepath.Join(home, "agent", "substrates", "neon")
 
 	var out bytes.Buffer
 	if err := runDBNeonCommand(t.Context(), &out, []string{"install", "--json"}); err != nil {
@@ -46,6 +47,9 @@ func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	if payload.Ports["storage_broker"] != 55432 || payload.Cell == nil || payload.Cell.Ports["pageserver_http"] != 55434 {
 		t.Fatalf("ports = result:%+v cell:%+v", payload.Ports, payload.Cell)
 	}
+	if payload.Storage == nil || payload.Cell.Storage == nil || payload.Storage.Mode != "bind" || payload.Storage.Root != filepath.Join(root, "data") {
+		t.Fatalf("storage status missing or wrong: result=%+v cell=%+v", payload.Storage, payload.Cell.Storage)
+	}
 	if payload.Driver == nil || payload.Cell.Driver == nil || payload.Driver.Tool != neonSelfhostDriverToolchainArtifact {
 		t.Fatalf("driver status missing from payload: result=%+v cell=%+v", payload.Driver, payload.Cell.Driver)
 	}
@@ -55,10 +59,14 @@ func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "onlava.db.neon.status.v1.schema.json"), payload); len(diagnostics) != 0 {
 		t.Fatalf("neon status schema diagnostics = %+v", diagnostics)
 	}
-	root := filepath.Join(home, "agent", "substrates", "neon")
 	for _, rel := range []string{"cell.json", "compose.generated.yml", "pageserver_config/pageserver.toml", "pageserver_config/identity.toml", "compute_templates/config.json", "compute_templates/compute.sh", "backend.json"} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Fatalf("generated %s missing: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{"data/minio", "data/pageserver", "data/safekeeper-1", "data/safekeeper-2", "data/safekeeper-3", "data/storage-broker"} {
+		if info, err := os.Stat(filepath.Join(root, rel)); err != nil || !info.IsDir() {
+			t.Fatalf("storage dir %s missing or not dir: info=%v err=%v", rel, info, err)
 		}
 	}
 	if !strings.Contains(payload.Message, "onlava db neon start") {
@@ -73,6 +81,18 @@ func TestDBNeonInstallWritesGeneratedState(t *testing.T) {
 	}
 	if !bytes.Contains(compose, []byte(`container_name: onlava-neon-bucket-init`)) {
 		t.Fatalf("compose missing bucket init: %s", compose)
+	}
+	for _, mount := range []string{
+		"./data/minio:/data",
+		"./data/pageserver:/data",
+		"./data/safekeeper-1:/data",
+		"./data/safekeeper-2:/data",
+		"./data/safekeeper-3:/data",
+		"./data/storage-broker:/data",
+	} {
+		if !bytes.Contains(compose, []byte(mount)) {
+			t.Fatalf("compose missing bind mount %s:\n%s", mount, compose)
+		}
 	}
 	if bytes.Contains(compose, []byte(`container_name: onlava-neon-compute`)) {
 		t.Fatalf("compose should not include static compute: %s", compose)
@@ -212,6 +232,64 @@ exit 1
 	log := string(logBytes)
 	if !strings.Contains(log, "compose -f ") || !strings.Contains(log, " down -v --remove-orphans") || !strings.Contains(log, "rm -f -v onlava-neon-compute-feature-a") {
 		t.Fatalf("docker log = %q", log)
+	}
+}
+
+func TestDBNeonUninstallPreservesBindMountedDataByDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ONLAVA_AGENT_HOME", home)
+
+	logPath := filepath.Join(t.TempDir(), "docker.log")
+	fakeDocker := filepath.Join(t.TempDir(), "docker")
+	if err := os.WriteFile(fakeDocker, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+if [ "$1" = "compose" ] && [ "$6" = "down" ]; then
+  exit 0
+fi
+if [ "$1" = "ps" ]; then
+  exit 0
+fi
+echo "unexpected docker $*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCKER_LOG", logPath)
+	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("install returned error: %v", err)
+	}
+	root := filepath.Join(home, "agent", "substrates", "neon")
+	sentinel := filepath.Join(root, "data", "minio", "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := runDBNeonCommand(t.Context(), &out, []string{"uninstall", "--json"}); err != nil {
+		t.Fatalf("uninstall returned error: %v\n%s", err, out.String())
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("bind-mounted data should be preserved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "cell.json")); !os.IsNotExist(err) {
+		t.Fatalf("generated state should be removed while data stays, stat err=%v", err)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "compose -f ") || !strings.Contains(log, " down --remove-orphans") || strings.Contains(log, " down -v ") || strings.Contains(log, "rm -f -v") {
+		t.Fatalf("docker log = %q", log)
+	}
+	var payload dbNeonStatusResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decode uninstall JSON: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(payload.Message, "preserved") || !strings.Contains(payload.RequiredAction, "--destroy-data") {
+		t.Fatalf("payload = %+v", payload)
 	}
 }
 
@@ -456,6 +534,10 @@ if [ "$1" = "ps" ]; then
   printf 'onlava-neon-storage-broker\tUp 2 minutes\n'
   exit 0
 fi
+if [ "$1" = "inspect" ]; then
+  printf '/onlava-neon-storage-broker\t/data=bind=%s;\n' "$PWD/data/storage-broker"
+  exit 0
+fi
 echo "unexpected docker $*" >&2
 exit 1
 `), 0o755); err != nil {
@@ -487,6 +569,70 @@ exit 1
 	}
 	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "onlava.db.neon.status.v1.schema.json"), payload); len(diagnostics) != 0 {
 		t.Fatalf("neon status schema diagnostics = %+v", diagnostics)
+	}
+}
+
+func TestDBNeonStartBlocksLegacyAnonymousDataVolumes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ONLAVA_AGENT_HOME", home)
+
+	bin := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	callLog := filepath.Join(t.TempDir(), "docker.log")
+	fakeDocker := filepath.Join(bin, "docker")
+	if err := os.WriteFile(fakeDocker, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> "`+callLog+`"
+if [ "$1" = "version" ]; then
+  echo "29.0.0"
+  exit 0
+fi
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
+  echo "[]"
+  exit 0
+fi
+if [ "$1" = "ps" ]; then
+  printf 'onlava-neon-minio\tUp 2 minutes\n'
+  exit 0
+fi
+if [ "$1" = "inspect" ]; then
+  printf '/onlava-neon-minio\t/data=volume=/var/lib/docker/volumes/legacy/_data;\n'
+  exit 0
+fi
+if [ "$1" = "compose" ]; then
+  echo "compose should not run when legacy volumes are present" >&2
+  exit 3
+fi
+echo "unexpected docker $*" >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	useFakeNeonDocker(t, fakeDocker)
+
+	if err := runDBNeonCommand(t.Context(), io.Discard, []string{"install", "--json"}); err != nil {
+		t.Fatalf("install returned error: %v", err)
+	}
+
+	var out bytes.Buffer
+	err := runDBNeonCommand(t.Context(), &out, []string{"start", "--json"})
+	if err == nil {
+		t.Fatalf("start should fail with legacy anonymous volumes:\n%s", out.String())
+	}
+	var payload dbNeonStatusResult
+	if decodeErr := json.Unmarshal(out.Bytes(), &payload); decodeErr != nil {
+		t.Fatalf("decode start JSON: %v\n%s", decodeErr, out.String())
+	}
+	if payload.OK || !strings.Contains(payload.Message, "Docker-managed /data volumes") || !strings.Contains(payload.RequiredAction, "--destroy-data") {
+		t.Fatalf("payload = %+v", payload)
+	}
+	data, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatalf("read call log: %v", err)
+	}
+	if strings.Contains(string(data), "compose -f") {
+		t.Fatalf("compose should not run when legacy volumes are present: %s", data)
 	}
 }
 

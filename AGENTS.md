@@ -112,7 +112,7 @@ Use runtime commands according to intent:
 ```text
 onlava up [--app-root <path>] [--session <id>|--new-session] [--json] [--detach]
 onlava logs --follow [--app-root <path>] [--session current|<id>] [--jsonl]
-onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]
+onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all] [--json]
 onlava serve [--app-root <path>] [--env <name>] [--log-format text|json]
 onlava task list [--app-root <path>] [--json]
 onlava task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]

@@ -229,7 +229,46 @@ func onlavaNeonContainerNames(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-func removeOnlavaNeonContainers(ctx context.Context) error {
+func legacyAnonymousNeonDataVolumes(ctx context.Context) ([]string, error) {
+	names, err := onlavaNeonContainerNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return nil, nil
+	}
+	args := append([]string{"inspect", "--format", "{{.Name}}\t{{range .Mounts}}{{.Destination}}={{.Type}}={{.Source}};{{end}}"}, names...)
+	output, err := runDockerCommand(ctx, 15*time.Second, args...)
+	if err != nil {
+		return nil, err
+	}
+	var legacy []string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		container, mounts, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		container = strings.TrimPrefix(strings.TrimSpace(container), "/")
+		for _, mount := range strings.Split(mounts, ";") {
+			if !legacyNeonDataMount(mount) {
+				continue
+			}
+			legacy = append(legacy, container)
+			break
+		}
+	}
+	return legacy, nil
+}
+
+func legacyNeonDataMount(mount string) bool {
+	parts := strings.Split(strings.TrimSpace(mount), "=")
+	if len(parts) < 2 {
+		return false
+	}
+	return parts[0] == "/data" && parts[1] == "volume"
+}
+
+func removeOnlavaNeonContainers(ctx context.Context, destroyData bool) error {
 	names, err := onlavaNeonContainerNames(ctx)
 	if err != nil {
 		return err
@@ -237,7 +276,11 @@ func removeOnlavaNeonContainers(ctx context.Context) error {
 	if len(names) == 0 {
 		return nil
 	}
-	args := append([]string{"rm", "-f", "-v"}, names...)
+	args := []string{"rm", "-f"}
+	if destroyData {
+		args = append(args, "-v")
+	}
+	args = append(args, names...)
 	_, err = runDockerCommand(ctx, 90*time.Second, args...)
 	return err
 }

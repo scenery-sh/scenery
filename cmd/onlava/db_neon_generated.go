@@ -47,6 +47,8 @@ services:
     ports:
       - "127.0.0.1:%d:9000"
       - "127.0.0.1:%d:9001"
+    volumes:
+      - ./data/minio:/data
     labels:
       onlava.substrate: neon
       onlava.component: minio
@@ -72,6 +74,7 @@ services:
       AWS_ACCESS_KEY_ID: minio
       AWS_SECRET_ACCESS_KEY: password
     volumes:
+      - ./data/pageserver:/data
       - ./pageserver_config:/data/.neon
     depends_on:
       - storage_broker
@@ -94,6 +97,8 @@ services:
     command:
       - "-c"
       - "safekeeper --listen-pg=$$SAFEKEEPER_ADVERTISE_URL --listen-http='0.0.0.0:7676' --id=$$SAFEKEEPER_ID --broker-endpoint=$$BROKER_ENDPOINT -D /data --remote-storage=\"{endpoint='http://minio:9000', bucket_name='neon', bucket_region='eu-north-1', prefix_in_bucket='/safekeeper/'}\""
+    volumes:
+      - ./data/safekeeper-1:/data
     depends_on:
       - storage_broker
       - bucket_init
@@ -115,6 +120,8 @@ services:
     command:
       - "-c"
       - "safekeeper --listen-pg=$$SAFEKEEPER_ADVERTISE_URL --listen-http='0.0.0.0:7676' --id=$$SAFEKEEPER_ID --broker-endpoint=$$BROKER_ENDPOINT -D /data --remote-storage=\"{endpoint='http://minio:9000', bucket_name='neon', bucket_region='eu-north-1', prefix_in_bucket='/safekeeper/'}\""
+    volumes:
+      - ./data/safekeeper-2:/data
     depends_on:
       - storage_broker
       - bucket_init
@@ -136,6 +143,8 @@ services:
     command:
       - "-c"
       - "safekeeper --listen-pg=$$SAFEKEEPER_ADVERTISE_URL --listen-http='0.0.0.0:7676' --id=$$SAFEKEEPER_ID --broker-endpoint=$$BROKER_ENDPOINT -D /data --remote-storage=\"{endpoint='http://minio:9000', bucket_name='neon', bucket_region='eu-north-1', prefix_in_bucket='/safekeeper/'}\""
+    volumes:
+      - ./data/safekeeper-3:/data
     depends_on:
       - storage_broker
       - bucket_init
@@ -150,6 +159,8 @@ services:
     command:
       - storage_broker
       - --listen-addr=0.0.0.0:50051
+    volumes:
+      - ./data/storage-broker:/data
     ports:
       - "127.0.0.1:%d:50051"
     labels:

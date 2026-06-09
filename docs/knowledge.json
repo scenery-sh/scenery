@@ -194,6 +194,7 @@
         "docs/schemas/onlava.logs.query.v1.schema.json",
         "docs/schemas/onlava.logs.tail.entry.v1.schema.json",
         "docs/schemas/onlava.help.v1.schema.json",
+        "docs/schemas/onlava.down.v1.schema.json",
         "docs/schemas/onlava.metrics.labels.v1.schema.json",
         "docs/schemas/onlava.metrics.query.v1.schema.json",
         "docs/schemas/onlava.metrics.series.v1.schema.json",
@@ -327,6 +328,25 @@
         "shadcn",
         "registry",
         "guardrails"
+      ]
+    },
+    {
+      "path": "docs/plans/0071-neon-bind-mounted-storage.md",
+      "title": "Bind-Mounted Neon Storage",
+      "owner": "onlava runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-09",
+      "review_after": "2026-07-09",
+      "summary": "Active ExecPlan for moving self-hosted Neon durable storage from Docker anonymous volumes into Onlava-owned bind-mounted directories under the shared Neon substrate root, while preserving worktree isolation through branch pins, leases, timelines, and compute endpoints.",
+      "tags": [
+        "plans",
+        "execplans",
+        "database",
+        "neon",
+        "storage",
+        "agents"
       ]
     },
     {

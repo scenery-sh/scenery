@@ -204,10 +204,17 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 	}
 
 	output = captureStdout(t, func() error {
-		return downCommand([]string{"--session", session.SessionID})
+		return downCommand([]string{"--session", session.SessionID, "--json"})
 	})
-	if !strings.Contains(output, session.SessionID) {
-		t.Fatalf("down output %q missing session id", output)
+	var down downResponse
+	if err := json.Unmarshal([]byte(output), &down); err != nil {
+		t.Fatalf("down json: %v\n%s", err, output)
+	}
+	if down.SchemaVersion != "onlava.down.v1" || down.SessionID != session.SessionID || !down.Deleted || down.RecordPreserved {
+		t.Fatalf("down json = %+v", down)
+	}
+	if len(down.Messages) == 0 || !strings.Contains(down.Messages[len(down.Messages)-1], session.SessionID) {
+		t.Fatalf("down json missing stop message: %+v", down)
 	}
 	sessions, err := client.List(ctx, appRoot)
 	if err != nil {
@@ -463,11 +470,11 @@ func TestDeleteStoppedSessionRecordPreservesOwnerClaimedFromOwnerlessSession(t *
 func TestParseDownArgsCleanupFlags(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseDownArgs([]string{"--app-root", "/tmp/app", "--session", "session-a", "--db", "--state", "--all"})
+	opts, err := parseDownArgs([]string{"--app-root", "/tmp/app", "--session", "session-a", "--db", "--state", "--all", "--json"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.AppRoot != "/tmp/app" || opts.SessionID != "session-a" || !opts.DB || !opts.State || !opts.All {
+	if opts.AppRoot != "/tmp/app" || opts.SessionID != "session-a" || !opts.DB || !opts.State || !opts.All || !opts.JSON {
 		t.Fatalf("opts = %+v", opts)
 	}
 }

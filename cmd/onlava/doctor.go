@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	localagent "github.com/pbrazdil/onlava/internal/agent"
 	appcfg "github.com/pbrazdil/onlava/internal/app"
 	"github.com/pbrazdil/onlava/internal/build"
 )
@@ -28,6 +29,7 @@ const (
 	doctorMinGoMinor            = 26
 	doctorDiskWarnBytes         = 5 * 1024 * 1024 * 1024
 	doctorDiskErrorBytes        = 1 * 1024 * 1024 * 1024
+	doctorSizeWalkTimeout       = 2 * time.Second
 	doctorMemoryWarnBytes       = 4 * 1024 * 1024 * 1024
 	doctorMemoryErrorBytes      = 2 * 1024 * 1024 * 1024
 	doctorStatusOK              = "ok"
@@ -100,6 +102,7 @@ type doctorProbeDeps struct {
 	ResourceProbe doctorResourceProbe
 	Getwd         func() (string, error)
 	CacheRoot     func() (string, error)
+	AgentHome     func() (string, error)
 	DiscoverApp   func(start string) (doctorAppInfo, appcfg.Config, bool, error)
 }
 
@@ -123,6 +126,13 @@ type doctorDiskInfo struct {
 	Path       string
 	FreeBytes  uint64
 	TotalBytes uint64
+}
+
+type doctorPathSizeInfo struct {
+	Path      string
+	SizeBytes uint64
+	FileCount int
+	DirCount  int
 }
 
 type doctorAppFeatures struct {
@@ -193,6 +203,13 @@ func defaultDoctorProbeDeps() doctorProbeDeps {
 		ResourceProbe: defaultDoctorResourceProbe{},
 		Getwd:         os.Getwd,
 		CacheRoot:     build.CacheRoot,
+		AgentHome: func() (string, error) {
+			paths, err := localagent.DefaultPaths()
+			if err != nil {
+				return "", err
+			}
+			return paths.Home, nil
+		},
 		DiscoverApp: func(start string) (doctorAppInfo, appcfg.Config, bool, error) {
 			root, cfg, err := appcfg.DiscoverRoot(start)
 			if err != nil {
@@ -306,9 +323,11 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 	for _, path := range diskPaths {
 		resp.Checks = append(resp.Checks, doctorDiskCheck(ctx, deps.ResourceProbe, path, &resp.Environment)...)
 	}
+	resp.Checks = append(resp.Checks, doctorStorageSizeChecks(ctx, deps)...)
 
 	features := doctorFeatures(cfg, resp.App)
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
+	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
 
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
 	resp.OK = resp.Summary.Errors == 0
@@ -331,6 +350,9 @@ func fillDoctorProbeDeps(deps doctorProbeDeps) doctorProbeDeps {
 	}
 	if deps.CacheRoot == nil {
 		deps.CacheRoot = defaults.CacheRoot
+	}
+	if deps.AgentHome == nil {
+		deps.AgentHome = defaults.AgentHome
 	}
 	if deps.DiscoverApp == nil {
 		deps.DiscoverApp = defaults.DiscoverApp
@@ -499,6 +521,98 @@ func doctorDiskCheck(ctx context.Context, probe doctorResourceProbe, path doctor
 	return []doctorCheck{check}
 }
 
+func doctorStorageSizeChecks(ctx context.Context, deps doctorProbeDeps) []doctorCheck {
+	home, err := deps.AgentHome()
+	if err != nil {
+		return []doctorCheck{{
+			ID:              "storage.onlava_home",
+			Category:        "storage",
+			Name:            "Onlava home size",
+			Status:          doctorStatusSkipped,
+			Severity:        doctorSeverityInformational,
+			Message:         "Onlava home size could not be determined: " + err.Error(),
+			SuggestedAction: "Verify `ONLAVA_AGENT_HOME` or the current user's home directory if local state inspection fails.",
+		}}
+	}
+	home = filepath.Clean(home)
+	return []doctorCheck{
+		doctorPathSizeCheck(ctx, "storage.onlava_home", "Onlava home size", home, "Onlava home"),
+		doctorPathSizeCheck(ctx, "storage.neon_database", "Neon database storage size", filepath.Join(home, "agent", "substrates", "neon", "data"), "Neon database storage"),
+	}
+}
+
+func doctorPathSizeCheck(ctx context.Context, id, name, path, label string) doctorCheck {
+	check := doctorCheck{
+		ID:       id,
+		Category: "storage",
+		Name:     name,
+		Status:   doctorStatusOK,
+		Severity: doctorSeverityInformational,
+		Observed: map[string]any{"path": path},
+	}
+	sizeCtx, cancel := context.WithTimeout(ctx, doctorSizeWalkTimeout)
+	usage, err := doctorPathSize(sizeCtx, path)
+	cancel()
+	if errors.Is(err, os.ErrNotExist) {
+		check.Status = doctorStatusSkipped
+		check.Message = label + " is not present at " + path
+		return check
+	}
+	if err != nil {
+		check.Status = doctorStatusSkipped
+		check.Message = label + " size could not be determined for " + path + ": " + err.Error()
+		check.SuggestedAction = "Inspect the path manually if local state appears unexpectedly large."
+		return check
+	}
+	check.Message = fmt.Sprintf("%s at %s", humanBytes(usage.SizeBytes), usage.Path)
+	check.Observed["path"] = usage.Path
+	check.Observed["size_bytes"] = usage.SizeBytes
+	check.Observed["file_count"] = usage.FileCount
+	check.Observed["dir_count"] = usage.DirCount
+	return check
+}
+
+func doctorPathSize(ctx context.Context, path string) (doctorPathSizeInfo, error) {
+	path = filepath.Clean(path)
+	if err := ctx.Err(); err != nil {
+		return doctorPathSizeInfo{}, err
+	}
+	rootInfo, err := os.Lstat(path)
+	if err != nil {
+		return doctorPathSizeInfo{}, err
+	}
+	usage := doctorPathSizeInfo{Path: path}
+	if !rootInfo.IsDir() {
+		if rootInfo.Size() > 0 {
+			usage.SizeBytes = uint64(rootInfo.Size())
+		}
+		usage.FileCount = 1
+		return usage, nil
+	}
+	err = filepath.WalkDir(path, func(_ string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			usage.DirCount++
+		} else {
+			usage.FileCount++
+			if info.Size() > 0 {
+				usage.SizeBytes += uint64(info.Size())
+			}
+		}
+		return nil
+	})
+	return usage, err
+}
+
 func doctorFeatures(cfg appcfg.Config, app *doctorAppInfo) doctorAppFeatures {
 	if app == nil {
 		return doctorAppFeatures{}
@@ -603,33 +717,6 @@ func doctorDependencyChecks(ctx context.Context, deps doctorProbeDeps, features 
 			SuggestedAction: "Install Bun when working on dashboard UI, managed frontends, benchmarks, or TypeScript workers.",
 		},
 		{
-			ID:              "tool.psql",
-			Name:            "psql",
-			Command:         "psql",
-			VersionArgs:     []string{"--version"},
-			Relevant:        true,
-			MissingMessage:  "psql not found; only needed for `onlava db psql` and manual database shell workflows",
-			SuggestedAction: "Install PostgreSQL client tools if you need database shell access.",
-		},
-		{
-			ID:              "tool.pg_dump",
-			Name:            "pg_dump",
-			Command:         "pg_dump",
-			VersionArgs:     []string{"--version"},
-			Relevant:        true,
-			MissingMessage:  "pg_dump not found; only needed for database snapshot create flows",
-			SuggestedAction: "Install PostgreSQL client tools if you need `onlava db snapshot create`.",
-		},
-		{
-			ID:              "tool.docker",
-			Name:            "Docker",
-			Command:         "docker",
-			VersionArgs:     []string{"--version"},
-			Relevant:        true,
-			MissingMessage:  dockerMissingMessage(features),
-			SuggestedAction: "Install Docker or configure non-Docker dev services when image-backed local services are needed.",
-		},
-		{
 			ID:              "tool.atlas",
 			Name:            "Atlas",
 			Command:         "atlas",
@@ -685,13 +772,6 @@ func bunMissingMessage(features doctorAppFeatures, appFound bool) string {
 		return "bun not found; optional unless you work on dashboard UI, benchmarks, TypeScript workers, or TypeScript code tasks"
 	}
 	return "bun not found; this app may need it for " + strings.Join(uses, ", ")
-}
-
-func dockerMissingMessage(features doctorAppFeatures) string {
-	if features.DockerRelevant {
-		return "docker not found; this app has Docker-backed dev service or generator configuration"
-	}
-	return "docker not found; optional unless you use image-backed dev services or Docker-backed generator URLs"
 }
 
 func doctorToolCheck(ctx context.Context, deps doctorProbeDeps, spec doctorToolSpec) doctorCheck {
@@ -766,6 +846,127 @@ func doctorToolCheck(ctx context.Context, deps doctorProbeDeps, spec doctorToolS
 		}
 	}
 	return check
+}
+
+func doctorDockerChecks(ctx context.Context, deps doctorProbeDeps) []doctorCheck {
+	path, err := deps.LookPath("docker")
+	if err != nil {
+		return []doctorCheck{{
+			ID:              "docker.engine",
+			Category:        "dependency",
+			Name:            "Docker engine",
+			Status:          doctorStatusWarn,
+			Severity:        doctorSeverityOptional,
+			Message:         "Docker CLI was not found; Docker engine cannot be probed",
+			SuggestedAction: "Install Docker or configure non-Docker dev services when image-backed local services are needed.",
+			Observed:        map[string]any{"command": "docker"},
+		}}
+	}
+	return []doctorCheck{
+		doctorDockerContextCheck(ctx, deps, path),
+		doctorDockerEngineCheck(ctx, deps, path),
+	}
+}
+
+func doctorDockerContextCheck(ctx context.Context, deps doctorProbeDeps, path string) doctorCheck {
+	check := doctorCheck{
+		ID:       "docker.context",
+		Category: "dependency",
+		Name:     "Docker context",
+		Status:   doctorStatusOK,
+		Severity: doctorSeverityInformational,
+		Message:  "Docker context is selected",
+		Observed: map[string]any{"command": "docker", "path": path},
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, doctorCommandTimeout)
+	out, err := deps.RunCommand(cmdCtx, path, "context", "show")
+	cancel()
+	contextName := strings.TrimSpace(string(out))
+	if contextName != "" {
+		check.Observed["context"] = contextName
+	}
+	if err != nil {
+		check.Status = doctorStatusWarn
+		check.Severity = doctorSeverityOptional
+		check.Message = "Docker CLI was found, but the current Docker context could not be determined"
+		check.SuggestedAction = "Run `docker context show` manually and fix Docker context configuration if it fails."
+		if contextName != "" {
+			check.Observed["error_output"] = contextName
+		}
+		return check
+	}
+	if contextName != "" {
+		check.Message = "Docker context " + contextName + " is selected"
+	}
+	return check
+}
+
+func doctorDockerEngineCheck(ctx context.Context, deps doctorProbeDeps, path string) doctorCheck {
+	check := doctorCheck{
+		ID:       "docker.engine",
+		Category: "dependency",
+		Name:     "Docker engine",
+		Status:   doctorStatusOK,
+		Severity: doctorSeverityOptional,
+		Message:  "Docker engine is reachable",
+		Observed: map[string]any{"command": "docker", "path": path},
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, doctorCommandTimeout)
+	infoOut, infoErr := deps.RunCommand(cmdCtx, path, "info", "--format", "{{json .}}")
+	cancel()
+	if infoErr != nil {
+		output := strings.TrimSpace(string(infoOut))
+		check.Status = doctorStatusWarn
+		check.Message = "Docker CLI was found, but the Docker engine is not reachable"
+		check.SuggestedAction = "Start Docker Desktop or the Docker daemon, then rerun `onlava doctor --json`."
+		if output != "" {
+			check.Observed["error_output"] = output
+		}
+		return check
+	}
+	info := map[string]any{}
+	if err := json.Unmarshal(bytes.TrimSpace(infoOut), &info); err != nil {
+		output := strings.TrimSpace(string(infoOut))
+		check.Status = doctorStatusWarn
+		check.Message = "Docker engine responded, but engine details could not be parsed"
+		check.SuggestedAction = "Run `docker info --format '{{json .}}'` manually and check the output."
+		if output != "" {
+			check.Observed["raw_output"] = output
+		}
+		return check
+	}
+	for source, target := range map[string]string{
+		"ServerVersion":   "server_version",
+		"OperatingSystem": "operating_system",
+		"OSType":          "os_type",
+		"Architecture":    "architecture",
+		"NCPU":            "cpus",
+		"MemTotal":        "memory_bytes",
+		"DockerRootDir":   "docker_root_dir",
+		"Driver":          "storage_driver",
+		"CgroupVersion":   "cgroup_version",
+		"KernelVersion":   "kernel_version",
+		"Name":            "name",
+	} {
+		if value, ok := info[source]; ok && !doctorEmptyObservedValue(value) {
+			check.Observed[target] = value
+		}
+	}
+	if version, _ := check.Observed["server_version"].(string); version != "" {
+		check.Message = "Docker Engine " + version + " is reachable"
+	}
+	return check
+}
+
+func doctorEmptyObservedValue(value any) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(v) == ""
+	default:
+		return false
+	}
 }
 
 type doctorGoVersion struct {

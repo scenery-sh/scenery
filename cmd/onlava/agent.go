@@ -42,6 +42,20 @@ type downOptions struct {
 	DB        bool
 	State     bool
 	All       bool
+	JSON      bool
+}
+
+type downResponse struct {
+	SchemaVersion        string   `json:"schema_version"`
+	SessionID            string   `json:"session_id"`
+	AppRoot              string   `json:"app_root,omitempty"`
+	Deleted              bool     `json:"deleted"`
+	RecordPreserved      bool     `json:"record_preserved"`
+	DBCleanup            bool     `json:"db_cleanup"`
+	StateCleanup         bool     `json:"state_cleanup"`
+	StateRootRemoved     string   `json:"state_root_removed,omitempty"`
+	NeonBranchPinRemoved bool     `json:"neon_branch_pin_removed"`
+	Messages             []string `json:"messages,omitempty"`
 }
 
 type pruneOptions struct {
@@ -525,8 +539,21 @@ func downCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	resp := downResponse{
+		SchemaVersion: "onlava.down.v1",
+		SessionID:     firstNonEmpty(deletedSession.SessionID, session.SessionID),
+		AppRoot:       appRoot,
+		Deleted:       deleted,
+		DBCleanup:     opts.DB,
+		StateCleanup:  opts.State,
+	}
 	if !deleted {
-		fmt.Fprintf(os.Stdout, "stopped onlava session %s processes; preserved active session record because the owner changed\n", session.SessionID)
+		resp.RecordPreserved = true
+		resp.Messages = append(resp.Messages, fmt.Sprintf("stopped onlava session %s processes; preserved active session record because the owner changed", session.SessionID))
+		if opts.JSON {
+			return writeDownJSON(os.Stdout, resp)
+		}
+		fmt.Fprintln(os.Stdout, resp.Messages[0])
 		return nil
 	}
 	if opts.DB {
@@ -534,23 +561,47 @@ func downCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stdout, message)
+		resp.Messages = append(resp.Messages, message)
+		if !opts.JSON {
+			fmt.Fprintln(os.Stdout, message)
+		}
 	}
 	if opts.State {
 		if err := removeSessionStateRoot(deletedSession); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stdout, "removed onlava session state %s\n", deletedSession.StateRoot)
+		resp.StateRootRemoved = deletedSession.StateRoot
+		stateMessage := fmt.Sprintf("removed onlava session state %s", deletedSession.StateRoot)
+		resp.Messages = append(resp.Messages, stateMessage)
+		if !opts.JSON {
+			fmt.Fprintln(os.Stdout, stateMessage)
+		}
 		removedPin, err := removeNeonWorktreeDBPinForSession(appRoot, deletedSession)
 		if err != nil {
 			return err
 		}
 		if removedPin {
-			fmt.Fprintf(os.Stdout, "removed onlava Neon branch pin for session %s\n", deletedSession.SessionID)
+			resp.NeonBranchPinRemoved = true
+			pinMessage := fmt.Sprintf("removed onlava Neon branch pin for session %s", deletedSession.SessionID)
+			resp.Messages = append(resp.Messages, pinMessage)
+			if !opts.JSON {
+				fmt.Fprintln(os.Stdout, pinMessage)
+			}
 		}
 	}
-	fmt.Fprintf(os.Stdout, "stopped onlava session %s\n", deletedSession.SessionID)
+	stopMessage := fmt.Sprintf("stopped onlava session %s", deletedSession.SessionID)
+	resp.Messages = append(resp.Messages, stopMessage)
+	if opts.JSON {
+		return writeDownJSON(os.Stdout, resp)
+	}
+	fmt.Fprintln(os.Stdout, stopMessage)
 	return nil
+}
+
+func writeDownJSON(w io.Writer, resp downResponse) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(resp)
 }
 
 func deleteStoppedSessionRecord(ctx context.Context, client *localagent.Client, session localagent.Session) (localagent.Session, bool, error) {
@@ -659,6 +710,8 @@ func parseDownArgs(args []string) (downOptions, error) {
 			opts.State = true
 		case "--all":
 			opts.All = true
+		case "--json":
+			opts.JSON = true
 		default:
 			return downOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}

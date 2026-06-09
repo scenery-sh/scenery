@@ -242,8 +242,9 @@ var helpCommands = []helpCommandEntry{
 		Command:   "down",
 		Group:     "Local session",
 		Summary:   "Stop a local session.",
-		Usage:     []string{"onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all]"},
-		Flags:     []string{"--app-root <path>", "--session <id>", "--db", "--state", "--all"},
+		Usage:     []string{"onlava down [--app-root <path>] [--session <id>] [--db] [--state] [--all] [--json]"},
+		Flags:     []string{"--app-root <path>", "--session <id>", "--db", "--state", "--all", "--json"},
+		JSON:      true,
 		Stability: "stable",
 	},
 	{
