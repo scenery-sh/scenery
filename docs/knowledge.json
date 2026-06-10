@@ -491,6 +491,26 @@
       ]
     },
     {
+      "path": "docs/plans/0073-pg18-default-neon-selfhost.md",
+      "title": "PostgreSQL 18 Default Neon Selfhost",
+      "owner": "onlava runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-10",
+      "review_after": "2026-07-10",
+      "summary": "Active ExecPlan for making self-hosted Neon-backed Onlava apps run through the existing app-facing surface while moving internal storage and compute plumbing to PostgreSQL 18 by default on stable upstream Neon refs.",
+      "tags": [
+        "plans",
+        "execplans",
+        "database",
+        "neon",
+        "postgres",
+        "toolchain",
+        "agents"
+      ]
+    },
+    {
       "path": "docs/plans/0065-onlava-managed-neon-dev-cell.md",
       "title": "Onlava-Managed Neon Dev Cell and Branch Isolation",
       "owner": "onlava runtime / agent DX",

@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0073 PostgreSQL 18 Default Neon Selfhost](0073-pg18-default-neon-selfhost.md)
+  - Status: active
+  - Owner: onlava runtime / agent DX
+  - Created: 2026-06-10
+  - Focus: make self-hosted Neon apps run through the same Onlava surface as today while moving the internal storage and compute stack to PostgreSQL 18 by default on stable upstream Neon refs.
 - [0064 Agent-First Development Control Plane](0064-agent-first-development-control-plane.md)
   - Status: active
   - Owner: onlava maintainers / agent DX
