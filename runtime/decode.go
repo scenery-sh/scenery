@@ -169,7 +169,7 @@ func assignStrings(field reflect.Value, values []string) error {
 	}
 
 	if field.CanAddr() {
-		if unmarshaler, ok := field.Addr().Interface().(encoding.TextUnmarshaler); ok {
+		if unmarshaler, ok := reflect.TypeAssert[encoding.TextUnmarshaler](field.Addr()); ok {
 			return unmarshaler.UnmarshalText([]byte(values[0]))
 		}
 	}
@@ -232,7 +232,7 @@ func maybeValidate(value any) error {
 	}
 	rv := reflect.ValueOf(value)
 	if rv.Kind() == reflect.Pointer && !rv.IsNil() {
-		if v, ok := rv.Elem().Interface().(validator); ok {
+		if v, ok := reflect.TypeAssert[validator](rv.Elem()); ok {
 			return normalizeValidationError(v.Validate())
 		}
 	}

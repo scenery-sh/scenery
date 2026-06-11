@@ -5,54 +5,51 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"scenery.sh/runtime/shared"
 )
 
 func TestInitializeServicesRunsInParallel(t *testing.T) {
-	restore := replaceGlobalRegistryForTest()
-	defer restore()
+	synctest.Test(t, func(t *testing.T) {
+		restore := replaceGlobalRegistryForTest()
+		defer restore()
 
-	started := make(chan string, 2)
-	release := make(chan struct{})
-	var done sync.WaitGroup
-	done.Add(1)
-	errCh := make(chan error, 1)
+		started := make(chan string, 2)
+		release := make(chan struct{})
+		var releaseOnce sync.Once
+		defer releaseOnce.Do(func() { close(release) })
+		errCh := make(chan error, 1)
 
-	blockingInit := func(name string) func() error {
-		return func() error {
-			started <- name
-			<-release
-			return nil
+		blockingInit := func(name string) func() error {
+			return func() error {
+				started <- name
+				<-release
+				return nil
+			}
 		}
-	}
-	RegisterServiceInitializer("zeta", blockingInit("zeta"))
-	RegisterServiceInitializer("alpha", blockingInit("alpha"))
+		RegisterServiceInitializer("zeta", blockingInit("zeta"))
+		RegisterServiceInitializer("alpha", blockingInit("alpha"))
 
-	go func() {
-		defer done.Done()
-		errCh <- InitializeServices()
-	}()
+		go func() {
+			errCh <- InitializeServices()
+		}()
 
-	seen := map[string]bool{}
-	for len(seen) < 2 {
-		select {
-		case name := <-started:
+		synctest.Wait()
+		seen := map[string]bool{}
+		for len(started) > 0 {
+			name := <-started
 			seen[name] = true
-		case <-time.After(2 * time.Second):
-			t.Fatalf("timed out waiting for service initializers to start; saw %v", seen)
 		}
-	}
-	close(release)
-	done.Wait()
+		if !seen["alpha"] || !seen["zeta"] {
+			t.Fatalf("InitializeServices() started = %v, want both services", seen)
+		}
 
-	if err := <-errCh; err != nil {
-		t.Fatalf("InitializeServices() error = %v", err)
-	}
-	if !seen["alpha"] || !seen["zeta"] {
-		t.Fatalf("InitializeServices() started = %v, want both services", seen)
-	}
+		releaseOnce.Do(func() { close(release) })
+		if err := <-errCh; err != nil {
+			t.Fatalf("InitializeServices() error = %v", err)
+		}
+	})
 }
 
 func TestInitializeServicesPropagatesErrors(t *testing.T) {

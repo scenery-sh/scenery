@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -78,6 +79,57 @@ func TestDevManagedProcessWaitReadySucceedsWhenProbePasses(t *testing.T) {
 	}
 }
 
+func TestDevManagedProcessWaitReadyProbeUsesFakeTicker(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		process := &devManagedProcess{
+			Name:       "web",
+			Kind:       "frontend",
+			Tail:       &safeLineTail{limit: 10},
+			done:       make(chan struct{}),
+			outputDone: make(chan struct{}),
+		}
+		var calls int
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- process.WaitReady(context.Background(), devProcessReadyRequest{
+				Timeout:  5 * time.Second,
+				Interval: 50 * time.Millisecond,
+				Probe: func(context.Context) error {
+					calls++
+					if calls < 3 {
+						return os.ErrNotExist
+					}
+					return nil
+				},
+			})
+		}()
+
+		synctest.Wait()
+		if calls != 0 {
+			t.Fatalf("probe calls before first tick = %d, want 0", calls)
+		}
+		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
+		if calls != 1 {
+			t.Fatalf("probe calls after first tick = %d, want 1", calls)
+		}
+		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
+		if calls != 2 {
+			t.Fatalf("probe calls after second tick = %d, want 2", calls)
+		}
+		time.Sleep(50 * time.Millisecond)
+		if err := <-errCh; err != nil {
+			t.Fatalf("WaitReady returned error: %v", err)
+		}
+		if calls != 3 {
+			t.Fatalf("probe calls after success = %d, want 3", calls)
+		}
+	})
+}
+
 func TestDevManagedProcessStopIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -96,6 +148,41 @@ func TestDevManagedProcessStopIsIdempotent(t *testing.T) {
 	if err := process.Stop(100 * time.Millisecond); err != nil {
 		t.Fatalf("second Stop returned error: %v", err)
 	}
+}
+
+func TestDevManagedProcessWaitReadyTimeoutUsesFakeDeadline(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		process := &devManagedProcess{
+			Name:       "web",
+			Kind:       "frontend",
+			Tail:       &safeLineTail{limit: 10},
+			done:       make(chan struct{}),
+			outputDone: make(chan struct{}),
+		}
+		process.Tail.Add("still-starting")
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- process.WaitReady(context.Background(), devProcessReadyRequest{
+				Timeout:  100 * time.Millisecond,
+				Interval: 25 * time.Millisecond,
+				Probe: func(context.Context) error {
+					return os.ErrNotExist
+				},
+			})
+		}()
+
+		synctest.Wait()
+		time.Sleep(100 * time.Millisecond)
+		err := <-errCh
+		if err == nil {
+			t.Fatal("WaitReady returned nil, want timeout")
+		}
+		if got := err.Error(); !strings.Contains(got, "file does not exist") || !strings.Contains(got, "still-starting") {
+			t.Fatalf("WaitReady error = %q, want last probe and output tail", got)
+		}
+	})
 }
 
 func TestDevManagedProcessStartupTimeoutIncludesLastProbeAndTail(t *testing.T) {

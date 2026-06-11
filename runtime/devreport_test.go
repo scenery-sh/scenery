@@ -6,9 +6,11 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"scenery.sh/internal/devreport"
@@ -16,34 +18,39 @@ import (
 )
 
 func TestDevReporterDisablesOnConnectionRefused(t *testing.T) {
-	reporter := &devReporter{
-		appID: "app",
-		url:   "http://127.0.0.1:9401/__scenery/report",
-		token: "token",
-		client: &http.Client{
-			Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-				return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
-			}),
-		},
-		queue: make(chan devreport.ReportEnvelope, 4),
-		done:  make(chan struct{}),
-		stop:  make(chan struct{}),
-	}
+	synctest.Test(t, func(t *testing.T) {
+		reporter := &devReporter{
+			appID: "app",
+			url:   "http://127.0.0.1:9401/__scenery/report",
+			token: "token",
+			client: &http.Client{
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+				}),
+			},
+			queue: make(chan devreport.ReportEnvelope, 4),
+			done:  make(chan struct{}),
+			stop:  make(chan struct{}),
+		}
+		var stopOnce sync.Once
+		t.Cleanup(func() { stopOnce.Do(func() { close(reporter.stop) }) })
 
-	go reporter.loop()
-	reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+		go reporter.loop()
+		reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+		synctest.Wait()
 
-	select {
-	case <-reporter.done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("reporter loop did not stop after connection refused")
-	}
+		select {
+		case <-reporter.done:
+		default:
+			t.Fatal("reporter loop did not stop after connection refused")
+		}
 
-	if !reporter.disabled.Load() {
-		t.Fatal("reporter should be disabled after connection refused")
-	}
+		if !reporter.disabled.Load() {
+			t.Fatal("reporter should be disabled after connection refused")
+		}
 
-	reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+		reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+	})
 }
 
 func TestDevReporterAddsSessionIdentity(t *testing.T) {
@@ -95,43 +102,49 @@ func TestDevReportBackoffDelay(t *testing.T) {
 }
 
 func TestDevReporterBacksOffAfterFailedPost(t *testing.T) {
-	var calls atomic.Int64
-	reporter := &devReporter{
-		appID: "app",
-		url:   "http://dashboard.test/__scenery/report",
-		token: "token",
-		client: &http.Client{
-			Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-				calls.Add(1)
-				return &http.Response{
-					StatusCode: http.StatusUnauthorized,
-					Status:     "401 Unauthorized",
-					Body:       io.NopCloser(strings.NewReader("unauthorized")),
-				}, nil
-			}),
-		},
-		queue: make(chan devreport.ReportEnvelope, 4),
-		done:  make(chan struct{}),
-		stop:  make(chan struct{}),
-	}
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int64
+		reporter := &devReporter{
+			appID: "app",
+			url:   "http://dashboard.test/__scenery/report",
+			token: "token",
+			client: &http.Client{
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					calls.Add(1)
+					return &http.Response{
+						StatusCode: http.StatusUnauthorized,
+						Status:     "401 Unauthorized",
+						Body:       io.NopCloser(strings.NewReader("unauthorized")),
+					}, nil
+				}),
+			},
+			queue: make(chan devreport.ReportEnvelope, 4),
+			done:  make(chan struct{}),
+			stop:  make(chan struct{}),
+		}
+		var stopOnce sync.Once
+		t.Cleanup(func() { stopOnce.Do(func() { close(reporter.stop) }) })
 
-	go reporter.loop()
-	reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
-	reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+		go reporter.loop()
+		reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+		reporter.enqueue(devreport.ReportEnvelope{Type: "trace-event"})
+		synctest.Wait()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && calls.Load() < 2 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	close(reporter.stop)
-	<-reporter.done
+		if got := calls.Load(); got != 1 {
+			t.Fatalf("post calls before backoff = %d, want 1", got)
+		}
+		time.Sleep(100 * time.Millisecond)
+		synctest.Wait()
+		stopOnce.Do(func() { close(reporter.stop) })
+		<-reporter.done
 
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("post calls = %d, want 2", got)
-	}
-	if reporter.failures.Load() != 2 {
-		t.Fatalf("failures = %d, want 2", reporter.failures.Load())
-	}
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("post calls = %d, want 2", got)
+		}
+		if reporter.failures.Load() != 2 {
+			t.Fatalf("failures = %d, want 2", reporter.failures.Load())
+		}
+	})
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

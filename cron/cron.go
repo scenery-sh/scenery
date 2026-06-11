@@ -125,7 +125,8 @@ func makeInvoker(endpoint any) (func(context.Context) error, error) {
 		if errValue.IsNil() {
 			return nil
 		}
-		return errValue.Interface().(error)
+		err, _ := reflect.TypeAssert[error](errValue)
+		return err
 	}, nil
 }
 

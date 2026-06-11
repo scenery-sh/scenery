@@ -202,7 +202,7 @@ func formatHeaderValue(value reflect.Value) string {
 		return formatHeaderValue(value.Elem())
 	}
 	if value.CanInterface() {
-		if marshaler, ok := value.Interface().(encoding.TextMarshaler); ok {
+		if marshaler, ok := reflect.TypeAssert[encoding.TextMarshaler](value); ok {
 			data, err := marshaler.MarshalText()
 			if err == nil {
 				return string(data)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"scenery.sh/internal/devdash"
@@ -12,31 +13,36 @@ import (
 func TestDashboardNotifyDoesNotBlockOnSlowClient(t *testing.T) {
 	t.Parallel()
 
-	server := newTestDashboardServer(t)
-	conn := newBlockingDashboardConn(nil)
-	server.addClient(conn)
+	synctest.Test(t, func(t *testing.T) {
+		server := newTestDashboardServer(t)
+		conn := newBlockingDashboardConn(nil)
+		var releaseOnce sync.Once
+		t.Cleanup(func() { releaseOnce.Do(func() { close(conn.release) }) })
+		server.addClient(conn)
 
-	done := make(chan struct{})
-	go func() {
-		server.notify(&devdash.Notification{
-			Method: "trace/new",
-			Params: map[string]any{"trace_id": "trace-1"},
-		})
-		close(done)
-	}()
+		done := make(chan struct{})
+		go func() {
+			server.notify(&devdash.Notification{
+				Method: "trace/new",
+				Params: map[string]any{"trace_id": "trace-1"},
+			})
+			close(done)
+		}()
+		synctest.Wait()
 
-	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("notify blocked on slow websocket client")
-	}
+		select {
+		case <-done:
+		default:
+			t.Fatal("notify blocked on slow websocket client")
+		}
 
-	select {
-	case <-conn.writeStarted:
-	case <-time.After(time.Second):
-		t.Fatal("notification write did not start")
-	}
-	close(conn.release)
+		select {
+		case <-conn.writeStarted:
+		default:
+			t.Fatal("notification write did not start")
+		}
+		releaseOnce.Do(func() { close(conn.release) })
+	})
 }
 
 func TestDashboardClientWriteJSONUsesDeadline(t *testing.T) {

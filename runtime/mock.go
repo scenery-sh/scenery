@@ -156,7 +156,8 @@ func compileServiceMock(mock any) (reflect.Type, func() (any, error), error) {
 	return typ, func() (any, error) {
 		out := rv.Call(nil)
 		if len(out) == 2 && !out[1].IsNil() {
-			return nil, out[1].Interface().(error)
+			err, _ := reflect.TypeAssert[error](out[1])
+			return nil, err
 		}
 		if isNilableValue(out[0]) && out[0].IsNil() {
 			return nil, nil
@@ -219,13 +220,14 @@ func callTypedMock(mock any, ep *Endpoint, ctx context.Context, pathArgs []any, 
 	switch len(out) {
 	case 1:
 		if !out[0].IsNil() {
-			return nil, out[0].Interface().(error)
+			err, _ := reflect.TypeAssert[error](out[0])
+			return nil, err
 		}
 		return nil, nil
 	case 2:
 		var err error
 		if !out[1].IsNil() {
-			err = out[1].Interface().(error)
+			err, _ = reflect.TypeAssert[error](out[1])
 		}
 		if isNilableValue(out[0]) && out[0].IsNil() {
 			return nil, err
