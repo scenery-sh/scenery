@@ -19,6 +19,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
 )
 
@@ -668,8 +669,7 @@ func appHasTypeScriptTasks(root string) bool {
 			return nil
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", ".scenery", "node_modules", "dist", "out":
+			if appwalk.SkipDir(root, path) {
 				return filepath.SkipDir
 			}
 			return nil

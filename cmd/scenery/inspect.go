@@ -15,6 +15,7 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
@@ -450,20 +451,17 @@ func inspectAppModelCacheKey(appRoot, appName string) (string, error) {
 		if err != nil {
 			return err
 		}
+		if d.IsDir() {
+			if appwalk.SkipDir(appRoot, path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		rel, err := filepath.Rel(appRoot, path)
 		if err != nil {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			switch rel {
-			case ".":
-				return nil
-			case ".scenery", "node_modules", "dist", "out":
-				return filepath.SkipDir
-			}
-			return nil
-		}
 		switch {
 		case rel == ".scenery.json", rel == "go.mod", rel == "go.sum", strings.HasSuffix(rel, ".go"):
 		default:

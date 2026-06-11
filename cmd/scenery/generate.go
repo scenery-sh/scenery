@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 )
@@ -525,7 +526,7 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan) [
 	entries, err := os.ReadDir(appRoot)
 	if err == nil {
 		for _, entry := range entries {
-			if !entry.IsDir() || skipDBArtifactServiceDir(entry.Name()) {
+			if !entry.IsDir() || skipDBArtifactServiceDir(appRoot, entry.Name()) {
 				continue
 			}
 			service := entry.Name()
@@ -564,13 +565,17 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan) [
 	return records
 }
 
-func skipDBArtifactServiceDir(name string) bool {
+// skipDBArtifactServiceDir keeps service-listing-specific skips ("ui" and any
+// dot directory) on top of the shared appwalk policy.
+func skipDBArtifactServiceDir(appRoot, name string) bool {
 	switch name {
-	case "", ".", "..", ".git", ".scenery", "node_modules", "ui":
+	case "", ".", "..", "ui":
 		return true
-	default:
-		return strings.HasPrefix(name, ".")
 	}
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	return appwalk.SkipDir(appRoot, filepath.Join(appRoot, name))
 }
 
 func serviceNameForDBArtifact(path string) string {
