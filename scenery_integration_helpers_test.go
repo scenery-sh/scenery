@@ -67,18 +67,55 @@ func buildSceneryBinaryForRepo(repo string) (string, error) {
 	if path, ok := freshInstalledSceneryBinary(repo); ok {
 		return path, nil
 	}
-	binDir, err := os.MkdirTemp("", "scenery-test-bin-*")
+	binDir, fingerprint, err := sceneryBinaryCacheDir(repo)
 	if err != nil {
-		return "", err
+		// Fall back to an uncached temp build.
+		binDir, err = os.MkdirTemp("", "scenery-test-bin-*")
+		if err != nil {
+			return "", err
+		}
+		fingerprint = ""
 	}
 	binPath := filepath.Join(binDir, "scenery")
+	marker := filepath.Join(binDir, "scenery.fingerprint")
+	if fingerprint != "" {
+		if data, err := os.ReadFile(marker); err == nil && strings.TrimSpace(string(data)) == fingerprint {
+			if info, err := os.Stat(binPath); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				return binPath, nil
+			}
+		}
+		_ = os.Remove(marker)
+	}
 	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/scenery")
 	cmd.Dir = repo
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("build scenery binary: %w\n%s", err, output)
 	}
+	if fingerprint != "" {
+		_ = os.WriteFile(marker, []byte(fingerprint+"\n"), 0o644)
+	}
 	return binPath, nil
+}
+
+// sceneryBinaryCacheDir returns a per-repo cache directory for the shared
+// scenery test binary plus the current source fingerprint, so unchanged
+// sources skip the relink on every test run.
+func sceneryBinaryCacheDir(repo string) (string, string, error) {
+	fingerprint, err := integrationSourceFingerprint(repo)
+	if err != nil {
+		return "", "", err
+	}
+	userCache, err := os.UserCacheDir()
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256([]byte(repo))
+	dir := filepath.Join(userCache, "scenery", "integration-test", hex.EncodeToString(sum[:8]), "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", err
+	}
+	return dir, fingerprint, nil
 }
 
 func freshInstalledSceneryBinary(repo string) (string, bool) {

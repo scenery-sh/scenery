@@ -20,8 +20,8 @@ import (
 )
 
 type RunOptions struct {
-	// Home overrides the agent home directory. When empty, the
-	// SCENERY_AGENT_HOME environment variable (or the user home) is used.
+	// Home overrides the agent home directory; when empty, the home is
+	// resolved from the environment (see DefaultPaths).
 	Home             string
 	SocketPath       string
 	RouterAddr       string

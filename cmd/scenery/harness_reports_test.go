@@ -329,6 +329,8 @@ func TestBuildHarnessEmbedReportChecksBinaryFreshnessCoverage(t *testing.T) {
 }
 
 func TestBuildHarnessFixtureMatrixReport(t *testing.T) {
+	t.Parallel()
+
 	useFakeBuildGoRunner(t)
 
 	root := t.TempDir()

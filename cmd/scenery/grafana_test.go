@@ -31,6 +31,8 @@ func TestGrafanaDevMode(t *testing.T) {
 }
 
 func TestGrafanaConfigDefaults(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	stack := fakeVictoriaStack()
 	cfg := newGrafanaConfig(root, stack, "")
@@ -55,6 +57,8 @@ func TestGrafanaConfigDefaults(t *testing.T) {
 }
 
 func TestGrafanaConfigForRootUsesProvidedRoot(t *testing.T) {
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "agent", "grafana")
 	cfg := newGrafanaConfigForRoot(root, fakeVictoriaStack(), "")
 	if cfg.RootDir != root {
@@ -66,6 +70,8 @@ func TestGrafanaConfigForRootUsesProvidedRoot(t *testing.T) {
 }
 
 func TestRenderGrafanaProvisioning(t *testing.T) {
+	t.Parallel()
+
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "https://grafana.acme.localhost")
 	ini, err := renderGrafanaINI(cfg)
 	if err != nil {
@@ -100,6 +106,8 @@ func TestRenderGrafanaProvisioning(t *testing.T) {
 }
 
 func TestWriteGrafanaProvisioning(t *testing.T) {
+	t.Parallel()
+
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	if err := writeGrafanaProvisioning(context.Background(), cfg); err != nil {
 		t.Fatal(err)
@@ -120,6 +128,8 @@ func TestWriteGrafanaProvisioning(t *testing.T) {
 }
 
 func TestGrafanaDashboardsUseExportedRequestMetric(t *testing.T) {
+	t.Parallel()
+
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	files := grafanaDashboardFiles(cfg)
 	overview := string(files["scenery-overview.json"])
@@ -150,6 +160,8 @@ func TestGrafanaDashboardsUseExportedRequestMetric(t *testing.T) {
 }
 
 func TestDownloadedGrafanaBinaryRequiresConfiguredVersion(t *testing.T) {
+	t.Parallel()
+
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	oldPath := filepath.Join(cfg.RootDir, "home", "grafana-12.2.1", "bin", "grafana")
 	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
@@ -225,6 +237,8 @@ func currentPlatformDirForTest() string {
 }
 
 func TestGrafanaChildEnvFiltersGFOverrides(t *testing.T) {
+	t.Parallel()
+
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "https://grafana.acme.localhost")
 	env := grafanaChildEnv([]string{
 		"PATH=/bin",
@@ -248,6 +262,8 @@ func TestGrafanaChildEnvFiltersGFOverrides(t *testing.T) {
 }
 
 func TestGrafanaChecksumFromResponseAcceptsGrafanaDistNames(t *testing.T) {
+	t.Parallel()
+
 	body := "16ab83288e2a95f661d1234d0ecac0e2cfc2fa5a7209b0977bbe8a5b4940c67e  dist/grafana_13.0.1+security-01_25720641773_darwin_arm64.tar.gz\n"
 	got := grafanaChecksumFromResponse(body, "grafana-13.0.1+security-01.darwin-arm64.tar.gz")
 	if got != "16ab83288e2a95f661d1234d0ecac0e2cfc2fa5a7209b0977bbe8a5b4940c67e" {
@@ -393,6 +409,8 @@ func TestStartGrafanaTreatsNonGrafanaHealthAsOccupied(t *testing.T) {
 }
 
 func TestGrafanaStateIncludesStableLinks(t *testing.T) {
+	t.Parallel()
+
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	state := grafanaState(cfg, "ready", "")
 	if !state.Available || !state.ServerReady || !state.DatasourcesReady || !state.DashboardsReady {
@@ -421,6 +439,8 @@ func TestGrafanaStateIncludesStableLinks(t *testing.T) {
 }
 
 func TestGrafanaSubstrateRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	cfg := newGrafanaConfig(t.TempDir(), fakeVictoriaStack(), "")
 	component := &grafanaComponent{cfg: cfg, state: grafanaState(cfg, "ready", "")}
 	req := component.SubstrateRequest(123)

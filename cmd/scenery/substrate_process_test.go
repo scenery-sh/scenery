@@ -10,6 +10,8 @@ import (
 )
 
 func TestOpenSubstrateLogWritersWritesSeparateFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	logs, err := openSubstrateLogWriters(root, "victoria", "traces", nil)
 	if err != nil {
@@ -36,6 +38,8 @@ func TestOpenSubstrateLogWritersWritesSeparateFiles(t *testing.T) {
 }
 
 func TestSubstrateExitRecordCapturesExitCodeAndLogPaths(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv("SCENERY_SUBSTRATE_EXIT_HELPER") == "1" {
 		os.Exit(7)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/gorilla/websocket"
 	temporalclient "go.temporal.io/sdk/client"
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/testlimit"
 	sceneryruntime "scenery.sh/runtime"
 )
 
@@ -50,30 +51,32 @@ func (o *lockedOutput) String() string {
 }
 
 func TestMain(m *testing.M) {
-	code := 0
-	if err := prebuildSceneryBinaryForSelectedTests(); err != nil {
-		fmt.Fprintf(os.Stderr, "prebuild scenery binary: %v\n", err)
-		code = 1
-	} else {
-		code = m.Run()
-	}
+	// The integration tests spend nearly all their time waiting on spawned
+	// scenery binaries and go builds, so run them all at once despite the
+	// testlimit GOMAXPROCS cap.
+	testlimit.RaiseTestParallelism(12)
+	prebuildSceneryBinaryForSelectedTests()
+	code := m.Run()
 	stopSharedTemporalDevServer()
 	os.Exit(code)
 }
 
-func prebuildSceneryBinaryForSelectedTests() error {
+// prebuildSceneryBinaryForSelectedTests warms the shared scenery binary in the
+// background so the build overlaps with tests that do not need it. Tests that
+// do need it block in buildSceneryBinary until the build completes and report
+// any build error there.
+func prebuildSceneryBinaryForSelectedTests() {
 	if !shouldPrebuildSceneryBinary() {
-		return nil
+		return
 	}
 	wd, err := os.Getwd()
 	if err != nil {
-		return err
+		return
 	}
 	repo := filepath.Clean(wd)
-	buildSceneryBinaryOnce.Do(func() {
+	go buildSceneryBinaryOnce.Do(func() {
 		buildSceneryBinaryPath, buildSceneryBinaryErr = buildSceneryBinaryForRepo(repo)
 	})
-	return buildSceneryBinaryErr
 }
 
 func shouldPrebuildSceneryBinary() bool {
@@ -806,6 +809,8 @@ func waitForIntegrationAgentPing(ctx context.Context, client *localagent.Client)
 }
 
 func TestSceneryDevDashboardNotificationsAndRoutes(t *testing.T) {
+	t.Parallel()
+
 	repo := repoRoot(t)
 	appDir, apiPath, _ := prepareMutableDevRouteApp(t, repo, "devdashboard", "devdashboard", `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","frontends":{"web":{"host":"web.acme.localhost"}}}}`)
 
@@ -815,7 +820,6 @@ func TestSceneryDevDashboardNotificationsAndRoutes(t *testing.T) {
 	cacheDir := sharedIntegrationCache(t)
 	binary := buildSceneryBinary(t, repo)
 	agentHome := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", agentHome)
 
 	frontendLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -845,10 +849,7 @@ func TestSceneryDevDashboardNotificationsAndRoutes(t *testing.T) {
 		t.Fatalf("start scenery agent: %v", err)
 	}
 	defer killSceneryProcess(t, cancel, agentCmd)
-	agentClient, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	agentClient := localagent.NewClient(localagent.PathsForHome(agentHome).SocketPath)
 	if err := waitForIntegrationAgentPing(ctx, agentClient); err != nil {
 		t.Fatal(err)
 	}

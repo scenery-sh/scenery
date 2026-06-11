@@ -47,31 +47,30 @@ func DefaultPaths() (Paths, error) {
 		}
 		home = filepath.Join(userHome, ".scenery")
 	}
-	paths := PathsForHome(home)
-	if socketPath := strings.TrimSpace(envpolicy.Get(envAgentSocket)); socketPath != "" {
-		paths.SocketPath = filepath.Clean(socketPath)
-	}
-	return paths, nil
+	return PathsForHome(home), nil
 }
 
-// PathsForHome derives the agent path layout for an explicit home directory
-// without consulting the environment.
+// PathsForHome resolves agent paths for an explicit home directory, applying
+// the same socket-path rules as DefaultPaths.
 func PathsForHome(home string) Paths {
 	home = filepath.Clean(home)
 	runDir := filepath.Join(home, "run")
 	agentDir := filepath.Join(home, "agent")
 	edgeDir := filepath.Join(agentDir, "edge")
-	socketPath := filepath.Join(runDir, "agent.sock")
-	if len(socketPath) > 100 {
-		sum := sha256.Sum256([]byte(home))
-		socketPath = filepath.Join(os.TempDir(), "scenery-agent-"+hex.EncodeToString(sum[:])[:12]+".sock")
+	socketPath := strings.TrimSpace(envpolicy.Get(envAgentSocket))
+	if socketPath == "" {
+		socketPath = filepath.Join(runDir, "agent.sock")
+		if len(socketPath) > 100 {
+			sum := sha256.Sum256([]byte(home))
+			socketPath = filepath.Join(os.TempDir(), "scenery-agent-"+hex.EncodeToString(sum[:])[:12]+".sock")
+		}
 	}
 	return Paths{
 		Home:           home,
 		RunDir:         runDir,
 		AgentDir:       agentDir,
 		EdgeDir:        edgeDir,
-		SocketPath:     socketPath,
+		SocketPath:     filepath.Clean(socketPath),
 		StatePath:      filepath.Join(runDir, "agent.json"),
 		EdgeStatePath:  filepath.Join(runDir, "edge.json"),
 		EdgeTargetPath: filepath.Join(runDir, "edge-target.json"),

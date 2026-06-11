@@ -17,6 +17,8 @@ import (
 )
 
 func TestScanWatchedFilesIncludesWatchedSourceFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 
 	writeWatchFile(t, root, ".scenery.json", `{"name":"watchapp"}`)
@@ -50,6 +52,8 @@ func TestScanWatchedFilesIncludesWatchedSourceFiles(t *testing.T) {
 }
 
 func TestScanWatchedFilesIncludesEmbeddedFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 
 	writeWatchFile(t, root, ".scenery.json", `{"name":"watchapp"}`)
@@ -85,6 +89,8 @@ var embedded []byte
 }
 
 func TestShouldIgnoreWatchPath(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		path string
 		want bool
@@ -243,6 +249,8 @@ func TestApplyWatchTimingOverridesFromEnv(t *testing.T) {
 }
 
 func TestSnapshotsEqual(t *testing.T) {
+	t.Parallel()
+
 	a := fileSnapshot{
 		"a.go": {size: 1},
 		"b.go": {size: 2},
@@ -265,6 +273,8 @@ func TestSnapshotsEqual(t *testing.T) {
 }
 
 func TestChangedPaths(t *testing.T) {
+	t.Parallel()
+
 	before := fileSnapshot{
 		"svc/added.go":   {size: 1},
 		"svc/deleted.go": {size: 2},
@@ -376,6 +386,8 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 }
 
 func TestRouteNamespaceForConfigUsesWorkspaceAndConfiguredHosts(t *testing.T) {
+	t.Parallel()
+
 	namespace := routeNamespaceForConfig(app.Config{
 		ID: "pulse",
 		Proxy: app.ProxyConfig{
@@ -413,6 +425,8 @@ func TestRouteNamespaceForConfigUsesWorkspaceAndConfiguredHosts(t *testing.T) {
 }
 
 func TestRouteNamespaceForConfigFallbacks(t *testing.T) {
+	t.Parallel()
+
 	byExplicitHost := routeNamespaceForConfig(app.Config{
 		ID: "pulse",
 		Proxy: app.ProxyConfig{
@@ -674,6 +688,8 @@ func TestPrepareDevAgentSessionRejectsLiveDuplicateOwner(t *testing.T) {
 }
 
 func TestRejectLiveDuplicateDevSessionUsesEffectiveOwnerPID(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	owner := exec.Command("sleep", "30")
 	if err := owner.Start(); err != nil {
@@ -704,6 +720,8 @@ func TestRejectLiveDuplicateDevSessionUsesEffectiveOwnerPID(t *testing.T) {
 }
 
 func TestRejectLiveDuplicateDevSessionHandlesSpaceyAppRoots(t *testing.T) {
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "app root with spaces")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -732,6 +750,8 @@ func TestRejectLiveDuplicateDevSessionHandlesSpaceyAppRoots(t *testing.T) {
 }
 
 func TestRejectLiveDuplicateDevSessionIgnoresWrapperCommandText(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	binDir := t.TempDir()
 	fakeScenery := filepath.Join(binDir, "scenery")
@@ -760,6 +780,8 @@ func TestRejectLiveDuplicateDevSessionIgnoresWrapperCommandText(t *testing.T) {
 }
 
 func TestRejectLiveDuplicateDevSessionBlocksCurrentOwner(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	sessionID := "review-a"
 	err := rejectLiveDuplicateDevSession(root, []localagent.Session{
@@ -777,6 +799,8 @@ func TestRejectLiveDuplicateDevSessionBlocksCurrentOwner(t *testing.T) {
 }
 
 func TestRejectLiveDuplicateDevSessionBlocksVerifiedAncestorOwner(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	sessionID := "review-a"
 	ancestorPID := os.Getppid()

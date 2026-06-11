@@ -265,6 +265,8 @@ func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFails(t *testing.T) {
 }
 
 func TestWorktreeRemoveDoesNotDeleteStateForUnlistedTarget(t *testing.T) {
+	t.Parallel()
+
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)

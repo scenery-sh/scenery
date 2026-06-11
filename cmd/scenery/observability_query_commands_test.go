@@ -11,6 +11,8 @@ import (
 )
 
 func TestParseLogsQueryArgsDefaultsAndRejectsLogQL(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseLogsQueryArgs([]string{"--query", "error", "--fields", "_time,message"})
 	if err != nil {
 		t.Fatalf("parseLogsQueryArgs: %v", err)
@@ -30,6 +32,8 @@ func TestParseLogsQueryArgsDefaultsAndRejectsLogQL(t *testing.T) {
 }
 
 func TestParseLogsQueryArgsClampsLimitAndTailRejectsBounds(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseLogsQueryArgs([]string{"--query", "*", "--limit", "1000000"})
 	if err != nil {
 		t.Fatalf("parseLogsQueryArgs: %v", err)
@@ -43,6 +47,8 @@ func TestParseLogsQueryArgsClampsLimitAndTailRejectsBounds(t *testing.T) {
 }
 
 func TestParseMetricsQueryArgsDefaults(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseMetricsQueryArgs([]string{"--promql", "up", "--instant", "--limit", "7"})
 	if err != nil {
 		t.Fatalf("parseMetricsQueryArgs: %v", err)
@@ -56,6 +62,8 @@ func TestParseMetricsQueryArgsDefaults(t *testing.T) {
 }
 
 func TestParseMetricsCatalogArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseMetricsCatalogArgs([]string{"--match", "scenery_request_duration_seconds", "--since", "30m", "--timeout", "4s", "--limit", "100000"}, true)
 	if err != nil {
 		t.Fatalf("parseMetricsCatalogArgs: %v", err)

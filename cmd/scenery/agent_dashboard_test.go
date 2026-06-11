@@ -16,6 +16,8 @@ import (
 )
 
 func TestAgentDashboardControllerUsesSessionRouteIDs(t *testing.T) {
+	t.Parallel()
+
 	store, err := devdash.OpenStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +61,7 @@ func TestAgentDashboardControllerUsesSessionRouteIDs(t *testing.T) {
 
 func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T) {
 	t.Parallel()
+
 	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +82,7 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	})
 
 	client := localagent.NewClient(agentServer.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -184,6 +188,7 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 
 func TestAgentDashboardControllerUsesVictoriaSubstrate(t *testing.T) {
 	t.Parallel()
+
 	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
@@ -204,6 +209,7 @@ func TestAgentDashboardControllerUsesVictoriaSubstrate(t *testing.T) {
 	})
 
 	client := localagent.NewClient(agentServer.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -241,6 +247,7 @@ func TestAgentDashboardControllerUsesVictoriaSubstrate(t *testing.T) {
 
 func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	t.Parallel()
+
 	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
@@ -261,6 +268,7 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	})
 
 	client := localagent.NewClient(agentServer.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -321,6 +329,7 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 
 func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 	t.Parallel()
+
 	ctx := context.Background()
 	agentHome := t.TempDir()
 	runDir, err := os.MkdirTemp("/tmp", "scenery-agent-test-")
@@ -357,6 +366,7 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 	})
 
 	client := localagent.NewClient(agentServer.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}

@@ -143,6 +143,15 @@ func StartProcess(paths Paths, opts StartOptions) error {
 	return cmd.Process.Release()
 }
 
+// CloseIdleConnections drops any keep-alive connections held by the client so
+// a server being shut down does not wait on them.
+func (c *Client) CloseIdleConnections() {
+	if c == nil || c.http == nil {
+		return
+	}
+	c.http.CloseIdleConnections()
+}
+
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.Health(ctx)
 	return err
