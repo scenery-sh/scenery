@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"scenery.sh/internal/appwalk"
 )
 
 const TypeScriptWorkerGeneratedRelDir = ".scenery/generated/temporal/typescript"
@@ -108,7 +110,7 @@ func DiscoverTypeScriptActivities(appRoot string) TypeScriptWorkerModel {
 			return nil
 		}
 		if entry.IsDir() {
-			if shouldSkipTypeScriptWorkerDir(appRoot, path) {
+			if appwalk.SkipDir(appRoot, path) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -318,22 +320,6 @@ func normalizeTypeScriptWorkerOptions(opts TypeScriptWorkerOptions) TypeScriptWo
 		opts.PayloadCodec = "scenery-json-v1"
 	}
 	return opts
-}
-
-func shouldSkipTypeScriptWorkerDir(appRoot, path string) bool {
-	if path == appRoot {
-		return false
-	}
-	switch filepath.Base(path) {
-	case ".git", ".scenery", ".claude", "node_modules", "dist", "out":
-		return true
-	}
-	// Nested git checkouts (e.g. worktrees under .claude/worktrees) hold their
-	// own copies of worker files; their activities belong to that checkout.
-	if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
-		return true
-	}
-	return false
 }
 
 func parseTypeScriptWorkerFile(rel string, data []byte) ([]TypeScriptActivity, []Diagnostic) {

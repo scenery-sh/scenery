@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/appwalk"
 )
 
 const (
@@ -233,7 +235,7 @@ func discoverInspectDocsAgentScopes(repoRoot string) []inspectDocsAgentScope {
 			return nil
 		}
 		if entry.IsDir() {
-			if path != repoRoot && shouldSkipAgentScopeDir(entry.Name()) {
+			if appwalk.SkipDir(repoRoot, path) || (path != repoRoot && shouldSkipAgentScopeDir(entry.Name())) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -265,9 +267,11 @@ func discoverInspectDocsAgentScopes(repoRoot string) []inspectDocsAgentScope {
 	return scopes
 }
 
+// shouldSkipAgentScopeDir lists docs-scan-specific skips on top of the shared
+// appwalk policy.
 func shouldSkipAgentScopeDir(name string) bool {
 	switch name {
-	case ".git", ".scenery", ".direnv", ".idea", ".vscode", "node_modules", "vendor", "dist", "build", "coverage":
+	case ".direnv", ".idea", ".vscode", "vendor", "build", "coverage":
 		return true
 	default:
 		return false

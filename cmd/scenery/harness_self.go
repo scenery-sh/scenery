@@ -13,6 +13,7 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/appwalk"
 )
 
 type harnessSelfOptions struct {
@@ -588,7 +589,7 @@ func latestHarnessBinaryInputModTime(path string) (time.Time, bool, error) {
 			return err
 		}
 		if d.IsDir() {
-			if harnessBinaryInputSkipDir(d.Name()) {
+			if harnessBinaryInputSkipDir(d.Name()) || appwalk.SkipDir(path, walkPath) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -615,13 +616,11 @@ func latestHarnessBinaryInputModTime(path string) (time.Time, bool, error) {
 	return latest, found, nil
 }
 
+// harnessBinaryInputSkipDir keeps the binary-freshness-specific "coverage"
+// skip on top of the shared appwalk policy. It stays name-based because
+// harnessBinaryFreshnessCoversRel applies it to path segments.
 func harnessBinaryInputSkipDir(name string) bool {
-	switch name {
-	case ".git", ".scenery", "coverage", "dist", "node_modules":
-		return true
-	default:
-		return false
-	}
+	return name == "coverage" || appwalk.SkipDirName(name)
 }
 
 func harnessBinaryInputFile(path string) bool {
