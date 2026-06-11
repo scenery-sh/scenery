@@ -1305,8 +1305,8 @@ func isExpectedExit(err error) bool {
 	if err == nil {
 		return true
 	}
-	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr)
+	_, ok := errors.AsType[*exec.ExitError](err)
+	return ok
 }
 
 func validateLocalSecretsFiles(root string) error {

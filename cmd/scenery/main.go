@@ -19,8 +19,7 @@ var cliStderr io.Writer = os.Stderr
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		var silent *silentCLIError
-		if !errors.As(err, &silent) {
+		if _, ok := errors.AsType[*silentCLIError](err); !ok {
 			fmt.Fprintln(os.Stderr, err)
 		}
 		os.Exit(1)

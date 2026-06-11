@@ -362,8 +362,7 @@ func clarifyStandardAuthTenantError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		if isStandardAuthTenantReference(pgErr) {
 			return fmt.Errorf("%w (standard auth owns framework tenant state in PostgreSQL schema scenery_auth, including scenery_auth.tenants; this is standard auth state, not an app-local tenants service)", err)
 		}

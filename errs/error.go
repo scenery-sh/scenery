@@ -205,9 +205,7 @@ func Convert(err error) error {
 }
 
 func As(err error) (*Error, bool) {
-	var target *Error
-	ok := errors.As(err, &target)
-	return target, ok
+	return errors.AsType[*Error](err)
 }
 
 func Code(err error) ErrCode {

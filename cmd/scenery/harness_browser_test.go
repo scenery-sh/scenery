@@ -11,7 +11,10 @@ import (
 )
 
 func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
-	root := t.TempDir()
+	root := filepath.Join(t.ArtifactDir(), "harness-ui-app")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"harnessapp","id":"harness-dev"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

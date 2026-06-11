@@ -40,8 +40,8 @@ func (e *HTTPError) Error() string {
 }
 
 func IsNotFound(err error) bool {
-	var httpErr *HTTPError
-	return errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound
+	httpErr, ok := errors.AsType[*HTTPError](err)
+	return ok && httpErr.StatusCode == http.StatusNotFound
 }
 
 type StartOptions struct {

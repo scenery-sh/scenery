@@ -401,8 +401,8 @@ func processAliveForTest(pid int) bool {
 }
 
 func isSignalExit(err error, sig syscall.Signal) bool {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok {
 		return false
 	}
 	status, ok := exitErr.Sys().(syscall.WaitStatus)

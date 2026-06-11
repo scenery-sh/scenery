@@ -129,8 +129,7 @@ export const render = activity<RenderInput, RenderOutput>({
 
 	var out bytes.Buffer
 	err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "--json"})
-	var silent *silentCLIError
-	if !errors.As(err, &silent) {
+	if _, ok := errors.AsType[*silentCLIError](err); !ok {
 		t.Fatalf("expected silent TypeScript contract error, got %v", err)
 	}
 	var payload checkResponse
@@ -231,8 +230,7 @@ func TestRunSceneryCheckRecompilesAfterSourceChange(t *testing.T) {
 
 	out.Reset()
 	err := runSceneryCheck(context.Background(), &out, []string{"--json"})
-	var silent *silentCLIError
-	if !errors.As(err, &silent) {
+	if _, ok := errors.AsType[*silentCLIError](err); !ok {
 		t.Fatalf("expected changed source to be recompiled, got %v", err)
 	}
 	if !strings.Contains(out.String(), "undefined: MissingSymbol") {
@@ -264,8 +262,7 @@ func TestRunSceneryCheckJSONCompileFailure(t *testing.T) {
 
 	var out bytes.Buffer
 	err := runSceneryCheck(context.Background(), &out, []string{"--json"})
-	var silent *silentCLIError
-	if !errors.As(err, &silent) {
+	if _, ok := errors.AsType[*silentCLIError](err); !ok {
 		t.Fatalf("expected silentCLIError, got %v", err)
 	}
 	var payload struct {

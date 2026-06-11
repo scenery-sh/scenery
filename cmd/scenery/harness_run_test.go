@@ -17,7 +17,7 @@ import (
 func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	useFakeBuildGoRunner(t)
 
-	root := t.TempDir()
+	root := filepath.Join(t.ArtifactDir(), "harnessapp")
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
 	writeHarnessTestApp(t, root, "harnessapp", "return nil")
@@ -85,8 +85,7 @@ func TestRunSceneryHarnessJSONFailureIncludesNextAction(t *testing.T) {
 
 	var out bytes.Buffer
 	err := runSceneryHarness(context.Background(), &out, []string{"--app-root", root, "--json"})
-	var silent *silentCLIError
-	if !errors.As(err, &silent) {
+	if _, ok := errors.AsType[*silentCLIError](err); !ok {
 		t.Fatalf("expected silentCLIError, got %v\n%s", err, out.String())
 	}
 

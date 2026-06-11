@@ -67,8 +67,7 @@ func substrateExitRecord(component string, pid int, startedAt time.Time, stdoutP
 	if state != nil {
 		exitCode = state.ExitCode()
 	} else if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			exitCode = exitErr.ExitCode()
 			state = exitErr.ProcessState
 		} else {

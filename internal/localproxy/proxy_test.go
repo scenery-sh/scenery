@@ -215,6 +215,35 @@ func TestRouteTableIncludesExpectedHosts(t *testing.T) {
 	}
 }
 
+func TestReverseProxyRewritePreservesForwardedHeadersAgainstHopByHopRemoval(t *testing.T) {
+	t.Parallel()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.Header.Get("X-Forwarded-Host"), "web.acme.localhost"; got != want {
+			t.Fatalf("X-Forwarded-Host = %q, want %q", got, want)
+		}
+		if got, want := r.Header.Get("X-Forwarded-Proto"), "http"; got != want {
+			t.Fatalf("X-Forwarded-Proto = %q, want %q", got, want)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(backend.Close)
+
+	route, err := newProxyRoute("web.acme.localhost", strings.TrimPrefix(backend.URL, "http://"), false, "")
+	if err != nil {
+		t.Fatalf("newProxyRoute() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://web.acme.localhost/demo", nil)
+	req.Host = "web.acme.localhost"
+	req.Header.Set("Connection", "X-Forwarded-Host, X-Forwarded-Proto")
+	rec := httptest.NewRecorder()
+
+	route.proxy.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("proxy status = %d, body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCertificateSubjects(t *testing.T) {
 	t.Parallel()
 

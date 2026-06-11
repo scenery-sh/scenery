@@ -91,20 +91,15 @@ func newProxyRoute(host, upstream string, rewriteHost bool, path string) (*proxy
 
 func newReverseProxy(target *url.URL, rewriteHost bool) *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			originalHost := req.Host
-			req.URL.Scheme = target.Scheme
-			req.URL.Host = target.Host
-			req.URL.User = nil
+		Rewrite: func(req *httputil.ProxyRequest) {
+			req.SetURL(target)
 			if rewriteHost {
-				req.Host = target.Host
-			}
-			req.Header.Set("X-Forwarded-Host", originalHost)
-			if req.TLS != nil {
-				req.Header.Set("X-Forwarded-Proto", "https")
+				req.Out.Host = target.Host
 			} else {
-				req.Header.Set("X-Forwarded-Proto", "http")
+				req.Out.Host = req.In.Host
 			}
+			req.Out.Header["X-Forwarded-For"] = req.In.Header["X-Forwarded-For"]
+			req.SetXForwarded()
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			http.Error(w, "local proxy upstream unavailable", http.StatusBadGateway)

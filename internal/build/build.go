@@ -1656,8 +1656,7 @@ func removeUnexpectedFilesFromLists(root string, sourceFiles, generatedFiles []s
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, fs.ErrExist) {
-			var pathErr *fs.PathError
-			if errors.As(err, &pathErr) && errors.Is(pathErr.Err, fs.ErrExist) {
+			if pathErr, ok := errors.AsType[*fs.PathError](err); ok && errors.Is(pathErr.Err, fs.ErrExist) {
 				continue
 			}
 			if strings.Contains(err.Error(), "directory not empty") {

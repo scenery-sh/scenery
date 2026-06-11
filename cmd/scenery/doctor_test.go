@@ -121,8 +121,7 @@ func TestRunSceneryDoctorJSONReportsRequiredFailure(t *testing.T) {
 	deps.LookPath = func(string) (string, error) { return "", os.ErrNotExist }
 	var out bytes.Buffer
 	err := runSceneryDoctorWithDeps(context.Background(), &out, []string{"--json"}, deps)
-	var silent *silentCLIError
-	if !errors.As(err, &silent) {
+	if _, ok := errors.AsType[*silentCLIError](err); !ok {
 		t.Fatalf("expected silent error, got %v", err)
 	}
 	var payload doctorResponse
@@ -269,8 +268,7 @@ func TestRunSceneryDoctorExplicitAppRootFailureIsError(t *testing.T) {
 	}
 	var out bytes.Buffer
 	err := runSceneryDoctorWithDeps(context.Background(), &out, []string{"--app-root", "/missing", "--json"}, deps)
-	var silent *silentCLIError
-	if !errors.As(err, &silent) {
+	if _, ok := errors.AsType[*silentCLIError](err); !ok {
 		t.Fatalf("expected silent error, got %v", err)
 	}
 	var payload doctorResponse

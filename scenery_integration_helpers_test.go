@@ -357,8 +357,7 @@ func startTemporalDevServerForTest(t *testing.T, cacheDir string) string {
 		sharedTemporalDevServer.addr, sharedTemporalDevServer.err = startSharedTemporalDevServer()
 	})
 	if sharedTemporalDevServer.err != nil {
-		var missing missingTemporalCLIError
-		if errors.As(sharedTemporalDevServer.err, &missing) {
+		if missing, ok := errors.AsType[missingTemporalCLIError](sharedTemporalDevServer.err); ok {
 			t.Skipf("temporal CLI not found in PATH: %v", missing.err)
 		}
 		t.Fatal(sharedTemporalDevServer.err)

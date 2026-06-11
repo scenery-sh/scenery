@@ -321,8 +321,7 @@ func isTemporalAlreadyExistsError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var alreadyExists *serviceerror.AlreadyExists
-	if errors.As(err, &alreadyExists) {
+	if _, ok := errors.AsType[*serviceerror.AlreadyExists](err); ok {
 		return true
 	}
 	message := strings.ToLower(err.Error())

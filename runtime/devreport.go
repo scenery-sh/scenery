@@ -323,12 +323,11 @@ func shouldDisableDevReporting(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 		return true
 	}
-	var errno syscall.Errno
-	if errors.As(err, &errno) && (errno == syscall.ECONNREFUSED || errno == syscall.EPIPE || errno == syscall.ECONNRESET) {
+	if errno, ok := errors.AsType[syscall.Errno](err); ok && (errno == syscall.ECONNREFUSED || errno == syscall.EPIPE || errno == syscall.ECONNRESET) {
 		return true
 	}
-	var opErr *net.OpError
-	return errors.As(err, &opErr)
+	_, ok := errors.AsType[*net.OpError](err)
+	return ok
 }
 
 func startRequestTrace(state *requestState) {
