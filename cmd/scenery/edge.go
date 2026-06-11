@@ -476,7 +476,10 @@ func edgeDNSUninstall(opts edgeOptions) error {
 }
 
 func resolveDNSMasqBinary(ctx context.Context, paths localagent.Paths, download bool) (string, error) {
-	storeDir := edgeToolchainStoreDir(paths)
+	return resolveDNSMasqBinaryInStore(ctx, edgeToolchainStoreDir(paths), download)
+}
+
+func resolveDNSMasqBinaryInStore(ctx context.Context, storeDir string, download bool) (string, error) {
 	if status, err := managedToolchainArtifactStatusInDir(storeDir, "dnsmasq"); err == nil && status.ManagedPath != "" && isExecutableFile(status.ManagedPath) {
 		return status.ManagedPath, nil
 	}
@@ -1107,7 +1110,10 @@ func unixURL(path string) string {
 }
 
 func resolveCaddyBinary(ctx context.Context, paths localagent.Paths, download bool) (string, error) {
-	storeDir := edgeToolchainStoreDir(paths)
+	return resolveCaddyBinaryInStore(ctx, edgeToolchainStoreDir(paths), download)
+}
+
+func resolveCaddyBinaryInStore(ctx context.Context, storeDir string, download bool) (string, error) {
 	if status, err := managedToolchainArtifactStatusInDir(storeDir, "caddy"); err == nil && status.ManagedPath != "" && isExecutableFile(status.ManagedPath) {
 		return status.ManagedPath, nil
 	}

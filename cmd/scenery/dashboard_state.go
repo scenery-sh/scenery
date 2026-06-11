@@ -21,6 +21,10 @@ type dashboardRunState struct {
 	StartedAt     time.Time `json:"started_at"`
 	AppRoot       string    `json:"app_root"`
 	DashboardAddr string    `json:"dashboard_addr"`
+
+	// cacheRoot overrides the scenery cache root used for the state file.
+	// When empty, sceneryCacheRoot() decides.
+	cacheRoot string
 }
 
 func newDashboardRunState(root, addr string) dashboardRunState {
@@ -33,9 +37,13 @@ func newDashboardRunState(root, addr string) dashboardRunState {
 }
 
 func (s dashboardRunState) path() (string, error) {
-	root, err := sceneryCacheRoot()
-	if err != nil {
-		return "", err
+	root := s.cacheRoot
+	if root == "" {
+		var err error
+		root, err = sceneryCacheRoot()
+		if err != nil {
+			return "", err
+		}
 	}
 	key := sha256.Sum256([]byte(s.AppRoot + "\x00" + s.DashboardAddr))
 	filename := hex.EncodeToString(key[:8]) + ".json"

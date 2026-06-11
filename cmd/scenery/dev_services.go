@@ -1783,7 +1783,10 @@ func postgresBinaryMajorVersion(ctx context.Context, postgres string) (string, e
 }
 
 func dockerAvailable(ctx context.Context, docker string) bool {
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// `docker info` can take several seconds on a loaded machine (e.g. CI
+	// runners executing concurrent workflows); a short timeout misclassifies
+	// a healthy daemon as unavailable.
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return exec.CommandContext(checkCtx, docker, "info").Run() == nil
 }
@@ -1816,6 +1819,10 @@ func currentAgentSessionForAppRoot(ctx context.Context, appRoot string) (*locala
 	if err != nil {
 		return nil, err
 	}
+	return currentAgentSessionForAppRootWithClient(ctx, client, appRoot)
+}
+
+func currentAgentSessionForAppRootWithClient(ctx context.Context, client *localagent.Client, appRoot string) (*localagent.Session, error) {
 	sessions, err := client.List(ctx, appRoot)
 	if err != nil {
 		return nil, err

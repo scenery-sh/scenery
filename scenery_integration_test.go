@@ -905,7 +905,9 @@ func TestSceneryDevDashboardNotificationsAndRoutes(t *testing.T) {
 			return
 		}
 		wsReady <- nil
-		if err := waitForWSMethodsErr(wsConn, 10*time.Second, "trace/new"); err != nil {
+		// On loaded CI runners (e.g. while the self harness runs other steps
+		// concurrently) the first trace can take well over 10s to arrive.
+		if err := waitForWSMethodsErr(wsConn, 60*time.Second, "trace/new"); err != nil {
 			_ = wsConn.Close()
 			wsResult <- wsProbeResult{err: err}
 			return

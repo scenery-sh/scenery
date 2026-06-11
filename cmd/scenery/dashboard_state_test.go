@@ -9,9 +9,10 @@ import (
 )
 
 func TestDashboardRunStateWriteAndRemove(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
 	state := newDashboardRunState("/tmp/app", devdash.DashboardAddr)
+	state.cacheRoot = t.TempDir()
 	if err := state.write(); err != nil {
 		t.Fatalf("write() error = %v", err)
 	}
@@ -37,12 +38,13 @@ func TestDashboardRunStateWriteAndRemove(t *testing.T) {
 }
 
 func TestReapOwnedDashboardRemovesStaleStateForMissingProcess(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
 	state := dashboardRunState{
 		SupervisorPID: 1 << 30,
 		AppRoot:       "/tmp/app",
 		DashboardAddr: devdash.DashboardAddr,
+		cacheRoot:     t.TempDir(),
 	}
 	if err := state.write(); err != nil {
 		t.Fatalf("write() error = %v", err)
@@ -61,12 +63,14 @@ func TestReapOwnedDashboardRemovesStaleStateForMissingProcess(t *testing.T) {
 }
 
 func TestReapOwnedDashboardKeepsDifferentAppState(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
+	cacheRoot := t.TempDir()
 	written := dashboardRunState{
 		SupervisorPID: os.Getpid(),
 		AppRoot:       "/tmp/other",
 		DashboardAddr: devdash.DashboardAddr,
+		cacheRoot:     cacheRoot,
 	}
 	if err := written.write(); err != nil {
 		t.Fatalf("write() error = %v", err)
@@ -80,6 +84,7 @@ func TestReapOwnedDashboardKeepsDifferentAppState(t *testing.T) {
 		SupervisorPID: os.Getpid(),
 		AppRoot:       "/tmp/app",
 		DashboardAddr: devdash.DashboardAddr,
+		cacheRoot:     cacheRoot,
 	}
 	if err := reapOwnedDashboard(path, expected); err != nil {
 		t.Fatalf("reapOwnedDashboard(%q) error = %v", path, err)

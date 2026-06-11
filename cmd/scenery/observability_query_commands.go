@@ -609,6 +609,14 @@ func resolveQueryScope(ctx context.Context, appRootFlag, sessionFlag string) (ob
 }
 
 func resolveQueryScopeForApp(ctx context.Context, appRoot string, cfg appcfg.Config, sessionFlag string) (obs.QueryScope, error) {
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		return obs.QueryScope{}, err
+	}
+	return resolveQueryScopeForAppWithClient(ctx, client, appRoot, cfg, sessionFlag)
+}
+
+func resolveQueryScopeForAppWithClient(ctx context.Context, client *localagent.Client, appRoot string, cfg appcfg.Config, sessionFlag string) (obs.QueryScope, error) {
 	sessionFlag = strings.TrimSpace(sessionFlag)
 	if sessionFlag == "" {
 		sessionFlag = "current"
@@ -621,7 +629,7 @@ func resolveQueryScopeForApp(ctx context.Context, appRoot string, cfg appcfg.Con
 		Enforced:    true,
 	}
 	if sessionFlag == "current" {
-		session, err := currentAgentSessionForAppRoot(ctx, appRoot)
+		session, err := currentAgentSessionForAppRootWithClient(ctx, client, appRoot)
 		if err != nil {
 			return obs.QueryScope{}, err
 		}
@@ -633,10 +641,6 @@ func resolveQueryScopeForApp(ctx context.Context, appRoot string, cfg appcfg.Con
 			scope.Worktree = appWorktreeName(session.AppRoot)
 		}
 		return scope, nil
-	}
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		return obs.QueryScope{}, err
 	}
 	sessions, err := client.List(ctx, appRoot)
 	if err != nil {

@@ -4,10 +4,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -254,12 +256,21 @@ func startStateRootAppProcessForCleanupTest(t *testing.T, stateRoot string) *exe
 	if err := os.WriteFile(appPath, []byte("#!/bin/sh\nsleep \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(appPath, "30")
-	configureChildProcess(cmd)
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start app path sleep fixture: %v", err)
+	// Concurrent fork/exec in parallel tests can briefly hold the freshly
+	// written script's write fd, so retry ETXTBSY starts.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		cmd := exec.Command(appPath, "30")
+		configureChildProcess(cmd)
+		err := cmd.Start()
+		if err == nil {
+			return cmd
+		}
+		if !errors.Is(err, syscall.ETXTBSY) || time.Now().After(deadline) {
+			t.Fatalf("start app path sleep fixture: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	return cmd
 }
 
 func waitForProcessExitForCleanupTest(t *testing.T, pid int) {

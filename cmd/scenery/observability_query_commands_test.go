@@ -80,11 +80,11 @@ func TestParseMetricsCatalogArgs(t *testing.T) {
 }
 
 func TestResolveQueryScopeRequiresExplicitSessionToExist(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
-	agentServer, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,10 +93,7 @@ func TestResolveQueryScopeRequiresExplicitSessionToExist(t *testing.T) {
 	go func() { done <- agentServer.Run(ctx) }()
 	defer stopObservabilityQueryTestAgent(t, cancel, done)
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(agentServer.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -112,14 +109,14 @@ func TestResolveQueryScopeRequiresExplicitSessionToExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := resolveQueryScopeForApp(ctx, root, cfg, "session-a")
+	scope, err := resolveQueryScopeForAppWithClient(ctx, client, root, cfg, "session-a")
 	if err != nil {
 		t.Fatalf("resolve existing session: %v", err)
 	}
 	if scope.SessionID != "session-a" || scope.Branch != "feature/a" {
 		t.Fatalf("scope = %+v", scope)
 	}
-	if _, err := resolveQueryScopeForApp(ctx, root, cfg, "typo-session"); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, err := resolveQueryScopeForAppWithClient(ctx, client, root, cfg, "typo-session"); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("resolve missing session error = %v", err)
 	}
 }
