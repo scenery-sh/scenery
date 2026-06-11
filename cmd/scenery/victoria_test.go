@@ -165,6 +165,8 @@ func TestVictoriaStackSubstrateRoundTrip(t *testing.T) {
 }
 
 func TestVictoriaStackFromSubstrateRequiresAllComponents(t *testing.T) {
+	t.Parallel()
+
 	substrate := localagent.Substrate{
 		Kind: localagent.SubstrateVictoria,
 		URLs: map[string]string{
@@ -180,6 +182,8 @@ func TestVictoriaStackFromSubstrateRequiresAllComponents(t *testing.T) {
 }
 
 func TestURLAcceptsTCP(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer server.Close()
 	if !urlAcceptsTCP(server.URL) {
@@ -191,6 +195,8 @@ func TestURLAcceptsTCP(t *testing.T) {
 }
 
 func TestStartVictoriaComponentReusesOccupiedPort(t *testing.T) {
+	t.Parallel()
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -220,6 +226,8 @@ func TestStartVictoriaComponentReusesOccupiedPort(t *testing.T) {
 }
 
 func TestBuildOTLPTracePayload(t *testing.T) {
+	t.Parallel()
+
 	endpoint := "Hello"
 	payload := buildOTLPTracePayload(&devdash.TraceSummary{
 		AppID:         "app",
@@ -279,6 +287,8 @@ func TestBuildOTLPTracePayload(t *testing.T) {
 }
 
 func TestBuildOTLPLogPayloadIncludesTraceContext(t *testing.T) {
+	t.Parallel()
+
 	payload := buildOTLPLogPayload(&devdash.LogEvent{
 		AppID:       "app",
 		SessionID:   "session-a",
@@ -314,6 +324,8 @@ func TestBuildOTLPLogPayloadIncludesTraceContext(t *testing.T) {
 }
 
 func TestMetricAttributePairsIncludesSessionLabels(t *testing.T) {
+	t.Parallel()
+
 	attrs := metricAttributePairs(&devdash.TraceSummary{
 		AppID:       "app",
 		SessionID:   "session-a",
@@ -341,6 +353,8 @@ func TestMetricAttributePairsIncludesSessionLabels(t *testing.T) {
 }
 
 func TestVictoriaQueryTraceSummariesFromJaegerAPI(t *testing.T) {
+	t.Parallel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/select/jaeger/api/traces" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
@@ -404,6 +418,8 @@ func TestVictoriaQueryTraceSummariesFromJaegerAPI(t *testing.T) {
 }
 
 func TestVictoriaQueryTraceSummariesClampsJaegerLimit(t *testing.T) {
+	t.Parallel()
+
 	var gotLimit string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotLimit = r.URL.Query().Get("limit")
@@ -444,6 +460,8 @@ func TestVictoriaQueryTraceSummariesClampsJaegerLimit(t *testing.T) {
 }
 
 func TestVictoriaMarkClearedFiltersOlderTraces(t *testing.T) {
+	t.Parallel()
+
 	stack := &victoriaStack{}
 	clearedAt := time.Unix(20, 0).UTC()
 	stack.MarkCleared("app", clearedAt)

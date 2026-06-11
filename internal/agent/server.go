@@ -20,6 +20,9 @@ import (
 )
 
 type RunOptions struct {
+	// Home overrides the agent home directory; when empty, the home is
+	// resolved from the environment (see DefaultPaths).
+	Home             string
 	SocketPath       string
 	RouterAddr       string
 	RouterTLS        bool
@@ -55,9 +58,15 @@ func Run(ctx context.Context, opts RunOptions) error {
 }
 
 func NewServer(opts RunOptions) (*Server, error) {
-	paths, err := DefaultPaths()
-	if err != nil {
-		return nil, err
+	var paths Paths
+	if opts.Home != "" {
+		paths = PathsForHome(opts.Home)
+	} else {
+		var err error
+		paths, err = DefaultPaths()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if opts.SocketPath != "" {
 		paths.SocketPath = filepath.Clean(opts.SocketPath)

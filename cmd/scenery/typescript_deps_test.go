@@ -128,6 +128,8 @@ printf "{}\n" > "node_modules/@openai/codex-sdk/package.json"
 }
 
 func TestEnsureTypeScriptWorkerAppDependenciesNoPackageJSONNoops(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	installed, err := ensureTypeScriptWorkerAppDependencies(context.Background(), root, filepath.Join(root, ".scenery"))
 	if err != nil {

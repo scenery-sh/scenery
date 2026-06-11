@@ -52,6 +52,8 @@ func TestRunToolchainListJSON(t *testing.T) {
 }
 
 func TestRenderToolchainStatusHidesPluginsByDefault(t *testing.T) {
+	t.Parallel()
+
 	status := toolchain.Status{
 		ManifestSHA256: "abc123",
 		StoreDir:       "/tmp/store",

@@ -20,6 +20,8 @@ func validationFixtureRoot(t *testing.T, config string) string {
 }
 
 func TestInspectValidationProfiles(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"tasks": {
@@ -59,6 +61,8 @@ func TestInspectValidationProfiles(t *testing.T) {
 }
 
 func TestInspectValidationReturnsEmptyArrays(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"validation": {
@@ -227,6 +231,8 @@ func TestValidateChangedSelectsMatchingProfiles(t *testing.T) {
 }
 
 func TestValidateChangedCollectsPathsRelativeToAppRoot(t *testing.T) {
+	t.Parallel()
+
 	repo := t.TempDir()
 	appRoot := filepath.Join(repo, "app")
 	writeTestAppFile(t, appRoot, ".scenery.json", `{"name":"demo"}`)
@@ -253,6 +259,8 @@ func TestValidateChangedCollectsPathsRelativeToAppRoot(t *testing.T) {
 }
 
 func TestValidationGlobMatchesRecursiveMiddleSegments(t *testing.T) {
+	t.Parallel()
+
 	if !validationGlobMatches("apps/**/src/*.ts", "apps/web/src/main.ts") {
 		t.Fatalf("recursive middle glob did not match")
 	}
@@ -297,6 +305,8 @@ func TestValidateCapturesCodeTaskOutput(t *testing.T) {
 }
 
 func TestValidationConfigRejectsReservedProfileNames(t *testing.T) {
+	t.Parallel()
+
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
 		"validation": {
@@ -320,6 +330,8 @@ func TestValidationConfigRejectsReservedProfileNames(t *testing.T) {
 }
 
 func TestValidationConfigRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "demo",

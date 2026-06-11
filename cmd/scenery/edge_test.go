@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"net"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 )
 
 func TestCaddyEdgeConfigUsesStableAgentRouterContract(t *testing.T) {
+	t.Parallel()
+
 	config := caddyEdgeConfig(caddyEdgeConfigOptions{
 		ListenAddr:  defaultEdgeTargetAddr,
 		PublicPort:  "443",
@@ -44,6 +48,8 @@ func TestCaddyEdgeConfigUsesStableAgentRouterContract(t *testing.T) {
 }
 
 func TestCaddyEdgeConfigUsesPrivateListenPortAndPublicForwardedPort(t *testing.T) {
+	t.Parallel()
+
 	config := caddyEdgeConfig(caddyEdgeConfigOptions{
 		ListenAddr:  "127.0.0.1:19555",
 		PublicPort:  "443",
@@ -64,6 +70,8 @@ func TestCaddyEdgeConfigUsesPrivateListenPortAndPublicForwardedPort(t *testing.T
 }
 
 func TestParseEdgeArgsRejectsPublicAddrOverride(t *testing.T) {
+	t.Parallel()
+
 	_, err := parseEdgeArgs([]string{"--json", "--addr", "127.0.0.1:8443"})
 	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("parseEdgeArgs(--addr) err = %v, want unknown flag", err)
@@ -78,6 +86,8 @@ func TestParseEdgeArgsRejectsPublicAddrOverride(t *testing.T) {
 }
 
 func TestParseEdgeHelperLaunchStatusUsesTopLevelState(t *testing.T) {
+	t.Parallel()
+
 	state, pid, err := parseEdgeHelperLaunchStatus(`system/dev.scenery.edge-helper = {
 	state = spawn scheduled
 
@@ -95,6 +105,8 @@ func TestParseEdgeHelperLaunchStatusUsesTopLevelState(t *testing.T) {
 }
 
 func TestEdgeHelperPlistUsesSystemEdgeRoute(t *testing.T) {
+	t.Parallel()
+
 	plist := edgeHelperPlist(edgeHelperOptions{
 		OwnerUID:          501,
 		OwnerGID:          20,
@@ -123,6 +135,8 @@ func TestEdgeHelperPlistUsesSystemEdgeRoute(t *testing.T) {
 }
 
 func TestValidateEdgeAgentHealthRejectsFallbackRouterAddr(t *testing.T) {
+	t.Parallel()
+
 	err := validateEdgeAgentHealth(localagent.HealthResponse{
 		RouterAddr:   "127.0.0.1:58090",
 		RouterScheme: "http",
@@ -139,6 +153,8 @@ func TestValidateEdgeAgentHealthRejectsFallbackRouterAddr(t *testing.T) {
 }
 
 func TestEdgeAgentCommandMatchesSameSocketAndRouterOnly(t *testing.T) {
+	t.Parallel()
+
 	command := "/Users/petrbrazdil/go/bin/scenery system agent --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440 --router-http"
 	if !edgeAgentCommandMatches(command, "/Users/petrbrazdil/.scenery/run/agent.sock", "127.0.0.1:9440") {
 		t.Fatal("expected exact edge agent command to match")
@@ -207,6 +223,8 @@ func TestResolveDNSMasqBinaryUsesManagedToolchain(t *testing.T) {
 }
 
 func TestDNSMasqEdgeConfigUsesWildcardDevDomain(t *testing.T) {
+	t.Parallel()
+
 	config := dnsmasqEdgeConfig([]string{"local.dev"}, "127.0.0.1:53535", "127.0.0.1")
 	for _, want := range []string{
 		"bind-interfaces",
@@ -222,6 +240,8 @@ func TestDNSMasqEdgeConfigUsesWildcardDevDomain(t *testing.T) {
 }
 
 func TestDNSMasqEdgeConfigSupportsMultipleDomains(t *testing.T) {
+	t.Parallel()
+
 	config := dnsmasqEdgeConfig([]string{"onlv.dev", "local.dev", "onlv.dev"}, "127.0.0.1:53535", "127.0.0.1")
 	for _, want := range []string{
 		"address=/local.dev/127.0.0.1",
@@ -237,6 +257,8 @@ func TestDNSMasqEdgeConfigSupportsMultipleDomains(t *testing.T) {
 }
 
 func TestEdgeDNSConfigServesDomain(t *testing.T) {
+	t.Parallel()
+
 	path := filepath.Join(t.TempDir(), "dnsmasq.conf")
 	if err := os.WriteFile(path, []byte(dnsmasqEdgeConfig([]string{"local.dev", "onlv.dev"}, "127.0.0.1:53535", "127.0.0.1")), 0o600); err != nil {
 		t.Fatal(err)
@@ -250,6 +272,8 @@ func TestEdgeDNSConfigServesDomain(t *testing.T) {
 }
 
 func TestEdgeDNSHelperArgsNormalizeDomain(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseEdgeDNSHelperArgs([]string{"--domain", "HTTPS://LOCAL.DEV/path", "--nameserver", "127.0.0.1", "--port", "53535"})
 	if err != nil {
 		t.Fatal(err)
@@ -260,6 +284,8 @@ func TestEdgeDNSHelperArgsNormalizeDomain(t *testing.T) {
 }
 
 func TestEdgeDNSResolverFile(t *testing.T) {
+	t.Parallel()
+
 	got := edgeDNSResolverFile("local.dev", "127.0.0.1", "53535")
 	for _, want := range []string{
 		"Managed by scenery edge dns",
@@ -295,6 +321,8 @@ func TestResolveCaddyBinaryDoesNotUseSystemPath(t *testing.T) {
 }
 
 func TestCaddyTrustConfigUsesAdminOnlyLocalCA(t *testing.T) {
+	t.Parallel()
+
 	config := caddyTrustConfig("/tmp/scenery-trust.sock")
 	for _, want := range []string{
 		"local_certs",
@@ -309,89 +337,97 @@ func TestCaddyTrustConfigUsesAdminOnlyLocalCA(t *testing.T) {
 	}
 }
 
-func TestEdgeTrustUsesTemporaryCaddyAdmin(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake executable shell fixture is Unix-only")
-	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 is required for fake Unix-socket Caddy fixture")
-	}
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	t.Setenv("SCENERY_TOOLCHAIN_DIR", "")
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := localagent.EnsureDirs(paths); err != nil {
-		t.Fatal(err)
-	}
-	caddy := filepath.Join(edgeToolchainStoreDir(paths), "artifacts", "caddy", "2.11.3", currentPlatformDirForTest(), "bin", "caddy")
-	if err := os.MkdirAll(filepath.Dir(caddy), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	marker := filepath.Join(t.TempDir(), "marker")
-	writeFakeTrustCaddy(t, caddy, marker)
-	t.Setenv("SCENERY_FAKE_CADDY_MARKER", marker)
-
-	if err := edgeTrust(edgeOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(data); !strings.Contains(got, "run\n") || !strings.Contains(got, "trust\n") {
-		t.Fatalf("fake Caddy marker = %q, want run and trust", got)
-	}
-}
-
 func writeFakeTrustCaddy(t *testing.T, path, marker string) {
 	t.Helper()
-	script := `#!/bin/sh
-set -eu
-cmd="$1"
-shift
-config=""
-while [ "$#" -gt 0 ]; do
-	if [ "$1" = "--config" ]; then
-		shift
-		config="$1"
-	fi
-	shift || true
-done
-if [ "$cmd" = "run" ]; then
-	echo run >> "$SCENERY_FAKE_CADDY_MARKER"
-	sock=$(sed -n 's/.*admin unix\/\/\(.*\)$/\1/p' "$config" | head -n 1)
-	exec python3 - "$sock" <<'PY'
-import os
-import signal
-import socket
-import sys
-import time
-
-sock_path = sys.argv[1]
-try:
-    os.unlink(sock_path)
-except FileNotFoundError:
-    pass
-server = socket.socket(socket.AF_UNIX)
-server.bind(sock_path)
-server.listen(1)
-signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-while True:
-    time.sleep(0.1)
-PY
-fi
-if [ "$cmd" = "trust" ]; then
-	echo trust >> "$SCENERY_FAKE_CADDY_MARKER"
-	exit 0
-fi
-exit 2
-`
+	testBin, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-exec the test binary as the fake Caddy: it is already paged in, so
+	// startup stays fast even when the machine is saturated by other tests.
+	script := "#!/bin/sh\n" +
+		"SCENERY_FAKE_CADDY_HELPER=1 exec " + testBin + " -test.run '^TestFakeCaddyHelperProcess$' -- \"$@\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("SCENERY_FAKE_CADDY_MARKER", marker)
+}
+
+// TestFakeCaddyHelperProcess is not a real test: it implements the fake Caddy
+// binary for the edge trust fixtures when re-executed by writeFakeTrustCaddy's
+// script. It mimics `caddy run` by serving the admin unix socket from the
+// provided config until SIGTERM, and `caddy trust` by recording a marker.
+func TestFakeCaddyHelperProcess(t *testing.T) {
+	if os.Getenv("SCENERY_FAKE_CADDY_HELPER") != "1" {
+		return
+	}
+	args := os.Args
+	for i, arg := range args {
+		if arg == "--" {
+			args = args[i+1:]
+			break
+		}
+	}
+	if len(args) == 0 {
+		os.Exit(2)
+	}
+	cmd := args[0]
+	config := ""
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			config = args[i+1]
+		}
+	}
+	marker := os.Getenv("SCENERY_FAKE_CADDY_MARKER")
+	appendMarker := func(line string) {
+		f, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			os.Exit(1)
+		}
+		_, _ = f.WriteString(line + "\n")
+		_ = f.Close()
+	}
+	switch cmd {
+	case "run":
+		appendMarker("run")
+		data, err := os.ReadFile(config)
+		if err != nil {
+			os.Exit(1)
+		}
+		sock := ""
+		for line := range strings.Lines(string(data)) {
+			if _, rest, ok := strings.Cut(line, "admin unix//"); ok {
+				sock = strings.TrimSpace(rest)
+				break
+			}
+		}
+		if sock == "" {
+			os.Exit(1)
+		}
+		_ = os.Remove(sock)
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			os.Exit(1)
+		}
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				_ = conn.Close()
+			}
+		}()
+		<-sigs
+		os.Exit(0)
+	case "trust":
+		appendMarker("trust")
+		os.Exit(0)
+	default:
+		os.Exit(2)
+	}
 }
 
 func TestStartCaddyEdgeReportsFastStartupExit(t *testing.T) {
@@ -399,6 +435,12 @@ func TestStartCaddyEdgeReportsFastStartupExit(t *testing.T) {
 		t.Skip("fake executable shell fixture is Unix-only")
 	}
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	// On a loaded machine the fake caddy can take more than the default
+	// settle window just to spawn and exit; widen it so the exit is still
+	// classified as a startup failure rather than a successful start.
+	settle := caddyStartupSettle
+	caddyStartupSettle = 15 * time.Second
+	t.Cleanup(func() { caddyStartupSettle = settle })
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
 		t.Fatal(err)
@@ -438,6 +480,9 @@ func TestStartCaddyEdgeWritesRunningStateAndStopsProcess(t *testing.T) {
 		t.Skip("fake executable shell fixture is Unix-only")
 	}
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	settle := caddyStartupSettle
+	caddyStartupSettle = 50 * time.Millisecond
+	t.Cleanup(func() { caddyStartupSettle = settle })
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
 		t.Fatal(err)

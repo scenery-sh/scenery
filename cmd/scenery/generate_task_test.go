@@ -15,6 +15,8 @@ import (
 )
 
 func TestParseGenerateArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parseGenerateArgs([]string{"client", "demo", "--lang", "typescript", "--output", "src/client.ts", "--app-root", "/tmp/app", "--dry-run", "--json"})
 	if err != nil {
 		t.Fatalf("parseGenerateArgs returned error: %v", err)
@@ -28,6 +30,8 @@ func TestParseGenerateArgs(t *testing.T) {
 }
 
 func TestBuildSQLCGeneratorPlanInfersAtlasSource(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
 
@@ -54,6 +58,8 @@ func TestBuildSQLCGeneratorPlanInfersAtlasSource(t *testing.T) {
 }
 
 func TestRunGenerateDryRunJSON(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "demo",
@@ -127,6 +133,8 @@ func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
 }
 
 func TestInspectGeneratorsDiscoversServiceDBArtifacts(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "demo",
@@ -302,6 +310,8 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 }
 
 func TestDBApplyReportsMissingConfiguration(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
 
@@ -496,6 +506,8 @@ insert into scenery_auth.audit(message) values ($$drop table scenery_auth.users;
 }
 
 func TestDBSeedSafetyHasNoForceEscapeHatch(t *testing.T) {
+	t.Parallel()
+
 	if _, err := parseDBSeedArgs([]string{"--force"}); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("parseDBSeedArgs --force error = %v", err)
 	}
