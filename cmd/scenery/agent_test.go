@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -105,8 +106,8 @@ func TestWaitForAgentStartSurfacesPermissionFailureFromLog(t *testing.T) {
 }
 
 func TestStatusAndDownCommandsUseAgent(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,10 +126,7 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -176,8 +174,8 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	output := captureStdout(t, func() error {
-		return statusCommand([]string{"--json", "--app-root", appRoot})
+	output := commandOutput(t, func(stdout io.Writer) error {
+		return statusCommandWithClient(client, stdout, []string{"--json", "--app-root", appRoot})
 	})
 	var status struct {
 		Sessions   []localagent.Session   `json:"sessions"`
@@ -193,8 +191,8 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 		t.Fatalf("status substrates = %+v", status.Substrates)
 	}
 
-	output = captureStdout(t, func() error {
-		return statusCommand([]string{"--app-root", appRoot})
+	output = commandOutput(t, func(stdout io.Writer) error {
+		return statusCommandWithClient(client, stdout, []string{"--app-root", appRoot})
 	})
 	if !strings.Contains(output, "APP ROOT") || !strings.Contains(output, "STATUS") || !strings.Contains(output, "API") {
 		t.Fatalf("human status output missing table header:\n%s", output)
@@ -203,8 +201,8 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 		t.Fatalf("human status output should show app root entries and API route:\n%s", output)
 	}
 
-	output = captureStdout(t, func() error {
-		return downCommand([]string{"--app-root", appRoot, "--json"})
+	output = commandOutput(t, func(stdout io.Writer) error {
+		return downCommandWithClient(client, stdout, []string{"--app-root", appRoot, "--json"})
 	})
 	var down downResponse
 	if err := json.Unmarshal([]byte(output), &down); err != nil {
@@ -245,8 +243,8 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 }
 
 func TestDeleteStoppedSessionRecordToleratesAlreadyDeletedSession(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,10 +263,7 @@ func TestDeleteStoppedSessionRecordToleratesAlreadyDeletedSession(t *testing.T) 
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -297,8 +292,8 @@ func TestDeleteStoppedSessionRecordToleratesAlreadyDeletedSession(t *testing.T) 
 }
 
 func TestDeleteStoppedSessionRecordPreservesChangedOwner(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,10 +312,7 @@ func TestDeleteStoppedSessionRecordPreservesChangedOwner(t *testing.T) {
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -353,8 +345,8 @@ func TestDeleteStoppedSessionRecordPreservesChangedOwner(t *testing.T) {
 }
 
 func TestDeleteStoppedSessionRecordPreservesSamePIDFingerprintMismatch(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,10 +365,7 @@ func TestDeleteStoppedSessionRecordPreservesSamePIDFingerprintMismatch(t *testin
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -408,8 +397,8 @@ func TestDeleteStoppedSessionRecordPreservesSamePIDFingerprintMismatch(t *testin
 }
 
 func TestDeleteStoppedSessionRecordPreservesOwnerClaimedFromOwnerlessSession(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,10 +417,7 @@ func TestDeleteStoppedSessionRecordPreservesOwnerClaimedFromOwnerlessSession(t *
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -496,8 +482,8 @@ func TestParsePruneArgs(t *testing.T) {
 }
 
 func TestDownCommandRemovesSessionState(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,10 +502,7 @@ func TestDownCommandRemovesSessionState(t *testing.T) {
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -538,8 +521,8 @@ func TestDownCommandRemovesSessionState(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(session.StateRoot, "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	output := captureStdout(t, func() error {
-		return downCommand([]string{"--app-root", appRoot, "--state"})
+	output := commandOutput(t, func(stdout io.Writer) error {
+		return downCommandWithClient(client, stdout, []string{"--app-root", appRoot, "--state"})
 	})
 	if !strings.Contains(output, "removed scenery dev runtime state") {
 		t.Fatalf("down output = %q", output)
@@ -550,10 +533,9 @@ func TestDownCommandRemovesSessionState(t *testing.T) {
 }
 
 func TestPruneCommandPrunesOldSessionState(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,10 +554,7 @@ func TestPruneCommandPrunesOldSessionState(t *testing.T) {
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -607,8 +586,10 @@ func TestPruneCommandPrunesOldSessionState(t *testing.T) {
 	}
 	time.Sleep(2 * time.Millisecond)
 
-	output := captureStdout(t, func() error {
-		return pruneCommand([]string{"--app-root", appRoot, "--older-than", "1ms"})
+	output := commandOutput(t, func(stdout io.Writer) error {
+		return pruneCommandWithDeps(client, stdout, func() (*devdash.Store, error) {
+			return devdash.OpenStore(cacheRoot)
+		}, []string{"--app-root", appRoot, "--older-than", "1ms"})
 	})
 	if !strings.Contains(output, "pruned scenery session old-session") {
 		t.Fatalf("prune output = %q", output)
@@ -652,6 +633,15 @@ func waitForAgentCommandPing(ctx context.Context, client *localagent.Client) err
 		time.Sleep(25 * time.Millisecond)
 	}
 	return lastErr
+}
+
+func commandOutput(t *testing.T, fn func(stdout io.Writer) error) string {
+	t.Helper()
+	var out bytes.Buffer
+	if err := fn(&out); err != nil {
+		t.Fatalf("command returned error: %v", err)
+	}
+	return out.String()
 }
 
 func captureStdout(t *testing.T, fn func() error) string {

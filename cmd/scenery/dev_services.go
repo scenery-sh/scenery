@@ -1816,6 +1816,10 @@ func currentAgentSessionForAppRoot(ctx context.Context, appRoot string) (*locala
 	if err != nil {
 		return nil, err
 	}
+	return currentAgentSessionForAppRootWithClient(ctx, client, appRoot)
+}
+
+func currentAgentSessionForAppRootWithClient(ctx context.Context, client *localagent.Client, appRoot string) (*localagent.Session, error) {
 	sessions, err := client.List(ctx, appRoot)
 	if err != nil {
 		return nil, err

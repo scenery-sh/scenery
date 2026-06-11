@@ -95,6 +95,7 @@ func (h *fakeSubstrateHandle) Components() []managedSubstrateComponent {
 }
 
 func TestManagedSubstrateManagerReusesVerifiedSubstrateWithoutStarting(t *testing.T) {
+	t.Parallel()
 	ctx, client := startManagedSubstrateManagerTestAgent(t)
 	ownerPID := startFakeSubstrateOwner(t)
 	created, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
@@ -125,6 +126,7 @@ func TestManagedSubstrateManagerReusesVerifiedSubstrateWithoutStarting(t *testin
 }
 
 func TestManagedSubstrateManagerDeletesStaleOwnerAndStartsFresh(t *testing.T) {
+	t.Parallel()
 	ctx, client := startManagedSubstrateManagerTestAgent(t)
 	ownerPID := startFakeSubstrateOwner(t)
 	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
@@ -153,6 +155,7 @@ func TestManagedSubstrateManagerDeletesStaleOwnerAndStartsFresh(t *testing.T) {
 }
 
 func TestManagedSubstrateManagerDeletesFailedMaterializationAndProbe(t *testing.T) {
+	t.Parallel()
 	ctx, client := startManagedSubstrateManagerTestAgent(t)
 	ownerPID := startFakeSubstrateOwner(t)
 	for _, probeOK := range []bool{false} {
@@ -176,6 +179,7 @@ func TestManagedSubstrateManagerDeletesFailedMaterializationAndProbe(t *testing.
 }
 
 func TestManagedSubstrateManagerStartupErrorDoesNotUpsert(t *testing.T) {
+	t.Parallel()
 	ctx, client := startManagedSubstrateManagerTestAgent(t)
 	adapter := &fakeSubstrateAdapter{kind: "fake", startErr: errors.New("exited before ready")}
 	handle, reused, err := (managedSubstrateManager{agent: client}).Ensure(ctx, t.TempDir(), adapter)
@@ -188,6 +192,7 @@ func TestManagedSubstrateManagerStartupErrorDoesNotUpsert(t *testing.T) {
 }
 
 func TestManagedSubstrateManagerMonitorRecordsExitState(t *testing.T) {
+	t.Parallel()
 	ctx, client := startManagedSubstrateManagerTestAgent(t)
 	done := make(chan error, 1)
 	ownerPID := startFakeSubstrateOwner(t)
@@ -208,9 +213,8 @@ func TestManagedSubstrateManagerMonitorRecordsExitState(t *testing.T) {
 
 func startManagedSubstrateManagerTestAgent(t *testing.T) (context.Context, *localagent.Client) {
 	t.Helper()
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}

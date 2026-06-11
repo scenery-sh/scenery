@@ -960,9 +960,9 @@ func TestTemporalURLUsesAgentRoute(t *testing.T) {
 }
 
 func TestAgentTemporalDevServerRejectsDeadOwnerSubstrate(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1006,9 +1006,9 @@ func TestAgentTemporalDevServerRejectsDeadOwnerSubstrate(t *testing.T) {
 }
 
 func TestAgentVictoriaStackRejectsClosedListenerSubstrate(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1056,9 +1056,9 @@ func TestAgentVictoriaStackRejectsClosedListenerSubstrate(t *testing.T) {
 }
 
 func TestMonitorSharedTemporalPersistsExitState(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1092,9 +1092,9 @@ func TestMonitorSharedTemporalPersistsExitState(t *testing.T) {
 }
 
 func TestMonitorSharedVictoriaPersistsComponentExitState(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1194,8 +1194,9 @@ func TestDevReportURLUsesLocalDashboardReportEndpoint(t *testing.T) {
 }
 
 func TestDevReportURLUsesAgentDashboardBackend(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
 	server, err := localagent.NewServer(localagent.RunOptions{
+		Home:       t.TempDir(),
 		RouterAddr: "127.0.0.1:0",
 		DashboardBackend: localagent.Backend{
 			Network: "tcp",

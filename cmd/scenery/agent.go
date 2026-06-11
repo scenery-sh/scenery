@@ -17,6 +17,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -316,11 +317,15 @@ func agentStartFailureFromLog(path string, offset int64) error {
 }
 
 func statusCommand(args []string) error {
-	opts, err := parseStatusArgs(args)
+	client, err := localagent.DefaultClient()
 	if err != nil {
 		return err
 	}
-	client, err := localagent.DefaultClient()
+	return statusCommandWithClient(client, os.Stdout, args)
+}
+
+func statusCommandWithClient(client *localagent.Client, stdout io.Writer, args []string) error {
+	opts, err := parseStatusArgs(args)
 	if err != nil {
 		return err
 	}
@@ -333,7 +338,7 @@ func statusCommand(args []string) error {
 		}
 	}
 	for {
-		if err := writeStatus(ctx, client, appRoot, opts); err != nil {
+		if err := writeStatus(ctx, client, stdout, appRoot, opts); err != nil {
 			return err
 		}
 		if !opts.Watch {
@@ -366,7 +371,7 @@ func parseStatusArgs(args []string) (statusOptions, error) {
 	return opts, nil
 }
 
-func writeStatus(ctx context.Context, client *localagent.Client, appRoot string, opts statusOptions) error {
+func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Writer, appRoot string, opts statusOptions) error {
 	sessions, err := client.List(ctx, appRoot)
 	if err != nil {
 		return err
@@ -375,7 +380,7 @@ func writeStatus(ctx context.Context, client *localagent.Client, appRoot string,
 	if opts.JSON {
 		health, _ := client.Health(ctx)
 		substrates, _ := client.ListSubstrates(ctx)
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(stdout)
 		if !opts.Watch {
 			enc.SetIndent("", "  ")
 		}
@@ -386,9 +391,9 @@ func writeStatus(ctx context.Context, client *localagent.Client, appRoot string,
 			"substrates":     substrates,
 		})
 	}
-	writeStatusTable(os.Stdout, sessions)
+	writeStatusTable(stdout, sessions)
 	if opts.Watch {
-		fmt.Fprintln(os.Stdout, "---")
+		fmt.Fprintln(stdout, "---")
 	}
 	return nil
 }
@@ -496,11 +501,15 @@ func sessionOwnerLive(session localagent.Session) bool {
 }
 
 func downCommand(args []string) error {
-	opts, err := parseDownArgs(args)
+	client, err := localagent.DefaultClient()
 	if err != nil {
 		return err
 	}
-	client, err := localagent.DefaultClient()
+	return downCommandWithClient(client, os.Stdout, args)
+}
+
+func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []string) error {
+	opts, err := parseDownArgs(args)
 	if err != nil {
 		return err
 	}
@@ -537,19 +546,19 @@ func downCommand(args []string) error {
 		resp.RecordPreserved = true
 		resp.Messages = append(resp.Messages, fmt.Sprintf("stopped scenery dev runtime processes for %s; preserved active runtime record because the owner changed", runtimeLabel))
 		if opts.JSON {
-			return writeDownJSON(os.Stdout, resp)
+			return writeDownJSON(stdout, resp)
 		}
-		fmt.Fprintln(os.Stdout, resp.Messages[0])
+		fmt.Fprintln(stdout, resp.Messages[0])
 		return nil
 	}
 	if opts.DB {
-		message, err := dropSessionManagedDatabase(ctx, appRoot, deletedSession)
+		message, err := dropSessionManagedDatabase(ctx, client, appRoot, deletedSession)
 		if err != nil {
 			return err
 		}
 		resp.Messages = append(resp.Messages, message)
 		if !opts.JSON {
-			fmt.Fprintln(os.Stdout, message)
+			fmt.Fprintln(stdout, message)
 		}
 	}
 	if opts.State {
@@ -560,7 +569,7 @@ func downCommand(args []string) error {
 		stateMessage := fmt.Sprintf("removed scenery dev runtime state %s", deletedSession.StateRoot)
 		resp.Messages = append(resp.Messages, stateMessage)
 		if !opts.JSON {
-			fmt.Fprintln(os.Stdout, stateMessage)
+			fmt.Fprintln(stdout, stateMessage)
 		}
 		removedPin, err := removeDBWorktreeDBPinForSession(appRoot, deletedSession)
 		if err != nil {
@@ -571,16 +580,16 @@ func downCommand(args []string) error {
 			pinMessage := fmt.Sprintf("removed scenery database branch pin for dev runtime %s", runtimeLabel)
 			resp.Messages = append(resp.Messages, pinMessage)
 			if !opts.JSON {
-				fmt.Fprintln(os.Stdout, pinMessage)
+				fmt.Fprintln(stdout, pinMessage)
 			}
 		}
 	}
 	stopMessage := fmt.Sprintf("stopped scenery dev runtime for %s", runtimeLabel)
 	resp.Messages = append(resp.Messages, stopMessage)
 	if opts.JSON {
-		return writeDownJSON(os.Stdout, resp)
+		return writeDownJSON(stdout, resp)
 	}
-	fmt.Fprintln(os.Stdout, stopMessage)
+	fmt.Fprintln(stdout, stopMessage)
 	return nil
 }
 
@@ -700,11 +709,15 @@ func removeSessionStateRoot(session localagent.Session) error {
 }
 
 func pruneCommand(args []string) error {
-	opts, err := parsePruneArgs(args)
+	client, err := localagent.DefaultClient()
 	if err != nil {
 		return err
 	}
-	client, err := localagent.DefaultClient()
+	return pruneCommandWithDeps(client, os.Stdout, openDevdashStore, args)
+}
+
+func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore func() (*devdash.Store, error), args []string) error {
+	opts, err := parsePruneArgs(args)
 	if err != nil {
 		return err
 	}
@@ -726,7 +739,7 @@ func pruneCommand(args []string) error {
 	var skipped []string
 	devEventsPruned := int64(0)
 	devSourcesPruned := int64(0)
-	store, storeErr := openDevdashStore()
+	store, storeErr := openStore()
 	if storeErr == nil {
 		defer store.Close()
 	}
@@ -753,7 +766,7 @@ func pruneCommand(args []string) error {
 		pruned = append(pruned, deleted.SessionID)
 	}
 	if opts.JSON {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+		return json.NewEncoder(stdout).Encode(map[string]any{
 			"cutoff":             cutoff.Format(time.RFC3339Nano),
 			"pruned":             pruned,
 			"skipped":            skipped,
@@ -762,9 +775,9 @@ func pruneCommand(args []string) error {
 		})
 	}
 	for _, id := range pruned {
-		fmt.Fprintf(os.Stdout, "pruned scenery session %s\n", id)
+		fmt.Fprintf(stdout, "pruned scenery session %s\n", id)
 	}
-	fmt.Fprintf(os.Stdout, "scenery prune complete: pruned=%d skipped=%d dev_events=%d dev_sources=%d\n", len(pruned), len(skipped), devEventsPruned, devSourcesPruned)
+	fmt.Fprintf(stdout, "scenery prune complete: pruned=%d skipped=%d dev_events=%d dev_sources=%d\n", len(pruned), len(skipped), devEventsPruned, devSourcesPruned)
 	return nil
 }
 
@@ -840,7 +853,7 @@ func pruneSessionEligible(session localagent.Session, cutoff time.Time) bool {
 	return true
 }
 
-func dropSessionManagedDatabase(ctx context.Context, appRoot string, session localagent.Session) (string, error) {
+func dropSessionManagedDatabase(ctx context.Context, client *localagent.Client, appRoot string, session localagent.Session) (string, error) {
 	if strings.TrimSpace(appRoot) == "" {
 		return "", fmt.Errorf("app root is required to drop a managed database")
 	}
@@ -862,8 +875,7 @@ func dropSessionManagedDatabase(ctx context.Context, appRoot string, session loc
 	if err != nil {
 		return "", err
 	}
-	client, err := localagent.DefaultClient()
-	if err == nil {
+	if client != nil {
 		baseEnv, err = envWithManagedPostgresAdminURL(ctx, cfg, baseEnv, client)
 		if err != nil {
 			return "", err
