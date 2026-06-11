@@ -86,6 +86,8 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 }
 
 func TestBuildHarnessUIRoutesIncludesSemanticJourneys(t *testing.T) {
+	t.Parallel()
+
 	routes := buildHarnessUIRoutes("http://127.0.0.1:9401/demo")
 	byName := map[string]harnessUIRouteSpec{}
 	for _, route := range routes {
@@ -131,12 +133,16 @@ func harnessUIRouteHasCheck(route harnessUIRouteSpec, name string) bool {
 }
 
 func TestParseHarnessUIArgsRejectsUnknownFlags(t *testing.T) {
+	t.Parallel()
+
 	if _, err := parseHarnessUIArgs([]string{"--wat"}); err == nil {
 		t.Fatal("expected unknown flag error")
 	}
 }
 
 func TestHarnessUIDevProcessScanDevOutputReportsCompileError(t *testing.T) {
+	t.Parallel()
+
 	proc := &harnessUIDevProcess{output: &safeLineTail{limit: 10}}
 	ready := make(chan harnessUIDevSignal, 1)
 	proc.scanDevOutput(strings.NewReader(`{"type":"process.compile-error","data":{"error":"fatal error: 'torch/torch.h' file not found"}}`+"\n"), ready)

@@ -66,6 +66,8 @@ func TestDashboardFallbackWhenUIDirMissing(t *testing.T) {
 }
 
 func TestDashboardProcessOutputListRPC(t *testing.T) {
+	t.Parallel()
+
 	server := newTestDashboardServer(t)
 	ctx := context.Background()
 

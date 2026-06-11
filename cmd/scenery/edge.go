@@ -32,7 +32,6 @@ const (
 	defaultEdgeDNSAddress = "127.0.0.1"
 	edgeHighPortMin       = 19000
 	edgeHighPortMax       = 19999
-	caddyStartupSettle    = 1500 * time.Millisecond
 
 	edgeHelperLabel      = "dev.scenery.edge-helper"
 	edgeHelperBinaryPath = "/usr/local/libexec/scenery-edge-helper"
@@ -44,6 +43,10 @@ const (
 	legacyOnlavaEdgeHelperBinaryPath = "/usr/local/libexec/onlava-edge-helper"
 	legacyOnlavaEdgeHelperPlistPath  = "/Library/LaunchDaemons/dev.onlava.edge-helper.plist"
 )
+
+// caddyStartupSettle is how long a freshly started Caddy edge process must
+// stay up before it is considered started. Tests shorten it.
+var caddyStartupSettle = 1500 * time.Millisecond
 
 type edgeOptions struct {
 	JSON   bool
@@ -1161,7 +1164,7 @@ func trustCaddyLocalCA(caddyBin string) error {
 	go func() {
 		exitCh <- run.Wait()
 	}()
-	if err := waitForCaddyAdminSocket(adminSocket, exitCh, logPath, 3*time.Second); err != nil {
+	if err := waitForCaddyAdminSocket(adminSocket, exitCh, logPath, 15*time.Second); err != nil {
 		_ = logFile.Close()
 		return err
 	}

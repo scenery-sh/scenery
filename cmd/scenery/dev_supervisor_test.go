@@ -330,6 +330,8 @@ func TestAppStartupExitErrorIncludesOutput(t *testing.T) {
 	}
 }
 
+// Not parallel: asserts that a just-closed ephemeral port refuses connections,
+// which races with concurrent tests binding 127.0.0.1:0.
 func TestTCPAddrAcceptsConnections(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -391,6 +393,8 @@ func TestTemporalDevHelpers(t *testing.T) {
 }
 
 func TestPrepareSessionAppBinaryUsesSessionStateRoot(t *testing.T) {
+	t.Parallel()
+
 	stateRoot := filepath.Join(t.TempDir(), ".scenery", "sessions", "review-a")
 	buildDir := t.TempDir()
 	binary := filepath.Join(buildDir, "scenery-app-abcdef")
@@ -413,6 +417,8 @@ func TestPrepareSessionAppBinaryUsesSessionStateRoot(t *testing.T) {
 }
 
 func TestPrepareSessionAppBinaryErrorsWhenSessionTargetBlocked(t *testing.T) {
+	t.Parallel()
+
 	stateRoot := filepath.Join(t.TempDir(), ".scenery", "sessions", "review-a")
 	buildDir := t.TempDir()
 	binary := filepath.Join(buildDir, "scenery-app-abcdef")
@@ -751,6 +757,8 @@ func TestManagedAppEnvSkipsBranchingWhenExternalPostgresIsConfigured(t *testing.
 }
 
 func TestTypeScriptWorkerAutoStartRequiresTemporalEnabled(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Temporal: app.TemporalConfig{
@@ -772,6 +780,8 @@ func TestTypeScriptWorkerAutoStartRequiresTemporalEnabled(t *testing.T) {
 }
 
 func TestTypeScriptWorkerAutoStartEnablesTemporalDevServerWhenExplicit(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Temporal: app.TemporalConfig{
@@ -794,6 +804,8 @@ func TestTypeScriptWorkerAutoStartEnablesTemporalDevServerWhenExplicit(t *testin
 }
 
 func TestTypeScriptWorkerAutoStartRequiresActivity(t *testing.T) {
+	t.Parallel()
+
 	cfg := app.Config{
 		Name: "demo",
 		Temporal: app.TemporalConfig{
@@ -810,6 +822,8 @@ func TestTypeScriptWorkerAutoStartRequiresActivity(t *testing.T) {
 }
 
 func TestTypeScriptWorkerEnvUsesTemporalAndSessionOverrides(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{
 		root: "/tmp/onlv-demo",
 		cfg: app.Config{
@@ -871,6 +885,8 @@ func TestTypeScriptWorkerEnvUsesTemporalAndSessionOverrides(t *testing.T) {
 }
 
 func TestCompactEnvOverridesKeepsLastValue(t *testing.T) {
+	t.Parallel()
+
 	got := compactEnvOverrides([]string{"A=1", "B=2", "A=3"})
 	want := []string{"B=2", "A=3"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -879,6 +895,8 @@ func TestCompactEnvOverridesKeepsLastValue(t *testing.T) {
 }
 
 func TestTemporalSubstrateRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	server := &temporalDevServer{
 		info:   sceneryRuntimeInfoForTest(),
 		uiURL:  "http://127.0.0.1:8233",
@@ -930,6 +948,8 @@ func countEnvKey(env []string, key string) int {
 }
 
 func TestFrontendURLsFromAgentRoutes(t *testing.T) {
+	t.Parallel()
+
 	urls := frontendURLsFromAgentRoutes(map[string]string{
 		localagent.RouteAPI:       "http://api.session.demo.localhost",
 		localagent.RouteDashboard: "http://console.session.demo.localhost",
@@ -948,6 +968,8 @@ func TestFrontendURLsFromAgentRoutes(t *testing.T) {
 }
 
 func TestTemporalURLUsesAgentRoute(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{
 		agentSession: &localagent.Session{Routes: map[string]string{
 			localagent.RouteTemporal: "http://temporal.session.demo.localhost",
@@ -960,9 +982,10 @@ func TestTemporalURLUsesAgentRoute(t *testing.T) {
 }
 
 func TestAgentTemporalDevServerRejectsDeadOwnerSubstrate(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -972,6 +995,7 @@ func TestAgentTemporalDevServerRejectsDeadOwnerSubstrate(t *testing.T) {
 	defer stopAgentServerForTest(t, cancel, done)
 
 	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -1006,9 +1030,10 @@ func TestAgentTemporalDevServerRejectsDeadOwnerSubstrate(t *testing.T) {
 }
 
 func TestAgentVictoriaStackRejectsClosedListenerSubstrate(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1018,6 +1043,7 @@ func TestAgentVictoriaStackRejectsClosedListenerSubstrate(t *testing.T) {
 	defer stopAgentServerForTest(t, cancel, done)
 
 	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -1056,9 +1082,10 @@ func TestAgentVictoriaStackRejectsClosedListenerSubstrate(t *testing.T) {
 }
 
 func TestMonitorSharedTemporalPersistsExitState(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1068,6 +1095,7 @@ func TestMonitorSharedTemporalPersistsExitState(t *testing.T) {
 	defer stopAgentServerForTest(t, cancel, done)
 
 	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -1092,9 +1120,10 @@ func TestMonitorSharedTemporalPersistsExitState(t *testing.T) {
 }
 
 func TestMonitorSharedVictoriaPersistsComponentExitState(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	ctx := context.Background()
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1104,6 +1133,7 @@ func TestMonitorSharedVictoriaPersistsComponentExitState(t *testing.T) {
 	defer stopAgentServerForTest(t, cancel, done)
 
 	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -1174,6 +1204,8 @@ func waitForMonitorDone(t *testing.T, done <-chan struct{}) {
 }
 
 func TestBackendFromHTTPURL(t *testing.T) {
+	t.Parallel()
+
 	got := backendFromHTTPURL("http://127.0.0.1:10429")
 	if got.Network != "tcp" || got.Addr != "127.0.0.1:10429" {
 		t.Fatalf("backendFromHTTPURL() = %+v", got)
@@ -1181,6 +1213,8 @@ func TestBackendFromHTTPURL(t *testing.T) {
 }
 
 func TestDevReportURLUsesLocalDashboardReportEndpoint(t *testing.T) {
+	t.Parallel()
+
 	s := &devSupervisor{
 		agentSession: &localagent.Session{
 			Routes: map[string]string{
@@ -1194,8 +1228,10 @@ func TestDevReportURLUsesLocalDashboardReportEndpoint(t *testing.T) {
 }
 
 func TestDevReportURLUsesAgentDashboardBackend(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Parallel()
+
 	server, err := localagent.NewServer(localagent.RunOptions{
+		Home:       t.TempDir(),
 		RouterAddr: "127.0.0.1:0",
 		DashboardBackend: localagent.Backend{
 			Network: "tcp",
@@ -1221,6 +1257,7 @@ func TestDevReportURLUsesAgentDashboardBackend(t *testing.T) {
 	}()
 
 	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -1241,6 +1278,8 @@ func sceneryRuntimeInfoForTest() sceneryruntime.TemporalRuntimeInfo {
 }
 
 func TestStripANSI(t *testing.T) {
+	t.Parallel()
+
 	input := []byte("\x1b[34mTRC\x1b[0m request completed code=ok\n")
 	got := stripANSI(input)
 	want := []byte("TRC request completed code=ok\n")
@@ -1250,6 +1289,8 @@ func TestStripANSI(t *testing.T) {
 }
 
 func TestIsExpectedOutputReadError(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		err  error
@@ -1269,6 +1310,8 @@ func TestIsExpectedOutputReadError(t *testing.T) {
 }
 
 func TestListAppsReturnsOnlyActiveSupervisorApp(t *testing.T) {
+	t.Parallel()
+
 	store, err := devdash.OpenStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -1320,6 +1363,8 @@ func containsString(items []string, want string) bool {
 }
 
 func TestLooksLikeSceneryDashboardProcess(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		info procInfo

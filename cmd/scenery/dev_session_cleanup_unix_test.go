@@ -15,6 +15,8 @@ import (
 )
 
 func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	stale := startSleepProcessForCleanupTest(t)
 	other := startSleepProcessForCleanupTest(t)
@@ -57,6 +59,8 @@ func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
 }
 
 func TestCleanupStaleDevSessionProcessesStopsStateRootMatchedOrphans(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	current := localagent.Session{
 		SessionID: "review-a",
@@ -84,6 +88,8 @@ func TestCleanupStaleDevSessionProcessesStopsStateRootMatchedOrphans(t *testing.
 }
 
 func TestStopDeletedSessionProcessesStopsOwner(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	owner := startSleepProcessForCleanupTest(t)
 	session := localagent.Session{
@@ -102,6 +108,8 @@ func TestStopDeletedSessionProcessesStopsOwner(t *testing.T) {
 }
 
 func TestStopDeletedSessionProcessesStopsStateRootMatchedOrphan(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	session := localagent.Session{
 		SessionID: "review-a",
@@ -118,6 +126,8 @@ func TestStopDeletedSessionProcessesStopsStateRootMatchedOrphan(t *testing.T) {
 }
 
 func TestMarkInconsistentStatusSessionsMarksDeadOwnerStale(t *testing.T) {
+	t.Parallel()
+
 	sessions := markInconsistentStatusSessions([]localagent.Session{
 		{
 			SessionID: "live",
@@ -179,6 +189,8 @@ func TestMarkInconsistentStatusSessionsMarksDeadOwnerStale(t *testing.T) {
 }
 
 func TestMarkInconsistentStatusSessionsMarksConfiguredEdgeInternalRouterRouteDegraded(t *testing.T) {
+	t.Parallel()
+
 	sessions := markInconsistentStatusSessions([]localagent.Session{
 		{
 			SessionID: "custom-domain",
@@ -204,6 +216,8 @@ func TestMarkInconsistentStatusSessionsMarksConfiguredEdgeInternalRouterRouteDeg
 }
 
 func TestPruneSessionEligibleKeepsLiveOwnerPIDWhenOwnerFieldIsStale(t *testing.T) {
+	t.Parallel()
+
 	session := localagent.Session{
 		SessionID: "review-a",
 		Status:    "running",

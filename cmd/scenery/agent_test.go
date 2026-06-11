@@ -53,6 +53,8 @@ func TestAgentRouterTLSDefaultsOn(t *testing.T) {
 }
 
 func TestWaitForAgentStartSurfacesRouterBindFailureFromLog(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "agent.log")
 	if err := os.WriteFile(logPath, []byte("old log line\n"), 0o644); err != nil {
@@ -79,6 +81,8 @@ func TestWaitForAgentStartSurfacesRouterBindFailureFromLog(t *testing.T) {
 }
 
 func TestWaitForAgentStartSurfacesPermissionFailureFromLog(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "agent.log")
 	if err := os.WriteFile(logPath, []byte("old log line\n"), 0o644); err != nil {
@@ -245,8 +249,9 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 }
 
 func TestDeleteStoppedSessionRecordToleratesAlreadyDeletedSession(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,10 +270,8 @@ func TestDeleteStoppedSessionRecordToleratesAlreadyDeletedSession(t *testing.T) 
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -297,8 +300,9 @@ func TestDeleteStoppedSessionRecordToleratesAlreadyDeletedSession(t *testing.T) 
 }
 
 func TestDeleteStoppedSessionRecordPreservesChangedOwner(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,10 +321,8 @@ func TestDeleteStoppedSessionRecordPreservesChangedOwner(t *testing.T) {
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -353,8 +355,9 @@ func TestDeleteStoppedSessionRecordPreservesChangedOwner(t *testing.T) {
 }
 
 func TestDeleteStoppedSessionRecordPreservesSamePIDFingerprintMismatch(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,10 +376,8 @@ func TestDeleteStoppedSessionRecordPreservesSamePIDFingerprintMismatch(t *testin
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -408,8 +409,9 @@ func TestDeleteStoppedSessionRecordPreservesSamePIDFingerprintMismatch(t *testin
 }
 
 func TestDeleteStoppedSessionRecordPreservesOwnerClaimedFromOwnerlessSession(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	server, err := localagent.NewServer(localagent.RunOptions{RouterAddr: "127.0.0.1:0"})
+	t.Parallel()
+
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,10 +430,8 @@ func TestDeleteStoppedSessionRecordPreservesOwnerClaimedFromOwnerlessSession(t *
 		}
 	}()
 
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
@@ -483,6 +483,8 @@ func TestParseDownArgsCleanupFlags(t *testing.T) {
 }
 
 func TestParsePruneArgs(t *testing.T) {
+	t.Parallel()
+
 	opts, err := parsePruneArgs([]string{"--older-than", "14d", "--app-root", "/tmp/app", "--json"})
 	if err != nil {
 		t.Fatal(err)

@@ -8,6 +8,8 @@ import (
 )
 
 func TestRootHelpIsOrienting(t *testing.T) {
+	t.Parallel()
+
 	help := rootHelpString()
 	if !strings.Contains(help, "Scenery - build, run, and inspect app services.") {
 		t.Fatalf("root help missing product line:\n%s", help)
@@ -26,6 +28,8 @@ func TestRootHelpIsOrienting(t *testing.T) {
 }
 
 func TestHelpAllContainsCanonicalCommands(t *testing.T) {
+	t.Parallel()
+
 	var buf bytes.Buffer
 	writeHelpAll(&buf)
 	usage := buf.String()
@@ -80,6 +84,8 @@ func TestHelpAllContainsCanonicalCommands(t *testing.T) {
 }
 
 func TestCommandHelpAndJSONManifest(t *testing.T) {
+	t.Parallel()
+
 	logs, ok := findHelpCommand([]string{"logs"})
 	if !ok {
 		t.Fatal("logs help not found")
@@ -172,6 +178,8 @@ func TestRemovedTopLevelCommandsFail(t *testing.T) {
 }
 
 func TestCanonicalCommandParsers(t *testing.T) {
+	t.Parallel()
+
 	if _, err := parseDevArgs([]string{"--app-root", "/tmp/app", "--detach"}); err != nil {
 		t.Fatalf("parse up args: %v", err)
 	}

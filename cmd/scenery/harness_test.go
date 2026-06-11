@@ -380,6 +380,8 @@ func TestWriteHarnessSelfOracleArtifacts(t *testing.T) {
 }
 
 func TestBuildHarnessAgentContextEmitsEmptyExecPlanArray(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	resp := harnessSelfResponse{
 		SchemaVersion: "scenery.harness.self.v1",

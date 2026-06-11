@@ -11,6 +11,8 @@ import (
 )
 
 func TestRunHarnessUIBrowserChecksWithLocalBrowser(t *testing.T) {
+	t.Parallel()
+
 	if _, err := harnessBrowserExecutable(); err != nil {
 		t.Skip(err)
 	}

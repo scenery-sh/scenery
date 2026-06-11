@@ -47,6 +47,12 @@ func DefaultPaths() (Paths, error) {
 		}
 		home = filepath.Join(userHome, ".scenery")
 	}
+	return PathsForHome(home), nil
+}
+
+// PathsForHome resolves agent paths for an explicit home directory, applying
+// the same socket-path rules as DefaultPaths.
+func PathsForHome(home string) Paths {
 	home = filepath.Clean(home)
 	runDir := filepath.Join(home, "run")
 	agentDir := filepath.Join(home, "agent")
@@ -73,7 +79,7 @@ func DefaultPaths() (Paths, error) {
 		EdgeLogPath:    filepath.Join(edgeDir, "caddy.log"),
 		RegistryPath:   filepath.Join(agentDir, "sessions.json"),
 		LogPath:        filepath.Join(agentDir, "agent.log"),
-	}, nil
+	}
 }
 
 func RouterAddrFromEnv() string {
