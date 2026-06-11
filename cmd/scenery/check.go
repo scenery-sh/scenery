@@ -93,7 +93,7 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		}
 	}
 
-	result, err := build.Prepare(appRoot, model, cfg, build.PrepareOptions{})
+	result, err := build.Prepare(appRoot, model, cfg)
 	if err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "prepare", err)
 	}

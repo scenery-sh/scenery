@@ -134,7 +134,7 @@ func serveHeadless(addr string, opts serveOptions) error {
 	if err := validateHeadlessProductionSecrets(root, appModel, opts); err != nil {
 		return err
 	}
-	result, err := build.Prepare(root, appModel, cfg, build.PrepareOptions{})
+	result, err := build.Prepare(root, appModel, cfg)
 	if err != nil {
 		return err
 	}

@@ -109,7 +109,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		return err
 	}
 
-	if err := supervisor.RebuildAndRestart(ctx, true, snapshot, nil); err != nil {
+	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
 	}
 
@@ -134,7 +134,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		paths := changedPaths(snapshot, nextSnapshot)
 		snapshot = nextSnapshot
 		supervisor.announceRebuild(paths)
-		if err := supervisor.RebuildAndRestart(ctx, false, snapshot, paths); err != nil {
+		if err := supervisor.RebuildAndRestart(ctx, false, snapshot); err != nil {
 			supervisor.console.RebuildFailed(err)
 		}
 	}

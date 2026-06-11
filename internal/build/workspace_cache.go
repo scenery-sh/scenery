@@ -11,6 +11,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -152,7 +153,8 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 		GraphFingerprint:          state.GraphFingerprint,
 		Metadata:                  append(json.RawMessage(nil), state.Metadata...),
 		APIEncoding:               append(json.RawMessage(nil), state.APIEncoding...),
-		SourceFiles:               append([]string(nil), state.SourceFiles...),
+		SourceFiles:               sourceFilesFromStamps(state.SourceStamps),
+		SourceStamps:              maps.Clone(state.SourceStamps),
 		GeneratedFiles:            append([]string(nil), state.GeneratedFiles...),
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
 	}
@@ -164,14 +166,6 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 }
 
 func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
-	return RefreshCachedWorkspaceWithOptions(appRoot, result, RefreshOptions{})
-}
-
-type RefreshOptions struct {
-	ChangedPaths []string
-}
-
-func RefreshCachedWorkspaceWithOptions(appRoot string, result *Result, opts RefreshOptions) (bool, error) {
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
@@ -186,12 +180,13 @@ func RefreshCachedWorkspaceWithOptions(appRoot string, result *Result, opts Refr
 			return false, err
 		}
 	}
-	sourceFiles, sourceMetadataFingerprint, err := refreshCachedSourceFiles(appRoot, result, generated, opts)
+	sourceFiles, sourceStamps, err := syncSourceFiles(result.Dir, appRoot, result.SourceStamps, generated)
 	if err != nil {
 		return false, err
 	}
 	result.SourceFiles = sourceFiles
-	result.SourceMetadataFingerprint = sourceMetadataFingerprint
+	result.SourceStamps = sourceStamps
+	result.SourceMetadataFingerprint = sourceStampsFingerprint(sourceStamps)
 	if err := removeUnexpectedFilesFromLists(result.Dir, result.SourceFiles, result.GeneratedFiles); err != nil {
 		return false, err
 	}
@@ -212,47 +207,6 @@ func RefreshCachedWorkspaceWithOptions(appRoot string, result *Result, opts Refr
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appRoot, buildFingerprint))
 	result.ReuseCompiled = pathExists(result.Binary)
 	return true, nil
-}
-
-func refreshCachedSourceFiles(appRoot string, result *Result, generated map[string]struct{}, opts RefreshOptions) ([]string, string, error) {
-	if len(opts.ChangedPaths) > 0 {
-		sourceFiles, err := syncSourceFiles(result.Dir, appRoot, result.SourceFiles, opts.ChangedPaths)
-		if err != nil {
-			return nil, "", err
-		}
-		fingerprint, err := sourceFilesMetadataFingerprint(appRoot, sourceFiles)
-		if err != nil {
-			return nil, "", err
-		}
-		return sourceFiles, fingerprint, nil
-	}
-	if result.SourceMetadataFingerprint != "" {
-		sourceFiles, fingerprint, err := currentSourceMetadataFingerprint(appRoot)
-		if err != nil {
-			return nil, "", err
-		}
-		if fingerprint == result.SourceMetadataFingerprint && workspaceSourceFilesExist(result.Dir, sourceFiles) {
-			return sourceFiles, fingerprint, nil
-		}
-	}
-	sourceFiles, err := syncAllSourceFiles(result.Dir, appRoot, generated)
-	if err != nil {
-		return nil, "", err
-	}
-	fingerprint, err := sourceFilesMetadataFingerprint(appRoot, sourceFiles)
-	if err != nil {
-		return nil, "", err
-	}
-	return sourceFiles, fingerprint, nil
-}
-
-func workspaceSourceFilesExist(root string, sourceFiles []string) bool {
-	for _, rel := range sourceFiles {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
-			return false
-		}
-	}
-	return true
 }
 
 func saveBuildState(root string, state buildState) error {

@@ -267,7 +267,7 @@ func Ping(context.Context) (*Response, error) {
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	result, err := Prepare(root, model, cfg, PrepareOptions{})
+	result, err := Prepare(root, model, cfg)
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
@@ -313,7 +313,7 @@ func Config(context.Context) error { return nil }
 	if err != nil {
 		t.Fatalf("parse.App() error = %v", err)
 	}
-	if _, err := Prepare(appDir, model, appcfg.Config{Name: "inspectartifacts", ID: "inspect-id"}, PrepareOptions{}); err != nil {
+	if _, err := Prepare(appDir, model, appcfg.Config{Name: "inspectartifacts", ID: "inspect-id"}); err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
 
@@ -404,7 +404,7 @@ func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	result, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"}, PrepareOptions{})
+	result, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -654,7 +654,7 @@ func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 		t.Fatalf("parse app: %v", err)
 	}
 
-	first, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"}, PrepareOptions{})
+	first, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
 	}
@@ -665,7 +665,7 @@ func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 		t.Fatalf("first compile: %v", err)
 	}
 
-	second, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"}, PrepareOptions{ChangedPaths: []string{"svc/api.go"}})
+	second, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
 	if err != nil {
 		t.Fatalf("second prepare: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestPrepareUsesFingerprintSpecificWorkspaceBinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	first, err := Prepare(appDir, model, cfg, PrepareOptions{})
+	first, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
 	}
@@ -712,7 +712,7 @@ func Changed() {}
 	if err != nil {
 		t.Fatalf("parse updated app: %v", err)
 	}
-	second, err := Prepare(appDir, model, cfg, PrepareOptions{ChangedPaths: []string{"svc/api.go"}})
+	second, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("second prepare: %v", err)
 	}
@@ -749,7 +749,7 @@ func TestPrepareIncludesGoBuildFlagsInFingerprint(t *testing.T) {
 		Name:  "buildtest",
 		Build: appcfg.BuildConfig{GoFlags: []string{"-tags=roofmapnet_native"}},
 	}
-	first, err := Prepare(appDir, model, firstCfg, PrepareOptions{})
+	first, err := Prepare(appDir, model, firstCfg)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
 	}
@@ -761,7 +761,7 @@ func TestPrepareIncludesGoBuildFlagsInFingerprint(t *testing.T) {
 		Name:  "buildtest",
 		Build: appcfg.BuildConfig{GoFlags: []string{"-tags=roofmapnet_portable"}},
 	}
-	second, err := Prepare(appDir, model, secondCfg, PrepareOptions{})
+	second, err := Prepare(appDir, model, secondCfg)
 	if err != nil {
 		t.Fatalf("second prepare: %v", err)
 	}
@@ -787,7 +787,7 @@ func TestLoadReusableBinaryRequiresMatchingSourceFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	result, err := Prepare(appDir, model, cfg, PrepareOptions{})
+	result, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -830,7 +830,7 @@ func TestLoadReusableBinaryRequiresMatchingGoBuildFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	result, err := Prepare(appDir, model, cfg, PrepareOptions{})
+	result, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -870,7 +870,7 @@ func TestPrepareReusesExistingFingerprintBinaryWhenStatePointsElsewhere(t *testi
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	first, err := Prepare(appDir, model, cfg, PrepareOptions{})
+	first, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
 	}
@@ -892,7 +892,7 @@ func Hello(ctx context.Context) error {
 	if err != nil {
 		t.Fatalf("parse changed app: %v", err)
 	}
-	second, err := Prepare(appDir, model, cfg, PrepareOptions{ChangedPaths: []string{"svc/api.go"}})
+	second, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("second prepare: %v", err)
 	}
@@ -914,7 +914,7 @@ func Hello(ctx context.Context) error { return nil }
 	if err != nil {
 		t.Fatalf("parse reverted app: %v", err)
 	}
-	reverted, err := Prepare(appDir, model, cfg, PrepareOptions{ChangedPaths: []string{"svc/api.go"}})
+	reverted, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("reverted prepare: %v", err)
 	}
@@ -1207,7 +1207,7 @@ func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	result, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"}, PrepareOptions{})
+	result, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
@@ -1225,7 +1225,7 @@ func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	next, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"}, PrepareOptions{})
+	next, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
 	if err != nil {
 		t.Fatalf("prepare after go.mod change: %v", err)
 	}
@@ -1288,7 +1288,7 @@ func TestLoadCachedGraphRequiresMatchingGoBuildFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadBuildState() error = %v", err)
 	}
-	buildFingerprint, err := workspaceBuildFingerprint(result.Dir, flags, state.SourceFiles, state.GeneratedFiles)
+	buildFingerprint, err := workspaceBuildFingerprint(result.Dir, flags, sourceFilesFromStamps(state.SourceStamps), state.GeneratedFiles)
 	if err != nil {
 		t.Fatalf("workspaceBuildFingerprint() error = %v", err)
 	}
@@ -1440,6 +1440,47 @@ func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 	}
 }
 
+func TestRefreshCachedWorkspaceResyncsChangedSourceFiles(t *testing.T) {
+	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
+
+	// Regression: a git pull changed svc/api.go without the dev watcher
+	// reporting it; the workspace copy must still be refreshed from disk
+	// instead of being trusted because it exists.
+	const updated = `package svc
+
+import "context"
+
+//scenery:api public
+func Hello(ctx context.Context) error { return nil }
+
+func pulledInChange() {}
+`
+	writeBuildTestFile(t, appDir, "svc/api.go", updated)
+
+	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
+	if err != nil {
+		t.Fatalf("LoadCachedGraph() error = %v", err)
+	}
+	if !ok || cached == nil || cached.Result == nil {
+		t.Fatal("expected cached graph to load")
+	}
+
+	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
+	if err != nil {
+		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
+	}
+	if !reused {
+		t.Fatal("expected cached workspace refresh to be reusable")
+	}
+	data, err := os.ReadFile(filepath.Join(cached.Result.Dir, "svc", "api.go"))
+	if err != nil {
+		t.Fatalf("read workspace copy: %v", err)
+	}
+	if string(data) != updated {
+		t.Fatalf("workspace copy = %q, want resynced %q", data, updated)
+	}
+}
+
 func TestRefreshCachedWorkspaceFallsBackWhenSourceFileMissing(t *testing.T) {
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 
@@ -1528,9 +1569,9 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 	if !ok || cached == nil || cached.Result == nil {
 		t.Fatal("expected cached graph to load")
 	}
-	reused, err := RefreshCachedWorkspaceWithOptions(appDir, cached.Result, RefreshOptions{ChangedPaths: []string{"svc/api.go"}})
+	reused, err := RefreshCachedWorkspace(appDir, cached.Result)
 	if err != nil {
-		t.Fatalf("RefreshCachedWorkspaceWithOptions() error = %v", err)
+		t.Fatalf("RefreshCachedWorkspace() error = %v", err)
 	}
 	if !reused {
 		t.Fatal("expected cached workspace refresh to be reusable")
@@ -1571,7 +1612,7 @@ func TestRefreshCachedWorkspaceFallsBackWhenGeneratedFileMissing(t *testing.T) {
 	}
 }
 
-func TestSyncSourceFilesDetectsNewFilesOutsideChangedPaths(t *testing.T) {
+func TestSyncSourceFilesDetectsNewFiles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -1580,15 +1621,15 @@ func TestSyncSourceFilesDetectsNewFilesOutsideChangedPaths(t *testing.T) {
 	writeBuildTestFile(t, appRoot, "go.mod", "module example.com/test\n\ngo 1.25.0\n")
 	writeBuildTestFile(t, appRoot, "svc/api.go", "package svc\n\nimport \"embed\"\n\n//go:embed templates/*\nvar _ embed.FS\n")
 
-	prev, err := syncAllSourceFiles(root, appRoot, nil)
+	_, prevStamps, err := syncSourceFiles(root, appRoot, nil, nil)
 	if err != nil {
-		t.Fatalf("syncAllSourceFiles() error = %v", err)
+		t.Fatalf("syncSourceFiles() error = %v", err)
 	}
 
 	const asset = "svc/templates/cv_classic.css"
 	writeBuildTestFile(t, appRoot, asset, "body { color: black; }\n")
 
-	got, err := syncSourceFiles(root, appRoot, prev, []string{"svc/api.go"})
+	got, _, err := syncSourceFiles(root, appRoot, prevStamps, nil)
 	if err != nil {
 		t.Fatalf("syncSourceFiles() error = %v", err)
 	}
@@ -1598,6 +1639,62 @@ func TestSyncSourceFilesDetectsNewFilesOutsideChangedPaths(t *testing.T) {
 	found := slices.Contains(got, asset)
 	if !found {
 		t.Fatalf("expected source files to include %s, got %v", asset, got)
+	}
+}
+
+func TestSyncSourceFilesResyncsFilesChangedOnDisk(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appRoot := t.TempDir()
+
+	writeBuildTestFile(t, appRoot, "go.mod", "module example.com/test\n\ngo 1.25.0\n")
+	writeBuildTestFile(t, appRoot, "svc/api.go", "package svc\n\nfunc oldSymbol() {}\n")
+
+	_, prevStamps, err := syncSourceFiles(root, appRoot, nil, nil)
+	if err != nil {
+		t.Fatalf("syncSourceFiles() error = %v", err)
+	}
+
+	// Simulate a change the file watcher never reported, e.g. a git pull
+	// rewriting the file between a watch snapshot and the workspace sync.
+	const updated = "package svc\n\nfunc replacementSymbol() {}\n"
+	writeBuildTestFile(t, appRoot, "svc/api.go", updated)
+
+	if _, _, err := syncSourceFiles(root, appRoot, prevStamps, nil); err != nil {
+		t.Fatalf("syncSourceFiles() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "svc", "api.go"))
+	if err != nil {
+		t.Fatalf("read workspace copy: %v", err)
+	}
+	if string(data) != updated {
+		t.Fatalf("workspace copy = %q, want resynced %q", data, updated)
+	}
+}
+
+func TestSyncSourceFilesRestoresDeletedWorkspaceCopy(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appRoot := t.TempDir()
+
+	writeBuildTestFile(t, appRoot, "go.mod", "module example.com/test\n\ngo 1.25.0\n")
+	writeBuildTestFile(t, appRoot, "svc/api.go", "package svc\n\nfunc helper() {}\n")
+
+	_, prevStamps, err := syncSourceFiles(root, appRoot, nil, nil)
+	if err != nil {
+		t.Fatalf("syncSourceFiles() error = %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, "svc", "api.go")); err != nil {
+		t.Fatalf("remove workspace copy: %v", err)
+	}
+
+	if _, _, err := syncSourceFiles(root, appRoot, prevStamps, nil); err != nil {
+		t.Fatalf("syncSourceFiles() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "svc", "api.go")); err != nil {
+		t.Fatalf("expected deleted workspace copy to be restored: %v", err)
 	}
 }
 
@@ -1689,10 +1786,15 @@ func Hello(ctx context.Context) error { return nil }
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceMetadataFingerprint, err := sourceFilesMetadataFingerprint(appDir, sourceFiles)
-	if err != nil {
-		t.Fatal(err)
+	sourceStamps := make(map[string]SourceStamp, len(sourceFiles))
+	for _, rel := range sourceFiles {
+		info, err := os.Stat(filepath.Join(appDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sourceStamps[rel] = sourceStampFromInfo(info)
 	}
+	sourceMetadataFingerprint := sourceStampsFingerprint(sourceStamps)
 	generatorFingerprint, err := currentGeneratorFingerprint()
 	if err != nil {
 		t.Fatal(err)
@@ -1711,6 +1813,7 @@ func Hello(ctx context.Context) error { return nil }
 		Metadata:                  json.RawMessage(`{"ok":true}`),
 		APIEncoding:               json.RawMessage(`{"api":"v1"}`),
 		SourceFiles:               append([]string(nil), sourceFiles...),
+		SourceStamps:              sourceStamps,
 		GeneratedFiles:            append([]string(nil), generatedFiles...),
 	}
 	if err := saveBuildState(workspace, buildState{
@@ -1722,7 +1825,7 @@ func Hello(ctx context.Context) error { return nil }
 		GraphFingerprint:          graphFingerprint,
 		Metadata:                  append([]byte(nil), result.Metadata...),
 		APIEncoding:               append([]byte(nil), result.APIEncoding...),
-		SourceFiles:               sourceFiles,
+		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
 	}); err != nil {
 		t.Fatal(err)

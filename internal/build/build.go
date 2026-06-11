@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,35 +47,43 @@ type Result struct {
 	Metadata                  json.RawMessage
 	APIEncoding               json.RawMessage
 	SourceFiles               []string
+	SourceStamps              map[string]SourceStamp
 	GeneratedFiles            []string
 	ReuseCompiled             bool
 	Ephemeral                 bool
 	GoBuildFlags              []string
 }
 
+// SourceStamp records the size/mtime/permissions of an app source file as
+// observed immediately before its content was copied into the workspace. A
+// stamp therefore proves the copy happened for that exact on-disk state; if
+// the source file changes again afterwards, its stat no longer matches and
+// the next sync rewrites it, regardless of what any file watcher reported.
+type SourceStamp struct {
+	Size        int64  `json:"size"`
+	ModTimeNano int64  `json:"mtime_unix_nano"`
+	Perm        uint32 `json:"perm"`
+}
+
 type buildState struct {
-	Version                   string   `json:"version,omitempty"`
-	DependencyFingerprint     string   `json:"dependency_fingerprint"`
-	SourceFingerprint         string   `json:"source_fingerprint,omitempty"`
-	SourceMetadataFingerprint string   `json:"source_metadata_fingerprint,omitempty"`
-	GeneratorFingerprint      string   `json:"generator_fingerprint,omitempty"`
-	BuildFingerprint          string   `json:"build_fingerprint,omitempty"`
-	GraphFingerprint          string   `json:"graph_fingerprint,omitempty"`
-	Metadata                  []byte   `json:"metadata,omitempty"`
-	APIEncoding               []byte   `json:"api_encoding,omitempty"`
-	SourceFiles               []string `json:"source_files,omitempty"`
-	GeneratedFiles            []string `json:"generated_files,omitempty"`
-	GoBuildFlags              []string `json:"go_build_flags,omitempty"`
+	Version                   string                 `json:"version,omitempty"`
+	DependencyFingerprint     string                 `json:"dependency_fingerprint"`
+	SourceFingerprint         string                 `json:"source_fingerprint,omitempty"`
+	SourceMetadataFingerprint string                 `json:"source_metadata_fingerprint,omitempty"`
+	GeneratorFingerprint      string                 `json:"generator_fingerprint,omitempty"`
+	BuildFingerprint          string                 `json:"build_fingerprint,omitempty"`
+	GraphFingerprint          string                 `json:"graph_fingerprint,omitempty"`
+	Metadata                  []byte                 `json:"metadata,omitempty"`
+	APIEncoding               []byte                 `json:"api_encoding,omitempty"`
+	SourceStamps              map[string]SourceStamp `json:"source_file_stamps,omitempty"`
+	GeneratedFiles            []string               `json:"generated_files,omitempty"`
+	GoBuildFlags              []string               `json:"go_build_flags,omitempty"`
 }
 
 const (
 	buildStateFile    = ".scenery-build-state.json"
-	buildStateVersion = "3"
+	buildStateVersion = "4"
 )
-
-type PrepareOptions struct {
-	ChangedPaths []string
-}
 
 type CachedGraph struct {
 	Result      *Result
@@ -165,7 +174,7 @@ func App(appRoot string, cfg app.Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	result, err := Prepare(appRoot, model, cfg, PrepareOptions{})
+	result, err := Prepare(appRoot, model, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +238,8 @@ func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
 		GraphFingerprint:          state.GraphFingerprint,
 		Metadata:                  append(json.RawMessage(nil), state.Metadata...),
 		APIEncoding:               append(json.RawMessage(nil), state.APIEncoding...),
-		SourceFiles:               append([]string(nil), state.SourceFiles...),
+		SourceFiles:               sourceFilesFromStamps(state.SourceStamps),
+		SourceStamps:              maps.Clone(state.SourceStamps),
 		GeneratedFiles:            append([]string(nil), state.GeneratedFiles...),
 		ReuseCompiled:             true,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
@@ -237,7 +247,7 @@ func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
 	return result, true, nil
 }
 
-func Prepare(appRoot string, model *model.App, cfg app.Config, opts PrepareOptions) (*Result, error) {
+func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) {
 	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
 	artifacts, err := writeGeneratedInspectArtifacts(appRoot, cfg, model)
 	if err != nil {
@@ -264,7 +274,14 @@ func Prepare(appRoot string, model *model.App, cfg app.Config, opts PrepareOptio
 	if err != nil {
 		return nil, err
 	}
-	sourceFiles, err := syncSourceFiles(workspaceDir, appRoot, state.SourceFiles, opts.ChangedPaths)
+	// Hash the app source before syncing so a file that changes mid-prepare
+	// invalidates this fingerprint instead of blessing a workspace that may
+	// not contain the change.
+	sourceFingerprint, err := currentAppSourceFingerprint(appRoot)
+	if err != nil {
+		return nil, err
+	}
+	sourceFiles, sourceStamps, err := syncSourceFiles(workspaceDir, appRoot, state.SourceStamps, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -278,14 +295,7 @@ func Prepare(appRoot string, model *model.App, cfg app.Config, opts PrepareOptio
 	if err := seedSceneryGoSum(workspaceDir, app.RepoRoot()); err != nil {
 		return nil, err
 	}
-	sourceFingerprint, err := currentAppSourceFingerprint(appRoot)
-	if err != nil {
-		return nil, err
-	}
-	sourceMetadataFingerprint, err := sourceFilesMetadataFingerprint(appRoot, sourceFiles)
-	if err != nil {
-		return nil, err
-	}
+	sourceMetadataFingerprint := sourceStampsFingerprint(sourceStamps)
 	generatorFingerprint, err := currentGeneratorFingerprint()
 	if err != nil {
 		return nil, err
@@ -314,6 +324,7 @@ func Prepare(appRoot string, model *model.App, cfg app.Config, opts PrepareOptio
 		BuildFingerprint:          buildFingerprint,
 		ReuseCompiled:             buildFingerprint != "" && pathExists(binary),
 		SourceFiles:               sourceFiles,
+		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
 	}
@@ -447,7 +458,7 @@ func savePrimedWorkspace(result *Result) error {
 		GraphFingerprint:          result.GraphFingerprint,
 		Metadata:                  append([]byte(nil), result.Metadata...),
 		APIEncoding:               append([]byte(nil), result.APIEncoding...),
-		SourceFiles:               append([]string(nil), result.SourceFiles...),
+		SourceStamps:              maps.Clone(result.SourceStamps),
 		GeneratedFiles:            append([]string(nil), result.GeneratedFiles...),
 		GoBuildFlags:              append([]string(nil), result.GoBuildFlags...),
 	}); err != nil {
@@ -552,85 +563,95 @@ func copyTree(src, dst string) error {
 	})
 }
 
-func syncSourceFiles(root, appRoot string, prevFiles, changedPaths []string) ([]string, error) {
-	if len(prevFiles) == 0 || len(changedPaths) == 0 {
-		return syncAllSourceFiles(root, appRoot, nil)
-	}
+// syncSourceFiles mirrors the app's source files into the workspace and
+// returns the synced file list plus the stamp observed for every file. A file
+// is skipped only when its current stat still matches the stamp recorded by a
+// previous sync and the workspace copy exists; anything else is re-read and
+// rewritten. The sync never trusts external change notifications, so changes
+// missed by a file watcher (git pulls, edits while stopped) are still picked
+// up here. Stamps are captured before reading the content: if a file changes
+// mid-read, the recorded stamp is older than its stat and the next sync
+// rewrites it. Files in skip are tracked and stamped but never written; their
+// workspace content is owned by generated-file sync.
+func syncSourceFiles(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}) ([]string, map[string]SourceStamp, error) {
 	currentFiles, err := listSourceFiles(appRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	current := make(map[string]struct{}, len(currentFiles))
+	stamps := make(map[string]SourceStamp, len(currentFiles))
 	for _, rel := range currentFiles {
-		current[rel] = struct{}{}
-	}
-	prev := make(map[string]struct{}, len(prevFiles))
-	for _, rel := range prevFiles {
-		prev[filepath.ToSlash(rel)] = struct{}{}
-	}
-	changed := make(map[string]struct{}, len(changedPaths))
-	for _, rel := range changedPaths {
-		rel = filepath.ToSlash(rel)
-		changed[rel] = struct{}{}
-		if _, ok := current[rel]; !ok {
-			if removeErr := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				return nil, removeErr
+		src := filepath.Join(appRoot, filepath.FromSlash(rel))
+		info, err := os.Stat(src)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
 			}
+			return nil, nil, err
+		}
+		stamp := sourceStampFromInfo(info)
+		if _, ok := skip[rel]; ok {
+			stamps[rel] = stamp
 			continue
 		}
-	}
-
-	for _, rel := range currentFiles {
-		_, wasTracked := prev[rel]
-		_, wasChanged := changed[rel]
-		target := filepath.Join(root, filepath.FromSlash(rel))
-		if !wasChanged && wasTracked {
-			if _, err := os.Stat(target); err == nil {
+		if prev, ok := prevStamps[rel]; ok && prev == stamp {
+			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				stamps[rel] = stamp
 				continue
 			} else if !errors.Is(err, os.ErrNotExist) {
-				return nil, err
+				return nil, nil, err
 			}
 		}
-		data, err := sourceFileData(filepath.Join(appRoot, filepath.FromSlash(rel)), rel)
+		data, err := sourceFileData(src, rel)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := writeFileIfChanged(root, rel, data); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		stamps[rel] = stamp
 	}
-
-	for rel := range prev {
-		if _, ok := current[rel]; ok {
+	for rel := range prevStamps {
+		if _, ok := stamps[rel]; ok {
 			continue
 		}
-		if removeErr := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return nil, removeErr
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, nil, err
 		}
 	}
-	return currentFiles, nil
+	return sourceFilesFromStamps(stamps), stamps, nil
 }
 
-func syncAllSourceFiles(root, appRoot string, skip map[string]struct{}) ([]string, error) {
-	currentFiles, err := listSourceFiles(appRoot)
-	if err != nil {
-		return nil, err
+func sourceStampFromInfo(info os.FileInfo) SourceStamp {
+	return SourceStamp{
+		Size:        info.Size(),
+		ModTimeNano: info.ModTime().UnixNano(),
+		Perm:        uint32(info.Mode().Perm()),
 	}
-	files := make(map[string]struct{}, len(currentFiles))
-	for _, rel := range currentFiles {
-		files[rel] = struct{}{}
-		if _, ok := skip[rel]; ok {
-			continue
-		}
-		data, err := sourceFileData(filepath.Join(appRoot, filepath.FromSlash(rel)), rel)
-		if err != nil {
-			return nil, err
-		}
-		if err := writeFileIfChanged(root, rel, data); err != nil {
-			return nil, err
-		}
+}
+
+func sourceFilesFromStamps(stamps map[string]SourceStamp) []string {
+	files := make([]string, 0, len(stamps))
+	for rel := range stamps {
+		files = append(files, filepath.ToSlash(rel))
 	}
-	return sortedKeys(files), nil
+	sort.Strings(files)
+	return files
+}
+
+// sourceStampsFingerprint hashes the stamps recorded while syncing, not a
+// fresh stat pass over the app root. The distinction matters: a fresh stat
+// pass can pick up changes made after the sync read its data, which would
+// bless a workspace that does not actually contain them.
+func sourceStampsFingerprint(stamps map[string]SourceStamp) string {
+	h := sha256.New()
+	for _, rel := range sourceFilesFromStamps(stamps) {
+		stamp := stamps[rel]
+		_, _ = h.Write([]byte(rel))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(fmt.Appendf(nil, "%d:%d:%o", stamp.Size, stamp.ModTimeNano, stamp.Perm))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func listSourceFiles(appRoot string) ([]string, error) {
@@ -723,37 +744,6 @@ func currentAppSourceFingerprint(appRoot string) (string, error) {
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(data)
-		_, _ = h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func currentSourceMetadataFingerprint(appRoot string) ([]string, string, error) {
-	files, err := listSourceFiles(appRoot)
-	if err != nil {
-		return nil, "", err
-	}
-	fingerprint, err := sourceFilesMetadataFingerprint(appRoot, files)
-	if err != nil {
-		return nil, "", err
-	}
-	return files, fingerprint, nil
-}
-
-func sourceFilesMetadataFingerprint(appRoot string, files []string) (string, error) {
-	h := sha256.New()
-	for _, rel := range files {
-		rel = filepath.ToSlash(rel)
-		info, err := os.Stat(filepath.Join(appRoot, filepath.FromSlash(rel)))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return "", err
-		}
-		_, _ = h.Write([]byte(rel))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(fmt.Appendf(nil, "%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode().Perm()))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
@@ -1524,7 +1514,7 @@ func ReadStateInfo(appRoot, appName string) (*StateInfo, error) {
 	info.GraphFingerprint = state.GraphFingerprint
 	info.MetadataPresent = len(state.Metadata) > 0
 	info.APIEncodingPresent = len(state.APIEncoding) > 0
-	info.SourceFiles = append([]string(nil), state.SourceFiles...)
+	info.SourceFiles = sourceFilesFromStamps(state.SourceStamps)
 	info.GeneratedFiles = append([]string(nil), state.GeneratedFiles...)
 	info.GoBuildFlags = append([]string(nil), state.GoBuildFlags...)
 	return info, nil

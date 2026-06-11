@@ -382,7 +382,7 @@ func (s *devSupervisor) monitorSharedVictoriaStack(stack *victoriaStack) <-chan 
 	return s.substrateManager().Monitor(stack, victoriaSubstrateAdapter{console: s.console})
 }
 
-func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot fileSnapshot, changedPaths []string) error {
+func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot fileSnapshot) error {
 	if cfg, err := s.reloadConfig(); err != nil {
 		return s.handleCompileError(ctx, nil, nil, err)
 	} else {
@@ -407,7 +407,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		})
 	}
 
-	plan, err := s.prepareDevRuntimePlan(ctx, initial, snapshot, changedPaths)
+	plan, err := s.prepareDevRuntimePlan(ctx, initial, snapshot)
 	if err != nil {
 		metadata, apiEncoding := devBuildErrorPayload(err)
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)

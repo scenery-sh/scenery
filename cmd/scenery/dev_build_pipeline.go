@@ -12,12 +12,11 @@ import (
 )
 
 type devRuntimePlan struct {
-	Result       *build.Result
-	Metadata     json.RawMessage
-	APIEncoding  json.RawMessage
-	TypeScript   *workers.TypeScriptWorkerResult
-	Initial      bool
-	ChangedPaths []string
+	Result      *build.Result
+	Metadata    json.RawMessage
+	APIEncoding json.RawMessage
+	TypeScript  *workers.TypeScriptWorkerResult
+	Initial     bool
 }
 
 type devBuildPhaseError struct {
@@ -51,7 +50,7 @@ func devBuildError(metadata, apiEncoding json.RawMessage, err error) error {
 	return devBuildPhaseError{Metadata: metadata, APIEncoding: apiEncoding, Err: err}
 }
 
-func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot, changedPaths []string) (*devRuntimePlan, error) {
+func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool, snapshot fileSnapshot) (*devRuntimePlan, error) {
 	var (
 		appModel    *model.App
 		metadata    json.RawMessage
@@ -120,7 +119,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
 		if cached != nil {
-			reused, refreshErr := build.RefreshCachedWorkspaceWithOptions(s.root, result, build.RefreshOptions{ChangedPaths: changedPaths})
+			reused, refreshErr := build.RefreshCachedWorkspace(s.root, result)
 			if refreshErr != nil {
 				return refreshErr
 			}
@@ -140,7 +139,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 				return err
 			}
 		}
-		result, err = build.Prepare(s.root, appModel, s.cfg, build.PrepareOptions{ChangedPaths: changedPaths})
+		result, err = build.Prepare(s.root, appModel, s.cfg)
 		if err == nil && result != nil {
 			result.GraphFingerprint = graphFingerprint
 			result.Metadata = append(json.RawMessage(nil), metadata...)
@@ -207,11 +206,10 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		}
 	}
 	return &devRuntimePlan{
-		Result:       result,
-		Metadata:     metadata,
-		APIEncoding:  apiEncoding,
-		TypeScript:   tsWorker,
-		Initial:      initial,
-		ChangedPaths: append([]string(nil), changedPaths...),
+		Result:      result,
+		Metadata:    metadata,
+		APIEncoding: apiEncoding,
+		TypeScript:  tsWorker,
+		Initial:     initial,
 	}, nil
 }
