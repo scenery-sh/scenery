@@ -6,6 +6,7 @@ import (
 	"go/types"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -452,8 +453,8 @@ func (g *tsGenerator) inlineStructType(strct *types.Struct, currentNamespace str
 func renderPathExpression(path string) string {
 	var buf bytes.Buffer
 	buf.WriteByte('`')
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	for _, part := range parts {
+	parts := strings.SplitSeq(strings.TrimPrefix(path, "/"), "/")
+	for part := range parts {
 		if part == "" {
 			continue
 		}
@@ -477,10 +478,8 @@ func renderPathExpression(path string) string {
 }
 
 func preferredHTTPMethod(methods []string) string {
-	for _, method := range methods {
-		if method == "GET" {
-			return "GET"
-		}
+	if slices.Contains(methods, "GET") {
+		return "GET"
 	}
 	if len(methods) > 0 {
 		return methods[0]

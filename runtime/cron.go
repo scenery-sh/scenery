@@ -544,7 +544,7 @@ func parseCronField(expr string, min, max int, names map[string]int) (cronField,
 		return field, nil
 	}
 
-	for _, part := range strings.Split(expr, ",") {
+	for part := range strings.SplitSeq(expr, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			return field, fmt.Errorf("empty field segment")

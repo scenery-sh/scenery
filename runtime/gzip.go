@@ -124,7 +124,7 @@ func requestAcceptsGzip(req *http.Request) bool {
 	gzipMentioned := false
 	gzipAllowed := false
 	starAllowed := false
-	for _, item := range strings.Split(header, ",") {
+	for item := range strings.SplitSeq(header, ",") {
 		parts := strings.Split(item, ";")
 		coding := strings.ToLower(strings.TrimSpace(parts[0]))
 		if coding == "" {
@@ -157,7 +157,7 @@ func isHTTPUpgrade(req *http.Request) bool {
 		return false
 	}
 	for _, value := range req.Header.Values("Connection") {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
 				return true
 			}

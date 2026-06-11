@@ -93,8 +93,8 @@ func RegisterStandard(config StandardConfig) error {
 	runtime.RegisterAuthHandler(&runtime.AuthHandler{
 		Service:      "auth",
 		Name:         "AuthHandler",
-		ParamType:    reflect.TypeOf(""),
-		AuthDataType: reflect.TypeOf((*AuthData)(nil)),
+		ParamType:    reflect.TypeFor[string](),
+		AuthDataType: reflect.TypeFor[*AuthData](),
 		Authenticate: func(ctx context.Context, params any) (runtime.AuthInfo, error) {
 			token, _ := params.(string)
 			uid, data, err := AuthHandler(ctx, token)
@@ -314,7 +314,7 @@ func registerStandardNoServiceTyped(service string, name string, access runtime.
 
 func pathParamsFromPath(path string) []runtime.ParamSpec {
 	var params []runtime.ParamSpec
-	for _, part := range strings.Split(path, "/") {
+	for part := range strings.SplitSeq(path, "/") {
 		if !strings.HasPrefix(part, ":") {
 			continue
 		}

@@ -137,9 +137,7 @@ func runDefaultShards() (int, []testTiming, error) {
 		results <- result{rows: rows, exitCode: exitCode, err: err}
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		packages, err := listPackages()
 		if err != nil {
 			results <- result{exitCode: 1, err: err}
@@ -158,7 +156,7 @@ func runDefaultShards() (int, []testTiming, error) {
 		goArgs := append([]string{"test", "-json", "-p=" + defaultPackageParallelism}, otherPackages...)
 		exitCode, rows, err := runAndCollect("", "go", goArgs...)
 		results <- result{rows: rows, exitCode: exitCode, err: err}
-	}()
+	})
 
 	for _, regex := range shardedCmdSceneryDefaultRegexes {
 		wg.Add(1)
@@ -194,7 +192,7 @@ func listPackages() ([]string, error) {
 
 func nonEmptyLines(text string) []string {
 	var lines []string
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			lines = append(lines, line)

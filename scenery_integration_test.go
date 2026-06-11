@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -88,7 +89,7 @@ func shouldPrebuildSceneryBinary() bool {
 	if err != nil {
 		return true
 	}
-	for _, name := range []string{
+	return slices.ContainsFunc([]string{
 		"TestSceneryServeRuntimeMatrix",
 		"TestSceneryServeStandardAuthDevBootstrap",
 		"TestSceneryServeProductionFailsForMissingSecrets",
@@ -96,12 +97,7 @@ func shouldPrebuildSceneryBinary() bool {
 		"TestSceneryServeExecutesCronJobs",
 		"TestSceneryBuiltBinaryIsHeadlessByDefault",
 		"TestSceneryDevDashboardNotificationsAndRoutes",
-	} {
-		if re.MatchString(name) {
-			return true
-		}
-	}
-	return false
+	}, re.MatchString)
 }
 
 func TestSceneryServeRuntimeMatrix(t *testing.T) {

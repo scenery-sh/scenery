@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1264,13 +1265,7 @@ func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cached.Result.Dir, filepath.FromSlash(newFile))); err != nil {
 		t.Fatalf("expected refreshed workspace to include %s: %v", newFile, err)
 	}
-	found := false
-	for _, rel := range cached.Result.SourceFiles {
-		if rel == newFile {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(cached.Result.SourceFiles, newFile)
 	if !found {
 		t.Fatalf("refreshed source files missing %s: %v", newFile, cached.Result.SourceFiles)
 	}
@@ -1431,13 +1426,7 @@ func TestSyncSourceFilesDetectsNewFilesOutsideChangedPaths(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(asset))); err != nil {
 		t.Fatalf("expected new asset to be synced into workspace: %v", err)
 	}
-	found := false
-	for _, rel := range got {
-		if rel == asset {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(got, asset)
 	if !found {
 		t.Fatalf("expected source files to include %s, got %v", asset, got)
 	}

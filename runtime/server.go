@@ -166,7 +166,7 @@ func corsOriginAllowed(origin string) bool {
 	if devEndpointsEnabled() {
 		return true
 	}
-	for _, item := range strings.Split(osGetenv("SCENERY_CORS_ALLOW_ORIGINS"), ",") {
+	for item := range strings.SplitSeq(osGetenv("SCENERY_CORS_ALLOW_ORIGINS"), ",") {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			continue
@@ -190,7 +190,7 @@ func envBool(name string) bool {
 func addVary(headers http.Header, values ...string) {
 	existing := make(map[string]bool)
 	for _, value := range headers.Values("Vary") {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			part = strings.TrimSpace(part)
 			if part != "" {
 				existing[part] = true
@@ -406,8 +406,8 @@ func decodeAuthParams(req *http.Request, handler *AuthHandler) (any, error) {
 	if handler.ParamType.Kind() == reflect.String {
 		auth := req.Header.Get("Authorization")
 		for _, prefix := range []string{"Bearer ", "Token "} {
-			if strings.HasPrefix(auth, prefix) {
-				token := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
+			if after, ok := strings.CutPrefix(auth, prefix); ok {
+				token := strings.TrimSpace(after)
 				if token != "" {
 					return token, nil
 				}

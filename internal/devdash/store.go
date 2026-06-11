@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1265,9 +1266,7 @@ func (s *Store) CountLogsByLevelForSession(ctx context.Context, appID, sessionID
 func (s *Store) GetOnboarding(ctx context.Context) (OnboardingState, error) {
 	stateOut := OnboardingState{}
 	err := s.withState(ctx, false, func(state *storeState) error {
-		for name, setAt := range state.Onboarding {
-			stateOut[name] = setAt
-		}
+		maps.Copy(stateOut, state.Onboarding)
 		return nil
 	})
 	return stateOut, err

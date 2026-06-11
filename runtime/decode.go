@@ -82,7 +82,7 @@ func decodePayload(req *http.Request, typ reflect.Type) (any, error) {
 func decodeTaggedStruct(req *http.Request, typ reflect.Type, authOnly bool) (any, error) {
 	target := newValueForType(typ)
 	value := target.Elem()
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		value.Set(reflect.New(value.Type().Elem()))
 		value = value.Elem()
 	}
@@ -158,7 +158,7 @@ func setFieldFromStrings(field reflect.Value, values []string, name string) erro
 }
 
 func assignStrings(field reflect.Value, values []string) error {
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		if field.IsNil() {
 			field.Set(reflect.New(field.Type().Elem()))
 		}

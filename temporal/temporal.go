@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -679,7 +680,7 @@ func Update[I, O, R any](ctx context.Context, run Run[R], name string, input I) 
 		WorkflowID:   run.ID(),
 		RunID:        run.RunID(),
 		UpdateName:   name,
-		Args:         []interface{}{input},
+		Args:         []any{input},
 		WaitForStage: temporalclient.WorkflowUpdateStageCompleted,
 	})
 	if err != nil {
@@ -972,9 +973,7 @@ func cloneStringAnyMap(in map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 

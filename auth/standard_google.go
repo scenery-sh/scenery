@@ -195,7 +195,7 @@ func verifyGoogleIDToken(ctx context.Context, rawIDToken string) (*googleIDClaim
 	token, err := jwt.ParseWithClaims(
 		rawIDToken,
 		claims,
-		func(t *jwt.Token) (interface{}, error) {
+		func(t *jwt.Token) (any, error) {
 			if t.Method.Alg() != jwt.SigningMethodRS256.Alg() {
 				return nil, fmt.Errorf("unexpected google signing method")
 			}

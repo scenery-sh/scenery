@@ -342,15 +342,13 @@ func (p *Proxy) Routes() Routes {
 }
 
 func (p *Proxy) serve(name string, server *http.Server, ln net.Listener) {
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
+	p.wg.Go(func() {
 		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
 			p.mu.Lock()
 			p.serveErrs = append(p.serveErrs, fmt.Errorf("%s local proxy server: %w", name, err))
 			p.mu.Unlock()
 		}
-	}()
+	})
 }
 
 func ConsoleAppURL(routes Routes, appID string) string {

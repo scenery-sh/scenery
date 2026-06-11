@@ -83,10 +83,7 @@ func run(args []string) error {
 func printRecords(title string, records []elapsedRecord) {
 	fmt.Println(title)
 	fmt.Println("elapsed  name")
-	limit := 20
-	if len(records) < limit {
-		limit = len(records)
-	}
+	limit := min(len(records), 20)
 	for _, record := range records[:limit] {
 		fmt.Printf("%7.3fs  %s\n", record.Elapsed, record.Name)
 	}

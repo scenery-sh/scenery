@@ -10,7 +10,7 @@ func certificateOutputHasSHA256(out []byte, fingerprint string) bool {
 	if want == "" {
 		return false
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "SHA-256 hash:") {
 			continue

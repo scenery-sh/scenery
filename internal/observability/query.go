@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"sort"
@@ -475,9 +476,7 @@ func normalizeLogRows(rows []map[string]any, fields []string, limit int) []LogEn
 func selectedRaw(row map[string]any, fields []string) map[string]any {
 	if len(fields) == 0 {
 		raw := make(map[string]any, len(row))
-		for key, value := range row {
-			raw[key] = value
-		}
+		maps.Copy(raw, row)
 		return raw
 	}
 	raw := make(map[string]any)

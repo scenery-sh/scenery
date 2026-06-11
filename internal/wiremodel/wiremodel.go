@@ -160,8 +160,8 @@ func supportedGoType(typ types.Type, seen map[types.Type]bool) bool {
 func hasJSONMethod(named *types.Named) bool {
 	for _, typ := range []types.Type{named, types.NewPointer(named)} {
 		methods := types.NewMethodSet(typ)
-		for i := 0; i < methods.Len(); i++ {
-			name := methods.At(i).Obj().Name()
+		for method := range methods.Methods() {
+			name := method.Obj().Name()
 			if name == "MarshalJSON" || name == "UnmarshalJSON" {
 				return true
 			}

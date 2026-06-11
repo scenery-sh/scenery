@@ -54,7 +54,7 @@ func LoadDotEnvIntoEnv() error {
 
 func PopulateSecrets(target any) error {
 	value := reflect.ValueOf(target)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
 		return fmt.Errorf("runtime: secrets target must be a non-nil pointer to struct")
 	}
 	elem := value.Elem()

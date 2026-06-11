@@ -362,7 +362,7 @@ func writeValue(w io.Writer, value any) error {
 	}
 }
 
-var jsonMarshalerType = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+var jsonMarshalerType = reflect.TypeFor[json.Marshaler]()
 
 func writeReflectValue(w io.Writer, value reflect.Value) (bool, error) {
 	if !value.IsValid() {
@@ -397,7 +397,7 @@ func writeReflectValue(w io.Writer, value reflect.Value) (bool, error) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		return true, writeNumber(w, float64(value.Uint()))
 	case reflect.Float32, reflect.Float64:
-		return true, writeNumber(w, value.Convert(reflect.TypeOf(float64(0))).Float())
+		return true, writeNumber(w, value.Convert(reflect.TypeFor[float64]()).Float())
 	case reflect.Slice:
 		if value.IsNil() {
 			return true, writeByte(w, tagNull)
@@ -607,7 +607,7 @@ func (d *decoder) readValue() (any, error) {
 			return nil, err
 		}
 		items := make([]any, 0, n)
-		for i := uint64(0); i < n; i++ {
+		for range n {
 			item, err := d.readValue()
 			if err != nil {
 				return nil, err
@@ -621,7 +621,7 @@ func (d *decoder) readValue() (any, error) {
 			return nil, err
 		}
 		obj := make(map[string]any, n)
-		for i := uint64(0); i < n; i++ {
+		for range n {
 			key, err := d.readBytes()
 			if err != nil {
 				return nil, err

@@ -157,7 +157,7 @@ func builtinServices() []map[string]any {
 					"path":            buildBuiltinPath("/platform.Stats"),
 					"http_methods":    []string{"GET"},
 					"request_schema":  nil,
-					"response_schema": buildReflectSchema(reflect.TypeOf(runtimeapi.PlatformStatsResponse{})),
+					"response_schema": buildReflectSchema(reflect.TypeFor[runtimeapi.PlatformStatsResponse]()),
 					"tags":            []any{},
 				},
 			},
@@ -391,10 +391,10 @@ func buildBuiltinPath(pathValue string) map[string]any {
 		if part == "" {
 			continue
 		}
-		if strings.HasPrefix(part, ":") {
+		if after, ok := strings.CutPrefix(part, ":"); ok {
 			segments = append(segments, map[string]any{
 				"type":       "PARAM",
-				"value":      strings.TrimPrefix(part, ":"),
+				"value":      after,
 				"value_type": "STRING",
 			})
 			continue
@@ -454,8 +454,7 @@ func buildReflectType(typ reflect.Type, seen map[reflect.Type]bool) map[string]a
 		seen[typ] = true
 		defer delete(seen, typ)
 		fields := make([]map[string]any, 0, typ.NumField())
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
+		for field := range typ.Fields() {
 			if !field.IsExported() {
 				continue
 			}

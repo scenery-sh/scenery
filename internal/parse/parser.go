@@ -574,8 +574,7 @@ func parseServiceStruct(pkg *model.Package, file *model.File, decl *ast.GenDecl)
 	if namedObj := pkg.GoPkg.Types.Scope().Lookup(typeName); namedObj != nil {
 		if named, ok := namedObj.Type().(*types.Named); ok {
 			methods := types.NewMethodSet(types.NewPointer(named))
-			for i := 0; i < methods.Len(); i++ {
-				sel := methods.At(i)
+			for sel := range methods.Methods() {
 				if sel.Obj().Name() != "Shutdown" {
 					continue
 				}
@@ -629,8 +628,8 @@ func parseDirective(group *ast.CommentGroup) *directive {
 
 func directiveBody(comment string) (string, bool) {
 	text := strings.TrimSpace(strings.TrimPrefix(comment, "//"))
-	if strings.HasPrefix(text, "scenery:") {
-		return strings.TrimPrefix(text, "scenery:"), true
+	if after, ok := strings.CutPrefix(text, "scenery:"); ok {
+		return after, true
 	}
 	return "", false
 }
@@ -691,7 +690,7 @@ func parsePath(path string) ([]model.Param, error) {
 		return nil, nil
 	}
 	var params []model.Param
-	for _, segment := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+	for segment := range strings.SplitSeq(strings.TrimPrefix(path, "/"), "/") {
 		if segment == "" {
 			continue
 		}

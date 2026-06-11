@@ -172,7 +172,7 @@ func gunzipResponseBody(t *testing.T, body io.Reader) []byte {
 
 func varyContains(headers http.Header, want string) bool {
 	for _, value := range headers.Values("Vary") {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			if strings.EqualFold(strings.TrimSpace(part), want) {
 				return true
 			}

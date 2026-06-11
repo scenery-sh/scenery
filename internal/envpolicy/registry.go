@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -135,12 +136,7 @@ func (r *Registry) index() {
 }
 
 func (v Variable) Allows(scope string) bool {
-	for _, allowed := range v.AllowedIn {
-		if allowed == scope {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(v.AllowedIn, scope)
 }
 
 func (v Variable) matchMode() string {

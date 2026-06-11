@@ -56,7 +56,6 @@ func startCronRuntime(parent context.Context, cfg sceneryruntime.AppConfig, jobs
 		worker = temporalworker.New(client, taskQueue, TemporalWorkerOptions(info, "cron", taskQueue))
 		worker.RegisterWorkflowWithOptions(temporalCronWorkflow, workflow.RegisterOptions{Name: temporalCronWorkflowName})
 		for _, job := range jobs {
-			job := job
 			worker.RegisterActivityWithOptions(
 				func(ctx context.Context, in temporalCronActivityInput) error {
 					return runTemporalCronActivity(ctx, job, in)
@@ -142,7 +141,7 @@ func temporalCronScheduleOptions(cfg sceneryruntime.AppConfig, info sceneryrunti
 			ID:        temporalCronWorkflowID(info, job),
 			Workflow:  temporalCronWorkflowName,
 			TaskQueue: taskQueue,
-			Args: []interface{}{temporalCronInput{
+			Args: []any{temporalCronInput{
 				AppID:                cfg.Name,
 				JobID:                job.ID,
 				ActivityName:         activityName,
@@ -150,7 +149,7 @@ func temporalCronScheduleOptions(cfg sceneryruntime.AppConfig, info sceneryrunti
 				ActivityStartToClose: activityStartToClose,
 				ActivityRetryPolicy:  job.ActivityRetryPolicy,
 			}},
-			Memo: map[string]interface{}{
+			Memo: map[string]any{
 				"scenery_app": cfg.Name,
 				"scenery_job": job.ID,
 			},
@@ -159,7 +158,7 @@ func temporalCronScheduleOptions(cfg sceneryruntime.AppConfig, info sceneryrunti
 		CatchupWindow:  catchupWindow,
 		PauseOnFailure: job.PauseOnFailure,
 		Note:           "managed by scenery",
-		Memo: map[string]interface{}{
+		Memo: map[string]any{
 			"scenery_app": cfg.Name,
 			"scenery_job": job.ID,
 		},

@@ -45,8 +45,6 @@ func (s *server) registerWire() {
 		s.serveWireRecovery(w, req, params.ByName("call_id"))
 	})
 	for endpointID, ep := range s.wireEndpoints {
-		endpointID := endpointID
-		ep := ep
 		s.public.Handle([]string{http.MethodPost}, wire.CallPathPrefix+endpointID, func(w http.ResponseWriter, req *http.Request, _ routeParams) {
 			s.serveWireEndpointCall(w, req, ep)
 		})

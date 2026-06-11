@@ -3,6 +3,7 @@ package envpolicy
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -198,14 +199,8 @@ func referenceKind(text, token string) string {
 	if idx < 0 {
 		return "mention"
 	}
-	start := idx - 120
-	if start < 0 {
-		start = 0
-	}
-	end := idx + len(token) + 120
-	if end > len(text) {
-		end = len(text)
-	}
+	start := max(idx-120, 0)
+	end := min(idx+len(token)+120, len(text))
 	context := text[start:end]
 	switch {
 	case strings.Contains(context, "Setenv") || strings.Contains(context, token+"=") || strings.Contains(context, "Env:") || strings.Contains(context, "Env ="):
@@ -218,10 +213,8 @@ func referenceKind(text, token string) string {
 }
 
 func appendReference(refs []Reference, ref Reference) []Reference {
-	for _, existing := range refs {
-		if existing == ref {
-			return refs
-		}
+	if slices.Contains(refs, ref) {
+		return refs
 	}
 	return append(refs, ref)
 }

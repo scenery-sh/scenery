@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -148,10 +149,8 @@ func routeSubjects(cfg Config) []string {
 		if host == "" {
 			return
 		}
-		for _, existing := range subjects {
-			if existing == host {
-				return
-			}
+		if slices.Contains(subjects, host) {
+			return
 		}
 		subjects = append(subjects, host)
 	}

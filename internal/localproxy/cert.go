@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"scenery.sh/internal/envpolicy"
@@ -401,13 +402,7 @@ func normalizeCertificateSubjects(subjects []string) []string {
 		if subject == "" {
 			continue
 		}
-		seen := false
-		for _, existing := range out {
-			if existing == subject {
-				seen = true
-				break
-			}
-		}
+		seen := slices.Contains(out, subject)
 		if !seen {
 			out = append(out, subject)
 		}

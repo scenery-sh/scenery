@@ -845,7 +845,7 @@ func freeTCPPort(t *testing.T) int {
 func startProxyOnRandomPorts(t *testing.T, cfg Config) *Proxy {
 	t.Helper()
 	var lastErr error
-	for attempt := 0; attempt < 20; attempt++ {
+	for range 20 {
 		cfg.HTTPPort = freeTCPPort(t)
 		cfg.HTTPSPort = freeTCPPort(t)
 		proxy, err := Start(cfg)

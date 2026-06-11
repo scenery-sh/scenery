@@ -75,7 +75,7 @@ func TestStoreSaveStateCompactsAndPrunesLocalHistory(t *testing.T) {
 
 	now := time.Now().UTC()
 	state := newStoreState()
-	for i := 0; i < maxStoredTraceSummaries+5; i++ {
+	for i := range maxStoredTraceSummaries + 5 {
 		traceID := fmt.Sprintf("trace-%04d", i)
 		state.TraceSummaries = append(state.TraceSummaries, storeTraceSummary(TraceSummary{
 			AppID:         "app-test",
@@ -89,7 +89,7 @@ func TestStoreSaveStateCompactsAndPrunesLocalHistory(t *testing.T) {
 			ServiceName:   "tasks",
 		}))
 	}
-	for i := 0; i < maxStoredTraceEvents+5; i++ {
+	for i := range maxStoredTraceEvents + 5 {
 		traceID := fmt.Sprintf("trace-%04d", i)
 		state.TraceEvents = append(state.TraceEvents, storeTraceEvent(TraceEvent{
 			AppID:     "app-test",

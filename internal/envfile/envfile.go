@@ -3,6 +3,7 @@ package envfile
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,8 +28,8 @@ func ParseFile(path string) (map[string]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "export ") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		if after, ok := strings.CutPrefix(line, "export "); ok {
+			line = strings.TrimSpace(after)
 		}
 		key, rawValue, ok := strings.Cut(line, "=")
 		if !ok {
@@ -54,9 +55,7 @@ func MergeFiles(root string, names ...string) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		for key, value := range values {
-			merged[key] = value
-		}
+		maps.Copy(merged, values)
 	}
 	return merged, nil
 }

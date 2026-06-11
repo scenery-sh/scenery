@@ -370,7 +370,6 @@ func InitializeServices() error {
 
 	results := make(chan error, len(initializers))
 	for _, initializer := range initializers {
-		initializer := initializer
 		go func() {
 			if err := initializer.init(); err != nil {
 				results <- fmt.Errorf("initialize service %s: %w", initializer.service, err)

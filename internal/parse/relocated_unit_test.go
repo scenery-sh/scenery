@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -945,12 +946,7 @@ func TestWireResponseFrameRoundTrip(t *testing.T) {
 }
 
 func containsEnv(env []string, want string) bool {
-	for _, item := range env {
-		if item == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(env, want)
 }
 
 func writeRelocatedUnitTestFile(t *testing.T, root, rel, data string) {

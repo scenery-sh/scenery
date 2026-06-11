@@ -101,7 +101,7 @@ func parsePHCPasswordHash(encoded string) (argonParams, []byte, []byte, error) {
 
 func parseArgonParams(value string) (argonParams, error) {
 	var out argonParams
-	for _, part := range strings.Split(value, ",") {
+	for part := range strings.SplitSeq(value, ",") {
 		key, raw, ok := strings.Cut(part, "=")
 		if !ok {
 			return argonParams{}, fmt.Errorf("invalid password hash parameters")

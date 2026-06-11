@@ -744,7 +744,7 @@ func sourceFilesMetadataFingerprint(appRoot string, files []string) (string, err
 		}
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(fmt.Sprintf("%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode().Perm())))
+		_, _ = h.Write(fmt.Appendf(nil, "%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode().Perm()))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
@@ -928,7 +928,7 @@ func hashGeneratorFileMetadata(h interface{ Write([]byte) (int, error) }, repoRo
 	}
 	_, _ = h.Write([]byte(filepath.ToSlash(rel)))
 	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(fmt.Sprintf("%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode().Perm())))
+	_, _ = h.Write(fmt.Appendf(nil, "%d:%d:%o", info.Size(), info.ModTime().UnixNano(), info.Mode().Perm()))
 	_, _ = h.Write([]byte{0})
 	return nil
 }
@@ -1082,7 +1082,7 @@ func addGeneratorEmbeddedFiles(repoRoot, goRel string, files map[string]struct{}
 
 func parseGeneratorGoEmbedPatterns(src string) []string {
 	var patterns []string
-	for _, line := range strings.Split(src, "\n") {
+	for line := range strings.SplitSeq(src, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "//go:embed") {
 			continue
@@ -1198,7 +1198,7 @@ func addGeneratorEmbeddedPath(repoRoot, path string, includeHidden bool, files m
 }
 
 func hasGeneratorHiddenOrUnderscorePart(rel string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+	for part := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
 		if strings.HasPrefix(part, ".") || strings.HasPrefix(part, "_") {
 			return true
 		}
@@ -1347,7 +1347,7 @@ func seedSceneryGoSum(workspaceDir, repoRoot string) error {
 	}
 	lines := map[string]struct{}{}
 	for _, data := range [][]byte{workspaceSum, repoSum} {
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue

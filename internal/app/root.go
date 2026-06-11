@@ -253,7 +253,7 @@ func rejectUnknownConfigFields(path string, data []byte) error {
 	if err := dec.Decode(&raw); err != nil {
 		return fmt.Errorf("%s: decode .scenery.json: %w", path, err)
 	}
-	if err := rejectUnknownFieldsValue(raw, reflect.TypeOf(Config{}), nil); err != nil {
+	if err := rejectUnknownFieldsValue(raw, reflect.TypeFor[Config](), nil); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
@@ -321,8 +321,7 @@ func removedProxyHostField() string {
 
 func jsonStructFields(typ reflect.Type) map[string]reflect.StructField {
 	fields := make(map[string]reflect.StructField)
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if field.PkgPath != "" {
 			continue
 		}

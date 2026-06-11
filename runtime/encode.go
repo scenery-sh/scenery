@@ -117,8 +117,7 @@ func hasResponseShapeTags(typ reflect.Type) bool {
 	if typ.Kind() != reflect.Struct {
 		return false
 	}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if !field.IsExported() {
 			continue
 		}
@@ -186,7 +185,7 @@ func hasSceneryTag(field reflect.StructField, want string) bool {
 	if tag == "" {
 		return false
 	}
-	for _, part := range strings.Split(tag, ",") {
+	for part := range strings.SplitSeq(tag, ",") {
 		if strings.TrimSpace(part) == want {
 			return true
 		}

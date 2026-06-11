@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -175,9 +176,7 @@ func cloneTemporalTags(tags map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(tags))
-	for key, value := range tags {
-		out[key] = value
-	}
+	maps.Copy(out, tags)
 	return out
 }
 
