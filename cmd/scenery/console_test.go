@@ -22,8 +22,8 @@ func TestRunConsoleSetupOutputFormatsAtlasLines(t *testing.T) {
 	for _, want := range []string{
 		"  • Atlas target: postgres://scenery:***@127.0.0.1:52463/demo?sslmode=disable\n",
 		"  • Atlas dry-run: var/atlas/plans/plan.txt\n",
-		"  ✔ Atlas schema synced... Done!\n",
-		"  ✔ No database changes needed... Done!\n",
+		"  ✔ Atlas schema synced\n",
+		"  ✔ No database changes needed\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatted setup output missing %q:\n%s", want, got)

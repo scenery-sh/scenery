@@ -321,13 +321,19 @@ func normalizeTypeScriptWorkerOptions(opts TypeScriptWorkerOptions) TypeScriptWo
 }
 
 func shouldSkipTypeScriptWorkerDir(appRoot, path string) bool {
-	base := filepath.Base(path)
-	switch base {
-	case ".git", ".scenery", "node_modules", "dist", "out":
-		return path != appRoot
-	default:
+	if path == appRoot {
 		return false
 	}
+	switch filepath.Base(path) {
+	case ".git", ".scenery", ".claude", "node_modules", "dist", "out":
+		return true
+	}
+	// Nested git checkouts (e.g. worktrees under .claude/worktrees) hold their
+	// own copies of worker files; their activities belong to that checkout.
+	if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+		return true
+	}
+	return false
 }
 
 func parseTypeScriptWorkerFile(rel string, data []byte) ([]TypeScriptActivity, []Diagnostic) {

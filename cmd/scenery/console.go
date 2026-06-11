@@ -79,13 +79,11 @@ func (c *runConsole) Phase(title string, fn func() error) error {
 		c.Event("phase.finish", data)
 		return err
 	}
-	status := c.palette.Green("Done!")
 	icon := c.palette.Green("✔")
 	if err != nil {
-		status = c.palette.Red("Failed")
 		icon = c.palette.Red("✖")
 	}
-	c.printf(c.out, "  %s %s... %s %s\n", icon, title, status, c.palette.Dim(msLabel(time.Since(started))))
+	c.printf(c.out, "  %s %s %s\n", icon, title, c.palette.Dim("("+formatDuration(time.Since(started))+")"))
 	return err
 }
 
@@ -102,7 +100,7 @@ func (c *runConsole) RebuildDetected(paths []string) {
 		return
 	}
 	for _, path := range paths {
-		c.printf(c.out, "    changed: %s\n", path)
+		c.printf(c.out, "    %s\n", c.palette.Dim("changed: "+path))
 	}
 	c.printf(c.out, "\n")
 }
@@ -124,9 +122,9 @@ func (c *runConsole) InitialBuildFailed(err error, urls runURLs) {
 		return
 	}
 	if urls.Dashboard != "" {
-		c.printf(c.err, "  Development Dashboard URL: %s\n", urls.Dashboard)
+		c.printf(c.err, "  %s %s %s\n", c.palette.Cyan("➜"), "Dashboard:", c.palette.Cyan(urls.Dashboard))
 	}
-	c.printf(c.err, "  scenery up is still running and will rebuild after file changes.\n\n")
+	c.printf(c.err, "  %s\n\n", c.palette.Dim("scenery up is still running and will rebuild after file changes."))
 }
 
 func (c *runConsole) RebuildFailed(err error) {
@@ -145,43 +143,43 @@ func (c *runConsole) Banner(urls runURLs) {
 		c.Event("run.ready", runURLData(urls, c.verbose))
 		return
 	}
-	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("scenery development server running!"))
-	width := len("Development Dashboard URL:")
-	if len("Frontend URL:") > width {
-		width = len("Frontend URL:")
+	type bannerRow struct {
+		label string
+		url   string
 	}
-	for _, label := range []string{"Temporal UI URL:", "Grafana URL:"} {
-		if len(label) > width {
-			width = len(label)
-		}
+	rows := []bannerRow{
+		{label: "API:", url: urls.API},
+		{label: "Dashboard:", url: urls.Dashboard},
 	}
-	if c.verbose && len("VictoriaMetrics URL:") > width {
-		width = len("VictoriaMetrics URL:")
-	}
-	c.printf(c.out, "  %-*s  %s\n", width, "Your API is running at:", urls.API)
-	c.printf(c.out, "  %-*s  %s\n", width, "Development Dashboard URL:", urls.Dashboard)
 	for _, name := range sortedKeys(urls.Frontends) {
-		c.printf(c.out, "  %-*s  %s\n", width, frontendLabel(name), urls.Frontends[name])
+		rows = append(rows, bannerRow{label: frontendLabel(name), url: urls.Frontends[name]})
 	}
 	if urls.Grafana != nil && urls.Grafana.URL != "" {
-		c.printf(c.out, "  %-*s  %s\n", width, "Grafana URL:", urls.Grafana.URL)
+		rows = append(rows, bannerRow{label: "Grafana:", url: urls.Grafana.URL})
 	}
 	if urls.Temporal != "" {
-		c.printf(c.out, "  %-*s  %s\n", width, "Temporal UI URL:", urls.Temporal)
+		rows = append(rows, bannerRow{label: "Temporal UI:", url: urls.Temporal})
 	}
 	if c.verbose {
-		for _, item := range []struct {
-			label string
-			key   string
-		}{
-			{label: "VictoriaMetrics URL:", key: "metrics"},
-			{label: "VictoriaLogs URL:", key: "logs"},
-			{label: "VictoriaTraces URL:", key: "traces"},
+		for _, item := range []bannerRow{
+			{label: "VictoriaMetrics:", url: urls.Victoria["metrics"]},
+			{label: "VictoriaLogs:", url: urls.Victoria["logs"]},
+			{label: "VictoriaTraces:", url: urls.Victoria["traces"]},
 		} {
-			if url := urls.Victoria[item.key]; url != "" {
-				c.printf(c.out, "  %-*s  %s\n", width, item.label, url)
+			if item.url != "" {
+				rows = append(rows, item)
 			}
 		}
+	}
+	width := 0
+	for _, row := range rows {
+		if len(row.label) > width {
+			width = len(row.label)
+		}
+	}
+	c.printf(c.out, "\n  %s\n\n", c.palette.Bold("scenery development server running"))
+	for _, row := range rows {
+		c.printf(c.out, "  %s %-*s %s\n", c.palette.Cyan("➜"), width, row.label, c.palette.Cyan(row.url))
 	}
 	c.printf(c.out, "\n")
 }
@@ -226,7 +224,7 @@ func (c *runConsole) printSetupDetail(label, value string) {
 }
 
 func (c *runConsole) printSetupDone(title string) {
-	c.printf(c.out, "  %s %s... %s\n", c.palette.Green("✔"), title, c.palette.Green("Done!"))
+	c.printf(c.out, "  %s %s\n", c.palette.Green("✔"), title)
 }
 
 func runURLData(urls runURLs, verbose bool) map[string]any {
@@ -265,9 +263,9 @@ func sortedKeys(values map[string]string) []string {
 func frontendLabel(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "Frontend URL:"
+		return "Frontend:"
 	}
-	return "Frontend " + name + " URL:"
+	return "Frontend " + name + ":"
 }
 
 func (c *runConsole) printError(label string, err error) {
@@ -281,12 +279,33 @@ func (c *runConsole) printError(label string, err error) {
 		})
 		return
 	}
-	header := c.palette.Red("ERR")
-	c.printf(c.err, "\n  %s %s\n", header, label)
+	c.printf(c.err, "\n  %s %s\n", c.palette.Red("✖"), c.palette.Bold(label))
 	for _, line := range strings.Split(strings.TrimSpace(err.Error()), "\n") {
-		c.printf(c.err, "  %s\n", line)
+		c.printf(c.err, "    %s\n", c.formatErrorLine(line))
 	}
 	c.printf(c.err, "\n")
+}
+
+// formatErrorLine highlights the leading "path:line:" position in diagnostics
+// so individual findings stand out from their messages.
+func (c *runConsole) formatErrorLine(line string) string {
+	position, message, ok := splitDiagnosticPosition(line)
+	if !ok {
+		return line
+	}
+	return c.palette.Cyan(position) + c.palette.Dim(":") + message
+}
+
+func splitDiagnosticPosition(line string) (string, string, bool) {
+	index := strings.Index(line, ": ")
+	if index <= 0 {
+		return "", "", false
+	}
+	position := line[:index]
+	if strings.ContainsAny(position, " \t") {
+		return "", "", false
+	}
+	return position, line[index+1:], true
 }
 
 func (c *runConsole) printf(w io.Writer, format string, args ...any) {
@@ -296,8 +315,15 @@ func (c *runConsole) printf(w io.Writer, format string, args ...any) {
 	_, _ = fmt.Fprintf(w, format, args...)
 }
 
-func msLabel(duration time.Duration) string {
-	return fmt.Sprintf("duration_ms=%d", duration.Milliseconds())
+func formatDuration(duration time.Duration) string {
+	switch {
+	case duration < time.Second:
+		return fmt.Sprintf("%dms", duration.Milliseconds())
+	case duration < time.Minute:
+		return fmt.Sprintf("%.1fs", duration.Seconds())
+	default:
+		return fmt.Sprintf("%dm%02ds", int(duration.Minutes()), int(duration.Seconds())%60)
+	}
 }
 
 func (c *runConsole) Event(eventType string, data map[string]any) {
