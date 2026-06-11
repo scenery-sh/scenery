@@ -677,7 +677,7 @@ func TestRunConsoleHidesVictoriaUnlessVerbose(t *testing.T) {
 	var verboseOut bytes.Buffer
 	verbose := newRunConsole(&verboseOut, &verboseOut, true, false, "jsonapp", "/repo/jsonapp")
 	verbose.Banner(urls)
-	if !bytes.Contains(verboseOut.Bytes(), []byte("VictoriaMetrics URL:")) || !bytes.Contains(verboseOut.Bytes(), []byte("http://127.0.0.1:8428")) {
+	if !bytes.Contains(verboseOut.Bytes(), []byte("VictoriaMetrics:")) || !bytes.Contains(verboseOut.Bytes(), []byte("http://127.0.0.1:8428")) {
 		t.Fatalf("verbose banner missing Victoria details:\n%s", verboseOut.String())
 	}
 }

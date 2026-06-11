@@ -39,6 +39,13 @@ export const normalizeEarthMetadata = activity<NormalizeEarthMetadataInput, Norm
 }, async (_ctx, input) => input);
 `)
 	writeTSWorkerFile(t, root, "node_modules/ignored/ignored.worker.ts", `export const ignored = activity<I, O>({ name: "ignored.Ignored/v1", taskQueue: "ignored" }, async () => ({}));`)
+	// Copies inside .claude or nested git checkouts (e.g. agent worktrees) must
+	// not surface as duplicate activities.
+	writeTSWorkerFile(t, root, ".claude/worktrees/other/house/preview.worker.ts", `export const renderRoofPreview = activity<I, O>({ name: "house.RenderRoofPreview/v1", taskQueue: "onlv.house.preview.ts" }, async () => ({}));`)
+	writeTSWorkerFile(t, root, "vendor-checkout/house/preview.worker.ts", `export const renderRoofPreview = activity<I, O>({ name: "house.RenderRoofPreview/v1", taskQueue: "onlv.house.preview.ts" }, async () => ({}));`)
+	if err := os.WriteFile(filepath.Join(root, "vendor-checkout", ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	model := DiscoverTypeScriptActivities(root)
 	if len(model.Diagnostics) != 0 {
