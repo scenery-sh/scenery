@@ -192,6 +192,9 @@ scenery generate client --lang typescript --output ./src/scenery-client.ts
 ```
 
 Regenerate committed clients after endpoint, request/response, auth, or wire-capability changes.
+Generated model CRUD endpoints are beta and appear in `scenery inspect endpoints --json`
+with `"generated": true`; the current generated store is process-local and resets on
+runtime restart.
 
 When an app configures `generators`, prefer:
 

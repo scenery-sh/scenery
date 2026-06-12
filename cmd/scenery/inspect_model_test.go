@@ -94,4 +94,58 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 			t.Fatalf("view = %+v", view)
 		}
 	})
+
+	t.Run("generated endpoints", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		if err := runSceneryInspect(inspectArgs("endpoints"), &out); err != nil {
+			t.Fatalf("runSceneryInspect(endpoints) error = %v", err)
+		}
+		var payload struct {
+			SchemaVersion string `json:"schema_version"`
+			Endpoints     []struct {
+				ID        string   `json:"id"`
+				Path      string   `json:"path"`
+				Methods   []string `json:"methods"`
+				Generated bool     `json:"generated"`
+			} `json:"endpoints"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal(endpoints): %v\n%s", err, out.String())
+		}
+		generated := map[string]struct {
+			path    string
+			methods string
+		}{}
+		for _, ep := range payload.Endpoints {
+			if ep.Generated {
+				generated[ep.ID] = struct {
+					path    string
+					methods string
+				}{path: ep.Path, methods: strings.Join(ep.Methods, ",")}
+			}
+		}
+		want := map[string]struct {
+			path    string
+			methods string
+		}{
+			"tasks.ListTasks":  {path: "/tasks", methods: "GET"},
+			"tasks.GetTask":    {path: "/tasks/:id", methods: "GET"},
+			"tasks.CreateTask": {path: "/tasks", methods: "POST"},
+			"tasks.UpdateTask": {path: "/tasks/:id", methods: "PATCH"},
+		}
+		if len(generated) != len(want) {
+			t.Fatalf("generated endpoints = %+v, want %+v", generated, want)
+		}
+		for id, wantEndpoint := range want {
+			got, ok := generated[id]
+			if !ok || got != wantEndpoint {
+				t.Fatalf("generated[%s] = %+v, want %+v (all %+v)", id, got, wantEndpoint, generated)
+			}
+		}
+		if _, ok := generated["tasks.DeleteTask"]; ok {
+			t.Fatalf("disabled delete endpoint appeared: %+v", generated)
+		}
+	})
 }

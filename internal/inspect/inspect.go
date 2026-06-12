@@ -154,6 +154,7 @@ type RouteRecord struct {
 	Methods    []string `json:"methods"`
 	Tags       []string `json:"tags,omitempty"`
 	Receiver   string   `json:"receiver,omitempty"`
+	Generated  bool     `json:"generated,omitempty"`
 	HasPayload bool     `json:"has_payload"`
 	Wire       WireInfo `json:"wire"`
 }
@@ -166,6 +167,7 @@ type EndpointRecord struct {
 	Raw        bool     `json:"raw"`
 	Path       string   `json:"path"`
 	Methods    []string `json:"methods"`
+	Generated  bool     `json:"generated,omitempty"`
 	HasPayload bool     `json:"has_payload"`
 	Wire       WireInfo `json:"wire"`
 }
@@ -191,7 +193,7 @@ func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResp
 	for _, svc := range filteredModelServices(app.Services) {
 		resp.Counts.Services++
 		resp.Services = append(resp.Services, svc.Name)
-		resp.Counts.Endpoints += len(svc.Endpoints)
+		resp.Counts.Endpoints += len(svc.Endpoints) + len(svc.Generated)
 		if svc.AuthHandler != nil {
 			resp.Counts.AuthHandler++
 			resp.AuthHandler = &AuthBriefInfo{Service: svc.Name, Name: svc.AuthHandler.Name}
@@ -219,6 +221,9 @@ func BuildServicesResponse(appRoot string, cfg appcfg.Config, app *model.App) Se
 		}
 		item.PackageDirs = relevantServicePackageDirs(svc)
 		for _, ep := range svc.Endpoints {
+			item.Endpoints = append(item.Endpoints, ep.Name)
+		}
+		for _, ep := range svc.Generated {
 			item.Endpoints = append(item.Endpoints, ep.Name)
 		}
 		for _, mw := range svc.Middleware {
@@ -291,6 +296,22 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 			}
 			routes = append(routes, item)
 		}
+		for _, ep := range svc.Generated {
+			routes = append(routes, RouteRecord{
+				ID:         svc.Name + "." + ep.Name,
+				Service:    svc.Name,
+				Endpoint:   ep.Name,
+				Package:    filepath.ToSlash(ep.Package.RelDir),
+				File:       ".scenery/gen/" + filepath.ToSlash(ep.Package.RelDir) + "/scenery_model.gen.go",
+				Access:     string(ep.Access),
+				Raw:        false,
+				Path:       ep.Path,
+				Methods:    append([]string(nil), ep.Methods...),
+				Generated:  true,
+				HasPayload: ep.HasPayload,
+				Wire:       WireInfo{Available: false, UnsupportedReason: "generated model endpoints do not publish wire contracts yet"},
+			})
+		}
 	}
 	if cfg.Auth.Enabled {
 		for _, ep := range standardauthmeta.Endpoints() {
@@ -353,6 +374,21 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 					SchemaHash:        wireInfo.SchemaHash,
 					Path:              wireInfo.WirePath,
 				},
+			})
+		}
+		for _, ep := range svc.Generated {
+			unsupported++
+			endpoints = append(endpoints, EndpointRecord{
+				ID:         svc.Name + "." + ep.Name,
+				Service:    svc.Name,
+				Endpoint:   ep.Name,
+				Access:     string(ep.Access),
+				Raw:        false,
+				Path:       ep.Path,
+				Methods:    append([]string(nil), ep.Methods...),
+				Generated:  true,
+				HasPayload: ep.HasPayload,
+				Wire:       WireInfo{Available: false, UnsupportedReason: "generated model endpoints do not publish wire contracts yet"},
 			})
 		}
 	}
@@ -636,7 +672,7 @@ func ReadGeneratedWireCapabilities(appRoot string) (*wire.Capabilities, bool, er
 func filteredModelServices(services []*model.Service) []*model.Service {
 	filtered := make([]*model.Service, 0, len(services))
 	for _, svc := range services {
-		if svc == nil || len(svc.Endpoints) == 0 {
+		if svc == nil || (len(svc.Endpoints) == 0 && len(svc.Generated) == 0) {
 			continue
 		}
 		filtered = append(filtered, svc)

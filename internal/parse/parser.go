@@ -227,6 +227,7 @@ func App(root, name string) (*model.App, error) {
 	}
 	sortMiddleware(root, middlewares)
 	app.Middleware = middlewares
+	errs = append(errs, attachGeneratedModelEndpoints(app)...)
 
 	for _, svc := range app.Services {
 		if svc.Struct != nil {
@@ -264,6 +265,13 @@ func App(root, name string) (*model.App, error) {
 			key := ep.Name
 			if seenNames[key] {
 				errs = append(errs, fmt.Sprintf("duplicate endpoint name %s in service %s", ep.Name, svc.Name))
+			}
+			seenNames[key] = true
+		}
+		for _, ep := range svc.Generated {
+			key := ep.Name
+			if seenNames[key] {
+				errs = append(errs, fmt.Sprintf("generated model endpoint %s collides with endpoint name in service %s; declare model.Override or model.Disable for the action", ep.Name, svc.Name))
 			}
 			seenNames[key] = true
 		}
@@ -362,12 +370,187 @@ func pruneEmptyServices(services []*model.Service) []*model.Service {
 	}
 	pruned := make([]*model.Service, 0, len(services))
 	for _, svc := range services {
-		if svc == nil || len(svc.Endpoints) == 0 {
+		if svc == nil || (len(svc.Endpoints) == 0 && len(svc.Generated) == 0) {
 			continue
 		}
 		pruned = append(pruned, svc)
 	}
 	return pruned
+}
+
+func attachGeneratedModelEndpoints(app *model.App) []string {
+	if app == nil || len(app.Entities) == 0 {
+		return nil
+	}
+	var errs []string
+	for _, entity := range app.Entities {
+		if entity == nil || len(entity.CRUD.Actions) == 0 {
+			continue
+		}
+		if entity.Package == nil || entity.Package.Service == nil {
+			errs = append(errs, fmt.Sprintf("model %s cannot generate CRUD endpoints without a service package", entity.Name))
+			continue
+		}
+		if primaryKeyField(entity) == nil {
+			errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, fmt.Sprintf("model %s needs an ID field before CRUD endpoints can be generated", entity.Name)))
+			continue
+		}
+		overrides := make(map[model.EntityCRUDAction]string, len(entity.CRUD.Overrides))
+		for _, override := range entity.CRUD.Overrides {
+			overrides[override.Action] = override.Endpoint
+		}
+		for _, action := range entity.CRUD.Actions {
+			if overrides[action] != "" {
+				continue
+			}
+			ep, err := buildGeneratedModelEndpoint(entity, action)
+			if err != nil {
+				errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, err.Error()))
+				continue
+			}
+			if collision := generatedEndpointCollision(entity.Package.Service, ep); collision != "" {
+				errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, collision))
+				continue
+			}
+			entity.Package.Service.Generated = append(entity.Package.Service.Generated, ep)
+		}
+		for _, override := range entity.CRUD.Overrides {
+			if !serviceHasEndpoint(entity.Package.Service, override.Endpoint) {
+				errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, fmt.Sprintf("model.Override(%q, %s) references no endpoint in service %s", override.Action, override.Endpoint, entity.Package.Service.Name)))
+			}
+		}
+	}
+	return errs
+}
+
+func buildGeneratedModelEndpoint(entity *model.Entity, action model.EntityCRUDAction) (*model.GeneratedModelEndpoint, error) {
+	idField := primaryKeyField(entity)
+	if idField == nil {
+		return nil, fmt.Errorf("model %s needs an ID field before CRUD endpoints can be generated", entity.Name)
+	}
+	tablePath := "/" + strings.Trim(strings.TrimSpace(entity.Table), "/")
+	if tablePath == "/" {
+		tablePath = "/" + strings.ToLower(entity.Name)
+	}
+	ep := &model.GeneratedModelEndpoint{
+		Service:   entity.Package.Service,
+		Package:   entity.Package,
+		Entity:    entity,
+		Action:    action,
+		Access:    runtimeapi.Public,
+		Generated: true,
+	}
+	switch action {
+	case model.EntityCRUDList:
+		ep.Name = "List" + entity.Name + "s"
+		ep.Path = tablePath
+		ep.Methods = []string{"GET"}
+	case model.EntityCRUDGet:
+		ep.Name = "Get" + entity.Name
+		ep.Path = tablePath + "/:id"
+		ep.Methods = []string{"GET"}
+		ep.PathParams = []model.Param{{Name: "id", Kind: generatedIDParamKind(*idField)}}
+	case model.EntityCRUDCreate:
+		ep.Name = "Create" + entity.Name
+		ep.Path = tablePath
+		ep.Methods = []string{"POST"}
+		ep.HasPayload = true
+	case model.EntityCRUDUpdate:
+		ep.Name = "Update" + entity.Name
+		ep.Path = tablePath + "/:id"
+		ep.Methods = []string{"PATCH"}
+		ep.PathParams = []model.Param{{Name: "id", Kind: generatedIDParamKind(*idField)}}
+		ep.HasPayload = true
+	case model.EntityCRUDDelete:
+		ep.Name = "Delete" + entity.Name
+		ep.Path = tablePath + "/:id"
+		ep.Methods = []string{"DELETE"}
+		ep.PathParams = []model.Param{{Name: "id", Kind: generatedIDParamKind(*idField)}}
+	default:
+		return nil, fmt.Errorf("unsupported generated model action %q", action)
+	}
+	return ep, nil
+}
+
+func generatedIDParamKind(field model.EntityField) runtimeapi.ParamKind {
+	switch strings.TrimPrefix(strings.TrimSpace(field.TypeExpr), "*") {
+	case "bool":
+		return runtimeapi.ParamBool
+	case "int":
+		return runtimeapi.ParamInt
+	case "int8":
+		return runtimeapi.ParamInt8
+	case "int16":
+		return runtimeapi.ParamInt16
+	case "int32":
+		return runtimeapi.ParamInt32
+	case "int64":
+		return runtimeapi.ParamInt64
+	case "uint":
+		return runtimeapi.ParamUint
+	case "uint8":
+		return runtimeapi.ParamUint8
+	case "uint16":
+		return runtimeapi.ParamUint16
+	case "uint32":
+		return runtimeapi.ParamUint32
+	case "uint64":
+		return runtimeapi.ParamUint64
+	default:
+		return runtimeapi.ParamString
+	}
+}
+
+func primaryKeyField(entity *model.Entity) *model.EntityField {
+	for i := range entity.Fields {
+		field := &entity.Fields[i]
+		if field.Kind != model.EntityFieldComputed && strings.EqualFold(field.Name, "id") {
+			return field
+		}
+	}
+	return nil
+}
+
+func generatedEndpointCollision(svc *model.Service, generated *model.GeneratedModelEndpoint) string {
+	if svc == nil || generated == nil {
+		return ""
+	}
+	for _, ep := range svc.Endpoints {
+		if ep.Name == generated.Name {
+			return fmt.Sprintf("generated model endpoint %s collides with endpoint name in service %s; declare model.Override or model.Disable for the action", generated.Name, svc.Name)
+		}
+		if pathsCollide(ep.Path, generated.Path) && methodsCollide(ep.Methods, generated.Methods) {
+			return fmt.Sprintf("generated model endpoint %s %s collides with endpoint %s.%s; declare model.Override or model.Disable for the action", strings.Join(generated.Methods, ","), generated.Path, svc.Name, ep.Name)
+		}
+	}
+	return ""
+}
+
+func pathsCollide(a, b string) bool {
+	return strings.TrimSuffix(a, "/") == strings.TrimSuffix(b, "/")
+}
+
+func methodsCollide(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return true
+	}
+	for _, left := range a {
+		for _, right := range b {
+			if left == "*" || right == "*" || strings.EqualFold(left, right) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func serviceHasEndpoint(svc *model.Service, name string) bool {
+	for _, ep := range svc.Endpoints {
+		if ep.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func packageDeclaresService(pkg *model.Package) bool {
@@ -623,8 +806,10 @@ func parseServiceStruct(pkg *model.Package, file *model.File, decl *ast.GenDecl)
 }
 
 type entityConfig struct {
-	Table  string
-	Fields map[string]entityFieldConfig
+	Table       string
+	Fields      map[string]entityFieldConfig
+	CRUD        model.EntityCRUD
+	GenerateSet bool
 }
 
 type entityFieldConfig struct {
@@ -701,10 +886,97 @@ func parseEntityOption(pkg *model.Package, aliases map[string]string, expr ast.E
 			}
 		}
 		cfg.Fields[fieldName] = fieldCfg
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Generate"):
+		actions, err := parseEntityActionArgs(pkg, call.Args)
+		if err != nil {
+			return fmt.Errorf("model.Generate: %w", err)
+		}
+		cfg.GenerateSet = true
+		cfg.CRUD.Actions = actions
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Disable"):
+		actions, err := parseEntityActionArgs(pkg, call.Args)
+		if err != nil {
+			return fmt.Errorf("model.Disable: %w", err)
+		}
+		cfg.CRUD.Disabled = append(cfg.CRUD.Disabled, actions...)
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Override"):
+		if len(call.Args) != 2 {
+			return fmt.Errorf("model.Override requires an action and endpoint")
+		}
+		actions, err := parseEntityActionArgs(pkg, call.Args[:1])
+		if err != nil {
+			return fmt.Errorf("model.Override: %w", err)
+		}
+		endpoint := staticEndpointName(pkg, call.Args[1])
+		if endpoint == "" {
+			return fmt.Errorf("model.Override endpoint must be a static function identifier or selector")
+		}
+		cfg.CRUD.Overrides = append(cfg.CRUD.Overrides, model.EntityCRUDOverride{Action: actions[0], Endpoint: endpoint})
 	default:
-		return fmt.Errorf("unsupported model.Entity option; use model.Table or model.Field")
+		return fmt.Errorf("unsupported model.Entity option; use model.Table, model.Field, model.Generate, model.Disable, or model.Override")
 	}
 	return nil
+}
+
+func parseEntityActionArgs(pkg *model.Package, args []ast.Expr) ([]model.EntityCRUDAction, error) {
+	if len(args) == 0 {
+		return defaultEntityCRUDActions(), nil
+	}
+	seen := make(map[model.EntityCRUDAction]bool, len(args))
+	out := make([]model.EntityCRUDAction, 0, len(args))
+	for _, arg := range args {
+		value, ok := staticStringValue(pkg, arg)
+		if !ok {
+			return nil, fmt.Errorf("actions must be constant model.Action/string values")
+		}
+		action, ok := normalizeEntityCRUDAction(value)
+		if !ok {
+			return nil, fmt.Errorf("unsupported action %q", value)
+		}
+		if !seen[action] {
+			seen[action] = true
+			out = append(out, action)
+		}
+	}
+	return out, nil
+}
+
+func normalizeEntityCRUDAction(value string) (model.EntityCRUDAction, bool) {
+	switch model.EntityCRUDAction(strings.ToLower(strings.TrimSpace(value))) {
+	case model.EntityCRUDList:
+		return model.EntityCRUDList, true
+	case model.EntityCRUDGet:
+		return model.EntityCRUDGet, true
+	case model.EntityCRUDCreate:
+		return model.EntityCRUDCreate, true
+	case model.EntityCRUDUpdate:
+		return model.EntityCRUDUpdate, true
+	case model.EntityCRUDDelete:
+		return model.EntityCRUDDelete, true
+	default:
+		return "", false
+	}
+}
+
+func defaultEntityCRUDActions() []model.EntityCRUDAction {
+	return []model.EntityCRUDAction{
+		model.EntityCRUDList,
+		model.EntityCRUDGet,
+		model.EntityCRUDCreate,
+		model.EntityCRUDUpdate,
+		model.EntityCRUDDelete,
+	}
+}
+
+func staticEndpointName(pkg *model.Package, expr ast.Expr) string {
+	switch v := expr.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.SelectorExpr:
+		return v.Sel.Name
+	default:
+		return ""
+	}
 }
 
 func parseEntityFieldOption(pkg *model.Package, aliases map[string]string, expr ast.Expr, cfg *entityFieldConfig) error {
@@ -774,6 +1046,7 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 		Name:     spec.Name.Name,
 		TypeExpr: spec.Name.Name,
 		Table:    firstNonEmpty(cfg.Table, defaultTableName(spec.Name.Name)),
+		CRUD:     normalizeEntityCRUD(cfg),
 		TokenPos: spec.Pos(),
 	}
 	seenFields := make(map[string]bool)
@@ -782,6 +1055,7 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 			continue
 		}
 		typeExpr := renderNode(pkg.GoPkg.Fset, field.Type)
+		fieldType := pkg.GoPkg.TypesInfo.TypeOf(field.Type)
 		for _, name := range field.Names {
 			if !name.IsExported() {
 				continue
@@ -794,6 +1068,7 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 			item := model.EntityField{
 				Name:        name.Name,
 				TypeExpr:    typeExpr,
+				Type:        fieldType,
 				Kind:        kind,
 				Column:      fieldColumnName(field, name.Name),
 				EnumValues:  append([]string(nil), fieldCfg.EnumValues...),
@@ -810,6 +1085,30 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 		}
 	}
 	return entity, errs
+}
+
+func normalizeEntityCRUD(cfg entityConfig) model.EntityCRUD {
+	if !cfg.GenerateSet {
+		return model.EntityCRUD{}
+	}
+	actions := cfg.CRUD.Actions
+	if len(actions) == 0 {
+		actions = defaultEntityCRUDActions()
+	}
+	disabled := make(map[model.EntityCRUDAction]bool, len(cfg.CRUD.Disabled))
+	for _, action := range cfg.CRUD.Disabled {
+		disabled[action] = true
+	}
+	out := model.EntityCRUD{
+		Disabled:  append([]model.EntityCRUDAction(nil), cfg.CRUD.Disabled...),
+		Overrides: append([]model.EntityCRUDOverride(nil), cfg.CRUD.Overrides...),
+	}
+	for _, action := range actions {
+		if !disabled[action] {
+			out.Actions = append(out.Actions, action)
+		}
+	}
+	return out
 }
 
 func parsePageView(root string, pkg *model.Package, file *model.File, decl *ast.GenDecl) (*model.View, []string) {

@@ -21,6 +21,8 @@ type Task struct {
 
 var taskEntity = model.Entity[Task](
 	model.Table("tasks"),
+	model.Generate(model.ActionList, model.ActionGet, model.ActionCreate, model.ActionUpdate, model.ActionDelete),
+	model.Disable(model.ActionDelete),
 	model.Field(statusField, model.EnumValues("todo", "doing", "done"), model.Filterable()),
 	model.Field("ProjectID", model.Relationship()),
 	model.Field("AgeDays", model.Computed()),

@@ -30,6 +30,7 @@ type Service struct {
 	Packages    []*Package
 	Struct      *ServiceStruct
 	Endpoints   []*Endpoint
+	Generated   []*GeneratedModelEndpoint
 	AuthHandler *AuthHandler
 	Middleware  []*Middleware
 }
@@ -57,7 +58,29 @@ type Entity struct {
 	TypeExpr string
 	Table    string
 	Fields   []EntityField
+	CRUD     EntityCRUD
 	TokenPos token.Pos
+}
+
+type EntityCRUD struct {
+	Actions   []EntityCRUDAction
+	Disabled  []EntityCRUDAction
+	Overrides []EntityCRUDOverride
+}
+
+type EntityCRUDAction string
+
+const (
+	EntityCRUDList   EntityCRUDAction = "list"
+	EntityCRUDGet    EntityCRUDAction = "get"
+	EntityCRUDCreate EntityCRUDAction = "create"
+	EntityCRUDUpdate EntityCRUDAction = "update"
+	EntityCRUDDelete EntityCRUDAction = "delete"
+)
+
+type EntityCRUDOverride struct {
+	Action   EntityCRUDAction
+	Endpoint string
 }
 
 type EntityFieldKind string
@@ -71,6 +94,7 @@ const (
 type EntityField struct {
 	Name        string
 	TypeExpr    string
+	Type        types.Type
 	Kind        EntityFieldKind
 	Column      string
 	EnumValues  []string
@@ -157,7 +181,22 @@ type Endpoint struct {
 	Response     *Field
 	Tags         []string
 	Middleware   []*Middleware
+	Generated    bool
 	TokenPos     token.Pos
+}
+
+type GeneratedModelEndpoint struct {
+	Service    *Service
+	Package    *Package
+	Entity     *Entity
+	Action     EntityCRUDAction
+	Name       string
+	Access     runtimeapi.Access
+	Path       string
+	Methods    []string
+	PathParams []Param
+	HasPayload bool
+	Generated  bool
 }
 
 type SelectorKind string

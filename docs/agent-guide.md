@@ -178,6 +178,11 @@ Prefer JSON when output will feed another tool or decision.
 | Follow logs | `scenery logs --jsonl --limit 200` |
 | Query logs | `scenery logs query --json --query 'error OR panic'` |
 | Inspect observability | `scenery inspect observability --json` |
+
+Generated model CRUD endpoints are beta. They appear in `scenery inspect endpoints --json`
+and `scenery inspect routes --json` with `"generated": true`; the current M3
+foundation store is process-local, so rows created through those endpoints do not
+survive app runtime restart.
 | Inspect traces/metrics | `scenery traces list --json`, `scenery metrics list --json` |
 | Query metrics | `scenery metrics query --json --promql 'scenery_request_duration_seconds'` |
 | Generate TypeScript client | `scenery generate client --lang typescript --output <path>` |

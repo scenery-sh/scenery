@@ -94,6 +94,40 @@ func Hook(w http.ResponseWriter, req *http.Request) {}
 	}
 }
 
+func TestGenerateModelCRUDBackend(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(repoRoot(t), "testdata", "apps", "model-dsl")
+	app, err := parse.App(root, "modeldsl")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	out, err := codegen.Generate(app)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	got := string(out.Generated["tasks/scenery.gen.go"])
+	for _, want := range []string{
+		"type TaskCreate struct",
+		"type TaskPatch struct",
+		"sceneryModelTaskStore",
+		`"CreateTask"`,
+		`"/tasks"`,
+		"sceneryModelUpdateTask(ctx, pathArgs[0], payload.(TaskPatch))",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated CRUD backend missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `Name: "DeleteTask"`) {
+		t.Fatalf("disabled delete endpoint generated:\n%s", got)
+	}
+	mainGot := string(out.Generated["scenery_internal_main/main.go"])
+	if !strings.Contains(mainGot, `_ "example.com/modeldsl/tasks"`) {
+		t.Fatalf("main did not import generated model package:\n%s", mainGot)
+	}
+}
+
 func TestGenerateServiceLifecycleAndEarlySecrets(t *testing.T) {
 	t.Parallel()
 

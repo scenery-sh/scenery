@@ -2,6 +2,16 @@ package model
 
 type EntityDefinition[T any] struct{}
 
+type Action string
+
+const (
+	ActionList   Action = "list"
+	ActionGet    Action = "get"
+	ActionCreate Action = "create"
+	ActionUpdate Action = "update"
+	ActionDelete Action = "delete"
+)
+
 type EntityOption interface{ entityOption() }
 
 type FieldOption interface{ fieldOption() }
@@ -15,6 +25,18 @@ func Table(name string) EntityOption {
 }
 
 func Field(name string, opts ...FieldOption) EntityOption {
+	return entityOptionFunc(func() {})
+}
+
+func Generate(actions ...Action) EntityOption {
+	return entityOptionFunc(func() {})
+}
+
+func Disable(actions ...Action) EntityOption {
+	return entityOptionFunc(func() {})
+}
+
+func Override(action Action, endpoint any) EntityOption {
 	return entityOptionFunc(func() {})
 }
 

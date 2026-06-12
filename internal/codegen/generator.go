@@ -152,6 +152,12 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 			pkgEndpoints = append(pkgEndpoints, ep)
 		}
 	}
+	var generatedModelEndpoints []*model.GeneratedModelEndpoint
+	for _, ep := range pkg.Service.Generated {
+		if ep.Package == pkg {
+			generatedModelEndpoints = append(generatedModelEndpoints, ep)
+		}
+	}
 	authHandler := pkg.Service.AuthHandler
 	if authHandler != nil && authHandler.Package != pkg {
 		authHandler = nil
@@ -162,11 +168,14 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 	if serviceStruct != nil && serviceStruct.Package != pkg {
 		serviceStruct = nil
 	}
-	if len(pkgEndpoints) == 0 && len(pkgMiddleware) == 0 && authHandler == nil && serviceStruct == nil && !hasSecrets {
+	if len(pkgEndpoints) == 0 && len(generatedModelEndpoints) == 0 && len(pkgMiddleware) == 0 && authHandler == nil && serviceStruct == nil && !hasSecrets {
 		return nil, nil
 	}
 
 	slices.SortFunc(pkgEndpoints, func(a, b *model.Endpoint) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(generatedModelEndpoints, func(a, b *model.GeneratedModelEndpoint) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 
@@ -174,6 +183,13 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 	im.use("sceneryruntime", "scenery.sh/runtime")
 	if needsContextImport(pkgEndpoints, authHandler, serviceStruct) {
 		im.use("context", "context")
+	}
+	if len(generatedModelEndpoints) > 0 {
+		im.use("context", "context")
+		im.use("errs", "scenery.sh/errs")
+		im.use("fmt", "fmt")
+		im.use("sort", "sort")
+		im.use("sync", "sync")
 	}
 	if len(pkgMiddleware) > 0 {
 		im.use("scenerymiddleware", "scenery.sh/middleware")
@@ -193,10 +209,11 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 	if serviceStruct != nil {
 		writeServiceStruct(&buf, im, serviceStruct)
 	}
+	writeGeneratedModelBackend(&buf, im, generatedModelEndpoints)
 	for _, ep := range pkgEndpoints {
 		writeEndpoint(&buf, im, ep, serviceStruct)
 	}
-	writeRegistrations(&buf, im, pkgEndpoints, pkgMiddleware, authHandler, serviceStruct, hasSecrets)
+	writeRegistrations(&buf, im, pkgEndpoints, generatedModelEndpoints, pkgMiddleware, authHandler, serviceStruct, hasSecrets)
 	writeImports(&buf, im)
 
 	return format.Source([]byte(buf.String()))
@@ -521,6 +538,11 @@ func hasResources(pkg *model.Package) bool {
 			return true
 		}
 	}
+	for _, ep := range pkg.Service.Generated {
+		if ep.Package == pkg {
+			return true
+		}
+	}
 	return false
 }
 
@@ -620,6 +642,157 @@ func writeEndpoint(buf *strings.Builder, im *imports, ep *model.Endpoint, ss *mo
 	}
 }
 
+func writeGeneratedModelBackend(buf *strings.Builder, im *imports, endpoints []*model.GeneratedModelEndpoint) {
+	if len(endpoints) == 0 {
+		return
+	}
+	entities := generatedModelEntities(endpoints)
+	for _, entity := range entities {
+		writeGeneratedModelTypes(buf, im, entity)
+		writeGeneratedModelStore(buf, entity)
+	}
+}
+
+func generatedModelEntities(endpoints []*model.GeneratedModelEndpoint) []*model.Entity {
+	seen := map[*model.Entity]bool{}
+	var out []*model.Entity
+	for _, ep := range endpoints {
+		if ep == nil || ep.Entity == nil || seen[ep.Entity] {
+			continue
+		}
+		seen[ep.Entity] = true
+		out = append(out, ep.Entity)
+	}
+	slices.SortFunc(out, func(a, b *model.Entity) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return out
+}
+
+func writeGeneratedModelTypes(buf *strings.Builder, im *imports, entity *model.Entity) {
+	createType := generatedModelCreateType(entity)
+	patchType := generatedModelPatchType(entity)
+	fmt.Fprintf(buf, "type %s struct {\n", createType)
+	for _, field := range generatedModelStoredFields(entity) {
+		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", field.Name, entityFieldTypeExpr(im, field), field.Column+",omitempty")
+	}
+	buf.WriteString("}\n\n")
+	fmt.Fprintf(buf, "type %s struct {\n", patchType)
+	for _, field := range generatedModelPatchFields(entity) {
+		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", field.Name, entityFieldPatchTypeExpr(im, field), field.Column+",omitempty")
+	}
+	buf.WriteString("}\n\n")
+}
+
+func writeGeneratedModelStore(buf *strings.Builder, entity *model.Entity) {
+	storeName := generatedModelStoreName(entity)
+	keyFunc := generatedModelKeyFunc(entity)
+	fromCreate := generatedModelFromCreateFunc(entity)
+	applyPatch := generatedModelApplyPatchFunc(entity)
+	entityType := entity.Name
+	id := generatedModelIDField(entity)
+	fmt.Fprintf(buf, "var %s = struct {\n\tsync.RWMutex\n\trows map[string]%s\n}{rows: map[string]%s{}}\n\n", storeName, entityType, entityType)
+	fmt.Fprintf(buf, "func %s(id any) string {\n\treturn fmt.Sprint(id)\n}\n\n", keyFunc)
+	fmt.Fprintf(buf, "func %s(input %s) %s {\n\treturn %s{\n", fromCreate, generatedModelCreateType(entity), entityType, entityType)
+	for _, field := range generatedModelStoredFields(entity) {
+		fmt.Fprintf(buf, "\t\t%s: input.%s,\n", field.Name, field.Name)
+	}
+	buf.WriteString("\t}\n}\n\n")
+	fmt.Fprintf(buf, "func %s(row *%s, patch %s) {\n", applyPatch, entityType, generatedModelPatchType(entity))
+	for _, field := range generatedModelPatchFields(entity) {
+		fmt.Fprintf(buf, "\tif patch.%s != nil {\n\t\trow.%s = *patch.%s\n\t}\n", field.Name, field.Name, field.Name)
+	}
+	buf.WriteString("}\n\n")
+	fmt.Fprintf(buf, "func sceneryModelList%s(_ context.Context) ([]%s, error) {\n", entity.Name, entityType)
+	fmt.Fprintf(buf, "\t%s.RLock()\n\tdefer %s.RUnlock()\n", storeName, storeName)
+	fmt.Fprintf(buf, "\tkeys := make([]string, 0, len(%s.rows))\n\tfor key := range %s.rows {\n\t\tkeys = append(keys, key)\n\t}\n\tsort.Strings(keys)\n", storeName, storeName)
+	fmt.Fprintf(buf, "\trows := make([]%s, 0, len(keys))\n\tfor _, key := range keys {\n\t\trows = append(rows, %s.rows[key])\n\t}\n\treturn rows, nil\n}\n\n", entityType, storeName)
+	fmt.Fprintf(buf, "func sceneryModelGet%s(_ context.Context, id any) (%s, error) {\n", entity.Name, entityType)
+	fmt.Fprintf(buf, "\tkey := %s(id)\n\t%s.RLock()\n\trow, ok := %s.rows[key]\n\t%s.RUnlock()\n", keyFunc, storeName, storeName, storeName)
+	fmt.Fprintf(buf, "\tif !ok {\n\t\treturn %s{}, errs.B().Code(errs.NotFound).Msgf(%q, key).Err()\n\t}\n\treturn row, nil\n}\n\n", entityType, entity.Name+" %s not found")
+	fmt.Fprintf(buf, "func sceneryModelCreate%s(_ context.Context, input %s) (%s, error) {\n", entity.Name, generatedModelCreateType(entity), entityType)
+	fmt.Fprintf(buf, "\trow := %s(input)\n\tkey := %s(row.%s)\n", fromCreate, keyFunc, id.Name)
+	fmt.Fprintf(buf, "\tif key == \"\" {\n\t\treturn %s{}, errs.B().Code(errs.InvalidArgument).Msg(%q).Err()\n\t}\n", entityType, entity.Name+" ID is required")
+	fmt.Fprintf(buf, "\t%s.Lock()\n\tdefer %s.Unlock()\n", storeName, storeName)
+	fmt.Fprintf(buf, "\tif _, exists := %s.rows[key]; exists {\n\t\treturn %s{}, errs.B().Code(errs.AlreadyExists).Msgf(%q, key).Err()\n\t}\n\t%s.rows[key] = row\n\treturn row, nil\n}\n\n", storeName, entityType, entity.Name+" %s already exists", storeName)
+	fmt.Fprintf(buf, "func sceneryModelUpdate%s(ctx context.Context, id any, patch %s) (%s, error) {\n", entity.Name, generatedModelPatchType(entity), entityType)
+	fmt.Fprintf(buf, "\tkey := %s(id)\n\t%s.Lock()\n\tdefer %s.Unlock()\n", keyFunc, storeName, storeName)
+	fmt.Fprintf(buf, "\trow, ok := %s.rows[key]\n\tif !ok {\n\t\treturn %s{}, errs.B().Code(errs.NotFound).Msgf(%q, key).Err()\n\t}\n", storeName, entityType, entity.Name+" %s not found")
+	fmt.Fprintf(buf, "\t_ = ctx\n\t%s(&row, patch)\n\t%s.rows[key] = row\n\treturn row, nil\n}\n\n", applyPatch, storeName)
+	fmt.Fprintf(buf, "func sceneryModelDelete%s(_ context.Context, id any) error {\n", entity.Name)
+	fmt.Fprintf(buf, "\tkey := %s(id)\n\t%s.Lock()\n\tdefer %s.Unlock()\n", keyFunc, storeName, storeName)
+	fmt.Fprintf(buf, "\tif _, ok := %s.rows[key]; !ok {\n\t\treturn errs.B().Code(errs.NotFound).Msgf(%q, key).Err()\n\t}\n\tdelete(%s.rows, key)\n\treturn nil\n}\n\n", storeName, entity.Name+" %s not found", storeName)
+}
+
+func generatedModelStoredFields(entity *model.Entity) []model.EntityField {
+	var fields []model.EntityField
+	for _, field := range entity.Fields {
+		if field.Kind == model.EntityFieldComputed {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func generatedModelPatchFields(entity *model.Entity) []model.EntityField {
+	var fields []model.EntityField
+	for _, field := range generatedModelStoredFields(entity) {
+		if strings.EqualFold(field.Name, "id") {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func generatedModelIDField(entity *model.Entity) model.EntityField {
+	for _, field := range entity.Fields {
+		if field.Kind != model.EntityFieldComputed && strings.EqualFold(field.Name, "id") {
+			return field
+		}
+	}
+	return model.EntityField{Name: "ID", TypeExpr: "string", Column: "id"}
+}
+
+func entityFieldTypeExpr(im *imports, field model.EntityField) string {
+	if field.Type != nil {
+		return im.typeExpr(field.Type)
+	}
+	return field.TypeExpr
+}
+
+func entityFieldPatchTypeExpr(im *imports, field model.EntityField) string {
+	if ptr, ok := field.Type.(*types.Pointer); ok {
+		return "*" + im.typeExpr(ptr.Elem())
+	}
+	return "*" + entityFieldTypeExpr(im, field)
+}
+
+func generatedModelStoreName(entity *model.Entity) string {
+	return "sceneryModel" + entity.Name + "Store"
+}
+
+func generatedModelKeyFunc(entity *model.Entity) string {
+	return "sceneryModel" + entity.Name + "Key"
+}
+
+func generatedModelFromCreateFunc(entity *model.Entity) string {
+	return "sceneryModel" + entity.Name + "FromCreate"
+}
+
+func generatedModelApplyPatchFunc(entity *model.Entity) string {
+	return "sceneryModel" + entity.Name + "ApplyPatch"
+}
+
+func generatedModelCreateType(entity *model.Entity) string {
+	return entity.Name + "Create"
+}
+
+func generatedModelPatchType(entity *model.Entity) string {
+	return entity.Name + "Patch"
+}
+
 func writeInternalHelper(buf *strings.Builder, im *imports, ep *model.Endpoint) {
 	fmt.Fprintf(buf, "func sceneryInternalCall%s(%s)%s {\n", ep.Name, renderParams(im, ep.Params), renderResults(im, ep.Results))
 
@@ -684,7 +857,7 @@ func writeMethodWrapper(buf *strings.Builder, im *imports, ep *model.Endpoint) {
 	buf.WriteString("}\n\n")
 }
 
-func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.Endpoint, middlewares []*model.Middleware, authHandler *model.AuthHandler, ss *model.ServiceStruct, hasSecrets bool) {
+func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.Endpoint, generatedModelEndpoints []*model.GeneratedModelEndpoint, middlewares []*model.Middleware, authHandler *model.AuthHandler, ss *model.ServiceStruct, hasSecrets bool) {
 	buf.WriteString("func init() {\n")
 	if hasSecrets {
 		buf.WriteString("\tsceneryruntime.MustPopulateSecrets(&secrets)\n")
@@ -704,6 +877,9 @@ func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.En
 	for _, ep := range endpoints {
 		fmt.Fprintf(buf, "\tsceneryruntime.RegisterEndpointFunc(%s, %q, %q)\n", ep.Name, ep.Service.Name, ep.Name)
 		writeEndpointRegistration(buf, im, ep, ss)
+	}
+	for _, ep := range generatedModelEndpoints {
+		writeGeneratedModelEndpointRegistration(buf, ep)
 	}
 	if authHandler != nil {
 		writeAuthRegistration(buf, im, authHandler, ss)
@@ -768,6 +944,50 @@ func writeEndpointRegistration(buf *strings.Builder, im *imports, ep *model.Endp
 			}
 		}
 	}
+	buf.WriteString("\t})\n")
+}
+
+func writeGeneratedModelEndpointRegistration(buf *strings.Builder, ep *model.GeneratedModelEndpoint) {
+	fmt.Fprintf(buf, "\tsceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{\n")
+	fmt.Fprintf(buf, "\t\tService: %q,\n", ep.Service.Name)
+	fmt.Fprintf(buf, "\t\tName: %q,\n", ep.Name)
+	fmt.Fprintf(buf, "\t\tAccess: sceneryruntime.%s,\n", exportAccess(ep.Access))
+	buf.WriteString("\t\tRaw: false,\n")
+	fmt.Fprintf(buf, "\t\tPath: %q,\n", ep.Path)
+	fmt.Fprintf(buf, "\t\tMethods: %s,\n", renderMethodLiteral(ep.Methods))
+	fmt.Fprintf(buf, "\t\tPathParams: %s,\n", renderParamSpecs(ep.PathParams))
+	switch ep.Action {
+	case model.EntityCRUDCreate:
+		fmt.Fprintf(buf, "\t\tPayloadType: sceneryruntime.TypeOf[%s](),\n", generatedModelCreateType(ep.Entity))
+	case model.EntityCRUDUpdate:
+		fmt.Fprintf(buf, "\t\tPayloadType: sceneryruntime.TypeOf[%s](),\n", generatedModelPatchType(ep.Entity))
+	default:
+		buf.WriteString("\t\tPayloadType: nil,\n")
+	}
+	switch ep.Action {
+	case model.EntityCRUDDelete:
+		buf.WriteString("\t\tResponseType: nil,\n")
+	case model.EntityCRUDList:
+		fmt.Fprintf(buf, "\t\tResponseType: sceneryruntime.TypeOf[[]%s](),\n", ep.Entity.Name)
+	default:
+		fmt.Fprintf(buf, "\t\tResponseType: sceneryruntime.TypeOf[%s](),\n", ep.Entity.Name)
+	}
+	buf.WriteString("\t\tWireAvailable: false,\n")
+	buf.WriteString("\t\tWireUnsupportedReason: \"generated model endpoints do not publish wire contracts yet\",\n")
+	buf.WriteString("\t\tInvoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {\n")
+	switch ep.Action {
+	case model.EntityCRUDList:
+		fmt.Fprintf(buf, "\t\t\treturn sceneryModelList%s(ctx)\n", ep.Entity.Name)
+	case model.EntityCRUDGet:
+		fmt.Fprintf(buf, "\t\t\treturn sceneryModelGet%s(ctx, pathArgs[0])\n", ep.Entity.Name)
+	case model.EntityCRUDCreate:
+		fmt.Fprintf(buf, "\t\t\treturn sceneryModelCreate%s(ctx, payload.(%s))\n", ep.Entity.Name, generatedModelCreateType(ep.Entity))
+	case model.EntityCRUDUpdate:
+		fmt.Fprintf(buf, "\t\t\treturn sceneryModelUpdate%s(ctx, pathArgs[0], payload.(%s))\n", ep.Entity.Name, generatedModelPatchType(ep.Entity))
+	case model.EntityCRUDDelete:
+		fmt.Fprintf(buf, "\t\t\tif err := sceneryModelDelete%s(ctx, pathArgs[0]); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\treturn nil, nil\n", ep.Entity.Name)
+	}
+	buf.WriteString("\t\t},\n")
 	buf.WriteString("\t})\n")
 }
 

@@ -120,8 +120,9 @@ Dev-only or beta surface:
 - Temporal workflow/activity and cron runtime/admin affordances until their lifecycle, retry, scheduling, and clear/delete semantics are frozen
 - cron UI
 - `scenery.sh/temporal` workflow/activity declarations and worker registration
-- `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, `//scenery:model`, `//scenery:page`, and `scenery inspect models|views --json` until schema/backend/web generators are complete
+- `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, `//scenery:model`, `//scenery:page`, `model.Generate|Disable|Override` CRUD action policy, `scenery inspect models|views --json`, and generated model endpoint markers until schema/backend/web generators are complete
 - `scenery generate data --dry-run --json`, generated desired schema files under `.scenery/gen/db/<service>/schema.hcl`, `scenery db diff --generated --json`, and `scenery check` model-schema drift diagnostics
+- generated model CRUD endpoints/stores in the transient build workspace. These endpoints appear in `scenery inspect endpoints|routes --json` with `"generated": true`; the initial generated store is process-local and is reset when the app runtime restarts.
 - migration compatibility for older app shapes
 
 Compatibility posture:
@@ -951,6 +952,10 @@ Schema rules:
   }
 }
 ```
+
+Generated model CRUD endpoints include `"generated": true` and may have
+`wire.available=false` until generated model wire contracts are implemented.
+Handwritten endpoints omit the field.
 
 ### `scenery inspect wire --json`
 

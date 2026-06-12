@@ -391,6 +391,23 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	if fields["AgeDays"].Kind != model.EntityFieldComputed || fields["AgeDays"].Column != "age_days" {
 		t.Fatalf("age field = %+v", fields["AgeDays"])
 	}
+	if got := crudActionList(entity.CRUD.Actions); got != "list,get,create,update" {
+		t.Fatalf("crud actions = %q", got)
+	}
+	if got := crudActionList(entity.CRUD.Disabled); got != "delete" {
+		t.Fatalf("crud disabled = %q", got)
+	}
+	if len(app.Services) != 1 || len(app.Services[0].Generated) != 4 {
+		t.Fatalf("generated endpoints = %+v", app.Services)
+	}
+	for _, ep := range app.Services[0].Generated {
+		if !ep.Generated {
+			t.Fatalf("generated endpoint not marked generated: %+v", ep)
+		}
+		if ep.Name == "DeleteTask" {
+			t.Fatalf("disabled delete endpoint was generated: %+v", ep)
+		}
+	}
 	if len(app.Views) != 1 {
 		t.Fatalf("views = %+v", app.Views)
 	}
@@ -401,6 +418,14 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	if strings.Join(view.Columns, ",") != "Title,Status,CreatedAt" || len(view.Slots) != 1 || view.Slots[0].Name != "TaskStatusBadge" {
 		t.Fatalf("view projection = %+v", view)
 	}
+}
+
+func crudActionList(actions []model.EntityCRUDAction) string {
+	parts := make([]string, 0, len(actions))
+	for _, action := range actions {
+		parts = append(parts, string(action))
+	}
+	return strings.Join(parts, ",")
 }
 
 func TestModelDSLDiagnostics(t *testing.T) {

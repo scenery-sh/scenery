@@ -30,6 +30,7 @@
             "items": { "type": "string" }
           },
           "receiver": { "type": "string" },
+          "generated": { "type": "boolean" },
           "has_payload": { "type": "boolean" },
           "wire": { "$ref": "#/$defs/wireInfo" }
         },
