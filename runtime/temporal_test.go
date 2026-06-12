@@ -208,6 +208,80 @@ func TestSessionScopedTemporalTaskQueueFromEnv(t *testing.T) {
 	}
 }
 
+func TestResolveTemporalConfigIsolatesTestRuntimeTaskQueues(t *testing.T) {
+	t.Setenv(DefaultSceneryRuntimeEnv, "test")
+	t.Setenv(DefaultTemporalTestQueueSuffixEnv, "run-123")
+	t.Setenv(DefaultTemporalTaskQueueEnv, "scenery.orders.feature-a")
+	t.Setenv(DefaultScenerySessionIDEnv, "feature-a")
+	t.Setenv(DefaultTemporalDeploymentEnv, "")
+
+	info := ResolveTemporalConfig("orders", TemporalConfig{Enabled: true})
+	if info.TaskQueuePrefix != "scenery.orders.feature-a.test.run.123" {
+		t.Fatalf("task queue prefix = %q", info.TaskQueuePrefix)
+	}
+	if info.SessionID != "feature-a" {
+		t.Fatalf("session id = %q", info.SessionID)
+	}
+	if info.DeploymentName != "scenery-orders-feature-a-test-run-123" {
+		t.Fatalf("deployment name = %q", info.DeploymentName)
+	}
+	if got := SessionScopedTemporalTaskQueue(info, "orders.go"); got != "scenery.orders.feature-a.test.run.123.orders.go" {
+		t.Fatalf("scoped queue = %q", got)
+	}
+}
+
+func TestResolveTemporalConfigAddsTestSessionWhenMissing(t *testing.T) {
+	t.Setenv(DefaultSceneryRuntimeEnv, "test")
+	t.Setenv(DefaultTemporalTestQueueSuffixEnv, "run-456")
+	t.Setenv(DefaultTemporalTaskQueueEnv, "")
+	t.Setenv(DefaultScenerySessionIDEnv, "")
+
+	info := ResolveTemporalConfig("orders", TemporalConfig{Enabled: true})
+	if info.TaskQueuePrefix != "scenery.orders.test.run.456" {
+		t.Fatalf("task queue prefix = %q", info.TaskQueuePrefix)
+	}
+	if info.SessionID != "test.run.456" || info.SessionIDEnvSet {
+		t.Fatalf("session = %q envSet=%v", info.SessionID, info.SessionIDEnvSet)
+	}
+}
+
+func TestTestRuntimeDoesNotAdoptDevRuntimeTaskQueue(t *testing.T) {
+	t.Setenv(DefaultTemporalTestQueueSuffixEnv, "run-789")
+	t.Setenv(DefaultTemporalTaskQueueEnv, "scenery.orders.feature-a")
+	t.Setenv(DefaultScenerySessionIDEnv, "feature-a")
+	t.Setenv(DefaultTemporalDeploymentEnv, "")
+
+	t.Setenv(DefaultSceneryRuntimeEnv, "local")
+	devInfo := ResolveTemporalConfig("orders", TemporalConfig{Enabled: true})
+	devQueue := SessionScopedTemporalTaskQueue(devInfo, "orders.go")
+
+	t.Setenv(DefaultSceneryRuntimeEnv, "test")
+	testInfo := ResolveTemporalConfig("orders", TemporalConfig{Enabled: true})
+	testQueue := SessionScopedTemporalTaskQueue(testInfo, "orders.go")
+
+	if devInfo.TaskQueuePrefix == testInfo.TaskQueuePrefix {
+		t.Fatalf("test runtime adopted dev task queue prefix %q", testInfo.TaskQueuePrefix)
+	}
+	if devQueue == testQueue {
+		t.Fatalf("test runtime adopted dev task queue %q", testQueue)
+	}
+	if testQueue != "scenery.orders.feature-a.test.run.789.orders.go" {
+		t.Fatalf("test queue = %q", testQueue)
+	}
+}
+
+func TestSessionScopedTemporalTaskQueueFromEnvUsesTestIsolation(t *testing.T) {
+	t.Setenv(DefaultSceneryRuntimeEnv, "test")
+	t.Setenv(DefaultTemporalTestQueueSuffixEnv, "run-789")
+	t.Setenv(DefaultTemporalTaskQueueEnv, "scenery.orders.feature-a")
+	t.Setenv(DefaultScenerySessionIDEnv, "feature-a")
+
+	got := SessionScopedTemporalTaskQueueFromEnv("orders.go")
+	if got != "scenery.orders.feature-a.test.run.789.orders.go" {
+		t.Fatalf("SessionScopedTemporalTaskQueueFromEnv = %q", got)
+	}
+}
+
 func TestShouldAutoPromoteTemporalWorkerDeployment(t *testing.T) {
 	for _, mode := range []string{"", "local", " LOCAL "} {
 		if !ShouldAutoPromoteTemporalWorkerDeployment(TemporalRuntimeInfo{Mode: mode}) {

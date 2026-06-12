@@ -412,6 +412,46 @@ func TestTemporalStartWorkflowOptionsUseSessionScopedTaskQueue(t *testing.T) {
 	}
 }
 
+func TestTestMarkedRuntimeQueuesCannotBePolledByDevRuntime(t *testing.T) {
+	restore := resetRegistryForTest()
+	defer restore()
+
+	wf := NewWorkflow("orders.Fulfill/v1", WorkflowConfig{TaskQueue: "orders.go"}, func(ctx workflow.Context, in testWorkflowInput) (testWorkflowOutput, error) {
+		return testWorkflowOutput{}, nil
+	})
+	_ = NewActivity("orders.Charge/v1", ActivityConfig{TaskQueue: "payments.go"}, func(ctx context.Context, in testWorkflowInput) (testWorkflowOutput, error) {
+		return testWorkflowOutput{}, nil
+	})
+
+	devInfo := sceneryruntime.TemporalRuntimeInfo{
+		TaskQueuePrefix: "scenery.orders.feature-a",
+		SessionID:       "feature-a",
+	}
+	testInfo := sceneryruntime.TemporalRuntimeInfo{
+		TaskQueuePrefix: "scenery.orders.feature-a.test.run.123",
+		SessionID:       "test.run.123",
+	}
+	devQueues := sortedDeclarationQueues(declarationsByQueueForTest(devInfo))
+	testQueues := sortedDeclarationQueues(declarationsByQueueForTest(testInfo))
+	for _, devQueue := range devQueues {
+		for _, testQueue := range testQueues {
+			if devQueue == testQueue {
+				t.Fatalf("dev queue %q unexpectedly matches test queues %v", devQueue, testQueues)
+			}
+		}
+	}
+
+	start := temporalStartWorkflowOptions(wf.Name(), WorkflowID("orders-123"), applyStartOptions(wf.Config()), wf.taskQueue(testInfo), testInfo)
+	for _, devQueue := range devQueues {
+		if start.TaskQueue == devQueue {
+			t.Fatalf("test workflow start queue %q can be polled by dev queues %v", start.TaskQueue, devQueues)
+		}
+	}
+	if !strings.Contains(start.TaskQueue, ".test.run.123.") {
+		t.Fatalf("test workflow start queue = %q, want test suffix", start.TaskQueue)
+	}
+}
+
 func TestGetWorkflowWithoutRuntimeReturnsHandleError(t *testing.T) {
 	run := GetWorkflow[testWorkflowOutput](context.Background(), "orders-123", "")
 	if run.ID() != "orders-123" {

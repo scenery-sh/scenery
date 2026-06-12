@@ -11,6 +11,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/app"
+	sceneryruntime "scenery.sh/runtime"
 )
 
 func TestParseTestArgs(t *testing.T) {
@@ -70,12 +73,33 @@ func TestSceneryTestRunsGoTestInGeneratedWorkspace(t *testing.T) {
 		".scenery.json":   `{"name":"testapp"}`,
 		"go.mod":          "module example.com/testapp\n\ngo 1.26.3\n",
 		"svc/api.go":      "package svc\n\nimport \"context\"\n\n//scenery:api public\nfunc Ping(context.Context) error { return nil }\n",
-		"svc/api_test.go": "package svc\n\nimport (\n\t\"testing\"\n\n\tscenery \"scenery.sh\"\n)\n\nfunc TestSceneryMetaUsesTestEnv(t *testing.T) {\n\tif scenery.Meta().Environment.Type != scenery.EnvTest {\n\t\tt.Fatalf(\"env type = %q, want %q\", scenery.Meta().Environment.Type, scenery.EnvTest)\n\t}\n}\n",
+		"svc/api_test.go": "package svc\n\nimport (\n\t\"os\"\n\t\"strings\"\n\t\"testing\"\n\n\tscenery \"scenery.sh\"\n)\n\nfunc TestSceneryMetaUsesTestEnv(t *testing.T) {\n\tif scenery.Meta().Environment.Type != scenery.EnvTest {\n\t\tt.Fatalf(\"env type = %q, want %q\", scenery.Meta().Environment.Type, scenery.EnvTest)\n\t}\n\tif os.Getenv(\"SCENERY_RUNTIME_ENV\") != \"test\" {\n\t\tt.Fatalf(\"SCENERY_RUNTIME_ENV = %q\", os.Getenv(\"SCENERY_RUNTIME_ENV\"))\n\t}\n\tsuffix := os.Getenv(\"SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX\")\n\tprefix := os.Getenv(\"SCENERY_TEMPORAL_TASK_QUEUE_PREFIX\")\n\tif suffix == \"\" || !strings.Contains(prefix, \".test.\"+suffix) {\n\t\tt.Fatalf(\"test Temporal env suffix=%q prefix=%q\", suffix, prefix)\n\t}\n\tif os.Getenv(\"SCENERY_SESSION_ID\") != \"test.\"+suffix {\n\t\tt.Fatalf(\"SCENERY_SESSION_ID = %q, suffix %q\", os.Getenv(\"SCENERY_SESSION_ID\"), suffix)\n\t}\n}\n",
 	}
 	preparePersistentTestApp(t, root, files)
 
 	if err := runSceneryTest(context.Background(), []string{"--app-root", root, "./svc", "-run", "TestSceneryMetaUsesTestEnv"}); err != nil {
 		t.Fatalf("runSceneryTest returned error: %v", err)
+	}
+}
+
+func TestGeneratedWorkspaceTestTemporalEnvOverridesInheritedDevScope(t *testing.T) {
+	t.Setenv(sceneryruntime.DefaultTemporalTaskQueueEnv, "scenery.demo.feature-a")
+	t.Setenv(sceneryruntime.DefaultTemporalDeploymentEnv, "scenery-demo-feature-a")
+	t.Setenv(sceneryruntime.DefaultTemporalBuildIDEnv, "feature-a")
+	t.Setenv(sceneryruntime.DefaultScenerySessionIDEnv, "feature-a")
+	t.Setenv(sceneryruntime.DefaultTemporalTestQueueSuffixEnv, "run-123")
+
+	env := generatedWorkspaceTestTemporalEnv(app.Config{Name: "demo"})
+	for _, want := range []string{
+		"SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX=run.123",
+		"SCENERY_TEMPORAL_TASK_QUEUE_PREFIX=scenery.demo.feature-a.test.run.123",
+		"SCENERY_SESSION_ID=test.run.123",
+		"SCENERY_TEMPORAL_DEPLOYMENT_NAME=scenery-demo-feature-a-test-run-123",
+		"SCENERY_BUILD_ID=test.run.123",
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("generatedWorkspaceTestTemporalEnv() = %v, missing %q", env, want)
+		}
 	}
 }
 

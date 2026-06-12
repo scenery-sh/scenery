@@ -1,38 +1,48 @@
 package runtime
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"scenery.sh/internal/envpolicy"
 )
 
 const (
-	DefaultTemporalAddress          = "127.0.0.1:7233"
-	DefaultTemporalAddressEnv       = "TEMPORAL_ADDRESS"
-	DefaultTemporalNamespace        = "default"
-	DefaultTemporalNamespaceEnv     = "TEMPORAL_NAMESPACE"
-	DefaultTemporalTaskQueueEnv     = "SCENERY_TEMPORAL_TASK_QUEUE_PREFIX"
-	DefaultTemporalBuildID          = "dev"
-	DefaultTemporalBuildIDEnv       = "SCENERY_BUILD_ID"
-	DefaultTemporalDeploymentEnv    = "SCENERY_TEMPORAL_DEPLOYMENT_NAME"
-	DefaultTemporalVersioningEnv    = "SCENERY_TEMPORAL_VERSIONING_BEHAVIOR"
-	DefaultTemporalVersioning       = "pinned"
-	DefaultTemporalPayloadCodec     = "scenery-json-v1"
-	DefaultTemporalAPIKeyEnv        = "TEMPORAL_API_KEY"
-	DefaultTemporalTLSServerNameEnv = "TEMPORAL_TLS_SERVER_NAME"
-	DefaultTemporalTLSCACertFileEnv = "TEMPORAL_TLS_CA_CERT_FILE"
-	DefaultTemporalTLSCertFileEnv   = "TEMPORAL_TLS_CERT_FILE"
-	DefaultTemporalTLSKeyFileEnv    = "TEMPORAL_TLS_KEY_FILE"
-	DefaultTemporalHostReportingEnv = "SCENERY_TEMPORAL_HOST_RESOURCE_REPORTING"
-	DefaultScenerySessionIDEnv      = "SCENERY_SESSION_ID"
-	DefaultTemporalMode             = "local"
-	DefaultTemporalConnectWait      = 5 * time.Second
-	DefaultTemporalLocalDBFile      = ".scenery/temporal/dev.db"
-	defaultTemporalTaskQueuePart    = "scenery"
+	DefaultTemporalAddress            = "127.0.0.1:7233"
+	DefaultTemporalAddressEnv         = "TEMPORAL_ADDRESS"
+	DefaultTemporalNamespace          = "default"
+	DefaultTemporalNamespaceEnv       = "TEMPORAL_NAMESPACE"
+	DefaultTemporalTaskQueueEnv       = "SCENERY_TEMPORAL_TASK_QUEUE_PREFIX"
+	DefaultTemporalTestQueueSuffixEnv = "SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX"
+	DefaultTemporalBuildID            = "dev"
+	DefaultTemporalBuildIDEnv         = "SCENERY_BUILD_ID"
+	DefaultTemporalDeploymentEnv      = "SCENERY_TEMPORAL_DEPLOYMENT_NAME"
+	DefaultTemporalVersioningEnv      = "SCENERY_TEMPORAL_VERSIONING_BEHAVIOR"
+	DefaultTemporalVersioning         = "pinned"
+	DefaultTemporalPayloadCodec       = "scenery-json-v1"
+	DefaultTemporalAPIKeyEnv          = "TEMPORAL_API_KEY"
+	DefaultTemporalTLSServerNameEnv   = "TEMPORAL_TLS_SERVER_NAME"
+	DefaultTemporalTLSCACertFileEnv   = "TEMPORAL_TLS_CA_CERT_FILE"
+	DefaultTemporalTLSCertFileEnv     = "TEMPORAL_TLS_CERT_FILE"
+	DefaultTemporalTLSKeyFileEnv      = "TEMPORAL_TLS_KEY_FILE"
+	DefaultTemporalHostReportingEnv   = "SCENERY_TEMPORAL_HOST_RESOURCE_REPORTING"
+	DefaultScenerySessionIDEnv        = "SCENERY_SESSION_ID"
+	DefaultSceneryRuntimeEnv          = "SCENERY_RUNTIME_ENV"
+	DefaultTemporalMode               = "local"
+	DefaultTemporalConnectWait        = 5 * time.Second
+	DefaultTemporalLocalDBFile        = ".scenery/temporal/dev.db"
+	defaultTemporalTaskQueuePart      = "scenery"
 )
+
+var temporalTestQueueSuffix = struct {
+	once  sync.Once
+	value string
+}{}
 
 const (
 	TemporalVersioningPinned      = "pinned"
@@ -144,6 +154,13 @@ func ResolveTemporalConfig(appName string, cfg TemporalConfig) TemporalRuntimeIn
 		taskQueuePrefix = defaultTemporalTaskQueuePrefix(appName)
 	}
 	sessionID, sessionIDEnvSet := envValue(DefaultScenerySessionIDEnv)
+	if temporalRuntimeEnvIsTest() {
+		suffix := TemporalTestTaskQueueSuffix()
+		taskQueuePrefix = temporalTestTaskQueuePrefix(taskQueuePrefix, suffix)
+		if strings.TrimSpace(sessionID) == "" {
+			sessionID = temporalTestSessionID(suffix)
+		}
+	}
 	payloadCodec := strings.TrimSpace(cfg.PayloadCodec)
 	if payloadCodec == "" {
 		payloadCodec = DefaultTemporalPayloadCodec
@@ -239,6 +256,53 @@ func ResolveTemporalConfig(appName string, cfg TemporalConfig) TemporalRuntimeIn
 	}
 }
 
+func temporalRuntimeEnvIsTest() bool {
+	return strings.EqualFold(strings.TrimSpace(envpolicy.Get(DefaultSceneryRuntimeEnv)), "test")
+}
+
+// TemporalTestTaskQueueSuffix returns the process-stable suffix used to isolate test-marked Temporal queues.
+func TemporalTestTaskQueueSuffix() string {
+	if suffix, ok := envValue(DefaultTemporalTestQueueSuffixEnv); ok {
+		return sanitizeTemporalName(suffix)
+	}
+	temporalTestQueueSuffix.once.Do(func() {
+		temporalTestQueueSuffix.value = randomTemporalTestTaskQueueSuffix()
+	})
+	return temporalTestQueueSuffix.value
+}
+
+func temporalTestTaskQueuePrefix(prefix, suffix string) string {
+	prefix = strings.TrimSuffix(strings.TrimSpace(prefix), ".")
+	if prefix == "" {
+		prefix = defaultTemporalTaskQueuePart
+	}
+	suffix = sanitizeTemporalName(suffix)
+	if suffix == "" {
+		return prefix
+	}
+	marker := ".test." + suffix
+	if strings.HasSuffix(prefix, marker) {
+		return prefix
+	}
+	return prefix + marker
+}
+
+func temporalTestSessionID(suffix string) string {
+	suffix = sanitizeTemporalName(suffix)
+	if suffix == "" {
+		return "test"
+	}
+	return "test." + suffix
+}
+
+func randomTemporalTestTaskQueueSuffix() string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return sanitizeTemporalName(fmt.Sprintf("pid-%d-%d", os.Getpid(), time.Now().UnixNano()))
+}
+
 func validateTemporalPayloadCodec(profile string) error {
 	if strings.TrimSpace(profile) == DefaultTemporalPayloadCodec {
 		return nil
@@ -288,11 +352,7 @@ func SessionScopedTemporalTaskQueue(info TemporalRuntimeInfo, queue string) stri
 
 func SessionScopedTemporalTaskQueueFromEnv(queue string) string {
 	prefix, _ := envValue(DefaultTemporalTaskQueueEnv)
-	sessionID, _ := envValue(DefaultScenerySessionIDEnv)
-	return SessionScopedTemporalTaskQueue(TemporalRuntimeInfo{
-		TaskQueuePrefix: prefix,
-		SessionID:       sessionID,
-	}, queue)
+	return SessionScopedTemporalTaskQueue(ResolveTemporalConfig("", TemporalConfig{TaskQueuePrefix: prefix}), queue)
 }
 
 func TemporalHostResourceReportingEnabled(info TemporalRuntimeInfo) bool {

@@ -2445,6 +2445,28 @@
       ]
     },
     {
+      "name": "SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected_user_input",
+      "category": "temporal",
+      "stability": "internal",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Per-test-runtime suffix appended to Temporal task queue prefixes so `scenery test` cannot share live dev task queues.",
+      "preferred_surface": "`scenery test`; users should not set this unless reproducing test-runtime isolation behavior.",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_TEMPORAL_VERSIONING_BEHAVIOR",
       "match": "exact",
       "scope": "runtime",

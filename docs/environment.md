@@ -113,6 +113,7 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `TEMPORAL_TLS_CERT_FILE` | user input | Default Temporal client certificate env when configured. |
 | `TEMPORAL_TLS_KEY_FILE` | user input | Default Temporal client key env when configured. |
 | `SCENERY_TEMPORAL_TASK_QUEUE_PREFIX` | injected/user input | Overrides generated Temporal task queue prefix. Agent dev sets this to a session-scoped value. |
+| `SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX` | injected/user input | Test-runtime suffix appended to the Temporal task queue prefix so `scenery test` workers cannot share live dev queues. |
 | `SCENERY_TEMPORAL_TASK_QUEUE` | injected/user input | Worker task queue override; `scenery worker --task-queue` sets it. |
 | `SCENERY_TEMPORAL_DEPLOYMENT_NAME` | injected/user input | Temporal Worker Deployment name override. |
 | `SCENERY_TEMPORAL_VERSIONING_BEHAVIOR` | user input | `pinned` or `auto_upgrade`; default is `pinned`. |

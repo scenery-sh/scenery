@@ -14,6 +14,7 @@ import (
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/parse"
+	sceneryruntime "scenery.sh/runtime"
 )
 
 type testOptions struct {
@@ -64,7 +65,7 @@ func runSceneryTestOutput(ctx context.Context, args []string, stdout io.Writer) 
 
 	goArgs := append([]string{"test"}, result.GoBuildFlags...)
 	goArgs = append(goArgs, opts.GoArgs...)
-	err, output := runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, false)
+	err, output := runGeneratedWorkspaceGoTest(ctx, testDir, goArgs, generatedWorkspaceTestTemporalEnv(cfg), false)
 	if err == nil {
 		_, _ = stdout.Write(output)
 		return nil
@@ -110,10 +111,10 @@ func prepareTestWorkspace(ctx context.Context, appRoot string, cfg app.Config) (
 	return result, nil
 }
 
-func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []string, stream bool) (error, []byte) {
+func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []string, temporalEnv []string, stream bool) (error, []byte) {
 	cmd := execGoTestCommand(ctx, "go", goArgs...)
 	cmd.Dir = dir
-	cmd.Env = append(envpolicy.Environ(), "SCENERY_RUNTIME_ENV=test")
+	cmd.Env = envWithOverrides(envpolicy.Environ(), append([]string{sceneryruntime.DefaultSceneryRuntimeEnv + "=test"}, temporalEnv...)...)
 	if stream {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -123,6 +124,37 @@ func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []strin
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	return cmd.Run(), output.Bytes()
+}
+
+func generatedWorkspaceTestTemporalEnv(cfg app.Config) []string {
+	suffix := sceneryruntime.TemporalTestTaskQueueSuffix()
+	testSessionID := "test." + suffix
+	info := sceneryruntime.ResolveTemporalConfig(cfg.Name, temporalRuntimeConfigFromApp(cfg.Temporal))
+	testPrefix := testTemporalTaskQueuePrefix(info.TaskQueuePrefix, suffix)
+	deploymentName := sceneryruntime.TemporalDeploymentName(sceneryruntime.TemporalRuntimeInfo{DeploymentName: testPrefix})
+	return []string{
+		sceneryruntime.DefaultTemporalTestQueueSuffixEnv + "=" + suffix,
+		sceneryruntime.DefaultTemporalTaskQueueEnv + "=" + testPrefix,
+		sceneryruntime.DefaultScenerySessionIDEnv + "=" + testSessionID,
+		sceneryruntime.DefaultTemporalDeploymentEnv + "=" + deploymentName,
+		sceneryruntime.DefaultTemporalBuildIDEnv + "=" + testSessionID,
+	}
+}
+
+func testTemporalTaskQueuePrefix(prefix, suffix string) string {
+	prefix = strings.TrimSuffix(strings.TrimSpace(prefix), ".")
+	if prefix == "" {
+		prefix = "scenery"
+	}
+	suffix = strings.Trim(strings.ReplaceAll(suffix, "-", "."), ".")
+	if suffix == "" {
+		return prefix
+	}
+	marker := ".test." + suffix
+	if strings.HasSuffix(prefix, marker) {
+		return prefix
+	}
+	return prefix + marker
 }
 
 func parseTestArgs(args []string) (testOptions, error) {
