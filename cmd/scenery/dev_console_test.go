@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/termstyle"
 )
 
 func TestRenderDevConsoleShowsSourcesLogsAndExpandedJSON(t *testing.T) {
@@ -109,6 +110,58 @@ func TestDevConsoleDiffRendererAvoidsFullClearDuringSteadyState(t *testing.T) {
 	}
 }
 
+func TestRenderDevConsoleColorPaddingUsesVisibleWidths(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+	palette := termstyle.New(&bytes.Buffer{})
+	if !palette.Enabled() {
+		t.Fatal("palette should be enabled by CLICOLOR_FORCE")
+	}
+
+	at := time.Date(2026, 6, 12, 14, 0, 0, 0, time.UTC)
+	info := renderDevConsoleEventLine(devdash.DevEvent{
+		Source:    devdash.DevSource{ID: "api"},
+		Level:     "info",
+		Message:   "info-message",
+		CreatedAt: at,
+	}, "", palette, 120)
+	errLine := renderDevConsoleEventLine(devdash.DevEvent{
+		Source:    devdash.DevSource{ID: "api"},
+		Level:     "error",
+		Message:   "error-message",
+		CreatedAt: at,
+	}, "", palette, 120)
+	if !strings.Contains(info, "\x1b[") || !strings.Contains(errLine, "\x1b[") {
+		t.Fatalf("expected colorized event lines:\ninfo=%q\nerror=%q", info, errLine)
+	}
+	infoColumn := visibleColumnOfSubstring(info, "info-message")
+	errorColumn := visibleColumnOfSubstring(errLine, "error-message")
+	if infoColumn < 0 || errorColumn < 0 {
+		t.Fatalf("messages missing from rendered lines:\ninfo=%q\nerror=%q", info, errLine)
+	}
+	if infoColumn != errorColumn {
+		t.Fatalf("colored event message columns differ: info=%d error=%d\ninfo=%q\nerror=%q", infoColumn, errorColumn, info, errLine)
+	}
+
+	sidebar := renderDevConsoleSidebar(devConsoleSnapshot{
+		Selected: "all",
+		Sources: []devConsoleSource{
+			{Source: devdash.DevSource{ID: "api", URL: "info-detail"}, Status: "ok"},
+			{Source: devdash.DevSource{ID: "api", URL: "error-detail"}, Status: "ok", ErrorCount: 2},
+		},
+	}, palette, 80, 3)
+	if len(sidebar) != 3 {
+		t.Fatalf("sidebar rendered %d lines, want 3: %#v", len(sidebar), sidebar)
+	}
+	infoDetailColumn := visibleColumnOfSubstring(sidebar[1], "info-detail")
+	errorDetailColumn := visibleColumnOfSubstring(sidebar[2], "error-detail")
+	if infoDetailColumn < 0 || errorDetailColumn < 0 {
+		t.Fatalf("details missing from sidebar lines: %#v", sidebar)
+	}
+	if infoDetailColumn != errorDetailColumn {
+		t.Fatalf("colored sidebar detail columns differ: info=%d error=%d\ninfo=%q\nerror=%q", infoDetailColumn, errorDetailColumn, sidebar[1], sidebar[2])
+	}
+}
+
 func TestRenderDevConsoleResponsiveLayoutsStayBounded(t *testing.T) {
 	t.Parallel()
 
@@ -148,6 +201,14 @@ func TestRenderDevConsoleResponsiveLayoutsStayBounded(t *testing.T) {
 			}
 		}
 	}
+}
+
+func visibleColumnOfSubstring(line, needle string) int {
+	idx := strings.Index(line, needle)
+	if idx < 0 {
+		return -1
+	}
+	return visibleStringWidth(line[:idx])
 }
 
 func TestDevConsoleKeyNavigationSearchAndMouse(t *testing.T) {

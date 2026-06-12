@@ -19,6 +19,17 @@ func padStyledLine(line string, width int) string {
 	return line + strings.Repeat(" ", width-visible)
 }
 
+func padStyled(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	visible := visibleStringWidth(s)
+	if visible >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-visible)
+}
+
 func truncateANSI(line string, width int) string {
 	if width <= 0 || visibleStringWidth(line) <= width {
 		return line
@@ -36,14 +47,7 @@ func truncateANSI(line string, width int) string {
 	}
 	for i := 0; i < len(line) && visible < limit; {
 		if line[i] == '\x1b' {
-			next := i + 1
-			for next < len(line) {
-				ch := line[next]
-				next++
-				if ch >= '@' && ch <= '~' {
-					break
-				}
-			}
+			next := ansiSequenceEnd(line, i)
 			b.WriteString(line[i:next])
 			i = next
 			continue
@@ -73,14 +77,7 @@ func visibleStringWidth(line string) int {
 	width := 0
 	for i := 0; i < len(line); {
 		if line[i] == '\x1b' {
-			i++
-			for i < len(line) {
-				ch := line[i]
-				i++
-				if ch >= '@' && ch <= '~' {
-					break
-				}
-			}
+			i = ansiSequenceEnd(line, i)
 			continue
 		}
 		r, size := rune(line[i]), 1
@@ -96,4 +93,22 @@ func visibleStringWidth(line string) int {
 		i += size
 	}
 	return width
+}
+
+func ansiSequenceEnd(s string, start int) int {
+	if start >= len(s) || s[start] != '\x1b' {
+		return start
+	}
+	i := start + 1
+	if i < len(s) && s[i] == '[' {
+		i++
+	}
+	for i < len(s) {
+		ch := s[i]
+		i++
+		if ch >= '@' && ch <= '~' {
+			break
+		}
+	}
+	return i
 }

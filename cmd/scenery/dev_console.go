@@ -516,7 +516,7 @@ func renderDevConsoleSidebar(snapshot devConsoleSnapshot, palette termstyle.Pale
 			status = palette.Green(status)
 		}
 		detail := firstNonEmpty(source.Source.Reason, source.LastError, source.Source.URL, source.Source.Role)
-		line := fmt.Sprintf("%s %-18s %-12s %s", marker, label, status, palette.Dim(detail))
+		line := fmt.Sprintf("%s %s %s %s", marker, padStyled(label, 18), padStyled(status, 12), palette.Dim(detail))
 		lines = append(lines, fitStyledLine(line, width))
 	}
 	if len(snapshot.Errors) > 0 && len(lines) < rows {
@@ -594,7 +594,7 @@ func renderDevConsoleEventLine(event devdash.DevEvent, search string, palette te
 		message += " " + palette.Dim(fields)
 	}
 	message = highlightSearch(message, search, palette)
-	line := fmt.Sprintf("%s %-5s %-18s %s", palette.Dim(timestamp), styleConsoleLevel(level, palette), palette.Cyan(source), message)
+	line := fmt.Sprintf("%s %s %s %s", palette.Dim(timestamp), padStyled(styleConsoleLevel(level, palette), 5), padStyled(palette.Cyan(source), 18), message)
 	return fitStyledLine(line, width)
 }
 
