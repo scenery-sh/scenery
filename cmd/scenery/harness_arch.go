@@ -468,6 +468,7 @@ func architectureSkipDir(rel string) bool {
 		}
 	}
 	for _, prefix := range []string{
+		".claude",
 		".git",
 		".scenery",
 		".codex-tmp",

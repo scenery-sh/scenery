@@ -292,6 +292,9 @@ func TestHarnessLocalArtifactIgnoreDoesNotHideSchemas(t *testing.T) {
 	if !isIgnoredHarnessLocalArtifact("coverage/unit.harness.json") {
 		t.Fatal("coverage harness report should be ignored")
 	}
+	if !isIgnoredHarnessLocalArtifact(".claude/worktrees/example/docs/plans/0061-env-harness.md") {
+		t.Fatal("local Claude worktree artifacts should be ignored")
+	}
 	if isIgnoredHarnessLocalArtifact("docs/schemas/scenery.harness.self.v1.schema.json") {
 		t.Fatal("schema source files must remain in changed-area analysis")
 	}

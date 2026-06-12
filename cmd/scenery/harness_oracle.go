@@ -311,6 +311,8 @@ func isIgnoredHarnessLocalArtifact(path string) bool {
 		return false
 	case strings.HasPrefix(path, "docs/schemas/"):
 		return false
+	case path == ".claude" || strings.HasPrefix(path, ".claude/"):
+		return true
 	case strings.HasPrefix(path, ".scenery/"):
 		return true
 	case strings.HasPrefix(path, "coverage/"):

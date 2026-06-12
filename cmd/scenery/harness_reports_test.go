@@ -236,6 +236,43 @@ func TestBuildHarnessEnvVarReportInvalidRuntimeEnvDiagnostics(t *testing.T) {
 	}
 }
 
+func TestBuildHarnessEnvVarReportIgnoresClaudeWorktreeCopies(t *testing.T) {
+	t.Parallel()
+
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+	writeTestAppFile(t, root, "docs/environment.registry.json", `{
+  "schema_version": "scenery.environment.registry.v1",
+  "variables": [
+    {
+      "name": "SCENERY_TEST_",
+      "match": "prefix",
+      "scope": "test_only",
+      "direction": "test_input",
+      "category": "tests",
+      "stability": "test_only",
+      "secret": false,
+      "allowed_in": ["docs", "tests"],
+      "owner": "scenery runtime",
+      "rationale": "Test-only controls.",
+      "preferred_surface": "tests",
+      "docs": ["docs/environment.md"]
+    }
+  ]
+}`)
+	writeTestAppFile(t, root, ".claude/worktrees/scratch/cmd/scenery/env.go", "package main\n\nconst _ = \"SCENERY_FAKE_NEW_ENV\"\n")
+	writeTestAppFile(t, root, ".claude/worktrees/scratch/docs/plans/0061-env-harness.md", "`SCENERY_TEST_ONLY_EXAMPLE` is a historical test-only sample.\n")
+
+	report, diagnostics := buildHarnessEnvVarReport(root, nil)
+	if hasErrorDiagnostics(diagnostics) {
+		t.Fatalf("unexpected env diagnostics: %+v\nreport: %+v", diagnostics, report)
+	}
+	for _, variable := range report.Variables {
+		if strings.HasPrefix(variable.Name, "SCENERY_FAKE_") || variable.Name == "SCENERY_TEST_ONLY_EXAMPLE" {
+			t.Fatalf("local Claude worktree variable leaked into report: %+v", variable)
+		}
+	}
+}
+
 func TestBuildHarnessToolchainPreflightReportRedactsSecretEnv(t *testing.T) {
 	t.Setenv("SCENERY_AUTH_JWT_SECRET", "example")
 	t.Setenv("SCENERY_DEV_CACHE_DIR", "cache")
