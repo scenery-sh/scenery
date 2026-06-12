@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"syscall"
 )
 
 func (s *Server) routerMux() http.Handler {
@@ -201,9 +203,27 @@ func (s *Server) proxyBackendWithOptions(w http.ResponseWriter, req *http.Reques
 		}
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		if isBackendUnavailableError(err) {
+			// The backend socket is gone or refusing connections — in dev this
+			// is almost always a supervised app restart. Tell clients to retry
+			// shortly instead of treating it as a hard upstream failure.
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "backend restarting, retry shortly", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, req)
+}
+
+func isBackendUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if opErr, ok := errors.AsType[*net.OpError](err); ok && opErr.Op == "dial" {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
 }
 
 func isFrontendSessionBackend(kind string) bool {

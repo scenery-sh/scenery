@@ -23,6 +23,18 @@ type server struct {
 	wireCaps       wire.Capabilities
 	wireRecoveryMu sync.Mutex
 	wireRecovery   map[string]wireRecoveryRecord
+	drainOnce      sync.Once
+	drainCh        chan struct{}
+}
+
+// beginDrain cancels the contexts of in-flight streaming raw requests so
+// their handlers return and net/http writes a proper chunked terminator.
+// Without this, http.Server.Shutdown waits out its timeout on SSE/long-poll
+// responses and the process exit resets those connections mid-stream.
+func (s *server) beginDrain() {
+	s.drainOnce.Do(func() {
+		close(s.drainCh)
+	})
 }
 
 func newServer(listenAddr string) (*http.Server, error) {
@@ -30,6 +42,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 		public:        newRouteTable(),
 		private:       newRouteTable(),
 		wireEndpoints: make(map[string]*Endpoint),
+		drainCh:       make(chan struct{}),
 	}
 	s.public.GlobalOPTIONS = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		applyCORSHeaders(w.Header(), req)
@@ -66,6 +79,7 @@ func newServer(listenAddr string) (*http.Server, error) {
 		Addr:    listenAddr,
 		Handler: withCORS(withGzip(s.public)),
 	}
+	httpServer.RegisterOnShutdown(s.beginDrain)
 	s.http = httpServer
 	return httpServer, nil
 }
@@ -246,7 +260,16 @@ func (s *server) registerRaw(ep *Endpoint) {
 				finishRequestTrace(state, status, nil, callErr)
 			}()
 
-			callErr = executeStreamingRawEndpoint(ep, stream, req.WithContext(ctx))
+			streamCtx, cancelStream := context.WithCancel(ctx)
+			defer cancelStream()
+			go func() {
+				select {
+				case <-s.drainCh:
+					cancelStream()
+				case <-streamCtx.Done():
+				}
+			}()
+			callErr = executeStreamingRawEndpoint(ep, stream, req.WithContext(streamCtx))
 			status = stream.StatusCode()
 			if callErr != nil && !stream.WroteHeader() {
 				status = errs.HTTPStatus(callErr)

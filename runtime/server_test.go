@@ -1,10 +1,12 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -226,5 +228,80 @@ func TestCORSRequiresDevModeOrAllowList(t *testing.T) {
 	applyCORSHeaders(headers, req)
 	if got := headers.Get("Access-Control-Allow-Origin"); got != "https://example.com" {
 		t.Fatalf("allowlisted origin = %q", got)
+	}
+}
+
+func TestShutdownDrainsStreamingRawEndpointsCleanly(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+
+	handlerDone := make(chan struct{})
+	RegisterEndpoint(&Endpoint{
+		Service: "events",
+		Name:    "Stream",
+		Access:  Public,
+		Raw:     true,
+		Path:    "/events",
+		Methods: []string{http.MethodGet},
+		RawHandler: func(w http.ResponseWriter, req *http.Request) {
+			defer close(handlerDone)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "data: first\n\n")
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			// A well-behaved streaming handler blocks on the request context;
+			// shutdown must cancel it so the response terminates cleanly.
+			<-req.Context().Done()
+			_, _ = io.WriteString(w, "data: bye\n\n")
+		},
+	})
+
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("newServer() error = %v", err)
+	}
+	httpServer := httptest.NewServer(server.Handler)
+	defer httpServer.Close()
+
+	client := httpServer.Client()
+	client.Timeout = 5 * time.Second
+	client.Transport = &http.Transport{DisableCompression: true}
+
+	req, err := http.NewRequest(http.MethodGet, httpServer.URL+"/events", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	first := make([]byte, len("data: first\n\n"))
+	if _, err := io.ReadFull(res.Body, first); err != nil {
+		t.Fatalf("read first event: %v", err)
+	}
+
+	// Shutdown of the runtime server begins the drain even though the test
+	// serves through httptest; RegisterOnShutdown fires on Shutdown.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = server.Shutdown(shutdownCtx)
+
+	select {
+	case <-handlerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("streaming handler context was not canceled by shutdown drain")
+	}
+
+	rest, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("stream did not terminate cleanly: %v", err)
+	}
+	if !strings.Contains(string(rest), "data: bye\n\n") {
+		t.Fatalf("missing final event before clean close, got %q", string(rest))
 	}
 }
