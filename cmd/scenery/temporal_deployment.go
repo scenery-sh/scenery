@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -39,18 +38,6 @@ type temporalDeploymentResult struct {
 	Percentage float64 `json:"percentage,omitempty"`
 	Namespace  string  `json:"namespace"`
 	Address    string  `json:"address"`
-}
-
-func temporalCommand(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery worker deployment set-current|ramp|drain [flags]")
-	}
-	switch args[0] {
-	case "deployment":
-		return temporalDeploymentCommand(args[1:], os.Stdout)
-	default:
-		return fmt.Errorf("unknown temporal command %q", args[0])
-	}
 }
 
 func temporalDeploymentCommand(args []string, stdout io.Writer) error {

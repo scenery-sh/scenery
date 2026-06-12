@@ -48,6 +48,12 @@ const (
 // stay up before it is considered started. Tests shorten it.
 var caddyStartupSettle = 1500 * time.Millisecond
 
+var (
+	edgeDNSResolverStatusFunc        = edgeDNSResolverStatus
+	edgeDNSResolverServesDomainFunc  = edgeDNSResolverServesDomain
+	edgeDNSResolverFunctionalTimeout = 300 * time.Millisecond
+)
+
 type edgeOptions struct {
 	JSON   bool
 	Domain string
@@ -689,10 +695,14 @@ func edgeDNSStatusFor(paths localagent.Paths, domain string) edgeDNSStatusResult
 	if dnsState == "running" && !configServesDomain {
 		dnsState = "mismatch"
 	}
-	resolver := edgeDNSResolverStatus(domain, state.Listen)
+	resolver := edgeDNSResolverStatusFunc(domain, state.Listen)
+	if dnsState == "stopped" && resolver.State == "installed" && edgeDNSResolverServesDomainFunc(domain, resolver.Nameserver, resolver.Port, firstNonEmpty(state.Address, defaultEdgeDNSAddress)) {
+		dnsState = "external"
+		configServesDomain = true
+	}
 	status := edgeDNSStatusResult{
 		SchemaVersion:  "scenery.edge.dns.status.v1",
-		Ready:          dnsState == "running" && resolver.State == "installed" && configServesDomain,
+		Ready:          (dnsState == "running" || dnsState == "external") && resolver.State == "installed" && configServesDomain,
 		Domain:         domain,
 		Address:        firstNonEmpty(state.Address, defaultEdgeDNSAddress),
 		InstallCommand: edgeDNSInstallCommand(domain),
@@ -709,6 +719,33 @@ func edgeDNSStatusFor(paths localagent.Paths, domain string) edgeDNSStatusResult
 	}
 	status.Resolver = resolver
 	return status
+}
+
+func edgeDNSResolverServesDomain(domain, nameserver, port, address string) bool {
+	domain = normalizeRouteNamespaceHost(domain)
+	if domain == "" || nameserver == "" || port == "" {
+		return false
+	}
+	target := net.JoinHostPort(nameserver, port)
+	resolver := net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			dialer := net.Dialer{}
+			return dialer.DialContext(ctx, network, target)
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), edgeDNSResolverFunctionalTimeout)
+	defer cancel()
+	hosts, err := resolver.LookupHost(ctx, "scenery-edge-probe."+domain)
+	if err != nil {
+		return false
+	}
+	for _, host := range hosts {
+		if host == address {
+			return true
+		}
+	}
+	return false
 }
 
 func edgeDNSConfigServesDomain(path, domain string) bool {
@@ -1036,10 +1073,6 @@ type edgeStatusPrivilegedListener struct {
 	RequiredForPortlessHTTPS bool     `json:"required_for_portless_https,omitempty"`
 	InstallCommand           string   `json:"install_command,omitempty"`
 	Message                  string   `json:"message,omitempty"`
-}
-
-func edgeStatusForState(paths localagent.Paths, state localagent.EdgeState) edgeStatusResult {
-	return edgeStatusForStateDomain(paths, state, defaultEdgeDNSDomain)
 }
 
 func edgeStatusForStateDomain(paths localagent.Paths, state localagent.EdgeState, domain string) edgeStatusResult {

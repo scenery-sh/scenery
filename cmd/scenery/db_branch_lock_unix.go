@@ -26,7 +26,3 @@ func lockDBBranchRegistry(root string) (func(), error) {
 		_ = file.Close()
 	}, nil
 }
-
-func dbBranchRegistryLockPath(root string) string {
-	return filepath.Join(root, "branches.lock")
-}

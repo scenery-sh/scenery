@@ -1,17 +1,10 @@
 package main
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -476,110 +469,6 @@ func isExecutableFile(path string) bool {
 		return false
 	}
 	return info.Mode()&0o111 != 0
-}
-
-func downloadVictoriaBinary(ctx context.Context, spec victoriaComponentSpec, binDir string) (string, error) {
-	archiveName, err := victoriaArchiveName(spec)
-	if err != nil {
-		return "", err
-	}
-	url := fmt.Sprintf("https://github.com/VictoriaMetrics/%s/releases/download/%s/%s", spec.Repo, spec.Version, archiveName)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download %s: unexpected status %s", url, resp.Status)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 512<<20))
-	if err != nil {
-		return "", err
-	}
-	if err := verifyVictoriaArchiveChecksum(ctx, spec, archiveName, data); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return "", err
-	}
-	gz, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return "", err
-	}
-	defer gz.Close()
-	tr := tar.NewReader(gz)
-	target := filepath.Join(binDir, spec.BinaryName)
-	for {
-		header, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-		if header.FileInfo().IsDir() || filepath.Base(header.Name) != spec.BinaryName {
-			continue
-		}
-		tmp := target + ".tmp"
-		out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-		if err != nil {
-			return "", err
-		}
-		_, copyErr := io.Copy(out, tr)
-		closeErr := out.Close()
-		if copyErr != nil {
-			_ = os.Remove(tmp)
-			return "", copyErr
-		}
-		if closeErr != nil {
-			_ = os.Remove(tmp)
-			return "", closeErr
-		}
-		if err := os.Rename(tmp, target); err != nil {
-			_ = os.Remove(tmp)
-			return "", err
-		}
-		return target, nil
-	}
-	return "", fmt.Errorf("archive %s did not contain %s", archiveName, spec.BinaryName)
-}
-
-func verifyVictoriaArchiveChecksum(ctx context.Context, spec victoriaComponentSpec, archiveName string, data []byte) error {
-	checksumName := strings.TrimSuffix(archiveName, ".tar.gz") + "_checksums.txt"
-	checksumURL := fmt.Sprintf("https://github.com/VictoriaMetrics/%s/releases/download/%s/%s", spec.Repo, spec.Version, checksumName)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumURL, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: unexpected status %s", checksumURL, resp.Status)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return err
-	}
-	want := checksumForArchive(string(body), archiveName)
-	if want == "" {
-		return fmt.Errorf("%s does not contain checksum for %s", checksumName, archiveName)
-	}
-	sum := sha256.Sum256(data)
-	got := hex.EncodeToString(sum[:])
-	if !strings.EqualFold(got, want) {
-		return fmt.Errorf("checksum mismatch for %s", archiveName)
-	}
-	return nil
 }
 
 func checksumForArchive(body, archiveName string) string {

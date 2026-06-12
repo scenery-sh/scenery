@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1087,12 +1086,4 @@ func (defaultDoctorResourceProbe) Runtime() doctorRuntimeInfo {
 		GOARCH: runtime.GOARCH,
 		NumCPU: runtime.NumCPU(),
 	}
-}
-
-var errDoctorResourceUnsupported = errors.New("unsupported platform resource probe")
-
-func sortedDoctorChecks(checks []doctorCheck) []doctorCheck {
-	out := append([]doctorCheck(nil), checks...)
-	sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
 }

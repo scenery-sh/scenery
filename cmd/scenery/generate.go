@@ -218,10 +218,6 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 			opts.Target = arg
 		}
 	}
-	if opts.JSON && !opts.DryRun {
-		// JSON mode is still useful for successful execution, but dry-run is the
-		// safest default shape for automation that only wants a graph.
-	}
 	return opts, nil
 }
 

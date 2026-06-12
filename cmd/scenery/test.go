@@ -125,13 +125,6 @@ func runGeneratedWorkspaceGoTest(ctx context.Context, dir string, goArgs []strin
 	return cmd.Run(), output.Bytes()
 }
 
-func goTestNeedsWorkspaceTidy(output []byte) bool {
-	text := string(output)
-	return strings.Contains(text, "missing go.sum entry") ||
-		strings.Contains(text, "updates to go.mod needed") ||
-		strings.Contains(text, "go.mod updates are needed")
-}
-
 func parseTestArgs(args []string) (testOptions, error) {
 	var opts testOptions
 	for i := 0; i < len(args); i++ {

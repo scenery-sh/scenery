@@ -880,22 +880,6 @@ func sortedHarnessEnv(env []string) []string {
 	return sortedStringSet(set)
 }
 
-func compactStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := values[:0]
-	last := ""
-	for _, value := range values {
-		if value == "" || value == last {
-			continue
-		}
-		out = append(out, value)
-		last = value
-	}
-	return out
-}
-
 func sortedStructKeys(values map[string]struct{}) []string {
 	out := make([]string, 0, len(values))
 	for value := range values {

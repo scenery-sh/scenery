@@ -458,6 +458,7 @@ func TestGrafanaSubstrateRoundTrip(t *testing.T) {
 	}, fakeVictoriaStack(), "https://grafana.acme.localhost")
 	if restored == nil {
 		t.Fatal("restored grafana component is nil")
+		return
 	}
 	if !restored.external || restored.URL() != cfg.URL {
 		t.Fatalf("restored component = %+v", restored)

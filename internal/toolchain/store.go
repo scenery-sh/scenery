@@ -707,7 +707,7 @@ func extractTarEntry(r io.Reader, header *tar.Header, target string) error {
 	switch header.Typeflag {
 	case tar.TypeDir:
 		return os.MkdirAll(cleanTarget, header.FileInfo().Mode().Perm())
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg:
 		if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {
 			return err
 		}

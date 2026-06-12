@@ -161,10 +161,3 @@ func mustGetwd() string {
 	wd, _ := os.Getwd()
 	return wd
 }
-
-func appRootFromEnvOrCWD() string {
-	if root := strings.TrimSpace(envpolicy.Get("SCENERY_APP_ROOT")); root != "" {
-		return root
-	}
-	return mustGetwd()
-}

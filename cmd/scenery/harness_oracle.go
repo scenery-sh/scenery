@@ -490,10 +490,6 @@ func harnessDevEventBackendPath(path string) bool {
 	}
 }
 
-func runHarnessGoTestTimingStep(ctx context.Context, repoRoot string, artifactCtxs ...harnessArtifactContext) (harnessStep, *harnessTestTimingReport) {
-	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, defaultHarnessTestTimingBudgets(), false, artifactCtxs...)
-}
-
 func runHarnessGoTestTimingStepForMode(ctx context.Context, repoRoot, mode string, freshTests bool, artifactCtxs ...harnessArtifactContext) (harnessStep, *harnessTestTimingReport) {
 	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, harnessTestTimingBudgetsForMode(mode), freshTests, artifactCtxs...)
 }

@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -203,25 +201,6 @@ func (s *devSupervisor) typeScriptWorkerTemporalInfo() sceneryruntime.TemporalRu
 	info.AddressEnv = s.temporal.info.AddressEnv
 	info.Namespace = s.temporal.info.Namespace
 	return info
-}
-
-func (s *devSupervisor) captureTypeScriptWorkerOutput(ctx context.Context, worker *runningTypeScriptWorker, stream string, src io.Reader, dst io.Writer) {
-	pid := ""
-	var tail *safeLineTail
-	if worker != nil {
-		pid = worker.pid
-		tail = worker.output
-	}
-	source := devdash.DevSource{
-		ID:     "worker:typescript",
-		Kind:   "worker",
-		Name:   "typescript",
-		Role:   "temporal-activity-worker",
-		PID:    pid,
-		Stream: stream,
-		Status: "running",
-	}
-	s.captureServiceOutput(ctx, source, tail, bufio.NewReader(src), dst)
 }
 
 func waitForTypeScriptWorkerStartup(ctx context.Context, worker *runningTypeScriptWorker) error {

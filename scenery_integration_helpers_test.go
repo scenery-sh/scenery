@@ -136,10 +136,21 @@ func freshInstalledSceneryBinary(repo string) (string, bool) {
 			continue
 		}
 		if !info.ModTime().Before(latest) {
-			return candidate, true
+			if installedSceneryBinaryMatchesRepo(candidate, repo) {
+				return candidate, true
+			}
 		}
 	}
 	return "", false
+}
+
+func installedSceneryBinaryMatchesRepo(path, repo string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	needle := filepath.Join(filepath.Clean(repo), "internal", "app", "root.go")
+	return bytes.Contains(data, []byte(needle))
 }
 
 func latestIntegrationSourceModTime(repo string) (time.Time, bool, error) {
@@ -288,6 +299,10 @@ func sharedIntegrationCache(t *testing.T) string {
 
 func integrationSourceFingerprint(repo string) (string, error) {
 	h := sha256.New()
+	_, _ = h.Write([]byte("repo-root"))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(filepath.Clean(repo)))
+	_, _ = h.Write([]byte{0})
 	err := filepath.WalkDir(repo, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -463,33 +478,6 @@ func waitForTemporalAddress(address string, output *bytes.Buffer) error {
 	return fmt.Errorf("temporal dev server did not become reachable at %s: %v\n%s", address, lastErr, output.String())
 }
 
-func stopSceneryProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
-	t.Helper()
-	cmd.WaitDelay = 500 * time.Millisecond
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
-		_ = cmd.Process.Signal(os.Interrupt)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case <-done:
-		cancel()
-		return
-	case <-time.After(5 * time.Second):
-	}
-	cancel()
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = cmd.Process.Kill()
-	}
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for scenery process to exit")
-	}
-}
-
 func killSceneryProcess(t *testing.T, cancel context.CancelFunc, cmd *exec.Cmd) {
 	t.Helper()
 	cancel()
@@ -536,20 +524,6 @@ func killSceneryProcesses(t *testing.T, processes ...sceneryTestProcess) {
 	}
 }
 
-type sseEvent struct {
-	event string
-	data  string
-}
-
-func wsCall(t *testing.T, conn *websocket.Conn, id int, method string, params map[string]any) map[string]any {
-	t.Helper()
-	result, err := wsCallErr(conn, id, method, params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
-}
-
 func wsCallErr(conn *websocket.Conn, id int, method string, params map[string]any) (map[string]any, error) {
 	if err := conn.WriteJSON(map[string]any{
 		"jsonrpc": "2.0",
@@ -584,13 +558,6 @@ func wsCallErr(conn *websocket.Conn, id int, method string, params map[string]an
 		return result, nil
 	}
 	return nil, fmt.Errorf("timed out waiting for websocket rpc response %s", method)
-}
-
-func waitForWSMethods(t *testing.T, conn *websocket.Conn, timeout time.Duration, methods ...string) {
-	t.Helper()
-	if err := waitForWSMethodsErr(conn, timeout, methods...); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func waitForWSMethodsErr(conn *websocket.Conn, timeout time.Duration, methods ...string) error {
@@ -725,31 +692,6 @@ func waitForFile(t *testing.T, path string) {
 	t.Fatalf("file was not created: %s", path)
 }
 
-func waitForJSONResponse(t *testing.T, url string, wantStatus int, want map[string]any) {
-	t.Helper()
-	client := &http.Client{Timeout: time.Second}
-	deadline := time.Now().Add(40 * time.Second)
-	for time.Now().Before(deadline) {
-		req, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			time.Sleep(integrationPollInterval)
-			continue
-		}
-		var got map[string]any
-		decodeErr := json.NewDecoder(resp.Body).Decode(&got)
-		resp.Body.Close()
-		if decodeErr == nil && resp.StatusCode == wantStatus && mapsEqual(got, want) {
-			return
-		}
-		time.Sleep(integrationPollInterval)
-	}
-	t.Fatalf("response did not settle to %v at %s", want, url)
-}
-
 func waitForCronStatus(t *testing.T, url string) {
 	t.Helper()
 	client := &http.Client{Timeout: time.Second}
@@ -832,18 +774,6 @@ func getJSON(t *testing.T, url string, headers map[string]string, wantStatus int
 		req.Header.Set(key, value)
 	}
 	assertJSONResponse(t, req, wantStatus, want)
-}
-
-func getJSONWithClient(t *testing.T, client *http.Client, url string, headers map[string]string, wantStatus int, want map[string]any) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	assertJSONResponseWithClient(t, client, req, wantStatus, want, nil)
 }
 
 func assertCORSPreflight(t *testing.T, url string) {
@@ -1015,16 +945,6 @@ func toMap(value any) map[string]any {
 	return map[string]any{}
 }
 
-func toSlice(value any) []any {
-	if value == nil {
-		return nil
-	}
-	if items, ok := value.([]any); ok {
-		return items
-	}
-	return nil
-}
-
 func toFloat(value any) float64 {
 	switch value := value.(type) {
 	case float64:
@@ -1102,15 +1022,6 @@ func rewriteFixtureReplace(t *testing.T, goModPath, repo string) {
 	}
 }
 
-func copyFixtureApp(t *testing.T, repo, name string) string {
-	t.Helper()
-	src := filepath.Join(repo, "testdata", "apps", name)
-	dst := filepath.Join(t.TempDir(), name)
-	copyDir(t, src, dst)
-	rewriteFixtureReplace(t, filepath.Join(dst, "go.mod"), repo)
-	return dst
-}
-
 func cachedFixtureApp(t *testing.T, repo, name string) string {
 	t.Helper()
 	return cachedFixtureAppVariant(t, repo, name, "", nil, nil)
@@ -1152,19 +1063,6 @@ func cachedFixtureAppVariant(t *testing.T, repo, name, variant string, overrides
 		t.Fatal(err)
 	}
 	return dst
-}
-
-func restoreFixtureFile(t *testing.T, repo, appDir, fixtureName, rel string) {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repo, "testdata", "apps", fixtureName, filepath.FromSlash(rel)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	target := filepath.Join(appDir, filepath.FromSlash(rel))
-	if current, err := os.ReadFile(target); err == nil && bytes.Equal(current, data) {
-		return
-	}
-	writeFile(t, target, string(data))
 }
 
 func fixtureAppVariantFingerprint(name string, overrides map[string]string, removes []string) string {
@@ -1260,13 +1158,6 @@ func sanitizeIntegrationCacheName(value string) string {
 		return "app"
 	}
 	return out
-}
-
-func writeSceneryApp(t *testing.T, appDir, contents string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(appDir, ".scenery.json"), []byte(contents), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func writeFile(t *testing.T, path, contents string) {

@@ -30,10 +30,10 @@ func TestNewWorkflowAndActivityRegisterDeclarations(t *testing.T) {
 	defer restore()
 
 	wf := NewWorkflow("orders.Fulfill/v1", WorkflowConfig{TaskQueue: "orders.go"}, func(ctx workflow.Context, in testWorkflowInput) (testWorkflowOutput, error) {
-		return testWorkflowOutput{Value: in.Value}, nil
+		return testWorkflowOutput(in), nil
 	})
 	act := NewActivity("payments.Capture/v1", ActivityConfig{TaskQueue: "payments.go", StartToClose: time.Minute}, func(ctx context.Context, in testWorkflowInput) (testWorkflowOutput, error) {
-		return testWorkflowOutput{Value: in.Value}, nil
+		return testWorkflowOutput(in), nil
 	})
 
 	if wf.Name() != "orders.Fulfill/v1" || wf.Config().TaskQueue != "orders.go" {

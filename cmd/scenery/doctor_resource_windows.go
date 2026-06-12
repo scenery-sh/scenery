@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"syscall"
 	"unsafe"
@@ -12,6 +13,8 @@ import (
 )
 
 var procGlobalMemoryStatusEx = windows.NewLazySystemDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")
+
+var errDoctorResourceUnsupported = errors.New("unsupported platform resource probe")
 
 type doctorWindowsMemoryStatusEx struct {
 	Length               uint32

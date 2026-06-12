@@ -100,7 +100,7 @@ start_app() {
   local cache
   cache="$(mktemp -d)"
   cleanup_items+=("rm -rf '$cache'")
-  SCENERY_DEV_CACHE_DIR="$cache" "$SCENERY_BIN" run --app-root "$app_root" --listen "$addr" >"$log" 2>&1 &
+  SCENERY_DEV_CACHE_DIR="$cache" "$SCENERY_BIN" serve --app-root "$app_root" --listen "$addr" >"$log" 2>&1 &
   local pid=$!
   cleanup_items+=("kill -INT $pid >/dev/null 2>&1 || true; wait $pid >/dev/null 2>&1 || true")
   wait_for_http "http://$addr/service.CallPrivate"
@@ -156,13 +156,15 @@ clean_checkout_install() {
   tmp="$(mktemp -d)"
   cleanup_items+=("rm -rf '$tmp'")
   mkdir -p "$tmp/src"
-  git ls-files -z --cached | python3 - "$ROOT" "$tmp/src" <<'PY'
+  git ls-files -z --cached >"$tmp/files.z"
+  python3 - "$ROOT" "$tmp/src" "$tmp/files.z" <<'PY'
 from pathlib import Path
 import shutil
 import sys
 root = Path(sys.argv[1])
 dst = Path(sys.argv[2])
-for raw in sys.stdin.buffer.read().split(b"\0"):
+files = Path(sys.argv[3])
+for raw in files.read_bytes().split(b"\0"):
     if not raw:
         continue
     rel = Path(raw.decode())
@@ -231,7 +233,7 @@ secrets_gate() {
   copy_fixture secrets "$tmp"
   app="$tmp/secrets"
   rm -f "$app/.env"
-  if output="$("$SCENERY_BIN" run --app-root "$app" --listen "127.0.0.1:$(free_port)" --env production 2>&1)"; then
+  if output="$("$SCENERY_BIN" serve --app-root "$app" --listen "127.0.0.1:$(free_port)" --env production 2>&1)"; then
     printf '%s\n' "$output"
     die "production run succeeded with missing declared secrets"
   fi
@@ -245,7 +247,7 @@ secrets_gate() {
   port="$(free_port)"
   addr="127.0.0.1:$port"
   log="$LOG_DIR/secrets-smoke-app.log"
-  SCENERY_DEV_CACHE_DIR="$tmp/cache" "$SCENERY_BIN" run --app-root "$app" --listen "$addr" >"$log" 2>&1 &
+  SCENERY_DEV_CACHE_DIR="$tmp/cache" "$SCENERY_BIN" serve --app-root "$app" --listen "$addr" >"$log" 2>&1 &
   local pid=$!
   cleanup_items+=("kill -INT $pid >/dev/null 2>&1 || true; wait $pid >/dev/null 2>&1 || true")
   wait_for_http "http://$addr/secrets"

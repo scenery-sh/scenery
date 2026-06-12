@@ -2,7 +2,12 @@
 
 package main
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var errDoctorResourceUnsupported = errors.New("unsupported platform resource probe")
 
 func (defaultDoctorResourceProbe) Disk(context.Context, string) (doctorDiskInfo, error) {
 	return doctorDiskInfo{}, errDoctorResourceUnsupported

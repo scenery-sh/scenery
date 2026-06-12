@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lib/pq"
+
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 )
@@ -380,6 +382,25 @@ func TestManagedPostgresServerArgsEnableLogicalReplication(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("managed Postgres server args %q missing %q", got, want)
 		}
+	}
+}
+
+func TestIsPostgresDuplicateDatabaseRace(t *testing.T) {
+	t.Parallel()
+
+	for _, err := range []*pq.Error{{Code: "23505"}, {Code: "42P04"}} {
+		if !isPostgresDuplicateDatabaseRace(err) {
+			t.Fatalf("code %s should be treated as duplicate database race", err.Code)
+		}
+	}
+	if !isPostgresDuplicateDatabaseRace(&pq.Error{Code: "XX000", Message: "tuple concurrently updated"}) {
+		t.Fatal("concurrent catalog update should be treated as duplicate database race")
+	}
+	if isPostgresDuplicateDatabaseRace(&pq.Error{Code: "XX000", Message: "unrelated internal error"}) {
+		t.Fatal("unrelated internal error should not be treated as duplicate database race")
+	}
+	if isPostgresDuplicateDatabaseRace(&pq.Error{Code: "42601"}) {
+		t.Fatal("syntax error should not be treated as duplicate database race")
 	}
 }
 

@@ -54,101 +54,7 @@ type scriptInspectOutput struct {
 	Searched  []scriptCandidate `json:"searched"`
 }
 
-type scriptListOutput struct {
-	Scripts []scriptCandidate `json:"scripts"`
-}
-
 var scriptCommandContext = commandTreeContext
-
-func runCommand(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf(scriptRunUsage)
-	}
-	switch args[0] {
-	case "list":
-		opts, err := parseScriptListArgs(args[1:])
-		if err != nil {
-			return err
-		}
-		return runSceneryScriptList(context.Background(), os.Stdout, opts)
-	case "inspect":
-		opts, err := parseScriptInspectArgs(args[1:])
-		if err != nil {
-			return err
-		}
-		return runSceneryScriptInspect(context.Background(), os.Stdout, opts)
-	default:
-		return runScriptCommand(args)
-	}
-}
-
-func runScriptCommand(args []string) error {
-	opts, err := parseScriptRunArgs(args)
-	if err != nil {
-		return err
-	}
-	return runSceneryScript(context.Background(), opts)
-}
-
-func parseScriptListArgs(args []string) (scriptOptions, error) {
-	var opts scriptOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return scriptOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--json":
-			opts.JSON = true
-		default:
-			return scriptOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
-	}
-	return opts, nil
-}
-
-func parseScriptInspectArgs(args []string) (scriptOptions, error) {
-	var opts scriptOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return scriptOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--lang":
-			i++
-			if i >= len(args) {
-				return scriptOptions{}, fmt.Errorf("missing value for --lang")
-			}
-			lang, err := normalizeScriptLang(args[i])
-			if err != nil {
-				return scriptOptions{}, err
-			}
-			opts.Lang = lang
-		case "--json":
-			opts.JSON = true
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return scriptOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			if opts.Target != "" {
-				return scriptOptions{}, fmt.Errorf("unexpected argument %q", args[i])
-			}
-			opts.Target = args[i]
-		}
-	}
-	if opts.Target == "" {
-		return scriptOptions{}, fmt.Errorf("usage: scenery task inspect <domain>:<name> [--app-root <path>] [--lang go|typescript] [--json]")
-	}
-	if _, err := parseScriptTarget(opts.Target); err != nil {
-		return scriptOptions{}, err
-	}
-	return opts, nil
-}
 
 func parseScriptRunArgs(args []string) (scriptOptions, error) {
 	var opts scriptOptions
@@ -194,7 +100,7 @@ func parseScriptRunArgs(args []string) (scriptOptions, error) {
 			return opts, nil
 		}
 	}
-	return scriptOptions{}, fmt.Errorf(scriptRunUsage)
+	return scriptOptions{}, errors.New(scriptRunUsage)
 }
 
 func normalizeScriptLang(value string) (string, error) {
@@ -239,29 +145,6 @@ func validScriptSegment(value string) bool {
 		}
 	}
 	return true
-}
-
-func runSceneryScriptList(ctx context.Context, stdout io.Writer, opts scriptOptions) error {
-	root, _, err := discoverScriptApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	scripts, err := listScriptCandidates(root)
-	if err != nil {
-		return err
-	}
-	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(scriptListOutput{Scripts: scripts})
-	}
-	for _, script := range scripts {
-		if _, err := fmt.Fprintf(stdout, "%s:%s\t%s\t%s\t%s\n", script.Target.Domain, script.Target.Name, script.Lang, script.Layout, script.Path); err != nil {
-			return err
-		}
-	}
-	_ = ctx
-	return nil
 }
 
 func runSceneryScriptInspect(ctx context.Context, stdout io.Writer, opts scriptOptions) error {

@@ -482,9 +482,7 @@ func renderDevConsoleNarrow(snapshot devConsoleSnapshot, palette termstyle.Palet
 	}
 	lines := []string{fitStyledLine(renderDevConsoleTabs(snapshot, palette), width)}
 	sourceRows := minInt(3, maxInt(0, available/4))
-	for _, line := range renderDevConsoleSidebar(snapshot, palette, width, sourceRows) {
-		lines = append(lines, line)
-	}
+	lines = append(lines, renderDevConsoleSidebar(snapshot, palette, width, sourceRows)...)
 	remaining := available - len(lines)
 	if remaining > 0 {
 		lines = append(lines, renderDevConsoleLogLines(snapshot, palette, width, remaining)...)
@@ -795,13 +793,6 @@ func devConsoleSourceExists(sources []devConsoleSource, id string) bool {
 		}
 	}
 	return false
-}
-
-func tailDevEvents(events []devdash.DevEvent, limit int) []devdash.DevEvent {
-	if len(events) <= limit {
-		return events
-	}
-	return events[len(events)-limit:]
 }
 
 func visibleDevEvents(events []devdash.DevEvent, rows, scroll int) []devdash.DevEvent {

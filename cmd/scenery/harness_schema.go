@@ -369,7 +369,6 @@ func (v harnessSchemaValidator) validateArray(schema map[string]any, value []any
 }
 
 func (v harnessSchemaValidator) resolveRef(ref string) (any, harnessSchemaValidator, error) {
-	const prefix = "#/$defs/"
 	if strings.HasPrefix(ref, "#") {
 		return v.resolveLocalRef(ref)
 	}

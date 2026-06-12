@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -15,6 +16,8 @@ type managedSubstrateManager struct {
 	agent  *localagent.Client
 	events *devEventSink
 }
+
+var managedSubstrateProcessLocks sync.Map
 
 type managedSubstrateAdapter interface {
 	Kind() string
@@ -54,6 +57,13 @@ func (m managedSubstrateManager) Ensure(ctx context.Context, root string, adapte
 		return handle, false, err
 	}
 	kind := adapter.Kind()
+	processUnlock := lockManagedSubstrateProcess(root, kind)
+	defer processUnlock()
+	unlock, err := lockManagedSubstrateRoot(root, kind)
+	if err != nil {
+		return nil, false, err
+	}
+	defer unlock()
 	if substrate, err := m.agent.GetSubstrate(ctx, kind); err == nil {
 		handle, reusable := m.reusable(ctx, adapter, substrate)
 		if reusable {
@@ -79,6 +89,21 @@ func (m managedSubstrateManager) Ensure(ctx context.Context, root string, adapte
 	handle.MarkExternal()
 	emitSubstrateManagerEvent(m.events, ctx, adapter, handle, "running", fmt.Sprintf("shared %s ready", adapter.SourceName()), adapter.ReadyFields(handle))
 	return handle, false, nil
+}
+
+func lockManagedSubstrateProcess(root, kind string) func() {
+	keyRoot := strings.TrimSpace(root)
+	if keyRoot == "" {
+		keyRoot = os.TempDir()
+	}
+	if abs, err := filepath.Abs(keyRoot); err == nil {
+		keyRoot = abs
+	}
+	key := filepath.Clean(keyRoot) + "\x00" + strings.TrimSpace(kind)
+	value, _ := managedSubstrateProcessLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func (m managedSubstrateManager) reusable(ctx context.Context, adapter managedSubstrateAdapter, substrate localagent.Substrate) (managedSubstrateHandle, bool) {

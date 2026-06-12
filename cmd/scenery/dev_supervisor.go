@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -1093,63 +1092,6 @@ func tcpAddrAcceptsConnections(addr string) bool {
 	return true
 }
 
-func (s *devSupervisor) captureOutput(ctx context.Context, app *runningApp, stream string, src io.Reader, dst io.Writer) {
-	var tail *safeLineTail
-	reader := bufio.NewReader(src)
-	pid := ""
-	if app != nil {
-		pid = app.pid
-		tail = app.output
-	}
-	source := devdash.DevSource{
-		ID:     "api",
-		Kind:   "app",
-		Name:   "api",
-		Role:   "scenery-api",
-		PID:    pid,
-		Stream: stream,
-		Status: "running",
-	}
-	s.captureServiceOutput(ctx, source, tail, reader, dst)
-}
-
-func (s *devSupervisor) captureProcessOutput(ctx context.Context, pid, stream string, tail *safeLineTail, reader *bufio.Reader, dst io.Writer) {
-	source := devdash.DevSource{
-		ID:     "process:" + strings.TrimSpace(pid),
-		Kind:   "process",
-		Name:   "process",
-		PID:    pid,
-		Stream: stream,
-		Status: "running",
-	}
-	if strings.TrimSpace(pid) == "" {
-		source.ID = "process"
-	}
-	s.captureServiceOutput(ctx, source, tail, reader, dst)
-}
-
-func (s *devSupervisor) captureServiceOutput(ctx context.Context, source devdash.DevSource, tail *safeLineTail, reader *bufio.Reader, dst io.Writer) {
-	for {
-		chunk, err := reader.ReadBytes('\n')
-		if len(chunk) > 0 {
-			if s.console == nil || !s.console.json {
-				_, _ = dst.Write(chunk)
-			}
-			plain := stripANSI(chunk)
-			if tail != nil {
-				tail.Add(strings.TrimRight(string(plain), "\n"))
-			}
-			s.eventSink().Output(ctx, source, plain)
-		}
-		if err != nil {
-			if !isExpectedOutputReadError(err) {
-				fmt.Fprintf(os.Stderr, "scenery: failed reading %s: %v\n", source.Stream, err)
-			}
-			return
-		}
-	}
-}
-
 func (s *devSupervisor) processOutputWriter(dst io.Writer) io.Writer {
 	if s == nil || s.console == nil || !s.console.json {
 		return dst
@@ -1446,12 +1388,6 @@ func (s *devSupervisor) setGrafanaState(state devdash.GrafanaState) {
 	defer s.mu.Unlock()
 	s.status.Grafana = encodeGrafanaState(state)
 	s.status.UpdatedAt = time.Now().UTC()
-}
-
-func (s *devSupervisor) currentApp() *runningApp {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.current
 }
 
 func (s *devSupervisor) detachCurrentApp() *runningApp {
@@ -1757,29 +1693,6 @@ func (s *devSupervisor) startAgentGrafana(ctx context.Context) (*grafanaComponen
 	return grafana, err
 }
 
-func (s *devSupervisor) agentGrafana(ctx context.Context) *grafanaComponent {
-	if s == nil || s.agent == nil {
-		return nil
-	}
-	substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateGrafana)
-	if err != nil {
-		return nil
-	}
-	handle, reusable := s.substrateManager().reusable(ctx, grafanaSubstrateAdapter{victoria: s.victoria, console: s.console}, substrate)
-	if !reusable {
-		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateGrafana)
-		return nil
-	}
-	grafana, _ := handle.(*grafanaComponent)
-	if s.console != nil && s.console.verbose {
-		s.console.Event("grafana.reuse", map[string]any{
-			"owner": "agent",
-			"url":   grafana.URL(),
-		})
-	}
-	return grafana
-}
-
 func (s *devSupervisor) plannedGrafanaPublicURL() string {
 	if s == nil || !localproxy.Enabled() {
 		return ""
@@ -2002,21 +1915,6 @@ func (s *devSupervisor) runURLs() runURLs {
 		Victoria:  s.victoria.URLs(),
 		Grafana:   s.appStatus().Grafana,
 	}
-}
-
-func appendURLQuery(rawURL, key, value string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		sep := "?"
-		if strings.Contains(rawURL, "?") {
-			sep = "&"
-		}
-		return rawURL + sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
-	}
-	values := parsed.Query()
-	values.Set(key, value)
-	parsed.RawQuery = values.Encode()
-	return parsed.String()
 }
 
 func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEncoding json.RawMessage, err error) error {

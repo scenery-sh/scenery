@@ -184,6 +184,7 @@ scenery also injects standard OpenTelemetry endpoint variables when Victoria sid
 | `SCENERY_RELEASE_GATE_LOG_DIR` | user input | Release-gate log directory override. |
 | `SCENERY_ONLV_SMOKE_ROOT` | user input | ONLV checkout root for the two-worktree release-gate smoke. |
 | `SCENERY_ONLV_SMOKE_LOG_DIR` | user input | Log directory override for the ONLV two-worktree release-gate smoke. |
+| `SCENERY_ONLV_SMOKE_TMPDIR` | user input | Short temporary directory root for the ONLV two-worktree release-gate smoke. |
 | `SCENERY_TEST_DATABASE_URL` | test input | PostgreSQL admin URL for integration tests that need a real database; tests create package-scoped databases from it. |
 | `SCENERY_TEST_WATCH_BACKUP_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch backup poll interval in integration tests so missed fsnotify events do not wait on the production fallback delay. |
 | `SCENERY_TEST_WATCH_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch polling interval in integration tests that intentionally exercise polling paths. |

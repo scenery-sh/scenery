@@ -233,11 +233,6 @@ func (s *Store) ensureLoadedLocked() error {
 	return nil
 }
 
-func (s *Store) loadState() (*storeState, error) {
-	state, _, err := s.loadStateWithStamp()
-	return state, err
-}
-
 func (s *Store) loadStateWithStamp() (*storeState, storeStamp, error) {
 	stamp, err := s.statStamp()
 	if err != nil {
@@ -1394,34 +1389,6 @@ func SortTraceSummariesByDuration(items []*TraceSummary) {
 		}
 		return items[i].DurationNanos > items[j].DurationNanos
 	})
-}
-
-func boolToInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
-}
-
-func nullableString(value *string) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
-func formatOptionalTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-	return value.UTC().Format(time.RFC3339Nano)
-}
-
-func parseOptionalTime(value string) (time.Time, error) {
-	if strings.TrimSpace(value) == "" {
-		return time.Time{}, nil
-	}
-	return time.Parse(time.RFC3339Nano, value)
 }
 
 func sanitizeStoredRequest(req StoredRequest) StoredRequest {

@@ -694,10 +694,7 @@ func TestPGXPoolQueryTracerDelegatesToBaseTracer(t *testing.T) {
 	}
 	pool.Close()
 
-	tracer, ok := cfg.ConnConfig.Tracer.(pgx.QueryTracer)
-	if !ok {
-		t.Fatalf("instrumented tracer = %T, want pgx.QueryTracer", cfg.ConnConfig.Tracer)
-	}
+	tracer := cfg.ConnConfig.Tracer
 	ctx := tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{
 		SQL:  "SELECT 1",
 		Args: []any{1},
@@ -947,17 +944,6 @@ func TestWireResponseFrameRoundTrip(t *testing.T) {
 
 func containsEnv(env []string, want string) bool {
 	return slices.Contains(env, want)
-}
-
-func writeRelocatedUnitTestFile(t *testing.T, root, rel, data string) {
-	t.Helper()
-	path := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
 type fakeTracerKey string

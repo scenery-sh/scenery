@@ -943,23 +943,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func pubSubHistoryPeriod(value string) time.Duration {
-	switch strings.TrimSpace(value) {
-	case "5m":
-		return 5 * time.Minute
-	case "15m":
-		return 15 * time.Minute
-	case "1h":
-		return time.Hour
-	case "6h":
-		return 6 * time.Hour
-	case "24h":
-		return 24 * time.Hour
-	default:
-		return 15 * time.Minute
-	}
-}
-
 var netListen = func(network, address string) (net.Listener, error) {
 	return net.Listen(network, address)
 }

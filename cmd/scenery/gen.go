@@ -18,45 +18,6 @@ type genClientOptions struct {
 	Output  string
 }
 
-func genCommand(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("usage:\n  scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]")
-	}
-	switch args[0] {
-	case "client":
-		return genClientCommand(args[1:])
-	default:
-		return fmt.Errorf("unknown gen subcommand %q", args[0])
-	}
-}
-
-func genClientCommand(args []string) error {
-	opts, err := parseGenClientArgs(args)
-	if err != nil {
-		return err
-	}
-	if opts.Output == "" {
-		return fmt.Errorf("missing required --output")
-	}
-	lang := strings.ToLower(strings.TrimSpace(opts.Lang))
-	switch lang {
-	case "typescript", "ts":
-	default:
-		return fmt.Errorf("unsupported client language %q", opts.Lang)
-	}
-
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	outputPath, err := writeTypeScriptClient(appRoot, cfg, opts.Target, opts.Output)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stdout, "scenery: generated TypeScript client at %s\n", outputPath)
-	return nil
-}
-
 func discoverConfiguredApp(appRootOpt string) (string, app.Config, error) {
 	start, err := resolveAppRoot(appRootOpt)
 	if err != nil {

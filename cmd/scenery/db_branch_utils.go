@@ -8,24 +8,6 @@ import (
 	inspectdata "scenery.sh/internal/inspect"
 )
 
-func dockerHealthFromStatus(status string) string {
-	for _, health := range []string{"healthy", "unhealthy"} {
-		if strings.Contains(status, "("+health+")") {
-			return health
-		}
-	}
-	start := strings.Index(status, "(health: ")
-	if start == -1 {
-		return ""
-	}
-	rest := status[start+len("(health: "):]
-	end := strings.Index(rest, ")")
-	if end == -1 {
-		return ""
-	}
-	return rest[:end]
-}
-
 func dbPostgresService(cfg appcfg.Config) appcfg.DevServiceConfig {
 	_, svc, _ := managedPostgresDeclared(cfg)
 	return svc

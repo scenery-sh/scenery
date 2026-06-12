@@ -303,8 +303,9 @@ var (
 func validateDBSeedSafety(plans []dbSeedPlan) map[string][]dbSeedSafetyDiagnostic {
 	diagnostics := map[string][]dbSeedSafetyDiagnostic{}
 	for _, plan := range plans {
-		for _, diag := range dbSeedSafetyDiagnostics(plan) {
-			diagnostics[plan.Path] = append(diagnostics[plan.Path], diag)
+		diags := dbSeedSafetyDiagnostics(plan)
+		if len(diags) > 0 {
+			diagnostics[plan.Path] = append(diagnostics[plan.Path], diags...)
 		}
 	}
 	if len(diagnostics) == 0 {

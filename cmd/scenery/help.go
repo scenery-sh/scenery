@@ -497,10 +497,6 @@ func helpCommand(args []string) error {
 	return nil
 }
 
-func usageError() error {
-	return fmt.Errorf("%s", rootHelpString())
-}
-
 func rootHelpString() string {
 	var b strings.Builder
 	writeRootHelp(&b)

@@ -263,6 +263,40 @@ func TestEdgeDNSConfigServesDomain(t *testing.T) {
 	}
 }
 
+func TestEdgeDNSStatusAcceptsFunctionalExternalResolver(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldResolverStatus := edgeDNSResolverStatusFunc
+	oldResolverServes := edgeDNSResolverServesDomainFunc
+	t.Cleanup(func() {
+		edgeDNSResolverStatusFunc = oldResolverStatus
+		edgeDNSResolverServesDomainFunc = oldResolverServes
+	})
+	edgeDNSResolverStatusFunc = func(domain, listen string) edgeDNSResolverState {
+		return edgeDNSResolverState{
+			Installed:  true,
+			State:      "installed",
+			Domain:     domain,
+			Nameserver: "127.0.0.1",
+			Port:       "53535",
+		}
+	}
+	edgeDNSResolverServesDomainFunc = func(domain, nameserver, port, address string) bool {
+		return domain == "onlv.dev" && nameserver == "127.0.0.1" && port == "53535" && address == "127.0.0.1"
+	}
+
+	status := edgeDNSStatusFor(paths, "onlv.dev")
+	if !status.Ready {
+		t.Fatalf("status.Ready = false, want true: %+v", status)
+	}
+	if status.DNSMasq.State != "external" {
+		t.Fatalf("dnsmasq state = %q, want external", status.DNSMasq.State)
+	}
+}
+
 func TestEdgeDNSHelperArgsNormalizeDomain(t *testing.T) {
 	t.Parallel()
 

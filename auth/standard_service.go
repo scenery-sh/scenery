@@ -118,10 +118,6 @@ func alreadyExists(message string) error {
 	return errs.B().Code(errs.AlreadyExists).Msg(message).Err()
 }
 
-func notFound(message string) error {
-	return errs.B().Code(errs.NotFound).Msg(message).Err()
-}
-
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
 }

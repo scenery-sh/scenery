@@ -14,13 +14,6 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-func silenceCLIStderr(t *testing.T) {
-	t.Helper()
-	old := cliStderr
-	cliStderr = io.Discard
-	t.Cleanup(func() { cliStderr = old })
-}
-
 func TestParseServeArgs(t *testing.T) {
 	t.Parallel()
 

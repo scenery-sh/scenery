@@ -209,10 +209,22 @@ func (p postgresBranchProvider) EnsureBranch(ctx context.Context, pin worktreeDB
 		_ = upsertPostgresBranchLease(pin, nil, "pending")
 		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
 	}
-	if err := p.ensureTemplateDatabaseBranch(ctx, adminURL, pin); err != nil {
+	root, err := postgresSubstrateRoot()
+	if err != nil {
 		_ = upsertPostgresBranchLease(pin, nil, "pending")
 		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
 	}
+	unlock, err := lockDBBranchRegistry(root)
+	if err != nil {
+		_ = upsertPostgresBranchLease(pin, nil, "pending")
+		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
+	}
+	if err := p.ensureTemplateDatabaseBranch(ctx, adminURL, pin); err != nil {
+		unlock()
+		_ = upsertPostgresBranchLease(pin, nil, "pending")
+		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
+	}
+	unlock()
 	endpoint, err := postgresBranchEndpoint(adminURL, pin)
 	if err != nil {
 		return dbBranchBackendStatus{Status: "unknown", Message: err.Error()}, err
@@ -501,21 +513,6 @@ func (p postgresBranchProvider) recreateBranchDatabase(ctx context.Context, admi
 	}
 	templateClosed = false
 	return nil
-}
-
-func (p postgresBranchProvider) pingBranch(ctx context.Context, adminURL, database string) error {
-	dsn, err := postgresDatabaseURL(adminURL, database)
-	if err != nil {
-		return err
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	return db.PingContext(ctx)
 }
 
 func postgresDatabaseExists(ctx context.Context, adminURL, database string) (bool, error) {

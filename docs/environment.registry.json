@@ -2137,6 +2137,28 @@
       ]
     },
     {
+      "name": "SCENERY_ONLV_SMOKE_TMPDIR",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "tooling.tests",
+      "stability": "dev_escape_hatch",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Short temporary directory root for the ONLV two-worktree release-gate smoke",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_ROLE",
       "match": "exact",
       "scope": "runtime",

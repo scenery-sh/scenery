@@ -61,7 +61,7 @@ func TestDevManagedProcessWaitReadySucceedsWhenProbePasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer process.Stop(100 * time.Millisecond)
+	defer func() { _ = process.Stop(100 * time.Millisecond) }()
 
 	err = process.WaitReady(context.Background(), devProcessReadyRequest{
 		Timeout:  time.Second,
@@ -197,7 +197,7 @@ func TestDevManagedProcessStartupTimeoutIncludesLastProbeAndTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer process.Stop(100 * time.Millisecond)
+	defer func() { _ = process.Stop(100 * time.Millisecond) }()
 
 	err = process.WaitReady(context.Background(), devProcessReadyRequest{
 		Timeout:  100 * time.Millisecond,

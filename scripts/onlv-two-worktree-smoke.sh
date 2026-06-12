@@ -27,6 +27,16 @@ print(value)
 PY
 }
 
+free_port() {
+  python3 - <<'PY'
+import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+}
+
 cleanup_items=()
 app_roots=()
 AGENT_HOME=""
@@ -34,7 +44,12 @@ AGENT_PID=""
 EDGE_STARTED=0
 
 cleanup() {
+  local status=$?
   local app_root item
+  if [[ "$status" != "0" && -n "$AGENT_HOME" && -d "$AGENT_HOME" ]]; then
+    rm -rf "$LOG_DIR/agent-home"
+    cp -R "$AGENT_HOME" "$LOG_DIR/agent-home" >/dev/null 2>&1 || true
+  fi
   for app_root in "${app_roots[@]:-}"; do
     if [[ -n "$AGENT_HOME" ]]; then
       SCENERY_AGENT_HOME="$AGENT_HOME" "$SCENERY_BIN" down --app-root "$app_root" --all >/dev/null 2>&1 || true
@@ -58,15 +73,21 @@ trap cleanup EXIT
 
 need git
 need python3
+need bun
 
 [[ -d "$ONLV_ROOT/.git" ]] || { printf 'onlv smoke: ONLV root not found: %s\n' "$ONLV_ROOT" >&2; exit 1; }
 [[ -f "$ONLV_ROOT/.scenery.json" ]] || { printf 'onlv smoke: missing .scenery.json in %s\n' "$ONLV_ROOT" >&2; exit 1; }
 
+export PATH="$ONLV_ROOT/node_modules/.bin:$ONLV_ROOT/apps/pulse/node_modules/.bin:$ONLV_ROOT/apps/blog/node_modules/.bin:$ONLV_ROOT/apps/ui/node_modules/.bin:$ONLV_ROOT/apps/console/node_modules/.bin:$ONLV_ROOT/apps/viewer/node_modules/.bin:$PATH"
+
 mkdir -p "$LOG_DIR"
-TMP="$(mktemp -d)"
+SMOKE_TMPDIR="${SCENERY_ONLV_SMOKE_TMPDIR:-/tmp}"
+mkdir -p "$SMOKE_TMPDIR"
+TMP="$(mktemp -d "$SMOKE_TMPDIR/scenery-onlv-smoke.XXXXXX")"
 cleanup_items+=("rm -rf '$TMP'")
 AGENT_HOME="$TMP/agent"
 export SCENERY_AGENT_HOME="$AGENT_HOME"
+export SCENERY_AGENT_ROUTER_ADDR="127.0.0.1:$(free_port)"
 export SCENERY_LOCAL_PROXY=0
 
 WT_A="$TMP/onlv-a"
@@ -101,16 +122,24 @@ PY
       cp "$ONLV_ROOT/$env_file" "$wt/$env_file"
     fi
   done
-  for dep in node_modules apps/pulse/node_modules apps/blog/node_modules apps/ui/node_modules apps/console/node_modules apps/viewer/node_modules; do
-    if [[ -d "$ONLV_ROOT/$dep" && ! -e "$wt/$dep" ]]; then
-      mkdir -p "$(dirname "$wt/$dep")"
-      ln -s "$ONLV_ROOT/$dep" "$wt/$dep"
-    fi
-  done
 }
 
 prepare_worktree "$WT_A"
 prepare_worktree "$WT_B"
+
+install_worktree_dependencies() {
+  local wt="$1"
+  local name="$2"
+  local log="$LOG_DIR/$name-bun-install.log"
+  if ! (cd "$wt" && bun install >"$log" 2>&1); then
+    printf 'onlv smoke: bun install failed for %s\n' "$name" >&2
+    tail -200 "$log" >&2 || true
+    return 1
+  fi
+}
+
+install_worktree_dependencies "$WT_A" a
+install_worktree_dependencies "$WT_B" b
 
 start_edge() {
   local out="$LOG_DIR/edge-install.json"
@@ -161,10 +190,16 @@ for sid in sys.argv[2:]:
     session = sessions.get(sid) or {}
     routes = session.get("routes") or {}
     backends = session.get("backends") or {}
+    processes = session.get("processes") or {}
+    if session.get("status") != "running":
+        raise SystemExit(1)
     if not all(routes.get(route) for route in required):
         raise SystemExit(1)
     if (backends.get("api") or {}).get("network") != "unix":
         raise SystemExit(1)
+    for process in ("api", "electric", "worker-typescript"):
+        if not (processes.get(process) or {}).get("pid"):
+            raise SystemExit(1)
 print("ready")
 PY
     then
@@ -216,6 +251,7 @@ required = {
 }
 for session in (a, b):
     sid = session["session_id"]
+    base_domain = ((session.get("route_namespace") or {}).get("base_domain") or "onlv.dev")
     routes = session.get("routes", {})
     for route, label in required.items():
         url = routes.get(route, "")
@@ -227,9 +263,9 @@ for session in (a, b):
             fail(f"{sid} route {route} kept fallback router port under HTTPS 443: {url}")
         if edge_on_443 and re.search(r":\d+/", url):
             fail(f"{sid} route {route} kept explicit port while edge is on HTTPS 443: {url}")
-        if ".onlv.localhost" not in url:
-            fail(f"{sid} route {route} is not under onlv.localhost: {url}")
-        if f"{label}.{sid}.onlv.localhost" not in url:
+        if f".{base_domain}" not in url:
+            fail(f"{sid} route {route} is not under {base_domain}: {url}")
+        if f"{label}.{sid}.{base_domain}" not in url:
             fail(f"{sid} route {route} is not session-scoped with label {label}: {url}")
 
 alias_owner = {}
@@ -254,22 +290,22 @@ for session in (a, b):
             fail(f"{session['session_id']} reports self-owned alias conflict {route}: {conflict}")
 PY
 
-python3 - "$STATUS" "$SESSION_A" "$SESSION_B" <<'PY'
+python3 - "$STATUS" "$SESSION_A" "$SESSION_B" "$AGENT_HOME" <<'PY'
 import json
 import os
 import re
 import subprocess
 import sys
 
-status_path, session_a, session_b = sys.argv[1:]
+status_path, session_a, session_b, agent_home = sys.argv[1:]
 payload = json.loads(open(status_path).read())
 sessions = {s["session_id"]: s for s in payload.get("sessions", [])}
 
-def env_for_pid(pid):
+def process_text_for_pid(pid):
     if not pid:
         return ""
     try:
-        return subprocess.check_output(["ps", "eww", "-p", str(pid)], text=True, stderr=subprocess.DEVNULL)
+        return subprocess.check_output(["ps", "-p", str(pid), "-ww", "-o", "command="], text=True, stderr=subprocess.DEVNULL)
     except Exception:
         return ""
 
@@ -277,25 +313,53 @@ def value(text, key):
     match = re.search(rf"(?:^|\\s){re.escape(key)}=([^\\s]+)", text)
     return match.group(1) if match else ""
 
+def branch_pin_for(session):
+    path = os.path.join(session["app_root"], ".scenery", "worktree-db.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception as exc:
+        raise SystemExit(f"{session['session_id']} missing readable branch pin {path}: {exc}")
+
+def logs_contain(text):
+    dev_dir = os.path.join(agent_home, "agent", "dev")
+    try:
+        names = os.listdir(dev_dir)
+    except Exception:
+        names = []
+    for name in names:
+        path = os.path.join(dev_dir, name)
+        try:
+            with open(path, errors="ignore") as f:
+                if text in f.read():
+                    return True
+        except Exception:
+            pass
+    return False
+
 db_names = []
 electric_streams = []
 temporal_queues = []
 for sid in (session_a, session_b):
     session = sessions[sid]
     processes = session.get("processes") or {}
-    api_env = env_for_pid((processes.get("api") or {}).get("pid"))
-    worker_env = env_for_pid((processes.get("worker-typescript") or {}).get("pid"))
-    electric_env = env_for_pid((processes.get("electric") or {}).get("pid"))
-    db_name = value(api_env, "SCENERY_MANAGED_DATABASE_NAME")
-    queue = value(worker_env, "SCENERY_TEMPORAL_TASK_QUEUE_PREFIX") or value(api_env, "SCENERY_TEMPORAL_TASK_QUEUE_PREFIX")
-    stream = value(electric_env, "ELECTRIC_REPLICATION_STREAM_ID")
+    pin = branch_pin_for(session)
+    db_name = pin.get("database", "")
+    if pin.get("session_id") != sid:
+        raise SystemExit(f"{sid} branch pin session_id mismatch: {pin}")
+    base_app_id = session.get("base_app_id") or ""
+    queue = f"scenery.{base_app_id}.{sid}"
+    electric_text = process_text_for_pid((processes.get("electric") or {}).get("pid"))
+    stream = value(electric_text, "ELECTRIC_REPLICATION_STREAM_ID")
     if not db_name:
-        raise SystemExit(f"{sid} missing SCENERY_MANAGED_DATABASE_NAME in API process environment")
-    if not queue:
-        raise SystemExit(f"{sid} missing SCENERY_TEMPORAL_TASK_QUEUE_PREFIX in worker/API process environment")
+        raise SystemExit(f"{sid} missing database name in worktree branch pin: {pin}")
+    if db_name not in electric_text:
+        raise SystemExit(f"{sid} Electric process command does not reference managed database {db_name}")
+    if not logs_contain(queue):
+        raise SystemExit(f"{sid} logs do not contain Temporal task queue prefix {queue}")
     if not stream:
         expected = "scenery_" + re.sub(r"[^A-Za-z0-9_]", "_", sid)
-        if expected not in electric_env:
+        if expected not in electric_text:
             raise SystemExit(f"{sid} missing ELECTRIC_REPLICATION_STREAM_ID in Electric process command/environment")
         stream = expected
     db_names.append(db_name)

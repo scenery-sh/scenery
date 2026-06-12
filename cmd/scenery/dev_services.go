@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -1137,6 +1138,11 @@ func ensureLocalManagedPostgresSubstrate(ctx context.Context, cfg app.Config, ag
 		return "", err
 	}
 	root := filepath.Join(paths.AgentDir, "postgres")
+	unlock, err := lockDBBranchRegistry(root)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	adapter := postgresSubstrateAdapter{cfg: cfg}
 	handle, _, err := (managedSubstrateManager{agent: agent}).Ensure(ctx, root, adapter)
 	if err != nil {
@@ -1880,24 +1886,6 @@ func copyManagedEnv(values map[string]string) map[string]string {
 	return copied
 }
 
-func mergeManagedStrings(base, override map[string]string) map[string]string {
-	if len(base) == 0 && len(override) == 0 {
-		return nil
-	}
-	merged := make(map[string]string, len(base)+len(override))
-	for key, value := range base {
-		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
-			merged[key] = value
-		}
-	}
-	for key, value := range override {
-		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
-			merged[key] = value
-		}
-	}
-	return merged
-}
-
 func copyManagedBackends(backends map[string]localagent.Backend) map[string]localagent.Backend {
 	copied := make(map[string]localagent.Backend, len(backends)+1)
 	for key, backend := range backends {
@@ -1996,8 +1984,28 @@ func createPostgresDatabaseIfMissing(ctx context.Context, db *sql.DB, dbName str
 	if exists {
 		return nil
 	}
-	_, err := db.ExecContext(ctx, "CREATE DATABASE "+pq.QuoteIdentifier(dbName))
-	return err
+	if _, err := db.ExecContext(ctx, "CREATE DATABASE "+pq.QuoteIdentifier(dbName)); err != nil {
+		if isPostgresDuplicateDatabaseRace(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func isPostgresDuplicateDatabaseRace(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false
+	}
+	switch string(pqErr.Code) {
+	case "23505", "42P04":
+		return true
+	case "XX000":
+		return strings.Contains(strings.ToLower(pqErr.Message), "tuple concurrently updated")
+	default:
+		return false
+	}
 }
 
 func postgresDatabaseURL(rawURL, dbName string) (string, error) {

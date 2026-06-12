@@ -213,12 +213,3 @@ func postGraphQL(t *testing.T, server *dashboardServer, body map[string]any) map
 	}
 	return resp
 }
-
-func mustJSON(t *testing.T, value any) json.RawMessage {
-	t.Helper()
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal json: %v", err)
-	}
-	return data
-}

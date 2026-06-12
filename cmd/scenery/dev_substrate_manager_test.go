@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,6 +95,78 @@ func (h *fakeSubstrateHandle) Components() []managedSubstrateComponent {
 	}}
 }
 
+type serialSubstrateAdapter struct {
+	mu       sync.Mutex
+	kind     string
+	pid      int
+	starts   int
+	reuses   int
+	started  chan struct{}
+	released chan struct{}
+}
+
+func newSerialSubstrateAdapter(kind string, pid int) *serialSubstrateAdapter {
+	return &serialSubstrateAdapter{
+		kind:     kind,
+		pid:      pid,
+		started:  make(chan struct{}),
+		released: make(chan struct{}),
+	}
+}
+
+func (a *serialSubstrateAdapter) Kind() string       { return a.kind }
+func (a *serialSubstrateAdapter) SourceID() string   { return a.kind }
+func (a *serialSubstrateAdapter) SourceName() string { return a.kind }
+func (a *serialSubstrateAdapter) Role() string       { return "test" }
+func (a *serialSubstrateAdapter) Start(context.Context, string) (managedSubstrateHandle, error) {
+	a.mu.Lock()
+	a.starts++
+	if a.starts == 1 {
+		close(a.started)
+	}
+	a.mu.Unlock()
+	<-a.released
+	return &fakeSubstrateHandle{kind: a.kind, status: "ready", pid: a.pid, startedAt: time.Now().UTC()}, nil
+}
+func (a *serialSubstrateAdapter) FromSubstrate(_ context.Context, substrate localagent.Substrate) (managedSubstrateHandle, bool) {
+	a.mu.Lock()
+	a.reuses++
+	a.mu.Unlock()
+	return &fakeSubstrateHandle{kind: a.kind, status: substrate.Status, pid: firstPositiveInt(substrate.OwnerPID, substrate.Owner.PID), startedAt: substrate.CreatedAt}, true
+}
+func (a *serialSubstrateAdapter) ReadyFields(managedSubstrateHandle) map[string]any {
+	return map[string]any{"fresh": true}
+}
+func (a *serialSubstrateAdapter) ReuseFields(managedSubstrateHandle, localagent.Substrate) map[string]any {
+	return map[string]any{"reused": true}
+}
+func (a *serialSubstrateAdapter) ExitStatus(managedSubstrateComponent) string  { return "degraded" }
+func (a *serialSubstrateAdapter) ExitMessage(managedSubstrateComponent) string { return "fake exited" }
+func (a *serialSubstrateAdapter) EventSource(managedSubstrateHandle, managedSubstrateComponent, string) devdash.DevSource {
+	return devdash.DevSource{}
+}
+func (a *serialSubstrateAdapter) waitForFirstStart(t *testing.T) {
+	t.Helper()
+	select {
+	case <-a.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first substrate start")
+	}
+}
+func (a *serialSubstrateAdapter) release() {
+	close(a.released)
+}
+func (a *serialSubstrateAdapter) startCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.starts
+}
+func (a *serialSubstrateAdapter) reuseCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reuses
+}
+
 func TestManagedSubstrateManagerReusesVerifiedSubstrateWithoutStarting(t *testing.T) {
 	t.Parallel()
 
@@ -153,6 +226,49 @@ func TestManagedSubstrateManagerDeletesStaleOwnerAndStartsFresh(t *testing.T) {
 	}
 	if substrate.OwnerPID != ownerPID {
 		t.Fatalf("fresh owner pid = %d, want %d", substrate.OwnerPID, ownerPID)
+	}
+}
+
+func TestManagedSubstrateManagerSerializesConcurrentStarts(t *testing.T) {
+	t.Parallel()
+
+	ctx, client := startManagedSubstrateManagerTestAgent(t)
+	adapter := newSerialSubstrateAdapter("fake", startFakeSubstrateOwner(t))
+	manager := managedSubstrateManager{agent: client}
+	root := t.TempDir()
+
+	resultCh := make(chan error, 2)
+	go func() {
+		_, _, err := manager.Ensure(ctx, root, adapter)
+		resultCh <- err
+	}()
+	adapter.waitForFirstStart(t)
+
+	go func() {
+		_, _, err := manager.Ensure(ctx, root, adapter)
+		resultCh <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if got := adapter.startCount(); got != 1 {
+		t.Fatalf("starts while first start is blocked = %d, want 1", got)
+	}
+	adapter.release()
+
+	for range 2 {
+		select {
+		case err := <-resultCh:
+			if err != nil {
+				t.Fatalf("Ensure returned error: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for concurrent Ensure calls")
+		}
+	}
+	if got := adapter.startCount(); got != 1 {
+		t.Fatalf("starts = %d, want one shared substrate start", got)
+	}
+	if got := adapter.reuseCount(); got != 1 {
+		t.Fatalf("reuse count = %d, want second call to reuse", got)
 	}
 }
 

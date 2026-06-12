@@ -90,7 +90,7 @@ func ensureTypeScriptWorkerAppDependencies(ctx context.Context, appRoot, markerD
 	if markerDir == "" {
 		markerDir = appRoot
 	}
-	ready, packageHash, lockHash, err := typeScriptWorkerAppDependenciesReady(appRoot, markerDir)
+	ready, _, _, err := typeScriptWorkerAppDependenciesReady(appRoot, markerDir)
 	if err != nil {
 		return false, err
 	}
@@ -114,11 +114,11 @@ func ensureTypeScriptWorkerAppDependencies(ctx context.Context, appRoot, markerD
 	if missing := missingTypeScriptPackageDependencies(appRoot); len(missing) > 0 {
 		return false, fmt.Errorf("install app TypeScript dependencies with %s did not create %s", filepath.Base(installer), strings.Join(missing, ", "))
 	}
-	packageHash, err = typeScriptPackageJSONHash(packagePath)
+	packageHash, err := typeScriptPackageJSONHash(packagePath)
 	if err != nil {
 		return false, err
 	}
-	lockHash, err = typeScriptPackageLockHash(appRoot)
+	lockHash, err := typeScriptPackageLockHash(appRoot)
 	if err != nil {
 		return false, err
 	}

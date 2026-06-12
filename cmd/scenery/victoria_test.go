@@ -149,6 +149,7 @@ func TestVictoriaStackSubstrateRoundTrip(t *testing.T) {
 	roundTrip := victoriaStackFromSubstrate(substrate)
 	if roundTrip == nil {
 		t.Fatal("expected stack from substrate")
+		return
 	}
 	env := roundTrip.Env()
 	if !containsString(env, "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://127.0.0.1:8428/opentelemetry/v1/metrics") {

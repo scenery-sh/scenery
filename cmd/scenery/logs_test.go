@@ -394,8 +394,8 @@ func TestVictoriaListDevEventsReconstructsStructuredEvents(t *testing.T) {
 				t.Fatalf("query %q does not contain %q", query, want)
 			}
 		}
-		io.WriteString(w, `{"_msg":"ERROR activity failed activity=SyncUser","created_at":"2026-05-31T12:44:01.223Z","scenery_dev_schema":"scenery.dev.event.v1","scenery_app_id":"logsapp","scenery_session_id":"session-a","id":"42","source_id":"worker:typescript","source_kind":"worker","source_name":"typescript","source_role":"temporal-activity-worker","source_pid":"123","source_stream":"stderr","level":"error","fields_json":"{\"activity\":\"SyncUser\"}","raw":"ERROR activity failed activity=SyncUser","parse_format":"logfmt","parse_ok":"true"}`+"\n")
-		io.WriteString(w, `{"_msg":"INFO other","created_at":"2026-05-31T12:44:02Z","scenery_dev_schema":"scenery.dev.event.v1","scenery_app_id":"logsapp","scenery_session_id":"session-a","id":"43","source_id":"api","source_kind":"app","source_stream":"stdout","level":"info","fields_json":"{}","raw":"INFO other","parse_format":"raw","parse_ok":"false"}`+"\n")
+		_, _ = io.WriteString(w, `{"_msg":"ERROR activity failed activity=SyncUser","created_at":"2026-05-31T12:44:01.223Z","scenery_dev_schema":"scenery.dev.event.v1","scenery_app_id":"logsapp","scenery_session_id":"session-a","id":"42","source_id":"worker:typescript","source_kind":"worker","source_name":"typescript","source_role":"temporal-activity-worker","source_pid":"123","source_stream":"stderr","level":"error","fields_json":"{\"activity\":\"SyncUser\"}","raw":"ERROR activity failed activity=SyncUser","parse_format":"logfmt","parse_ok":"true"}`+"\n")
+		_, _ = io.WriteString(w, `{"_msg":"INFO other","created_at":"2026-05-31T12:44:02Z","scenery_dev_schema":"scenery.dev.event.v1","scenery_app_id":"logsapp","scenery_session_id":"session-a","id":"43","source_id":"api","source_kind":"app","source_stream":"stdout","level":"info","fields_json":"{}","raw":"INFO other","parse_format":"raw","parse_ok":"false"}`+"\n")
 	}))
 	defer server.Close()
 

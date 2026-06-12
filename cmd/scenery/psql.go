@@ -201,10 +201,6 @@ func dbDropCommand(args []string) error {
 	return nil
 }
 
-func psqlCommand(args []string) error {
-	return psqlCommandWithOptions(args, false)
-}
-
 func psqlCommandWithOptions(args []string, useManaged bool) error {
 	opts, err := parsePSQLArgs(args)
 	if err != nil {
@@ -349,11 +345,14 @@ func resolveDBSnapshotTarget(ctx context.Context, appRoot string, cfg appcfg.Con
 				}
 				pin = resolution.Pin
 				connection, err = dbBranchProviderForConfig(cfg).Connection(ctx, pin)
+				if err != nil {
+					return dbSnapshotTarget{}, fmt.Errorf("dev.services.%s could not resolve Postgres branch connection: %w", name, err)
+				}
 			} else {
 				pin, connection, err = resolveDBBranchConnection(ctx, appRoot, cfg)
-			}
-			if err != nil {
-				return dbSnapshotTarget{}, fmt.Errorf("dev.services.%s could not resolve Postgres branch connection: %w", name, err)
+				if err != nil {
+					return dbSnapshotTarget{}, fmt.Errorf("dev.services.%s could not resolve Postgres branch connection: %w", name, err)
+				}
 			}
 			return dbSnapshotTarget{Kind: "postgres_branch", DatabaseURL: connection.DatabaseURL, Env: baseEnv, BranchPin: &pin}, nil
 		}

@@ -7,11 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -81,26 +78,6 @@ func normalizedDBBranchEndpoint(endpoint dbBranchEndpoint, pin worktreeDBPin) db
 	endpoint.SSLMode = firstNonEmpty(strings.TrimSpace(endpoint.SSLMode), "disable")
 	endpoint.Source = strings.TrimSpace(endpoint.Source)
 	return endpoint
-}
-
-func dbBranchEndpointDatabaseURL(pin worktreeDBPin, endpoint dbBranchEndpoint) (string, error) {
-	endpoint = normalizedDBBranchEndpoint(endpoint, pin)
-	if endpoint.Host == "" {
-		return "", fmt.Errorf("local Postgres branch lease %q endpoint is missing host", pin.Branch)
-	}
-	if endpoint.Port <= 0 || endpoint.Port > 65535 {
-		return "", fmt.Errorf("local Postgres branch lease %q endpoint has invalid port %d", pin.Branch, endpoint.Port)
-	}
-	u := url.URL{
-		Scheme: "postgres",
-		Host:   net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port)),
-		Path:   "/" + endpoint.Database,
-	}
-	u.User = url.User(endpoint.Role)
-	q := u.Query()
-	q.Set("sslmode", endpoint.SSLMode)
-	u.RawQuery = q.Encode()
-	return u.String(), nil
 }
 
 func worktreeDBPinPath(appRoot string) string {

@@ -481,11 +481,6 @@ func classifySessionOwnerStatus(session localagent.Session) (string, string) {
 	return "stale", "owner process is not running: " + err.Error()
 }
 
-func sessionOwnerConsistent(session localagent.Session) bool {
-	status, _ := classifySessionStatus(session)
-	return status == ""
-}
-
 func sessionOwnerLive(session localagent.Session) bool {
 	ownerPID := firstPositiveInt(session.OwnerPID, session.Owner.PID)
 	if ownerPID <= 0 {
@@ -892,10 +887,6 @@ func dropSessionManagedDatabase(ctx context.Context, client *localagent.Client, 
 		return "", err
 	}
 	return "dropped scenery managed database for this dev runtime", nil
-}
-
-func removeDBWorktreeDBPinIfConfigured(appRoot string) (bool, error) {
-	return removeDBWorktreeDBPinForSession(appRoot, localagent.Session{})
 }
 
 func removeDBWorktreeDBPinForSession(appRoot string, session localagent.Session) (bool, error) {

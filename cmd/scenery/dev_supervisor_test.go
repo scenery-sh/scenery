@@ -927,6 +927,7 @@ func TestTemporalSubstrateRoundTrip(t *testing.T) {
 	})
 	if restored == nil {
 		t.Fatal("restored temporal server is nil")
+		return
 	}
 	if !restored.external || restored.info.Address != "127.0.0.1:7233" || restored.info.Namespace != "orders" {
 		t.Fatalf("restored server = %+v", restored)

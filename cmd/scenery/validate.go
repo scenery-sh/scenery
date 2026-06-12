@@ -442,8 +442,7 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 		Edges:         []validationGraphEdge{},
 	}
 	seen := map[string]bool{}
-	var addNode func(validationGraphNode)
-	addNode = func(node validationGraphNode) {
+	addNode := func(node validationGraphNode) {
 		if node.ID == "" || seen[node.ID] {
 			return
 		}
@@ -843,18 +842,6 @@ func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []valida
 			if task, ok := cfg.Tasks[ref.Name]; ok {
 				out = append(out, configuredTaskListRecord(appRoot, ref.Name, task))
 			}
-		}
-	}
-	return out
-}
-
-func resolvedProfileOrder(steps []validationPlanStep) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, step := range steps {
-		if step.Profile != "" && !seen[step.Profile] {
-			seen[step.Profile] = true
-			out = append(out, step.Profile)
 		}
 	}
 	return out

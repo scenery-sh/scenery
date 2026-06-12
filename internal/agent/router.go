@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -107,21 +105,6 @@ func (s *Server) handleConsole(w http.ResponseWriter, req *http.Request, session
 		return
 	}
 	s.proxyBackend(w, req, backend, "")
-}
-
-func (s *Server) serveConsoleIndex(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		methodNotAllowed(w, http.MethodGet)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = io.WriteString(w, "<!doctype html><html><head><meta charset=\"utf-8\"><title>scenery Agent</title></head><body><main><h1>scenery Agent</h1><ul>")
-	for _, session := range s.registry.List() {
-		href := "/s/" + session.SessionID
-		_, _ = fmt.Fprintf(w, "<li><a href=\"%s\">%s</a> <code>%s</code></li>", href, session.SessionID, session.AppRoot)
-	}
-	_, _ = io.WriteString(w, "</ul></main></body></html>")
 }
 
 func requestHost(req *http.Request) string {
