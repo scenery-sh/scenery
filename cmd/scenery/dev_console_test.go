@@ -79,6 +79,34 @@ func TestDevConsoleDiffRendererAvoidsFullClearDuringSteadyState(t *testing.T) {
 	if !strings.Contains(got, "\x1b[2;1HTWO\x1b[K") {
 		t.Fatalf("changed second line was not repainted precisely: %q", got)
 	}
+
+	out.Reset()
+	renderer.Resize(terminalSize{Width: 80, Height: 4})
+	if err := renderer.Render("one\nTWO\nthree\nfour"); err != nil {
+		t.Fatalf("resize render: %v", err)
+	}
+	got = out.String()
+	if strings.Count(got, "\x1b[2J") != 1 {
+		t.Fatalf("resize render should use exactly one full clear: %q", got)
+	}
+	for _, want := range []string{
+		"\x1b[1;1Hone\x1b[K",
+		"\x1b[2;1HTWO\x1b[K",
+		"\x1b[3;1Hthree\x1b[K",
+		"\x1b[4;1Hfour\x1b[K",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("resize render did not repaint row %q: %q", want, got)
+		}
+	}
+
+	out.Reset()
+	if err := renderer.Render("one\nTWO\nthree\nfour"); err != nil {
+		t.Fatalf("post-resize steady-state render: %v", err)
+	}
+	if got := out.String(); strings.Contains(got, "\x1b[2J") {
+		t.Fatalf("post-resize steady-state render used full clear again: %q", got)
+	}
 }
 
 func TestRenderDevConsoleResponsiveLayoutsStayBounded(t *testing.T) {

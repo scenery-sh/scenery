@@ -22,7 +22,7 @@ func getConsoleSize(file *os.File) terminalSize {
 	return terminalSize{Width: int(ws.Col), Height: int(ws.Row)}
 }
 
-func notifyConsoleResize(ctx context.Context) <-chan terminalSize {
+func notifyConsoleResize(ctx context.Context, stdin *os.File) <-chan terminalSize {
 	out := make(chan terminalSize, 1)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH)
@@ -34,7 +34,7 @@ func notifyConsoleResize(ctx context.Context) <-chan terminalSize {
 				return
 			case <-sigCh:
 				select {
-				case out <- getConsoleSize(os.Stdin):
+				case out <- getConsoleSize(stdin):
 				default:
 				}
 			}

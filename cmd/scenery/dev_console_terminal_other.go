@@ -11,6 +11,6 @@ func getConsoleSize(file *os.File) terminalSize {
 	return terminalSize{}
 }
 
-func notifyConsoleResize(ctx context.Context) <-chan terminalSize {
+func notifyConsoleResize(ctx context.Context, stdin *os.File) <-chan terminalSize {
 	return make(chan terminalSize)
 }

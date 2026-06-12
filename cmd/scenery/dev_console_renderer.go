@@ -7,10 +7,11 @@ import (
 )
 
 type consoleDiffRenderer struct {
-	out    io.Writer
-	size   terminalSize
-	lines  []string
-	closed bool
+	out              io.Writer
+	size             terminalSize
+	lines            []string
+	clearBeforePaint bool
+	closed           bool
 }
 
 func newConsoleDiffRenderer(out io.Writer, size terminalSize) *consoleDiffRenderer {
@@ -19,9 +20,8 @@ func newConsoleDiffRenderer(out io.Writer, size terminalSize) *consoleDiffRender
 
 func (r *consoleDiffRenderer) Resize(size terminalSize) {
 	r.size = normalizeTerminalSize(size)
-	if len(r.lines) > r.size.Height {
-		r.lines = r.lines[:r.size.Height]
-	}
+	r.lines = nil
+	r.clearBeforePaint = true
 }
 
 func (r *consoleDiffRenderer) Render(frame string) error {
@@ -40,6 +40,9 @@ func (r *consoleDiffRenderer) Render(frame string) error {
 		maxRows = r.size.Height
 	}
 	var b strings.Builder
+	if r.clearBeforePaint {
+		b.WriteString("\x1b[2J")
+	}
 	for i := 0; i < maxRows; i++ {
 		prevLine := ""
 		if i < len(r.lines) {
@@ -58,6 +61,10 @@ func (r *consoleDiffRenderer) Render(frame string) error {
 		return nil
 	}
 	_, err := io.WriteString(r.out, b.String())
+	if err != nil {
+		return err
+	}
 	r.lines = next
-	return err
+	r.clearBeforePaint = false
+	return nil
 }

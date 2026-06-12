@@ -129,7 +129,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	}
 	keyCh := make(chan consoleKey, 16)
 	go readConsoleKeys(stdin, keyCh)
-	resizeCh := notifyConsoleResize(ctx)
+	resizeCh := notifyConsoleResize(ctx, stdin)
 
 	pollTicker := time.NewTicker(devConsoleEventPoll)
 	defer pollTicker.Stop()
