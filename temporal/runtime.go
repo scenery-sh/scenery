@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	temporalclient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/contrib/sysinfo"
@@ -18,6 +19,8 @@ import (
 	"scenery.sh/internal/envpolicy"
 	sceneryruntime "scenery.sh/runtime"
 )
+
+const workerDeploymentPromotionTimeout = 30 * time.Second
 
 type temporalRuntimeState struct {
 	client temporalclient.Client
@@ -215,7 +218,7 @@ func EnsureWorkerDeploymentCurrentVersion(ctx context.Context, client temporalcl
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	updateCtx, cancel := context.WithTimeout(ctx, sceneryruntime.DefaultTemporalConnectWait)
+	updateCtx, cancel := context.WithTimeout(ctx, workerDeploymentPromotionTimeout)
 	defer cancel()
 	deploymentName := sceneryruntime.TemporalDeploymentName(info)
 	buildID := sceneryruntime.TemporalWorkerBuildID(info)

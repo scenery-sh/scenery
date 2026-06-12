@@ -26,6 +26,13 @@ var taskEntity = model.Entity[Task](
 	model.Field(statusField, model.EnumValues("todo", "doing", "done"), model.Filterable()),
 	model.Field("ProjectID", model.Relationship()),
 	model.Field("AgeDays", model.Computed()),
+	model.Seed(Task{
+		ID:        "seed-task-1",
+		Title:     "Seeded task",
+		Status:    "todo",
+		ProjectID: "seed-project",
+		CreatedAt: time.Date(2026, time.June, 12, 12, 0, 0, 0, time.UTC),
+	}),
 )
 
 //scenery:page

@@ -18,6 +18,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/parse"
 )
 
 type dbSeedOptions struct {
@@ -258,6 +259,9 @@ func emptyDBSeedResult(appRoot string, cfg appcfg.Config, opts dbSeedOptions) db
 }
 
 func discoverDBSeedPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan, error) {
+	if err := ensureGeneratedDataArtifacts(appRoot, cfg); err != nil {
+		return nil, err
+	}
 	graph, err := buildInspectGeneratorsResponse(appRoot, cfg)
 	if err != nil {
 		return nil, err
@@ -287,6 +291,21 @@ func discoverDBSeedPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan, error
 		return plans[i].Path < plans[j].Path
 	})
 	return plans, nil
+}
+
+func ensureGeneratedDataArtifacts(appRoot string, cfg appcfg.Config) error {
+	if !appHasModelDirectives(appRoot) {
+		return nil
+	}
+	appModel, err := parse.App(appRoot, cfg.Name)
+	if err != nil {
+		return err
+	}
+	plan, ok, err := buildDataGeneratorPlan(appRoot, appModel)
+	if err != nil || !ok {
+		return err
+	}
+	return writeGeneratedDataArtifacts(appRoot, plan)
 }
 
 var (

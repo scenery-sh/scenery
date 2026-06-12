@@ -58,9 +58,32 @@ type Entity struct {
 	TypeExpr string
 	Table    string
 	Fields   []EntityField
+	Seeds    []EntitySeedRow
 	CRUD     EntityCRUD
 	TokenPos token.Pos
 }
+
+type EntitySeedRow struct {
+	Values   []EntitySeedValue
+	TokenPos token.Pos
+}
+
+type EntitySeedValue struct {
+	Field    string
+	Kind     EntitySeedValueKind
+	Value    string
+	TokenPos token.Pos
+}
+
+type EntitySeedValueKind string
+
+const (
+	EntitySeedString    EntitySeedValueKind = "string"
+	EntitySeedInteger   EntitySeedValueKind = "integer"
+	EntitySeedFloat     EntitySeedValueKind = "float"
+	EntitySeedBool      EntitySeedValueKind = "bool"
+	EntitySeedTimestamp EntitySeedValueKind = "timestamp"
+)
 
 type EntityCRUD struct {
 	Actions   []EntityCRUDAction

@@ -110,7 +110,10 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	for _, want := range []string{
 		"type TaskCreate struct",
 		"type TaskPatch struct",
-		"sceneryModelTaskStore",
+		"sceneryModelTaskPool",
+		`os.Getenv("DatabaseURL")`,
+		`insert into \"tasks\"`,
+		`update \"tasks\" set %s where \"id\" = $%d returning`,
 		`"CreateTask"`,
 		`"/tasks"`,
 		"sceneryModelUpdateTask(ctx, pathArgs[0], payload.(TaskPatch))",

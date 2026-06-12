@@ -32,6 +32,10 @@ func Generate(actions ...Action) EntityOption {
 	return entityOptionFunc(func() {})
 }
 
+func Seed[T any](rows ...T) EntityOption {
+	return entityOptionFunc(func() {})
+}
+
 func Disable(actions ...Action) EntityOption {
 	return entityOptionFunc(func() {})
 }
