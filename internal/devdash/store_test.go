@@ -913,3 +913,36 @@ func TestWriteProcessEventTruncatesOversizedPayloads(t *testing.T) {
 		t.Fatalf("truncated marker = %+v", truncated)
 	}
 }
+
+func TestPruneTruncatesOversizedProcessEventPayloadsFromOlderWriters(t *testing.T) {
+	t.Parallel()
+
+	huge, err := json.Marshal(map[string]any{"meta": strings.Repeat("x", maxProcessEventPayloadBytes+1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &storeState{
+		Version: 1,
+		ProcessEvents: []ProcessEvent{
+			{ID: 1, AppID: "app-test", Kind: "compile-start", PayloadJSON: huge, CreatedAt: time.Now().UTC()},
+			{ID: 2, AppID: "app-test", Kind: "process/start", PayloadJSON: json.RawMessage(`{"pid":"42"}`), CreatedAt: time.Now().UTC()},
+		},
+	}
+	pruneStoreState(state)
+	if got := len(state.ProcessEvents[0].PayloadJSON); got > maxProcessEventPayloadBytes {
+		t.Fatalf("oversized payload survived prune: %d bytes", got)
+	}
+	var marker struct {
+		Truncated     bool `json:"truncated"`
+		OriginalBytes int  `json:"original_bytes"`
+	}
+	if err := json.Unmarshal(state.ProcessEvents[0].PayloadJSON, &marker); err != nil {
+		t.Fatalf("unmarshal truncation marker: %v", err)
+	}
+	if !marker.Truncated || marker.OriginalBytes != len(huge) {
+		t.Fatalf("marker = %+v, want truncated with original_bytes %d", marker, len(huge))
+	}
+	if string(state.ProcessEvents[1].PayloadJSON) != `{"pid":"42"}` {
+		t.Fatalf("small payload was modified: %s", state.ProcessEvents[1].PayloadJSON)
+	}
+}

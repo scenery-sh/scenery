@@ -351,6 +351,27 @@ func pruneStoreState(state *storeState) {
 	state.TraceSummaries = tailSlice(state.TraceSummaries, maxStoredTraceSummaries)
 	state.TraceEvents = tailSlice(state.TraceEvents, maxStoredTraceEvents)
 	state.LogEvents = tailSlice(state.LogEvents, maxStoredLogEvents)
+	truncateOversizedProcessEvents(state.ProcessEvents)
+}
+
+// truncateOversizedProcessEvents retroactively applies the payload size cap
+// so stores bloated by older writers shrink on the next load/save instead of
+// keeping multi-megabyte payloads alive until count-based pruning ages them
+// out hundreds of events later.
+func truncateOversizedProcessEvents(events []ProcessEvent) {
+	for i := range events {
+		if len(events[i].PayloadJSON) <= maxProcessEventPayloadBytes {
+			continue
+		}
+		marker, err := json.Marshal(map[string]any{
+			"truncated":      true,
+			"original_bytes": len(events[i].PayloadJSON),
+		})
+		if err != nil {
+			continue
+		}
+		events[i].PayloadJSON = marker
+	}
 }
 
 func tailSlice[T any](items []T, max int) []T {
