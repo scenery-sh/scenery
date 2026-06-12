@@ -28,6 +28,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [ ] Phase 5.1: Add single-instance locks for the edge Caddy and `scenery system agent`, and reap stale binders on owned ports (TCP and UDP 19443, router port) at startup.
 - [ ] Phase 5.2: Add a rebrand-migration sweep that detects and stops pre-rebrand `~/.onlava` processes and offers `~/.onlava` state cleanup.
 - [ ] Phase 5.3: Teach `scenery doctor` to flag duplicate listeners on scenery-owned ports and orphaned `scenery system agent` processes.
+- [x] 2026-06-12: Hardened shared substrate and Postgres branch locks with bounded nonblocking acquisition, named wait diagnostics, real Windows file locking, short `branches.lock` registry sections, and a separate parent-database operation lock for branch DDL.
 
 ## Surprises & Discoveries
 
@@ -40,6 +41,8 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - 2026-05-27: `cmd/scenery/harness_parallel.go` contains a self-harness parallel session check, but this plan still requires a high-signal ONLV two-worktree smoke script that starts the real target app with managed Postgres, Electric, frontend, Temporal, logs, traces, and teardown as an executable release gate. Source review on 2026-05-28 confirmed the current harness check is still synthetic and in-process.
 - 2026-06-11: Explicit session-selection flags conflict with the current product rule. Parallel live development should be expressed as multiple Git worktrees, not multiple user-named runtimes from one app directory.
 - 2026-06-12: A pre-rebrand `~/.onlava` edge Caddy (started 2026-06-08) ran for four days racing the current `~/.scenery` edge on TCP and UDP 127.0.0.1:19443 via SO_REUSEPORT, and three orphaned `scenery system agent` processes pointed `--router-listen` at an already-owned port. Nothing in `scenery doctor` or `scenery ps` surfaced either condition; both were found via `lsof -nP -iTCP:19443 -sTCP:LISTEN` and `lsof -nP -iUDP:19443` while debugging an unrelated SSE incident. Duplicate UDP binders are a live HTTP/3 hazard because QUIC flows hash across both processes.
+- 2026-06-12: Narrowing the Postgres branch registry lock exposed the real contended resource: branch database DDL races on the parent template database can produce `pq: tuple concurrently updated (XX000)`. The registry lock should stay metadata-only; branch create/reset/drop now serialize with a parent-database operation lock.
+- 2026-06-12: A 30-second file-lock timeout was too short for legitimate cold shared substrate startup under the ONLV two-worktree smoke. Grafana cold startup can keep the second session waiting long enough to trip a 30-second timeout even though the system is healthy, so lock waits now warn early and periodically while allowing a two-minute bounded wait.
 
 ## Decision Log
 
@@ -62,6 +65,12 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - Decision: Ordinary `agent restart` should restart only the router/control plane.
   Rationale: Shared substrates are session-continuity infrastructure. Restarting the control plane should not stop live app dependencies unless the caller opts into `--substrates` or uses `agent stop --all`.
   Date/Author: 2026-05-27 / Codex.
+- Decision: Keep `branches.lock` scoped to short branch registry reads and writes, and use a separate parent-database operation lock for managed Postgres branch DDL.
+  Rationale: Holding the registry lock through substrate startup or database cloning hides useful diagnostics and blocks unrelated metadata readers. The parent template database is the actual shared Postgres resource that needs serialization during `CREATE DATABASE ... WITH TEMPLATE`, reset, and drop.
+  Date/Author: 2026-06-12 / Codex.
+- Decision: Use bounded nonblocking lock acquisition with early and periodic diagnostics instead of silent blocking flock waits.
+  Rationale: Release-gate and multi-worktree runs need a clear named lock path when contention is real, while legitimate cold substrate startup needs more than the original 30-second wait budget.
+  Date/Author: 2026-06-12 / Codex.
 
 ## Outcomes & Retrospective
 

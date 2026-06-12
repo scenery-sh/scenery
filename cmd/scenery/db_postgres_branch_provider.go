@@ -108,6 +108,10 @@ func mutatePostgresBranchRegistry(root string, mutate func(*dbBranchRegistry) er
 	return writePostgresBranchRegistry(root, registry)
 }
 
+func markPostgresBranchLeasePending(pin worktreeDBPin) error {
+	return upsertPostgresBranchLease(pin, nil, "pending")
+}
+
 func upsertPostgresBranchLease(pin worktreeDBPin, endpoint *dbBranchEndpoint, status string) error {
 	root, err := postgresSubstrateRoot()
 	if err != nil {
@@ -180,6 +184,11 @@ func validatePostgresBranchLeaseWritable(pin worktreeDBPin) error {
 	if err != nil {
 		return err
 	}
+	unlock, err := lockDBBranchRegistry(root)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	registry, err := readPostgresBranchRegistry(root)
 	if err != nil {
 		return err
@@ -194,6 +203,13 @@ func validatePostgresBranchLeaseWritable(pin worktreeDBPin) error {
 	return nil
 }
 
+func lockPostgresBranchOperation(root, parentDatabase string) (func(), error) {
+	parentDatabase = firstNonEmpty(parentDatabase, "unknown")
+	name := "branches-" + safeLockName(parentDatabase) + ".operation.lock"
+	kind := "database branch operation " + parentDatabase
+	return acquireDevNamedLock(root, name, kind, devLockOrderBranchOperation)
+}
+
 func (p postgresBranchProvider) EnsureBranch(ctx context.Context, pin worktreeDBPin) (dbBranchBackendStatus, error) {
 	if isProtectedDBParentBranch(pin) {
 		if err := upsertPostgresBranchLease(pin, nil, "protected"); err != nil {
@@ -206,25 +222,33 @@ func (p postgresBranchProvider) EnsureBranch(ctx context.Context, pin worktreeDB
 	}
 	adminURL, err := p.adminURL(ctx)
 	if err != nil {
-		_ = upsertPostgresBranchLease(pin, nil, "pending")
+		_ = markPostgresBranchLeasePending(pin)
+		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
+	}
+	if err := markPostgresBranchLeasePending(pin); err != nil {
+		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
+	}
+	if err := validatePostgresBranchLeaseWritable(pin); err != nil {
 		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
 	}
 	root, err := postgresSubstrateRoot()
 	if err != nil {
-		_ = upsertPostgresBranchLease(pin, nil, "pending")
 		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
 	}
-	unlock, err := lockDBBranchRegistry(root)
+	parentDB := postgresParentDatabaseName(p.cfg, pin)
+	unlock, err := lockPostgresBranchOperation(root, parentDB)
 	if err != nil {
-		_ = upsertPostgresBranchLease(pin, nil, "pending")
+		_ = markPostgresBranchLeasePending(pin)
+		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
+	}
+	defer unlock()
+	if err := validatePostgresBranchLeaseWritable(pin); err != nil {
 		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
 	}
 	if err := p.ensureTemplateDatabaseBranch(ctx, adminURL, pin); err != nil {
-		unlock()
-		_ = upsertPostgresBranchLease(pin, nil, "pending")
+		_ = markPostgresBranchLeasePending(pin)
 		return dbBranchBackendStatus{Status: "pending", Message: err.Error()}, err
 	}
-	unlock()
 	endpoint, err := postgresBranchEndpoint(adminURL, pin)
 	if err != nil {
 		return dbBranchBackendStatus{Status: "unknown", Message: err.Error()}, err
@@ -303,6 +327,16 @@ func (p postgresBranchProvider) ResetBranch(ctx context.Context, pin worktreeDBP
 	if err != nil {
 		return err
 	}
+	root, err := postgresSubstrateRoot()
+	if err != nil {
+		return err
+	}
+	parentDB := postgresParentDatabaseName(p.cfg, pin)
+	unlock, err := lockPostgresBranchOperation(root, parentDB)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if err := p.recreateBranchDatabase(ctx, adminURL, pin); err != nil {
 		return err
 	}
@@ -326,13 +360,14 @@ func (p postgresBranchProvider) DeleteBranch(ctx context.Context, pin worktreeDB
 	if err != nil {
 		return err
 	}
-	defer unlock()
 	registry, err := readPostgresBranchRegistry(root)
 	if err != nil {
+		unlock()
 		return err
 	}
 	branch = normalizeDBBranchName(branch)
 	kept := make([]dbBranchLease, 0, len(registry.Leases))
+	dropDatabases := []string{}
 	var removed bool
 	for _, lease := range registry.Leases {
 		if !isSceneryOwnedDBLease(lease) || !dbLeaseMatchesBranchForDelete(lease, pin, branch) {
@@ -340,11 +375,44 @@ func (p postgresBranchProvider) DeleteBranch(ctx context.Context, pin worktreeDB
 			continue
 		}
 		if lease.Status == "ready" && strings.TrimSpace(lease.Pin.Database) != "" {
-			if err := dropManagedPostgresDatabase(ctx, adminURL, lease.Pin.Database); err != nil {
-				return err
-			}
+			dropDatabases = append(dropDatabases, lease.Pin.Database)
 		}
 		removed = true
+	}
+	if !removed {
+		unlock()
+		return fmt.Errorf("no Scenery-owned local Postgres branch lease found for %q", branch)
+	}
+	unlock()
+	parentDB := postgresParentDatabaseName(p.cfg, pin)
+	operationUnlock, err := lockPostgresBranchOperation(root, parentDB)
+	if err != nil {
+		return err
+	}
+	for _, database := range dropDatabases {
+		if err := dropManagedPostgresDatabase(ctx, adminURL, database); err != nil {
+			operationUnlock()
+			return err
+		}
+	}
+	operationUnlock()
+	unlock, err = lockDBBranchRegistry(root)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	registry, err = readPostgresBranchRegistry(root)
+	if err != nil {
+		return err
+	}
+	kept = kept[:0]
+	removed = false
+	for _, lease := range registry.Leases {
+		if isSceneryOwnedDBLease(lease) && dbLeaseMatchesBranchForDelete(lease, pin, branch) {
+			removed = true
+			continue
+		}
+		kept = append(kept, lease)
 	}
 	if !removed {
 		return fmt.Errorf("no Scenery-owned local Postgres branch lease found for %q", branch)

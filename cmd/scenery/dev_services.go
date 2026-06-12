@@ -1138,11 +1138,6 @@ func ensureLocalManagedPostgresSubstrate(ctx context.Context, cfg app.Config, ag
 		return "", err
 	}
 	root := filepath.Join(paths.AgentDir, "postgres")
-	unlock, err := lockDBBranchRegistry(root)
-	if err != nil {
-		return "", err
-	}
-	defer unlock()
 	adapter := postgresSubstrateAdapter{cfg: cfg}
 	handle, _, err := (managedSubstrateManager{agent: agent}).Ensure(ctx, root, adapter)
 	if err != nil {
