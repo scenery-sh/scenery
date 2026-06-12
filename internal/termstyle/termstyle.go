@@ -18,6 +18,7 @@ const (
 	blueCode    = "\x1b[34m"
 	magentaCode = "\x1b[35m"
 	cyanCode    = "\x1b[36m"
+	inverseCode = "\x1b[7m"
 )
 
 type Palette struct {
@@ -62,6 +63,10 @@ func (p Palette) Magenta(text string) string {
 
 func (p Palette) Cyan(text string) string {
 	return p.wrap(cyanCode, text)
+}
+
+func (p Palette) Inverse(text string) string {
+	return p.wrap(inverseCode, text)
 }
 
 func (p Palette) wrap(code, text string) string {

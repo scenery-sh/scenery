@@ -14,7 +14,23 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/termstyle"
 )
+
+const (
+	defaultConsoleWidth     = 100
+	defaultConsoleHeight    = 30
+	minConsoleWidth         = 40
+	minConsoleHeight        = 12
+	devConsoleEventPoll     = 300 * time.Millisecond
+	devConsoleHeartbeat     = 5 * time.Second
+	devConsoleDefaultEvents = 300
+)
+
+type terminalSize struct {
+	Width  int
+	Height int
+}
 
 type devConsoleSnapshot struct {
 	AppName    string
@@ -26,8 +42,12 @@ type devConsoleSnapshot struct {
 	Selected   string
 	ErrorsOnly bool
 	Search     string
+	Searching  bool
 	Frozen     bool
 	Expanded   bool
+	Scroll     int
+	Width      int
+	Height     int
 }
 
 type devConsoleSource struct {
@@ -54,7 +74,7 @@ func runSceneryConsoleOrFallback(ctx context.Context, stdin *os.File, stdout io.
 	return runSceneryConsole(ctx, stdin, stdout, opts)
 }
 
-func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, opts logsOptions) error {
+func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, opts logsOptions) (err error) {
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
 		return err
@@ -77,11 +97,26 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 		return err
 	}
 
-	restore, _ := enterRawTerminal(stdin)
-	defer restore()
-	fmt.Fprint(stdout, "\x1b[?1049h\x1b[2J\x1b[H")
-	defer fmt.Fprint(stdout, "\x1b[?1049l")
+	restoreTerminal := func() {}
+	terminalActive := false
+	defer func() {
+		if terminalActive {
+			fmt.Fprint(stdout, "\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l")
+		}
+		restoreTerminal()
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("scenery console panic: %v", recovered)
+		}
+	}()
+	if restore, rawErr := enterRawTerminal(stdin); rawErr == nil {
+		restoreTerminal = restore
+	} else {
+		return rawErr
+	}
+	fmt.Fprint(stdout, "\x1b[?1049h\x1b[2J\x1b[H\x1b[?25l\x1b[?1000h\x1b[?1006h")
+	terminalActive = true
 
+	size := normalizeTerminalSize(getConsoleSize(stdin))
 	state := devConsoleState{
 		opts:      opts,
 		appID:     cfg.AppID(),
@@ -89,16 +124,24 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 		appRoot:   appRoot,
 		sessionID: sessionID,
 		selected:  firstNonEmpty(opts.Source, "all"),
+		width:     size.Width,
+		height:    size.Height,
 	}
-	keyCh := make(chan byte, 8)
+	keyCh := make(chan consoleKey, 16)
 	go readConsoleKeys(stdin, keyCh)
+	resizeCh := notifyConsoleResize(ctx)
 
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	pollTicker := time.NewTicker(devConsoleEventPoll)
+	defer pollTicker.Stop()
+	heartbeatTicker := time.NewTicker(devConsoleHeartbeat)
+	defer heartbeatTicker.Stop()
 	if err := state.refresh(ctx, backend); err != nil {
 		return err
 	}
-	fmt.Fprint(stdout, "\x1b[H\x1b[2J"+renderDevConsole(state.snapshot()))
+	renderer := newConsoleDiffRenderer(stdout, size)
+	if err := renderer.Render(renderDevConsoleStyled(state.snapshot(), termstyle.New(stdout))); err != nil {
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -113,13 +156,32 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 			if err := state.refresh(ctx, backend); err != nil {
 				return err
 			}
-			fmt.Fprint(stdout, "\x1b[H\x1b[2J"+renderDevConsole(state.snapshot()))
-		case <-ticker.C:
+			if err := renderer.Render(renderDevConsoleStyled(state.snapshot(), termstyle.New(stdout))); err != nil {
+				return err
+			}
+		case nextSize := <-resizeCh:
+			nextSize = normalizeTerminalSize(nextSize)
+			state.width = nextSize.Width
+			state.height = nextSize.Height
+			renderer.Resize(nextSize)
+			if err := renderer.Render(renderDevConsoleStyled(state.snapshot(), termstyle.New(stdout))); err != nil {
+				return err
+			}
+		case <-pollTicker.C:
 			if !state.frozen {
-				if err := state.refresh(ctx, backend); err != nil {
+				changed, err := state.refreshIfChanged(ctx, backend)
+				if err != nil {
 					return err
 				}
-				fmt.Fprint(stdout, "\x1b[H\x1b[2J"+renderDevConsole(state.snapshot()))
+				if changed {
+					if err := renderer.Render(renderDevConsoleStyled(state.snapshot(), termstyle.New(stdout))); err != nil {
+						return err
+					}
+				}
+			}
+		case <-heartbeatTicker.C:
+			if err := renderer.Render(renderDevConsoleStyled(state.snapshot(), termstyle.New(stdout))); err != nil {
+				return err
 			}
 		}
 	}
@@ -137,13 +199,16 @@ type devConsoleState struct {
 	expanded  bool
 	searching bool
 	search    string
+	scroll    int
+	width     int
+	height    int
 	events    []devdash.DevEvent
 	sources   []devConsoleSource
 }
 
 func (s *devConsoleState) refresh(ctx context.Context, backend devEventBackend) error {
 	query := logsDevEventQuery(s.opts, s.appID, s.sessionID)
-	query.Limit = maxInt(s.opts.Limit, 300)
+	query.Limit = maxInt(s.opts.Limit, devConsoleDefaultEvents)
 	if s.selected != "" && s.selected != "all" {
 		query.SourceID = s.selected
 	}
@@ -166,7 +231,28 @@ func (s *devConsoleState) refresh(ctx context.Context, backend devEventBackend) 
 	if s.selected != "all" && !devConsoleSourceExists(s.sources, s.selected) {
 		s.selected = "all"
 	}
+	s.clampScroll()
 	return nil
+}
+
+func (s *devConsoleState) refreshIfChanged(ctx context.Context, backend devEventBackend) (bool, error) {
+	before := s.signature()
+	if err := s.refresh(ctx, backend); err != nil {
+		return false, err
+	}
+	return before != s.signature(), nil
+}
+
+func (s *devConsoleState) signature() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "selected=%s errors=%t search=%s count=%d sources=%d", s.selected, s.errors, s.search, len(s.events), len(s.sources))
+	for _, event := range s.events {
+		fmt.Fprintf(&b, "|%d/%s/%s", event.ID, event.Level, event.Source.ID)
+	}
+	for _, source := range s.sources {
+		fmt.Fprintf(&b, "|%s/%s/%s/%d/%d", source.Source.ID, source.Status, source.Source.PID, source.EventCount, source.ErrorCount)
+	}
+	return b.String()
 }
 
 func (s *devConsoleState) snapshot() devConsoleSnapshot {
@@ -180,132 +266,363 @@ func (s *devConsoleState) snapshot() devConsoleSnapshot {
 		Selected:   s.selected,
 		ErrorsOnly: s.errors,
 		Search:     s.search,
+		Searching:  s.searching,
 		Frozen:     s.frozen,
 		Expanded:   s.expanded,
+		Scroll:     s.scroll,
+		Width:      s.width,
+		Height:     s.height,
 	}
 }
 
-func (s *devConsoleState) handleKey(key byte) bool {
+func (s *devConsoleState) handleKey(key consoleKey) bool {
 	if s.searching {
-		switch key {
-		case '\r', '\n':
+		switch key.Kind {
+		case consoleKeyEnter:
 			s.searching = false
-		case 27:
+		case consoleKeyEsc:
 			s.searching = false
 			s.search = ""
-		case 127, '\b':
+			s.scroll = 0
+		case consoleKeyBackspace:
 			if len(s.search) > 0 {
 				s.search = s.search[:len(s.search)-1]
 			}
+			s.scroll = 0
+		case consoleKeyCtrlC:
+			return true
 		default:
-			if key >= 32 && key <= 126 {
-				s.search += string(key)
+			if key.Kind == consoleKeyRune && key.Rune >= 32 && key.Rune <= 126 {
+				s.search += string(key.Rune)
+				s.scroll = 0
 			}
 		}
 		return false
 	}
-	switch key {
-	case 'q', 'Q':
+	switch key.Kind {
+	case consoleKeyCtrlC:
 		return true
-	case '\t':
+	case consoleKeyTab:
 		s.selected = nextDevConsoleSourceID(s.sources, s.selected)
-	case 'a', 'A':
-		s.selected = "all"
-	case 'e', 'E':
-		s.errors = !s.errors
-	case 'f', 'F':
-		s.frozen = !s.frozen
-	case '/':
-		s.searching = true
-		s.search = ""
-	case '\r', '\n':
+		s.scroll = 0
+	case consoleKeyEnter:
 		s.expanded = !s.expanded
-	case 12:
-	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		idx := int(key - '1')
-		if idx >= 0 && idx < len(s.sources) {
-			s.selected = s.sources[idx].Source.ID
+	case consoleKeyUp, consoleKeyMouseWheelUp:
+		s.scrollBy(1)
+	case consoleKeyDown, consoleKeyMouseWheelDown:
+		s.scrollBy(-1)
+	case consoleKeyPageUp:
+		s.scrollBy(maxInt(5, s.visibleLogRows()-1))
+	case consoleKeyPageDown:
+		s.scrollBy(-maxInt(5, s.visibleLogRows()-1))
+	case consoleKeyHome:
+		s.scrollBy(len(s.events))
+	case consoleKeyEnd:
+		s.scroll = 0
+	case consoleKeyCtrlL:
+	default:
+		if key.Kind != consoleKeyRune {
+			return false
+		}
+		switch key.Rune {
+		case 'q', 'Q':
+			return true
+		case 'a', 'A':
+			s.selected = "all"
+			s.scroll = 0
+		case 'e', 'E':
+			s.errors = !s.errors
+			s.scroll = 0
+		case 'f', 'F':
+			s.frozen = !s.frozen
+		case '/':
+			s.searching = true
+			s.search = ""
+			s.scroll = 0
+		case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			idx := int(key.Rune - '1')
+			if idx >= 0 && idx < len(s.sources) {
+				s.selected = s.sources[idx].Source.ID
+				s.scroll = 0
+			}
 		}
 	}
+	s.clampScroll()
 	return false
 }
 
+func (s *devConsoleState) scrollBy(delta int) {
+	s.scroll += delta
+	s.clampScroll()
+}
+
+func (s *devConsoleState) clampScroll() {
+	maxScroll := len(s.events) - s.visibleLogRows()
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if s.scroll < 0 {
+		s.scroll = 0
+	}
+	if s.scroll > maxScroll {
+		s.scroll = maxScroll
+	}
+}
+
+func (s *devConsoleState) visibleLogRows() int {
+	height := normalizeTerminalSize(terminalSize{Width: s.width, Height: s.height}).Height
+	if s.width >= 96 {
+		return maxInt(3, height-6)
+	}
+	return maxInt(3, height-8)
+}
+
+func (s *devConsoleState) handleRune(key rune) bool {
+	return s.handleKey(consoleKey{Kind: consoleKeyRune, Rune: key})
+}
+
 func renderDevConsole(snapshot devConsoleSnapshot) string {
-	var b strings.Builder
+	return renderDevConsoleStyled(snapshot, termstyle.Palette{})
+}
+
+func renderDevConsoleStyled(snapshot devConsoleSnapshot, palette termstyle.Palette) string {
+	size := normalizeTerminalSize(terminalSize{Width: snapshot.Width, Height: snapshot.Height})
+	width := size.Width
+	height := size.Height
 	selected := snapshot.Selected
 	if selected == "" {
 		selected = "all"
 	}
-	fmt.Fprintf(&b, "scenery dev runtime: %s\n", firstNonEmpty(snapshot.AppName, snapshot.AppRoot))
-	fmt.Fprintf(&b, "[%s]", tabLabel("all", selected == "all"))
+	lines := make([]string, 0, height)
+	headerTitle := palette.Bold("scenery console")
+	target := firstNonEmpty(snapshot.AppName, snapshot.AppRoot, "dev runtime")
+	header := headerTitle + "  " + palette.Cyan(target)
+	if snapshot.SessionID != "" {
+		header += "  " + palette.Dim("session "+snapshot.SessionID)
+	}
+	lines = append(lines, fitStyledLine(header, width))
+
+	viewTitle := selected
+	if viewTitle == "all" {
+		viewTitle = "all sources"
+	}
+	if snapshot.ErrorsOnly {
+		viewTitle += " errors"
+	}
+	if snapshot.Search != "" {
+		viewTitle += ` / "` + snapshot.Search + `"`
+	}
+	if snapshot.Frozen {
+		viewTitle += "  [frozen]"
+	}
+	if snapshot.Searching {
+		viewTitle += "  [search]"
+	}
+	lines = append(lines, fitStyledLine(palette.Dim("view")+" "+viewTitle, width))
+
+	if width >= 96 {
+		lines = append(lines, renderDevConsoleWide(snapshot, palette, width, height-len(lines)-1)...)
+	} else {
+		lines = append(lines, renderDevConsoleNarrow(snapshot, palette, width, height-len(lines)-1)...)
+	}
+
+	status := "tab source  arrows/page scroll  / search  f freeze  enter json  q quit"
+	if snapshot.Frozen {
+		status = "frozen  " + status
+	}
+	if snapshot.Scroll > 0 {
+		status = fmt.Sprintf("scrollback %d  %s", snapshot.Scroll, status)
+	}
+	lines = append(lines, fitStyledLine(palette.Dim(status), width))
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderDevConsoleWide(snapshot devConsoleSnapshot, palette termstyle.Palette, width, available int) []string {
+	if available <= 0 {
+		return nil
+	}
+	sidebarWidth := width / 3
+	if sidebarWidth < 30 {
+		sidebarWidth = 30
+	}
+	if sidebarWidth > 46 {
+		sidebarWidth = 46
+	}
+	logWidth := width - sidebarWidth - 1
+	logRows := maxInt(1, available-1)
+	left := renderDevConsoleSidebar(snapshot, palette, sidebarWidth, logRows)
+	right := renderDevConsoleLogLines(snapshot, palette, logWidth, logRows)
+	lines := []string{fitStyledLine(palette.Dim(strings.Repeat("-", sidebarWidth))+" "+palette.Dim(strings.Repeat("-", logWidth)), width)}
+	for i := 0; i < logRows; i++ {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		lines = append(lines, padStyledLine(l, sidebarWidth)+" "+fitStyledLine(r, logWidth))
+	}
+	return lines
+}
+
+func renderDevConsoleNarrow(snapshot devConsoleSnapshot, palette termstyle.Palette, width, available int) []string {
+	if available <= 0 {
+		return nil
+	}
+	lines := []string{fitStyledLine(renderDevConsoleTabs(snapshot, palette), width)}
+	sourceRows := minInt(3, maxInt(0, available/4))
+	for _, line := range renderDevConsoleSidebar(snapshot, palette, width, sourceRows) {
+		lines = append(lines, line)
+	}
+	remaining := available - len(lines)
+	if remaining > 0 {
+		lines = append(lines, renderDevConsoleLogLines(snapshot, palette, width, remaining)...)
+	}
+	return lines
+}
+
+func renderDevConsoleSidebar(snapshot devConsoleSnapshot, palette termstyle.Palette, width, rows int) []string {
+	if rows <= 0 {
+		return nil
+	}
+	lines := make([]string, 0, rows)
+	lines = append(lines, fitStyledLine(palette.Bold("sources")+" "+palette.Dim(fmt.Sprintf("%d", len(snapshot.Sources))), width))
+	for i, source := range snapshot.Sources {
+		if len(lines) >= rows {
+			break
+		}
+		marker := " "
+		if source.Source.ID == snapshot.Selected {
+			marker = ">"
+		}
+		if snapshot.Selected == "all" && i == 0 {
+			marker = " "
+		}
+		label := source.Source.ID
+		if i < 9 {
+			label = fmt.Sprintf("%d %s", i+1, label)
+		}
+		status := firstNonEmpty(source.Status, "active")
+		if source.ErrorCount > 0 {
+			status = palette.Red(fmt.Sprintf("%s %d err", status, source.ErrorCount))
+		} else {
+			status = palette.Green(status)
+		}
+		detail := firstNonEmpty(source.Source.Reason, source.LastError, source.Source.URL, source.Source.Role)
+		line := fmt.Sprintf("%s %-18s %-12s %s", marker, label, status, palette.Dim(detail))
+		lines = append(lines, fitStyledLine(line, width))
+	}
+	if len(snapshot.Errors) > 0 && len(lines) < rows {
+		lines = append(lines, fitStyledLine(palette.Bold("errors"), width))
+	}
+	for _, group := range snapshot.Errors {
+		if len(lines) >= rows {
+			break
+		}
+		last := "never"
+		if !group.Last.IsZero() {
+			last = humanDuration(time.Since(group.Last)) + " ago"
+		}
+		line := fmt.Sprintf("%s %dx %s %s", palette.Red(group.Source), group.Count, group.Message, palette.Dim(last))
+		lines = append(lines, fitStyledLine(line, width))
+	}
+	return lines
+}
+
+func renderDevConsoleTabs(snapshot devConsoleSnapshot, palette termstyle.Palette) string {
+	selected := firstNonEmpty(snapshot.Selected, "all")
+	parts := []string{tabLabel("all", selected == "all")}
 	for i, source := range snapshot.Sources {
 		label := source.Source.ID
 		if i < 9 {
 			label = fmt.Sprintf("%d:%s", i+1, label)
 		}
-		fmt.Fprintf(&b, " [%s]", tabLabel(label, selected == source.Source.ID))
+		parts = append(parts, tabLabel(label, selected == source.Source.ID))
 	}
-	b.WriteString("\n")
-	for _, source := range snapshot.Sources {
-		pid := firstNonEmpty(source.Source.PID, "shared")
-		last := "never"
-		if !source.LastLog.IsZero() {
-			last = humanDuration(time.Since(source.LastLog)) + " ago"
-		}
-		detail := firstNonEmpty(source.Source.Reason, source.LastError, source.Source.URL)
-		if detail == "" {
-			detail = source.Source.Role
-		}
-		fmt.Fprintf(&b, "%-20s %-9s pid %-8s %3d errors   last log %-8s %s\n",
-			source.Source.ID, firstNonEmpty(source.Status, "active"), pid, source.ErrorCount, last, detail)
+	return palette.Dim("sources ") + strings.Join(parts, " ")
+}
+
+func renderDevConsoleLogLines(snapshot devConsoleSnapshot, palette termstyle.Palette, width, rows int) []string {
+	if rows <= 0 {
+		return nil
 	}
-	if len(snapshot.Errors) > 0 {
-		b.WriteString("---------------- errors ----------------\n")
-		for _, group := range snapshot.Errors {
-			last := "never"
-			if !group.Last.IsZero() {
-				last = humanDuration(time.Since(group.Last)) + " ago"
-			}
-			fmt.Fprintf(&b, "[%s] %dx  %s  last %s\n", group.Source, group.Count, group.Message, last)
-		}
+	eventRows := rows
+	if snapshot.Expanded && len(snapshot.Events) > 0 {
+		eventRows = maxInt(1, rows/2)
 	}
-	title := selected
-	if title == "all" {
-		title = "all sources"
-	}
-	if snapshot.ErrorsOnly {
-		title += " errors"
-	}
-	if snapshot.Search != "" {
-		title += ` / "` + snapshot.Search + `"`
-	}
-	fmt.Fprintf(&b, "---------------- logs: %s ----------------\n", title)
-	for _, event := range tailDevEvents(snapshot.Events, 18) {
-		timestamp := "--:--:--"
-		if !event.CreatedAt.IsZero() {
-			timestamp = event.CreatedAt.Local().Format("15:04:05.000")
-		}
-		source := event.Source.ID
-		if source == "" {
-			source = "process"
-		}
-		fields := compactJSONFields(event.Fields)
-		if fields != "" {
-			fields = " " + fields
-		}
-		fmt.Fprintf(&b, "%s %-5s %-18s %s%s\n", timestamp, strings.ToUpper(event.Level), source, firstNonEmpty(event.Message, event.Raw), fields)
+	events := visibleDevEvents(snapshot.Events, eventRows, snapshot.Scroll)
+	lines := make([]string, 0, rows)
+	for _, event := range events {
+		lines = append(lines, renderDevConsoleEventLine(event, snapshot.Search, palette, width))
 	}
 	if snapshot.Expanded && len(snapshot.Events) > 0 {
 		last := snapshot.Events[len(snapshot.Events)-1]
 		data, _ := json.MarshalIndent(devConsoleEventJSON(snapshot.AppName, snapshot.AppRoot, last), "", "  ")
-		fmt.Fprintf(&b, "---------------- event json ----------------\n%s\n", data)
+		if len(lines) < rows {
+			lines = append(lines, fitStyledLine(palette.Bold("event json"), width))
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if len(lines) >= rows {
+				break
+			}
+			lines = append(lines, fitStyledLine(palette.Dim(line), width))
+		}
 	}
-	status := "tab source  1..9 jump  a all  e errors  / search  f freeze  enter json  ctrl-l clear  q quit"
-	if snapshot.Frozen {
-		status = "frozen  " + status
+	for len(lines) < rows {
+		lines = append(lines, "")
 	}
-	fmt.Fprintf(&b, "---------------- %s\n", status)
-	return b.String()
+	return lines
+}
+
+func renderDevConsoleEventLine(event devdash.DevEvent, search string, palette termstyle.Palette, width int) string {
+	timestamp := "--:--:--"
+	if !event.CreatedAt.IsZero() {
+		timestamp = event.CreatedAt.Local().Format("15:04:05.000")
+	}
+	source := firstNonEmpty(event.Source.ID, "process")
+	level := strings.ToUpper(firstNonEmpty(event.Level, "info"))
+	message := firstNonEmpty(event.Message, event.Raw)
+	fields := compactJSONFields(event.Fields)
+	if fields != "" {
+		message += " " + palette.Dim(fields)
+	}
+	message = highlightSearch(message, search, palette)
+	line := fmt.Sprintf("%s %-5s %-18s %s", palette.Dim(timestamp), styleConsoleLevel(level, palette), palette.Cyan(source), message)
+	return fitStyledLine(line, width)
+}
+
+func styleConsoleLevel(level string, palette termstyle.Palette) string {
+	switch strings.ToLower(level) {
+	case "error", "fatal":
+		return palette.Red(level)
+	case "warn", "warning":
+		return palette.Yellow(level)
+	case "debug", "trace":
+		return palette.Dim(level)
+	default:
+		return palette.Green(level)
+	}
+}
+
+func highlightSearch(text, search string, palette termstyle.Palette) string {
+	search = strings.TrimSpace(search)
+	if search == "" || !palette.Enabled() {
+		return text
+	}
+	lower := strings.ToLower(text)
+	needle := strings.ToLower(search)
+	idx := strings.Index(lower, needle)
+	if idx < 0 {
+		return text
+	}
+	return text[:idx] + palette.Inverse(text[idx:idx+len(search)]) + text[idx+len(search):]
 }
 
 func buildDevConsoleErrorGroups(events []devdash.DevEvent) []devConsoleErrorGroup {
@@ -483,6 +800,27 @@ func tailDevEvents(events []devdash.DevEvent, limit int) []devdash.DevEvent {
 	return events[len(events)-limit:]
 }
 
+func visibleDevEvents(events []devdash.DevEvent, rows, scroll int) []devdash.DevEvent {
+	if rows <= 0 || len(events) == 0 {
+		return nil
+	}
+	if len(events) <= rows {
+		return events
+	}
+	end := len(events) - scroll
+	if end > len(events) {
+		end = len(events)
+	}
+	if end < 0 {
+		end = 0
+	}
+	start := end - rows
+	if start < 0 {
+		start = 0
+	}
+	return events[start:end]
+}
+
 func tabLabel(value string, active bool) string {
 	if active {
 		return "*" + value + "*"
@@ -508,20 +846,6 @@ func compactJSONFields(fields json.RawMessage) string {
 		parts = append(parts, fmt.Sprintf("%s=%v", key, values[key]))
 	}
 	return strings.Join(parts, " ")
-}
-
-func readConsoleKeys(stdin *os.File, keys chan<- byte) {
-	var buf [1]byte
-	for {
-		n, err := stdin.Read(buf[:])
-		if n > 0 {
-			keys <- buf[0]
-		}
-		if err != nil {
-			close(keys)
-			return
-		}
-	}
 }
 
 func enterRawTerminal(stdin *os.File) (func(), error) {
@@ -577,4 +901,27 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func normalizeTerminalSize(size terminalSize) terminalSize {
+	if size.Width <= 0 {
+		size.Width = defaultConsoleWidth
+	}
+	if size.Height <= 0 {
+		size.Height = defaultConsoleHeight
+	}
+	if size.Width < minConsoleWidth {
+		size.Width = minConsoleWidth
+	}
+	if size.Height < minConsoleHeight {
+		size.Height = minConsoleHeight
+	}
+	return size
 }

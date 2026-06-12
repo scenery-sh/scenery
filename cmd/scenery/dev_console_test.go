@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"slices"
@@ -41,16 +43,135 @@ func TestRenderDevConsoleShowsSourcesLogsAndExpandedJSON(t *testing.T) {
 
 	out := renderDevConsole(snapshot)
 	for _, want := range []string{
-		"scenery dev runtime: billing",
+		"scenery console  billing",
 		"worker:typescript",
 		"activity failed",
-		"activity=SyncUser",
+		`"activity": "SyncUser"`,
 		"event json",
 		`"schema_version": "scenery.dev.event.v1"`,
 		"q quit",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("rendered console missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestDevConsoleDiffRendererAvoidsFullClearDuringSteadyState(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	renderer := newConsoleDiffRenderer(&out, terminalSize{Width: 40, Height: 4})
+	if err := renderer.Render("one\ntwo\nthree\nfour"); err != nil {
+		t.Fatalf("initial render: %v", err)
+	}
+	out.Reset()
+	if err := renderer.Render("one\nTWO\nthree\nfour"); err != nil {
+		t.Fatalf("second render: %v", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "\x1b[2J") {
+		t.Fatalf("steady-state render used full clear: %q", got)
+	}
+	if strings.Contains(got, "\x1b[1;1H") {
+		t.Fatalf("unchanged first line was repainted: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[2;1HTWO\x1b[K") {
+		t.Fatalf("changed second line was not repainted precisely: %q", got)
+	}
+}
+
+func TestRenderDevConsoleResponsiveLayoutsStayBounded(t *testing.T) {
+	t.Parallel()
+
+	events := make([]devdash.DevEvent, 0, 40)
+	for i := 0; i < 40; i++ {
+		events = append(events, devdash.DevEvent{
+			ID:        int64(i + 1),
+			SessionID: "feature-x",
+			Source:    devdash.DevSource{ID: "api", Kind: "app", Name: "api", PID: "12345", Status: "running"},
+			Level:     "info",
+			Message:   strings.Repeat("long-message-", 12),
+			CreatedAt: time.Date(2026, 5, 31, 12, 0, i, 0, time.UTC),
+		})
+	}
+	snapshot := devConsoleSnapshot{
+		AppName:   "billing",
+		SessionID: "feature-x",
+		Selected:  "all",
+		Sources: buildDevConsoleSources([]devdash.DevSource{
+			{ID: "api", Kind: "app", Name: "api", PID: "12345", Status: "running"},
+			{ID: "frontend:web", Kind: "frontend", Name: "web", Status: "running"},
+			{ID: "worker:typescript", Kind: "worker", Name: "typescript", PID: "12351", Status: "running"},
+		}, events),
+		Events: events,
+	}
+	for _, size := range []terminalSize{{Width: 80, Height: 24}, {Width: 200, Height: 60}} {
+		snapshot.Width = size.Width
+		snapshot.Height = size.Height
+		out := renderDevConsole(snapshot)
+		lines := strings.Split(out, "\n")
+		if len(lines) != size.Height {
+			t.Fatalf("%dx%d rendered %d lines", size.Width, size.Height, len(lines))
+		}
+		for i, line := range lines {
+			if got := visibleStringWidth(line); got > size.Width {
+				t.Fatalf("%dx%d line %d width = %d, want <= %d:\n%s", size.Width, size.Height, i+1, got, size.Width, out)
+			}
+		}
+	}
+}
+
+func TestDevConsoleKeyNavigationSearchAndMouse(t *testing.T) {
+	t.Parallel()
+
+	state := devConsoleState{width: 80, height: 12, selected: "all"}
+	for i := 0; i < 30; i++ {
+		state.events = append(state.events, devdash.DevEvent{ID: int64(i + 1), Message: "line"})
+	}
+	state.handleKey(consoleKey{Kind: consoleKeyUp})
+	if state.scroll != 1 {
+		t.Fatalf("up scroll = %d, want 1", state.scroll)
+	}
+	state.handleKey(consoleKey{Kind: consoleKeyPageDown})
+	if state.scroll != 0 {
+		t.Fatalf("page down scroll = %d, want 0", state.scroll)
+	}
+	state.handleKey(consoleKey{Kind: consoleKeyMouseWheelUp})
+	if state.scroll != 1 {
+		t.Fatalf("mouse wheel scroll = %d, want 1", state.scroll)
+	}
+	state.handleRune('/')
+	state.handleRune('b')
+	state.handleRune('o')
+	state.handleKey(consoleKey{Kind: consoleKeyBackspace})
+	if !state.searching || state.search != "b" || state.scroll != 0 {
+		t.Fatalf("search state = searching:%v search:%q scroll:%d", state.searching, state.search, state.scroll)
+	}
+	state.handleKey(consoleKey{Kind: consoleKeyEsc})
+	if state.searching || state.search != "" {
+		t.Fatalf("escape did not cancel search: searching:%v search:%q", state.searching, state.search)
+	}
+}
+
+func TestReadConsoleKeyParsesEscapeSequences(t *testing.T) {
+	t.Parallel()
+
+	reader := bufio.NewReader(strings.NewReader("\x1b[A\x1b[5~\x1b[6~\x1b[<64;20;10M\x1b[<65;20;10M"))
+	wants := []consoleKeyKind{
+		consoleKeyUp,
+		consoleKeyPageUp,
+		consoleKeyPageDown,
+		consoleKeyMouseWheelUp,
+		consoleKeyMouseWheelDown,
+	}
+	for _, want := range wants {
+		key, err := readConsoleKey(reader)
+		if err != nil {
+			t.Fatalf("read key: %v", err)
+		}
+		if key.Kind != want {
+			t.Fatalf("key kind = %v, want %v", key.Kind, want)
 		}
 	}
 }

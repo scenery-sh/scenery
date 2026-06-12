@@ -4,16 +4,6 @@ This file tracks known project debt that should be visible to agents before they
 
 ## Open
 
-### scenery console TUI Broken Formatting
-
-- Area: console
-- Severity: medium
-- Owner: scenery runtime
-- Created: 2026-06-09
-- Review after: 2026-07-09
-
-2026-06-12 update: the "completely frozen" symptom was the devdash store incident — a 422 MB `devdash.json` made every 500 ms TUI refresh re-parse the whole file for ~5 s (`scenery logs --limit 1` took 5.4 s; 0.21 s after compaction). That cause is fixed (process-event payload cap) and the structural follow-up is ExecPlan 0076. Remaining debt here is the terminal-rendering quality itself: raw escape-sequence redraw (`\x1b[2J` full clears each tick in `cmd/scenery/dev_console.go`) flickers and misformats on resize and narrow terminals. Fix needs terminal-rendering coverage, not store work.
-
 ### Full Dashboard Parity
 
 - Area: dashboard
