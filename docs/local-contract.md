@@ -51,6 +51,8 @@ same as the stable v0 support surface.
 - `scenery inspect routes --json`
 - `scenery inspect services --json`
 - `scenery inspect endpoints --json`
+- `scenery inspect models --json`
+- `scenery inspect views --json`
 - `scenery inspect wire --json`
 - `scenery inspect build --json`
 - `scenery inspect paths --json`
@@ -117,6 +119,7 @@ Dev-only or beta surface:
 - Temporal workflow/activity and cron runtime/admin affordances until their lifecycle, retry, scheduling, and clear/delete semantics are frozen
 - cron UI
 - `scenery.sh/temporal` workflow/activity declarations and worker registration
+- `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, `//scenery:model`, `//scenery:page`, and `scenery inspect models|views --json` until schema/backend/web generators are complete
 - migration compatibility for older app shapes
 
 Compatibility posture:
@@ -380,7 +383,7 @@ scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [
 scenery harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--summary|--json|--json=summary|--json=full] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|observability|validation --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|temporal|observability|validation --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
 scenery traces list --json [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
@@ -758,6 +761,7 @@ Rules:
 - Use `scenery inspect ... --json` for app, route, service, endpoint, wire, build, path, docs, generator, and Temporal metadata. Use `scenery traces list --json` and `scenery metrics list --json` for local observability metadata.
 - Do not read `.scenery/gen/*` directly unless debugging scenery generation. These files are internal cache artifacts that may mirror inspect output today, but they are not the supported API.
 - `wire/capabilities.json` is an internal cache for `scenery inspect wire --json` and the runtime `GET /_wire/capabilities` response.
+- `models.json` and `views.json` are internal caches for `scenery inspect models --json` and `scenery inspect views --json`. They expose static M1 IR only; schema, CRUD, and web generation outputs are tracked by `docs/plans/0077-static-model-view-ir.md` and are not implemented by this contract yet.
 - `manifest.json` ties generated cache artifacts to schema versions, artifact paths, and deterministic content hashes for debugging generation.
 - Use `scenery inspect build --json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
 - Use `scenery harness --json` for framework app-model proof, `scenery validate <profile> --json` for app-owned quality gates, and `scenery harness self --summary` for scenery repo validation. `harness/latest.json`, `harness/validation/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `--json=full` is the explicit full archive stdout mode.
@@ -770,6 +774,8 @@ Implemented now:
 - [scenery.inspect.routes.v1.schema.json](schemas/scenery.inspect.routes.v1.schema.json)
 - [scenery.inspect.services.v1.schema.json](schemas/scenery.inspect.services.v1.schema.json)
 - [scenery.inspect.endpoints.v1.schema.json](schemas/scenery.inspect.endpoints.v1.schema.json)
+- [scenery.inspect.models.v1.schema.json](schemas/scenery.inspect.models.v1.schema.json)
+- [scenery.inspect.views.v1.schema.json](schemas/scenery.inspect.views.v1.schema.json)
 - [scenery.inspect.traces.v1.schema.json](schemas/scenery.inspect.traces.v1.schema.json)
 - [scenery.inspect.metrics.v1.schema.json](schemas/scenery.inspect.metrics.v1.schema.json)
 - [scenery.inspect.observability.v1.schema.json](schemas/scenery.inspect.observability.v1.schema.json)

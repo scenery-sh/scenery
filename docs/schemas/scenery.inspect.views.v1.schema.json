@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.views.v1.schema.json",
+  "title": "scenery inspect views v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "app", "views"],
+  "properties": {
+    "schema_version": { "const": "scenery.inspect.views.v1" },
+    "app": { "$ref": "#/$defs/app" },
+    "views": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/view" }
+    }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "root", "config_path"],
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "type": "string" },
+        "root": { "type": "string" },
+        "config_path": { "type": "string" },
+        "module_path": { "type": "string" }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "package", "file", "line", "entity"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "const": "collection" },
+        "package": { "type": "string" },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "entity": { "type": "string" },
+        "route": { "type": "string" },
+        "title": { "type": "string" },
+        "columns": { "type": "array", "items": { "type": "string" } },
+        "slots": { "type": "array", "items": { "$ref": "#/$defs/slot" } }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" }
+      }
+    }
+  }
+}

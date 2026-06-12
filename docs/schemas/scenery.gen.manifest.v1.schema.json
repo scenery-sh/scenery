@@ -20,24 +20,27 @@
     },
     "counts": {
       "type": "object",
-      "required": ["packages", "services", "endpoints", "middleware", "auth_handler"],
+      "required": ["packages", "services", "endpoints", "middleware", "auth_handler", "runtime_declarations"],
       "properties": {
         "packages": { "type": "integer", "minimum": 0 },
         "services": { "type": "integer", "minimum": 0 },
         "endpoints": { "type": "integer", "minimum": 0 },
         "middleware": { "type": "integer", "minimum": 0 },
-        "auth_handler": { "type": "integer", "minimum": 0 }
+        "auth_handler": { "type": "integer", "minimum": 0 },
+        "runtime_declarations": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     },
     "artifacts": {
       "type": "object",
-      "required": ["app", "routes", "services", "endpoints", "wire_capabilities", "build_latest"],
+      "required": ["app", "routes", "services", "endpoints", "models", "views", "wire_capabilities", "build_latest"],
       "properties": {
         "app": { "type": "string" },
         "routes": { "type": "string" },
         "services": { "type": "string" },
         "endpoints": { "type": "string" },
+        "models": { "type": "string" },
+        "views": { "type": "string" },
         "wire_capabilities": { "type": "string" },
         "build_latest": { "type": "string" }
       },
@@ -45,12 +48,14 @@
     },
     "schemas": {
       "type": "object",
-      "required": ["app", "routes", "services", "endpoints", "wire_capabilities", "build_latest"],
+      "required": ["app", "routes", "services", "endpoints", "models", "views", "wire_capabilities", "build_latest"],
       "properties": {
         "app": { "type": "string" },
         "routes": { "type": "string" },
         "services": { "type": "string" },
         "endpoints": { "type": "string" },
+        "models": { "type": "string" },
+        "views": { "type": "string" },
         "wire_capabilities": { "type": "string" },
         "build_latest": { "type": "string" }
       },
@@ -58,12 +63,14 @@
     },
     "hashes": {
       "type": "object",
-      "required": ["app", "routes", "services", "endpoints", "wire_capabilities"],
+      "required": ["app", "routes", "services", "endpoints", "models", "views", "wire_capabilities"],
       "properties": {
         "app": { "type": "string" },
         "routes": { "type": "string" },
         "services": { "type": "string" },
         "endpoints": { "type": "string" },
+        "models": { "type": "string" },
+        "views": { "type": "string" },
         "wire_capabilities": { "type": "string" }
       },
       "additionalProperties": false

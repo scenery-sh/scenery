@@ -10,7 +10,9 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -99,6 +101,8 @@ func App(root, name string) (*model.App, error) {
 		app.Runtime = append(app.Runtime, pkg.Runtime...)
 		errs = append(errs, validateTemporalRuntimeCalls(pkg)...)
 	}
+	entityConfigs, configErrs := discoverEntityConfigs(app.Packages)
+	errs = append(errs, configErrs...)
 
 	var rawEndpoints []*model.Endpoint
 	var authHandlers []*model.AuthHandler
@@ -138,21 +142,36 @@ func App(root, name string) (*model.App, error) {
 				switch node := decl.(type) {
 				case *ast.GenDecl:
 					dir := parseDirective(node.Doc)
-					if dir == nil || dir.name != "service" {
+					if dir == nil {
 						continue
 					}
 					foundDirective = true
-					ss, err := parseServiceStruct(pkg, file, node)
-					if err != nil {
-						errs = append(errs, err.Error())
-						continue
+					switch dir.name {
+					case "service":
+						ss, err := parseServiceStruct(pkg, file, node)
+						if err != nil {
+							errs = append(errs, err.Error())
+							continue
+						}
+						if pkg.Service.Struct != nil {
+							errs = append(errs, fmt.Sprintf("duplicate scenery:service directive in service %s", pkg.Service.Name))
+							continue
+						}
+						ss.Service = pkg.Service
+						pkg.Service.Struct = ss
+					case "model":
+						entity, modelErrs := parseEntity(pkg, file, node, entityConfigs[entityConfigKey(pkg.ImportPath, modelDirectiveTypeName(node))])
+						errs = append(errs, modelErrs...)
+						if entity != nil {
+							app.Entities = append(app.Entities, entity)
+						}
+					case "page":
+						view, viewErrs := parsePageView(root, pkg, file, node)
+						errs = append(errs, viewErrs...)
+						if view != nil {
+							app.Views = append(app.Views, view)
+						}
 					}
-					if pkg.Service.Struct != nil {
-						errs = append(errs, fmt.Sprintf("duplicate scenery:service directive in service %s", pkg.Service.Name))
-						continue
-					}
-					ss.Service = pkg.Service
-					pkg.Service.Struct = ss
 				case *ast.FuncDecl:
 					dir := parseDirective(node.Doc)
 					if dir == nil {
@@ -272,6 +291,7 @@ func App(root, name string) (*model.App, error) {
 	}
 
 	app.Services = pruneEmptyServices(app.Services)
+	errs = append(errs, validateViews(app)...)
 
 	rawSet := make(map[types.Object]*model.Endpoint)
 	for _, ep := range rawEndpoints {
@@ -297,6 +317,18 @@ func App(root, name string) (*model.App, error) {
 	}
 
 	slices.SortFunc(app.Services, func(a, b *model.Service) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(app.Entities, func(a, b *model.Entity) int {
+		if cmp := strings.Compare(a.Package.RelDir, b.Package.RelDir); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(app.Views, func(a, b *model.View) int {
+		if cmp := strings.Compare(a.Package.RelDir, b.Package.RelDir); cmp != 0 {
+			return cmp
+		}
 		return strings.Compare(a.Name, b.Name)
 	})
 	for _, svc := range app.Services {
@@ -588,6 +620,501 @@ func parseServiceStruct(pkg *model.Package, file *model.File, decl *ast.GenDecl)
 		}
 	}
 	return ss, nil
+}
+
+type entityConfig struct {
+	Table  string
+	Fields map[string]entityFieldConfig
+}
+
+type entityFieldConfig struct {
+	Kind        model.EntityFieldKind
+	EnumValues  []string
+	Filterable  bool
+	RenamedFrom string
+}
+
+func discoverEntityConfigs(pkgs []*model.Package) (map[string]entityConfig, []string) {
+	configs := make(map[string]entityConfig)
+	var errs []string
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			aliases := importAliases(file.AST)
+			if len(aliases) == 0 {
+				continue
+			}
+			ast.Inspect(file.AST, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok || !isPackageCall(call.Fun, aliases, "scenery.sh/model", "Entity") {
+					return true
+				}
+				typeName, ok := firstTypeArg(pkg.GoPkg.Fset, call.Fun)
+				if !ok {
+					errs = append(errs, sourceDiagnostic(pkg, call.Lparen, "model.Entity requires one static type argument"))
+					return true
+				}
+				cfg := entityConfig{Fields: make(map[string]entityFieldConfig)}
+				for _, arg := range call.Args {
+					if err := parseEntityOption(pkg, aliases, arg, &cfg); err != nil {
+						errs = append(errs, sourceDiagnostic(pkg, arg.Pos(), err.Error()))
+					}
+				}
+				configs[entityConfigKey(pkg.ImportPath, typeName)] = cfg
+				return true
+			})
+		}
+	}
+	return configs, errs
+}
+
+func parseEntityOption(pkg *model.Package, aliases map[string]string, expr ast.Expr, cfg *entityConfig) error {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return fmt.Errorf("model.Entity options must be static model.* calls")
+	}
+	switch {
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Table"):
+		if len(call.Args) != 1 {
+			return fmt.Errorf("model.Table requires one string argument")
+		}
+		value, ok := staticStringValue(pkg, call.Args[0])
+		if !ok {
+			return fmt.Errorf("model.Table requires a constant string argument")
+		}
+		cfg.Table = strings.TrimSpace(value)
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Field"):
+		if len(call.Args) == 0 {
+			return fmt.Errorf("model.Field requires a field name")
+		}
+		fieldName, ok := staticStringValue(pkg, call.Args[0])
+		if !ok {
+			return fmt.Errorf("model.Field requires a constant field-name string")
+		}
+		fieldName = strings.TrimSpace(fieldName)
+		if fieldName == "" {
+			return fmt.Errorf("model.Field requires a non-empty field name")
+		}
+		fieldCfg := cfg.Fields[fieldName]
+		for _, opt := range call.Args[1:] {
+			if err := parseEntityFieldOption(pkg, aliases, opt, &fieldCfg); err != nil {
+				return fmt.Errorf("model.Field(%q): %w", fieldName, err)
+			}
+		}
+		cfg.Fields[fieldName] = fieldCfg
+	default:
+		return fmt.Errorf("unsupported model.Entity option; use model.Table or model.Field")
+	}
+	return nil
+}
+
+func parseEntityFieldOption(pkg *model.Package, aliases map[string]string, expr ast.Expr, cfg *entityFieldConfig) error {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return fmt.Errorf("field options must be static model.* calls")
+	}
+	switch {
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "EnumValues"):
+		if len(call.Args) == 0 {
+			return fmt.Errorf("model.EnumValues requires at least one value")
+		}
+		cfg.EnumValues = nil
+		for _, arg := range call.Args {
+			value, ok := staticStringValue(pkg, arg)
+			if !ok {
+				return fmt.Errorf("model.EnumValues requires constant string arguments")
+			}
+			cfg.EnumValues = append(cfg.EnumValues, value)
+		}
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Filterable"):
+		if len(call.Args) != 0 {
+			return fmt.Errorf("model.Filterable takes no arguments")
+		}
+		cfg.Filterable = true
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Computed"):
+		if len(call.Args) != 0 {
+			return fmt.Errorf("model.Computed takes no arguments")
+		}
+		cfg.Kind = model.EntityFieldComputed
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Relationship"):
+		if len(call.Args) != 0 {
+			return fmt.Errorf("model.Relationship takes no arguments")
+		}
+		cfg.Kind = model.EntityFieldRelationship
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "RenamedFrom"):
+		if len(call.Args) != 1 {
+			return fmt.Errorf("model.RenamedFrom requires one string argument")
+		}
+		value, ok := staticStringValue(pkg, call.Args[0])
+		if !ok {
+			return fmt.Errorf("model.RenamedFrom requires a constant string argument")
+		}
+		cfg.RenamedFrom = strings.TrimSpace(value)
+	default:
+		return fmt.Errorf("unsupported field option")
+	}
+	return nil
+}
+
+func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg entityConfig) (*model.Entity, []string) {
+	var errs []string
+	if len(decl.Specs) != 1 {
+		return nil, []string{"scenery:model must be declared on a single struct type"}
+	}
+	spec, ok := decl.Specs[0].(*ast.TypeSpec)
+	if !ok {
+		return nil, []string{"scenery:model must annotate a type declaration"}
+	}
+	structType, ok := spec.Type.(*ast.StructType)
+	if !ok {
+		return nil, []string{"scenery:model must annotate a struct type"}
+	}
+	entity := &model.Entity{
+		Package:  pkg,
+		File:     file,
+		Name:     spec.Name.Name,
+		TypeExpr: spec.Name.Name,
+		Table:    firstNonEmpty(cfg.Table, defaultTableName(spec.Name.Name)),
+		TokenPos: spec.Pos(),
+	}
+	seenFields := make(map[string]bool)
+	for _, field := range structType.Fields.List {
+		if len(field.Names) == 0 {
+			continue
+		}
+		typeExpr := renderNode(pkg.GoPkg.Fset, field.Type)
+		for _, name := range field.Names {
+			if !name.IsExported() {
+				continue
+			}
+			fieldCfg := cfg.Fields[name.Name]
+			kind := fieldCfg.Kind
+			if kind == "" {
+				kind = model.EntityFieldStored
+			}
+			item := model.EntityField{
+				Name:        name.Name,
+				TypeExpr:    typeExpr,
+				Kind:        kind,
+				Column:      fieldColumnName(field, name.Name),
+				EnumValues:  append([]string(nil), fieldCfg.EnumValues...),
+				Filterable:  fieldCfg.Filterable,
+				RenamedFrom: fieldCfg.RenamedFrom,
+			}
+			entity.Fields = append(entity.Fields, item)
+			seenFields[name.Name] = true
+		}
+	}
+	for fieldName := range cfg.Fields {
+		if !seenFields[fieldName] {
+			errs = append(errs, sourceDiagnostic(pkg, decl.Pos(), fmt.Sprintf("model.Field(%q) does not match a field on %s", fieldName, spec.Name.Name)))
+		}
+	}
+	return entity, errs
+}
+
+func parsePageView(root string, pkg *model.Package, file *model.File, decl *ast.GenDecl) (*model.View, []string) {
+	var errs []string
+	if decl.Tok != token.VAR || len(decl.Specs) != 1 {
+		return nil, []string{"scenery:page must be declared on a single var declaration"}
+	}
+	spec, ok := decl.Specs[0].(*ast.ValueSpec)
+	if !ok || len(spec.Names) != 1 || len(spec.Values) != 1 {
+		return nil, []string{"scenery:page must annotate one initialized page variable"}
+	}
+	lit, ok := spec.Values[0].(*ast.CompositeLit)
+	if !ok || !isPageCollectionType(lit.Type, importAliases(file.AST)) {
+		return nil, []string{"scenery:page currently supports page.Collection[T] composite literals"}
+	}
+	entityName, ok := firstTypeArg(pkg.GoPkg.Fset, lit.Type)
+	if !ok {
+		return nil, []string{"page.Collection requires one static type argument"}
+	}
+	view := &model.View{
+		Package:  pkg,
+		File:     file,
+		Name:     spec.Names[0].Name,
+		Kind:     "collection",
+		Entity:   entityName,
+		TokenPos: spec.Names[0].Pos(),
+	}
+	for _, elt := range lit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			errs = append(errs, sourceDiagnostic(pkg, elt.Pos(), "page.Collection fields must use keyed literals"))
+			continue
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		switch key.Name {
+		case "Route":
+			value, ok := staticStringValue(pkg, kv.Value)
+			if !ok {
+				errs = append(errs, sourceDiagnostic(pkg, kv.Value.Pos(), "page.Collection.Route must be a constant string"))
+				continue
+			}
+			view.Route = value
+		case "Title":
+			value, ok := staticStringValue(pkg, kv.Value)
+			if !ok {
+				errs = append(errs, sourceDiagnostic(pkg, kv.Value.Pos(), "page.Collection.Title must be a constant string"))
+				continue
+			}
+			view.Title = value
+		case "Columns":
+			values, ok := literalStringSlice(pkg, kv.Value)
+			if !ok {
+				errs = append(errs, sourceDiagnostic(pkg, kv.Value.Pos(), "page.Collection.Columns must be a static string slice"))
+				continue
+			}
+			view.Columns = values
+		case "Slots":
+			slots, slotErrs := parsePageSlots(root, pkg, importAliases(file.AST), kv.Value)
+			errs = append(errs, slotErrs...)
+			view.Slots = slots
+		}
+	}
+	return view, errs
+}
+
+func parsePageSlots(root string, pkg *model.Package, aliases map[string]string, expr ast.Expr) ([]model.ViewSlot, []string) {
+	lit, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil, []string{sourceDiagnostic(pkg, expr.Pos(), "page.Collection.Slots must be a static page.Component slice")}
+	}
+	var out []model.ViewSlot
+	var errs []string
+	for _, elt := range lit.Elts {
+		call, ok := elt.(*ast.CallExpr)
+		if !ok || !isPackageCall(call.Fun, aliases, "scenery.sh/page", "Component") || len(call.Args) != 1 {
+			errs = append(errs, sourceDiagnostic(pkg, elt.Pos(), "page slots must use page.Component(\"Name\")"))
+			continue
+		}
+		name, ok := staticStringValue(pkg, call.Args[0])
+		if !ok {
+			errs = append(errs, sourceDiagnostic(pkg, call.Args[0].Pos(), "page.Component requires a constant string argument"))
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			errs = append(errs, sourceDiagnostic(pkg, call.Args[0].Pos(), "page.Component requires a non-empty name"))
+			continue
+		}
+		if !componentFileExists(root, name) {
+			errs = append(errs, sourceDiagnostic(pkg, call.Args[0].Pos(), fmt.Sprintf("page.Component(%q) did not resolve to a TypeScript component file", name)))
+		}
+		out = append(out, model.ViewSlot{Name: name})
+	}
+	return out, errs
+}
+
+func validateViews(app *model.App) []string {
+	entities := make(map[string]bool)
+	for _, entity := range app.Entities {
+		entities[entity.Name] = true
+	}
+	var errs []string
+	for _, view := range app.Views {
+		if !entities[view.Entity] {
+			errs = append(errs, sourceDiagnostic(view.Package, view.TokenPos, fmt.Sprintf("page %s references unknown model %s", view.Name, view.Entity)))
+		}
+	}
+	return errs
+}
+
+func modelDirectiveTypeName(decl *ast.GenDecl) string {
+	if decl == nil || len(decl.Specs) != 1 {
+		return ""
+	}
+	spec, ok := decl.Specs[0].(*ast.TypeSpec)
+	if !ok || spec.Name == nil {
+		return ""
+	}
+	return spec.Name.Name
+}
+
+func entityConfigKey(importPath, typeName string) string {
+	return importPath + ":" + typeName
+}
+
+func importAliases(file *ast.File) map[string]string {
+	aliases := make(map[string]string)
+	if file == nil {
+		return aliases
+	}
+	for _, imp := range file.Imports {
+		importPath := strings.Trim(imp.Path.Value, "\"")
+		alias := filepath.Base(importPath)
+		if imp.Name != nil {
+			if imp.Name.Name == "." || imp.Name.Name == "_" {
+				continue
+			}
+			alias = imp.Name.Name
+		}
+		aliases[alias] = importPath
+	}
+	return aliases
+}
+
+func isPackageCall(expr ast.Expr, aliases map[string]string, importPath, name string) bool {
+	sel, ok := selectorFromRuntimeCall(expr)
+	if !ok || sel.Sel.Name != name {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return aliases[ident.Name] == importPath
+}
+
+func firstTypeArg(fset *token.FileSet, expr ast.Expr) (string, bool) {
+	switch v := expr.(type) {
+	case *ast.IndexExpr:
+		return shortTypeName(renderNode(fset, v.Index)), true
+	case *ast.IndexListExpr:
+		if len(v.Indices) != 1 {
+			return "", false
+		}
+		return shortTypeName(renderNode(fset, v.Indices[0])), true
+	default:
+		return "", false
+	}
+}
+
+func shortTypeName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.TrimPrefix(value, "*")
+	if before, _, ok := strings.Cut(value, "["); ok {
+		value = before
+	}
+	if strings.Contains(value, ".") {
+		parts := strings.Split(value, ".")
+		value = parts[len(parts)-1]
+	}
+	return strings.TrimSpace(value)
+}
+
+func isPageCollectionType(expr ast.Expr, aliases map[string]string) bool {
+	return isPackageCall(expr, aliases, "scenery.sh/page", "Collection")
+}
+
+func literalStringSlice(pkg *model.Package, expr ast.Expr) ([]string, bool) {
+	lit, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil, false
+	}
+	values := make([]string, 0, len(lit.Elts))
+	for _, elt := range lit.Elts {
+		value, ok := staticStringValue(pkg, elt)
+		if !ok {
+			return nil, false
+		}
+		values = append(values, value)
+	}
+	return values, true
+}
+
+func componentFileExists(root, name string) bool {
+	want := map[string]bool{
+		name + ".ts":  true,
+		name + ".tsx": true,
+	}
+	found := false
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".scenery", "node_modules", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if want[d.Name()] {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
+func fieldColumnName(field *ast.Field, fieldName string) string {
+	if field != nil && field.Tag != nil {
+		if tag, err := strconv.Unquote(field.Tag.Value); err == nil {
+			if value := tagSetting(tag, "scenery", "column"); value != "" {
+				return value
+			}
+			if value := firstTagValue(tag, "db"); value != "" {
+				return value
+			}
+		}
+	}
+	return toSnake(fieldName)
+}
+
+func tagSetting(tag, key, setting string) string {
+	value := firstTagValue(tag, key)
+	if value == "" {
+		return ""
+	}
+	for _, part := range strings.Split(value, ",") {
+		name, val, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if ok && name == setting && val != "" {
+			return val
+		}
+	}
+	return ""
+}
+
+func firstTagValue(tag, key string) string {
+	value := reflect.StructTag(tag).Get(key)
+	if first, _, _ := strings.Cut(value, ","); first == "-" {
+		return ""
+	}
+	return value
+}
+
+func staticStringValue(pkg *model.Package, expr ast.Expr) (string, bool) {
+	if ident, ok := expr.(*ast.Ident); ok && pkg != nil && pkg.GoPkg != nil {
+		if _, ok := pkg.GoPkg.TypesInfo.Uses[ident].(*types.Const); !ok {
+			return "", false
+		}
+	}
+	return literalStringValue(pkg, expr)
+}
+
+func defaultTableName(typeName string) string {
+	return toSnake(typeName) + "s"
+}
+
+func toSnake(value string) string {
+	var b strings.Builder
+	for i, r := range value {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r + ('a' - 'A'))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func parseDirective(group *ast.CommentGroup) *directive {

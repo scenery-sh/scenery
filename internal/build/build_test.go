@@ -322,6 +322,8 @@ func Config(context.Context) error { return nil }
 		".scenery/gen/routes.json":            `"schema_version": "scenery.inspect.routes.v1"`,
 		".scenery/gen/services.json":          `"schema_version": "scenery.inspect.services.v1"`,
 		".scenery/gen/endpoints.json":         `"schema_version": "scenery.inspect.endpoints.v1"`,
+		".scenery/gen/models.json":            `"schema_version": "scenery.inspect.models.v1"`,
+		".scenery/gen/views.json":             `"schema_version": "scenery.inspect.views.v1"`,
 		".scenery/gen/wire/capabilities.json": `"schema_version": "scenery.wire.capabilities.v1"`,
 		".scenery/gen/manifest.json":          `"schema_version": "scenery.gen.manifest.v1"`,
 	} {
@@ -361,6 +363,8 @@ func Config(context.Context) error { return nil }
 			Routes           string `json:"routes"`
 			Services         string `json:"services"`
 			Endpoints        string `json:"endpoints"`
+			Models           string `json:"models"`
+			Views            string `json:"views"`
 			WireCapabilities string `json:"wire_capabilities"`
 			BuildLatest      string `json:"build_latest"`
 		} `json:"artifacts"`
@@ -369,6 +373,8 @@ func Config(context.Context) error { return nil }
 			Routes           string `json:"routes"`
 			Services         string `json:"services"`
 			Endpoints        string `json:"endpoints"`
+			Models           string `json:"models"`
+			Views            string `json:"views"`
 			WireCapabilities string `json:"wire_capabilities"`
 			BuildLatest      string `json:"build_latest"`
 		} `json:"schemas"`
@@ -377,19 +383,21 @@ func Config(context.Context) error { return nil }
 			Routes           string `json:"routes"`
 			Services         string `json:"services"`
 			Endpoints        string `json:"endpoints"`
+			Models           string `json:"models"`
+			Views            string `json:"views"`
 			WireCapabilities string `json:"wire_capabilities"`
 		} `json:"hashes"`
 	}
 	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
 		t.Fatalf("json.Unmarshal(manifest.json): %v", err)
 	}
-	if manifest.Artifacts.App != ".scenery/gen/app.json" || manifest.Artifacts.Endpoints != ".scenery/gen/endpoints.json" || manifest.Artifacts.WireCapabilities != ".scenery/gen/wire/capabilities.json" || manifest.Artifacts.BuildLatest != ".scenery/build/latest.json" {
+	if manifest.Artifacts.App != ".scenery/gen/app.json" || manifest.Artifacts.Endpoints != ".scenery/gen/endpoints.json" || manifest.Artifacts.Models != ".scenery/gen/models.json" || manifest.Artifacts.Views != ".scenery/gen/views.json" || manifest.Artifacts.WireCapabilities != ".scenery/gen/wire/capabilities.json" || manifest.Artifacts.BuildLatest != ".scenery/build/latest.json" {
 		t.Fatalf("manifest artifacts = %+v", manifest.Artifacts)
 	}
-	if manifest.Schemas.App != "scenery.inspect.app.v1" || manifest.Schemas.Endpoints != "scenery.inspect.endpoints.v1" || manifest.Schemas.WireCapabilities != "scenery.wire.capabilities.v1" || manifest.Schemas.BuildLatest != "scenery.build.latest.v1" {
+	if manifest.Schemas.App != "scenery.inspect.app.v1" || manifest.Schemas.Endpoints != "scenery.inspect.endpoints.v1" || manifest.Schemas.Models != "scenery.inspect.models.v1" || manifest.Schemas.Views != "scenery.inspect.views.v1" || manifest.Schemas.WireCapabilities != "scenery.wire.capabilities.v1" || manifest.Schemas.BuildLatest != "scenery.build.latest.v1" {
 		t.Fatalf("manifest schemas = %+v", manifest.Schemas)
 	}
-	if manifest.Hashes.App == "" || manifest.Hashes.Routes == "" || manifest.Hashes.Services == "" || manifest.Hashes.Endpoints == "" || manifest.Hashes.WireCapabilities == "" {
+	if manifest.Hashes.App == "" || manifest.Hashes.Routes == "" || manifest.Hashes.Services == "" || manifest.Hashes.Endpoints == "" || manifest.Hashes.Models == "" || manifest.Hashes.Views == "" || manifest.Hashes.WireCapabilities == "" {
 		t.Fatalf("manifest hashes = %+v", manifest.Hashes)
 	}
 }

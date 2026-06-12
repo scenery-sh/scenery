@@ -103,7 +103,7 @@ runtime or codegen.
 
 `internal/model` is the shared vocabulary between parser, inspector, codegen,
 wire modeling, and build. Important types include `App`, `Service`, `Package`,
-`Endpoint`, `Middleware`, `AuthHandler`, and `ServiceStruct`.
+`Endpoint`, `Middleware`, `AuthHandler`, `ServiceStruct`, `Entity`, and `View`.
 
 Architecture invariant: the model is an in-memory description of a parsed app,
 not a runtime registry and not a JSON schema. Public JSON responses live in
@@ -167,6 +167,8 @@ The public packages at the module root are what user apps import:
   registration, and pluggable email delivery)
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping
 - `scenery.sh/middleware` exposes middleware types
+- `scenery.sh/model` and `scenery.sh/page` expose static compile-time vocabulary
+  for model/view IR; they do not maintain a runtime registry
 - `scenery.sh/temporal`, `scenery.sh/cron`, `scenery.sh/pgxpool`, and related small
   packages expose local runtime integrations
 

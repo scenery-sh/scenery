@@ -37,8 +37,8 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	if payload.App.Name != "harnessapp" || payload.App.ModulePath != "example.com/harnessapp" {
 		t.Fatalf("app = %+v", payload.App)
 	}
-	if len(payload.Steps) != 10 {
-		t.Fatalf("steps = %d, want 10", len(payload.Steps))
+	if len(payload.Steps) != 12 {
+		t.Fatalf("steps = %d, want 12", len(payload.Steps))
 	}
 	if payload.Steps[0].Evidence == nil || payload.Steps[0].Evidence.ReproCommand == "" {
 		t.Fatalf("expected step evidence with repro command: %+v", payload.Steps[0])

@@ -678,6 +678,8 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.inspect.build.v1.schema.json",
 		"docs/schemas/scenery.inspect.docs.v1.schema.json",
 		"docs/schemas/scenery.inspect.endpoints.v1.schema.json",
+		"docs/schemas/scenery.inspect.models.v1.schema.json",
+		"docs/schemas/scenery.inspect.views.v1.schema.json",
 		"docs/schemas/scenery.inspect.harness.v1.schema.json",
 		"docs/schemas/scenery.inspect.observability.v1.schema.json",
 		"docs/schemas/scenery.inspect.metrics.v1.schema.json",

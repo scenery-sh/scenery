@@ -731,7 +731,7 @@ func buildHarnessFixtureMatrixReport(ctx context.Context, repoRoot string) *harn
 				})
 			}
 		}
-		for _, subject := range []string{"app", "routes", "services", "endpoints"} {
+		for _, subject := range []string{"app", "routes", "services", "endpoints", "models", "views"} {
 			step := runHarnessFixtureInspect(repoRoot, subject, appRoot)
 			result.Inspect[subject] = step.OK
 			if !step.OK {

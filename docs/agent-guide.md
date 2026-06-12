@@ -28,6 +28,8 @@ scenery check --json
 scenery inspect app --json
 scenery inspect routes --json
 scenery inspect endpoints --json
+scenery inspect models --json
+scenery inspect views --json
 scenery inspect wire --json
 scenery system toolchain verify --json
 ```
@@ -160,6 +162,7 @@ Prefer JSON when output will feed another tool or decision.
 | Validate app model | `scenery check --json` |
 | Inspect app/root/config | `scenery inspect app --json` |
 | Inspect routes/endpoints/services | `scenery inspect routes --json`, `scenery inspect endpoints --json`, `scenery inspect services --json` |
+| Inspect static model/view IR | `scenery inspect models --json`, `scenery inspect views --json` |
 | Inspect generated client/wire | `scenery inspect wire --json` |
 | Inspect build/cache paths | `scenery inspect build --json`, `scenery inspect paths --json` |
 | Inspect generator graph | `scenery inspect generators --json` |
@@ -223,6 +226,8 @@ scenery inspect app --json
 scenery inspect routes --json
 scenery inspect services --json
 scenery inspect endpoints --json
+scenery inspect models --json
+scenery inspect views --json
 scenery inspect wire --json
 scenery inspect build --json
 scenery harness --json
@@ -231,6 +236,8 @@ scenery harness self --summary
 ```
 
 Generated repo-local files may exist after inspect/build/harness commands produce them:
+
+- `.scenery/gen/models.json` and `.scenery/gen/views.json` cache the static model/page IR consumed by `scenery inspect models|views --json`. They are disposable cache files; schema, CRUD, and web generation from that IR are tracked by `docs/plans/0077-static-model-view-ir.md`.
 
 ```text
 <app-root>/.scenery/

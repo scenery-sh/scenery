@@ -203,7 +203,9 @@
         "docs/schemas/scenery.validation.inspect.v1.schema.json",
         "docs/schemas/scenery.validation.graph.v1.schema.json",
         "docs/schemas/scenery.validation.plan.v1.schema.json",
-        "docs/schemas/scenery.validation.result.v1.schema.json"
+        "docs/schemas/scenery.validation.result.v1.schema.json",
+        "docs/schemas/scenery.inspect.models.v1.schema.json",
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
       ]
     },
     {
@@ -543,6 +545,29 @@
         "cli",
         "docs",
         "agents"
+      ]
+    },
+    {
+      "path": "docs/plans/0077-static-model-view-ir.md",
+      "title": "Static Model/View IR",
+      "owner": "scenery app model / generators",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-12",
+      "review_after": "2026-07-12",
+      "summary": "Active ExecPlan for static //scenery:model and //scenery:page IR, inspectable model/view JSON, and follow-on generated schema, backend, and web layers.",
+      "tags": [
+        "plans",
+        "execplans",
+        "models",
+        "views",
+        "generators",
+        "agents"
+      ],
+      "schema_refs": [
+        "docs/schemas/scenery.inspect.models.v1.schema.json",
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
       ]
     },
     {
