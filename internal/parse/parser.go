@@ -396,10 +396,6 @@ func attachGeneratedModelEndpoints(app *model.App) []string {
 			errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, fmt.Sprintf("model %s needs an ID field before CRUD endpoints can be generated", entity.Name)))
 			continue
 		}
-		if generatedModelHasTenantField(entity) {
-			errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, fmt.Sprintf("model %s includes tenant state; generated CRUD tenancy enforcement is not implemented yet, so declare model.Override or model.Disable for generated actions", entity.Name)))
-			continue
-		}
 		overrides := make(map[model.EntityCRUDAction]string, len(entity.CRUD.Overrides))
 		for _, override := range entity.CRUD.Overrides {
 			overrides[override.Action] = override.Endpoint
@@ -442,7 +438,7 @@ func buildGeneratedModelEndpoint(entity *model.Entity, action model.EntityCRUDAc
 		Package:   entity.Package,
 		Entity:    entity,
 		Action:    action,
-		Access:    runtimeapi.Public,
+		Access:    generatedModelEndpointAccess(entity),
 		Generated: true,
 	}
 	switch action {
@@ -475,6 +471,13 @@ func buildGeneratedModelEndpoint(entity *model.Entity, action model.EntityCRUDAc
 		return nil, fmt.Errorf("unsupported generated model action %q", action)
 	}
 	return ep, nil
+}
+
+func generatedModelEndpointAccess(entity *model.Entity) runtimeapi.Access {
+	if entity.TenantField() != nil {
+		return runtimeapi.Auth
+	}
+	return runtimeapi.Public
 }
 
 func generatedIDParamKind(field model.EntityField) runtimeapi.ParamKind {
@@ -514,18 +517,6 @@ func primaryKeyField(entity *model.Entity) *model.EntityField {
 		}
 	}
 	return nil
-}
-
-func generatedModelHasTenantField(entity *model.Entity) bool {
-	for _, field := range entity.Fields {
-		if field.Kind == model.EntityFieldComputed {
-			continue
-		}
-		if strings.EqualFold(field.Name, "TenantID") || strings.EqualFold(field.Column, "tenant_id") {
-			return true
-		}
-	}
-	return false
 }
 
 func generatedEndpointCollision(svc *model.Service, generated *model.GeneratedModelEndpoint) string {

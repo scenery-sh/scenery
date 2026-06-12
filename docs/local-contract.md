@@ -120,9 +120,9 @@ Dev-only or beta surface:
 - Temporal workflow/activity and cron runtime/admin affordances until their lifecycle, retry, scheduling, and clear/delete semantics are frozen
 - cron UI
 - `scenery.sh/temporal` workflow/activity declarations and worker registration
-- `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, `//scenery:model`, `//scenery:page`, `model.Generate|Disable|Override` CRUD action policy, `scenery inspect models|views --json`, generated model endpoint markers, and beta generated data/web packages until the remaining tenancy and frontend runtime-adapter work is complete
+- `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, `//scenery:model`, `//scenery:page`, `model.Generate|Disable|Override` CRUD action policy, `scenery inspect models|views --json`, generated model endpoint markers, and beta generated data/web packages until the remaining frontend runtime-adapter work is complete
 - `scenery generate data --dry-run --json`, generated desired schema files under `.scenery/gen/db/<service>/schema.hcl`, generated seed files under `.scenery/gen/db/<service>/seed.sql`, generated frontend packages under `.scenery/gen/web/<frontend>/`, `scenery db diff --generated --json`, and `scenery check` model-schema drift diagnostics
-- generated model CRUD endpoints/stores in the transient build workspace. These endpoints appear in `scenery inspect endpoints|routes --json` with `"generated": true`; generated stores use the app database selected by `DatabaseURL`/managed database env. Entities with `TenantID`/`tenant_id` are blocked from generated CRUD until full tenancy policy lands.
+- generated model CRUD endpoints/stores in the transient build workspace. These endpoints appear in `scenery inspect endpoints|routes --json` with `"generated": true`; generated stores use the app database selected by `DatabaseURL`/managed database env. Entities with a convention `TenantID`/`tenant_id` field generate `auth` endpoints, derive the active tenant from standard auth, scope list/get/update/delete SQL by `tenant_id`, and inject `tenant_id` on create so tenant IDs are not client-writable in generated create/patch payloads.
 - migration compatibility for older app shapes
 
 Compatibility posture:

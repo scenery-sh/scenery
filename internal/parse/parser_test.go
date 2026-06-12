@@ -12,6 +12,7 @@ import (
 	"scenery.sh/internal/clientgen"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/runtimeapi"
 )
 
 func TestBasicAppParseAndClientgen(t *testing.T) {
@@ -397,14 +398,14 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	if got := crudActionList(entity.CRUD.Disabled); got != "delete" {
 		t.Fatalf("crud disabled = %q", got)
 	}
-	if len(entity.Seeds) != 1 || len(entity.Seeds[0].Values) != 5 {
+	if len(entity.Seeds) != 1 || len(entity.Seeds[0].Values) != 6 {
 		t.Fatalf("seeds = %+v", entity.Seeds)
 	}
 	seedValues := map[string]model.EntitySeedValue{}
 	for _, value := range entity.Seeds[0].Values {
 		seedValues[value.Field] = value
 	}
-	if seedValues["Status"].Value != "todo" || seedValues["CreatedAt"].Kind != model.EntitySeedTimestamp || seedValues["CreatedAt"].Value != "2026-06-12T12:00:00Z" {
+	if seedValues["TenantID"].Value != "00000000-0000-0000-0000-000000000001" || seedValues["Status"].Value != "todo" || seedValues["CreatedAt"].Kind != model.EntitySeedTimestamp || seedValues["CreatedAt"].Value != "2026-06-12T12:00:00Z" {
 		t.Fatalf("seed values = %+v", seedValues)
 	}
 	if len(app.Services) != 1 || len(app.Services[0].Generated) != 4 {
@@ -413,6 +414,9 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	for _, ep := range app.Services[0].Generated {
 		if !ep.Generated {
 			t.Fatalf("generated endpoint not marked generated: %+v", ep)
+		}
+		if ep.Access != runtimeapi.Auth {
+			t.Fatalf("generated tenant endpoint access = %s, want auth", ep.Access)
 		}
 		if ep.Name == "DeleteTask" {
 			t.Fatalf("disabled delete endpoint was generated: %+v", ep)
@@ -488,19 +492,6 @@ var _ = model.Entity[Task](model.Seed(Task{Missing: "x"}))
 			want: `model.Seed field "Missing" does not match a field on Task`,
 		},
 		{
-			name: "tenant generated crud blocked",
-			body: `package tasks
-
-import "scenery.sh/model"
-
-//scenery:model
-type Task struct { ID string; TenantID string }
-
-var _ = model.Entity[Task](model.Generate(model.ActionList))
-`,
-			want: `generated CRUD tenancy enforcement is not implemented yet`,
-		},
-		{
 			name: "missing slot",
 			body: `package tasks
 
@@ -527,6 +518,35 @@ var TaskList = page.Collection[Task]{Slots: []page.ComponentRef{page.Component("
 				t.Fatalf("parse error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestModelDSLTenantGeneratedCRUDUsesAuthAccess(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/modeltenant\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	writeFile(t, root, "tasks/model.go", `package tasks
+
+import "scenery.sh/model"
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Task struct { ID string; TenantID string }
+
+var _ = model.Entity[Task](model.Generate(model.ActionList))
+`)
+	app, err := parse.App(root, "modeltenant")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	if len(app.Services) != 1 || len(app.Services[0].Generated) != 1 {
+		t.Fatalf("generated endpoints = %+v", app.Services)
+	}
+	if got := app.Services[0].Generated[0].Access; got != runtimeapi.Auth {
+		t.Fatalf("tenant generated CRUD access = %s, want auth", got)
 	}
 }
 
