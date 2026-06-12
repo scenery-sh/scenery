@@ -40,6 +40,8 @@ The dev-event plane is now VictoriaLogs-backed for CLI and console reads. The lo
 
 Completed on 2026-06-01.
 
+Drift note (2026-06-12): the "small JSON metadata store" outcome did not hold — `devdash.json` remained the report-ingest write path for trace summaries, trace events, and log events, and grew to 422 MB. The current contract and resolution path live in ExecPlan 0076 (Devdash Control-Plane Store Slimming).
+
 The implementation now has one current dev-event read path for logs, attach, TUI, and console: VictoriaLogs. Local dashboard/session metadata, saved dashboard requests, and compatibility observability snapshots are stored in `devdash.json`.
 
 The module graph and active source/docs no longer reference an embedded local SQL driver. Historical plans may still describe the migration history, but they are not current contract.

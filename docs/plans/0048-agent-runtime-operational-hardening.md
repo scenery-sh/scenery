@@ -25,6 +25,9 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [ ] Phase 2: Add `dev.setup` run policy and update ONLV to use schema-change setup.
 - [ ] Phase 3: Add and wire a real two-worktree ONLV parallel smoke gate.
 - [ ] Phase 4: Consider optional `doctor dev`, browser-profile isolation, and later network sandbox hardening after the default path is stable.
+- [ ] Phase 5.1: Add single-instance locks for the edge Caddy and `scenery system agent`, and reap stale binders on owned ports (TCP and UDP 19443, router port) at startup.
+- [ ] Phase 5.2: Add a rebrand-migration sweep that detects and stops pre-rebrand `~/.onlava` processes and offers `~/.onlava` state cleanup.
+- [ ] Phase 5.3: Teach `scenery doctor` to flag duplicate listeners on scenery-owned ports and orphaned `scenery system agent` processes.
 
 ## Surprises & Discoveries
 
@@ -36,6 +39,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - 2026-05-27: `cmd/scenery/dev_supervisor.go` runs all `dev.setup` commands inside every `RebuildAndRestart` after compile and before app start. This is fine for fast idempotent scripts but will become expensive once setup includes migrations, seed data, imports, or codegen. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/harness_parallel.go` contains a self-harness parallel session check, but this plan still requires a high-signal ONLV two-worktree smoke script that starts the real target app with managed Postgres, Electric, frontend, Temporal, logs, traces, and teardown as an executable release gate. Source review on 2026-05-28 confirmed the current harness check is still synthetic and in-process.
 - 2026-06-11: Explicit session-selection flags conflict with the current product rule. Parallel live development should be expressed as multiple Git worktrees, not multiple user-named runtimes from one app directory.
+- 2026-06-12: A pre-rebrand `~/.onlava` edge Caddy (started 2026-06-08) ran for four days racing the current `~/.scenery` edge on TCP and UDP 127.0.0.1:19443 via SO_REUSEPORT, and three orphaned `scenery system agent` processes pointed `--router-listen` at an already-owned port. Nothing in `scenery doctor` or `scenery ps` surfaced either condition; both were found via `lsof -nP -iTCP:19443 -sTCP:LISTEN` and `lsof -nP -iUDP:19443` while debugging an unrelated SSE incident. Duplicate UDP binders are a live HTTP/3 hazard because QUIC flows hash across both processes.
 
 ## Decision Log
 

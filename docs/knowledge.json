@@ -546,6 +546,25 @@
       ]
     },
     {
+      "path": "docs/plans/0076-devdash-control-plane-store-slimming.md",
+      "title": "Devdash Control-Plane Store Slimming",
+      "owner": "scenery runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-12",
+      "review_after": "2026-07-12",
+      "summary": "Active ExecPlan to make devdash.json a small single-writer control-plane store: cut trace and report-log reads over to Victoria, remove event slices from the store state, enforce a byte budget in self-harness, and record drift from ExecPlan 0056 after the 2026-06-12 422 MB store incident.",
+      "tags": [
+        "plans",
+        "execplans",
+        "devdash",
+        "victoria",
+        "observability",
+        "agents"
+      ]
+    },
+    {
       "path": "docs/plans/0065-scenery-managed-neon-dev-cell.md",
       "title": "Scenery-Managed Neon Dev Cell and Branch Isolation",
       "owner": "scenery runtime / agent DX",
