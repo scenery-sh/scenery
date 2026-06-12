@@ -1,7 +1,15 @@
-export interface CollectionPageRoute {
+export interface CollectionPageRouteProps<Row = unknown> {
+  rows?: readonly Row[]
+}
+
+export interface CollectionPageRoute<Row = unknown> {
+  id: string
+  kind: "collection"
   path: string
   title: string
-  component: (props?: never) => unknown
+  entity: string
+  collection: string
+  component: (props?: CollectionPageRouteProps<Row>) => unknown
   generated: true
 }
 

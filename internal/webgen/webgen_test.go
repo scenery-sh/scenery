@@ -29,6 +29,7 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 		".scenery/gen/web/web/models.ts",
 		".scenery/gen/web/web/shapes.ts",
 		".scenery/gen/web/web/collections.ts",
+		".scenery/gen/web/web/runtime.ts",
 		".scenery/gen/web/web/routes.tsx",
 		".scenery/gen/web/web/index.ts",
 		".scenery/gen/web/web/package.json",
@@ -39,6 +40,12 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 	}
 	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `satisfies Record<"TaskStatusBadge", ComponentSlot<TaskRow>>`) {
 		t.Fatalf("routes missing slot assertion:\n%s", files[".scenery/gen/web/web/routes.tsx"])
+	}
+	if !strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `export function createTaskListRuntime`) {
+		t.Fatalf("runtime missing collection adapter factory:\n%s", files[".scenery/gen/web/web/runtime.ts"])
+	}
+	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `export function registerGeneratedRoutes`) {
+		t.Fatalf("routes missing registration helper:\n%s", files[".scenery/gen/web/web/routes.tsx"])
 	}
 }
 

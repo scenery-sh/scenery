@@ -202,7 +202,9 @@ and `scenery inspect routes --json` with `"generated": true`; generated stores
 use the app database selected by `DatabaseURL` or Scenery's managed database env.
 Typed `model.Seed(...)` rows generate `.scenery/gen/db/<service>/seed.sql` and
 are consumed by `scenery db seed`. Configured frontends with static collection
-pages receive beta generated packages under `.scenery/gen/web/<frontend>/`.
+pages receive beta generated packages under `.scenery/gen/web/<frontend>/` with
+runtime adapter factories and route registration helpers for app-owned
+Electric/TanStack/layout-kit wiring.
 Tenant-shaped generated CRUD uses the convention `TenantID`/`tenant_id` field:
 generated endpoints are auth-only, generated SQL is scoped to the active standard-auth
 tenant, and create/patch payload types do not expose `tenant_id`.
@@ -249,7 +251,7 @@ scenery harness self --summary
 
 Generated repo-local files may exist after inspect/build/harness commands produce them:
 
-- `.scenery/gen/models.json` and `.scenery/gen/views.json` cache the static model/page IR consumed by `scenery inspect models|views --json`. `.scenery/gen/db/<service>/schema.hcl` and `.scenery/gen/db/<service>/seed.sql` are disposable generated data artifacts. `.scenery/gen/web/<frontend>/` is the beta hidden generated package for static model/view frontends; app frontends should consume it through a local TypeScript alias such as `@scenery/generated` and provide `@scenery/layout-kit` plus declared slot components.
+- `.scenery/gen/models.json` and `.scenery/gen/views.json` cache the static model/page IR consumed by `scenery inspect models|views --json`. `.scenery/gen/db/<service>/schema.hcl` and `.scenery/gen/db/<service>/seed.sql` are disposable generated data artifacts. `.scenery/gen/web/<frontend>/` is the beta hidden generated package for static model/view frontends; app frontends should consume it through a local TypeScript alias such as `@scenery/generated` and provide `@scenery/layout-kit` plus declared slot components. The generated package exports typed rows, Electric shape definitions, collection descriptors, runtime adapter factories, route factories, and `registerGeneratedRoutes` helpers; app code still owns the production router, Electric client, TanStack DB instance, and layout-kit implementation.
 
 ```text
 <app-root>/.scenery/

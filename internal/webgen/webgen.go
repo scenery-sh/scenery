@@ -82,6 +82,7 @@ func renderBundle(appRoot, frontendName, frontendRootAbs, generatedDir string, e
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "models.ts")), Contents: renderModels(entities)},
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "shapes.ts")), Contents: renderShapes(entities)},
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "collections.ts")), Contents: renderCollections(entities, views)},
+		{Path: filepath.ToSlash(filepath.Join(generatedDir, "runtime.ts")), Contents: renderRuntime(entities, views)},
 	}
 	routes, err := renderRoutes(appRoot, generatedDir, entities, views, slots)
 	if err != nil {
@@ -190,6 +191,7 @@ func renderPackageJSON(frontendName string) string {
 		"    \"./models\": \"./models.ts\",\n" +
 		"    \"./shapes\": \"./shapes.ts\",\n" +
 		"    \"./collections\": \"./collections.ts\",\n" +
+		"    \"./runtime\": \"./runtime.ts\",\n" +
 		"    \"./routes\": \"./routes.tsx\"\n" +
 		"  }\n" +
 		"}\n"
@@ -342,6 +344,104 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 	return b.String()
 }
 
+func renderRuntime(entities map[string]*model.Entity, views []*model.View) string {
+	var b strings.Builder
+	writeHeader(&b)
+	importedRows := map[string]bool{}
+	importedCollections := map[string]bool{}
+	for _, view := range views {
+		if entity := entities[view.Entity]; entity != nil {
+			importedRows[entity.Name+"Row"] = true
+			importedCollections[lowerFirst(view.Name)+"Collection"] = true
+		}
+	}
+	if len(importedRows) > 0 {
+		fmt.Fprintf(&b, "import type { %s } from \"./models\"\n", strings.Join(sortedKeys(importedRows), ", "))
+	}
+	if len(importedCollections) > 0 {
+		fmt.Fprintf(&b, "import { %s } from \"./collections\"\n", strings.Join(sortedKeys(importedCollections), ", "))
+	}
+	b.WriteString("import type { TanStackDBCollectionDefinition } from \"./collections\"\n\n")
+	b.WriteString("export type RuntimeRows<Row> = Iterable<Row> | readonly Row[] | (() => Iterable<Row> | readonly Row[])\n\n")
+	b.WriteString("export interface ElectricRuntimeConfig {\n")
+	b.WriteString("  baseURL: string\n")
+	b.WriteString("}\n\n")
+	b.WriteString("export interface CollectionRuntime<Row> {\n")
+	b.WriteString("  id: string\n")
+	b.WriteString("  entity: string\n")
+	b.WriteString("  route: string\n")
+	b.WriteString("  title: string\n")
+	b.WriteString("  shapeURL: string\n")
+	b.WriteString("  definition: TanStackDBCollectionDefinition<Row>\n")
+	b.WriteString("  rows: () => readonly Row[]\n")
+	b.WriteString("  materialize: () => Row[]\n")
+	b.WriteString("}\n\n")
+	b.WriteString("export interface GeneratedRuntimeRowSources {\n")
+	for _, view := range views {
+		if entity := entities[view.Entity]; entity != nil {
+			fmt.Fprintf(&b, "  %s?: RuntimeRows<%sRow>\n", lowerFirst(view.Name), entity.Name)
+		}
+	}
+	b.WriteString("}\n\n")
+	b.WriteString("export interface GeneratedRuntimeOptions {\n")
+	b.WriteString("  electric: ElectricRuntimeConfig\n")
+	b.WriteString("  rows?: GeneratedRuntimeRowSources\n")
+	b.WriteString("}\n\n")
+	for _, view := range views {
+		if entity := entities[view.Entity]; entity != nil {
+			fmt.Fprintf(&b, "export type %sRuntime = CollectionRuntime<%sRow>\n", view.Name, entity.Name)
+		}
+	}
+	if len(views) > 0 {
+		b.WriteString("\n")
+	}
+	b.WriteString("function resolveRows<Row>(source: RuntimeRows<Row> | undefined): readonly Row[] {\n")
+	b.WriteString("  const value = typeof source === \"function\" ? source() : source\n")
+	b.WriteString("  return value ? Array.from(value) : []\n")
+	b.WriteString("}\n\n")
+	for _, view := range views {
+		entity := entities[view.Entity]
+		if entity == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "export function create%sRuntime(options: GeneratedRuntimeOptions): %sRuntime {\n", view.Name, view.Name)
+		fmt.Fprintf(&b, "  const definition = %sCollection\n", lowerFirst(view.Name))
+		fmt.Fprintf(&b, "  const rows = () => resolveRows(options.rows?.%s)\n", lowerFirst(view.Name))
+		b.WriteString("  return {\n")
+		b.WriteString("    id: definition.id,\n")
+		b.WriteString("    entity: definition.entity,\n")
+		b.WriteString("    route: definition.route,\n")
+		b.WriteString("    title: definition.title,\n")
+		b.WriteString("    shapeURL: definition.shape.url(options.electric.baseURL),\n")
+		b.WriteString("    definition,\n")
+		b.WriteString("    rows,\n")
+		b.WriteString("    materialize: () => definition.materialize(rows()),\n")
+		b.WriteString("  }\n")
+		b.WriteString("}\n\n")
+	}
+	b.WriteString("export interface GeneratedRuntime {\n")
+	b.WriteString("  collections: {\n")
+	for _, view := range views {
+		if entities[view.Entity] != nil {
+			fmt.Fprintf(&b, "    %s: %sRuntime\n", lowerFirst(view.Name), view.Name)
+		}
+	}
+	b.WriteString("  }\n")
+	b.WriteString("}\n\n")
+	b.WriteString("export function createGeneratedRuntime(options: GeneratedRuntimeOptions): GeneratedRuntime {\n")
+	b.WriteString("  return {\n")
+	b.WriteString("    collections: {\n")
+	for _, view := range views {
+		if entities[view.Entity] != nil {
+			fmt.Fprintf(&b, "      %s: create%sRuntime(options),\n", lowerFirst(view.Name), view.Name)
+		}
+	}
+	b.WriteString("    },\n")
+	b.WriteString("  }\n")
+	b.WriteString("}\n")
+	return b.String()
+}
+
 func renderRoutes(appRoot, generatedDir string, entities map[string]*model.Entity, views []*model.View, slots map[string]componentFile) (string, error) {
 	var b strings.Builder
 	writeHeader(&b)
@@ -362,6 +462,7 @@ func renderRoutes(appRoot, generatedDir string, entities map[string]*model.Entit
 	}
 	b.WriteString("import type { CollectionPageRoute, ComponentSlot } from \"@scenery/layout-kit\"\n")
 	b.WriteString("import { createCollectionPage } from \"@scenery/layout-kit\"\n")
+	b.WriteString("import type { GeneratedRuntime } from \"./runtime\"\n")
 	slotNames := sortedComponentNames(slots)
 	for _, name := range slotNames {
 		importPath, err := relativeTSImport(routeAbs, slots[name].AbsPath)
@@ -391,10 +492,10 @@ func renderRoutes(appRoot, generatedDir string, entities map[string]*model.Entit
 			fmt.Fprintf(&b, "} satisfies Record<%s, ComponentSlot<%s>>\n\n", tsUnion(names), rowType)
 			slotType = "typeof " + lowerFirst(view.Name) + "Slots"
 		}
-		fmt.Fprintf(&b, "export function %sPage(props: { rows?: readonly %s[] } = {}) {\n", view.Name, rowType)
+		fmt.Fprintf(&b, "export function %sPage(props: { rows?: readonly %s[]; runtime?: GeneratedRuntime[\"collections\"][%s] } = {}) {\n", view.Name, rowType, strconv.Quote(lowerFirst(view.Name)))
 		fmt.Fprintf(&b, "  return createCollectionPage<%s, %s>({\n", rowType, slotType)
 		fmt.Fprintf(&b, "    collection: %sCollection,\n", lowerFirst(view.Name))
-		b.WriteString("    rows: props.rows ?? [],\n")
+		b.WriteString("    rows: props.runtime?.rows() ?? props.rows ?? [],\n")
 		if len(view.Slots) > 0 {
 			fmt.Fprintf(&b, "    slots: %sSlots,\n", lowerFirst(view.Name))
 		} else {
@@ -403,14 +504,22 @@ func renderRoutes(appRoot, generatedDir string, entities map[string]*model.Entit
 		b.WriteString("  })\n")
 		b.WriteString("}\n\n")
 	}
-	b.WriteString("export const generatedRoutes = [\n")
+	b.WriteString("export function createGeneratedRoutes(runtime?: GeneratedRuntime): readonly CollectionPageRoute<any>[] {\n")
+	b.WriteString("  return [\n")
 	for _, view := range views {
 		if entities[view.Entity] == nil {
 			continue
 		}
-		fmt.Fprintf(&b, "  { path: %s, title: %s, component: %sPage, generated: true },\n", strconv.Quote(view.Route), strconv.Quote(view.Title), view.Name)
+		fmt.Fprintf(&b, "    { id: %s, kind: \"collection\", path: %s, title: %s, entity: %s, collection: %s, component: (props) => %sPage({ ...props, runtime: runtime?.collections.%s }), generated: true },\n", strconv.Quote(view.Name), strconv.Quote(view.Route), strconv.Quote(view.Title), strconv.Quote(view.Entity), strconv.Quote(view.Name), view.Name, lowerFirst(view.Name))
 	}
-	b.WriteString("] as const satisfies readonly CollectionPageRoute[]\n")
+	b.WriteString("  ] as const satisfies readonly CollectionPageRoute<any>[]\n")
+	b.WriteString("}\n\n")
+	b.WriteString("export function registerGeneratedRoutes(register: (route: CollectionPageRoute<any>) => void, runtime?: GeneratedRuntime): void {\n")
+	b.WriteString("  for (const route of createGeneratedRoutes(runtime)) {\n")
+	b.WriteString("    register(route)\n")
+	b.WriteString("  }\n")
+	b.WriteString("}\n\n")
+	b.WriteString("export const generatedRoutes = createGeneratedRoutes()\n")
 	return b.String(), nil
 }
 
@@ -420,6 +529,7 @@ func renderIndex() string {
 export * from "./models"
 export * from "./shapes"
 export * from "./collections"
+export * from "./runtime"
 export * from "./routes"
 `
 }

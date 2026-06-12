@@ -60,7 +60,7 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 	}
 
 	webRoot := filepath.Join(root, ".scenery", "gen", "web", "web")
-	wantFiles := []string{"collections.ts", "index.ts", "models.ts", "package.json", "routes.tsx", "shapes.ts"}
+	wantFiles := []string{"collections.ts", "index.ts", "models.ts", "package.json", "routes.tsx", "runtime.ts", "shapes.ts"}
 	first := map[string]string{}
 	for _, name := range wantFiles {
 		data, err := os.ReadFile(filepath.Join(webRoot, name))
@@ -73,7 +73,8 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 		"models.ts":      "export interface TaskRow",
 		"shapes.ts":      "export const taskShape",
 		"collections.ts": "export interface TanStackDBCollectionDefinition",
-		"routes.tsx":     "TaskStatusBadgeSlot",
+		"routes.tsx":     "registerGeneratedRoutes",
+		"runtime.ts":     "export function createTaskListRuntime",
 		"index.ts":       "export * from \"./routes\"",
 		"package.json":   "\"name\": \"@scenery/generated-web\"",
 	} {
