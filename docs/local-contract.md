@@ -35,6 +35,7 @@ same as the stable v0 support surface.
 - `scenery db reset`
 - `scenery db drop`
 - `scenery db snapshot create|restore`
+- `scenery db diff --generated`
 - `scenery db branch status|list|checkout|reset|delete|restore|diff|expire|prune`
 - `scenery db postgres install|start|status|logs|stop|restart|uninstall`
 - `scenery worktree create|list|remove`
@@ -120,6 +121,7 @@ Dev-only or beta surface:
 - cron UI
 - `scenery.sh/temporal` workflow/activity declarations and worker registration
 - `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, `//scenery:model`, `//scenery:page`, and `scenery inspect models|views --json` until schema/backend/web generators are complete
+- `scenery generate data --dry-run --json`, generated desired schema files under `.scenery/gen/db/<service>/schema.hcl`, `scenery db diff --generated --json`, and `scenery check` model-schema drift diagnostics
 - migration compatibility for older app shapes
 
 Compatibility posture:
@@ -278,6 +280,7 @@ Rules:
 - `generators.clients` is a beta lifecycle config for generated TypeScript clients. `kind` defaults to `typescript-client`, `lang` defaults to TypeScript, and `output` is required. `scenery generate client` uses these entries when no explicit `--output` is passed.
 - Generated TypeScript clients expose `WithMeta` methods that include response headers, status, `Response`, and parsed `txid` metadata from `X-Txid`/`X-TXID`. Electric-backed write flows should treat the API response and later Electric observation as separate phases: an HTTP success with `X-Txid` means the mutation committed, while `observeAPIResponseTxid(...)` reports later observer failures as `SyncObservationError` with `kind: "sync_observation_failure"`, `mutation_committed: true`, app/session/API/Electric context, txid, and observer error details.
 - `generators.sqlc` is a beta lifecycle config for SQLC generation. `provider` may be empty or `sqlc`; `config` defaults to `sqlc.yaml`; `dev_url` defaults to `docker://postgres/18/dev`. When a SQLC schema path follows `<pkg>/db/gen/schema.sql` and `<pkg>/db/schema.hcl` exists, `scenery generate sqlc` refreshes the generated schema SQL with `atlas schema inspect` before running `sqlc generate`. SQLC generation is a generated-source lifecycle and must not apply database schema or seed data.
+- Static model schema generation is a beta read-only data lifecycle. `scenery generate data --dry-run --json` parses `//scenery:model` IR and writes desired Atlas HCL to disposable generated files at `.scenery/gen/db/<service>/schema.hcl`; `--dry-run` means no database mutation. `scenery db diff --generated --json` compares those desired schemas with app-owned `SERVICE/db/schema.hcl` files and emits `scenery.db.generated_diff.v1`. `scenery check --json` reports `model-schema` diagnostics when the app-owned schema is missing or drifts from the generated desired schema. Apps without model directives have no generated model-schema work.
 - `database.apply` is a beta DB lifecycle escape hatch. Phase 1 supports only `provider: "exec"` with an explicit shell `command`, optional `cwd`, and string `env` overlay. The accepted split lifecycle moves database mutation to `scenery db apply`; SQLC refresh stays under `scenery generate sqlc`.
 - Service-local `SERVICE/db/seed.sql` is initial data. It is not Atlas schema input, not SQLC input, and not a generated-source input. The accepted lifecycle applies seed data through `scenery db seed`; the first implementation fails closed on changed previously-applied seed files and obviously destructive seed SQL rather than adding force or reseed escape hatches.
 - `tasks` is a beta thin repo-task layer. Each configured task can define either `run` or `steps`, plus optional `cwd` and string `env`. `run` uses the platform shell from the app root or task cwd. `steps` currently accepts `task:<name>`, `task:<domain>:<name>`, `check`, `test`, `test:go`, `generate`, `generate:client`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`.

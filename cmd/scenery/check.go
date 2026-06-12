@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"scenery.sh/internal/build"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/schemagen"
 	"scenery.sh/internal/workers"
 )
 
@@ -68,6 +70,23 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		ConfigPath: filepath.Join(appRoot, ".scenery.json"),
 	}
 
+	model, err := parse.App(appRoot, cfg.Name)
+	if err != nil {
+		return renderCheckFailure(stdout, opts.JSON, appInfo, "parse", err)
+	}
+	appInfo.ModulePath = model.ModulePath
+	if dataPlan, ok, err := buildDataGeneratorPlan(appRoot, model); err != nil {
+		return renderCheckFailure(stdout, opts.JSON, appInfo, "model-schema", err)
+	} else if ok {
+		drift, err := generatedSchemaDrift(appRoot, dataPlan.Schemas)
+		if err != nil {
+			return renderCheckFailure(stdout, opts.JSON, appInfo, "model-schema", err)
+		}
+		if len(drift) > 0 {
+			return renderCheckGeneratedSchemaDrift(stdout, opts.JSON, appInfo, drift)
+		}
+	}
+
 	snapshot, snapshotErr := scanWatchedFiles(appRoot)
 	graphFingerprint := ""
 	if snapshotErr == nil {
@@ -82,11 +101,6 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		}
 	}
 
-	model, err := parse.App(appRoot, cfg.Name)
-	if err != nil {
-		return renderCheckFailure(stdout, opts.JSON, appInfo, "parse", err)
-	}
-	appInfo.ModulePath = model.ModulePath
 	if cfg.Temporal.Enabled {
 		if diagnostics := typeScriptTemporalDiagnostics(appRoot, model); len(diagnostics) > 0 {
 			return renderCheckFailure(stdout, opts.JSON, appInfo, "temporal-typescript", workers.DiagnosticsError(diagnostics))
@@ -104,6 +118,34 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "compile", err)
 	}
 	return renderCheckSuccess(stdout, opts.JSON, appInfo)
+}
+
+func renderCheckGeneratedSchemaDrift(stdout io.Writer, jsonMode bool, app inspectdata.AppRef, drift []schemagen.Drift) error {
+	var messages []string
+	diagnostics := make([]checkDiagnostic, 0, len(drift))
+	for _, item := range drift {
+		messages = append(messages, item.Message)
+		diagnostics = append(diagnostics, checkDiagnostic{
+			Stage:           "model-schema",
+			Severity:        "error",
+			File:            item.SourcePath,
+			Message:         item.Message,
+			SuggestedAction: "Run `scenery generate data --dry-run --json` and update the app-owned schema file to match the generated desired schema.",
+		})
+	}
+	err := errors.New(strings.Join(messages, "\n"))
+	if !jsonMode {
+		return err
+	}
+	if err := writeCheckJSON(stdout, checkResponse{
+		SchemaVersion: "scenery.check.result.v1",
+		OK:            false,
+		App:           app,
+		Diagnostics:   diagnostics,
+	}); err != nil {
+		return err
+	}
+	return &silentCLIError{err: err}
 }
 
 func renderCheckSuccess(stdout io.Writer, jsonMode bool, appInfo inspectdata.AppRef) error {

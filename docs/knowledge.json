@@ -567,7 +567,8 @@
       ],
       "schema_refs": [
         "docs/schemas/scenery.inspect.models.v1.schema.json",
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
+        "docs/schemas/scenery.inspect.views.v1.schema.json",
+        "docs/schemas/scenery.db.generated_diff.v1.schema.json"
       ]
     },
     {

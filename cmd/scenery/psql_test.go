@@ -37,7 +37,7 @@ func TestParsePSQLArgsRequiresAppRootValue(t *testing.T) {
 func TestDBCommandRejectsMissingOrUnknownSubcommand(t *testing.T) {
 	t.Parallel()
 
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db psql|apply|seed|setup|reset|drop|snapshot|branch|postgres [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db psql|apply|seed|setup|reset|drop|snapshot|diff|branch|postgres [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
 	if err := dbCommand([]string{"vacuum"}); err == nil || err.Error() != `unknown db command "vacuum"` {
