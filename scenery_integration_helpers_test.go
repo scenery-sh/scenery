@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"debug/buildinfo"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -145,12 +147,46 @@ func freshInstalledSceneryBinary(repo string) (string, bool) {
 }
 
 func installedSceneryBinaryMatchesRepo(path, repo string) bool {
-	data, err := os.ReadFile(path)
+	info, err := buildinfo.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	needle := filepath.Join(filepath.Clean(repo), "internal", "app", "root.go")
-	return bytes.Contains(data, []byte(needle))
+	if info.Main.Path != "scenery.sh" {
+		return false
+	}
+	revision, ok := buildInfoSetting(info, "vcs.revision")
+	if !ok || strings.TrimSpace(revision) == "" {
+		return false
+	}
+	if modified, ok := buildInfoSetting(info, "vcs.modified"); ok && modified == "true" {
+		return false
+	}
+	repoRevision, err := currentRepoRevision(repo)
+	if err != nil || repoRevision == "" {
+		return false
+	}
+	return revision == repoRevision
+}
+
+func buildInfoSetting(info *debug.BuildInfo, key string) (string, bool) {
+	if info == nil {
+		return "", false
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == key {
+			return setting.Value, true
+		}
+	}
+	return "", false
+}
+
+func currentRepoRevision(repo string) (string, error) {
+	cmd := exec.Command("git", "-C", repo, "rev-parse", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func latestIntegrationSourceModTime(repo string) (time.Time, bool, error) {

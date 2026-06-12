@@ -78,8 +78,6 @@ need bun
 [[ -d "$ONLV_ROOT/.git" ]] || { printf 'onlv smoke: ONLV root not found: %s\n' "$ONLV_ROOT" >&2; exit 1; }
 [[ -f "$ONLV_ROOT/.scenery.json" ]] || { printf 'onlv smoke: missing .scenery.json in %s\n' "$ONLV_ROOT" >&2; exit 1; }
 
-export PATH="$ONLV_ROOT/node_modules/.bin:$ONLV_ROOT/apps/pulse/node_modules/.bin:$ONLV_ROOT/apps/blog/node_modules/.bin:$ONLV_ROOT/apps/ui/node_modules/.bin:$ONLV_ROOT/apps/console/node_modules/.bin:$ONLV_ROOT/apps/viewer/node_modules/.bin:$PATH"
-
 mkdir -p "$LOG_DIR"
 SMOKE_TMPDIR="${SCENERY_ONLV_SMOKE_TMPDIR:-/tmp}"
 mkdir -p "$SMOKE_TMPDIR"
