@@ -284,7 +284,7 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 			if err != nil {
 				return generatorExecutionPlan{}, err
 			}
-			dataPlan, ok, err := buildDataGeneratorPlan(appRoot, appModel)
+			dataPlan, ok, err := buildDataGeneratorPlan(appRoot, cfg, appModel)
 			if err != nil {
 				return generatorExecutionPlan{}, err
 			}
@@ -295,6 +295,7 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 			} else {
 				plan.Data = dataPlan
 				plan.Graph.Generators = append(plan.Graph.Generators, dataPlan.Record)
+				plan.Graph.Generators = append(plan.Graph.Generators, dataPlan.WebRecords...)
 			}
 		}
 	}
@@ -331,12 +332,13 @@ func buildInspectGeneratorsResponse(appRoot string, cfg appcfg.Config) (generato
 			return generatorGraphResponse{}, err
 		}
 		var ok bool
-		dataPlan, ok, err = buildDataGeneratorPlan(appRoot, appModel)
+		dataPlan, ok, err = buildDataGeneratorPlan(appRoot, cfg, appModel)
 		if err != nil {
 			return generatorGraphResponse{}, err
 		}
 		if ok {
 			graph.Generators = append(graph.Generators, dataPlan.Record)
+			graph.Generators = append(graph.Generators, dataPlan.WebRecords...)
 		}
 	}
 	graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, sqlcPlan, dataPlan)
@@ -783,6 +785,9 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 			}
 			for _, seed := range plan.Data.Seeds {
 				fmt.Fprintf(stdout, "scenery: generated model seed at %s\n", seed.GeneratedPath)
+			}
+			for _, bundle := range plan.Data.Web {
+				fmt.Fprintf(stdout, "scenery: generated model web package at %s\n", bundle.GeneratedDir)
 			}
 		}
 	}

@@ -183,8 +183,10 @@ Generated model CRUD endpoints are beta. They appear in `scenery inspect endpoin
 and `scenery inspect routes --json` with `"generated": true`; generated stores
 use the app database selected by `DatabaseURL` or Scenery's managed database env.
 Typed `model.Seed(...)` rows generate `.scenery/gen/db/<service>/seed.sql` and
-are consumed by `scenery db seed`. Tenant-shaped generated CRUD currently fails
-closed until full convention-profile tenancy policy lands.
+are consumed by `scenery db seed`. Configured frontends with static collection
+pages receive beta generated packages under `.scenery/gen/web/<frontend>/`.
+Tenant-shaped generated CRUD currently fails closed until full convention-profile
+tenancy policy lands.
 | Inspect traces/metrics | `scenery traces list --json`, `scenery metrics list --json` |
 | Query metrics | `scenery metrics query --json --promql 'scenery_request_duration_seconds'` |
 | Generate TypeScript client | `scenery generate client --lang typescript --output <path>` |
@@ -219,7 +221,7 @@ Use non-JSON output only for human inspection.
 - Use `scenery serve` for headless API-role execution. Do not expect dashboard, proxy, watch mode, or dev/admin endpoints.
 - Use `scenery worker` for worker-role execution of native Temporal workers and cron.
 - Use `scenery build` for a deployable binary artifact.
-- Use `scenery generate` for configured file-producing generators. `scenery generate sqlc` is generated-source work only; it must not apply schema or seed data. `scenery generate data --dry-run --json` writes desired static-model Atlas HCL under `.scenery/gen/db/<service>/schema.hcl` without mutating databases; use `scenery db diff --generated --json` to compare it with app-owned `SERVICE/db/schema.hcl`.
+- Use `scenery generate` for configured file-producing generators. `scenery generate sqlc` is generated-source work only; it must not apply schema or seed data. `scenery generate data --dry-run --json` writes desired static-model Atlas HCL under `.scenery/gen/db/<service>/schema.hcl`, seed SQL under `.scenery/gen/db/<service>/seed.sql`, and beta generated frontend packages under `.scenery/gen/web/<frontend>/` without mutating databases; use `scenery db diff --generated --json` to compare generated schema with app-owned `SERVICE/db/schema.hcl`.
 - Use `scenery db apply` to mutate schema/app database setup only. Use `scenery db seed` to apply service-local initial data only; changed previously-applied seeds and destructive seed SQL fail closed with path/line diagnostics. Use `scenery db setup` for the one-command local setup path: apply then seed. `scenery up` runs that setup lifecycle before app startup when DB setup inputs exist, and skips it on ordinary rebuilds until `database.apply` config or seed file hashes change.
 - Use `scenery db postgres status --json`, `scenery db postgres start --json`, `scenery db postgres stop --json`, `scenery db branch status --json`, and `scenery db branch list --json` for managed Postgres branch work. Branch pins live at `.scenery/worktree-db.json`; Scenery-owned local branch leases live in `branches.json` under the agent Postgres state root. The phase-one branch provider supports local database isolation through `branch_strategy: "template_database"`: checkout creates or reuses a branch database from the parent template database and records a ready endpoint without persisting raw connection URLs. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes its lease, `expire` updates lease metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, and `restore` currently maps to template reset. `scenery up`, `scenery db psql`, DB setup, and Electric consume ready branch endpoints and fail explicitly when the lease is missing, expired, protected, or endpoint-less. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` for the smaller self-harness mode.
 - Use `scenery task list`, `scenery task inspect <target>`, and `scenery task run <target>` for configured repo tasks and app-local code tasks. Configured tasks use plain names; code tasks use `<domain>:<name>`, and task arguments must appear after `--`.
@@ -246,7 +248,7 @@ scenery harness self --summary
 
 Generated repo-local files may exist after inspect/build/harness commands produce them:
 
-- `.scenery/gen/models.json` and `.scenery/gen/views.json` cache the static model/page IR consumed by `scenery inspect models|views --json`. `.scenery/gen/db/<service>/schema.hcl` is the disposable desired Atlas HCL generated from `//scenery:model` IR and checked against app-owned `SERVICE/db/schema.hcl`. CRUD and web generation from that IR are tracked by `docs/plans/0077-static-model-view-ir.md`.
+- `.scenery/gen/models.json` and `.scenery/gen/views.json` cache the static model/page IR consumed by `scenery inspect models|views --json`. `.scenery/gen/db/<service>/schema.hcl` and `.scenery/gen/db/<service>/seed.sql` are disposable generated data artifacts. `.scenery/gen/web/<frontend>/` is the beta hidden generated package for static model/view frontends; app frontends should consume it through a local TypeScript alias such as `@scenery/generated` and provide `@scenery/layout-kit` plus declared slot components.
 
 ```text
 <app-root>/.scenery/

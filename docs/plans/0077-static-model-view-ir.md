@@ -15,8 +15,9 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - [x] 2026-06-12: M2 schema diff mode candidate implemented: generated desired Atlas HCL under `.scenery/gen/db/<service>/schema.hcl`, `scenery generate data --dry-run --json`, `scenery db diff --generated --json`, `scenery check` `model-schema` drift diagnostics, schema contract docs, and model-dsl fixture schema coverage.
 - [x] 2026-06-12: M3 backend foundation candidate implemented: explicit `model.Generate`, `model.Disable`, and `model.Override` action policy parsing; undeclared generated-route collision diagnostics; generated create/patch payload types; transient generated CRUD endpoints/stores; and `inspect endpoints|routes` generated markers. The first backend store is process-local and deterministic.
 - [x] 2026-06-12: M3 data-backed slice candidate implemented: `model.Seed` typed static rows, deterministic idempotent upsert SQL under `.scenery/gen/db/<service>/seed.sql`, generated seed artifacts consumed by `scenery db seed`, database-backed generated CRUD stores using `DatabaseURL`, and diagnostic blocking for tenant-field generated CRUD until full tenancy policy lands.
+- [x] 2026-06-12: M4 frontend foundation candidate implemented: `scenery generate data` now writes beta hidden TypeScript packages under `.scenery/gen/web/<frontend>/` with row/create/patch types, Electric shape definitions, TanStack DB collection descriptors/materializers, route/default page exports, slot type assertions, and a model-dsl fixture alias/typecheck/render proof.
 - [ ] M3 follow-up: full convention-profile tenancy enforcement beyond the current fail-closed tenant-field diagnostic.
-- [ ] M4 frontend generation: generated TypeScript row types, sync shapes, collection/materializer layer, route registration, default page, slot assertion glue, and hidden generated package layout.
+- [ ] M4 follow-up: production app layout-kit integration, richer route registration conventions, and Electric/TanStack runtime adapters beyond the current generated descriptor/materializer layer.
 
 ## Surprises & Discoveries
 
@@ -34,6 +35,7 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - 2026-06-12, maintainer worker: Implement M2 as a read-only schema contract, not a migration engine. Stored and relationship fields render as Atlas columns, computed fields are omitted, `ID` is the primary key when present, and static enum metadata renders as a Postgres enum. `scenery generate data --dry-run` writes only disposable generated desired HCL; it does not mutate databases.
 - 2026-06-12, maintainer worker: Land the first M3 backend slice as transient generated CRUD endpoints with a process-local generated store. This proves parser/action policy/codegen/inspect/runtime seams without adding a premature database abstraction. Database-backed generated stores, typed seed SQL, and tenancy conventions remain tracked M3 follow-up work.
 - 2026-06-12, maintainer worker: Land the M3 data-backed slice by reusing Scenery's existing generated artifact graph and `db seed` ledger rather than adding a separate seed command. Generated CRUD stores now require `DatabaseURL`/managed database env and talk directly to the generated table. Entities with `TenantID`/`tenant_id` fail generated CRUD parsing until a full convention-profile tenancy policy is implemented.
+- 2026-06-12, maintainer worker: Land M4 as a hidden generated frontend package contract first. Generated files live under `.scenery/gen/web/<frontend>/` and rely on app-owned TypeScript aliases for `@scenery/generated` and `@scenery/layout-kit`, keeping real product layout integration outside the cache generator while still proving slot assertions and default collection page rendering in the fixture.
 
 ## Outcomes & Retrospective
 
@@ -146,6 +148,8 @@ M2 writes disposable generated desired schema files under `.scenery/gen/db/<serv
 
 The M3 backend writes transient build-workspace Go files. Generated CRUD rows are persisted in the app database selected by `DatabaseURL` or Scenery's managed database env. Future tenancy work must preserve generated artifacts as disposable cache and reuse existing seed idempotence ledgers.
 
+M4 writes disposable hidden frontend packages under `.scenery/gen/web/<frontend>/`. Delete the generated package and rerun `scenery generate data --dry-run --json` to regenerate it. App frontend source owns the TypeScript alias and layout-kit implementation; the generated package imports declared slot components by deterministic relative paths and type-checks them against the layout-kit slot contract.
+
 ## Artifacts and Notes
 
 - M1 fixture: `testdata/apps/model-dsl`.
@@ -157,6 +161,7 @@ The M3 backend writes transient build-workspace Go files. Generated CRUD rows ar
 - M3 generated endpoint marker: `generated: true` in `scenery inspect endpoints|routes --json` for endpoints produced from model CRUD policy.
 - M3 generated build artifacts: transient `scenery.gen.go` content in the build workspace package that owns the model entity.
 - M3 generated seed artifact: `.scenery/gen/db/<service>/seed.sql`, registered as a `seed`/`initial-data` DB artifact and consumed by `scenery db seed`.
+- M4 generated web artifact: `.scenery/gen/web/<frontend>/` with `models.ts`, `shapes.ts`, `collections.ts`, `routes.tsx`, `index.ts`, and package metadata.
 
 ## Interfaces and Dependencies
 
