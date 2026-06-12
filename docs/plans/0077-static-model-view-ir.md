@@ -14,7 +14,8 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - [x] 2026-06-12: M1 static IR candidate implemented: public `scenery.sh/model` and `scenery.sh/page` vocabulary, parser IR, diagnostics, `inspect models|views`, schemas, generated inspect cache files, and `testdata/apps/model-dsl` fixture coverage.
 - [x] 2026-06-12: M2 schema diff mode candidate implemented: generated desired Atlas HCL under `.scenery/gen/db/<service>/schema.hcl`, `scenery generate data --dry-run --json`, `scenery db diff --generated --json`, `scenery check` `model-schema` drift diagnostics, schema contract docs, and model-dsl fixture schema coverage.
 - [x] 2026-06-12: M3 backend foundation candidate implemented: explicit `model.Generate`, `model.Disable`, and `model.Override` action policy parsing; undeclared generated-route collision diagnostics; generated create/patch payload types; transient generated CRUD endpoints/stores; and `inspect endpoints|routes` generated markers. The first backend store is process-local and deterministic.
-- [ ] M3 follow-up: typed seed declarations into idempotent upsert SQL consumed by `scenery db seed`, database-backed generated stores, and full convention-profile tenancy enforcement.
+- [x] 2026-06-12: M3 data-backed slice candidate implemented: `model.Seed` typed static rows, deterministic idempotent upsert SQL under `.scenery/gen/db/<service>/seed.sql`, generated seed artifacts consumed by `scenery db seed`, database-backed generated CRUD stores using `DatabaseURL`, and diagnostic blocking for tenant-field generated CRUD until full tenancy policy lands.
+- [ ] M3 follow-up: full convention-profile tenancy enforcement beyond the current fail-closed tenant-field diagnostic.
 - [ ] M4 frontend generation: generated TypeScript row types, sync shapes, collection/materializer layer, route registration, default page, slot assertion glue, and hidden generated package layout.
 
 ## Surprises & Discoveries
@@ -23,6 +24,7 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - 2026-06-12: `go/types` can attach a constant value to an expression that references a mutable string variable initialized from a literal. The model/page static evaluator therefore checks identifier objects and rejects non-`types.Const` identifiers before accepting a string value.
 - 2026-06-12: `scenery check` can reuse a compiled build before parsing. M2 schema drift is not a compiled-binary property, so the check path now parses and validates model-schema drift before returning cached success. `SERVICE/db/schema.hcl` is also a watched input so cache fingerprints change when app-owned schema changes.
 - 2026-06-12: Generated model endpoints cannot reuse the handwritten endpoint wrapper path directly because that path assumes an AST `FuncDecl` to rename and wrap. M3 foundation therefore registers generated runtime endpoints from generated source while carrying separate generated endpoint IR for inspect output.
+- 2026-06-12: Headless `scenery serve` does not expose dev-only `__scenery/config`; live M3 proof should probe generated app routes such as `/tasks` for readiness instead.
 
 ## Decision Log
 
@@ -31,10 +33,11 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - 2026-06-12, maintainer worker: Resolve page slots in M1 by checking for a matching `.ts` or `.tsx` component filename under the app root, skipping `.git`, `.scenery`, `node_modules`, and `vendor`. M4 can replace this with frontend-aware alias/type assertion generation.
 - 2026-06-12, maintainer worker: Implement M2 as a read-only schema contract, not a migration engine. Stored and relationship fields render as Atlas columns, computed fields are omitted, `ID` is the primary key when present, and static enum metadata renders as a Postgres enum. `scenery generate data --dry-run` writes only disposable generated desired HCL; it does not mutate databases.
 - 2026-06-12, maintainer worker: Land the first M3 backend slice as transient generated CRUD endpoints with a process-local generated store. This proves parser/action policy/codegen/inspect/runtime seams without adding a premature database abstraction. Database-backed generated stores, typed seed SQL, and tenancy conventions remain tracked M3 follow-up work.
+- 2026-06-12, maintainer worker: Land the M3 data-backed slice by reusing Scenery's existing generated artifact graph and `db seed` ledger rather than adding a separate seed command. Generated CRUD stores now require `DatabaseURL`/managed database env and talk directly to the generated table. Entities with `TenantID`/`tenant_id` fail generated CRUD parsing until a full convention-profile tenancy policy is implemented.
 
 ## Outcomes & Retrospective
 
-Not yet completed. M1, M2, and the M3 backend foundation are implemented as independently reviewable foundations; M3 database/seed/tenancy completion and M4 frontend generation remain active follow-on milestones tracked by this plan.
+Not yet completed. M1, M2, the M3 backend foundation, and the M3 data-backed slice are implemented as independently reviewable foundations; full generated-store tenancy enforcement and M4 frontend generation remain active follow-on milestones tracked by this plan.
 
 ## Context and Orientation
 
@@ -50,7 +53,7 @@ Relevant files:
 - `internal/build/build.go` writes `.scenery/gen/models.json` and `.scenery/gen/views.json` beside the existing generated inspect artifacts.
 - `internal/schemagen/schema.go` renders deterministic desired Atlas HCL from the static model IR.
 - `cmd/scenery/generated_schema.go` wires data-schema generation, generated schema diff JSON, and check diagnostics.
-- `internal/codegen/generator.go` renders generated model CRUD payload types, endpoint registrations, and process-local stores into the transient build workspace.
+- `internal/codegen/generator.go` renders generated model CRUD payload types, endpoint registrations, and database-backed stores into the transient build workspace.
 - `testdata/apps/model-dsl` is the acceptance fixture for M1.
 
 ## Milestones
@@ -59,7 +62,7 @@ M1 is static IR and diagnostics only. Acceptance is deterministic parsing and in
 
 M2 adds read-only schema diff mode. It should emit desired Atlas HCL under `.scenery/gen/db/<service>/schema.hcl`, expose `scenery generate data --dry-run --json`, add `scenery db diff --generated`, and surface drift from `scenery check` without writing databases.
 
-M3 adds backend generation. The landed foundation generates CRUD stores/endpoints into the transient build workspace with explicit action policy and collision checks. Follow-up M3 work should replace or extend the process-local generated store with database-backed generated stores, generate seed SQL into the existing `db seed` machinery, and enforce tenancy conventions.
+M3 adds backend generation. The landed foundation generates CRUD stores/endpoints into the transient build workspace with explicit action policy and collision checks. The data-backed slice adds generated seed SQL and database-backed generated stores. Follow-up M3 work should replace the current tenant-field fail-closed diagnostic with full convention-profile tenancy enforcement.
 
 M4 adds frontend generation. It should generate TypeScript row types, sync shapes, collection/materializer code, route registration, and default collection pages into a hidden generated package while verifying slot contracts.
 
@@ -129,13 +132,19 @@ For the M3 backend foundation, run:
 - `scenery harness self --summary --write`
 - `scenery harness self --release --summary --write`
 
+For the M3 data-backed slice, also run:
+
+- `go test ./internal/parse ./internal/codegen ./cmd/scenery -run 'TestModelDSL|TestGenerateDataDryRunWritesGeneratedSchema|TestDBSeedDiscoversGeneratedModelSeed|TestGenerateModelCRUDBackend' -count=1`
+- `go run ./cmd/scenery build --app-root testdata/apps/model-dsl -o .scenery/tmp/modeldsl-m3-data-bin`
+- Live proof against a disposable Postgres database: create the `tasks` table, run `scenery db seed --app-root <fixture> --json`, start `scenery serve --app-root <fixture> --listen 127.0.0.1:<port>`, and exercise generated list/create/update/get routes.
+
 ## Idempotence and Recovery
 
 M1 has no app runtime side effects. It parses source and writes disposable generated inspect cache files under `.scenery/gen/` when the build path runs. Delete `.scenery/gen/models.json` or `.scenery/gen/views.json` and rerun `scenery build`, `scenery serve`, or `scenery inspect` to regenerate or recompute them.
 
-M2 writes disposable generated desired schema files under `.scenery/gen/db/<service>/schema.hcl`. Delete those files and rerun `scenery generate data --dry-run --json` to regenerate them. M2 diff mode must remain read-only and must not apply databases. M3 seed application must reuse existing sha256 seed tracking and changed-after-apply protection.
+M2 writes disposable generated desired schema files under `.scenery/gen/db/<service>/schema.hcl`. M3 seed generation writes disposable generated seed files under `.scenery/gen/db/<service>/seed.sql`. Delete those files and rerun `scenery generate data --dry-run --json` or `scenery db seed` to regenerate them. M2 diff mode must remain read-only and must not apply databases. M3 seed application reuses existing sha256 seed tracking and changed-after-apply protection.
 
-The M3 backend foundation writes only transient build-workspace Go files and process-local runtime state. Restarting `scenery serve` clears generated CRUD rows. Future database-backed generated stores and seed SQL must keep generated artifacts disposable and reuse existing seed idempotence ledgers.
+The M3 backend writes transient build-workspace Go files. Generated CRUD rows are persisted in the app database selected by `DatabaseURL` or Scenery's managed database env. Future tenancy work must preserve generated artifacts as disposable cache and reuse existing seed idempotence ledgers.
 
 ## Artifacts and Notes
 
@@ -147,6 +156,7 @@ The M3 backend foundation writes only transient build-workspace Go files and pro
 - M2 generated desired schema artifact: `.scenery/gen/db/<service>/schema.hcl`.
 - M3 generated endpoint marker: `generated: true` in `scenery inspect endpoints|routes --json` for endpoints produced from model CRUD policy.
 - M3 generated build artifacts: transient `scenery.gen.go` content in the build workspace package that owns the model entity.
+- M3 generated seed artifact: `.scenery/gen/db/<service>/seed.sql`, registered as a `seed`/`initial-data` DB artifact and consumed by `scenery db seed`.
 
 ## Interfaces and Dependencies
 

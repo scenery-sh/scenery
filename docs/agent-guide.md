@@ -180,9 +180,11 @@ Prefer JSON when output will feed another tool or decision.
 | Inspect observability | `scenery inspect observability --json` |
 
 Generated model CRUD endpoints are beta. They appear in `scenery inspect endpoints --json`
-and `scenery inspect routes --json` with `"generated": true`; the current M3
-foundation store is process-local, so rows created through those endpoints do not
-survive app runtime restart.
+and `scenery inspect routes --json` with `"generated": true`; generated stores
+use the app database selected by `DatabaseURL` or Scenery's managed database env.
+Typed `model.Seed(...)` rows generate `.scenery/gen/db/<service>/seed.sql` and
+are consumed by `scenery db seed`. Tenant-shaped generated CRUD currently fails
+closed until full convention-profile tenancy policy lands.
 | Inspect traces/metrics | `scenery traces list --json`, `scenery metrics list --json` |
 | Query metrics | `scenery metrics query --json --promql 'scenery_request_duration_seconds'` |
 | Generate TypeScript client | `scenery generate client --lang typescript --output <path>` |

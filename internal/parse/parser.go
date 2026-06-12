@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/tools/go/packages"
 
@@ -395,6 +396,10 @@ func attachGeneratedModelEndpoints(app *model.App) []string {
 			errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, fmt.Sprintf("model %s needs an ID field before CRUD endpoints can be generated", entity.Name)))
 			continue
 		}
+		if generatedModelHasTenantField(entity) {
+			errs = append(errs, sourceDiagnostic(entity.Package, entity.TokenPos, fmt.Sprintf("model %s includes tenant state; generated CRUD tenancy enforcement is not implemented yet, so declare model.Override or model.Disable for generated actions", entity.Name)))
+			continue
+		}
 		overrides := make(map[model.EntityCRUDAction]string, len(entity.CRUD.Overrides))
 		for _, override := range entity.CRUD.Overrides {
 			overrides[override.Action] = override.Endpoint
@@ -509,6 +514,18 @@ func primaryKeyField(entity *model.Entity) *model.EntityField {
 		}
 	}
 	return nil
+}
+
+func generatedModelHasTenantField(entity *model.Entity) bool {
+	for _, field := range entity.Fields {
+		if field.Kind == model.EntityFieldComputed {
+			continue
+		}
+		if strings.EqualFold(field.Name, "TenantID") || strings.EqualFold(field.Column, "tenant_id") {
+			return true
+		}
+	}
+	return false
 }
 
 func generatedEndpointCollision(svc *model.Service, generated *model.GeneratedModelEndpoint) string {
@@ -808,6 +825,7 @@ func parseServiceStruct(pkg *model.Package, file *model.File, decl *ast.GenDecl)
 type entityConfig struct {
 	Table       string
 	Fields      map[string]entityFieldConfig
+	Seeds       []model.EntitySeedRow
 	CRUD        model.EntityCRUD
 	GenerateSet bool
 }
@@ -893,6 +911,14 @@ func parseEntityOption(pkg *model.Package, aliases map[string]string, expr ast.E
 		}
 		cfg.GenerateSet = true
 		cfg.CRUD.Actions = actions
+	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Seed"):
+		for _, arg := range call.Args {
+			row, err := parseEntitySeedRow(pkg, aliases, arg)
+			if err != nil {
+				return fmt.Errorf("model.Seed: %w", err)
+			}
+			cfg.Seeds = append(cfg.Seeds, row)
+		}
 	case isPackageCall(call.Fun, aliases, "scenery.sh/model", "Disable"):
 		actions, err := parseEntityActionArgs(pkg, call.Args)
 		if err != nil {
@@ -913,9 +939,101 @@ func parseEntityOption(pkg *model.Package, aliases map[string]string, expr ast.E
 		}
 		cfg.CRUD.Overrides = append(cfg.CRUD.Overrides, model.EntityCRUDOverride{Action: actions[0], Endpoint: endpoint})
 	default:
-		return fmt.Errorf("unsupported model.Entity option; use model.Table, model.Field, model.Generate, model.Disable, or model.Override")
+		return fmt.Errorf("unsupported model.Entity option; use model.Table, model.Field, model.Generate, model.Seed, model.Disable, or model.Override")
 	}
 	return nil
+}
+
+func parseEntitySeedRow(pkg *model.Package, aliases map[string]string, expr ast.Expr) (model.EntitySeedRow, error) {
+	lit, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return model.EntitySeedRow{}, fmt.Errorf("rows must be static keyed struct literals")
+	}
+	row := model.EntitySeedRow{TokenPos: lit.Pos()}
+	seen := map[string]bool{}
+	for _, elt := range lit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			return model.EntitySeedRow{}, fmt.Errorf("rows must use keyed struct fields")
+		}
+		key, ok := kv.Key.(*ast.Ident)
+		if !ok || key.Name == "" {
+			return model.EntitySeedRow{}, fmt.Errorf("row field keys must be identifiers")
+		}
+		if seen[key.Name] {
+			return model.EntitySeedRow{}, fmt.Errorf("row field %s is set more than once", key.Name)
+		}
+		value, err := parseEntitySeedValue(pkg, aliases, kv.Value)
+		if err != nil {
+			return model.EntitySeedRow{}, fmt.Errorf("%s: %w", key.Name, err)
+		}
+		value.Field = key.Name
+		value.TokenPos = kv.Pos()
+		row.Values = append(row.Values, value)
+		seen[key.Name] = true
+	}
+	return row, nil
+}
+
+func parseEntitySeedValue(pkg *model.Package, aliases map[string]string, expr ast.Expr) (model.EntitySeedValue, error) {
+	if call, ok := expr.(*ast.CallExpr); ok && isPackageCall(call.Fun, aliases, "time", "Date") {
+		value, err := parseStaticTimeDate(pkg, aliases, call)
+		if err != nil {
+			return model.EntitySeedValue{}, err
+		}
+		return model.EntitySeedValue{Kind: model.EntitySeedTimestamp, Value: value}, nil
+	}
+	if pkg != nil && pkg.GoPkg != nil {
+		if tv, ok := pkg.GoPkg.TypesInfo.Types[expr]; ok && tv.Value != nil {
+			switch tv.Value.Kind() {
+			case constant.String:
+				value, err := strconv.Unquote(tv.Value.ExactString())
+				if err != nil {
+					return model.EntitySeedValue{}, err
+				}
+				return model.EntitySeedValue{Kind: model.EntitySeedString, Value: value}, nil
+			case constant.Int:
+				return model.EntitySeedValue{Kind: model.EntitySeedInteger, Value: tv.Value.ExactString()}, nil
+			case constant.Float:
+				return model.EntitySeedValue{Kind: model.EntitySeedFloat, Value: tv.Value.ExactString()}, nil
+			case constant.Bool:
+				return model.EntitySeedValue{Kind: model.EntitySeedBool, Value: tv.Value.ExactString()}, nil
+			}
+		}
+	}
+	return model.EntitySeedValue{}, fmt.Errorf("seed values must be compile-time constants or time.Date(...)")
+}
+
+func parseStaticTimeDate(pkg *model.Package, aliases map[string]string, call *ast.CallExpr) (string, error) {
+	if len(call.Args) != 8 {
+		return "", fmt.Errorf("time.Date seed values require eight arguments")
+	}
+	ints := make([]int, 7)
+	for i := 0; i < 7; i++ {
+		tv, ok := pkg.GoPkg.TypesInfo.Types[call.Args[i]]
+		if !ok || tv.Value == nil || tv.Value.Kind() != constant.Int {
+			return "", fmt.Errorf("time.Date argument %d must be a constant integer", i+1)
+		}
+		value, ok := constant.Int64Val(tv.Value)
+		if !ok {
+			return "", fmt.Errorf("time.Date argument %d is out of range", i+1)
+		}
+		ints[i] = int(value)
+	}
+	if !isTimeUTCSelector(call.Args[7], aliases) {
+		return "", fmt.Errorf("time.Date seed values must use time.UTC")
+	}
+	t := time.Date(ints[0], time.Month(ints[1]), ints[2], ints[3], ints[4], ints[5], ints[6], time.UTC)
+	return t.UTC().Format(time.RFC3339Nano), nil
+}
+
+func isTimeUTCSelector(expr ast.Expr, aliases map[string]string) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "UTC" {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	return ok && aliases[ident.Name] == "time"
 }
 
 func parseEntityActionArgs(pkg *model.Package, args []ast.Expr) ([]model.EntityCRUDAction, error) {
@@ -1050,6 +1168,7 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 		TokenPos: spec.Pos(),
 	}
 	seenFields := make(map[string]bool)
+	fieldByName := make(map[string]model.EntityField)
 	for _, field := range structType.Fields.List {
 		if len(field.Names) == 0 {
 			continue
@@ -1077,6 +1196,7 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 			}
 			entity.Fields = append(entity.Fields, item)
 			seenFields[name.Name] = true
+			fieldByName[name.Name] = item
 		}
 	}
 	for fieldName := range cfg.Fields {
@@ -1084,7 +1204,40 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 			errs = append(errs, sourceDiagnostic(pkg, decl.Pos(), fmt.Sprintf("model.Field(%q) does not match a field on %s", fieldName, spec.Name.Name)))
 		}
 	}
+	seedErrs := validateEntitySeedRows(pkg, spec, cfg.Seeds, fieldByName)
+	errs = append(errs, seedErrs...)
+	if len(seedErrs) == 0 {
+		entity.Seeds = append(entity.Seeds, cfg.Seeds...)
+	}
 	return entity, errs
+}
+
+func validateEntitySeedRows(pkg *model.Package, spec *ast.TypeSpec, rows []model.EntitySeedRow, fields map[string]model.EntityField) []string {
+	var errs []string
+	for _, row := range rows {
+		hasID := false
+		for _, value := range row.Values {
+			field, ok := fields[value.Field]
+			if !ok {
+				errs = append(errs, sourceDiagnostic(pkg, value.TokenPos, fmt.Sprintf("model.Seed field %q does not match a field on %s", value.Field, spec.Name.Name)))
+				continue
+			}
+			if field.Kind == model.EntityFieldComputed {
+				errs = append(errs, sourceDiagnostic(pkg, value.TokenPos, fmt.Sprintf("model.Seed field %q is computed and cannot be seeded", value.Field)))
+				continue
+			}
+			if strings.EqualFold(field.Name, "id") {
+				hasID = true
+			}
+			if len(field.EnumValues) > 0 && value.Kind == model.EntitySeedString && !slices.Contains(field.EnumValues, value.Value) {
+				errs = append(errs, sourceDiagnostic(pkg, value.TokenPos, fmt.Sprintf("model.Seed field %q value %q is not in enum values", value.Field, value.Value)))
+			}
+		}
+		if !hasID {
+			errs = append(errs, sourceDiagnostic(pkg, row.TokenPos, fmt.Sprintf("model.Seed for %s requires an ID field value", spec.Name.Name)))
+		}
+	}
+	return errs
 }
 
 func normalizeEntityCRUD(cfg entityConfig) model.EntityCRUD {

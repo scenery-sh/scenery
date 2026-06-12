@@ -17,6 +17,7 @@ import (
 type dataGeneratorPlan struct {
 	Record  generatorRecord
 	Schemas []schemagen.ServiceSchema
+	Seeds   []schemagen.ServiceSeed
 }
 
 type dbGeneratedDiffOptions struct {
@@ -52,13 +53,20 @@ func buildDataGeneratorPlan(appRoot string, appModel *model.App) (*dataGenerator
 	if err != nil {
 		return nil, false, err
 	}
-	if len(schemas) == 0 {
+	seeds, err := schemagen.BuildSeeds(appRoot, appModel)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(schemas) == 0 && len(seeds) == 0 {
 		return nil, false, nil
 	}
 	inputs := []string{".scenery.json", "**/*.go"}
-	outputs := make([]string, 0, len(schemas))
+	outputs := make([]string, 0, len(schemas)+len(seeds))
 	for _, schema := range schemas {
 		outputs = append(outputs, schema.GeneratedPath)
+	}
+	for _, seed := range seeds {
+		outputs = append(outputs, seed.GeneratedPath)
 	}
 	return &dataGeneratorPlan{
 		Record: generatorRecord{
@@ -69,6 +77,7 @@ func buildDataGeneratorPlan(appRoot string, appModel *model.App) (*dataGenerator
 			Tool:    "scenery-model-schema",
 		},
 		Schemas: schemas,
+		Seeds:   seeds,
 	}, true, nil
 }
 
@@ -101,6 +110,21 @@ func appHasModelDirectives(appRoot string) bool {
 func writeGeneratedDataSchemas(appRoot string, schemas []schemagen.ServiceSchema) error {
 	for _, schema := range schemas {
 		if err := writeGeneratedFileIfChanged(filepath.Join(appRoot, filepath.FromSlash(schema.GeneratedPath)), []byte(schema.HCL)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGeneratedDataArtifacts(appRoot string, plan *dataGeneratorPlan) error {
+	if plan == nil {
+		return nil
+	}
+	if err := writeGeneratedDataSchemas(appRoot, plan.Schemas); err != nil {
+		return err
+	}
+	for _, seed := range plan.Seeds {
+		if err := writeGeneratedFileIfChanged(filepath.Join(appRoot, filepath.FromSlash(seed.GeneratedPath)), []byte(seed.SQL)); err != nil {
 			return err
 		}
 	}

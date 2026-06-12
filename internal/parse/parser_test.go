@@ -397,6 +397,16 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	if got := crudActionList(entity.CRUD.Disabled); got != "delete" {
 		t.Fatalf("crud disabled = %q", got)
 	}
+	if len(entity.Seeds) != 1 || len(entity.Seeds[0].Values) != 5 {
+		t.Fatalf("seeds = %+v", entity.Seeds)
+	}
+	seedValues := map[string]model.EntitySeedValue{}
+	for _, value := range entity.Seeds[0].Values {
+		seedValues[value.Field] = value
+	}
+	if seedValues["Status"].Value != "todo" || seedValues["CreatedAt"].Kind != model.EntitySeedTimestamp || seedValues["CreatedAt"].Value != "2026-06-12T12:00:00Z" {
+		t.Fatalf("seed values = %+v", seedValues)
+	}
 	if len(app.Services) != 1 || len(app.Services[0].Generated) != 4 {
 		t.Fatalf("generated endpoints = %+v", app.Services)
 	}
@@ -463,6 +473,32 @@ type Task struct { Status string }
 var _ = model.Entity[Task](model.Field("Missing"))
 `,
 			want: `model.Field("Missing") does not match a field on Task`,
+		},
+		{
+			name: "unknown seed field",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.Seed(Task{Missing: "x"}))
+`,
+			want: `model.Seed field "Missing" does not match a field on Task`,
+		},
+		{
+			name: "tenant generated crud blocked",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string; TenantID string }
+
+var _ = model.Entity[Task](model.Generate(model.ActionList))
+`,
+			want: `generated CRUD tenancy enforcement is not implemented yet`,
 		},
 		{
 			name: "missing slot",

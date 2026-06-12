@@ -139,7 +139,7 @@ func runGenerate(ctx context.Context, stdout io.Writer, args []string) error {
 	}
 	if opts.DryRun {
 		if plan.Data != nil {
-			if err := writeGeneratedDataSchemas(appRoot, plan.Data.Schemas); err != nil {
+			if err := writeGeneratedDataArtifacts(appRoot, plan.Data); err != nil {
 				return err
 			}
 		}
@@ -579,6 +579,20 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 				Path:    schema.GeneratedPath,
 			})
 		}
+		for _, seed := range dataPlan.Seeds {
+			keepMissing[filepath.ToSlash(seed.GeneratedPath)] = true
+			key := seed.Service + "\x00seed\x00initial-data\x00" + seed.GeneratedPath
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			records = append(records, databaseArtifactRecord{
+				Service: seed.Service,
+				Kind:    "seed",
+				Role:    "initial-data",
+				Path:    seed.GeneratedPath,
+			})
+		}
 	}
 
 	entries, err := os.ReadDir(appRoot)
@@ -760,12 +774,15 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 		}
 	}
 	if plan.Data != nil {
-		if err := writeGeneratedDataSchemas(appRoot, plan.Data.Schemas); err != nil {
+		if err := writeGeneratedDataArtifacts(appRoot, plan.Data); err != nil {
 			return err
 		}
 		if !opts.JSON {
 			for _, schema := range plan.Data.Schemas {
 				fmt.Fprintf(stdout, "scenery: generated model schema at %s\n", schema.GeneratedPath)
+			}
+			for _, seed := range plan.Data.Seeds {
+				fmt.Fprintf(stdout, "scenery: generated model seed at %s\n", seed.GeneratedPath)
 			}
 		}
 	}
