@@ -301,7 +301,7 @@ func ensureGeneratedDataArtifacts(appRoot string, cfg appcfg.Config) error {
 	if err != nil {
 		return err
 	}
-	plan, ok, err := buildDataGeneratorPlan(appRoot, appModel)
+	plan, ok, err := buildDataGeneratorPlan(appRoot, cfg, appModel)
 	if err != nil || !ok {
 		return err
 	}

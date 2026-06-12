@@ -12,12 +12,15 @@ import (
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/schemagen"
+	"scenery.sh/internal/webgen"
 )
 
 type dataGeneratorPlan struct {
-	Record  generatorRecord
-	Schemas []schemagen.ServiceSchema
-	Seeds   []schemagen.ServiceSeed
+	Record     generatorRecord
+	WebRecords []generatorRecord
+	Schemas    []schemagen.ServiceSchema
+	Seeds      []schemagen.ServiceSeed
+	Web        []webgen.Bundle
 }
 
 type dbGeneratedDiffOptions struct {
@@ -48,7 +51,7 @@ type dbGeneratedSchemaRecord struct {
 	Entities      []string `json:"entities"`
 }
 
-func buildDataGeneratorPlan(appRoot string, appModel *model.App) (*dataGeneratorPlan, bool, error) {
+func buildDataGeneratorPlan(appRoot string, cfg appcfg.Config, appModel *model.App) (*dataGeneratorPlan, bool, error) {
 	schemas, err := schemagen.Build(appRoot, appModel)
 	if err != nil {
 		return nil, false, err
@@ -57,7 +60,11 @@ func buildDataGeneratorPlan(appRoot string, appModel *model.App) (*dataGenerator
 	if err != nil {
 		return nil, false, err
 	}
-	if len(schemas) == 0 && len(seeds) == 0 {
+	web, err := webgen.Build(appRoot, appModel, cfg.Proxy.Frontends)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(schemas) == 0 && len(seeds) == 0 && len(web) == 0 {
 		return nil, false, nil
 	}
 	inputs := []string{".scenery.json", "**/*.go"}
@@ -68,6 +75,20 @@ func buildDataGeneratorPlan(appRoot string, appModel *model.App) (*dataGenerator
 	for _, seed := range seeds {
 		outputs = append(outputs, seed.GeneratedPath)
 	}
+	var webRecords []generatorRecord
+	for _, bundle := range web {
+		var bundleOutputs []string
+		for _, file := range bundle.Files {
+			bundleOutputs = append(bundleOutputs, file.Path)
+		}
+		webRecords = append(webRecords, generatorRecord{
+			ID:      "web:" + bundle.Frontend,
+			Kind:    "model-web",
+			Inputs:  uniqueSorted([]string{".scenery.json", "**/*.go", filepath.ToSlash(filepath.Join(bundle.FrontendRoot, "**/*.{ts,tsx}"))}),
+			Outputs: uniqueSorted(bundleOutputs),
+			Tool:    "scenery-model-webgen",
+		})
+	}
 	return &dataGeneratorPlan{
 		Record: generatorRecord{
 			ID:      "data",
@@ -76,8 +97,10 @@ func buildDataGeneratorPlan(appRoot string, appModel *model.App) (*dataGenerator
 			Outputs: uniqueSorted(outputs),
 			Tool:    "scenery-model-schema",
 		},
-		Schemas: schemas,
-		Seeds:   seeds,
+		WebRecords: webRecords,
+		Schemas:    schemas,
+		Seeds:      seeds,
+		Web:        web,
 	}, true, nil
 }
 
@@ -126,6 +149,13 @@ func writeGeneratedDataArtifacts(appRoot string, plan *dataGeneratorPlan) error 
 	for _, seed := range plan.Seeds {
 		if err := writeGeneratedFileIfChanged(filepath.Join(appRoot, filepath.FromSlash(seed.GeneratedPath)), []byte(seed.SQL)); err != nil {
 			return err
+		}
+	}
+	for _, bundle := range plan.Web {
+		for _, file := range bundle.Files {
+			if err := writeGeneratedFileIfChanged(filepath.Join(appRoot, filepath.FromSlash(file.Path)), []byte(file.Contents)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

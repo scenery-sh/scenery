@@ -22,11 +22,16 @@ func TestGenerateDataDryRunWritesGeneratedSchema(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
 	}
-	if len(payload.Generators) != 1 || payload.Generators[0].ID != "data" || payload.Generators[0].Kind != "model-schema" {
+	if len(payload.Generators) != 2 || payload.Generators[0].ID != "data" || payload.Generators[0].Kind != "model-schema" {
 		t.Fatalf("generators = %+v", payload.Generators)
+	}
+	if payload.Generators[1].ID != "web:web" || payload.Generators[1].Kind != "model-web" {
+		t.Fatalf("web generator = %+v", payload.Generators)
 	}
 	assertStringSliceContains(t, payload.Generators[0].Outputs, ".scenery/gen/db/tasks/schema.hcl")
 	assertStringSliceContains(t, payload.Generators[0].Outputs, ".scenery/gen/db/tasks/seed.sql")
+	assertStringSliceContains(t, payload.Generators[1].Outputs, ".scenery/gen/web/web/index.ts")
+	assertStringSliceContains(t, payload.Generators[1].Outputs, ".scenery/gen/web/web/routes.tsx")
 	assertDBArtifact(t, payload.DBArtifacts, "tasks", "generated-schema", "generated-source", ".scenery/gen/db/tasks/schema.hcl")
 	assertDBArtifact(t, payload.DBArtifacts, "tasks", "seed", "initial-data", ".scenery/gen/db/tasks/seed.sql")
 
@@ -43,6 +48,58 @@ func TestGenerateDataDryRunWritesGeneratedSchema(t *testing.T) {
 	}
 	if string(seed) != modelDSLExpectedSeedSQL {
 		t.Fatalf("generated seed =\n%s\nwant:\n%s", seed, modelDSLExpectedSeedSQL)
+	}
+}
+
+func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
+	root := writeModelDSLAppFixture(t, modelDSLExpectedSchemaHCL)
+
+	var out bytes.Buffer
+	if err := runGenerate(context.Background(), &out, []string{"data", "--app-root", root, "--dry-run", "--json"}); err != nil {
+		t.Fatalf("runGenerate(data) returned error: %v", err)
+	}
+
+	webRoot := filepath.Join(root, ".scenery", "gen", "web", "web")
+	wantFiles := []string{"collections.ts", "index.ts", "models.ts", "package.json", "routes.tsx", "shapes.ts"}
+	first := map[string]string{}
+	for _, name := range wantFiles {
+		data, err := os.ReadFile(filepath.Join(webRoot, name))
+		if err != nil {
+			t.Fatalf("read generated web file %s: %v", name, err)
+		}
+		first[name] = string(data)
+	}
+	for name, data := range map[string]string{
+		"models.ts":      "export interface TaskRow",
+		"shapes.ts":      "export const taskShape",
+		"collections.ts": "export interface TanStackDBCollectionDefinition",
+		"routes.tsx":     "TaskStatusBadgeSlot",
+		"index.ts":       "export * from \"./routes\"",
+		"package.json":   "\"name\": \"@scenery/generated-web\"",
+	} {
+		if !strings.Contains(first[name], data) {
+			t.Fatalf("%s missing %q:\n%s", name, data, first[name])
+		}
+	}
+	if !strings.Contains(first["models.ts"], "status: TaskStatus") || !strings.Contains(first["routes.tsx"], "satisfies Record<\"TaskStatusBadge\", ComponentSlot<TaskRow>>") {
+		t.Fatalf("generated web type or slot assertions missing:\nmodels:\n%s\nroutes:\n%s", first["models.ts"], first["routes.tsx"])
+	}
+
+	if err := os.RemoveAll(webRoot); err != nil {
+		t.Fatalf("remove generated web root: %v", err)
+	}
+	out.Reset()
+	if err := runGenerate(context.Background(), &out, []string{"data", "--app-root", root, "--dry-run", "--json"}); err != nil {
+		t.Fatalf("second runGenerate(data) returned error: %v", err)
+	}
+	for _, name := range wantFiles {
+		data, err := os.ReadFile(filepath.Join(webRoot, name))
+		if err != nil {
+			t.Fatalf("read regenerated web file %s: %v", name, err)
+		}
+		if string(data) != first[name] {
+			t.Fatalf("regenerated %s changed:\n%s\nwant:\n%s", name, data, first[name])
+		}
 	}
 }
 
@@ -136,13 +193,39 @@ func writeModelDSLAppFixture(t *testing.T, schemaHCL string) string {
 		t.Fatalf("read model fixture: %v", err)
 	}
 	writeTestAppFile(t, root, "tasks/model.go", string(source))
-	component, err := os.ReadFile(filepath.Join(repoRootForTest(t), "testdata", "apps", "model-dsl", "web", "src", "components", "TaskStatusBadge.tsx"))
-	if err != nil {
-		t.Fatalf("read component fixture: %v", err)
-	}
-	writeTestAppFile(t, root, "web/src/components/TaskStatusBadge.tsx", string(component))
+	copyModelDSLWebFixture(t, root)
 	writeTestAppFile(t, root, "tasks/db/schema.hcl", schemaHCL)
 	return root
+}
+
+func copyModelDSLWebFixture(t *testing.T, root string) {
+	t.Helper()
+	webRoot := filepath.Join(repoRootForTest(t), "testdata", "apps", "model-dsl", "web")
+	if err := filepath.WalkDir(webRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "node_modules":
+				return filepath.SkipDir
+			default:
+				return nil
+			}
+		}
+		rel, err := filepath.Rel(webRoot, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		writeTestAppFile(t, root, filepath.Join("web", rel), string(data))
+		return nil
+	}); err != nil {
+		t.Fatalf("copy web fixture: %v", err)
+	}
 }
 
 const modelDSLExpectedSchemaHCL = `// Code generated by scenery generate data; DO NOT EDIT.

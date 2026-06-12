@@ -75,7 +75,7 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "parse", err)
 	}
 	appInfo.ModulePath = model.ModulePath
-	if dataPlan, ok, err := buildDataGeneratorPlan(appRoot, model); err != nil {
+	if dataPlan, ok, err := buildDataGeneratorPlan(appRoot, cfg, model); err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "model-schema", err)
 	} else if ok {
 		drift, err := generatedSchemaDrift(appRoot, dataPlan.Schemas)
