@@ -17,6 +17,7 @@ import (
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
+	"scenery.sh/internal/parse"
 )
 
 type generateOptions struct {
@@ -33,6 +34,7 @@ type generatorExecutionPlan struct {
 	Graph   generatorGraphResponse
 	Clients []clientGeneratorPlan
 	SQLC    *sqlcGeneratorPlan
+	Data    *dataGeneratorPlan
 }
 
 type generatorGraphResponse struct {
@@ -136,6 +138,11 @@ func runGenerate(ctx context.Context, stdout io.Writer, args []string) error {
 		return err
 	}
 	if opts.DryRun {
+		if plan.Data != nil {
+			if err := writeGeneratedDataSchemas(appRoot, plan.Data.Schemas); err != nil {
+				return err
+			}
+		}
 		return renderGeneratorPlan(stdout, opts.JSON, plan.Graph)
 	}
 	if err := executeGeneratorPlan(ctx, stdout, appRoot, cfg, opts, plan); err != nil {
@@ -151,7 +158,7 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 	opts := generateOptions{Subject: "all"}
 	if len(args) > 0 {
 		switch args[0] {
-		case "client", "sqlc":
+		case "client", "sqlc", "data":
 			opts.Subject = args[0]
 			args = args[1:]
 		case "metadata", "worker":
@@ -267,7 +274,31 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 			plan.Graph.Generators = append(plan.Graph.Generators, sqlcPlan.Record)
 		}
 	}
-	plan.Graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, plan.SQLC)
+	if opts.Subject == "all" || opts.Subject == "data" {
+		if !hasApp {
+			if opts.Subject == "data" {
+				return generatorExecutionPlan{}, fmt.Errorf("generate data requires a Scenery app root")
+			}
+		} else if opts.Subject == "data" || appHasModelDirectives(appRoot) {
+			appModel, err := parse.App(appRoot, cfg.Name)
+			if err != nil {
+				return generatorExecutionPlan{}, err
+			}
+			dataPlan, ok, err := buildDataGeneratorPlan(appRoot, appModel)
+			if err != nil {
+				return generatorExecutionPlan{}, err
+			}
+			if !ok {
+				if opts.Subject == "data" {
+					return generatorExecutionPlan{}, fmt.Errorf("data generator has no model directives")
+				}
+			} else {
+				plan.Data = dataPlan
+				plan.Graph.Generators = append(plan.Graph.Generators, dataPlan.Record)
+			}
+		}
+	}
+	plan.Graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, plan.SQLC, plan.Data)
 	if opts.Subject == "client" && len(plan.Clients) == 0 {
 		return generatorExecutionPlan{}, fmt.Errorf("client generator is not configured")
 	}
@@ -293,7 +324,22 @@ func buildInspectGeneratorsResponse(appRoot string, cfg appcfg.Config) (generato
 	if ok {
 		graph.Generators = append(graph.Generators, sqlcPlan.Record)
 	}
-	graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, sqlcPlan)
+	var dataPlan *dataGeneratorPlan
+	if appHasModelDirectives(appRoot) {
+		appModel, err := parse.App(appRoot, cfg.Name)
+		if err != nil {
+			return generatorGraphResponse{}, err
+		}
+		var ok bool
+		dataPlan, ok, err = buildDataGeneratorPlan(appRoot, appModel)
+		if err != nil {
+			return generatorGraphResponse{}, err
+		}
+		if ok {
+			graph.Generators = append(graph.Generators, dataPlan.Record)
+		}
+	}
+	graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, sqlcPlan, dataPlan)
 	return graph, nil
 }
 
@@ -483,7 +529,7 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 	}, true, nil
 }
 
-func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan) []databaseArtifactRecord {
+func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, dataPlan *dataGeneratorPlan) []databaseArtifactRecord {
 	var records []databaseArtifactRecord
 	seen := map[string]bool{}
 	keepMissing := map[string]bool{}
@@ -516,6 +562,22 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan) [
 		}
 		for _, query := range sqlcPlan.Queries {
 			add(query, "query", "query-generation-input")
+		}
+	}
+	if dataPlan != nil {
+		for _, schema := range dataPlan.Schemas {
+			keepMissing[filepath.ToSlash(schema.GeneratedPath)] = true
+			key := schema.Service + "\x00generated-schema\x00generated-source\x00" + schema.GeneratedPath
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			records = append(records, databaseArtifactRecord{
+				Service: schema.Service,
+				Kind:    "generated-schema",
+				Role:    "generated-source",
+				Path:    schema.GeneratedPath,
+			})
 		}
 	}
 
@@ -695,6 +757,16 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 	if plan.SQLC != nil {
 		if err := runSQLCGenerator(ctx, stdout, appRoot, plan.SQLC, opts.JSON); err != nil {
 			return err
+		}
+	}
+	if plan.Data != nil {
+		if err := writeGeneratedDataSchemas(appRoot, plan.Data.Schemas); err != nil {
+			return err
+		}
+		if !opts.JSON {
+			for _, schema := range plan.Data.Schemas {
+				fmt.Fprintf(stdout, "scenery: generated model schema at %s\n", schema.GeneratedPath)
+			}
 		}
 	}
 	return nil

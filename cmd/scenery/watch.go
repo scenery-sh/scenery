@@ -592,6 +592,9 @@ func isWatchedFile(rel string) bool {
 	if strings.HasSuffix(rel, ".worker.ts") {
 		return true
 	}
+	if strings.HasSuffix(rel, "/db/schema.hcl") {
+		return true
+	}
 	switch filepath.Ext(rel) {
 	case ".go", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".f", ".F", ".for", ".f90", ".m", ".mm", ".s", ".S", ".syso", ".swig", ".swigcxx":
 		return true

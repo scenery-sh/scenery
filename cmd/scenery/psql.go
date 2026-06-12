@@ -24,7 +24,7 @@ type psqlOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery db psql|apply|seed|setup|reset|drop|snapshot|branch|postgres [--app-root <path>]")
+		return fmt.Errorf("usage: scenery db psql|apply|seed|setup|reset|drop|snapshot|diff|branch|postgres [--app-root <path>]")
 	}
 	switch args[0] {
 	case "psql":
@@ -41,6 +41,8 @@ func dbCommand(args []string) error {
 		return dbDropCommand(args[1:])
 	case "snapshot":
 		return dbSnapshotCommand(args[1:])
+	case "diff":
+		return runDBGeneratedDiff(os.Stdout, args[1:])
 	case "branch":
 		return dbBranchCommand(args[1:])
 	case "postgres":

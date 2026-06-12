@@ -523,7 +523,7 @@ scenery metrics list --json --since 1h
 scenery metrics query --json --since 15m --step 5s --promql 'scenery_request_duration_seconds'
 ```
 
-`scenery inspect models --json` and `scenery inspect views --json` expose the beta static IR from `//scenery:model`, `scenery.sh/model`, `//scenery:page`, and `scenery.sh/page`. Use them to check parser-visible model/page shape; generated schema, backend, and web layers remain tracked by `docs/plans/0077-static-model-view-ir.md`.
+`scenery inspect models --json` and `scenery inspect views --json` expose the beta static IR from `//scenery:model`, `scenery.sh/model`, `//scenery:page`, and `scenery.sh/page`. Use them to check parser-visible model/page shape. `scenery generate data --dry-run --json` writes desired Atlas HCL to `.scenery/gen/db/<service>/schema.hcl`, and `scenery db diff --generated --json` compares that generated desired schema with the app-owned `SERVICE/db/schema.hcl`; `scenery check --json` reports `model-schema` diagnostics when they drift. Backend and web layers remain tracked by `docs/plans/0077-static-model-view-ir.md`.
 
 For generated paths:
 
