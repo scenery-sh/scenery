@@ -106,6 +106,7 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 			SchemaVersion string `json:"schema_version"`
 			Endpoints     []struct {
 				ID        string   `json:"id"`
+				Access    string   `json:"access"`
 				Path      string   `json:"path"`
 				Methods   []string `json:"methods"`
 				Generated bool     `json:"generated"`
@@ -115,25 +116,28 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 			t.Fatalf("json.Unmarshal(endpoints): %v\n%s", err, out.String())
 		}
 		generated := map[string]struct {
+			access  string
 			path    string
 			methods string
 		}{}
 		for _, ep := range payload.Endpoints {
 			if ep.Generated {
 				generated[ep.ID] = struct {
+					access  string
 					path    string
 					methods string
-				}{path: ep.Path, methods: strings.Join(ep.Methods, ",")}
+				}{access: ep.Access, path: ep.Path, methods: strings.Join(ep.Methods, ",")}
 			}
 		}
 		want := map[string]struct {
+			access  string
 			path    string
 			methods string
 		}{
-			"tasks.ListTasks":  {path: "/tasks", methods: "GET"},
-			"tasks.GetTask":    {path: "/tasks/:id", methods: "GET"},
-			"tasks.CreateTask": {path: "/tasks", methods: "POST"},
-			"tasks.UpdateTask": {path: "/tasks/:id", methods: "PATCH"},
+			"tasks.ListTasks":  {access: "auth", path: "/tasks", methods: "GET"},
+			"tasks.GetTask":    {access: "auth", path: "/tasks/:id", methods: "GET"},
+			"tasks.CreateTask": {access: "auth", path: "/tasks", methods: "POST"},
+			"tasks.UpdateTask": {access: "auth", path: "/tasks/:id", methods: "PATCH"},
 		}
 		if len(generated) != len(want) {
 			t.Fatalf("generated endpoints = %+v, want %+v", generated, want)

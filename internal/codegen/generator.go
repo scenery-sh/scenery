@@ -670,7 +670,7 @@ func writeGeneratedModelTypes(buf *strings.Builder, im *imports, entity *model.E
 	createType := generatedModelCreateType(entity)
 	patchType := generatedModelPatchType(entity)
 	fmt.Fprintf(buf, "type %s struct {\n", createType)
-	for _, field := range generatedModelStoredFields(entity) {
+	for _, field := range generatedModelCreateFields(entity) {
 		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", field.Name, entityFieldTypeExpr(im, field), field.Column+",omitempty")
 	}
 	buf.WriteString("}\n\n")
@@ -694,9 +694,17 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	poolFunc := generatedModelPoolFunc(entity)
 	keyFunc := generatedModelKeyFunc(entity)
 	fromCreate := generatedModelFromCreateFunc(entity)
+	tenantField := entity.TenantField()
+	tenantFunc := ""
+	authPkg := ""
+	if tenantField != nil {
+		authPkg = im.use("sceneryauth", "scenery.sh/auth")
+		tenantFunc = generatedModelTenantFunc(entity)
+	}
 	entityType := entity.Name
 	id := generatedModelIDField(entity)
 	fields := generatedModelStoredFields(entity)
+	createFields := generatedModelCreateFields(entity)
 	patchFields := generatedModelPatchFields(entity)
 	selectSQL := generatedModelSelectSQL(entity, fields)
 	table := generatedModelSQLIdent(entity.Table)
@@ -713,23 +721,45 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	fmt.Fprintf(buf, "\t%s.pool = pool\n\t%s.dsn = dsn\n\treturn pool, nil\n}\n\n", stateName, stateName)
 	fmt.Fprintf(buf, "func %s(id any) string {\n\treturn %s.Sprint(id)\n}\n\n", keyFunc, fmtPkg)
 	fmt.Fprintf(buf, "func %s(input %s) %s {\n\treturn %s{\n", fromCreate, generatedModelCreateType(entity), entityType, entityType)
-	for _, field := range fields {
+	for _, field := range createFields {
 		fmt.Fprintf(buf, "\t\t%s: input.%s,\n", field.Name, field.Name)
 	}
 	buf.WriteString("\t}\n}\n\n")
+	if tenantField != nil {
+		fmt.Fprintf(buf, "func %s() (string, error) {\n", tenantFunc)
+		fmt.Fprintf(buf, "\tauthData, ok := %s.CurrentAuthData()\n", authPkg)
+		fmt.Fprintf(buf, "\tif !ok || authData == nil || %s.TrimSpace(string(authData.TenantID)) == \"\" {\n", stringsPkg)
+		fmt.Fprintf(buf, "\t\treturn \"\", errs.B().Code(errs.Unauthenticated).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" store requires active tenant")
+		fmt.Fprintf(buf, "\treturn %s.TrimSpace(string(authData.TenantID)), nil\n}\n\n", stringsPkg)
+	}
 	fmt.Fprintf(buf, "func sceneryModelScan%s(row %s.Row) (%s, error) {\n\tvar out %s\n", entity.Name, pgxPkg, entityType, entityType)
 	fmt.Fprintf(buf, "\tif err := row.Scan(%s); err != nil {\n\t\tif %s.Is(err, %s.ErrNoRows) {\n\t\t\treturn %s{}, errs.B().Code(errs.NotFound).Msg(%q).Err()\n\t\t}\n\t\treturn %s{}, err\n\t}\n\treturn out, nil\n}\n\n", generatedModelScanArgs(fields, "out"), errorsPkg, pgxPkg, entityType, entity.Name+" not found", entityType)
 	fmt.Fprintf(buf, "func sceneryModelList%s(ctx context.Context) ([]%s, error) {\n", entity.Name, entityType)
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", poolFunc)
-	fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdefer rows.Close()\n", selectSQL+" order by "+idColumn)
+	if tenantField != nil {
+		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", tenantFunc)
+		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q, tenantID)\n", selectSQL+" where "+generatedModelSQLIdent(tenantField.Column)+" = $1 order by "+idColumn)
+	} else {
+		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q)\n", selectSQL+" order by "+idColumn)
+	}
+	buf.WriteString("\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdefer rows.Close()\n")
 	fmt.Fprintf(buf, "\tout := []%s{}\n\tfor rows.Next() {\n\t\tvar item %s\n", entityType, entityType)
 	fmt.Fprintf(buf, "\t\tif err := rows.Scan(%s); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tout = append(out, item)\n\t}\n\tif err := rows.Err(); err != nil {\n\t\treturn nil, err\n\t}\n\treturn out, nil\n}\n\n", generatedModelScanArgs(fields, "item"))
 	fmt.Fprintf(buf, "func sceneryModelGet%s(ctx context.Context, id any) (%s, error) {\n", entity.Name, entityType)
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", poolFunc, entityType)
-	fmt.Fprintf(buf, "\treturn sceneryModelScan%s(pool.QueryRow(ctx, %q, id))\n}\n\n", entity.Name, selectSQL+" where "+idColumn+" = $1")
+	if tenantField != nil {
+		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantFunc, entityType)
+		fmt.Fprintf(buf, "\treturn sceneryModelScan%s(pool.QueryRow(ctx, %q, id, tenantID))\n}\n\n", entity.Name, selectSQL+" where "+idColumn+" = $1 and "+generatedModelSQLIdent(tenantField.Column)+" = $2")
+	} else {
+		fmt.Fprintf(buf, "\treturn sceneryModelScan%s(pool.QueryRow(ctx, %q, id))\n}\n\n", entity.Name, selectSQL+" where "+idColumn+" = $1")
+	}
 	fmt.Fprintf(buf, "func sceneryModelCreate%s(ctx context.Context, input %s) (%s, error) {\n", entity.Name, generatedModelCreateType(entity), entityType)
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", poolFunc, entityType)
 	fmt.Fprintf(buf, "\trow := %s(input)\n\tkey := %s(row.%s)\n", fromCreate, keyFunc, id.Name)
+	if tenantField != nil {
+		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantFunc, entityType)
+		fmt.Fprintf(buf, "\trow.%s = %s(tenantID)\n", tenantField.Name, entityFieldTypeExpr(im, *tenantField))
+	}
 	fmt.Fprintf(buf, "\tif key == \"\" {\n\t\treturn %s{}, errs.B().Code(errs.InvalidArgument).Msg(%q).Err()\n\t}\n", entityType, entity.Name+" ID is required")
 	fmt.Fprintf(buf, "\tcreated, err := sceneryModelScan%s(pool.QueryRow(ctx, %q, %s))\n", entity.Name, generatedModelInsertSQL(entity, fields), generatedModelFieldArgs(fields, "row"))
 	fmt.Fprintf(buf, "\tif err != nil {\n\t\tvar pgErr *%s.PgError\n\t\tif %s.As(err, &pgErr) && pgErr.Code == \"23505\" {\n\t\t\treturn %s{}, errs.B().Code(errs.AlreadyExists).Msgf(%q, key).Err()\n\t\t}\n\t\treturn %s{}, err\n\t}\n\treturn created, nil\n}\n\n", pgconnPkg, errorsPkg, entityType, entity.Name+" %s already exists", entityType)
@@ -740,11 +770,22 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 		fmt.Fprintf(buf, "\tif patch.%s != nil {\n\t\targs = append(args, *patch.%s)\n\t\tsets = append(sets, %s.Sprintf(%q, len(args)))\n\t}\n", field.Name, field.Name, fmtPkg, generatedModelSQLIdent(field.Column)+" = $%d")
 	}
 	fmt.Fprintf(buf, "\tif len(sets) == 0 {\n\t\treturn sceneryModelGet%s(ctx, id)\n\t}\n", entity.Name)
-	fmt.Fprintf(buf, "\targs = append(args, id)\n\tquery := %s.Sprintf(%q, %s.Join(sets, \", \"), len(args))\n", fmtPkg, "update "+table+" set %s where "+idColumn+" = $%d returning "+generatedModelColumnList(fields), stringsPkg)
+	if tenantField != nil {
+		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantFunc, entityType)
+		fmt.Fprintf(buf, "\targs = append(args, id, tenantID)\n\tquery := %s.Sprintf(%q, %s.Join(sets, \", \"), len(args)-1, len(args))\n", fmtPkg, "update "+table+" set %s where "+idColumn+" = $%d and "+generatedModelSQLIdent(tenantField.Column)+" = $%d returning "+generatedModelColumnList(fields), stringsPkg)
+	} else {
+		fmt.Fprintf(buf, "\targs = append(args, id)\n\tquery := %s.Sprintf(%q, %s.Join(sets, \", \"), len(args))\n", fmtPkg, "update "+table+" set %s where "+idColumn+" = $%d returning "+generatedModelColumnList(fields), stringsPkg)
+	}
 	fmt.Fprintf(buf, "\treturn sceneryModelScan%s(pool.QueryRow(ctx, query, args...))\n}\n\n", entity.Name)
 	fmt.Fprintf(buf, "func sceneryModelDelete%s(ctx context.Context, id any) error {\n", entity.Name)
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n", poolFunc)
-	fmt.Fprintf(buf, "\ttag, err := pool.Exec(ctx, %q, id)\n\tif err != nil {\n\t\treturn err\n\t}\n\tif tag.RowsAffected() == 0 {\n\t\treturn errs.B().Code(errs.NotFound).Msgf(%q, %s(id)).Err()\n\t}\n\treturn nil\n}\n\n", "delete from "+table+" where "+idColumn+" = $1", entity.Name+" %s not found", keyFunc)
+	if tenantField != nil {
+		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn err\n\t}\n", tenantFunc)
+		fmt.Fprintf(buf, "\ttag, err := pool.Exec(ctx, %q, id, tenantID)\n", "delete from "+table+" where "+idColumn+" = $1 and "+generatedModelSQLIdent(tenantField.Column)+" = $2")
+	} else {
+		fmt.Fprintf(buf, "\ttag, err := pool.Exec(ctx, %q, id)\n", "delete from "+table+" where "+idColumn+" = $1")
+	}
+	fmt.Fprintf(buf, "\tif err != nil {\n\t\treturn err\n\t}\n\tif tag.RowsAffected() == 0 {\n\t\treturn errs.B().Code(errs.NotFound).Msgf(%q, %s(id)).Err()\n\t}\n\treturn nil\n}\n\n", entity.Name+" %s not found", keyFunc)
 }
 
 func generatedModelStoredFields(entity *model.Entity) []model.EntityField {
@@ -760,8 +801,24 @@ func generatedModelStoredFields(entity *model.Entity) []model.EntityField {
 
 func generatedModelPatchFields(entity *model.Entity) []model.EntityField {
 	var fields []model.EntityField
+	tenantField := entity.TenantField()
 	for _, field := range generatedModelStoredFields(entity) {
 		if strings.EqualFold(field.Name, "id") {
+			continue
+		}
+		if tenantField != nil && strings.EqualFold(field.Name, tenantField.Name) {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func generatedModelCreateFields(entity *model.Entity) []model.EntityField {
+	var fields []model.EntityField
+	tenantField := entity.TenantField()
+	for _, field := range generatedModelStoredFields(entity) {
+		if tenantField != nil && strings.EqualFold(field.Name, tenantField.Name) {
 			continue
 		}
 		fields = append(fields, field)
@@ -847,6 +904,10 @@ func generatedModelKeyFunc(entity *model.Entity) string {
 
 func generatedModelFromCreateFunc(entity *model.Entity) string {
 	return "sceneryModel" + entity.Name + "FromCreate"
+}
+
+func generatedModelTenantFunc(entity *model.Entity) string {
+	return "sceneryModel" + entity.Name + "TenantID"
 }
 
 func generatedModelCreateType(entity *model.Entity) string {

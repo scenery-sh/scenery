@@ -111,10 +111,16 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 		"type TaskCreate struct",
 		"type TaskPatch struct",
 		"sceneryModelTaskPool",
+		`sceneryauth "scenery.sh/auth"`,
+		`func sceneryModelTaskTenantID() (string, error)`,
 		`os.Getenv("DatabaseURL")`,
 		`insert into \"tasks\"`,
-		`update \"tasks\" set %s where \"id\" = $%d returning`,
+		`where \"tenant_id\" = $1 order by \"id\"`,
+		`where \"id\" = $1 and \"tenant_id\" = $2`,
+		`row.TenantID = string(tenantID)`,
+		`update \"tasks\" set %s where \"id\" = $%d and \"tenant_id\" = $%d returning`,
 		`"CreateTask"`,
+		`Access:                sceneryruntime.Auth`,
 		`"/tasks"`,
 		"sceneryModelUpdateTask(ctx, pathArgs[0], payload.(TaskPatch))",
 	} {
@@ -124,6 +130,9 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	}
 	if strings.Contains(got, `Name: "DeleteTask"`) {
 		t.Fatalf("disabled delete endpoint generated:\n%s", got)
+	}
+	if strings.Contains(got, "TenantID string `json:\"tenant_id,omitempty\"`") {
+		t.Fatalf("tenant field should not be client-writable in generated create/patch payloads:\n%s", got)
 	}
 	mainGot := string(out.Generated["scenery_internal_main/main.go"])
 	if !strings.Contains(mainGot, `_ "example.com/modeldsl/tasks"`) {

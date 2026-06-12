@@ -12,6 +12,7 @@ const statusField = "Status"
 //scenery:model
 type Task struct {
 	ID        string    `db:"id"`
+	TenantID  string    `db:"tenant_id"`
 	Title     string    `db:"title"`
 	Status    string    `db:"status"`
 	ProjectID string    `db:"project_id"`
@@ -28,6 +29,7 @@ var taskEntity = model.Entity[Task](
 	model.Field("AgeDays", model.Computed()),
 	model.Seed(Task{
 		ID:        "seed-task-1",
+		TenantID:  "00000000-0000-0000-0000-000000000001",
 		Title:     "Seeded task",
 		Status:    "todo",
 		ProjectID: "seed-project",

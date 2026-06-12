@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/packages"
 
@@ -123,6 +124,22 @@ type EntityField struct {
 	EnumValues  []string
 	Filterable  bool
 	RenamedFrom string
+}
+
+func (e *Entity) TenantField() *EntityField {
+	if e == nil {
+		return nil
+	}
+	for i := range e.Fields {
+		field := &e.Fields[i]
+		if field.Kind == EntityFieldComputed {
+			continue
+		}
+		if strings.EqualFold(field.Name, "TenantID") || strings.EqualFold(field.Column, "tenant_id") {
+			return field
+		}
+	}
+	return nil
 }
 
 type View struct {

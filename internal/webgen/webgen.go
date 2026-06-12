@@ -213,7 +213,7 @@ func renderModels(entities map[string]*model.Entity) string {
 		}
 		b.WriteString("}\n\n")
 		fmt.Fprintf(&b, "export interface %sCreate {\n", entity.Name)
-		for _, field := range storedFields(entity) {
+		for _, field := range createFields(entity) {
 			fmt.Fprintf(&b, "  %s: %s\n", tsProperty(field.Column), tsType(entity, field))
 		}
 		b.WriteString("}\n\n")
@@ -444,8 +444,24 @@ func storedFields(entity *model.Entity) []model.EntityField {
 
 func patchFields(entity *model.Entity) []model.EntityField {
 	var out []model.EntityField
+	tenantField := entity.TenantField()
 	for _, field := range storedFields(entity) {
 		if strings.EqualFold(field.Name, "id") {
+			continue
+		}
+		if tenantField != nil && strings.EqualFold(field.Name, tenantField.Name) {
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
+}
+
+func createFields(entity *model.Entity) []model.EntityField {
+	var out []model.EntityField
+	tenantField := entity.TenantField()
+	for _, field := range storedFields(entity) {
+		if tenantField != nil && strings.EqualFold(field.Name, tenantField.Name) {
 			continue
 		}
 		out = append(out, field)

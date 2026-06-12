@@ -15,6 +15,11 @@ table "tasks" {
     type = text
   }
 
+  column "tenant_id" {
+    null = false
+    type = text
+  }
+
   column "title" {
     null = false
     type = text
