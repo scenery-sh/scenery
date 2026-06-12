@@ -10,7 +10,7 @@ scenery is used in production. The stable v0 surface is intentionally small and 
 
 ## Why scenery?
 
-- **Go source is the app model.** Services, APIs, auth handlers, middleware, Temporal workflows and activities, and cron jobs are discovered from Go code.
+- **Go source is the app model.** Services, APIs, auth handlers, middleware, Temporal workflows and activities, cron jobs, and beta static model/page IR are discovered from Go code.
 - **One local app server.** `scenery serve` builds once and starts a headless, production-like HTTP server.
 - **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, Grafana, and optional HTTPS local domains.
 - **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
@@ -229,7 +229,7 @@ scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [
 scenery harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|wire|build|paths|generators|temporal --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|temporal --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]
@@ -270,6 +270,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - Standard auth owns its tenant tables under `scenery_auth`; app-local `tenants` services or tables are product-domain concerns.
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping.
 - `scenery.sh/middleware` exposes middleware request/response types.
+- `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary for inspection and future generators.
 - `scenery.sh/temporal` exposes workflow/activity declarations and start helpers for the scenery-managed Temporal runtime.
 - `scenery.sh/cron` exposes cron job declarations.
 - `scenery.sh/pgxpool` wraps `pgxpool` with scenery DB tracing.

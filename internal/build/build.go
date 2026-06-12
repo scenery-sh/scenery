@@ -105,6 +105,8 @@ type GeneratedManifestPaths struct {
 	Routes           string `json:"routes"`
 	Services         string `json:"services"`
 	Endpoints        string `json:"endpoints"`
+	Models           string `json:"models,omitempty"`
+	Views            string `json:"views,omitempty"`
 	WireCapabilities string `json:"wire_capabilities"`
 	BuildLatest      string `json:"build_latest"`
 }
@@ -114,6 +116,8 @@ type GeneratedManifestSchema struct {
 	Routes           string `json:"routes"`
 	Services         string `json:"services"`
 	Endpoints        string `json:"endpoints"`
+	Models           string `json:"models,omitempty"`
+	Views            string `json:"views,omitempty"`
 	WireCapabilities string `json:"wire_capabilities"`
 	BuildLatest      string `json:"build_latest"`
 }
@@ -123,6 +127,8 @@ type GeneratedManifestHashes struct {
 	Routes           string `json:"routes"`
 	Services         string `json:"services"`
 	Endpoints        string `json:"endpoints"`
+	Models           string `json:"models,omitempty"`
+	Views            string `json:"views,omitempty"`
 	WireCapabilities string `json:"wire_capabilities"`
 }
 
@@ -131,11 +137,15 @@ type generatedInspectArtifacts struct {
 	Routes               inspectdata.RoutesResponse
 	Services             inspectdata.ServicesResponse
 	Endpoints            inspectdata.EndpointsResponse
+	Models               inspectdata.ModelsResponse
+	Views                inspectdata.ViewsResponse
 	WireCapabilities     any
 	AppJSON              []byte
 	RoutesJSON           []byte
 	ServicesJSON         []byte
 	EndpointsJSON        []byte
+	ModelsJSON           []byte
+	ViewsJSON            []byte
 	WireCapabilitiesJSON []byte
 }
 
@@ -343,6 +353,8 @@ func writeGeneratedInspectArtifacts(appRoot string, cfg app.Config, appModel *mo
 		Routes:           inspectdata.BuildRoutesResponse(appRoot, cfg, appModel),
 		Services:         inspectdata.BuildServicesResponse(appRoot, cfg, appModel),
 		Endpoints:        inspectdata.BuildEndpointsResponse(appRoot, cfg, appModel),
+		Models:           inspectdata.BuildModelsResponse(appRoot, cfg, appModel),
+		Views:            inspectdata.BuildViewsResponse(appRoot, cfg, appModel),
 		WireCapabilities: wiremodel.AppCapabilities(appModel),
 	}
 	genDir := filepath.Join(appRoot, ".scenery", "gen")
@@ -351,6 +363,8 @@ func writeGeneratedInspectArtifacts(appRoot string, cfg app.Config, appModel *mo
 		"routes.json":            &artifacts.RoutesJSON,
 		"services.json":          &artifacts.ServicesJSON,
 		"endpoints.json":         &artifacts.EndpointsJSON,
+		"models.json":            &artifacts.ModelsJSON,
+		"views.json":             &artifacts.ViewsJSON,
 		"wire/capabilities.json": &artifacts.WireCapabilitiesJSON,
 	}
 	payloads := map[string]any{
@@ -358,6 +372,8 @@ func writeGeneratedInspectArtifacts(appRoot string, cfg app.Config, appModel *mo
 		"routes.json":            artifacts.Routes,
 		"services.json":          artifacts.Services,
 		"endpoints.json":         artifacts.Endpoints,
+		"models.json":            artifacts.Models,
+		"views.json":             artifacts.Views,
 		"wire/capabilities.json": artifacts.WireCapabilities,
 	}
 	for name, target := range files {
@@ -387,6 +403,8 @@ func writeGeneratedManifest(appRoot string, artifacts *generatedInspectArtifacts
 			Routes:           ".scenery/gen/routes.json",
 			Services:         ".scenery/gen/services.json",
 			Endpoints:        ".scenery/gen/endpoints.json",
+			Models:           ".scenery/gen/models.json",
+			Views:            ".scenery/gen/views.json",
 			WireCapabilities: ".scenery/gen/wire/capabilities.json",
 			BuildLatest:      ".scenery/build/latest.json",
 		},
@@ -395,6 +413,8 @@ func writeGeneratedManifest(appRoot string, artifacts *generatedInspectArtifacts
 			Routes:           artifacts.Routes.SchemaVersion,
 			Services:         artifacts.Services.SchemaVersion,
 			Endpoints:        artifacts.Endpoints.SchemaVersion,
+			Models:           artifacts.Models.SchemaVersion,
+			Views:            artifacts.Views.SchemaVersion,
 			WireCapabilities: "scenery.wire.capabilities.v1",
 			BuildLatest:      "scenery.build.latest.v1",
 		},
@@ -403,6 +423,8 @@ func writeGeneratedManifest(appRoot string, artifacts *generatedInspectArtifacts
 			Routes:           sha256Hex(artifacts.RoutesJSON),
 			Services:         sha256Hex(artifacts.ServicesJSON),
 			Endpoints:        sha256Hex(artifacts.EndpointsJSON),
+			Models:           sha256Hex(artifacts.ModelsJSON),
+			Views:            sha256Hex(artifacts.ViewsJSON),
 			WireCapabilities: sha256Hex(artifacts.WireCapabilitiesJSON),
 		},
 	}

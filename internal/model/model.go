@@ -18,6 +18,8 @@ type App struct {
 	Services   []*Service
 	Middleware []*Middleware
 	Runtime    []*RuntimeDeclaration
+	Entities   []*Entity
+	Views      []*View
 }
 
 type Service struct {
@@ -46,6 +48,51 @@ type Package struct {
 type File struct {
 	Path string
 	AST  *ast.File
+}
+
+type Entity struct {
+	Package  *Package
+	File     *File
+	Name     string
+	TypeExpr string
+	Table    string
+	Fields   []EntityField
+	TokenPos token.Pos
+}
+
+type EntityFieldKind string
+
+const (
+	EntityFieldStored       EntityFieldKind = "stored"
+	EntityFieldRelationship EntityFieldKind = "relationship"
+	EntityFieldComputed     EntityFieldKind = "computed"
+)
+
+type EntityField struct {
+	Name        string
+	TypeExpr    string
+	Kind        EntityFieldKind
+	Column      string
+	EnumValues  []string
+	Filterable  bool
+	RenamedFrom string
+}
+
+type View struct {
+	Package  *Package
+	File     *File
+	Name     string
+	Kind     string
+	Entity   string
+	Route    string
+	Title    string
+	Columns  []string
+	Slots    []ViewSlot
+	TokenPos token.Pos
+}
+
+type ViewSlot struct {
+	Name string
 }
 
 type RuntimeDeclarationKind string

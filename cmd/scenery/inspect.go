@@ -262,6 +262,28 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 			return err
 		}
 		return writeInspectJSON(stdout, inspectdata.BuildEndpointsResponse(appRoot, cfg, model))
+	case "models":
+		if payload, ok, err := inspectdata.ReadGeneratedModels(appRoot); err != nil {
+			return err
+		} else if ok {
+			return writeInspectJSON(stdout, payload)
+		}
+		model, err := cachedInspectAppModel(appRoot, cfg.Name)
+		if err != nil {
+			return err
+		}
+		return writeInspectJSON(stdout, inspectdata.BuildModelsResponse(appRoot, cfg, model))
+	case "views":
+		if payload, ok, err := inspectdata.ReadGeneratedViews(appRoot); err != nil {
+			return err
+		} else if ok {
+			return writeInspectJSON(stdout, payload)
+		}
+		model, err := cachedInspectAppModel(appRoot, cfg.Name)
+		if err != nil {
+			return err
+		}
+		return writeInspectJSON(stdout, inspectdata.BuildViewsResponse(appRoot, cfg, model))
 	case "wire":
 		if payload, ok, err := inspectdata.ReadGeneratedWireCapabilities(appRoot); err != nil {
 			return err

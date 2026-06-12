@@ -513,6 +513,8 @@ scenery check --json
 scenery inspect app --json
 scenery inspect routes --json
 scenery inspect endpoints --json
+scenery inspect models --json
+scenery inspect views --json
 scenery logs --limit 200
 scenery inspect observability --json
 scenery logs query --json --since 15m --query 'error OR panic'
@@ -520,6 +522,8 @@ scenery traces list --json --since 15m
 scenery metrics list --json --since 1h
 scenery metrics query --json --since 15m --step 5s --promql 'scenery_request_duration_seconds'
 ```
+
+`scenery inspect models --json` and `scenery inspect views --json` expose the beta static IR from `//scenery:model`, `scenery.sh/model`, `//scenery:page`, and `scenery.sh/page`. Use them to check parser-visible model/page shape; generated schema, backend, and web layers remain tracked by `docs/plans/0077-static-model-view-ir.md`.
 
 For generated paths:
 

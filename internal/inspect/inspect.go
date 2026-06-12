@@ -88,6 +88,54 @@ type EndpointsResponse struct {
 	Wire          WireSummary      `json:"wire"`
 }
 
+type ModelsResponse struct {
+	SchemaVersion string        `json:"schema_version"`
+	App           AppRef        `json:"app"`
+	Models        []ModelRecord `json:"models"`
+}
+
+type ModelRecord struct {
+	Name    string             `json:"name"`
+	Package string             `json:"package"`
+	File    string             `json:"file"`
+	Line    int                `json:"line"`
+	Table   string             `json:"table"`
+	Fields  []ModelFieldRecord `json:"fields"`
+}
+
+type ModelFieldRecord struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Kind        string   `json:"kind"`
+	Column      string   `json:"column,omitempty"`
+	EnumValues  []string `json:"enum_values,omitempty"`
+	Filterable  bool     `json:"filterable,omitempty"`
+	RenamedFrom string   `json:"renamed_from,omitempty"`
+}
+
+type ViewsResponse struct {
+	SchemaVersion string       `json:"schema_version"`
+	App           AppRef       `json:"app"`
+	Views         []ViewRecord `json:"views"`
+}
+
+type ViewRecord struct {
+	Name    string           `json:"name"`
+	Kind    string           `json:"kind"`
+	Package string           `json:"package"`
+	File    string           `json:"file"`
+	Line    int              `json:"line"`
+	Entity  string           `json:"entity"`
+	Route   string           `json:"route,omitempty"`
+	Title   string           `json:"title,omitempty"`
+	Columns []string         `json:"columns,omitempty"`
+	Slots   []ViewSlotRecord `json:"slots,omitempty"`
+}
+
+type ViewSlotRecord struct {
+	Name string `json:"name"`
+}
+
 type WireSummary struct {
 	SchemaHash  string `json:"wire_schema_hash"`
 	Available   int    `json:"available"`
@@ -342,6 +390,78 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 	}
 }
 
+func BuildModelsResponse(appRoot string, cfg appcfg.Config, app *model.App) ModelsResponse {
+	models := make([]ModelRecord, 0, len(app.Entities))
+	for _, entity := range app.Entities {
+		position := entity.Package.GoPkg.Fset.Position(entity.TokenPos)
+		item := ModelRecord{
+			Name:    entity.Name,
+			Package: filepath.ToSlash(entity.Package.RelDir),
+			File:    filepath.ToSlash(relOrSelf(appRoot, position.Filename)),
+			Line:    position.Line,
+			Table:   entity.Table,
+			Fields:  []ModelFieldRecord{},
+		}
+		for _, field := range entity.Fields {
+			item.Fields = append(item.Fields, ModelFieldRecord{
+				Name:        field.Name,
+				Type:        field.TypeExpr,
+				Kind:        string(field.Kind),
+				Column:      field.Column,
+				EnumValues:  append([]string(nil), field.EnumValues...),
+				Filterable:  field.Filterable,
+				RenamedFrom: field.RenamedFrom,
+			})
+		}
+		models = append(models, item)
+	}
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].Package != models[j].Package {
+			return models[i].Package < models[j].Package
+		}
+		return models[i].Name < models[j].Name
+	})
+	return ModelsResponse{
+		SchemaVersion: "scenery.inspect.models.v1",
+		App:           appInfo(appRoot, cfg, app),
+		Models:        models,
+	}
+}
+
+func BuildViewsResponse(appRoot string, cfg appcfg.Config, app *model.App) ViewsResponse {
+	views := make([]ViewRecord, 0, len(app.Views))
+	for _, view := range app.Views {
+		position := view.Package.GoPkg.Fset.Position(view.TokenPos)
+		item := ViewRecord{
+			Name:    view.Name,
+			Kind:    view.Kind,
+			Package: filepath.ToSlash(view.Package.RelDir),
+			File:    filepath.ToSlash(relOrSelf(appRoot, position.Filename)),
+			Line:    position.Line,
+			Entity:  view.Entity,
+			Route:   view.Route,
+			Title:   view.Title,
+			Columns: append([]string(nil), view.Columns...),
+			Slots:   []ViewSlotRecord{},
+		}
+		for _, slot := range view.Slots {
+			item.Slots = append(item.Slots, ViewSlotRecord{Name: slot.Name})
+		}
+		views = append(views, item)
+	}
+	sort.Slice(views, func(i, j int) bool {
+		if views[i].Package != views[j].Package {
+			return views[i].Package < views[j].Package
+		}
+		return views[i].Name < views[j].Name
+	})
+	return ViewsResponse{
+		SchemaVersion: "scenery.inspect.views.v1",
+		App:           appInfo(appRoot, cfg, app),
+		Views:         views,
+	}
+}
+
 func appendStandardAuthSummary(services []string, serviceCount int, endpointCount int) ([]string, int, int) {
 	seen := make(map[string]bool, len(services)+2)
 	for _, service := range services {
@@ -430,6 +550,14 @@ func GeneratedEndpointsPath(appRoot string) string {
 	return filepath.Join(appRoot, ".scenery", "gen", "endpoints.json")
 }
 
+func GeneratedModelsPath(appRoot string) string {
+	return filepath.Join(appRoot, ".scenery", "gen", "models.json")
+}
+
+func GeneratedViewsPath(appRoot string) string {
+	return filepath.Join(appRoot, ".scenery", "gen", "views.json")
+}
+
 func GeneratedWireCapabilitiesPath(appRoot string) string {
 	return filepath.Join(appRoot, ".scenery", "gen", "wire", "capabilities.json")
 }
@@ -472,6 +600,24 @@ func ReadGeneratedServices(appRoot string) (*ServicesResponse, bool, error) {
 func ReadGeneratedEndpoints(appRoot string) (*EndpointsResponse, bool, error) {
 	var payload EndpointsResponse
 	ok, err := readJSONFile(GeneratedEndpointsPath(appRoot), &payload)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	return &payload, true, nil
+}
+
+func ReadGeneratedModels(appRoot string) (*ModelsResponse, bool, error) {
+	var payload ModelsResponse
+	ok, err := readJSONFile(GeneratedModelsPath(appRoot), &payload)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	return &payload, true, nil
+}
+
+func ReadGeneratedViews(appRoot string) (*ViewsResponse, bool, error) {
+	var payload ViewsResponse
+	ok, err := readJSONFile(GeneratedViewsPath(appRoot), &payload)
 	if err != nil || !ok {
 		return nil, ok, err
 	}

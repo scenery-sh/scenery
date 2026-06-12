@@ -114,7 +114,7 @@ func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) err
 		resp.OK = false
 	}
 
-	for _, subject := range []string{"app", "routes", "services", "endpoints", "wire", "build", "paths"} {
+	for _, subject := range []string{"app", "routes", "services", "endpoints", "models", "views", "wire", "build", "paths"} {
 		step := runHarnessInspect(subject, appRoot, artifactCtx)
 		resp.Steps = append(resp.Steps, step)
 		if !step.OK {
@@ -406,6 +406,8 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/scenery.inspect.routes.v1.schema.json",
 		"docs/schemas/scenery.inspect.services.v1.schema.json",
 		"docs/schemas/scenery.inspect.endpoints.v1.schema.json",
+		"docs/schemas/scenery.inspect.models.v1.schema.json",
+		"docs/schemas/scenery.inspect.views.v1.schema.json",
 		"docs/schemas/scenery.inspect.traces.v1.schema.json",
 		"docs/schemas/scenery.inspect.metrics.v1.schema.json",
 		"docs/schemas/scenery.inspect.observability.v1.schema.json",
@@ -443,6 +445,8 @@ func buildHarnessArtifacts(appRoot string, harnessWillExist bool) []harnessArtif
 		{Name: "routes", Path: ".scenery/gen/routes.json", SchemaVersion: "scenery.inspect.routes.v1"},
 		{Name: "services", Path: ".scenery/gen/services.json", SchemaVersion: "scenery.inspect.services.v1"},
 		{Name: "endpoints", Path: ".scenery/gen/endpoints.json", SchemaVersion: "scenery.inspect.endpoints.v1"},
+		{Name: "models", Path: ".scenery/gen/models.json", SchemaVersion: "scenery.inspect.models.v1"},
+		{Name: "views", Path: ".scenery/gen/views.json", SchemaVersion: "scenery.inspect.views.v1"},
 		{Name: "wire", Path: ".scenery/gen/wire/capabilities.json", SchemaVersion: "scenery.wire.capabilities.v1"},
 		{Name: "gen-manifest", Path: ".scenery/gen/manifest.json", SchemaVersion: "scenery.gen.manifest.v1"},
 		{Name: "latest-build", Path: ".scenery/build/latest.json", SchemaVersion: "scenery.build.latest.v1"},

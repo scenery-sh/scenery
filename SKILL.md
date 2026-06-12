@@ -24,6 +24,8 @@ scenery doctor --json
 scenery inspect app --json
 scenery inspect routes --json
 scenery inspect endpoints --json
+scenery inspect models --json
+scenery inspect views --json
 scenery inspect wire --json
 scenery system toolchain verify --json
 scenery logs --jsonl --limit 200
@@ -183,6 +185,8 @@ Do not introduce new scenery-owned production environment variables by default. 
 
 ```sh
 scenery inspect endpoints --json
+scenery inspect models --json
+scenery inspect views --json
 scenery inspect wire --json
 scenery generate client --lang typescript --output ./src/scenery-client.ts
 ```
@@ -255,7 +259,7 @@ scenery validate graph [<profile>] [--app-root <path>] --json
 scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [--dry-run]
 scenery harness [--app-root <path>] --json --write
 scenery harness self [--repo-root <path>] --summary --write [--fresh-tests]
-scenery inspect app|routes|services|endpoints|wire|build|paths|generators|temporal|observability --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|temporal|observability --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]

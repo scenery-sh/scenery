@@ -363,6 +363,112 @@ func Helper() {}
 	}
 }
 
+func TestModelDSLParseBuildsStaticIR(t *testing.T) {
+	t.Parallel()
+
+	appRoot := filepath.Join(repoRoot(t), "testdata", "apps", "model-dsl")
+	app, err := parse.App(appRoot, "modeldsl")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	if len(app.Entities) != 1 {
+		t.Fatalf("entities = %+v", app.Entities)
+	}
+	entity := app.Entities[0]
+	if entity.Name != "Task" || entity.Table != "tasks" {
+		t.Fatalf("entity = %+v", entity)
+	}
+	fields := map[string]model.EntityField{}
+	for _, field := range entity.Fields {
+		fields[field.Name] = field
+	}
+	if fields["Status"].Kind != model.EntityFieldStored || !fields["Status"].Filterable || strings.Join(fields["Status"].EnumValues, ",") != "todo,doing,done" {
+		t.Fatalf("status field = %+v", fields["Status"])
+	}
+	if fields["ProjectID"].Kind != model.EntityFieldRelationship || fields["ProjectID"].Column != "project_id" {
+		t.Fatalf("project field = %+v", fields["ProjectID"])
+	}
+	if fields["AgeDays"].Kind != model.EntityFieldComputed || fields["AgeDays"].Column != "age_days" {
+		t.Fatalf("age field = %+v", fields["AgeDays"])
+	}
+	if len(app.Views) != 1 {
+		t.Fatalf("views = %+v", app.Views)
+	}
+	view := app.Views[0]
+	if view.Name != "TaskList" || view.Entity != "Task" || view.Route != "/tasks" || view.Title != "Tasks" {
+		t.Fatalf("view = %+v", view)
+	}
+	if strings.Join(view.Columns, ",") != "Title,Status,CreatedAt" || len(view.Slots) != 1 || view.Slots[0].Name != "TaskStatusBadge" {
+		t.Fatalf("view projection = %+v", view)
+	}
+}
+
+func TestModelDSLDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "non constant builder arg",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+var fieldName = "Status"
+
+//scenery:model
+type Task struct { Status string }
+
+var _ = model.Entity[Task](model.Field(fieldName))
+`,
+			want: "model.Field requires a constant field-name string",
+		},
+		{
+			name: "unknown builder field",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { Status string }
+
+var _ = model.Entity[Task](model.Field("Missing"))
+`,
+			want: `model.Field("Missing") does not match a field on Task`,
+		},
+		{
+			name: "missing slot",
+			body: `package tasks
+
+import "scenery.sh/page"
+
+//scenery:model
+type Task struct { Status string }
+
+//scenery:page
+var TaskList = page.Collection[Task]{Slots: []page.ComponentRef{page.Component("MissingSlot")}}
+`,
+			want: `page.Component("MissingSlot") did not resolve to a TypeScript component file`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			writeFile(t, root, "go.mod", "module example.com/modeldiag\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+			writeFile(t, root, "tasks/model.go", tc.body)
+			_, err := parse.App(root, "modeldiag")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("parse error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
