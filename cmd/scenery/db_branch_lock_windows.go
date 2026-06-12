@@ -2,12 +2,6 @@
 
 package main
 
-import "path/filepath"
-
-func lockDBBranchRegistry(string) (func(), error) {
-	return func() {}, nil
-}
-
-func dbBranchRegistryLockPath(root string) string {
-	return filepath.Join(root, "branches.lock")
+func lockDBBranchRegistry(root string) (func(), error) {
+	return acquireDevNamedLock(root, "branches.lock", "database branch registry", devLockOrderRegistry)
 }
