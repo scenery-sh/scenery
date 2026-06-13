@@ -701,6 +701,10 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 		authPkg = im.use("sceneryauth", "scenery.sh/auth")
 		tenantFunc = generatedModelTenantFunc(entity)
 	}
+	tenantValueFunc := ""
+	if tenantField != nil {
+		tenantValueFunc = generatedModelTenantValueFunc(entity)
+	}
 	entityType := entity.Name
 	id := generatedModelIDField(entity)
 	fields := generatedModelStoredFields(entity)
@@ -731,6 +735,7 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 		fmt.Fprintf(buf, "\tif !ok || authData == nil || %s.TrimSpace(string(authData.TenantID)) == \"\" {\n", stringsPkg)
 		fmt.Fprintf(buf, "\t\treturn \"\", errs.B().Code(errs.Unauthenticated).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" store requires active tenant")
 		fmt.Fprintf(buf, "\treturn %s.TrimSpace(string(authData.TenantID)), nil\n}\n\n", stringsPkg)
+		writeGeneratedModelTenantValueFunc(buf, im, entity, *tenantField, tenantValueFunc)
 	}
 	fmt.Fprintf(buf, "func sceneryModelScan%s(row %s.Row) (%s, error) {\n\tvar out %s\n", entity.Name, pgxPkg, entityType, entityType)
 	fmt.Fprintf(buf, "\tif err := row.Scan(%s); err != nil {\n\t\tif %s.Is(err, %s.ErrNoRows) {\n\t\t\treturn %s{}, errs.B().Code(errs.NotFound).Msg(%q).Err()\n\t\t}\n\t\treturn %s{}, err\n\t}\n\treturn out, nil\n}\n\n", generatedModelScanArgs(fields, "out"), errorsPkg, pgxPkg, entityType, entity.Name+" not found", entityType)
@@ -738,7 +743,8 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", poolFunc)
 	if tenantField != nil {
 		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", tenantFunc)
-		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q, tenantID)\n", selectSQL+" where "+generatedModelSQLIdent(tenantField.Column)+" = $1 order by "+idColumn)
+		fmt.Fprintf(buf, "\ttenantValue, err := %s(tenantID)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", tenantValueFunc)
+		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q, tenantValue)\n", selectSQL+" where "+generatedModelSQLIdent(tenantField.Column)+" = $1 order by "+idColumn)
 	} else {
 		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q)\n", selectSQL+" order by "+idColumn)
 	}
@@ -749,7 +755,8 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", poolFunc, entityType)
 	if tenantField != nil {
 		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantFunc, entityType)
-		fmt.Fprintf(buf, "\treturn sceneryModelScan%s(pool.QueryRow(ctx, %q, id, tenantID))\n}\n\n", entity.Name, selectSQL+" where "+idColumn+" = $1 and "+generatedModelSQLIdent(tenantField.Column)+" = $2")
+		fmt.Fprintf(buf, "\ttenantValue, err := %s(tenantID)\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantValueFunc, entityType)
+		fmt.Fprintf(buf, "\treturn sceneryModelScan%s(pool.QueryRow(ctx, %q, id, tenantValue))\n}\n\n", entity.Name, selectSQL+" where "+idColumn+" = $1 and "+generatedModelSQLIdent(tenantField.Column)+" = $2")
 	} else {
 		fmt.Fprintf(buf, "\treturn sceneryModelScan%s(pool.QueryRow(ctx, %q, id))\n}\n\n", entity.Name, selectSQL+" where "+idColumn+" = $1")
 	}
@@ -758,7 +765,8 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	fmt.Fprintf(buf, "\trow := %s(input)\n\tkey := %s(row.%s)\n", fromCreate, keyFunc, id.Name)
 	if tenantField != nil {
 		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantFunc, entityType)
-		fmt.Fprintf(buf, "\trow.%s = %s(tenantID)\n", tenantField.Name, entityFieldTypeExpr(im, *tenantField))
+		fmt.Fprintf(buf, "\ttenantValue, err := %s(tenantID)\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantValueFunc, entityType)
+		fmt.Fprintf(buf, "\trow.%s = tenantValue\n", tenantField.Name)
 	}
 	fmt.Fprintf(buf, "\tif key == \"\" {\n\t\treturn %s{}, errs.B().Code(errs.InvalidArgument).Msg(%q).Err()\n\t}\n", entityType, entity.Name+" ID is required")
 	fmt.Fprintf(buf, "\tcreated, err := sceneryModelScan%s(pool.QueryRow(ctx, %q, %s))\n", entity.Name, generatedModelInsertSQL(entity, fields), generatedModelFieldArgs(fields, "row"))
@@ -772,7 +780,8 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	fmt.Fprintf(buf, "\tif len(sets) == 0 {\n\t\treturn sceneryModelGet%s(ctx, id)\n\t}\n", entity.Name)
 	if tenantField != nil {
 		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantFunc, entityType)
-		fmt.Fprintf(buf, "\targs = append(args, id, tenantID)\n\tquery := %s.Sprintf(%q, %s.Join(sets, \", \"), len(args)-1, len(args))\n", fmtPkg, "update "+table+" set %s where "+idColumn+" = $%d and "+generatedModelSQLIdent(tenantField.Column)+" = $%d returning "+generatedModelColumnList(fields), stringsPkg)
+		fmt.Fprintf(buf, "\ttenantValue, err := %s(tenantID)\n\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", tenantValueFunc, entityType)
+		fmt.Fprintf(buf, "\targs = append(args, id, tenantValue)\n\tquery := %s.Sprintf(%q, %s.Join(sets, \", \"), len(args)-1, len(args))\n", fmtPkg, "update "+table+" set %s where "+idColumn+" = $%d and "+generatedModelSQLIdent(tenantField.Column)+" = $%d returning "+generatedModelColumnList(fields), stringsPkg)
 	} else {
 		fmt.Fprintf(buf, "\targs = append(args, id)\n\tquery := %s.Sprintf(%q, %s.Join(sets, \", \"), len(args))\n", fmtPkg, "update "+table+" set %s where "+idColumn+" = $%d returning "+generatedModelColumnList(fields), stringsPkg)
 	}
@@ -781,7 +790,8 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n", poolFunc)
 	if tenantField != nil {
 		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn err\n\t}\n", tenantFunc)
-		fmt.Fprintf(buf, "\ttag, err := pool.Exec(ctx, %q, id, tenantID)\n", "delete from "+table+" where "+idColumn+" = $1 and "+generatedModelSQLIdent(tenantField.Column)+" = $2")
+		fmt.Fprintf(buf, "\ttenantValue, err := %s(tenantID)\n\tif err != nil {\n\t\treturn err\n\t}\n", tenantValueFunc)
+		fmt.Fprintf(buf, "\ttag, err := pool.Exec(ctx, %q, id, tenantValue)\n", "delete from "+table+" where "+idColumn+" = $1 and "+generatedModelSQLIdent(tenantField.Column)+" = $2")
 	} else {
 		fmt.Fprintf(buf, "\ttag, err := pool.Exec(ctx, %q, id)\n", "delete from "+table+" where "+idColumn+" = $1")
 	}
@@ -880,6 +890,23 @@ func generatedModelFieldArgs(fields []model.EntityField, target string) string {
 	return strings.Join(args, ", ")
 }
 
+func writeGeneratedModelTenantValueFunc(buf *strings.Builder, im *imports, entity *model.Entity, field model.EntityField, name string) {
+	typeExpr := entityFieldTypeExpr(im, field)
+	if model.GeneratedTenantFieldKind(field) == "uuid" {
+		uuidPkg := im.use("uuid", "github.com/google/uuid")
+		fmt.Fprintf(buf, "func %s(tenantID string) (%s, error) {\n", name, typeExpr)
+		fmt.Fprintf(buf, "\ttenantUUID, err := %s.Parse(tenantID)\n", uuidPkg)
+		buf.WriteString("\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\tvar zero %s\n", typeExpr)
+		fmt.Fprintf(buf, "\t\treturn zero, errs.B().Code(errs.InvalidArgument).Msg(%q).Cause(err).Err()\n", "generated "+entity.Name+" store requires valid tenant_id UUID")
+		buf.WriteString("\t}\n")
+		buf.WriteString("\treturn tenantUUID, nil\n")
+		buf.WriteString("}\n\n")
+		return
+	}
+	fmt.Fprintf(buf, "func %s(tenantID string) (%s, error) {\n\treturn %s(tenantID), nil\n}\n\n", name, typeExpr, typeExpr)
+}
+
 func entityFieldTypeExpr(im *imports, field model.EntityField) string {
 	if field.Type != nil {
 		return im.typeExpr(field.Type)
@@ -912,6 +939,10 @@ func generatedModelFromCreateFunc(entity *model.Entity) string {
 
 func generatedModelTenantFunc(entity *model.Entity) string {
 	return "sceneryModel" + entity.Name + "TenantID"
+}
+
+func generatedModelTenantValueFunc(entity *model.Entity) string {
+	return "sceneryModel" + entity.Name + "TenantValue"
 }
 
 func generatedModelCreateType(entity *model.Entity) string {

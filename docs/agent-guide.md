@@ -212,7 +212,9 @@ runtime adapter factories and route registration helpers for app-owned
 Electric/TanStack/layout-kit wiring.
 Tenant-shaped generated CRUD uses the convention `TenantID`/`tenant_id` field:
 generated endpoints are auth-only, generated SQL is scoped to the active standard-auth
-tenant, and create/patch payload types do not expose `tenant_id`.
+tenant, and create/patch payload types do not expose `tenant_id`. Tenant fields
+may be `string`, a named string type, or `github.com/google/uuid.UUID`; other
+tenant field types fail parse/check with an explicit diagnostic.
 
 When local dev fails because the host may be missing Go, disk space, memory, Docker engine readiness, or optional tools, run `scenery doctor --json` first. Stay on scenery command surfaces for ordinary app work. Use `scenery help --json` for machine-readable command discovery, `scenery help all` for the grouped human command reference, and `scenery ps --json` when dev runtime status will feed another tool. Inspect managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, Postgres, or Electric details only when intentionally debugging the substrate. Shared substrate failures are visible in `scenery ps --json` under `substrates`, including exit metadata and stdout/stderr log paths. Managed Postgres substrate rows describe the reusable physical server only; per-runtime database URL/name values are exposed through the dev runtime environment. Postgres branch leases live under the agent Postgres state root, and `.scenery/worktree-db.json` pins the current app root or worktree to a branch database. Electric remains scoped to the dev runtime and is published as an internal backend, not a global substrate. Do not install global binaries as a hidden fix; use `scenery system edge dns install` for wildcard local DNS, `scenery system edge install` for Caddy, `scenery system toolchain sync --json` for managed app-root tools, set documented per-tool env overrides for tools that have them, or document the configured external service.
 

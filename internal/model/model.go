@@ -143,6 +143,46 @@ func (e *Entity) TenantField() *EntityField {
 	return nil
 }
 
+func GeneratedTenantFieldKind(field EntityField) string {
+	if isGeneratedTenantStringType(field.Type) {
+		return "string"
+	}
+	if isGeneratedTenantUUIDType(field.Type) {
+		return "uuid"
+	}
+	return ""
+}
+
+func isGeneratedTenantStringType(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	t = types.Unalias(t)
+	if basic, ok := t.Underlying().(*types.Basic); ok && basic.Kind() == types.String {
+		return true
+	}
+	return false
+}
+
+func isGeneratedTenantUUIDType(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	if types.TypeString(t, func(pkg *types.Package) string {
+		if pkg == nil {
+			return ""
+		}
+		return pkg.Path()
+	}) == "github.com/google/uuid.UUID" {
+		return true
+	}
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok || named.Obj() == nil || named.Obj().Pkg() == nil {
+		return false
+	}
+	return named.Obj().Pkg().Path() == "github.com/google/uuid" && named.Obj().Name() == "UUID"
+}
+
 func EntityService(entity *Entity) string {
 	if entity != nil && entity.Package != nil {
 		if entity.Package.Service != nil && strings.TrimSpace(entity.Package.Service.Name) != "" {

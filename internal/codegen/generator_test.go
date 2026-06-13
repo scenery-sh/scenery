@@ -118,7 +118,9 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 		`insert into \"tasks\".\"tasks\"`,
 		`where \"tenant_id\" = $1 order by \"id\"`,
 		`where \"id\" = $1 and \"tenant_id\" = $2`,
-		`row.TenantID = string(tenantID)`,
+		`func sceneryModelTaskTenantValue(tenantID string) (string, error)`,
+		`return string(tenantID), nil`,
+		`row.TenantID = tenantValue`,
 		`update \"tasks\".\"tasks\" set %s where \"id\" = $%d and \"tenant_id\" = $%d returning`,
 		`"CreateTask"`,
 		`Access:                sceneryruntime.Auth`,
@@ -138,6 +140,62 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	mainGot := string(out.Generated["scenery_internal_main/main.go"])
 	if !strings.Contains(mainGot, `_ "example.com/modeldsl/tasks"`) {
 		t.Fatalf("main did not import generated model package:\n%s", mainGot)
+	}
+}
+
+func TestGenerateModelCRUDBackendParsesUUIDTenantValue(t *testing.T) {
+	t.Parallel()
+
+	root := persistentCodegenTestApp(t, "modeluuidtenant", map[string]string{
+		"go.mod":                         "module example.com/modeluuidtenant\n\ngo 1.26.3\n\nrequire (\n\tgithub.com/google/uuid v1.6.0\n\tscenery.sh v0.0.0\n)\n\nreplace scenery.sh => " + repoRoot(t) + "\nreplace github.com/google/uuid => ./github.com/google/uuid\n",
+		".scenery.json":                  `{"name":"modeluuidtenant"}`,
+		"github.com/google/uuid/go.mod":  "module github.com/google/uuid\n\ngo 1.26.3\n",
+		"github.com/google/uuid/uuid.go": "package uuid\n\ntype UUID [16]byte\n\nfunc Parse(string) (UUID, error) { return UUID{}, nil }\n",
+		"tasks/model.go": `package tasks
+
+import (
+	"github.com/google/uuid"
+	"scenery.sh/model"
+)
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Task struct { ID string; TenantID uuid.UUID; Title string }
+
+var _ = model.Entity[Task](model.Generate(model.ActionCreate))
+`,
+	})
+	app, err := parse.App(root, "modeluuidtenant")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	out, err := codegen.Generate(app)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	got := string(out.Generated["tasks/scenery.gen.go"])
+	for _, want := range []string{
+		`"github.com/google/uuid"`,
+		`func sceneryModelTaskTenantValue(tenantID string) (uuid.UUID, error)`,
+		`tenantUUID, err := uuid.Parse(tenantID)`,
+		`return zero, errs.B().Code(errs.InvalidArgument).Msg("generated Task store requires valid tenant_id UUID").Cause(err).Err()`,
+		`row.TenantID = tenantValue`,
+		`pool.Query(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\".\"tasks\" where \"tenant_i_d\" = $1 order by \"i_d\"", tenantValue)`,
+		`pool.QueryRow(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\".\"tasks\" where \"i_d\" = $1 and \"tenant_i_d\" = $2", id, tenantValue)`,
+		`args = append(args, id, tenantValue)`,
+		`pool.Exec(ctx, "delete from \"tasks\".\"tasks\" where \"i_d\" = $1 and \"tenant_i_d\" = $2", id, tenantValue)`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated UUID tenant backend missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `row.TenantID = uuid.UUID(tenantID)`) {
+		t.Fatalf("generated UUID tenant backend still uses panic-prone direct conversion:\n%s", got)
+	}
+	if strings.Contains(got, "TenantID uuid.UUID `json:\"tenant_id,omitempty\"`") {
+		t.Fatalf("tenant field should not be client-writable in generated create/patch payloads:\n%s", got)
 	}
 }
 

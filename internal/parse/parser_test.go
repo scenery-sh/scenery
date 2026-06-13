@@ -691,6 +691,64 @@ var _ = model.Entity[Task](model.Generate(model.ActionList))
 	}
 }
 
+func TestModelDSLTenantGeneratedCRUDSupportsUUIDTenantField(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/modeluuidtenant\n\ngo 1.26.3\n\nrequire (\n\tgithub.com/google/uuid v1.6.0\n\tscenery.sh v0.0.0\n)\n\nreplace scenery.sh => "+repoRoot(t)+"\nreplace github.com/google/uuid => ./github.com/google/uuid\n")
+	writeFile(t, root, "github.com/google/uuid/go.mod", "module github.com/google/uuid\n\ngo 1.26.3\n")
+	writeFile(t, root, "github.com/google/uuid/uuid.go", "package uuid\n\ntype UUID [16]byte\n")
+	writeFile(t, root, "tasks/model.go", `package tasks
+
+import (
+	"github.com/google/uuid"
+	"scenery.sh/model"
+)
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Task struct { ID string; TenantID uuid.UUID }
+
+var _ = model.Entity[Task](model.Generate(model.ActionCreate))
+`)
+	app, err := parse.App(root, "modeluuidtenant")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	if len(app.Services) != 1 || len(app.Services[0].Generated) != 1 {
+		t.Fatalf("generated endpoints = %+v", app.Services)
+	}
+	if got := app.Services[0].Generated[0].Access; got != runtimeapi.Auth {
+		t.Fatalf("tenant generated CRUD access = %s, want auth", got)
+	}
+}
+
+func TestModelDSLTenantGeneratedCRUDRejectsUnsupportedTenantFieldType(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/modeltenantbad\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	writeFile(t, root, "tasks/model.go", `package tasks
+
+import "scenery.sh/model"
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Task struct { ID string; TenantID int }
+
+var _ = model.Entity[Task](model.Generate(model.ActionCreate))
+`)
+	_, err := parse.App(root, "modeltenantbad")
+	want := "model Task tenant field TenantID has unsupported type int; generated CRUD supports string, named string, or github.com/google/uuid.UUID tenant fields"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("parse error = %v, want %q", err, want)
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()

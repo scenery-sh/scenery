@@ -1243,6 +1243,11 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 	if len(seedErrs) == 0 {
 		entity.Seeds = append(entity.Seeds, cfg.Seeds...)
 	}
+	if len(entity.CRUD.Actions) > 0 {
+		if tenantField := entity.TenantField(); tenantField != nil && model.GeneratedTenantFieldKind(*tenantField) == "" {
+			errs = append(errs, sourceDiagnostic(pkg, spec.Pos(), fmt.Sprintf("model %s tenant field %s has unsupported type %s; generated CRUD supports string, named string, or github.com/google/uuid.UUID tenant fields", entity.Name, tenantField.Name, firstNonEmpty(tenantField.TypeExpr, "<unknown>"))))
+		}
+	}
 	return entity, errs
 }
 
