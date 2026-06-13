@@ -530,12 +530,15 @@ func validateGeneratedEndpointCollisions(app *model.App) []string {
 			continue
 		}
 		for _, ep := range svc.Generated {
+			if prefix := generatedEndpointReservedRoutePrefix(ep.Path); prefix != "" {
+				errs = append(errs, sourceDiagnostic(ep.Package, ep.Entity.TokenPos, fmt.Sprintf("generated model endpoint %s %s for entity %s table %s uses reserved route prefix %s; declare model.Override or model.Disable for the action", strings.Join(ep.Methods, ","), ep.Path, ep.Entity.Name, ep.Entity.Table, prefix)))
+			}
 			if existing := namesByService[svc.Name][ep.Name]; existing != "" {
-				errs = append(errs, sourceDiagnostic(ep.Package, ep.Entity.TokenPos, fmt.Sprintf("generated model endpoint %s collides with endpoint name %s in service %s; declare model.Override or model.Disable for the action", ep.Name, existing, svc.Name)))
+				errs = append(errs, sourceDiagnostic(ep.Package, ep.Entity.TokenPos, fmt.Sprintf("generated model endpoint %s collides with endpoint name %s in service %s for entity %s table %s route %s; declare model.Override or model.Disable for the action", ep.Name, existing, svc.Name, ep.Entity.Name, ep.Entity.Table, ep.Path)))
 			}
 			for _, existing := range routes {
 				if routeOwnersCollide(existing, routeOwner{path: ep.Path, methods: ep.Methods}) {
-					errs = append(errs, sourceDiagnostic(ep.Package, ep.Entity.TokenPos, fmt.Sprintf("generated model endpoint %s %s collides with endpoint %s at %s; declare model.Override or model.Disable for the action", strings.Join(ep.Methods, ","), ep.Path, existing.id, existing.path)))
+					errs = append(errs, sourceDiagnostic(ep.Package, ep.Entity.TokenPos, fmt.Sprintf("generated model endpoint %s %s collides with endpoint %s at %s for entity %s table %s; declare model.Override or model.Disable for the action", strings.Join(ep.Methods, ","), ep.Path, existing.id, existing.path, ep.Entity.Name, ep.Entity.Table)))
 				}
 			}
 			namesByService[svc.Name][ep.Name] = svc.Name + "." + ep.Name
@@ -552,7 +555,7 @@ type routeOwner struct {
 }
 
 func routeOwnersCollide(left, right routeOwner) bool {
-	if normalizeRoutePattern(left.path) != normalizeRoutePattern(right.path) {
+	if !routePathsOverlap(left.path, right.path) {
 		return false
 	}
 	return routeMethodsCollide(left.methods, right.methods)
@@ -574,25 +577,72 @@ func routeMethodsCollide(a, b []string) bool {
 	return false
 }
 
-func normalizeRoutePattern(path string) string {
+var generatedEndpointReservedRoutePrefixes = []string{"/__scenery", "/api", "/sync"}
+
+func generatedEndpointReservedRoutePrefix(path string) string {
+	for _, prefix := range generatedEndpointReservedRoutePrefixes {
+		if routePathHasPrefix(path, prefix) {
+			return prefix
+		}
+	}
+	return ""
+}
+
+func routePathHasPrefix(path, prefix string) bool {
+	path = cleanRoutePath(path)
+	prefix = cleanRoutePath(prefix)
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
+}
+
+func routePathsOverlap(left, right string) bool {
+	return routeSegmentsOverlap(routePatternSegments(left), routePatternSegments(right))
+}
+
+func routeSegmentsOverlap(left, right []string) bool {
+	if len(left) == 0 {
+		return len(right) == 0 || routeSegmentWildcard(right[0])
+	}
+	if len(right) == 0 {
+		return routeSegmentWildcard(left[0])
+	}
+	if routeSegmentWildcard(left[0]) || routeSegmentWildcard(right[0]) {
+		return true
+	}
+	if !routeSegmentsCanMatchSameValue(left[0], right[0]) {
+		return false
+	}
+	return routeSegmentsOverlap(left[1:], right[1:])
+}
+
+func routeSegmentsCanMatchSameValue(left, right string) bool {
+	return routeSegmentParam(left) || routeSegmentParam(right) || left == right
+}
+
+func routeSegmentParam(segment string) bool {
+	return strings.HasPrefix(segment, ":")
+}
+
+func routeSegmentWildcard(segment string) bool {
+	return strings.HasPrefix(segment, "*")
+}
+
+func routePatternSegments(path string) []string {
+	path = cleanRoutePath(path)
+	if path == "/" {
+		return nil
+	}
+	return strings.Split(strings.TrimPrefix(path, "/"), "/")
+}
+
+func cleanRoutePath(path string) string {
 	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
 	if path == "" {
-		path = "/"
-	}
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	for i, part := range parts {
-		if strings.HasPrefix(part, ":") {
-			parts[i] = ":"
-			continue
-		}
-		if strings.HasPrefix(part, "*") {
-			parts[i] = "*"
-		}
-	}
-	if len(parts) == 1 && parts[0] == "" {
 		return "/"
 	}
-	return "/" + strings.Join(parts, "/")
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
 }
 
 func serviceHasEndpoint(svc *model.Service, name string) bool {

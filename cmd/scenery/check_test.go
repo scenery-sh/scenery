@@ -144,6 +144,56 @@ export const render = activity<RenderInput, RenderOutput>({
 	}
 }
 
+func TestRunSceneryCheckJSONReportsGeneratedCRUDRouteCollision(t *testing.T) {
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"checkmodelroute"}`)
+	writeTestAppFile(t, root, "go.mod", "module example.com/checkmodelroute\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRootForTest(t)+"\n")
+	writeTestAppFile(t, root, "sync/model.go", `package sync
+
+import (
+	"context"
+
+	"scenery.sh/model"
+)
+
+//scenery:api auth path=/sync/:table_name method=GET
+func Shape(ctx context.Context, table_name string) error { return nil }
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList))
+`)
+
+	var out bytes.Buffer
+	err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "--json"})
+	if _, ok := errors.AsType[*silentCLIError](err); !ok {
+		t.Fatalf("expected silent route collision error, got %v", err)
+	}
+	var payload checkResponse
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	}
+	if payload.OK || len(payload.Diagnostics) == 0 {
+		t.Fatalf("payload = %+v", payload)
+	}
+	var foundCollision bool
+	for _, diag := range payload.Diagnostics {
+		if diag.Stage != "parse" {
+			continue
+		}
+		if diag.File != "sync/model.go" || diag.Line == 0 {
+			t.Fatalf("diagnostic location = %+v", diag)
+		}
+		if strings.Contains(diag.Message, `generated model endpoint GET /sync/tasks collides with endpoint sync.Shape at /sync/:table_name for entity Task table tasks`) {
+			foundCollision = true
+		}
+	}
+	if !foundCollision {
+		t.Fatalf("diagnostics = %+v, want generated route collision", payload.Diagnostics)
+	}
+}
+
 func TestRunSceneryCheckReusesFreshCompiledBuild(t *testing.T) {
 	useFakeBuildGoRunner(t)
 

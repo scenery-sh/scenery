@@ -630,6 +630,39 @@ var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList
 			want: `generated model endpoint GET /tasksnew/tasks collides with endpoint tasksnew.Existing at /tasksnew/tasks`,
 		},
 		{
+			name: "generated reserved route prefix",
+			body: `package api
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList))
+`,
+			want: `generated model endpoint GET /api/tasks for entity Task table tasks uses reserved route prefix /api`,
+		},
+		{
+			name: "generated static route collides with declared parameter route",
+			body: `package sync
+
+import (
+	"context"
+
+	"scenery.sh/model"
+)
+
+//scenery:api auth path=/sync/:table_name method=GET
+func Shape(ctx context.Context, table_name string) error { return nil }
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList))
+`,
+			want: `generated model endpoint GET /sync/tasks collides with endpoint sync.Shape at /sync/:table_name for entity Task table tasks`,
+		},
+		{
 			name: "generated generated route collision",
 			body: `package tasks
 

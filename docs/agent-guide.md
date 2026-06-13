@@ -205,7 +205,8 @@ Generated CRUD endpoints default to `auth` for every action; the beta DSL has no
 implicit public read or public mutation surface.
 Generated CRUD route bases are service-scoped as `/<service>/<table>` so `model.Table(...)`
 remains a database-table decision rather than a public route shortcut, and generated
-routes fail `scenery check` when they collide with handwritten or generated routes.
+routes fail `scenery check` when they collide with reserved route prefixes
+(`/__scenery`, `/api`, `/sync`) or handwritten/generated routes.
 Typed `model.Seed(...)` rows generate `.scenery/gen/db/<service>/seed.sql` and
 are consumed by `scenery db seed`. Configured frontends with static collection
 pages receive beta generated packages under `.scenery/gen/web/<frontend>/` with
