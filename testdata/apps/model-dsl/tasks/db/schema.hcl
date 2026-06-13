@@ -2,12 +2,12 @@
 
 schema "tasks" {}
 
-enum "tasks_status" {
+enum "tasks" "tasks_status" {
   schema = schema.tasks
   values = ["todo", "doing", "done"]
 }
 
-table "tasks" {
+table "tasks" "tasks" {
   schema = schema.tasks
 
   column "id" {
@@ -27,7 +27,7 @@ table "tasks" {
 
   column "status" {
     null = false
-    type = enum.tasks_status
+    type = enum.tasks.tasks_status
   }
 
   column "project_id" {

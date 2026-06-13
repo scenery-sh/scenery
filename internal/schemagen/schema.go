@@ -111,7 +111,7 @@ func renderServiceHCL(entities []*model.Entity) string {
 			if len(field.EnumValues) == 0 || field.Kind == model.EntityFieldComputed {
 				continue
 			}
-			fmt.Fprintf(&b, "enum %q {\n", enumName(entity, field))
+			fmt.Fprintf(&b, "enum %q %q {\n", schema, enumName(entity, field))
 			fmt.Fprintf(&b, "  schema = schema.%s\n", hclRef(schema))
 			b.WriteString("  values = [")
 			for i, value := range field.EnumValues {
@@ -123,7 +123,7 @@ func renderServiceHCL(entities []*model.Entity) string {
 			b.WriteString("]\n")
 			b.WriteString("}\n\n")
 		}
-		fmt.Fprintf(&b, "table %q {\n", entity.Table)
+		fmt.Fprintf(&b, "table %q %q {\n", schema, entity.Table)
 		fmt.Fprintf(&b, "  schema = schema.%s\n\n", hclRef(schema))
 		for _, field := range entity.Fields {
 			if field.Kind == model.EntityFieldComputed {
@@ -169,7 +169,7 @@ func columnNullable(typeExpr string) bool {
 
 func columnType(entity *model.Entity, field model.EntityField) string {
 	if len(field.EnumValues) > 0 {
-		return "enum." + hclRef(enumName(entity, field))
+		return "enum." + hclRef(model.EntityDatabaseSchema(entity)) + "." + hclRef(enumName(entity, field))
 	}
 	t := strings.TrimPrefix(strings.TrimSpace(field.TypeExpr), "*")
 	switch t {

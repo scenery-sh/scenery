@@ -23,7 +23,9 @@ func TestBuildUsesAppOwnedSchemaForGeneratedModelArtifacts(t *testing.T) {
 	for _, want := range []string{
 		`schema "tasks" {}`,
 		`schema = schema.tasks`,
-		`table "tasks"`,
+		`enum "tasks" "tasks_status"`,
+		`table "tasks" "tasks"`,
+		`type = enum.tasks.tasks_status`,
 	} {
 		if !strings.Contains(hcl, want) {
 			t.Fatalf("generated HCL missing %q:\n%s", want, hcl)
@@ -44,6 +46,36 @@ func TestBuildUsesAppOwnedSchemaForGeneratedModelArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(seeds[0].SQL, `insert into "tasks"."tasks"`) {
 		t.Fatalf("generated seed SQL should use schema-qualified table:\n%s", seeds[0].SQL)
+	}
+}
+
+func TestBuildUsesCollisionSafeLabelsWhenTableMatchesAnotherSchema(t *testing.T) {
+	t.Parallel()
+
+	entity := testTaskEntity()
+	entity.Package.RelDir = "tasksnew"
+
+	schemas, err := Build("", &model.App{Entities: []*model.Entity{entity}})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(schemas) != 1 {
+		t.Fatalf("schemas = %+v", schemas)
+	}
+	hcl := schemas[0].HCL
+	for _, want := range []string{
+		`schema "tasksnew" {}`,
+		`enum "tasksnew" "tasks_status"`,
+		`schema = schema.tasksnew`,
+		`table "tasksnew" "tasks"`,
+		`type = enum.tasksnew.tasks_status`,
+	} {
+		if !strings.Contains(hcl, want) {
+			t.Fatalf("generated HCL missing %q:\n%s", want, hcl)
+		}
+	}
+	if strings.Contains(hcl, `table "tasks" {`) {
+		t.Fatalf("generated HCL kept collision-prone one-label table:\n%s", hcl)
 	}
 }
 

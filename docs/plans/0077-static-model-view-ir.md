@@ -20,6 +20,7 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - [x] 2026-06-12: M4 runtime-adapter follow-up candidate implemented: generated web packages now include `runtime.ts` with Electric shape URL/runtime collection factories, richer route records with stable IDs/entity/collection metadata, `createGeneratedRoutes(runtime)`, and `registerGeneratedRoutes(...)`; the model-dsl fixture proves the layout-kit contract consumes runtime-backed routes.
 - [x] 2026-06-13: App-owned schema follow-up candidate implemented for issue #137: generated model Atlas HCL, seed SQL, CRUD SQL, and Electric shape metadata consistently use the service-owned schema-qualified table instead of hardcoded `public`.
 - [x] 2026-06-13: Route-safety follow-up candidate implemented for issue #138: generated CRUD route bases now default to `/<service>/<table>` independently from the physical table name, and generated routes fail on handwritten/generated or generated/generated collisions.
+- [x] 2026-06-13: Atlas label-safety follow-up candidate implemented for issue #141: generated model HCL uses schema-qualified resource labels such as `table "<schema>" "<table>"` and `enum "<schema>" "<enum>"` so app-owned generated schemas do not shadow handwritten multi-schema table references.
 - [ ] M4 production app integration follow-up: connect the generated runtime-adapter contract to a real production layout-kit package and app router/Electric/TanStack client in a reference app, then fold any discovered contract gaps back into Scenery.
 
 ## Surprises & Discoveries
@@ -32,6 +33,7 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - 2026-06-12: The generated M4 frontend package can expose production-facing adapter seams without importing Electric or TanStack packages directly. Emitting small factory functions over app-provided `electric.baseURL` and row sources keeps Scenery dependency-free while giving production apps a stable place to bind their router, Electric client, and TanStack DB collection instance.
 - 2026-06-13: ONLV's safe schema apply correctly rejects generated mutations against protected `public`; generated model data therefore needs an app-owned schema convention before reference-app integration can proceed.
 - 2026-06-13: The ONLV pilot also showed that deriving generated HTTP routes from `model.Table(...)` leaks database compromises into public API shape. Generated CRUD needs an app-safe route convention and collision diagnostics distinct from physical table naming.
+- 2026-06-13: Atlas HCL resource labels are separate from physical schema/table names. A generated one-label `table "tasks"` in schema `tasksnew` can shadow handwritten references like `table.tasks.projects` in another schema, so generated app-owned schemas need collision-safe resource labels even when the physical table name remains `tasks`.
 
 ## Decision Log
 
@@ -46,10 +48,11 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - 2026-06-12, maintainer worker: Keep the M4 runtime adapters dependency-free and app-owned at the edge. Scenery generates typed route/runtime factories and metadata, but the production app still supplies the real router registration function, Electric base URL/client, TanStack DB runtime, and layout-kit implementation.
 - 2026-06-13, maintainer worker: Generated model database artifacts use the service-owned schema derived from the model package/service root. `model.Table(...)` remains the table name; Atlas HCL, seed SQL, generated CRUD SQL, and Electric shape metadata all target the same schema-qualified table.
 - 2026-06-13, maintainer worker: Generated CRUD route bases use the service-scoped convention `/<service>/<table>`. This keeps generated endpoint IDs and physical table names stable while making HTTP routes app-safe by default; generated route collisions with handwritten or generated routes are check failures requiring `model.Override` or `model.Disable`.
+- 2026-06-13, maintainer worker: Generated Atlas HCL uses schema-qualified resource labels for tables and enums (`table "<schema>" "<table>"`, `enum "<schema>" "<enum>"`). This keeps physical database names unchanged while preventing generated app-owned schemas from colliding with existing multi-label Atlas resources.
 
 ## Outcomes & Retrospective
 
-Not yet completed. M1, M2, the M3 backend foundation, the M3 data-backed slice, M3 tenant enforcement, the M4 frontend foundation, a dependency-free M4 runtime-adapter contract, app-owned generated model schemas, and service-scoped generated CRUD route bases are implemented as independently reviewable foundations. A production reference-app integration against the real layout kit, router, Electric client, and TanStack DB runtime remains active follow-on work tracked by this plan.
+Not yet completed. M1, M2, the M3 backend foundation, the M3 data-backed slice, M3 tenant enforcement, the M4 frontend foundation, a dependency-free M4 runtime-adapter contract, app-owned generated model schemas, service-scoped generated CRUD route bases, and collision-safe generated Atlas labels are implemented as independently reviewable foundations. A production reference-app integration against the real layout kit, router, Electric client, and TanStack DB runtime remains active follow-on work tracked by this plan.
 
 ## Context and Orientation
 
@@ -72,7 +75,7 @@ Relevant files:
 
 M1 is static IR and diagnostics only. Acceptance is deterministic parsing and inspection for stored, relationship, computed, enum, filterable, and collection-page nodes, plus source-pointed diagnostics for non-static builder input, unknown field names, and missing slot components.
 
-M2 adds read-only schema diff mode. It emits desired Atlas HCL under `.scenery/gen/db/<service>/schema.hcl`, targets the app-owned service schema instead of `public`, exposes `scenery generate data --dry-run --json`, adds `scenery db diff --generated`, and surfaces drift from `scenery check` without writing databases.
+M2 adds read-only schema diff mode. It emits desired Atlas HCL under `.scenery/gen/db/<service>/schema.hcl`, targets the app-owned service schema instead of `public`, uses schema-qualified Atlas resource labels to avoid cross-schema label collisions, exposes `scenery generate data --dry-run --json`, adds `scenery db diff --generated`, and surfaces drift from `scenery check` without writing databases.
 
 M3 adds backend generation. The landed foundation generates CRUD stores/endpoints into the transient build workspace with explicit action policy and collision checks. The data-backed slice adds generated seed SQL and database-backed generated stores. The tenancy follow-up scopes convention `TenantID`/`tenant_id` generated CRUD to the active standard-auth tenant. Generated CRUD HTTP route bases default to `/<service>/<table>`, independent of the physical table name's role in SQL artifacts.
 
