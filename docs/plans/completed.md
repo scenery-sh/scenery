@@ -6,6 +6,28 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Static Model/View IR
+
+- Status: completed
+- Owner: scenery app model / generators
+- Completed: 2026-06-13
+- Quality: B
+- ExecPlan: [0077 Static Model/View IR](0077-static-model-view-ir.md)
+
+Shipped:
+
+- Added beta `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, parser diagnostics, and `scenery inspect models|views --json`.
+- Added generated desired Atlas HCL, `scenery generate data --dry-run --json`, `scenery db diff --generated --json`, generated seed SQL, and `scenery check` drift diagnostics.
+- Added generated model CRUD endpoints/stores with explicit action policy, generated endpoint markers, app-owned schema/table targeting, auth-by-default access, tenant scoping, UUID tenant support, configured DB URL env support, shared pgx pools, and bounded list pagination.
+- Added generated hidden frontend packages with row/create/patch types, Electric shape metadata, collection/materializer definitions, runtime adapter factories, route registration helpers, default collection pages, slot assertions, and fixture typecheck/render proof.
+- Closed production-readiness follow-ups discovered by the ONLV pilot: app-owned schemas, safe route bases, Atlas label collisions, access defaults, UUID tenants, database URL env selection, reserved route diagnostics, timestamp payloads, shared pools, and bounded list results.
+
+Validation:
+
+- Merged PRs #127, #131, #132, #133, #134, #135, #136, #140, #142, #150, #151, #152, #153, #154, #155, and #156 carried focused tests, full Go tests, lint, self-harness, and release-gate proof as appropriate.
+- `testdata/apps/model-dsl` exercises generated schema/seed/backend/frontend contracts.
+- The ONLV `tasksnew` pilot in https://github.com/pbrazdil/onlv/issues/95 proved the generated model/page stack in a production app and fed discovered Scenery gaps back into the closed follow-up issues.
+
 ## Postgres-Only Managed Branching
 
 - Status: completed

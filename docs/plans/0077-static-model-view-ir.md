@@ -27,7 +27,7 @@ This plan introduces the static model/view intermediate representation (IR). A `
 - [x] 2026-06-13: Route-validation follow-up candidate implemented for issue #146: generated CRUD routes fail parse/check when their service-scoped route base falls under reserved prefixes (`/__scenery`, `/api`, `/sync`) or overlaps declared app endpoint routes such as static-vs-parameter conflicts.
 - [x] 2026-06-13: Timestamp-payload follow-up candidate implemented for issue #149: generated create/patch payloads preserve existing DB-column JSON names while also accepting generated response field names such as `CreatedAt`, allowing stored `time.Time` fields to round-trip RFC3339 JSON timestamps or fail with field-scoped decode errors.
 - [x] 2026-06-13: Store/list production-readiness follow-up candidate implemented for issue #148: generated model stores share one package-level pgx pool per resolved DSN, and generated list endpoints use validated `limit`/`offset` query params with default `limit=100` and maximum `limit=500`.
-- [ ] M4 production app integration follow-up: connect the generated runtime-adapter contract to a real production layout-kit package and app router/Electric/TanStack client in a reference app, then fold any discovered contract gaps back into Scenery.
+- [x] 2026-06-13: M4 production app integration closeout: the ONLV `tasksnew` pilot consumed the generated model/page stack in a production app, verified generated schema/seed/web aliases/CRUD behavior, and fed the discovered Scenery contract gaps back through issues #137, #138, #141, #143, #144, #145, #146, #148, and #149.
 
 ## Surprises & Discoveries
 
@@ -64,7 +64,7 @@ This plan introduces the static model/view intermediate representation (IR). A `
 
 ## Outcomes & Retrospective
 
-Not yet completed. M1, M2, the M3 backend foundation, the M3 data-backed slice, M3 tenant enforcement, the M4 frontend foundation, a dependency-free M4 runtime-adapter contract, app-owned generated model schemas, service-scoped generated CRUD route bases, reserved/generated/handwritten route validation, collision-safe generated Atlas labels, auth-by-default generated CRUD access, UUID tenant-field support, configured database URL env support, generated CRUD timestamp payload round-tripping, shared generated-store pools, and bounded generated list endpoints are implemented as independently reviewable foundations. A production reference-app integration against the real layout kit, router, Electric client, and TanStack DB runtime remains active follow-on work tracked by this plan.
+Completed 2026-06-13. M1, M2, M3, and M4 are implemented as beta Scenery surfaces: static model/page IR, generated desired schema/diff/check, generated seed SQL and database-backed CRUD endpoints/stores, tenant enforcement, hidden generated frontend packages, runtime adapter factories, route registration helpers, and default collection pages. Production-readiness follow-ups discovered during the ONLV pilot also landed: app-owned generated schemas, service-scoped generated CRUD route bases, reserved/generated/handwritten route validation, collision-safe generated Atlas labels, auth-by-default generated CRUD access, UUID tenant-field support, configured database URL env support, generated CRUD timestamp payload round-tripping, shared generated-store pools, and bounded generated list endpoints. The ONLV `tasksnew` pilot in https://github.com/pbrazdil/onlv/issues/95 proved the generated schema/seed/web alias/CRUD path in a production app and filed the closed Scenery follow-ups above. The surface remains beta in `docs/local-contract.md`; future polish should be tracked as new issues rather than keeping this ExecPlan open.
 
 ## Context and Orientation
 
@@ -91,7 +91,7 @@ M2 adds read-only schema diff mode. It emits desired Atlas HCL under `.scenery/g
 
 M3 adds backend generation. The landed foundation generates CRUD stores/endpoints into the transient build workspace with explicit action policy and collision checks. The data-backed slice adds generated seed SQL and database-backed generated stores. Generated CRUD endpoints default to `auth` for every action; the tenancy follow-up additionally scopes convention `TenantID`/`tenant_id` generated CRUD to the active standard-auth tenant. Generated CRUD HTTP route bases default to `/<service>/<table>`, independent of the physical table name's role in SQL artifacts.
 
-M4 adds frontend generation. It now generates TypeScript row types, sync shapes, collection/materializer code, runtime adapter factories, route registration helpers, and default collection pages into a hidden generated package while verifying slot contracts. Remaining M4 work is production reference integration with the real layout-kit/router/Electric/TanStack stack.
+M4 adds frontend generation. It generates TypeScript row types, sync shapes, collection/materializer code, runtime adapter factories, route registration helpers, and default collection pages into a hidden generated package while verifying slot contracts. The fixture proves typecheck/render behavior, and the ONLV `tasksnew` pilot proved the production app integration path and upstreamed the follow-up fixes now recorded in Progress.
 
 ## Plan of Work
 

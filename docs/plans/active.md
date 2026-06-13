@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0077 Static Model/View IR](0077-static-model-view-ir.md)
-  - Status: active
-  - Owner: scenery app model / generators
-  - Created: 2026-06-12
-  - Focus: parse static `//scenery:model` and `//scenery:page` declarations into inspectable IR first, then use the IR for generated schema, backend, and web layers in follow-on milestones.
 - [0076 Devdash Control-Plane Store Slimming](0076-devdash-control-plane-store-slimming.md)
   - Status: active
   - Owner: scenery runtime / agent DX
