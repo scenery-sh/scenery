@@ -644,9 +644,10 @@ func writeGeneratedModelBackend(buf *strings.Builder, im *imports, endpoints []*
 		return
 	}
 	entities := generatedModelEntities(endpoints)
+	writeGeneratedModelSharedPool(buf, im, cfg)
 	for _, entity := range entities {
 		writeGeneratedModelTypes(buf, im, entity)
-		writeGeneratedModelStore(buf, im, entity, cfg)
+		writeGeneratedModelStore(buf, im, entity)
 	}
 }
 
@@ -667,10 +668,26 @@ func generatedModelEntities(endpoints []*model.GeneratedModelEndpoint) []*model.
 }
 
 func writeGeneratedModelTypes(buf *strings.Builder, im *imports, entity *model.Entity) {
+	listType := generatedModelListQueryType(entity)
 	createType := generatedModelCreateType(entity)
 	patchType := generatedModelPatchType(entity)
 	createFields := generatedModelCreateFields(entity)
 	patchFields := generatedModelPatchFields(entity)
+	fmt.Fprintf(buf, "type %s struct {\n", listType)
+	buf.WriteString("\tLimit *int `json:\"limit,omitempty\"`\n")
+	buf.WriteString("\tOffset int `json:\"offset,omitempty\"`\n")
+	buf.WriteString("}\n\n")
+	fmt.Fprintf(buf, "func (query %s) sceneryModelBounds() (int, int, error) {\n", listType)
+	buf.WriteString("\tlimit := sceneryModelDefaultListLimit\n")
+	buf.WriteString("\tif query.Limit != nil {\n\t\tlimit = *query.Limit\n\t}\n")
+	fmt.Fprintf(buf, "\tif limit < 1 {\n\t\treturn 0, 0, errs.B().Code(errs.InvalidArgument).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" list limit must be at least 1")
+	fmt.Fprintf(buf, "\tif limit > sceneryModelMaxListLimit {\n\t\treturn 0, 0, errs.B().Code(errs.InvalidArgument).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" list limit exceeds 500")
+	fmt.Fprintf(buf, "\tif query.Offset < 0 {\n\t\treturn 0, 0, errs.B().Code(errs.InvalidArgument).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" list offset must be non-negative")
+	buf.WriteString("\treturn limit, query.Offset, nil\n")
+	buf.WriteString("}\n\n")
+	fmt.Fprintf(buf, "func (query %s) Validate() error {\n", listType)
+	buf.WriteString("\t_, _, err := query.sceneryModelBounds()\n\treturn err\n")
+	buf.WriteString("}\n\n")
 	fmt.Fprintf(buf, "type %s struct {\n", createType)
 	for _, field := range createFields {
 		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", field.Name, entityFieldTypeExpr(im, field), field.Column+",omitempty")
@@ -718,17 +735,37 @@ func generatedModelJSONAliasFields(fields []model.EntityField) []model.EntityFie
 	return out
 }
 
-func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.Entity, cfg appcfg.Config) {
-	errorsPkg := im.use("errors", "errors")
-	fmtPkg := im.use("fmt", "fmt")
+func writeGeneratedModelSharedPool(buf *strings.Builder, im *imports, cfg appcfg.Config) {
 	osPkg := im.use("os", "os")
 	stringsPkg := im.use("strings", "strings")
 	syncPkg := im.use("sync", "sync")
+	pgxpoolPkg := im.use("pgxpool", "scenery.sh/pgxpool")
+	stateName := generatedModelDBStateName()
+	poolFunc := generatedModelPoolFunc()
+	databaseURLEnv := cfg.DatabaseURLEnv()
+	buf.WriteString("const (\n")
+	buf.WriteString("\tsceneryModelDefaultListLimit = 100\n")
+	buf.WriteString("\tsceneryModelMaxListLimit = 500\n")
+	buf.WriteString(")\n\n")
+	fmt.Fprintf(buf, "var %s = struct {\n\t%s.Mutex\n\tpool *%s.Pool\n\tdsn string\n}{}\n\n", stateName, syncPkg, pgxpoolPkg)
+	fmt.Fprintf(buf, "func %s(ctx context.Context) (*%s.Pool, error) {\n", poolFunc, pgxpoolPkg)
+	fmt.Fprintf(buf, "\tdsn := %s.TrimSpace(%s.Getenv(%q))\n", stringsPkg, osPkg, databaseURLEnv)
+	fmt.Fprintf(buf, "\tif dsn == \"\" {\n\t\tdsn = %s.TrimSpace(%s.Getenv(\"SCENERY_MANAGED_DATABASE_URL\"))\n\t}\n", stringsPkg, osPkg)
+	fmt.Fprintf(buf, "\tif dsn == \"\" {\n\t\treturn nil, errs.B().Code(errs.FailedPrecondition).Msg(%q).Err()\n\t}\n", "generated model store requires "+databaseURLEnv)
+	fmt.Fprintf(buf, "\t%s.Lock()\n\tdefer %s.Unlock()\n", stateName, stateName)
+	fmt.Fprintf(buf, "\tif %s.pool != nil && %s.dsn == dsn {\n\t\treturn %s.pool, nil\n\t}\n", stateName, stateName, stateName)
+	fmt.Fprintf(buf, "\tif %s.pool != nil {\n\t\t%s.pool.Close()\n\t\t%s.pool = nil\n\t}\n", stateName, stateName, stateName)
+	fmt.Fprintf(buf, "\tpool, err := %s.New(ctx, dsn)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", pgxpoolPkg)
+	fmt.Fprintf(buf, "\t%s.pool = pool\n\t%s.dsn = dsn\n\treturn pool, nil\n}\n\n", stateName, stateName)
+}
+
+func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.Entity) {
+	errorsPkg := im.use("errors", "errors")
+	fmtPkg := im.use("fmt", "fmt")
+	stringsPkg := im.use("strings", "strings")
 	pgxPkg := im.use("pgx", "github.com/jackc/pgx/v5")
 	pgconnPkg := im.use("pgconn", "github.com/jackc/pgx/v5/pgconn")
-	pgxpoolPkg := im.use("pgxpool", "scenery.sh/pgxpool")
-	stateName := generatedModelDBStateName(entity)
-	poolFunc := generatedModelPoolFunc(entity)
+	poolFunc := generatedModelPoolFunc()
 	keyFunc := generatedModelKeyFunc(entity)
 	fromCreate := generatedModelFromCreateFunc(entity)
 	tenantField := entity.TenantField()
@@ -750,17 +787,6 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	selectSQL := generatedModelSelectSQL(entity, fields)
 	table := generatedModelSQLTable(entity)
 	idColumn := generatedModelSQLIdent(id.Column)
-	databaseURLEnv := cfg.DatabaseURLEnv()
-	fmt.Fprintf(buf, "var %s = struct {\n\t%s.Mutex\n\tpool *%s.Pool\n\tdsn string\n}{}\n\n", stateName, syncPkg, pgxpoolPkg)
-	fmt.Fprintf(buf, "func %s(ctx context.Context) (*%s.Pool, error) {\n", poolFunc, pgxpoolPkg)
-	fmt.Fprintf(buf, "\tdsn := %s.TrimSpace(%s.Getenv(%q))\n", stringsPkg, osPkg, databaseURLEnv)
-	fmt.Fprintf(buf, "\tif dsn == \"\" {\n\t\tdsn = %s.TrimSpace(%s.Getenv(\"SCENERY_MANAGED_DATABASE_URL\"))\n\t}\n", stringsPkg, osPkg)
-	fmt.Fprintf(buf, "\tif dsn == \"\" {\n\t\treturn nil, errs.B().Code(errs.FailedPrecondition).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" store requires "+databaseURLEnv)
-	fmt.Fprintf(buf, "\t%s.Lock()\n\tdefer %s.Unlock()\n", stateName, stateName)
-	fmt.Fprintf(buf, "\tif %s.pool != nil && %s.dsn == dsn {\n\t\treturn %s.pool, nil\n\t}\n", stateName, stateName, stateName)
-	fmt.Fprintf(buf, "\tif %s.pool != nil {\n\t\t%s.pool.Close()\n\t\t%s.pool = nil\n\t}\n", stateName, stateName, stateName)
-	fmt.Fprintf(buf, "\tpool, err := %s.New(ctx, dsn)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", pgxpoolPkg)
-	fmt.Fprintf(buf, "\t%s.pool = pool\n\t%s.dsn = dsn\n\treturn pool, nil\n}\n\n", stateName, stateName)
 	fmt.Fprintf(buf, "func %s(id any) string {\n\treturn %s.Sprint(id)\n}\n\n", keyFunc, fmtPkg)
 	fmt.Fprintf(buf, "func %s(input %s) %s {\n\treturn %s{\n", fromCreate, generatedModelCreateType(entity), entityType, entityType)
 	for _, field := range createFields {
@@ -777,14 +803,15 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	}
 	fmt.Fprintf(buf, "func sceneryModelScan%s(row %s.Row) (%s, error) {\n\tvar out %s\n", entity.Name, pgxPkg, entityType, entityType)
 	fmt.Fprintf(buf, "\tif err := row.Scan(%s); err != nil {\n\t\tif %s.Is(err, %s.ErrNoRows) {\n\t\t\treturn %s{}, errs.B().Code(errs.NotFound).Msg(%q).Err()\n\t\t}\n\t\treturn %s{}, err\n\t}\n\treturn out, nil\n}\n\n", generatedModelScanArgs(fields, "out"), errorsPkg, pgxPkg, entityType, entity.Name+" not found", entityType)
-	fmt.Fprintf(buf, "func sceneryModelList%s(ctx context.Context) ([]%s, error) {\n", entity.Name, entityType)
+	fmt.Fprintf(buf, "func sceneryModelList%s(ctx context.Context, query %s) ([]%s, error) {\n", entity.Name, generatedModelListQueryType(entity), entityType)
+	buf.WriteString("\tlimit, offset, err := query.sceneryModelBounds()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 	fmt.Fprintf(buf, "\tpool, err := %s(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", poolFunc)
 	if tenantField != nil {
 		fmt.Fprintf(buf, "\ttenantID, err := %s()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", tenantFunc)
 		fmt.Fprintf(buf, "\ttenantValue, err := %s(tenantID)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", tenantValueFunc)
-		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q, tenantValue)\n", selectSQL+" where "+generatedModelSQLIdent(tenantField.Column)+" = $1 order by "+idColumn)
+		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q, tenantValue, limit, offset)\n", selectSQL+" where "+generatedModelSQLIdent(tenantField.Column)+" = $1 order by "+idColumn+" limit $2 offset $3")
 	} else {
-		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q)\n", selectSQL+" order by "+idColumn)
+		fmt.Fprintf(buf, "\trows, err := pool.Query(ctx, %q, limit, offset)\n", selectSQL+" order by "+idColumn+" limit $1 offset $2")
 	}
 	buf.WriteString("\tif err != nil {\n\t\treturn nil, err\n\t}\n\tdefer rows.Close()\n")
 	fmt.Fprintf(buf, "\tout := []%s{}\n\tfor rows.Next() {\n\t\tvar item %s\n", entityType, entityType)
@@ -959,12 +986,12 @@ func entityFieldPatchTypeExpr(im *imports, field model.EntityField) string {
 	return "*" + entityFieldTypeExpr(im, field)
 }
 
-func generatedModelDBStateName(entity *model.Entity) string {
-	return "sceneryModel" + entity.Name + "DB"
+func generatedModelDBStateName() string {
+	return "sceneryModelStoreDB"
 }
 
-func generatedModelPoolFunc(entity *model.Entity) string {
-	return "sceneryModel" + entity.Name + "Pool"
+func generatedModelPoolFunc() string {
+	return "sceneryModelStorePool"
 }
 
 func generatedModelKeyFunc(entity *model.Entity) string {
@@ -973,6 +1000,10 @@ func generatedModelKeyFunc(entity *model.Entity) string {
 
 func generatedModelFromCreateFunc(entity *model.Entity) string {
 	return "sceneryModel" + entity.Name + "FromCreate"
+}
+
+func generatedModelListQueryType(entity *model.Entity) string {
+	return entity.Name + "ListQuery"
 }
 
 func generatedModelTenantFunc(entity *model.Entity) string {
@@ -1155,6 +1186,8 @@ func writeGeneratedModelEndpointRegistration(buf *strings.Builder, ep *model.Gen
 	fmt.Fprintf(buf, "\t\tMethods: %s,\n", renderMethodLiteral(ep.Methods))
 	fmt.Fprintf(buf, "\t\tPathParams: %s,\n", renderParamSpecs(ep.PathParams))
 	switch ep.Action {
+	case model.EntityCRUDList:
+		fmt.Fprintf(buf, "\t\tPayloadType: sceneryruntime.TypeOf[%s](),\n", generatedModelListQueryType(ep.Entity))
 	case model.EntityCRUDCreate:
 		fmt.Fprintf(buf, "\t\tPayloadType: sceneryruntime.TypeOf[%s](),\n", generatedModelCreateType(ep.Entity))
 	case model.EntityCRUDUpdate:
@@ -1175,7 +1208,7 @@ func writeGeneratedModelEndpointRegistration(buf *strings.Builder, ep *model.Gen
 	buf.WriteString("\t\tInvoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {\n")
 	switch ep.Action {
 	case model.EntityCRUDList:
-		fmt.Fprintf(buf, "\t\t\treturn sceneryModelList%s(ctx)\n", ep.Entity.Name)
+		fmt.Fprintf(buf, "\t\t\treturn sceneryModelList%s(ctx, payload.(%s))\n", ep.Entity.Name, generatedModelListQueryType(ep.Entity))
 	case model.EntityCRUDGet:
 		fmt.Fprintf(buf, "\t\t\treturn sceneryModelGet%s(ctx, pathArgs[0])\n", ep.Entity.Name)
 	case model.EntityCRUDCreate:

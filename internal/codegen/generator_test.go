@@ -109,23 +109,32 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	}
 	got := string(out.Generated["tasks/scenery.gen.go"])
 	for _, want := range []string{
+		"type TaskListQuery struct",
 		"type TaskCreate struct",
 		"type TaskPatch struct",
-		"sceneryModelTaskPool",
+		"sceneryModelStorePool",
+		"sceneryModelDefaultListLimit = 100",
+		"sceneryModelMaxListLimit     = 500",
+		"func (query TaskListQuery) Validate() error",
+		"generated Task list limit must be at least 1",
+		"generated Task list limit exceeds 500",
+		"generated Task list offset must be non-negative",
 		`sceneryauth "scenery.sh/auth"`,
 		`func sceneryModelTaskTenantID() (string, error)`,
 		`os.Getenv("DatabaseURL")`,
-		`generated Task store requires DatabaseURL`,
+		`generated model store requires DatabaseURL`,
 		`insert into \"tasks\".\"tasks\"`,
-		`where \"tenant_id\" = $1 order by \"id\"`,
+		`where \"tenant_id\" = $1 order by \"id\" limit $2 offset $3`,
 		`where \"id\" = $1 and \"tenant_id\" = $2`,
 		`func sceneryModelTaskTenantValue(tenantID string) (string, error)`,
 		`return string(tenantID), nil`,
 		`row.TenantID = tenantValue`,
 		`update \"tasks\".\"tasks\" set %s where \"id\" = $%d and \"tenant_id\" = $%d returning`,
+		`PayloadType:           sceneryruntime.TypeOf[TaskListQuery]()`,
 		`"CreateTask"`,
 		`Access:                sceneryruntime.Auth`,
 		`"/tasks/tasks"`,
+		"sceneryModelListTask(ctx, payload.(TaskListQuery))",
 		"sceneryModelUpdateTask(ctx, pathArgs[0], payload.(TaskPatch))",
 		`func (input *TaskCreate) UnmarshalJSON(data []byte) error`,
 		`func (input *TaskPatch) UnmarshalJSON(data []byte) error`,
@@ -143,6 +152,9 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	}
 	if strings.Contains(got, "TenantID string `json:\"tenant_id,omitempty\"`") {
 		t.Fatalf("tenant field should not be client-writable in generated create/patch payloads:\n%s", got)
+	}
+	if strings.Contains(got, "sceneryModelTaskPool") || strings.Contains(got, "sceneryModelTaskDB") {
+		t.Fatalf("generated CRUD backend still emits entity-scoped pool state:\n%s", got)
 	}
 	mainGot := string(out.Generated["scenery_internal_main/main.go"])
 	if !strings.Contains(mainGot, `_ "example.com/modeldsl/tasks"`) {
@@ -173,7 +185,7 @@ func TestGenerateModelCRUDBackendUsesConfiguredDatabaseURLEnv(t *testing.T) {
 	for _, want := range []string{
 		`os.Getenv("AppDB")`,
 		`os.Getenv("SCENERY_MANAGED_DATABASE_URL")`,
-		`generated Task store requires AppDB`,
+		`generated model store requires AppDB`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated CRUD backend missing %q:\n%s", want, got)
@@ -181,6 +193,70 @@ func TestGenerateModelCRUDBackendUsesConfiguredDatabaseURLEnv(t *testing.T) {
 	}
 	if strings.Contains(got, `os.Getenv("DatabaseURL")`) || strings.Contains(got, `generated Task store requires DatabaseURL`) {
 		t.Fatalf("generated CRUD backend still hardcodes DatabaseURL:\n%s", got)
+	}
+}
+
+func TestGenerateModelCRUDBackendSharesPoolAcrossEntities(t *testing.T) {
+	t.Parallel()
+
+	root := persistentCodegenTestApp(t, "modelsharedpool", map[string]string{
+		"go.mod":        "module example.com/modelsharedpool\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + repoRoot(t) + "\n",
+		".scenery.json": `{"name":"modelsharedpool"}`,
+		"catalog/model.go": `package catalog
+
+import "scenery.sh/model"
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Product struct {
+	ID string ` + "`db:\"id\"`" + `
+	Name string ` + "`db:\"name\"`" + `
+}
+
+//scenery:model
+type Category struct {
+	ID string ` + "`db:\"id\"`" + `
+	Name string ` + "`db:\"name\"`" + `
+}
+
+var _ = model.Entity[Product](model.Table("products"), model.Generate(model.ActionList, model.ActionCreate))
+var _ = model.Entity[Category](model.Table("categories"), model.Generate(model.ActionList, model.ActionCreate))
+`,
+	})
+	app, err := parse.App(root, "modelsharedpool")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	out, err := codegen.Generate(app)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	got := string(out.Generated["catalog/scenery.gen.go"])
+	for _, want := range []string{
+		"type CategoryListQuery struct",
+		"type ProductListQuery struct",
+		`func sceneryModelStorePool(ctx context.Context) (*pgxpool.Pool, error)`,
+		`func sceneryModelListCategory(ctx context.Context, query CategoryListQuery) ([]Category, error)`,
+		`func sceneryModelListProduct(ctx context.Context, query ProductListQuery) ([]Product, error)`,
+		`pool.Query(ctx, "select \"id\", \"name\" from \"catalog\".\"categories\" order by \"id\" limit $1 offset $2", limit, offset)`,
+		`pool.Query(ctx, "select \"id\", \"name\" from \"catalog\".\"products\" order by \"id\" limit $1 offset $2", limit, offset)`,
+		`sceneryModelListCategory(ctx, payload.(CategoryListQuery))`,
+		`sceneryModelListProduct(ctx, payload.(ProductListQuery))`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated shared-pool backend missing %q:\n%s", want, got)
+		}
+	}
+	if gotCount := strings.Count(got, "var sceneryModelStoreDB"); gotCount != 1 {
+		t.Fatalf("shared pool state count = %d, want 1:\n%s", gotCount, got)
+	}
+	if gotCount := strings.Count(got, "func sceneryModelStorePool"); gotCount != 1 {
+		t.Fatalf("shared pool func count = %d, want 1:\n%s", gotCount, got)
+	}
+	if strings.Contains(got, "sceneryModelProductPool") || strings.Contains(got, "sceneryModelCategoryPool") || strings.Contains(got, "sceneryModelProductDB") || strings.Contains(got, "sceneryModelCategoryDB") {
+		t.Fatalf("generated backend emitted entity-scoped pools:\n%s", got)
 	}
 }
 
@@ -223,7 +299,7 @@ var _ = model.Entity[Task](model.Generate(model.ActionCreate))
 		`tenantUUID, err := uuid.Parse(tenantID)`,
 		`return zero, errs.B().Code(errs.InvalidArgument).Msg("generated Task store requires valid tenant_id UUID").Cause(err).Err()`,
 		`row.TenantID = tenantValue`,
-		`pool.Query(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\".\"tasks\" where \"tenant_i_d\" = $1 order by \"i_d\"", tenantValue)`,
+		`pool.Query(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\".\"tasks\" where \"tenant_i_d\" = $1 order by \"i_d\" limit $2 offset $3", tenantValue, limit, offset)`,
 		`pool.QueryRow(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\".\"tasks\" where \"i_d\" = $1 and \"tenant_i_d\" = $2", id, tenantValue)`,
 		`args = append(args, id, tenantValue)`,
 		`pool.Exec(ctx, "delete from \"tasks\".\"tasks\" where \"i_d\" = $1 and \"tenant_i_d\" = $2", id, tenantValue)`,
