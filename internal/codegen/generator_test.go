@@ -127,6 +127,12 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 		`Access:                sceneryruntime.Auth`,
 		`"/tasks/tasks"`,
 		"sceneryModelUpdateTask(ctx, pathArgs[0], payload.(TaskPatch))",
+		`func (input *TaskCreate) UnmarshalJSON(data []byte) error`,
+		`func (input *TaskPatch) UnmarshalJSON(data []byte) error`,
+		`var raw map[string]json.RawMessage`,
+		`if value, ok := raw["CreatedAt"]; ok`,
+		`json.Unmarshal(value, &out.CreatedAt)`,
+		`return fmt.Errorf("CreatedAt: %w", err)`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated CRUD backend missing %q:\n%s", want, got)

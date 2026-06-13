@@ -669,16 +669,53 @@ func generatedModelEntities(endpoints []*model.GeneratedModelEndpoint) []*model.
 func writeGeneratedModelTypes(buf *strings.Builder, im *imports, entity *model.Entity) {
 	createType := generatedModelCreateType(entity)
 	patchType := generatedModelPatchType(entity)
+	createFields := generatedModelCreateFields(entity)
+	patchFields := generatedModelPatchFields(entity)
 	fmt.Fprintf(buf, "type %s struct {\n", createType)
-	for _, field := range generatedModelCreateFields(entity) {
+	for _, field := range createFields {
 		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", field.Name, entityFieldTypeExpr(im, field), field.Column+",omitempty")
 	}
 	buf.WriteString("}\n\n")
+	writeGeneratedModelPayloadUnmarshal(buf, im, createType, createFields)
 	fmt.Fprintf(buf, "type %s struct {\n", patchType)
-	for _, field := range generatedModelPatchFields(entity) {
+	for _, field := range patchFields {
 		fmt.Fprintf(buf, "\t%s %s `json:%q`\n", field.Name, entityFieldPatchTypeExpr(im, field), field.Column+",omitempty")
 	}
 	buf.WriteString("}\n\n")
+	writeGeneratedModelPayloadUnmarshal(buf, im, patchType, patchFields)
+}
+
+func writeGeneratedModelPayloadUnmarshal(buf *strings.Builder, im *imports, typeName string, fields []model.EntityField) {
+	aliasFields := generatedModelJSONAliasFields(fields)
+	if len(aliasFields) == 0 {
+		return
+	}
+	jsonPkg := im.use("json", "encoding/json")
+	fmtPkg := im.use("fmt", "fmt")
+	fmt.Fprintf(buf, "func (input *%s) UnmarshalJSON(data []byte) error {\n", typeName)
+	fmt.Fprintf(buf, "\ttype sceneryModelPayload %s\n", typeName)
+	buf.WriteString("\tvar out sceneryModelPayload\n")
+	fmt.Fprintf(buf, "\tif err := %s.Unmarshal(data, &out); err != nil {\n\t\treturn err\n\t}\n", jsonPkg)
+	fmt.Fprintf(buf, "\tvar raw map[string]%s.RawMessage\n", jsonPkg)
+	fmt.Fprintf(buf, "\tif err := %s.Unmarshal(data, &raw); err != nil {\n\t\treturn err\n\t}\n", jsonPkg)
+	for _, field := range aliasFields {
+		fmt.Fprintf(buf, "\tif value, ok := raw[%q]; ok {\n", field.Name)
+		fmt.Fprintf(buf, "\t\tif err := %s.Unmarshal(value, &out.%s); err != nil {\n", jsonPkg, field.Name)
+		fmt.Fprintf(buf, "\t\t\treturn %s.Errorf(%q, err)\n", fmtPkg, field.Name+": %w")
+		buf.WriteString("\t\t}\n\t}\n")
+	}
+	fmt.Fprintf(buf, "\t*input = %s(out)\n\treturn nil\n}\n\n", typeName)
+}
+
+func generatedModelJSONAliasFields(fields []model.EntityField) []model.EntityField {
+	var out []model.EntityField
+	for _, field := range fields {
+		if field.Name == field.Column {
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
 }
 
 func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.Entity, cfg appcfg.Config) {
