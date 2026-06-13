@@ -72,6 +72,7 @@ cleanup() {
 trap cleanup EXIT
 
 need git
+need go
 need python3
 need bun
 
@@ -116,6 +117,7 @@ if not replaced:
     lines.append(f"replace scenery.sh => {root}")
 path.write_text("\n".join(lines) + "\n")
 PY
+  (cd "$wt" && go mod tidy)
   for env_file in .env .env.local ".secrets.local.cue"; do
     if [[ -f "$ONLV_ROOT/$env_file" && ! -e "$wt/$env_file" ]]; then
       cp "$ONLV_ROOT/$env_file" "$wt/$env_file"
@@ -211,7 +213,7 @@ wait_for_sessions_ready() {
 import json
 import sys
 payload = json.loads(open(sys.argv[1]).read())
-sessions = {s.get("session_id"): s for s in payload.get("sessions", [])}
+sessions = {s.get("session_id"): s for s in (payload.get("sessions") or [])}
 required = ["api", "dashboard", "electric", "grafana", "temporal", "pulse", "blog"]
 for sid in sys.argv[2:]:
     session = sessions.get(sid) or {}
@@ -249,7 +251,7 @@ import sys
 status_path, session_a, session_b, edge_public_addr = sys.argv[1:]
 edge_on_443 = edge_public_addr.endswith(":443")
 payload = json.loads(open(status_path).read())
-sessions = {s["session_id"]: s for s in payload.get("sessions", [])}
+sessions = {s["session_id"]: s for s in (payload.get("sessions") or [])}
 missing = [sid for sid in (session_a, session_b) if sid not in sessions]
 if missing:
     raise SystemExit(f"missing sessions in status: {missing}")

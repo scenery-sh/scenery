@@ -33,6 +33,7 @@ var allowedDirectGoDeps = map[string]string{
 	"golang.org/x/mod":                   "Go module parsing for self-harness dependency checks",
 	"golang.org/x/sys":                   "portable OS syscalls for doctor disk and memory readiness probes",
 	"golang.org/x/tools":                 "Go package loading/parser pipeline",
+	"google.golang.org/protobuf":         "Temporal API timestamp assertions in hygiene tests",
 	"gopkg.in/yaml.v3":                   "SQLC generator graph inspection from sqlc.yaml without shell parsing",
 }
 

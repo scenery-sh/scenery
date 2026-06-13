@@ -67,7 +67,10 @@ func startTemporalDevServer(ctx context.Context, root string, cfg app.Config, co
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, err
 	}
-	uiPort := port + 1000
+	uiPort, err := chooseTemporalUIPort(host, port)
+	if err != nil {
+		return nil, err
+	}
 	args := []string{
 		"server",
 		"start-dev",
@@ -389,6 +392,27 @@ func splitTemporalAddress(address string) (string, int, error) {
 		host = "127.0.0.1"
 	}
 	return host, port, nil
+}
+
+func chooseTemporalUIPort(host string, serverPort int) (int, error) {
+	for range 10 {
+		ln, err := netListen("tcp", net.JoinHostPort(host, "0"))
+		if err != nil {
+			return 0, fmt.Errorf("temporal: allocate UI port: %w", err)
+		}
+		addr, ok := ln.Addr().(*net.TCPAddr)
+		closeErr := ln.Close()
+		if !ok {
+			return 0, fmt.Errorf("temporal: unexpected UI listener address %s", ln.Addr())
+		}
+		if closeErr != nil {
+			return 0, fmt.Errorf("temporal: release UI port probe: %w", closeErr)
+		}
+		if addr.Port != serverPort {
+			return addr.Port, nil
+		}
+	}
+	return 0, fmt.Errorf("temporal: could not allocate UI port distinct from server port %d", serverPort)
 }
 
 func temporalLocalDBPath(root, filename string) string {
