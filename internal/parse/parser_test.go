@@ -468,12 +468,46 @@ var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList
 	for _, ep := range app.Services[0].Generated {
 		paths[ep.Name] = ep.Path
 		methods[ep.Name] = strings.Join(ep.Methods, ",")
+		if ep.Access != runtimeapi.Auth {
+			t.Fatalf("non-tenant generated endpoint %s access = %s, want auth", ep.Name, ep.Access)
+		}
 	}
 	if paths["ListTasks"] != "/tasksnew/tasks" || methods["ListTasks"] != "GET" {
 		t.Fatalf("list endpoint path/method = %s %s", methods["ListTasks"], paths["ListTasks"])
 	}
 	if paths["CreateTask"] != "/tasksnew/tasks" || methods["CreateTask"] != "POST" {
 		t.Fatalf("create endpoint path/method = %s %s", methods["CreateTask"], paths["CreateTask"])
+	}
+}
+
+func TestModelDSLNonTenantGeneratedCRUDDefaultsToAuthAccess(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/modelaccess\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	writeFile(t, root, "catalog/model.go", `package catalog
+
+import "scenery.sh/model"
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Product struct { ID string; Name string }
+
+var _ = model.Entity[Product](model.Generate())
+`)
+	app, err := parse.App(root, "modelaccess")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	if len(app.Services) != 1 || len(app.Services[0].Generated) != 5 {
+		t.Fatalf("generated endpoints = %+v", app.Services)
+	}
+	for _, ep := range app.Services[0].Generated {
+		if ep.Access != runtimeapi.Auth {
+			t.Fatalf("non-tenant generated endpoint %s access = %s, want auth", ep.Name, ep.Access)
+		}
 	}
 }
 

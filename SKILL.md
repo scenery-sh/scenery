@@ -195,7 +195,8 @@ Regenerate committed clients after endpoint, request/response, auth, or wire-cap
 Generated model CRUD endpoints are beta and appear in `scenery inspect endpoints --json`
 with `"generated": true`; generated stores use the app database selected by
 `DatabaseURL` or Scenery's managed database env and target the app-owned service
-schema rather than `public`. Generated CRUD route bases default to `/<service>/<table>`
+schema rather than `public`. Generated CRUD endpoints default to `auth` for every
+action. Generated CRUD route bases default to `/<service>/<table>`
 and `scenery check` reports collisions with handwritten or generated app routes.
 Generated Atlas HCL uses schema-qualified resource labels such as
 `table "<service>" "<table>"` so app-owned schemas can coexist with handwritten

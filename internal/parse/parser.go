@@ -432,7 +432,7 @@ func buildGeneratedModelEndpoint(entity *model.Entity, action model.EntityCRUDAc
 		Package:   entity.Package,
 		Entity:    entity,
 		Action:    action,
-		Access:    generatedModelEndpointAccess(entity),
+		Access:    runtimeapi.Auth,
 		Generated: true,
 	}
 	switch action {
@@ -465,13 +465,6 @@ func buildGeneratedModelEndpoint(entity *model.Entity, action model.EntityCRUDAc
 		return nil, fmt.Errorf("unsupported generated model action %q", action)
 	}
 	return ep, nil
-}
-
-func generatedModelEndpointAccess(entity *model.Entity) runtimeapi.Access {
-	if entity.TenantField() != nil {
-		return runtimeapi.Auth
-	}
-	return runtimeapi.Public
 }
 
 func generatedIDParamKind(field model.EntityField) runtimeapi.ParamKind {

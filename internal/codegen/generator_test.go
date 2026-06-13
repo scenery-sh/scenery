@@ -3,6 +3,7 @@ package codegen_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -137,6 +138,47 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	mainGot := string(out.Generated["scenery_internal_main/main.go"])
 	if !strings.Contains(mainGot, `_ "example.com/modeldsl/tasks"`) {
 		t.Fatalf("main did not import generated model package:\n%s", mainGot)
+	}
+}
+
+func TestGenerateModelCRUDBackendDefaultsNonTenantAccessToAuth(t *testing.T) {
+	t.Parallel()
+
+	root := persistentCodegenTestApp(t, "modelaccess", map[string]string{
+		"go.mod":        "module example.com/modelaccess\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + repoRoot(t) + "\n",
+		".scenery.json": `{"name":"modelaccess"}`,
+		"catalog/model.go": `package catalog
+
+import "scenery.sh/model"
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Product struct { ID string; Name string }
+
+var _ = model.Entity[Product](model.Generate())
+`,
+	})
+	app, err := parse.App(root, "modelaccess")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	out, err := codegen.Generate(app)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	got := string(out.Generated["catalog/scenery.gen.go"])
+	for _, name := range []string{"ListProducts", "GetProduct", "CreateProduct", "UpdateProduct", "DeleteProduct"} {
+		if !strings.Contains(got, fmt.Sprintf("Name:                  %q", name)) {
+			t.Fatalf("generated CRUD backend missing endpoint %s:\n%s", name, got)
+		}
+	}
+	if strings.Contains(got, "sceneryruntime.Public") {
+		t.Fatalf("non-tenant generated CRUD should not emit public access:\n%s", got)
+	}
+	if gotCount := strings.Count(got, "Access:                sceneryruntime.Auth"); gotCount != 5 {
+		t.Fatalf("auth generated endpoint registrations = %d, want 5:\n%s", gotCount, got)
 	}
 }
 
