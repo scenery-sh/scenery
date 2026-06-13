@@ -14,7 +14,7 @@ func dbPostgresService(cfg appcfg.Config) appcfg.DevServiceConfig {
 }
 
 func dbDatabaseURLEnv(cfg appcfg.Config) string {
-	return firstNonEmpty(dbPostgresService(cfg).DatabaseURLEnv, appDatabaseURLEnv)
+	return cfg.DatabaseURLEnv()
 }
 
 func cloneDBBranchEndpoint(endpoint *dbBranchEndpoint) *dbBranchEndpoint {

@@ -140,7 +140,7 @@ scenery down
 
 Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, then `scenery system edge trust` when a browser needs trusted wildcard local HTTPS on `127.0.0.1:443`. The DNS command owns wildcard `local.dev` resolution through managed dnsmasq; the privileged helper owns only the default HTTPS loopback listener and forwards raw TCP to user-owned Caddy on an unprivileged loopback port. Do not run Caddy, the agent router, or `scenery system edge install` as root. `scenery system edge` uses managed dnsmasq and Caddy from the toolchain. `scenery system edge trust` uses a temporary admin-only Caddy process and does not require the port-443 edge to already be running.
 
-For managed Postgres, app processes, setup commands, DB setup, and workers receive `DatabaseURL` as the app database authority. Scenery does not inject `DATABASE_URL` into those app-facing environments; treat `SCENERY_MANAGED_DATABASE_URL` as tooling/debug metadata. The shared Postgres substrate records only physical-server metadata; the runtime database URL/name is a runtime env lease, not a global substrate key. To use an explicit external DB with declared managed Postgres, set `SCENERY_DEV_POSTGRES_EXTERNAL=1` and provide `DatabaseURL`; `DATABASE_URL` is ignored.
+For managed Postgres, app processes, setup commands, DB setup, and workers receive the configured app database URL env (`DatabaseURL` by default) as the app database authority. Scenery does not inject `DATABASE_URL` into those app-facing environments; treat `SCENERY_MANAGED_DATABASE_URL` as tooling/debug metadata. The shared Postgres substrate records only physical-server metadata; the runtime database URL/name is a runtime env lease, not a global substrate key. To use an explicit external DB with declared managed Postgres, set `SCENERY_DEV_POSTGRES_EXTERNAL=1` and provide the configured app database URL env; `DATABASE_URL` is ignored.
 
 For Electric-backed frontend writes, generated TypeScript `WithMeta` methods include parsed `txid` metadata. Use `observeAPIResponseTxid` around the app's Electric/TanStack observer so a post-commit sync timeout is reported as `SyncObservationError` instead of an API mutation failure.
 
@@ -193,9 +193,9 @@ scenery generate client --lang typescript --output ./src/scenery-client.ts
 
 Regenerate committed clients after endpoint, request/response, auth, or wire-capability changes.
 Generated model CRUD endpoints are beta and appear in `scenery inspect endpoints --json`
-with `"generated": true`; generated stores use the app database selected by
-`DatabaseURL` or Scenery's managed database env and target the app-owned service
-schema rather than `public`. Generated CRUD endpoints default to `auth` for every
+with `"generated": true`; generated stores use the configured app database URL
+env, defaulting to `DatabaseURL`, or Scenery's managed database env and target
+the app-owned service schema rather than `public`. Generated CRUD endpoints default to `auth` for every
 action. Generated CRUD route bases default to `/<service>/<table>`
 and `scenery check` reports collisions with handwritten or generated app routes.
 Generated Atlas HCL uses schema-qualified resource labels such as

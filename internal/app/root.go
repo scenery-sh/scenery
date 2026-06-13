@@ -36,6 +36,26 @@ func (c Config) AppID() string {
 	return c.Name
 }
 
+func (c Config) DatabaseURLEnv() string {
+	if envName := strings.TrimSpace(c.ManagedPostgresService().DatabaseURLEnv); envName != "" {
+		return envName
+	}
+	return "DatabaseURL"
+}
+
+func (c Config) ManagedPostgresService() DevServiceConfig {
+	for name, svc := range c.Dev.Services {
+		kind := strings.TrimSpace(svc.Kind)
+		if kind == "" && name == "postgres" {
+			kind = "postgres"
+		}
+		if kind == "postgres" {
+			return svc
+		}
+	}
+	return DevServiceConfig{}
+}
+
 type BuildConfig struct {
 	GoFlags []string `json:"go_flags"`
 }

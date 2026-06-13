@@ -63,7 +63,7 @@ These are injected by scenery into generated app processes. App code may read th
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | user input | Conventional database URL. Managed dev Postgres does not inject this into app, setup, DB setup, or worker environments; prefer `DatabaseURL` for Scenery apps. |
-| `DatabaseURL` | user input/injected | scenery app-style database URL env and managed app database authority. Used when `auth.database_url_env` is `DatabaseURL`. |
+| `DatabaseURL` | user input/injected | Default scenery app-style database URL env and managed app database authority. Generated model stores honor `dev.services.postgres.database_url_env` when configured; standard auth honors `auth.database_url_env`. |
 | `SCENERY_AUTH_DATABASE_URL` | user input | Fallback DB URL for standard auth when app-specific envs are unset. |
 | `SCENERY_AUTH_JWT_SECRET` | user input | Fallback JWT signing secret for standard auth when `auth.jwt_secret_env` and `JWT_SECRET` are unset. |
 | `SCENERY_AUTH_EMAIL_FROM` | user input | Fallback sender address for standard auth email flows when `auth.email_from_env` and `AUTH_EMAIL_FROM` are unset. |

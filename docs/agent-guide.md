@@ -199,7 +199,8 @@ Prefer JSON when output will feed another tool or decision.
 
 Generated model CRUD endpoints are beta. They appear in `scenery inspect endpoints --json`
 and `scenery inspect routes --json` with `"generated": true`; generated stores
-use the app database selected by `DatabaseURL` or Scenery's managed database env.
+use the app database selected by the configured app database URL env, defaulting
+to `DatabaseURL`, or Scenery's managed database env.
 Generated CRUD endpoints default to `auth` for every action; the beta DSL has no
 implicit public read or public mutation surface.
 Generated CRUD route bases are service-scoped as `/<service>/<table>` so `model.Table(...)`

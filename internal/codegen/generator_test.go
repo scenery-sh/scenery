@@ -115,6 +115,7 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 		`sceneryauth "scenery.sh/auth"`,
 		`func sceneryModelTaskTenantID() (string, error)`,
 		`os.Getenv("DatabaseURL")`,
+		`generated Task store requires DatabaseURL`,
 		`insert into \"tasks\".\"tasks\"`,
 		`where \"tenant_id\" = $1 order by \"id\"`,
 		`where \"id\" = $1 and \"tenant_id\" = $2`,
@@ -140,6 +141,40 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	mainGot := string(out.Generated["scenery_internal_main/main.go"])
 	if !strings.Contains(mainGot, `_ "example.com/modeldsl/tasks"`) {
 		t.Fatalf("main did not import generated model package:\n%s", mainGot)
+	}
+}
+
+func TestGenerateModelCRUDBackendUsesConfiguredDatabaseURLEnv(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(repoRoot(t), "testdata", "apps", "model-dsl")
+	app, err := parse.App(root, "modeldsl")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	out, err := codegen.GenerateWithConfig(app, appcfg.Config{
+		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
+			"postgres": {
+				Kind:           "postgres",
+				DatabaseURLEnv: "AppDB",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	got := string(out.Generated["tasks/scenery.gen.go"])
+	for _, want := range []string{
+		`os.Getenv("AppDB")`,
+		`os.Getenv("SCENERY_MANAGED_DATABASE_URL")`,
+		`generated Task store requires AppDB`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated CRUD backend missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `os.Getenv("DatabaseURL")`) || strings.Contains(got, `generated Task store requires DatabaseURL`) {
+		t.Fatalf("generated CRUD backend still hardcodes DatabaseURL:\n%s", got)
 	}
 }
 

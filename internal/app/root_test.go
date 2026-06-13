@@ -64,6 +64,26 @@ func TestDiscoverRootAcceptsBuildGoFlags(t *testing.T) {
 	}
 }
 
+func TestConfigDatabaseURLEnv(t *testing.T) {
+	t.Parallel()
+
+	if got := (Config{}).DatabaseURLEnv(); got != "DatabaseURL" {
+		t.Fatalf("default database URL env = %q, want DatabaseURL", got)
+	}
+	cfg := Config{Dev: DevConfig{Services: map[string]DevServiceConfig{
+		"postgres": {DatabaseURLEnv: "AppDB"},
+	}}}
+	if got := cfg.DatabaseURLEnv(); got != "AppDB" {
+		t.Fatalf("configured database URL env = %q, want AppDB", got)
+	}
+	cfg = Config{Dev: DevConfig{Services: map[string]DevServiceConfig{
+		"main-db": {Kind: "postgres", DatabaseURLEnv: "PrimaryDB"},
+	}}}
+	if got := cfg.DatabaseURLEnv(); got != "PrimaryDB" {
+		t.Fatalf("named Postgres database URL env = %q, want PrimaryDB", got)
+	}
+}
+
 func TestDiscoverRootRejectsUnknownBuildField(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{

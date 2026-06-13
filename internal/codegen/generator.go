@@ -67,7 +67,7 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 				out.Generated[rel] = data
 			}
 		}
-		data, err := generatePackageFile(pkg)
+		data, err := generatePackageFile(pkg, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +145,7 @@ func renderFile(fset *token.FileSet, file any) ([]byte, error) {
 	return format.Source(buf.Bytes())
 }
 
-func generatePackageFile(pkg *model.Package) ([]byte, error) {
+func generatePackageFile(pkg *model.Package, cfg appcfg.Config) ([]byte, error) {
 	var pkgEndpoints []*model.Endpoint
 	for _, ep := range pkg.Service.Endpoints {
 		if ep.Package == pkg {
@@ -206,7 +206,7 @@ func generatePackageFile(pkg *model.Package) ([]byte, error) {
 	if serviceStruct != nil {
 		writeServiceStruct(&buf, im, serviceStruct)
 	}
-	writeGeneratedModelBackend(&buf, im, generatedModelEndpoints)
+	writeGeneratedModelBackend(&buf, im, generatedModelEndpoints, cfg)
 	for _, ep := range pkgEndpoints {
 		writeEndpoint(&buf, im, ep, serviceStruct)
 	}
@@ -639,14 +639,14 @@ func writeEndpoint(buf *strings.Builder, im *imports, ep *model.Endpoint, ss *mo
 	}
 }
 
-func writeGeneratedModelBackend(buf *strings.Builder, im *imports, endpoints []*model.GeneratedModelEndpoint) {
+func writeGeneratedModelBackend(buf *strings.Builder, im *imports, endpoints []*model.GeneratedModelEndpoint, cfg appcfg.Config) {
 	if len(endpoints) == 0 {
 		return
 	}
 	entities := generatedModelEntities(endpoints)
 	for _, entity := range entities {
 		writeGeneratedModelTypes(buf, im, entity)
-		writeGeneratedModelStore(buf, im, entity)
+		writeGeneratedModelStore(buf, im, entity, cfg)
 	}
 }
 
@@ -681,7 +681,7 @@ func writeGeneratedModelTypes(buf *strings.Builder, im *imports, entity *model.E
 	buf.WriteString("}\n\n")
 }
 
-func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.Entity) {
+func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.Entity, cfg appcfg.Config) {
 	errorsPkg := im.use("errors", "errors")
 	fmtPkg := im.use("fmt", "fmt")
 	osPkg := im.use("os", "os")
@@ -713,11 +713,12 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 	selectSQL := generatedModelSelectSQL(entity, fields)
 	table := generatedModelSQLTable(entity)
 	idColumn := generatedModelSQLIdent(id.Column)
+	databaseURLEnv := cfg.DatabaseURLEnv()
 	fmt.Fprintf(buf, "var %s = struct {\n\t%s.Mutex\n\tpool *%s.Pool\n\tdsn string\n}{}\n\n", stateName, syncPkg, pgxpoolPkg)
 	fmt.Fprintf(buf, "func %s(ctx context.Context) (*%s.Pool, error) {\n", poolFunc, pgxpoolPkg)
-	fmt.Fprintf(buf, "\tdsn := %s.TrimSpace(%s.Getenv(\"DatabaseURL\"))\n", stringsPkg, osPkg)
+	fmt.Fprintf(buf, "\tdsn := %s.TrimSpace(%s.Getenv(%q))\n", stringsPkg, osPkg, databaseURLEnv)
 	fmt.Fprintf(buf, "\tif dsn == \"\" {\n\t\tdsn = %s.TrimSpace(%s.Getenv(\"SCENERY_MANAGED_DATABASE_URL\"))\n\t}\n", stringsPkg, osPkg)
-	fmt.Fprintf(buf, "\tif dsn == \"\" {\n\t\treturn nil, errs.B().Code(errs.FailedPrecondition).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" store requires DatabaseURL")
+	fmt.Fprintf(buf, "\tif dsn == \"\" {\n\t\treturn nil, errs.B().Code(errs.FailedPrecondition).Msg(%q).Err()\n\t}\n", "generated "+entity.Name+" store requires "+databaseURLEnv)
 	fmt.Fprintf(buf, "\t%s.Lock()\n\tdefer %s.Unlock()\n", stateName, stateName)
 	fmt.Fprintf(buf, "\tif %s.pool != nil && %s.dsn == dsn {\n\t\treturn %s.pool, nil\n\t}\n", stateName, stateName, stateName)
 	fmt.Fprintf(buf, "\tif %s.pool != nil {\n\t\t%s.pool.Close()\n\t\t%s.pool = nil\n\t}\n", stateName, stateName, stateName)
