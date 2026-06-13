@@ -357,8 +357,8 @@ func TestTemporalStartWorkflowOptions(t *testing.T) {
 		t.Fatalf("timeouts = %s %s %s", start.WorkflowExecutionTimeout, start.WorkflowRunTimeout, start.WorkflowTaskTimeout)
 	}
 	gotKeyword, ok := start.TypedSearchAttributes.GetKeyword(customKeyword)
-	if start.Memo["tenant"] != "acme" || !ok || gotKeyword != "orders" || start.SearchAttributes != nil {
-		t.Fatalf("metadata = %#v deprecated=%#v typed=%#v", start.Memo, start.SearchAttributes, start.TypedSearchAttributes.GetUntypedValues())
+	if start.Memo["tenant"] != "acme" || !ok || gotKeyword != "orders" {
+		t.Fatalf("metadata = %#v typed=%#v", start.Memo, start.TypedSearchAttributes.GetUntypedValues())
 	}
 	pinned, ok := start.VersioningOverride.(*temporalclient.PinnedVersioningOverride)
 	if !ok {

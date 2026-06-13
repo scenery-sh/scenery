@@ -362,6 +362,13 @@ func TestTemporalDevHelpers(t *testing.T) {
 	if _, _, err := splitTemporalAddress("not-a-host-port"); err == nil {
 		t.Fatal("expected invalid address error")
 	}
+	uiPort, err := chooseTemporalUIPort("127.0.0.1", 65000)
+	if err != nil {
+		t.Fatalf("chooseTemporalUIPort: %v", err)
+	}
+	if uiPort <= 0 || uiPort > 65535 || uiPort == 65000 {
+		t.Fatalf("chooseTemporalUIPort = %d, want valid port distinct from server port", uiPort)
+	}
 
 	root := t.TempDir()
 	if got, want := temporalLocalDBPath(root, ".scenery/temporal/dev.db"), filepath.Join(root, ".scenery/temporal/dev.db"); got != want {
