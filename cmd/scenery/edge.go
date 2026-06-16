@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -52,6 +53,9 @@ var (
 	edgeDNSResolverStatusFunc        = edgeDNSResolverStatus
 	edgeDNSResolverServesDomainFunc  = edgeDNSResolverServesDomain
 	edgeDNSResolverFunctionalTimeout = 300 * time.Millisecond
+	edgeHelperLaunchStatusFunc       = edgeHelperLaunchStatus
+	edgeHelperPlistOptionsFunc       = installedEdgeHelperOptions
+	edgePortReachableFunc            = edgePortReachable
 )
 
 type edgeOptions struct {
@@ -196,6 +200,27 @@ func edgeRestart(opts edgeOptions) error {
 		})
 		return err
 	}
+	target, err := localagent.LoadEdgeTargetState(paths.EdgeTargetPath)
+	if err != nil {
+		_ = stopEdge(paths, 2*time.Second)
+		return fmt.Errorf("load edge helper target metadata after Caddy start: %w", err)
+	}
+	if err := publishEdgeTargetForHelper(paths, target); err != nil {
+		_ = stopEdge(paths, 2*time.Second)
+		_ = localagent.WriteEdgeState(paths.EdgeStatePath, localagent.EdgeState{
+			Kind:         localagent.EdgeKindCaddy,
+			Status:       localagent.EdgeStatusStopped,
+			PublicAddr:   publicAddr,
+			PublicScheme: "https",
+			HTTPSListen:  targetAddr,
+			UpstreamAddr: upstreamAddr,
+			AdminSocket:  adminSocket,
+			ConfigPath:   paths.EdgeConfigPath,
+			LogPath:      paths.EdgeLogPath,
+			Error:        err.Error(),
+		})
+		return err
+	}
 	if err := ensureEdgeAgent(upstreamAddr, true); err != nil {
 		refreshErr := err
 		_ = stopEdge(paths, 2*time.Second)
@@ -309,9 +334,11 @@ func edgeUninstall(opts edgeOptions) error {
 	if err != nil {
 		return err
 	}
+	previousState, _ := localagent.LoadEdgeState(paths.EdgeStatePath)
 	if err := stopEdge(paths, 5*time.Second); err != nil {
 		return err
 	}
+	removePublishedEdgeTargetForHelper(paths, previousState)
 	state := localagent.EdgeState{
 		Kind:         localagent.EdgeKindCaddy,
 		Status:       localagent.EdgeStatusStopped,
@@ -1067,6 +1094,8 @@ type edgeStatusPrivilegedListener struct {
 	PID                      int      `json:"pid,omitempty"`
 	Listen                   []string `json:"listen,omitempty"`
 	Target                   string   `json:"target,omitempty"`
+	TargetPath               string   `json:"target_path,omitempty"`
+	TargetPID                int      `json:"target_pid,omitempty"`
 	OwnerUID                 int      `json:"owner_uid,omitempty"`
 	OwnerGID                 int      `json:"owner_gid,omitempty"`
 	Version                  string   `json:"version,omitempty"`
@@ -1087,9 +1116,10 @@ func edgeStatusForStateDomain(paths localagent.Paths, state localagent.EdgeState
 	helper := privilegedListenerStatus(paths)
 	agentRouter := liveAgentRouterAddr(paths)
 	dns := edgeDNSStatusFor(paths, domain)
+	helperTargetsState := helper.Target == state.HTTPSListen && helper.TargetPID == state.PID
 	return edgeStatusResult{
 		SchemaVersion: "scenery.edge.status.v1",
-		Ready:         edgeState == localagent.EdgeStatusRunning && dns.Ready && helper.State == "running" && helper.Target == state.HTTPSListen && agentRouter == state.UpstreamAddr,
+		Ready:         edgeState == localagent.EdgeStatusRunning && dns.Ready && helper.State == "running" && helperTargetsState && agentRouter == state.UpstreamAddr,
 		PublicBase:    publicBaseForEdge(state.PublicAddr),
 		Edge: edgeStatusCaddy{
 			Kind:        localagent.EdgeKindCaddy,
@@ -1487,7 +1517,7 @@ func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetA
 		return err
 	}
 	startedAt, _ := processStartTime(cmd.Process.Pid)
-	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, localagent.EdgeTargetState{
+	target := localagent.EdgeTargetState{
 		Kind:         localagent.EdgeKindCaddy,
 		TargetAddr:   targetAddr,
 		PID:          cmd.Process.Pid,
@@ -1496,7 +1526,8 @@ func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetA
 		ProcessStart: startedAt,
 		Executable:   caddyBin,
 		UpdatedAt:    time.Now().UTC(),
-	}); err != nil {
+	}
+	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, target); err != nil {
 		_ = signalPID(cmd.Process.Pid, syscall.SIGTERM)
 		_ = logFile.Close()
 		return err
@@ -1997,23 +2028,45 @@ func privilegedListenerStatus(paths localagent.Paths) edgeStatusPrivilegedListen
 		status.Message = "privileged edge helper is currently supported on macOS"
 		return status
 	}
-	target, err := localagent.LoadEdgeTargetState(paths.EdgeTargetPath)
+	targetPath := paths.EdgeTargetPath
+	helperOpts, helperOptsErr := edgeHelperPlistOptionsFunc()
+	if helperOptsErr == nil && strings.TrimSpace(helperOpts.HelperTargetState) != "" {
+		targetPath = filepath.Clean(helperOpts.HelperTargetState)
+	}
+	status.TargetPath = targetPath
+	target, err := localagent.LoadEdgeTargetState(targetPath)
 	if err == nil && target.TargetAddr != "" {
 		status.Target = target.TargetAddr
+		status.TargetPID = target.PID
 		status.OwnerUID = target.OwnerUID
 		status.OwnerGID = target.OwnerGID
 	}
 	if !status.Installed {
 		return status
 	}
-	launchState, pid, err := edgeHelperLaunchStatus()
+	launchState, pid, err := edgeHelperLaunchStatusFunc()
 	if err == nil {
 		status.PID = pid
 		if launchState != "" {
 			status.State = launchState
 		}
 	}
-	if status.State == "running" && edgePortReachable("127.0.0.1:443") {
+	if helperOptsErr == nil && strings.TrimSpace(helperOpts.HelperTargetState) != "" && filepath.Clean(helperOpts.HelperTargetState) != filepath.Clean(paths.EdgeTargetPath) {
+		status.Message = fmt.Sprintf("privileged helper target metadata is %s; current agent home target is %s", filepath.Clean(helperOpts.HelperTargetState), filepath.Clean(paths.EdgeTargetPath))
+	}
+	if status.State == "running" {
+		if helperOptsErr != nil {
+			status.State = "unhealthy"
+			status.Message = fmt.Sprintf("privileged helper install metadata is unreadable: %v", helperOptsErr)
+			return status
+		}
+		if _, err := validateEdgeTarget(targetPath, helperOpts.OwnerUID, helperOpts.OwnerGID); err != nil {
+			status.State = "unhealthy"
+			status.Message = fmt.Sprintf("privileged helper target metadata %s is not healthy: %v", targetPath, err)
+			return status
+		}
+	}
+	if status.State == "running" && edgePortReachableFunc("127.0.0.1:443") {
 		status.State = "running"
 	} else if status.State == "running" {
 		status.State = "unhealthy"
@@ -2045,6 +2098,111 @@ func parseEdgeHelperLaunchStatus(output string) (string, int, error) {
 		}
 	}
 	return state, pid, nil
+}
+
+func installedEdgeHelperOptions() (edgeHelperOptions, error) {
+	data, err := os.ReadFile(edgeHelperPlistPath)
+	if err != nil {
+		return edgeHelperOptions{}, err
+	}
+	return parseEdgeHelperPlistOptions(data)
+}
+
+func parseEdgeHelperPlistOptions(data []byte) (edgeHelperOptions, error) {
+	decoder := xml.NewDecoder(strings.NewReader(string(data)))
+	expectProgramArguments := false
+	inProgramArguments := false
+	var args []string
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return edgeHelperOptions{}, err
+		}
+		switch item := token.(type) {
+		case xml.StartElement:
+			switch item.Name.Local {
+			case "key":
+				var key string
+				if err := decoder.DecodeElement(&key, &item); err != nil {
+					return edgeHelperOptions{}, err
+				}
+				expectProgramArguments = key == "ProgramArguments"
+			case "array":
+				if expectProgramArguments {
+					inProgramArguments = true
+					expectProgramArguments = false
+				}
+			case "string":
+				if inProgramArguments {
+					var value string
+					if err := decoder.DecodeElement(&value, &item); err != nil {
+						return edgeHelperOptions{}, err
+					}
+					args = append(args, value)
+				}
+			}
+		case xml.EndElement:
+			if item.Name.Local == "array" && inProgramArguments {
+				return parseEdgeHelperProgramArguments(args)
+			}
+		}
+	}
+	return edgeHelperOptions{}, fmt.Errorf("edge helper plist missing ProgramArguments")
+}
+
+func parseEdgeHelperProgramArguments(args []string) (edgeHelperOptions, error) {
+	for i := 0; i+3 < len(args); i++ {
+		if args[i] == "system" && args[i+1] == "edge" && args[i+2] == "privileged-helper" && args[i+3] == "run" {
+			opts, err := parseEdgeHelperArgs(args[i+4:])
+			if err != nil {
+				return edgeHelperOptions{}, err
+			}
+			if err := requireEdgeHelperOwnerOptions(opts); err != nil {
+				return edgeHelperOptions{}, err
+			}
+			return opts, nil
+		}
+	}
+	return edgeHelperOptions{}, fmt.Errorf("edge helper plist does not run scenery system edge privileged-helper run")
+}
+
+func helperTargetStatePath(paths localagent.Paths) (string, bool) {
+	opts, err := edgeHelperPlistOptionsFunc()
+	if err != nil || strings.TrimSpace(opts.HelperTargetState) == "" {
+		return paths.EdgeTargetPath, false
+	}
+	return filepath.Clean(opts.HelperTargetState), true
+}
+
+func publishEdgeTargetForHelper(paths localagent.Paths, target localagent.EdgeTargetState) error {
+	helperTargetPath, ok := helperTargetStatePath(paths)
+	if !ok || helperTargetPath == filepath.Clean(paths.EdgeTargetPath) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(helperTargetPath), 0o700); err != nil {
+		return fmt.Errorf("prepare privileged edge helper target metadata %s: %w", helperTargetPath, err)
+	}
+	if err := localagent.WriteEdgeTargetState(helperTargetPath, target); err != nil {
+		return fmt.Errorf("publish privileged edge helper target metadata %s: %w", helperTargetPath, err)
+	}
+	return nil
+}
+
+func removePublishedEdgeTargetForHelper(paths localagent.Paths, state localagent.EdgeState) {
+	helperTargetPath, ok := helperTargetStatePath(paths)
+	if !ok || helperTargetPath == filepath.Clean(paths.EdgeTargetPath) {
+		return
+	}
+	target, err := localagent.LoadEdgeTargetState(helperTargetPath)
+	if err != nil {
+		return
+	}
+	if target.PID == state.PID && target.TargetAddr == state.HTTPSListen {
+		_ = os.Remove(helperTargetPath)
+	}
 }
 
 func stopStaleRootCaddyEdge(ownerHome string, timeout time.Duration) error {
