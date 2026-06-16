@@ -134,6 +134,71 @@ func TestEdgeHelperPlistUsesSystemEdgeRoute(t *testing.T) {
 	}
 }
 
+func TestParseEdgeHelperPlistOptionsExtractsProgramArguments(t *testing.T) {
+	t.Parallel()
+
+	plist := edgeHelperPlist(edgeHelperOptions{
+		OwnerUID:          501,
+		OwnerGID:          20,
+		OwnerHome:         "/Users/test/Scenery & Dev",
+		HelperTargetState: "/Users/test/Scenery & Dev/run/edge-target.json",
+		RouterAddr:        "127.0.0.1:9440",
+	})
+	opts, err := parseEdgeHelperPlistOptions([]byte(plist))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.OwnerUID != 501 || opts.OwnerGID != 20 || opts.OwnerHome != "/Users/test/Scenery & Dev" || opts.HelperTargetState != "/Users/test/Scenery & Dev/run/edge-target.json" || opts.RouterAddr != "127.0.0.1:9440" {
+		t.Fatalf("parseEdgeHelperPlistOptions() = %+v", opts)
+	}
+}
+
+func TestPublishEdgeTargetForInstalledHelperUsesHelperTargetPath(t *testing.T) {
+	paths := localagent.PathsForHome(filepath.Join(t.TempDir(), "isolated"))
+	helperTargetPath := filepath.Join(t.TempDir(), "default-home", "run", "edge-target.json")
+	oldOptions := edgeHelperPlistOptionsFunc
+	edgeHelperPlistOptionsFunc = func() (edgeHelperOptions, error) {
+		return edgeHelperOptions{
+			OwnerUID:          os.Getuid(),
+			OwnerGID:          os.Getgid(),
+			OwnerHome:         filepath.Dir(filepath.Dir(helperTargetPath)),
+			HelperTargetState: helperTargetPath,
+			RouterAddr:        "127.0.0.1:9440",
+		}, nil
+	}
+	t.Cleanup(func() { edgeHelperPlistOptionsFunc = oldOptions })
+
+	target := localagent.EdgeTargetState{
+		Kind:       localagent.EdgeKindCaddy,
+		TargetAddr: "127.0.0.1:19443",
+		PID:        12345,
+		OwnerUID:   os.Getuid(),
+		OwnerGID:   os.Getgid(),
+	}
+	if err := publishEdgeTargetForHelper(paths, target); err != nil {
+		t.Fatal(err)
+	}
+	got, err := localagent.LoadEdgeTargetState(helperTargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TargetAddr != target.TargetAddr || got.PID != target.PID {
+		t.Fatalf("helper target = %+v, want %+v", got, target)
+	}
+	if _, err := os.Stat(paths.EdgeTargetPath); !os.IsNotExist(err) {
+		t.Fatalf("local target path stat err = %v, want not exist", err)
+	}
+
+	removePublishedEdgeTargetForHelper(paths, localagent.EdgeState{PID: 999, HTTPSListen: target.TargetAddr})
+	if _, err := os.Stat(helperTargetPath); err != nil {
+		t.Fatalf("helper target removed for mismatched pid: %v", err)
+	}
+	removePublishedEdgeTargetForHelper(paths, localagent.EdgeState{PID: target.PID, HTTPSListen: target.TargetAddr})
+	if _, err := os.Stat(helperTargetPath); !os.IsNotExist(err) {
+		t.Fatalf("helper target stat err = %v, want removed", err)
+	}
+}
+
 func TestValidateEdgeAgentHealthRejectsFallbackRouterAddr(t *testing.T) {
 	t.Parallel()
 
