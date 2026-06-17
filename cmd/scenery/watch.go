@@ -15,11 +15,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/fsnotify/fsnotify"
 
@@ -486,7 +484,8 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, events <-ch
 
 func scanWatchedFiles(root string) (fileSnapshot, error) {
 	snapshot := make(fileSnapshot)
-	embeddedFiles, err := discoverEmbeddedWatchFiles(root)
+	ignore := newWatchIgnoreMatcher(root)
+	embeddedFiles, err := discoverEmbeddedWatchFiles(root, ignore)
 	if err != nil {
 		return nil, err
 	}
@@ -510,17 +509,21 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 		if rel == "." {
 			return nil
 		}
+		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if shouldSkipWatchDir(rel) {
+			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) {
 				return filepath.SkipDir
 			}
+			ignore.loadDir(rel)
 			return nil
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		rel = filepath.ToSlash(rel)
+		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
+			return nil
+		}
 		if !isWatchedFile(rel) {
 			if _, ok := embeddedFiles[rel]; !ok {
 				return nil
@@ -544,28 +547,37 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 }
 
 func shouldSkipWatchDir(rel string) bool {
-	base := filepath.Base(rel)
-	if strings.HasPrefix(base, ".") {
-		return true
-	}
-	switch base {
-	case "node_modules", "scenery_internal_main":
-		return true
-	default:
-		return false
-	}
+	return shouldIgnoreWatchPathWithMatcher(rel, true, nil)
 }
 
 func shouldIgnoreWatchPath(rel string) bool {
+	return shouldIgnoreWatchPathWithMatcher(rel, false, nil)
+}
+
+func shouldIgnoreWatchPathWithMatcher(rel string, isDir bool, ignore *watchIgnoreMatcher) bool {
 	rel = filepath.ToSlash(filepath.Clean(rel))
 	if rel == "." || rel == "" {
 		return false
 	}
-	if isWatchedRootDotFile(rel) {
+	if shouldIgnoreWatchPathBuiltin(rel, isDir) {
+		return true
+	}
+	if ignore != nil && ignore.ignored(rel, isDir) {
+		return true
+	}
+	return false
+}
+
+func shouldIgnoreWatchPathBuiltin(rel string, isDir bool) bool {
+	if !isDir && isWatchedRootDotFile(rel) {
 		return false
 	}
-	for _, part := range strings.Split(rel, "/") {
+	parts := strings.Split(rel, "/")
+	for i, part := range parts {
 		if part == "" || part == "." {
+			continue
+		}
+		if !isDir && i == len(parts)-1 && part == ".gitignore" {
 			continue
 		}
 		if strings.HasPrefix(part, ".") {
@@ -583,7 +595,7 @@ func isWatchedFile(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	base := filepath.Base(rel)
 	switch base {
-	case ".scenery.json", "go.mod", "go.sum", "go.work", "go.work.sum":
+	case ".gitignore", ".scenery.json", "go.mod", "go.sum", "go.work", "go.work.sum":
 		return true
 	}
 	if isWatchedRootDotFile(rel) {
@@ -605,210 +617,11 @@ func isWatchedFile(rel string) bool {
 
 func isWatchedRootDotFile(rel string) bool {
 	switch filepath.ToSlash(rel) {
-	case ".env", ".env.local":
+	case ".env", ".env.local", ".scenery.json":
 		return true
 	default:
 		return false
 	}
-}
-
-type embedPatternCacheEntry struct {
-	stamp    fileStamp
-	patterns []string
-}
-
-// embedPatternCache memoizes parsed //go:embed patterns per Go file so repeated
-// watch scans stat files instead of re-reading every .go file in the app.
-var embedPatternCache sync.Map
-
-func embedPatternsForFile(path string, info fs.FileInfo) []string {
-	stamp := fileStamp{modTime: info.ModTime().UTC().Round(0), size: info.Size()}
-	if cached, ok := embedPatternCache.Load(path); ok {
-		entry := cached.(embedPatternCacheEntry)
-		if entry.stamp == stamp {
-			return entry.patterns
-		}
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	patterns := parseGoEmbedPatterns(string(data))
-	embedPatternCache.Store(path, embedPatternCacheEntry{stamp: stamp, patterns: patterns})
-	return patterns
-}
-
-func discoverEmbeddedWatchFiles(root string) (map[string]struct{}, error) {
-	files := make(map[string]struct{})
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if path == root && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			if d != nil && d.IsDir() && path != root {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		if d.IsDir() {
-			if shouldSkipWatchDir(rel) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(rel) != ".go" || d.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		patterns := embedPatternsForFile(path, info)
-		if len(patterns) == 0 {
-			return nil
-		}
-		pkgDir := filepath.Dir(rel)
-		for _, pattern := range patterns {
-			if err := addEmbeddedPatternFiles(root, pkgDir, pattern, files); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return files, nil
-}
-
-func parseGoEmbedPatterns(src string) []string {
-	var patterns []string
-	for _, line := range strings.Split(src, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "//go:embed") {
-			continue
-		}
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "//go:embed"))
-		for rest != "" {
-			token, next, ok := nextEmbedToken(rest)
-			if !ok {
-				break
-			}
-			if token != "" {
-				patterns = append(patterns, token)
-			}
-			rest = next
-		}
-	}
-	return patterns
-}
-
-func nextEmbedToken(input string) (string, string, bool) {
-	input = strings.TrimLeftFunc(input, unicode.IsSpace)
-	if input == "" {
-		return "", "", false
-	}
-	if quote, _ := utf8.DecodeRuneInString(input); quote == '"' || quote == '`' {
-		for i := 1; i <= len(input); i++ {
-			token, err := strconv.Unquote(input[:i])
-			if err == nil {
-				return token, input[i:], true
-			}
-		}
-		return "", "", false
-	}
-	i := 0
-	for i < len(input) {
-		r, size := utf8.DecodeRuneInString(input[i:])
-		if unicode.IsSpace(r) {
-			break
-		}
-		i += size
-	}
-	return input[:i], input[i:], true
-}
-
-func addEmbeddedPatternFiles(root, pkgDir, pattern string, files map[string]struct{}) error {
-	includeHidden := false
-	if strings.HasPrefix(pattern, "all:") {
-		includeHidden = true
-		pattern = strings.TrimPrefix(pattern, "all:")
-	}
-	if pattern == "" || filepath.IsAbs(pattern) || strings.HasPrefix(pattern, "../") || strings.Contains(pattern, "/../") {
-		return nil
-	}
-	search := filepath.Join(root, filepath.FromSlash(pkgDir), filepath.FromSlash(pattern))
-	matches, err := filepath.Glob(search)
-	if err != nil {
-		return nil
-	}
-	for _, match := range matches {
-		if err := addEmbeddedPath(root, match, includeHidden, files); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func addEmbeddedPath(root, path string, includeHidden bool, files map[string]struct{}) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil
-	}
-	if !info.IsDir() {
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if includeHidden || !hasHiddenOrUnderscorePart(rel) {
-			files[filepath.ToSlash(rel)] = struct{}{}
-		}
-		return nil
-	}
-	return filepath.WalkDir(path, func(child string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if d != nil && d.IsDir() && child != path {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(root, child)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		if d.IsDir() {
-			if !includeHidden && hasHiddenOrUnderscorePart(rel) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		if includeHidden || !hasHiddenOrUnderscorePart(rel) {
-			files[filepath.ToSlash(rel)] = struct{}{}
-		}
-		return nil
-	})
-}
-
-func hasHiddenOrUnderscorePart(rel string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
-		if strings.HasPrefix(part, ".") || strings.HasPrefix(part, "_") {
-			return true
-		}
-	}
-	return false
 }
 
 func snapshotsEqual(a, b fileSnapshot) bool {
@@ -866,6 +679,7 @@ type fileChangeWatcher struct {
 	watcher      *fsnotify.Watcher
 	root         string
 	resolvedRoot string
+	ignore       *watchIgnoreMatcher
 	done         chan struct{}
 }
 
@@ -883,6 +697,7 @@ func newFileChangeWatcher(root string) (*fileChangeWatcher, error) {
 		watcher:      underlying,
 		root:         root,
 		resolvedRoot: resolvedRoot,
+		ignore:       newWatchIgnoreMatcher(root),
 		done:         make(chan struct{}),
 	}
 	if err := fw.addTree(root); err != nil {
@@ -953,7 +768,13 @@ func (fw *fileChangeWatcher) handleEvent(event fsnotify.Event) {
 	if rel == "." {
 		return
 	}
-	if shouldIgnoreWatchPath(rel) {
+	rel = filepath.ToSlash(rel)
+	if filepath.Base(rel) == ".gitignore" {
+		fw.ignore = newWatchIgnoreMatcher(fw.root)
+		fw.signal()
+		return
+	}
+	if shouldIgnoreWatchPathWithMatcher(rel, false, fw.ignore) {
 		return
 	}
 	if event.Has(fsnotify.Create) {
@@ -983,8 +804,12 @@ func (fw *fileChangeWatcher) addTree(root string) error {
 		if !d.IsDir() {
 			return nil
 		}
-		if rel, ok := fw.relativeToRoot(path); ok && rel != "." && shouldIgnoreWatchPath(rel) {
-			return filepath.SkipDir
+		if rel, ok := fw.relativeToRoot(path); ok {
+			rel = filepath.ToSlash(rel)
+			if rel != "." && shouldIgnoreWatchPathWithMatcher(rel, true, fw.ignore) {
+				return filepath.SkipDir
+			}
+			fw.ignore.loadDir(rel)
 		}
 		return fw.watcher.Add(path)
 	})

@@ -127,6 +127,7 @@ func TestFileChangeWatcherHandlesResolvedRootEventPaths(t *testing.T) {
 		events:       make(chan struct{}, 1),
 		root:         root,
 		resolvedRoot: resolvedRoot,
+		ignore:       newWatchIgnoreMatcher(root),
 	}
 
 	resolved, err := filepath.EvalSymlinks(target)

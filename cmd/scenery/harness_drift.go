@@ -620,7 +620,7 @@ func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (ha
 		pkgDir := filepath.Dir(rel)
 		for _, pattern := range patterns {
 			files := map[string]struct{}{}
-			_ = addEmbeddedPatternFiles(repoRoot, pkgDir, pattern, files)
+			_ = addEmbeddedPatternFiles(repoRoot, pkgDir, pattern, files, nil)
 			resolved := sortedStructKeys(files)
 			covered := len(resolved) > 0
 			for _, resolvedPath := range resolved {

@@ -224,7 +224,7 @@ Use non-JSON output only for human inspection.
 
 ## Runtime Command Choice
 
-- Use `scenery up` to run the app root's one live dev runtime and expose capabilities for local development, debugging, agents, dashboard, logs, traces, metrics, managed dev services, and frontend routing. Use a Git worktree for another live code copy.
+- Use `scenery up` to run the app root's one live dev runtime and expose capabilities for local development, debugging, agents, dashboard, logs, traces, metrics, managed dev services, and frontend routing. Paths ignored by `.gitignore` are outside the watcher/rebuild surface. Use a Git worktree for another live code copy.
 - During a watcher rebuild restart, the runtime drains in-flight streaming raw responses (SSE/long-poll) by canceling their request contexts so they end with a clean terminator, and the agent router answers requests for a restarting backend with `503` plus `Retry-After: 1` instead of `502`; clients should treat that as a brief retryable window.
 - Use `scenery up --detach` when the local agent should keep that dev runtime running in the background.
 - Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when the browser needs trusted wildcard local HTTPS on `127.0.0.1:443`; dnsmasq owns wildcard local DNS, the privileged helper owns that port, forwards raw TCP to user-owned Caddy, and the edge syncs managed dnsmasq/Caddy as needed. If an app explicitly configures `proxy.route_base_domain`, `scenery up` requires that edge path and fails loudly with DNS, privileged listener, Caddy, and router diagnostics instead of publishing internal `:9440` router URLs as user-facing session routes.

@@ -477,7 +477,7 @@ Toolchain rules:
 
 Command split:
 
-- `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. A second live code copy requires a separate Git worktree.
+- `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths as outside the watch surface and does not descend into ignored directories. A second live code copy requires a separate Git worktree.
 - `scenery up --detach` requires the local agent, starts the same dev supervisor in a background child process, waits for that child PID to register as the app root's runtime owner, prints a Docker-style app action summary, status/log/stop commands, and currently registered routes/aliases, then returns. Detached child stdout/stderr from the supervisor is written under the agent directory; app process output continues to flow through the scoped dashboard log store.
 - `scenery logs --follow` follows the app root's live runtime logs by default with the same app-root, limit, stream, source, kind, level, grep, since, backend, and JSONL options, and it does not mutate runtime state.
 - `scenery logs`, plain `scenery logs --follow`, and `scenery console` read structured dev events for the selected app root's live runtime. `--backend auto` and `--backend victoria` currently select the same Victoria-backed substrate path; use backend selection only when intentionally debugging that substrate. `SCENERY_LOGS_BACKEND` accepts the same values and applies to the console as well.
