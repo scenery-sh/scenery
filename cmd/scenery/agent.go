@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -435,8 +436,37 @@ func classifySessionStatus(session localagent.Session) (string, string) {
 			return "degraded", fmt.Sprintf("app process %d is not running", pid)
 		}
 	}
+	if status, reason := classifySessionRegisteredProcessStatus(session); status != "" {
+		return status, reason
+	}
 	if status, reason := classifyConfiguredEdgeRoutesStatus(session); status != "" {
 		return status, reason
+	}
+	return "", ""
+}
+
+func classifySessionRegisteredProcessStatus(session localagent.Session) (string, string) {
+	if len(session.Processes) == 0 {
+		return "", ""
+	}
+	names := make([]string, 0, len(session.Processes))
+	for name := range session.Processes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		process := session.Processes[name]
+		if process.PID <= 0 {
+			return "degraded", fmt.Sprintf("registered process %s pid is invalid", name)
+		}
+		if _, ok := inspectProcess(process.PID); !ok {
+			return "degraded", fmt.Sprintf("registered process %s pid %d is not running", name, process.PID)
+		}
+		if process.Owner.PID > 0 {
+			if err := localagent.VerifyOwner(process.Owner); err != nil {
+				return "degraded", fmt.Sprintf("registered process %s owner fingerprint mismatch: %v", name, err)
+			}
+		}
 	}
 	return "", ""
 }

@@ -188,7 +188,8 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 		Addr:    addr,
 		LogFile: logFile,
 	}
-	runner, err := startDevManagedProcess(ctx, devProcessStartRequest{
+	processCtx := context.Background()
+	runner, err := startDevManagedProcess(processCtx, devProcessStartRequest{
 		Name:    frontend.Name,
 		Kind:    "frontend",
 		Role:    "web-frontend",
@@ -200,7 +201,7 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 		Stderr:  logFile,
 		OnOutput: func(pid int, stream string, data []byte) {
 			plain := append([]byte(nil), data...)
-			go captureManagedFrontendOutput(ctx, appID, session.SessionID, process, pid, stream, plain)
+			go captureManagedFrontendOutput(processCtx, appID, session.SessionID, process, pid, stream, plain)
 		},
 	})
 	if err != nil {

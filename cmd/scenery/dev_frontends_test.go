@@ -285,15 +285,109 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 		if len(result.processes) != 2 {
 			t.Fatalf("processes = %d, want 2", len(result.processes))
 		}
+		time.Sleep(300 * time.Millisecond)
 		for _, name := range []string{"alpha", "beta"} {
 			backend := result.backends[name]
 			if backend.Network != "tcp" || backend.Addr == "" {
 				t.Fatalf("%s backend = %+v, want tcp addr", name, backend)
 			}
+			if !tcpAddrAcceptsConnections(backend.Addr) {
+				t.Fatalf("%s backend %s stopped accepting connections after startup returned", name, backend.Addr)
+			}
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+}
+
+func TestManagedFrontendExitRestartsAndUpdatesAgentSession(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	agentDone := startTestAgentServer(t, ctx)
+	defer func() {
+		cancel()
+		<-agentDone
+	}()
+
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "app")
+	frontendRoot := filepath.Join(appRoot, "apps", "web")
+	writeFrontendPackage(t, frontendRoot, `{"scripts":{"dev":"vite"}}`)
+	serverPath := frontendTestServerBinary(t)
+	markerPath := filepath.Join(root, "frontend-starts.log")
+	t.Setenv("SCENERY_FRONTEND_TEST_SERVER", serverPath)
+	t.Setenv("SCENERY_FRONTEND_RESTART_MARKER", markerPath)
+	writeFrontendBinWithScript(t, frontendRoot, "vite", `
+set -eu
+port=""
+prev=""
+for arg in "$@"; do
+	if [ "$prev" = "--port" ]; then
+		port="$arg"
+		break
+	fi
+	prev="$arg"
+done
+echo "$$ $port" >> "$SCENERY_FRONTEND_RESTART_MARKER"
+SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test.run '^TestManagedFrontendTestServerHelper$' -- "$port"
+`)
+	cfg := app.Config{
+		Name: "demo",
+		Proxy: app.ProxyConfig{
+			Frontends: map[string]app.FrontendConfig{
+				"web": {Root: "apps/web"},
+			},
+		},
+	}
+	prepared, err := prepareDevAgentSessionDetailed(ctx, appRoot, cfg, devListenRequest{}, nil)
+	if err != nil {
+		t.Fatalf("prepareDevAgentSessionDetailed: %v", err)
+	}
+	defer prepared.Cleanup()
+	if len(prepared.FrontendProcesses) != 1 {
+		t.Fatalf("frontend processes = %d, want 1", len(prepared.FrontendProcesses))
+	}
+	supervisor, err := newDevSupervisor(ctx, appRoot, cfg, prepared.Backend, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer supervisor.Close()
+	supervisor.agent = prepared.Client
+	supervisor.agentSession = prepared.Session
+	supervisor.adoptManagedFrontends(prepared.FrontendProcesses)
+
+	first := prepared.FrontendProcesses[0]
+	oldAddr := first.Addr
+	oldPID := first.Process.PID
+	if err := killProcessTree(first.Process.Cmd); err != nil {
+		t.Fatal(err)
+	}
+
+	var latest localagent.Session
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		sessions, err := prepared.Client.List(ctx, appRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, session := range sessions {
+			if session.SessionID == prepared.Session.SessionID {
+				latest = session
+				break
+			}
+		}
+		backend := latest.Backends["web"]
+		process := latest.Processes["frontend-web"]
+		if backend.Addr != "" && backend.Addr != oldAddr && process.PID > 0 && process.PID != oldPID && tcpAddrAcceptsConnections(backend.Addr) {
+			time.Sleep(300 * time.Millisecond)
+			if !tcpAddrAcceptsConnections(backend.Addr) {
+				t.Fatalf("restarted frontend backend %s stopped accepting connections shortly after session update", backend.Addr)
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("frontend did not restart with updated session backend; old addr=%s pid=%d latest=%+v", oldAddr, oldPID, latest)
 }
 
 func writeFrontendPackage(t *testing.T, root, data string) {

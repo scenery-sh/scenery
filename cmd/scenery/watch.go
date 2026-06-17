@@ -96,9 +96,19 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		return err
 	}
 
-	agentClient, agentSession, backend, restoreAgentEnv, err := prepareDevAgentSession(ctx, root, cfg, listen, console)
+	preparedSession, err := prepareDevAgentSessionDetailed(ctx, root, cfg, listen, console)
 	if err != nil {
+		if preparedSession != nil && preparedSession.Cleanup != nil {
+			preparedSession.Cleanup()
+		}
 		return err
+	}
+	agentClient := preparedSession.Client
+	agentSession := preparedSession.Session
+	backend := preparedSession.Backend
+	restoreAgentEnv := preparedSession.Cleanup
+	if restoreAgentEnv == nil {
+		restoreAgentEnv = func() {}
 	}
 	defer restoreAgentEnv()
 
@@ -108,6 +118,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	}
 	supervisor.agent = agentClient
 	supervisor.agentSession = agentSession
+	supervisor.adoptManagedFrontends(preparedSession.FrontendProcesses)
 	defer supervisor.Close()
 	if err := supervisor.Start(ctx); err != nil {
 		return err

@@ -38,7 +38,7 @@ type PreparedDevSession struct {
 }
 
 func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, listen devListenRequest, console *runConsole) (*localagent.Client, *localagent.Session, devBackend, func(), error) {
-	prepared, err := (&DevSessionController{root: root, cfg: cfg, listen: listen, console: console}).Prepare(ctx)
+	prepared, err := prepareDevAgentSessionDetailed(ctx, root, cfg, listen, console)
 	if err != nil {
 		if prepared != nil && prepared.Cleanup != nil {
 			prepared.Cleanup()
@@ -50,6 +50,10 @@ func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, li
 		cleanup = prepared.Cleanup
 	}
 	return prepared.Client, prepared.Session, prepared.Backend, cleanup, nil
+}
+
+func prepareDevAgentSessionDetailed(ctx context.Context, root string, cfg app.Config, listen devListenRequest, console *runConsole) (*PreparedDevSession, error) {
+	return (&DevSessionController{root: root, cfg: cfg, listen: listen, console: console}).Prepare(ctx)
 }
 
 func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession, error) {

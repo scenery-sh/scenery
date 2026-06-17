@@ -62,6 +62,7 @@ type devSupervisor struct {
 	console      *runConsole
 	agent        *localagent.Client
 	agentSession *localagent.Session
+	frontends    map[string]*managedFrontendProcess
 	events       *devEventSink
 
 	closeOnce          sync.Once
@@ -151,6 +152,7 @@ func (s *devSupervisor) Close() error {
 
 		app := s.detachCurrentApp()
 		typescript := s.detachTypeScriptWorker()
+		frontends := s.detachManagedFrontends()
 		victoria := s.victoria
 		grafana := s.grafana
 		temporal := s.temporal
@@ -235,6 +237,11 @@ func (s *devSupervisor) Close() error {
 		}
 		if typescript != nil {
 			if err := typescript.waitOrKill(stopTimeout); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, frontend := range frontends {
+			if err := frontend.Stop(); err != nil {
 				errs = append(errs, err)
 			}
 		}

@@ -331,7 +331,7 @@ scenery ps --json
 scenery harness --json --write
 ```
 
-Grafana substrate files are generated under `.scenery/grafana/` when you need to debug them. Shared Temporal and Victoria substrate failures are exposed in `scenery ps --json` as `last_exit` / `component_exits` and emit structured dev log events with component, PID, exit code or signal, and log paths. Set `SCENERY_DEV_GRAFANA=0` to disable Grafana or `SCENERY_DEV_GRAFANA=1` to require it during `scenery up` startup.
+Grafana substrate files are generated under `.scenery/grafana/` when you need to debug them. Shared Temporal and Victoria substrate failures are exposed in `scenery ps --json` as `last_exit` / `component_exits` and emit structured dev log events with component, PID, exit code or signal, and log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontends are restarted by `scenery up` when their dev-server process exits unexpectedly. Set `SCENERY_DEV_GRAFANA=0` to disable Grafana or `SCENERY_DEV_GRAFANA=1` to require it during `scenery up` startup.
 
 ## Development
 

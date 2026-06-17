@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,6 +51,31 @@ func TestAgentRouterTLSDefaultsOn(t *testing.T) {
 	}
 	if opts.effectiveRouterTLS() {
 		t.Fatalf("effectiveRouterTLS() with SCENERY_AGENT_ROUTER_TLS=0 = true, want false")
+	}
+}
+
+func TestClassifySessionStatusDegradesDeadRegisteredProcess(t *testing.T) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+
+	status, reason := classifySessionStatus(localagent.Session{
+		Status:   "running",
+		OwnerPID: os.Getpid(),
+		Owner:    localagent.CaptureOwner(os.Getpid(), "test"),
+		Processes: map[string]localagent.Process{
+			"frontend-web": {PID: pid},
+		},
+	})
+	if status != "degraded" {
+		t.Fatalf("status = %q, want degraded (reason %q)", status, reason)
+	}
+	if !strings.Contains(reason, "registered process frontend-web") || !strings.Contains(reason, "is not running") {
+		t.Fatalf("reason = %q, want dead frontend process detail", reason)
 	}
 }
 
