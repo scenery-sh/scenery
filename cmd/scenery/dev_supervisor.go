@@ -790,6 +790,13 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	s.eventSink().Emit(ctx, source, "info", "database setup started", map[string]any{
 		"seed_count": len(setup.Seeds),
 	})
+	if err := waitForDatabaseSetupConnection(ctx, env); err != nil {
+		source.Status = "error"
+		s.eventSink().Emit(ctx, source, "error", "database setup connection failed", map[string]any{
+			"error": err.Error(),
+		})
+		return err
+	}
 	applyStdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
 	applyStderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
 	applyErr := runDatabaseApplyProviderWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
@@ -816,6 +823,43 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	})
 	s.dbSetupFingerprint = setup.Fingerprint
 	return nil
+}
+
+var databaseSetupConnectionPing = pingPostgresAdmin
+
+func waitForDatabaseSetupConnection(ctx context.Context, env []string) error {
+	raw := envValueFromList(env, appDatabaseURLEnv)
+	if raw == "" {
+		raw = envValueFromList(env, "SCENERY_MANAGED_DATABASE_URL")
+	}
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
+		return nil
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		if err := databaseSetupConnectionPing(waitCtx, raw, 500*time.Millisecond); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-waitCtx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("database setup connection was not ready: %w", lastErr)
+			}
+			return waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
