@@ -555,6 +555,29 @@ func TestDevDatabaseSetupRetriesAfterApplyFailure(t *testing.T) {
 	}
 }
 
+func TestWaitForDatabaseSetupConnectionRetriesTransientPostgresStartup(t *testing.T) {
+	prevPing := databaseSetupConnectionPing
+	defer func() { databaseSetupConnectionPing = prevPing }()
+	attempts := 0
+	databaseSetupConnectionPing = func(context.Context, string, time.Duration) error {
+		attempts++
+		if attempts < 3 {
+			return errors.New("the database system is not yet accepting connections")
+		}
+		return nil
+	}
+
+	err := waitForDatabaseSetupConnection(context.Background(), []string{
+		appDatabaseURLEnv + "=postgres://scenery:postgres@127.0.0.1:55432/app?sslmode=disable",
+	})
+	if err != nil {
+		t.Fatalf("waitForDatabaseSetupConnection returned error: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("ping attempts = %d, want 3", attempts)
+	}
+}
+
 func TestDevSetupUsesManagedDatabaseURLWithoutLegacyDatabaseURL(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(legacyDatabaseURLEnv, "postgres://localhost/poison")

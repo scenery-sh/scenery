@@ -557,10 +557,6 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 	return snapshot, nil
 }
 
-func shouldSkipWatchDir(rel string) bool {
-	return shouldIgnoreWatchPathWithMatcher(rel, true, nil)
-}
-
 func shouldIgnoreWatchPath(rel string) bool {
 	return shouldIgnoreWatchPathWithMatcher(rel, false, nil)
 }
