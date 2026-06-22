@@ -10,7 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/lib/pq v1.12.3
 	go.temporal.io/api v1.62.14
-	go.temporal.io/sdk v1.44.1
+	go.temporal.io/sdk v1.45.0
 	go.temporal.io/sdk/contrib/sysinfo v0.1.1
 	golang.org/x/crypto v0.53.0
 	golang.org/x/mod v0.37.0
