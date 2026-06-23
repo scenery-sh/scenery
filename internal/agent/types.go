@@ -18,6 +18,7 @@ const (
 	SubstratePostgres = "postgres"
 	SubstrateTemporal = "temporal"
 	SubstrateVictoria = "victoria"
+	SubstrateZeroFS   = "zerofs"
 )
 
 type Backend struct {
@@ -109,32 +110,45 @@ type StatusResponse struct {
 }
 
 type Substrate struct {
-	SchemaVersion  string                   `json:"schema_version"`
-	Kind           string                   `json:"kind"`
-	Status         string                   `json:"status"`
-	OwnerPID       int                      `json:"owner_pid,omitempty"`
-	Owner          Owner                    `json:"owner"`
-	PIDs           map[string]int           `json:"pids,omitempty"`
-	Owners         map[string]Owner         `json:"owners,omitempty"`
-	URLs           map[string]string        `json:"urls,omitempty"`
-	Endpoints      map[string]string        `json:"endpoints,omitempty"`
-	LastExit       *SubstrateExit           `json:"last_exit,omitempty"`
-	ComponentExits map[string]SubstrateExit `json:"component_exits,omitempty"`
-	CreatedAt      time.Time                `json:"created_at"`
-	UpdatedAt      time.Time                `json:"updated_at"`
+	SchemaVersion  string                    `json:"schema_version"`
+	Kind           string                    `json:"kind"`
+	Status         string                    `json:"status"`
+	OwnerPID       int                       `json:"owner_pid,omitempty"`
+	Owner          Owner                     `json:"owner"`
+	PIDs           map[string]int            `json:"pids,omitempty"`
+	Owners         map[string]Owner          `json:"owners,omitempty"`
+	URLs           map[string]string         `json:"urls,omitempty"`
+	Endpoints      map[string]string         `json:"endpoints,omitempty"`
+	Leases         map[string]SubstrateLease `json:"leases,omitempty"`
+	LastExit       *SubstrateExit            `json:"last_exit,omitempty"`
+	ComponentExits map[string]SubstrateExit  `json:"component_exits,omitempty"`
+	CreatedAt      time.Time                 `json:"created_at"`
+	UpdatedAt      time.Time                 `json:"updated_at"`
 }
 
 type UpsertSubstrateRequest struct {
-	Kind           string                   `json:"kind"`
-	Status         string                   `json:"status,omitempty"`
-	OwnerPID       int                      `json:"owner_pid,omitempty"`
-	Owner          Owner                    `json:"owner"`
-	PIDs           map[string]int           `json:"pids,omitempty"`
-	Owners         map[string]Owner         `json:"owners,omitempty"`
-	URLs           map[string]string        `json:"urls,omitempty"`
-	Endpoints      map[string]string        `json:"endpoints,omitempty"`
-	LastExit       *SubstrateExit           `json:"last_exit,omitempty"`
-	ComponentExits map[string]SubstrateExit `json:"component_exits,omitempty"`
+	Kind           string                    `json:"kind"`
+	Status         string                    `json:"status,omitempty"`
+	OwnerPID       int                       `json:"owner_pid,omitempty"`
+	Owner          Owner                     `json:"owner"`
+	PIDs           map[string]int            `json:"pids,omitempty"`
+	Owners         map[string]Owner          `json:"owners,omitempty"`
+	URLs           map[string]string         `json:"urls,omitempty"`
+	Endpoints      map[string]string         `json:"endpoints,omitempty"`
+	Leases         map[string]SubstrateLease `json:"leases"`
+	LastExit       *SubstrateExit            `json:"last_exit,omitempty"`
+	ComponentExits map[string]SubstrateExit  `json:"component_exits,omitempty"`
+}
+
+type SubstrateLease struct {
+	SessionID string    `json:"session_id"`
+	AppRoot   string    `json:"app_root,omitempty"`
+	Route     string    `json:"route,omitempty"`
+	URL       string    `json:"url,omitempty"`
+	OwnerPID  int       `json:"owner_pid,omitempty"`
+	Owner     Owner     `json:"owner"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type SubstrateExit struct {

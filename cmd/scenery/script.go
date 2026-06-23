@@ -384,6 +384,11 @@ func runScriptProcess(ctx context.Context, root string, cfg app.Config, program 
 		"SCENERY_APP_ID=" + cfg.AppID(),
 		"SCENERY_APP_ROOT=" + root,
 	}
+	storageEnv, err := storageCapabilityEnv(cfg, nil, env, "")
+	if err != nil {
+		return err
+	}
+	extra = append(extra, storageEnv...)
 	if opts.Env != "" {
 		extra = append(extra, "SCENERY_ENV="+opts.Env, "SCENERY_RUNTIME_ENV="+opts.Env)
 	}

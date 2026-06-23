@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.inspect.v1.schema.json",
+  "title": "scenery.storage.inspect.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "storage", "stores"],
+  "properties": {
+    "schema_version": { "const": "scenery.storage.inspect.v1" },
+    "app": {
+      "type": "object",
+      "required": ["name", "root", "config_path"],
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "type": "string" },
+        "root": { "type": "string" },
+        "config_path": { "type": "string" },
+        "module_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "required": ["configured", "readiness"],
+      "properties": {
+        "configured": { "type": "boolean" },
+        "storage_cell_id": { "type": "string" },
+        "share": { "type": "string" },
+        "default": { "type": "string" },
+        "readiness": { "type": "string", "enum": ["not_configured", "configured", "ready", "error"] },
+        "runtime": {
+          "type": "object",
+          "properties": {
+            "substrate_kind": { "type": "string" },
+            "substrate_status": { "type": "string" },
+            "route": { "type": "string" },
+            "webui_url": { "type": "string" },
+            "attached": { "type": "boolean" },
+            "lease_count": { "type": "integer", "minimum": 0 },
+            "leases": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["session_id", "live"],
+                "properties": {
+                  "session_id": { "type": "string", "minLength": 1 },
+                  "app_root": { "type": "string" },
+                  "route": { "type": "string" },
+                  "url": { "type": "string" },
+                  "owner_pid": { "type": "integer", "minimum": 1 },
+                  "live": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "stores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "access", "tenant_scoped"],
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["zerofs"] },
+          "access": { "type": "string", "enum": ["auth", "private"] },
+          "tenant_scoped": { "type": "boolean" },
+          "max_object_bytes": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "dev_service": {
+      "type": "object",
+      "required": ["name", "kind"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": "string", "enum": ["zerofs"] },
+        "mode": { "type": "string" },
+        "route": { "type": "string" },
+        "image": { "type": "string" },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "const": "<redacted>" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

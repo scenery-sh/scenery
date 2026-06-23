@@ -44,6 +44,9 @@
       },
       "additionalProperties": false
     },
+    "storage": {
+      "$ref": "#/$defs/storage"
+    },
     "generators": {
       "type": "object",
       "properties": {
@@ -165,7 +168,7 @@
     "devService": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "enum": ["postgres", "electric"] },
+        "kind": { "type": "string", "enum": ["postgres", "electric", "zerofs"] },
         "mode": { "type": "string", "enum": ["", "local"], "description": "Managed provider mode. Postgres branch services use local mode; inspect output may include an empty value for services where mode is not used." },
         "version": { "type": "string", "description": "Requested local service version, currently used by managed Postgres metadata." },
         "isolation": { "type": "string", "enum": ["", "database", "schema", "container"], "description": "Requested isolation mode. Managed Postgres implements database isolation; inspect output may include an empty value for services where isolation is not used." },
@@ -186,6 +189,33 @@
           "description": "Service-process environment values. These are not automatically injected into the app process.",
           "additionalProperties": { "type": "string" }
         }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "description": "Beta Scenery-owned durable object/file storage capability.",
+      "properties": {
+        "cell_id": { "type": "string", "pattern": "^[a-z0-9._-]+$" },
+        "share": { "type": "string", "enum": ["", "worktree"] },
+        "default": { "type": "string" },
+        "stores": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/storageStore" },
+          "minProperties": 1
+        }
+      },
+      "required": ["stores"],
+      "additionalProperties": false
+    },
+    "storageStore": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "enum": ["zerofs"] },
+        "access": { "type": "string", "enum": ["", "auth", "private"] },
+        "tenant_scoped": { "type": "boolean" },
+        "max_object_bytes": { "type": "integer", "minimum": 0 }
       },
       "required": ["kind"],
       "additionalProperties": false

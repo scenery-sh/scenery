@@ -81,6 +81,78 @@ curl -X POST http://127.0.0.1:4000/things -d '{"name":"alpha"}'
 
 Common failure: missing pointer request or unsupported signature. Check `scenery inspect endpoints --json`.
 
+## Storage Objects
+
+Declare Scenery-owned storage in `.scenery.json`:
+
+```json
+{
+  "name": "files-app",
+  "storage": {
+    "cell_id": "files-app",
+    "default": "app",
+    "stores": {
+      "app": {
+        "kind": "zerofs",
+        "access": "auth",
+        "tenant_scoped": true,
+        "max_object_bytes": 104857600
+      }
+    }
+  },
+  "dev": {
+    "services": {
+      "storage": {
+        "kind": "zerofs",
+        "mode": "local",
+        "route": "storage",
+        "env": {
+          "AWS_REGION": "us-east-1"
+        }
+      }
+    }
+  }
+}
+```
+
+Inspect and exercise the configured store through Scenery JSON surfaces:
+
+```sh
+scenery inspect storage --json
+scenery storage status --json
+scenery storage put app uploads/example.txt ./example.txt --json
+scenery storage ls app --prefix uploads/ --json
+scenery storage stat app uploads/example.txt --json
+scenery storage get app uploads/example.txt --output /tmp/example.txt --json
+scenery storage rm app uploads/example.txt --json
+```
+
+App code launched by Scenery can import `scenery.sh/storage` and call `storage.Default(ctx)` or `storage.Named(ctx, "app")`. The package reads Scenery-injected capability metadata and, in agent-backed dev sessions, talks to a session-local Scenery storage proxy. That proxy speaks to the managed ZeroFS 9P Unix socket; app code should not depend on Scenery agent-state paths, ZeroFS sockets, proxy sockets, or object directories.
+
+When a managed ZeroFS storage cell is attached, `scenery inspect storage --json` and `scenery storage status --json` include runtime lease ownership. `scenery down` releases only the current session's storage lease; shared storage-cell data remains under the agent storage root until a future explicit storage cleanup path exists.
+
+When storage is configured, the app runtime also exposes auth-protected object routes for browser code:
+
+```text
+GET    /__scenery/storage/app?prefix=uploads/&delimiter=/
+PUT    /__scenery/storage/app/uploads/example.txt
+HEAD   /__scenery/storage/app/uploads/example.txt
+GET    /__scenery/storage/app/uploads/example.txt
+DELETE /__scenery/storage/app/uploads/example.txt
+```
+
+Use the app's normal auth credentials for stores with `access: "auth"`. Stores with `access: "private"` are intentionally unavailable through these external routes; app/runtime code should reach them through `scenery.sh/storage` or Scenery's internal private routing, not browser helpers.
+
+Generated TypeScript clients expose the same auth storage route surface through `client.storage`:
+
+```ts
+const appStore = client.storage.store("app")
+await appStore.put("uploads/example.txt", file, { contentType: file.type })
+const page = await appStore.list({ prefix: "uploads/" })
+const text = await appStore.getText("uploads/example.txt")
+await appStore.delete("uploads/example.txt")
+```
+
 ## Auth Endpoint
 
 Enable standard auth in `.scenery.json`:

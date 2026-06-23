@@ -103,6 +103,7 @@ func (r *Registry) UpsertSubstrate(req UpsertSubstrateRequest) (Substrate, error
 		Owners:         owners,
 		URLs:           copyStringMap(req.URLs),
 		Endpoints:      copyStringMap(req.Endpoints),
+		Leases:         leasesForSubstrate(req.Leases, current),
 		LastExit:       lastExit,
 		ComponentExits: componentExits,
 		CreatedAt:      createdAt,
@@ -728,6 +729,47 @@ func copyIntMap(values map[string]int) map[string]int {
 			continue
 		}
 		copied[key] = value
+	}
+	if len(copied) == 0 {
+		return nil
+	}
+	return copied
+}
+
+func leasesForSubstrate(requested map[string]SubstrateLease, current *Substrate) map[string]SubstrateLease {
+	if requested == nil && current != nil {
+		return copySubstrateLeaseMap(current.Leases)
+	}
+	return copySubstrateLeaseMap(requested)
+}
+
+func copySubstrateLeaseMap(values map[string]SubstrateLease) map[string]SubstrateLease {
+	if len(values) == 0 {
+		return nil
+	}
+	copied := make(map[string]SubstrateLease, len(values))
+	for key, value := range values {
+		sessionID := strings.TrimSpace(firstNonEmpty(value.SessionID, key))
+		if sessionID == "" {
+			continue
+		}
+		value.SessionID = sessionID
+		value.AppRoot = strings.TrimSpace(value.AppRoot)
+		value.Route = sanitizeLabel(value.Route)
+		value.URL = strings.TrimSpace(value.URL)
+		if value.OwnerPID == 0 && value.Owner.PID > 0 {
+			value.OwnerPID = value.Owner.PID
+		}
+		if value.Owner.PID == 0 && value.OwnerPID > 0 {
+			value.Owner = OwnerFromRequest(value.OwnerPID, value.Owner, "scenery substrate lease")
+		}
+		if value.CreatedAt.IsZero() {
+			value.CreatedAt = value.UpdatedAt
+		}
+		if value.UpdatedAt.IsZero() {
+			value.UpdatedAt = value.CreatedAt
+		}
+		copied[sessionID] = value
 	}
 	if len(copied) == 0 {
 		return nil

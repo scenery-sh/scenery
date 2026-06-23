@@ -69,6 +69,9 @@ func newServer(listenAddr string) (*http.Server, error) {
 	}
 	s.wireCaps = buildWireCapabilities(endpoints)
 	s.registerWire()
+	if storageHTTPConfigured() {
+		s.registerStorageRoutes()
+	}
 	if devEndpointsEnabled() {
 		s.registerSceneryConfig()
 		s.registerPlatformStats()

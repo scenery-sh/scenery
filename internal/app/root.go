@@ -20,6 +20,7 @@ type Config struct {
 	Build         BuildConfig           `json:"build"`
 	Proxy         ProxyConfig           `json:"proxy"`
 	Dev           DevConfig             `json:"dev"`
+	Storage       StorageConfig         `json:"storage"`
 	Generators    GeneratorsConfig      `json:"generators"`
 	Database      DatabaseConfig        `json:"database"`
 	Tasks         map[string]TaskConfig `json:"tasks"`
@@ -29,11 +30,58 @@ type Config struct {
 	Temporal      TemporalConfig        `json:"temporal"`
 }
 
+func (c Config) MarshalJSON() ([]byte, error) {
+	type configJSON struct {
+		Name          string                `json:"name"`
+		ID            string                `json:"id"`
+		Build         BuildConfig           `json:"build"`
+		Proxy         ProxyConfig           `json:"proxy"`
+		Dev           DevConfig             `json:"dev"`
+		Storage       *StorageConfig        `json:"storage,omitempty"`
+		Generators    GeneratorsConfig      `json:"generators"`
+		Database      DatabaseConfig        `json:"database"`
+		Tasks         map[string]TaskConfig `json:"tasks"`
+		Validation    ValidationConfig      `json:"validation"`
+		Auth          AuthConfig            `json:"auth"`
+		Observability ObservabilityConfig   `json:"observability"`
+		Temporal      TemporalConfig        `json:"temporal"`
+	}
+	out := configJSON{
+		Name:          c.Name,
+		ID:            c.ID,
+		Build:         c.Build,
+		Proxy:         c.Proxy,
+		Dev:           c.Dev,
+		Generators:    c.Generators,
+		Database:      c.Database,
+		Tasks:         c.Tasks,
+		Validation:    c.Validation,
+		Auth:          c.Auth,
+		Observability: c.Observability,
+		Temporal:      c.Temporal,
+	}
+	if !c.Storage.IsZero() {
+		storage := c.Storage
+		if storage.Stores == nil {
+			storage.Stores = map[string]StorageStoreConfig{}
+		}
+		out.Storage = &storage
+	}
+	return json.Marshal(out)
+}
+
 func (c Config) AppID() string {
 	if c.ID != "" {
 		return c.ID
 	}
 	return c.Name
+}
+
+func (c Config) StorageCellID() string {
+	if cellID := strings.TrimSpace(c.Storage.CellID); cellID != "" {
+		return cellID
+	}
+	return storageSlug(c.AppID())
 }
 
 func (c Config) DatabaseURLEnv() string {
@@ -100,6 +148,24 @@ type DevServiceConfig struct {
 	Database           string            `json:"database"`
 	Route              string            `json:"route"`
 	Env                map[string]string `json:"env"`
+}
+
+type StorageConfig struct {
+	CellID  string                        `json:"cell_id,omitempty"`
+	Share   string                        `json:"share,omitempty"`
+	Default string                        `json:"default,omitempty"`
+	Stores  map[string]StorageStoreConfig `json:"stores,omitempty"`
+}
+
+func (c StorageConfig) IsZero() bool {
+	return c.CellID == "" && c.Share == "" && c.Default == "" && len(c.Stores) == 0
+}
+
+type StorageStoreConfig struct {
+	Kind           string `json:"kind"`
+	Access         string `json:"access,omitempty"`
+	TenantScoped   bool   `json:"tenant_scoped,omitempty"`
+	MaxObjectBytes int64  `json:"max_object_bytes,omitempty"`
 }
 
 type GeneratorsConfig struct {
@@ -248,6 +314,9 @@ func DiscoverRoot(start string) (string, Config, error) {
 			if cfg.Name == "" {
 				return "", Config{}, errors.New(".scenery.json must define a non-empty name or id")
 			}
+			if err := cfg.Validate(); err != nil {
+				return "", Config{}, fmt.Errorf("%s: %w", path, err)
+			}
 			return dir, cfg, nil
 		}
 		parent := filepath.Dir(dir)
@@ -257,6 +326,113 @@ func DiscoverRoot(start string) (string, Config, error) {
 		dir = parent
 	}
 	return "", Config{}, ErrRootNotFound
+}
+
+func (c Config) Validate() error {
+	if err := c.validateDevServices(); err != nil {
+		return err
+	}
+	return c.validateStorage()
+}
+
+func (c Config) validateDevServices() error {
+	for name, svc := range c.Dev.Services {
+		kind := strings.TrimSpace(svc.Kind)
+		if kind == "" {
+			switch name {
+			case "postgres", "electric":
+				kind = name
+			}
+		}
+		switch kind {
+		case "", "postgres", "electric", "zerofs":
+		default:
+			return fmt.Errorf("dev.services.%s kind %q is not supported", name, kind)
+		}
+	}
+	return nil
+}
+
+func (c Config) validateStorage() error {
+	cfg := c.Storage
+	if cfg.CellID == "" && cfg.Share == "" && cfg.Default == "" && len(cfg.Stores) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(cfg.CellID) != "" && !isStorageIdentifier(cfg.CellID) {
+		return fmt.Errorf("storage.cell_id %q is invalid; use lowercase letters, numbers, dots, underscores, or dashes", cfg.CellID)
+	}
+	share := strings.TrimSpace(cfg.Share)
+	switch share {
+	case "", "worktree":
+	default:
+		return fmt.Errorf("storage.share %q is not supported; use %q", share, "worktree")
+	}
+	if len(cfg.Stores) == 0 {
+		return errors.New("storage.stores must define at least one store")
+	}
+	for name, store := range cfg.Stores {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("storage.stores contains an empty store name")
+		}
+		if !isStorageIdentifier(name) {
+			return fmt.Errorf("storage.stores.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
+		}
+		kind := strings.TrimSpace(store.Kind)
+		if kind != "zerofs" {
+			return fmt.Errorf("storage.stores.%s.kind %q is not supported; use %q", name, kind, "zerofs")
+		}
+		access := strings.TrimSpace(store.Access)
+		switch access {
+		case "", "auth", "private":
+		default:
+			return fmt.Errorf("storage.stores.%s.access %q is not supported; use %q or %q", name, access, "auth", "private")
+		}
+		if store.MaxObjectBytes < 0 {
+			return fmt.Errorf("storage.stores.%s.max_object_bytes must be >= 0", name)
+		}
+	}
+	if def := strings.TrimSpace(cfg.Default); def != "" {
+		if _, ok := cfg.Stores[def]; !ok {
+			return fmt.Errorf("storage.default %q does not match a configured store", def)
+		}
+	}
+	return nil
+}
+
+func isStorageIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func storageSlug(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '.'
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "app"
+	}
+	return out
 }
 
 func decodeConfig(path string, data []byte, cfg *Config) error {

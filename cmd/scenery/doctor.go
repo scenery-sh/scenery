@@ -20,6 +20,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/envpolicy"
 )
 
 const (
@@ -143,6 +144,8 @@ type doctorAppFeatures struct {
 	TypeScriptTasks      bool
 	DockerRelevant       bool
 	DatabaseApplyCommand bool
+	StorageConfigured    bool
+	ManagedZeroFS        bool
 }
 
 func doctorCommand(args []string) error {
@@ -327,6 +330,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 
 	features := doctorFeatures(cfg, resp.App)
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
+	resp.Checks = append(resp.Checks, doctorStorageRuntimeChecks(features, appFound)...)
 	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
 
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
@@ -623,9 +627,43 @@ func doctorFeatures(cfg appcfg.Config, app *doctorAppInfo) doctorAppFeatures {
 	features.SQLCConfigured = sqlcGeneratorConfigured(cfg.Generators.SQLC)
 	features.AtlasRelevant = sqlcUsesAtlas(cfg.Generators.SQLC)
 	features.DatabaseApplyCommand = strings.TrimSpace(cfg.Database.Apply.Command) != ""
+	features.StorageConfigured = len(cfg.Storage.Stores) > 0
+	_, _, features.ManagedZeroFS = managedZeroFSDeclared(cfg)
 	features.DockerRelevant = appUsesDocker(cfg)
 	features.TypeScriptTasks = appHasTypeScriptTasks(app.Root)
 	return features
+}
+
+func doctorStorageRuntimeChecks(features doctorAppFeatures, appFound bool) []doctorCheck {
+	if !appFound || !features.StorageConfigured || !features.ManagedZeroFS {
+		return nil
+	}
+	bin := strings.TrimSpace(envpolicy.Get(devZeroFSBinEnv))
+	check := doctorCheck{
+		ID:       "storage.zerofs_binary",
+		Category: "storage",
+		Name:     "ZeroFS binary",
+		Status:   doctorStatusOK,
+		Severity: doctorSeverityOptional,
+		Observed: map[string]any{
+			"env": devZeroFSBinEnv,
+		},
+	}
+	if bin == "" {
+		check.Status = doctorStatusWarn
+		check.Message = "storage is configured with managed ZeroFS, but " + devZeroFSBinEnv + " is not set"
+		check.SuggestedAction = "Set " + devZeroFSBinEnv + " to an executable ZeroFS binary before running `scenery up` for this app."
+		return []doctorCheck{check}
+	}
+	check.Observed["path"] = bin
+	if !isExecutableFile(bin) {
+		check.Status = doctorStatusWarn
+		check.Message = devZeroFSBinEnv + " points to a non-executable file: " + bin
+		check.SuggestedAction = "Set " + devZeroFSBinEnv + " to an executable ZeroFS binary."
+		return []doctorCheck{check}
+	}
+	check.Message = "ZeroFS binary configured at " + bin
+	return []doctorCheck{check}
 }
 
 func sqlcGeneratorConfigured(cfg appcfg.SQLCGeneratorConfig) bool {

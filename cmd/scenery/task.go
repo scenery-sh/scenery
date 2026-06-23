@@ -486,7 +486,7 @@ func runConfiguredTask(ctx context.Context, appRoot string, cfg appcfg.Config, n
 		return fmt.Errorf("task %q cannot define both run and steps", name)
 	}
 	if strings.TrimSpace(task.Run) != "" {
-		return runTaskShellCommand(ctx, appRoot, task)
+		return runTaskShellCommand(ctx, appRoot, cfg, task)
 	}
 	if len(task.Steps) == 0 {
 		return fmt.Errorf("task %q has no run command or steps", name)
@@ -499,11 +499,16 @@ func runConfiguredTask(ctx context.Context, appRoot string, cfg appcfg.Config, n
 	return nil
 }
 
-func runTaskShellCommand(ctx context.Context, appRoot string, task appcfg.TaskConfig) error {
+func runTaskShellCommand(ctx context.Context, appRoot string, cfg appcfg.Config, task appcfg.TaskConfig) error {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
 	}
+	storageEnv, err := storageCapabilityEnv(cfg, nil, env, "")
+	if err != nil {
+		return err
+	}
+	env = envWithOverrides(env, storageEnv...)
 	program, args := shellInvocation(task.Run)
 	return runLifecycleExec(ctx, lifecycleExecRequest{
 		Dir:     resolveLifecycleCWD(appRoot, task.CWD),

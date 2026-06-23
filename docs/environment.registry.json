@@ -488,6 +488,133 @@
       "docs": []
     },
     {
+      "name": "OTEL_EXPORTER_",
+      "match": "prefix",
+      "scope": "internal",
+      "direction": "internal",
+      "category": "observability.otel",
+      "stability": "internal",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "OpenTelemetry exporter endpoint family injected for managed observability sidecars.",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": []
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "observability",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Logs OTLP endpoint, usually VictoriaLogs",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "observability",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Metrics OTLP endpoint, usually VictoriaMetrics",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "observability",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Traces OTLP endpoint, usually VictoriaTraces",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "PATH",
+      "match": "exact",
+      "scope": "internal",
+      "direction": "internal",
+      "category": "host",
+      "stability": "internal",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Host executable search path passed through process boundaries.",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": []
+    },
+    {
+      "name": "PUBLIC_APP_URL",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input_injected",
+      "category": "app.services.auth",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Conventional app public URL fallback for standard auth.",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_AGENT_DISABLE",
       "match": "exact",
       "scope": "runtime",
@@ -1368,6 +1495,28 @@
       ]
     },
     {
+      "name": "SCENERY_DEV_ZEROFS_BIN",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "app.services.storage",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Explicit local ZeroFS binary path for managed Scenery storage development; Scenery does not search ambient PATH for this substrate.",
+      "preferred_surface": ".scenery.json dev.services.storage for stable config; env only for explicit local binary override",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_DISABLE_FRONTEND_PROXY",
       "match": "exact",
       "scope": "runtime",
@@ -1961,6 +2110,72 @@
       ]
     },
     {
+      "name": "SCENERY_ONLV_SMOKE_LOG_DIR",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "tooling.tests",
+      "stability": "dev_escape_hatch",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Log directory override for the ONLV two-worktree release-gate smoke",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ONLV_SMOKE_ROOT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "tooling.tests",
+      "stability": "dev_escape_hatch",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "ONLV checkout root for the two-worktree release-gate smoke",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ONLV_SMOKE_TMPDIR",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "tooling.tests",
+      "stability": "dev_escape_hatch",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Short temporary directory root for the ONLV two-worktree release-gate smoke",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_PARENT_MONITOR",
       "match": "exact",
       "scope": "runtime",
@@ -2085,72 +2300,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Release-gate log directory override",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_ONLV_SMOKE_LOG_DIR",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "tooling.tests",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Log directory override for the ONLV two-worktree release-gate smoke",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_ONLV_SMOKE_ROOT",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "tooling.tests",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "ONLV checkout root for the two-worktree release-gate smoke",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_ONLV_SMOKE_TMPDIR",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "tooling.tests",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Short temporary directory root for the ONLV two-worktree release-gate smoke",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -2326,8 +2475,140 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Marks a generated runtime process started in standalone dev mode",
+      "rationale": "Explicit local ZeroFS binary path used to launch managed Scenery storage when dev.services.<name>.kind is zerofs.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_STORAGE_CONFIG",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.storage",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "App-facing storage capability config consumed by scenery.sh/storage. It records store names and Scenery-owned backend metadata such as a session-local proxy socket without raw object-store credentials.",
+      "preferred_surface": ".scenery.json storage declarations plus scenery.sh/storage",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_STORAGE_CELL_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.storage",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Stable shared storage cell ID for app-facing Scenery storage capability metadata.",
+      "preferred_surface": "scenery inspect storage --json",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_STORAGE_CELL_ROOT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.storage",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Scenery-owned shared storage-cell root used when expanding managed ZeroFS service env; target apps should consume storage capability metadata instead of this substrate path.",
+      "preferred_surface": "Scenery-managed storage capability metadata and inspect JSON",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_STORAGE_ZEROFS_CONFIG",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.storage",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Path to the Scenery-written ZeroFS TOML used by the managed ZeroFS process; substrate/debug metadata only.",
+      "preferred_surface": "Scenery-managed storage capability metadata and inspect JSON",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ZEROFS_WEBUI_ADDR",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.storage",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Private loopback ZeroFS Web UI listener address used by the managed ZeroFS process; substrate/debug metadata only.",
+      "preferred_surface": "Protected SCENERY_ZEROFS_WEBUI_URL or scenery storage webui --json",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_ZEROFS_WEBUI_URL",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.storage",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime / storage",
+      "rationale": "Protected Scenery route URL for the ZeroFS operator/debug Web UI attached to the current dev session.",
+      "preferred_surface": "scenery storage webui --json",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -3117,133 +3398,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Worktree directory name captured for the dev session",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "OTEL_EXPORTER_",
-      "match": "prefix",
-      "scope": "internal",
-      "direction": "internal",
-      "category": "observability.otel",
-      "stability": "internal",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "OpenTelemetry exporter endpoint family injected for managed observability sidecars.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": []
-    },
-    {
-      "name": "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "observability",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Logs OTLP endpoint, usually VictoriaLogs",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "observability",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Metrics OTLP endpoint, usually VictoriaMetrics",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "observability",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Traces OTLP endpoint, usually VictoriaTraces",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "PATH",
-      "match": "exact",
-      "scope": "internal",
-      "direction": "internal",
-      "category": "host",
-      "stability": "internal",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Host executable search path passed through process boundaries.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": []
-    },
-    {
-      "name": "PUBLIC_APP_URL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Conventional app public URL fallback for standard auth.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

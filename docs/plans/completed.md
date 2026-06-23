@@ -73,6 +73,27 @@ Validation:
 - `testdata/apps/model-dsl` exercises generated schema/seed/backend/frontend contracts.
 - The ONLV `tasksnew` pilot in https://github.com/pbrazdil/onlv/issues/95 proved the generated model/page stack in a production app and fed discovered Scenery gaps back into the closed follow-up issues.
 
+## Scenery Storage
+
+- Status: completed
+- Owner: scenery runtime / storage
+- Completed: 2026-06-22
+- Quality: B
+- ExecPlan: [0078 Scenery Storage](0078-scenery-storage.md)
+
+Shipped:
+
+- Added beta `.scenery.json` storage declarations, `scenery.sh/storage`, runtime env injection, reserved storage HTTP routes, generated TypeScript `client.storage` helpers, `scenery inspect storage --json`, and `scenery storage status|webui|ls|stat|put|get|rm --json`.
+- Added managed ZeroFS dev-service planning, startup, attach/reuse, lease accounting, protected Web UI routing, session-local storage proxying, and a pure-Go 9P data-plane adapter so target app packages do not link ZeroFS FFI.
+- Made storage cells worktree-shared by default, with durable cell data under the agent storage root and short temp Unix socket paths for macOS 9P/RPC socket limits.
+- Added `testdata/apps/storage-basic`, fixture probes, two-worktree visibility proof, real ZeroFS 1.2.5 self-harness proof when `SCENERY_DEV_ZEROFS_BIN` is available, schemas, docs, environment registry entries, and installable skill guidance.
+- Proved the ONLV replacement path: ONLV declares storage cell `onlv`, backend file helpers and job/map artifacts use `scenery.sh/storage`, and Pulse Drive/viewer/contact/annotation write/list/delete paths use generated `client.storage` helpers.
+
+Validation:
+
+- Scenery passed `go test ./...`, `go test ./cmd/scenery`, `go test ./cmd/scenery ./storage ./internal/storage -count=1`, and `SCENERY_DEV_ZEROFS_BIN=.scenery/harness/zerofs-bin/zerofs go run ./cmd/scenery harness self --summary --write` with only existing warning-class architecture/timing findings.
+- ONLV passed local-Scenery `scenery check --json`, `go test ./drive ./maps ./jobs -count=1`, `go test ./...`, `(cd apps/pulse && bun run typecheck)`, `(cd apps/pulse && bun run lint)`, `scenery harness --json --write`, `scenery inspect storage --json`, and an isolated `scenery storage put|get` byte-for-byte smoke. `just repo-harness` was attempted but blocked by pre-existing untracked rooftopology conversation dumps with broken markdown links; those user files were left untouched.
+
 ## Postgres-Only Managed Branching
 
 - Status: completed

@@ -38,6 +38,8 @@ const (
 	devElectricUpstreamEnv      = "SCENERY_DEV_ELECTRIC_UPSTREAM"
 	devElectricBinEnv           = "SCENERY_DEV_ELECTRIC_BIN"
 	devElectricContainerPort    = 3000
+	devZeroFSDefaultRoute       = "storage"
+	devZeroFSBinEnv             = "SCENERY_DEV_ZEROFS_BIN"
 	appDatabaseURLEnv           = "DatabaseURL"
 	legacyDatabaseURLEnv        = "DATABASE_URL"
 )
@@ -59,6 +61,26 @@ type managedElectricPlan struct {
 	Image       string
 	Database    string
 	Env         map[string]string
+}
+
+type managedZeroFSPlan struct {
+	ServiceName   string
+	StorageCellID string
+	Route         string
+	Image         string
+	Binary        string
+	CellRoot      string
+	CacheDir      string
+	ObjectsDir    string
+	RunDir        string
+	ConfigPath    string
+	NinePListen   string
+	NinePSocket   string
+	RPCSocket     string
+	WebUIListen   string
+	WebUIAddrPath string
+	LogPath       string
+	Env           map[string]string
 }
 
 type localPostgresBinaries struct {

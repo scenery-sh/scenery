@@ -84,6 +84,69 @@ func TestConfigDatabaseURLEnv(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootAcceptsStorageConfig(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{
+		"name": "storageapp",
+		"storage": {
+			"cell_id": "onlv",
+			"share": "worktree",
+			"default": "app",
+			"stores": {
+				"app": {
+					"kind": "zerofs",
+					"access": "auth",
+					"tenant_scoped": true,
+					"max_object_bytes": 1073741824
+				}
+			}
+		},
+		"dev": {
+			"services": {
+				"storage": {
+					"kind": "zerofs",
+					"mode": "local",
+					"route": "storage",
+					"image": "ghcr.io/zerofs/zerofs:latest",
+					"env": {
+						"ZEROFS_WEBUI": "true"
+					}
+				}
+			}
+		}
+	}`)
+
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if got := cfg.StorageCellID(); got != "onlv" {
+		t.Fatalf("StorageCellID = %q, want onlv", got)
+	}
+	store := cfg.Storage.Stores["app"]
+	if cfg.Storage.Default != "app" || store.Kind != "zerofs" || store.Access != "auth" || !store.TenantScoped || store.MaxObjectBytes != 1073741824 {
+		t.Fatalf("storage = %+v store = %+v", cfg.Storage, store)
+	}
+	if cfg.Dev.Services["storage"].Kind != "zerofs" {
+		t.Fatalf("dev storage service = %+v", cfg.Dev.Services["storage"])
+	}
+}
+
+func TestStorageCellIDIsDerivedFromAppIdentity(t *testing.T) {
+	cfg := Config{Name: "ONLV Pulse"}
+	if got := cfg.StorageCellID(); got != "onlv-pulse" {
+		t.Fatalf("derived storage cell ID = %q, want onlv-pulse", got)
+	}
+	cfg = Config{Name: "from-name", ID: "explicit-id"}
+	if got := cfg.StorageCellID(); got != "explicit-id" {
+		t.Fatalf("derived storage cell ID from ID = %q, want explicit-id", got)
+	}
+	cfg.Storage.CellID = "shared-cell"
+	if got := cfg.StorageCellID(); got != "shared-cell" {
+		t.Fatalf("configured storage cell ID = %q, want shared-cell", got)
+	}
+}
+
 func TestDiscoverRootRejectsUnknownBuildField(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
@@ -118,6 +181,78 @@ func TestDiscoverRootRejectsUnknownPostgresBranchField(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `unknown .scenery.json field "dev.services.postgres.unknown_postgres_field"`) {
 		t.Fatalf("DiscoverRoot unknown field error = %v", err)
 	}
+}
+
+func TestDiscoverRootRejectsInvalidStorageConfig(t *testing.T) {
+	t.Run("unknown field", func(t *testing.T) {
+		root := t.TempDir()
+		writeAppTestFile(t, root, ".scenery.json", `{
+			"name": "storageapp",
+			"storage": {
+				"stores": {
+					"app": {
+						"kind": "zerofs",
+						"bucket": "example"
+					}
+				}
+			}
+		}`)
+		_, _, err := DiscoverRoot(root)
+		if err == nil || !strings.Contains(err.Error(), `unknown .scenery.json field "storage.stores.app.bucket"`) {
+			t.Fatalf("DiscoverRoot unknown field error = %v", err)
+		}
+	})
+
+	t.Run("missing stores", func(t *testing.T) {
+		root := t.TempDir()
+		writeAppTestFile(t, root, ".scenery.json", `{
+			"name": "storageapp",
+			"storage": {
+				"default": "app"
+			}
+		}`)
+		_, _, err := DiscoverRoot(root)
+		if err == nil || !strings.Contains(err.Error(), "storage.stores must define at least one store") {
+			t.Fatalf("DiscoverRoot missing stores error = %v", err)
+		}
+	})
+
+	t.Run("unsupported kind", func(t *testing.T) {
+		root := t.TempDir()
+		writeAppTestFile(t, root, ".scenery.json", `{
+			"name": "storageapp",
+			"storage": {
+				"stores": {
+					"app": {
+						"kind": "s3"
+					}
+				}
+			}
+		}`)
+		_, _, err := DiscoverRoot(root)
+		if err == nil || !strings.Contains(err.Error(), `storage.stores.app.kind "s3" is not supported`) {
+			t.Fatalf("DiscoverRoot unsupported kind error = %v", err)
+		}
+	})
+
+	t.Run("default missing", func(t *testing.T) {
+		root := t.TempDir()
+		writeAppTestFile(t, root, ".scenery.json", `{
+			"name": "storageapp",
+			"storage": {
+				"default": "missing",
+				"stores": {
+					"app": {
+						"kind": "zerofs"
+					}
+				}
+			}
+		}`)
+		_, _, err := DiscoverRoot(root)
+		if err == nil || !strings.Contains(err.Error(), `storage.default "missing" does not match a configured store`) {
+			t.Fatalf("DiscoverRoot default error = %v", err)
+		}
+	})
 }
 
 func writeAppTestFile(t *testing.T, root, rel, contents string) {

@@ -51,3 +51,31 @@ func TestTypeScriptClientIncludesTxidSyncObservationDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+func TestTypeScriptClientIncludesStorageHelpers(t *testing.T) {
+	t.Parallel()
+
+	out, err := GenerateTypeScript(&model.App{Name: "pulse"}, TypeScriptOptions{AppSlug: "pulse"})
+	if err != nil {
+		t.Fatalf("GenerateTypeScript() error = %v", err)
+	}
+	got := string(out)
+	for _, want := range []string{
+		`public readonly storage: StorageClient`,
+		`this.storage = new StorageClient(base)`,
+		`export interface StorageObject`,
+		`export interface StorageListPage`,
+		`export class StorageClient`,
+		`public store(name = "app"): StorageStoreClient`,
+		`public async put(store: string, key: string, body: BodyInit, options?: StoragePutOptions, params?: CallParameters): Promise<StorageObject>`,
+		`return await this.store(store).getBlob(key, options, params)`,
+		`export class StorageStoreClient`,
+		`return "/__scenery/storage/" + encodeURIComponent(this.name)`,
+		`return this.storePath() + "/" + encodePathWildcard(key)`,
+		`this.baseClient.callAPI("DELETE", this.objectPath(prefix), undefined, mergeCallParameters(params, { query: { recursive: "true" } }))`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated client missing %q\n%s", want, got)
+		}
+	}
+}

@@ -1147,6 +1147,70 @@ func TestRegistryPersistsSharedSubstrate(t *testing.T) {
 	}
 }
 
+func TestRegistryPersistsAndClearsSubstrateLeases(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	registry, err := OpenRegistry(path, "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdAt := time.Now().Add(-time.Minute).UTC()
+	updatedAt := time.Now().UTC()
+	substrate, err := registry.UpsertSubstrate(UpsertSubstrateRequest{
+		Kind:     SubstrateZeroFS + "-shared-cell",
+		Status:   "running",
+		OwnerPID: os.Getpid(),
+		Leases: map[string]SubstrateLease{
+			"session-a": {
+				SessionID: "session-a",
+				AppRoot:   "/tmp/app-a",
+				Route:     "storage",
+				URL:       "http://storage.session-a.local.dev",
+				OwnerPID:  os.Getpid(),
+				CreatedAt: createdAt,
+				UpdatedAt: updatedAt,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if substrate.Leases["session-a"].Route != "storage" {
+		t.Fatalf("substrate leases = %+v", substrate.Leases)
+	}
+
+	substrate, err = registry.UpsertSubstrate(UpsertSubstrateRequest{
+		Kind:   SubstrateZeroFS + "-shared-cell",
+		Status: "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(substrate.Leases) != 1 || !substrate.Leases["session-a"].CreatedAt.Equal(createdAt) {
+		t.Fatalf("substrate leases should be preserved on nil lease update: %+v", substrate.Leases)
+	}
+
+	substrate, err = registry.UpsertSubstrate(UpsertSubstrateRequest{
+		Kind:   SubstrateZeroFS + "-shared-cell",
+		Status: "running",
+		Leases: map[string]SubstrateLease{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(substrate.Leases) != 0 {
+		t.Fatalf("substrate leases should be cleared by explicit empty lease map: %+v", substrate.Leases)
+	}
+
+	reopened, err := OpenRegistry(path, "127.0.0.1:9440")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reopened.GetSubstrate(SubstrateZeroFS + "-shared-cell")
+	if !ok || len(got.Leases) != 0 {
+		t.Fatalf("persisted substrate leases = %+v ok=%v", got.Leases, ok)
+	}
+}
+
 func TestRegistryPersistsSubstrateExitState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	registry, err := OpenRegistry(path, "127.0.0.1:9440")

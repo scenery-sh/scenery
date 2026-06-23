@@ -120,6 +120,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
 		resp.FixtureMatrix = fixtureMatrix
 		resp.Steps = append(resp.Steps, fixtureStep)
+		resp.Steps = append(resp.Steps, runHarnessStorageProbeStep(ctx, repoRoot, localSceneryPath))
 		if opts.Mode == harnessSelfModeRace {
 			resp.Steps = append(resp.Steps, runHarnessExecStep(ctx, repoRoot, "race shortlist", []string{"go", "test", "-race", "./internal/agent", "./internal/localproxy", "./runtime", "./cmd/scenery"}, artifactCtx))
 		}

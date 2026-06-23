@@ -47,6 +47,7 @@ func (g *tsGenerator) render() ([]byte, error) {
 	sort.Strings(serviceNames)
 
 	buf.WriteString("export default class Client {\n")
+	buf.WriteString("    public readonly storage: StorageClient\n")
 	for _, svcName := range serviceNames {
 		buf.WriteString(fmt.Sprintf("    public readonly %s: %s.ServiceClient\n", svcName, svcName))
 	}
@@ -64,6 +65,7 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("        this.target = target\n")
 	buf.WriteString("        this.options = options ?? {}\n")
 	buf.WriteString("        const base = new BaseClient(this.target, this.options)\n")
+	buf.WriteString("        this.storage = new StorageClient(base)\n")
 	for _, svcName := range serviceNames {
 		buf.WriteString(fmt.Sprintf("        this.%s = new %s.ServiceClient(base)\n", svcName, svcName))
 	}
@@ -131,6 +133,8 @@ func (g *tsGenerator) render() ([]byte, error) {
 	if g.opts.StandardAuth {
 		writeStandardAuthNamespaces(&buf)
 	}
+
+	writeStorageClient(&buf)
 
 	buf.WriteString("export type JSONValue = string | number | boolean | null | JSONValue[] | {[key: string]: JSONValue}\n\n")
 	buf.WriteString("function encodeQuery(parts: Record<string, string | string[]>): string {\n")
@@ -1280,4 +1284,167 @@ class SceneryWireReader {
 	buf.WriteString("}\n")
 
 	return buf.Bytes(), nil
+}
+
+func writeStorageClient(buf *bytes.Buffer) {
+	buf.WriteString(`export interface StorageObject {
+    store: string
+    key: string
+    size_bytes: number
+    content_type?: string
+    etag?: string
+    sha256?: string
+    modified_at: string
+    metadata?: Record<string, string>
+}
+
+export interface StorageListPage {
+    objects: StorageObject[]
+    prefixes?: string[]
+    next_cursor?: string
+}
+
+export interface StorageListOptions {
+    prefix?: string
+    delimiter?: string
+    cursor?: string
+    limit?: number
+}
+
+export interface StoragePutOptions {
+    contentType?: string
+    ifNoneMatch?: boolean
+}
+
+export interface StorageGetOptions {
+    range?: string
+}
+
+export class StorageClient {
+    private readonly baseClient: BaseClient
+
+    constructor(baseClient: BaseClient) {
+        this.baseClient = baseClient
+        this.store = this.store.bind(this)
+        this.list = this.list.bind(this)
+        this.put = this.put.bind(this)
+        this.get = this.get.bind(this)
+        this.getText = this.getText.bind(this)
+        this.getBlob = this.getBlob.bind(this)
+        this.head = this.head.bind(this)
+        this.delete = this.delete.bind(this)
+        this.deletePrefix = this.deletePrefix.bind(this)
+    }
+
+    public store(name = "app"): StorageStoreClient {
+        return new StorageStoreClient(this.baseClient, name)
+    }
+
+    public async list(store: string, options?: StorageListOptions, params?: CallParameters): Promise<StorageListPage> {
+        return await this.store(store).list(options, params)
+    }
+
+    public async put(store: string, key: string, body: BodyInit, options?: StoragePutOptions, params?: CallParameters): Promise<StorageObject> {
+        return await this.store(store).put(key, body, options, params)
+    }
+
+    public async get(store: string, key: string, options?: StorageGetOptions, params?: CallParameters): Promise<Response> {
+        return await this.store(store).get(key, options, params)
+    }
+
+    public async getText(store: string, key: string, options?: StorageGetOptions, params?: CallParameters): Promise<string> {
+        return await this.store(store).getText(key, options, params)
+    }
+
+    public async getBlob(store: string, key: string, options?: StorageGetOptions, params?: CallParameters): Promise<Blob> {
+        return await this.store(store).getBlob(key, options, params)
+    }
+
+    public async head(store: string, key: string, params?: CallParameters): Promise<Response> {
+        return await this.store(store).head(key, params)
+    }
+
+    public async delete(store: string, key: string, params?: CallParameters): Promise<void> {
+        await this.store(store).delete(key, params)
+    }
+
+    public async deletePrefix(store: string, prefix: string, params?: CallParameters): Promise<void> {
+        await this.store(store).deletePrefix(prefix, params)
+    }
+}
+
+export class StorageStoreClient {
+    private readonly baseClient: BaseClient
+    public readonly name: string
+
+    constructor(baseClient: BaseClient, name = "app") {
+        this.baseClient = baseClient
+        this.name = name
+        this.list = this.list.bind(this)
+        this.put = this.put.bind(this)
+        this.get = this.get.bind(this)
+        this.getText = this.getText.bind(this)
+        this.getBlob = this.getBlob.bind(this)
+        this.head = this.head.bind(this)
+        this.delete = this.delete.bind(this)
+        this.deletePrefix = this.deletePrefix.bind(this)
+    }
+
+    public async list(options?: StorageListOptions, params?: CallParameters): Promise<StorageListPage> {
+        const query = makeRecord<string, string>({
+            prefix: options?.prefix,
+            delimiter: options?.delimiter,
+            cursor: options?.cursor,
+            limit: options?.limit === undefined ? undefined : String(options.limit),
+        })
+        const response = await this.baseClient.callAPI("GET", this.storePath(), undefined, mergeCallParameters(params, { query }))
+        return await response.json() as StorageListPage
+    }
+
+    public async put(key: string, body: BodyInit, options?: StoragePutOptions, params?: CallParameters): Promise<StorageObject> {
+        const headers = makeRecord<string, string>({
+            "Content-Type": options?.contentType,
+            "If-None-Match": options?.ifNoneMatch ? "*" : undefined,
+        })
+        const response = await this.baseClient.callAPI("PUT", this.objectPath(key), body, mergeCallParameters(params, { headers }))
+        return await response.json() as StorageObject
+    }
+
+    public async get(key: string, options?: StorageGetOptions, params?: CallParameters): Promise<Response> {
+        const headers = makeRecord<string, string>({
+            Range: options?.range,
+        })
+        return await this.baseClient.callAPI("GET", this.objectPath(key), undefined, mergeCallParameters(params, { headers }))
+    }
+
+    public async getText(key: string, options?: StorageGetOptions, params?: CallParameters): Promise<string> {
+        return await (await this.get(key, options, params)).text()
+    }
+
+    public async getBlob(key: string, options?: StorageGetOptions, params?: CallParameters): Promise<Blob> {
+        return await (await this.get(key, options, params)).blob()
+    }
+
+    public async head(key: string, params?: CallParameters): Promise<Response> {
+        return await this.baseClient.callAPI("HEAD", this.objectPath(key), undefined, params)
+    }
+
+    public async delete(key: string, params?: CallParameters): Promise<void> {
+        await this.baseClient.callAPI("DELETE", this.objectPath(key), undefined, params)
+    }
+
+    public async deletePrefix(prefix: string, params?: CallParameters): Promise<void> {
+        await this.baseClient.callAPI("DELETE", this.objectPath(prefix), undefined, mergeCallParameters(params, { query: { recursive: "true" } }))
+    }
+
+    private storePath(): string {
+        return "/__scenery/storage/" + encodeURIComponent(this.name)
+    }
+
+    private objectPath(key: string): string {
+        return this.storePath() + "/" + encodePathWildcard(key)
+    }
+}
+
+`)
 }

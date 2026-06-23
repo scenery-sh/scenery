@@ -323,6 +323,80 @@ func TestDeleteStoppedSessionRecordToleratesAlreadyDeletedSession(t *testing.T) 
 	}
 }
 
+func TestDownReleasesZeroFSStorageLeaseAndPreservesCell(t *testing.T) {
+	t.Parallel()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+	defer func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agent shutdown: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for agent shutdown")
+		}
+	}()
+
+	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	appRoot := t.TempDir()
+	session, err := client.Register(ctx, localagent.RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   appRoot,
+		Branch:    "feature/storage-lease",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:   managedZeroFSSubstrateKind("shared-cell"),
+		Status: "running",
+		Endpoints: map[string]string{
+			"cell-id": "shared-cell",
+		},
+		Leases: map[string]localagent.SubstrateLease{
+			session.SessionID: {
+				SessionID: session.SessionID,
+				AppRoot:   appRoot,
+				Route:     "storage",
+				URL:       "http://storage.local.dev",
+				CreatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC(),
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	output := commandOutput(t, func(stdout io.Writer) error {
+		return downCommandWithClient(client, stdout, []string{"--app-root", appRoot, "--json"})
+	})
+	var down downResponse
+	if err := json.Unmarshal([]byte(output), &down); err != nil {
+		t.Fatalf("down json: %v\n%s", err, output)
+	}
+	if down.StorageLeasesRemoved != 1 || len(down.StorageCellsPreserved) != 1 || down.StorageCellsPreserved[0] != "shared-cell" {
+		t.Fatalf("down storage cleanup = %+v", down)
+	}
+	substrate, err := client.GetSubstrate(ctx, managedZeroFSSubstrateKind("shared-cell"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(substrate.Leases) != 0 || substrate.Endpoints["cell-id"] != "shared-cell" {
+		t.Fatalf("storage cell should be preserved without released lease: %+v", substrate)
+	}
+}
+
 func TestDeleteStoppedSessionRecordPreservesChangedOwner(t *testing.T) {
 	t.Parallel()
 	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})

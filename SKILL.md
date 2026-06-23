@@ -27,6 +27,7 @@ scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
 scenery inspect wire --json
+scenery inspect storage --json
 scenery system toolchain verify --json
 scenery logs --jsonl --limit 200
 scenery inspect observability --json
@@ -47,6 +48,7 @@ Run `scenery doctor --json` before deep app debugging when local readiness is in
 - App-required Go build tags or build-time flags belong in `.scenery.json` as `build.go_flags`, for example `["-tags=roofmapnet_native"]`; Scenery applies them to app builds and generated-workspace tests.
 - Go source is the app model.
 - `scenery up` starts the supervised local platform: app process, rebuild/restart loop, dashboard, API Explorer, logs, traces, metrics, managed dev services when configured, and optional frontend routing through the local agent.
+- Storage is a Scenery-owned app capability when `.scenery.json` declares `storage`. Use `scenery inspect storage --json` and `scenery storage status|webui|ls|stat|put|get|rm --json`; app code launched by Scenery can use `scenery.sh/storage` through the injected storage capability env, and browser code can use generated TypeScript `client.storage` helpers or reserved `/__scenery/storage/<store>/...` routes for configured auth stores. In agent-backed dev sessions, app storage calls go through Scenery's session-local proxy to the managed ZeroFS 9P socket; apps should not inspect that socket directly. Private stores are internal-only: external storage routes deny them, while app/runtime helpers and Scenery's private route table may use them. Inspect/status includes `storage.runtime` with lease ownership when an agent-managed ZeroFS substrate is attached. `scenery down` releases only the current session's ZeroFS lease and preserves shared storage-cell data. Treat ZeroFS sockets, object directories, and agent storage roots as substrate details unless intentionally debugging storage.
 - `scenery serve` starts a headless API-role server and does not start dashboard, proxy, or watch mode.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and called through generated helpers.
 - Typed endpoints decode path, query, header, cookie, and JSON body inputs into Go values.
@@ -122,6 +124,7 @@ Struct tags:
 - `scenery.sh/middleware`
 - `scenery.sh/temporal`
 - `scenery.sh/cron`
+- `scenery.sh/storage`
 - `scenery.sh/pgxpool`
 - `scenery.sh/et`
 
@@ -166,6 +169,7 @@ scenery inspect app --json
 scenery inspect routes --json
 scenery inspect endpoints --json
 scenery inspect paths --json
+scenery inspect storage --json
 scenery logs --jsonl --limit 200
 scenery logs --source api --level error --jsonl --limit 200
 scenery inspect observability --json
@@ -279,7 +283,14 @@ scenery validate graph [<profile>] [--app-root <path>] --json
 scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [--dry-run]
 scenery harness [--app-root <path>] --json --write
 scenery harness self [--repo-root <path>] --summary --write [--fresh-tests]
-scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|temporal|observability --json [--app-root <path>]
+scenery storage status [--app-root <path>] --json
+scenery storage webui [--app-root <path>] --json
+scenery storage ls <store> [--prefix <prefix>] [--cursor <cursor>] [--limit <n>] [--app-root <path>] --json
+scenery storage stat <store> <key> [--app-root <path>] --json
+scenery storage put <store> <key> <file> [--app-root <path>] --json
+scenery storage get <store> <key> --output <file> [--app-root <path>] --json
+scenery storage rm <store> <key> [--recursive] [--app-root <path>] --json
+scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|temporal|storage|observability --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]

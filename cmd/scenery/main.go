@@ -61,6 +61,8 @@ func run(args []string) error {
 		return taskCommand(args[1:])
 	case "validate":
 		return validateCommand(args[1:])
+	case "storage":
+		return storageCommand(args[1:])
 	case "worker":
 		return workerCommand(args[1:])
 	case "version":

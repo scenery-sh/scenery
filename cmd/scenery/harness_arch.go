@@ -24,6 +24,7 @@ var allowedDirectGoDeps = map[string]string{
 	"github.com/golang-jwt/jwt/v5":       "JWT signing and verification for standard auth",
 	"github.com/google/uuid":             "UUID generation and parsing for standard auth database records",
 	"github.com/gorilla/websocket":       "dashboard JSON-RPC websocket transport",
+	"github.com/hugelgupf/p9":            "pure-Go 9P2000.L client for the managed ZeroFS storage proxy data plane",
 	"github.com/jackc/pgx/v5":            "Postgres pgxpool compatibility wrapper for scenery apps",
 	"github.com/lib/pq":                  "Postgres database explorer and psql URL handling",
 	"go.temporal.io/api":                 "Temporal API types used by deployment and scheduling integrations",

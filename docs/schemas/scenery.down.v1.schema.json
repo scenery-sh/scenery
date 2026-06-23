@@ -11,7 +11,8 @@
     "record_preserved",
     "db_cleanup",
     "state_cleanup",
-    "db_branch_pin_removed"
+    "db_branch_pin_removed",
+    "storage_leases_removed"
   ],
   "properties": {
     "schema_version": { "const": "scenery.down.v1" },
@@ -23,6 +24,12 @@
     "state_cleanup": { "type": "boolean" },
     "state_root_removed": { "type": "string" },
     "db_branch_pin_removed": { "type": "boolean" },
+    "storage_leases_removed": { "type": "integer", "minimum": 0 },
+    "storage_cells_preserved": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
     "messages": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }

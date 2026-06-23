@@ -79,12 +79,13 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root dev runtimes and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, scoped observability queries, managed toolchain diagnostics, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root dev runtimes and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, scoped observability queries, managed toolchain diagnostics, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
         "onboarding",
-        "toolchain"
+        "toolchain",
+        "storage"
       ]
     },
     {
@@ -96,13 +97,14 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root runtime capabilities, scoped observability queries, managed toolchain commands, app validation profiles, internal dashboard cache artifacts, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root runtime capabilities, storage inspect/CLI lease surfaces, scoped observability queries, managed toolchain commands, app validation profiles, internal dashboard cache artifacts, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
         "apps",
         "client-integration",
-        "toolchain"
+        "toolchain",
+        "storage"
       ]
     },
     {
@@ -165,13 +167,14 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root runtime capabilities, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root runtime capabilities, storage config/CLI/lease schemas, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
         "agents",
         "schemas",
-        "toolchain"
+        "toolchain",
+        "storage"
       ],
       "schema_refs": [
         "docs/schemas/scenery.toolchain.v1.schema.json",
@@ -205,7 +208,11 @@
         "docs/schemas/scenery.validation.plan.v1.schema.json",
         "docs/schemas/scenery.validation.result.v1.schema.json",
         "docs/schemas/scenery.inspect.models.v1.schema.json",
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
+        "docs/schemas/scenery.inspect.views.v1.schema.json",
+        "docs/schemas/scenery.storage.inspect.v1.schema.json",
+        "docs/schemas/scenery.storage.object.v1.schema.json",
+        "docs/schemas/scenery.storage.list.v1.schema.json",
+        "docs/schemas/scenery.storage.delete.v1.schema.json"
       ]
     },
     {
@@ -302,12 +309,13 @@
       "freshness": "current",
       "last_reviewed": "2026-06-08",
       "review_after": "2026-07-01",
-      "summary": "Practical recipes for building scenery apps, endpoints, auth, middleware, Temporal workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, endpoints, storage objects, auth, middleware, Temporal workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
         "agents",
-        "runtime"
+        "runtime",
+        "storage"
       ]
     },
     {
@@ -586,6 +594,25 @@
         "execplans",
         "devdash",
         "performance",
+        "agents"
+      ]
+    },
+    {
+      "path": "docs/plans/0078-scenery-storage.md",
+      "title": "Scenery Storage",
+      "owner": "scenery runtime / storage",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-22",
+      "review_after": "2026-07-22",
+      "summary": "Completed ExecPlan that made storage a Scenery-owned beta capability with scenery.sh/storage, shared ZeroFS-backed storage cells, managed ZeroFS process/Web UI attach/reuse, session-local storage proxy, storage CLI/inspect lease surfaces, reserved HTTP storage routes, generated TypeScript browser helpers, docs, schemas, self-harness proof, and an ONLV migration proof.",
+      "tags": [
+        "plans",
+        "execplans",
+        "storage",
+        "zerofs",
+        "webui",
         "agents"
       ]
     },

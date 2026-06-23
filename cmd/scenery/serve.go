@@ -333,6 +333,11 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 	if envName != "" {
 		overrides = append(overrides, "SCENERY_ENV="+envName, "SCENERY_RUNTIME_ENV="+envName)
 	}
+	storageEnv, err := storageCapabilityEnv(cfg, nil, baseEnv, "")
+	if err != nil {
+		return nil, err
+	}
+	overrides = append(overrides, storageEnv...)
 	return envWithOverrides(baseEnv, overrides...), nil
 }
 

@@ -60,6 +60,8 @@ type devSupervisor struct {
 	victoria     *victoriaStack
 	grafana      *grafanaComponent
 	electric     *managedElectricService
+	zeroFS       *managedZeroFSService
+	storageProxy *managedStorageProxy
 	reportToken  string
 	console      *runConsole
 	agent        *localagent.Client
@@ -176,6 +178,10 @@ func (s *devSupervisor) Close() error {
 		grafana := s.grafana
 		temporal := s.temporal
 		electric := s.electric
+		zeroFS := s.zeroFS
+		if s.shouldDetachManagedZeroFS(context.Background(), zeroFS) {
+			zeroFS = nil
+		}
 
 		var errs []error
 		if app != nil {
@@ -208,6 +214,11 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
+		if zeroFS != nil {
+			if err := zeroFS.Interrupt(); err != nil {
+				errs = append(errs, err)
+			}
+		}
 
 		type closer struct {
 			name string
@@ -219,6 +230,9 @@ func (s *devSupervisor) Close() error {
 		}
 		if s.proxy != nil {
 			closers = append(closers, closer{name: "proxy", fn: s.proxy.Close})
+		}
+		if s.storageProxy != nil {
+			closers = append(closers, closer{name: "storage-proxy", fn: s.storageProxy.Close})
 		}
 
 		if len(closers) > 0 {
@@ -279,6 +293,11 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
+		if zeroFS != nil {
+			if err := zeroFS.WaitOrKill(5 * time.Second); err != nil {
+				errs = append(errs, err)
+			}
+		}
 
 		if s.store != nil {
 			if err := s.store.Close(); err != nil {
@@ -286,6 +305,9 @@ func (s *devSupervisor) Close() error {
 			}
 		}
 		if session := s.currentAgentSession(); s.agent != nil && session != nil {
+			if _, err := releaseManagedZeroFSLeasesForSession(context.Background(), s.agent, *session); err != nil {
+				errs = append(errs, err)
+			}
 			if _, _, err := s.agent.DeleteOwnedSession(context.Background(), *session, false); err != nil {
 				errs = append(errs, err)
 			}
@@ -318,6 +340,16 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 		if err := s.dashboard.Start(ctx); err != nil {
 			return err
 		}
+	}
+	if err := s.console.Phase("Starting ZeroFS storage service", func() error {
+		return s.ensureManagedZeroFS(ctx)
+	}); err != nil {
+		return err
+	}
+	if err := s.console.Phase("Starting storage proxy", func() error {
+		return s.ensureManagedStorageProxy(ctx)
+	}); err != nil {
+		return err
 	}
 	if err := s.console.Phase("Starting Electric sync service", func() error {
 		return s.ensureManagedElectric(ctx)
@@ -580,6 +612,11 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		return nil, err
 	}
 	env = append(env, managedEnv...)
+	storageEnv, err := storageCapabilityEnv(s.cfg, agentSession, baseEnv, "")
+	if err != nil {
+		return nil, err
+	}
+	env = append(env, storageEnv...)
 	electricEnv, err := managedElectricEnv(s.cfg, agentSession, env)
 	if err != nil {
 		return nil, err
@@ -805,6 +842,11 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	)
 	env = append(env, managedEnv...)
 	env = append(env, managedDatabaseSetupEnv(s.cfg, managedEnv)...)
+	storageEnv, err := storageCapabilityEnv(s.cfg, s.currentAgentSession(), baseEnv, "")
+	if err != nil {
+		return err
+	}
+	env = append(env, storageEnv...)
 	source := devdash.DevSource{ID: "database-setup", Kind: "setup", Name: "database setup", Role: "database", Status: "running"}
 	s.eventSink().Emit(ctx, source, "info", "database setup started", map[string]any{
 		"seed_count": len(setup.Seeds),
@@ -1490,6 +1532,15 @@ func (s *devSupervisor) currentElectric() *managedElectricService {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.electric
+}
+
+func (s *devSupervisor) currentZeroFS() *managedZeroFSService {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.zeroFS
 }
 
 func (s *devSupervisor) setGrafanaState(state devdash.GrafanaState) {
@@ -2246,6 +2297,11 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 	if electric := s.currentElectric(); electric != nil {
 		if pid := electric.PID(); pid > 0 {
 			processes["electric"] = localagent.Process{PID: pid}
+		}
+	}
+	if zeroFS := s.currentZeroFS(); zeroFS != nil {
+		if pid := zeroFS.PID(); pid > 0 {
+			processes["zerofs"] = localagent.Process{PID: pid}
 		}
 	}
 	if len(processes) == 0 {

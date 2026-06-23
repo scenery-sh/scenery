@@ -46,16 +46,18 @@ type downOptions struct {
 }
 
 type downResponse struct {
-	SchemaVersion      string   `json:"schema_version"`
-	SessionID          string   `json:"session_id"`
-	AppRoot            string   `json:"app_root,omitempty"`
-	Deleted            bool     `json:"deleted"`
-	RecordPreserved    bool     `json:"record_preserved"`
-	DBCleanup          bool     `json:"db_cleanup"`
-	StateCleanup       bool     `json:"state_cleanup"`
-	StateRootRemoved   string   `json:"state_root_removed,omitempty"`
-	DBBranchPinRemoved bool     `json:"db_branch_pin_removed"`
-	Messages           []string `json:"messages,omitempty"`
+	SchemaVersion         string   `json:"schema_version"`
+	SessionID             string   `json:"session_id"`
+	AppRoot               string   `json:"app_root,omitempty"`
+	Deleted               bool     `json:"deleted"`
+	RecordPreserved       bool     `json:"record_preserved"`
+	DBCleanup             bool     `json:"db_cleanup"`
+	StateCleanup          bool     `json:"state_cleanup"`
+	StateRootRemoved      string   `json:"state_root_removed,omitempty"`
+	DBBranchPinRemoved    bool     `json:"db_branch_pin_removed"`
+	StorageLeasesRemoved  int      `json:"storage_leases_removed"`
+	StorageCellsPreserved []string `json:"storage_cells_preserved,omitempty"`
+	Messages              []string `json:"messages,omitempty"`
 }
 
 type pruneOptions struct {
@@ -607,6 +609,20 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 			if !opts.JSON {
 				fmt.Fprintln(stdout, pinMessage)
 			}
+		}
+	}
+	cells, err := releaseManagedZeroFSLeasesForSession(ctx, client, deletedSession)
+	if err != nil {
+		return err
+	}
+	if len(cells) > 0 {
+		sort.Strings(cells)
+		resp.StorageLeasesRemoved = len(cells)
+		resp.StorageCellsPreserved = cells
+		message := fmt.Sprintf("released %d ZeroFS storage lease(s); preserved shared storage cell data: %s", len(cells), strings.Join(cells, ", "))
+		resp.Messages = append(resp.Messages, message)
+		if !opts.JSON {
+			fmt.Fprintln(stdout, message)
 		}
 	}
 	stopMessage := fmt.Sprintf("stopped scenery dev runtime for %s", runtimeLabel)

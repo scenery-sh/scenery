@@ -304,6 +304,29 @@ func TestDoctorResourceThresholds(t *testing.T) {
 	}
 }
 
+func TestRunSceneryDoctorWarnsWhenManagedZeroFSBinaryMissing(t *testing.T) {
+	t.Setenv(devZeroFSBinEnv, "")
+	deps := fakeDoctorDeps(t)
+	deps.Getwd = func() (string, error) { return "/apps/storage", nil }
+	deps.DiscoverApp = func(start string) (doctorAppInfo, appcfg.Config, bool, error) {
+		return doctorAppInfo{Root: start, ConfigPath: filepath.Join(start, ".scenery.json"), Name: "storage"}, appcfg.Config{
+			Name: "storage",
+			Storage: appcfg.StorageConfig{Stores: map[string]appcfg.StorageStoreConfig{
+				"app": {Kind: "zerofs"},
+			}},
+			Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
+				"storage": {Kind: "zerofs"},
+			}},
+		}, true, nil
+	}
+
+	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
+	check := doctorCheckByID(resp.Checks, "storage.zerofs_binary")
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, devZeroFSBinEnv) {
+		t.Fatalf("zerofs doctor check = %+v", check)
+	}
+}
+
 func TestDoctorReportsSceneryAndPostgresStorageSizes(t *testing.T) {
 	t.Parallel()
 

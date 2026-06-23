@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.storage.delete.v1.schema.json",
+  "title": "scenery.storage.delete.v1",
+  "type": "object",
+  "required": ["schema_version", "store", "deleted"],
+  "properties": {
+    "schema_version": { "const": "scenery.storage.delete.v1" },
+    "store": { "type": "string" },
+    "key": { "type": "string" },
+    "prefix": { "type": "string" },
+    "deleted": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}
