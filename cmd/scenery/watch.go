@@ -112,12 +112,10 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	}
 	defer restoreAgentEnv()
 
-	supervisor, err := newDevSupervisor(ctx, root, cfg, backend, console)
+	supervisor, err := newDevSupervisor(ctx, root, cfg, backend, console, agentClient, agentSession)
 	if err != nil {
 		return err
 	}
-	supervisor.agent = agentClient
-	supervisor.agentSession = agentSession
 	supervisor.adoptManagedFrontends(preparedSession.FrontendProcesses)
 	defer supervisor.Close()
 	if err := supervisor.Start(ctx); err != nil {

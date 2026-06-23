@@ -14,6 +14,7 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	root := t.TempDir()
 	cacheRoot := t.TempDir()
 	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
 	store := openTestObservabilityStore(t, cacheRoot, root)
@@ -76,11 +77,11 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	if payload.Query.SessionID != "session-a" {
 		t.Fatalf("query session = %q", payload.Query.SessionID)
 	}
-	if len(payload.Traces) != 1 {
-		t.Fatalf("traces = %d, want 1: %+v", len(payload.Traces), payload.Traces)
+	if len(payload.Warnings) == 0 {
+		t.Fatal("expected VictoriaTraces warning")
 	}
-	if payload.Traces[0].TraceID != "trace-slow" || payload.Traces[0].DurationMS != 2500 || payload.Traces[0].SessionID != "session-a" || payload.Traces[0].AppRootHash != "root123" || payload.Traces[0].Branch != "feature/a" || payload.Traces[0].Worktree != "onlv-a" {
-		t.Fatalf("trace = %+v", payload.Traces[0])
+	if len(payload.Traces) != 0 {
+		t.Fatalf("traces = %d, want 0: %+v", len(payload.Traces), payload.Traces)
 	}
 }
 
@@ -88,6 +89,7 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 	root := t.TempDir()
 	cacheRoot := t.TempDir()
 	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
 	store := openTestObservabilityStore(t, cacheRoot, root)
@@ -183,16 +185,19 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 	if payload.Query.SessionID != "session-a" {
 		t.Fatalf("query session = %q", payload.Query.SessionID)
 	}
-	if payload.Summary.TraceCount != 3 || payload.Summary.ErrorCount != 1 || payload.Summary.EventCount != 1 || payload.Summary.LogCount != 1 {
+	if payload.Summary.TraceCount != 0 || payload.Summary.ErrorCount != 0 || payload.Summary.EventCount != 0 || payload.Summary.LogCount != 0 {
 		t.Fatalf("summary = %+v", payload.Summary)
 	}
-	if len(payload.Services) != 1 || payload.Services[0].Service != "tenants" || payload.Services[0].Count != 3 {
+	if len(payload.Warnings) < 2 {
+		t.Fatalf("expected Victoria warnings, got %+v", payload.Warnings)
+	}
+	if len(payload.Services) != 0 {
 		t.Fatalf("services = %+v", payload.Services)
 	}
-	if len(payload.Endpoints) != 1 || payload.Endpoints[0].Endpoint != "Config" {
+	if len(payload.Endpoints) != 0 {
 		t.Fatalf("endpoints = %+v", payload.Endpoints)
 	}
-	if len(payload.Logs) != 1 || payload.Logs[0].Level != "ERR" {
+	if len(payload.Logs) != 0 {
 		t.Fatalf("logs = %+v", payload.Logs)
 	}
 }
@@ -202,6 +207,7 @@ func TestRunSceneryInspectUsesSessionAppRecordWhenLatestAppRootDiffers(t *testin
 	otherRoot := t.TempDir()
 	cacheRoot := t.TempDir()
 	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
+	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
 	store, err := devdash.OpenStore(cacheRoot)
@@ -247,10 +253,10 @@ func TestRunSceneryInspectUsesSessionAppRecordWhenLatestAppRootDiffers(t *testin
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
 	}
-	if len(payload.Warnings) != 0 {
-		t.Fatalf("warnings = %+v", payload.Warnings)
+	if len(payload.Warnings) == 0 {
+		t.Fatal("expected VictoriaTraces warning")
 	}
-	if len(payload.Traces) != 1 || payload.Traces[0].TraceID != "trace-a" {
+	if len(payload.Traces) != 0 {
 		t.Fatalf("traces = %+v", payload.Traces)
 	}
 }

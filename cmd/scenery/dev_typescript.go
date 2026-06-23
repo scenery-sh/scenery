@@ -162,7 +162,7 @@ func (s *devSupervisor) startTypeScriptWorker(ctx context.Context, result worker
 			"queues":     typeScriptWorkerQueues(result.Activities),
 		})
 	}
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "typescript-worker-start", map[string]any{
+	s.writeProcessEvent(ctx, "typescript-worker-start", map[string]any{
 		"pid": worker.pid,
 	})
 	return worker, nil
@@ -250,7 +250,7 @@ func (s *devSupervisor) handleTypeScriptWorkerExit(ctx context.Context, worker *
 	}
 	_ = removeMatchingTypeScriptWorkerDevRegistry(workerOutputDir(worker), workerPIDInt(worker.pid))
 
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "typescript-worker-stop", map[string]any{
+	s.writeProcessEvent(ctx, "typescript-worker-stop", map[string]any{
 		"pid": worker.pid,
 	})
 	if s.console != nil {
@@ -290,7 +290,7 @@ func (s *devSupervisor) writeTypeScriptWorkerDevRegistry(ctx context.Context, wo
 	if err := writeTypeScriptWorkerDevRegistry(outputDir, record); err != nil {
 		return err
 	}
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "typescript-worker-register", map[string]any{
+	s.writeProcessEvent(ctx, "typescript-worker-register", map[string]any{
 		"pid":         worker.pid,
 		"worker_path": record.WorkerPath,
 	})
@@ -327,7 +327,7 @@ func (s *devSupervisor) reapStaleTypeScriptWorker(ctx context.Context, outputDir
 		return err
 	}
 	_ = os.Remove(typeScriptWorkerDevRegistryPath(outputDir))
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "typescript-worker-stale-reap", map[string]any{
+	s.writeProcessEvent(ctx, "typescript-worker-stale-reap", map[string]any{
 		"pid":         record.PID,
 		"worker_path": record.WorkerPath,
 		"output_dir":  record.OutputDir,

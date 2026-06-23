@@ -347,7 +347,7 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 	if len(prepared.FrontendProcesses) != 1 {
 		t.Fatalf("frontend processes = %d, want 1", len(prepared.FrontendProcesses))
 	}
-	supervisor, err := newDevSupervisor(ctx, appRoot, cfg, prepared.Backend, nil)
+	supervisor, err := newDevSupervisor(ctx, appRoot, cfg, prepared.Backend, nil, prepared.Client, prepared.Session)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -368,6 +368,14 @@ scenery metrics list --json --since 1h
 scenery metrics query --json --since 15m --step 5s --promql 'scenery_request_duration_seconds'
 ```
 
+Dashboard `devdash.json` and its `app-model/.../sha256/*.json` sidecar blobs are
+internal cache artifacts for app/session status, saved requests, onboarding, and
+small process diagnostics. Trace summaries, trace events, and report log events
+live in Victoria instead of `devdash.json`. Use CLI JSON or dashboard APIs
+instead of reading those files directly. When the local agent is active, the
+agent dashboard process owns writes to the global dashboard store; dev runtime
+supervisors send authenticated control-plane mutations to that backend.
+
 Generated client mismatch:
 
 ```sh

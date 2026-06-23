@@ -43,6 +43,7 @@ type dashboardServer struct {
 	mu      sync.Mutex
 	clients map[*dashboardClient]struct{}
 	assets  fs.FS
+	traces  *dashboardTraceEventBuffer
 }
 
 type dashboardVictoria interface {
@@ -142,12 +143,14 @@ func newDashboardServerWithController(controller dashboardController, root, addr
 		state:      newDashboardRunState(root, addr),
 		clients:    make(map[*dashboardClient]struct{}),
 		assets:     assets,
+		traces:     newDashboardTraceEventBuffer(),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/__graphql", s.handleGraphQL)
 	mux.HandleFunc(devdash.WebSocketPath, s.handleWebSocket)
 	mux.HandleFunc(devdash.ReportPath, s.handleReport)
+	mux.HandleFunc(dashboardControlPlanePath, s.handleControlPlane)
 	s.http = &http.Server{
 		Addr:    addr,
 		Handler: mux,
@@ -448,8 +451,8 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 				report.TraceSummary.SessionID = report.SessionID
 			}
 			fillTraceSummaryIdentity(report.TraceSummary, report)
-			_ = s.dashboardStore().AppendTraceSummaryDeferred(req.Context(), report.TraceSummary)
-			go s.exportVictoriaTraceSummary(context.Background(), report.TraceSummary)
+			events := s.drainBufferedTraceEvents(report.TraceSummary)
+			go s.exportVictoriaTraceSummaryWithEvents(context.Background(), report.TraceSummary, events)
 			s.notify(&devdash.Notification{
 				Method: "trace/new",
 				Params: map[string]any{
@@ -466,7 +469,7 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 				report.TraceEvent.SessionID = report.SessionID
 			}
 			fillTraceEventIdentity(report.TraceEvent, report)
-			_ = s.dashboardStore().AppendTraceEventDeferred(req.Context(), report.TraceEvent)
+			s.bufferTraceEvent(report.TraceEvent)
 		}
 	case "log":
 		if report.LogEvent != nil {
@@ -475,7 +478,6 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 				report.LogEvent.SessionID = report.SessionID
 			}
 			fillLogEventIdentity(report.LogEvent, report)
-			_ = s.dashboardStore().WriteLogEventDeferred(req.Context(), report.LogEvent)
 			go s.exportVictoriaLogEvent(report.LogEvent)
 		}
 	}
@@ -483,10 +485,7 @@ func (s *dashboardServer) handleReport(w http.ResponseWriter, req *http.Request)
 }
 
 func (s *dashboardServer) recordRejectedReport(ctx context.Context, report devdash.ReportEnvelope, reason string) {
-	store := s.dashboardStore()
-	if store == nil {
-		return
-	}
+	_ = ctx
 	appID := firstNonEmpty(report.AppID, s.dashboardActiveAppID())
 	sessionID := firstNonEmpty(report.SessionID, s.dashboardCurrentSessionID())
 	event := &devdash.LogEvent{
@@ -505,7 +504,6 @@ func (s *dashboardServer) recordRejectedReport(ctx context.Context, report devda
 		},
 		Timestamp: time.Now().UTC(),
 	}
-	_ = store.WriteLogEventDeferred(ctx, event)
 	go s.exportVictoriaLogEvent(event)
 }
 

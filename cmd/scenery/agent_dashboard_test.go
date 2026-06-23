@@ -59,6 +59,114 @@ func TestAgentDashboardControllerUsesSessionRouteIDs(t *testing.T) {
 	}
 }
 
+func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
+	t.Parallel()
+
+	agentServer, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- agentServer.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("agent shutdown: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for agent shutdown")
+		}
+	})
+
+	client := localagent.NewClient(agentServer.Paths().SocketPath)
+	defer client.CloseIdleConnections()
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.Register(ctx, localagent.RegisterRequest{
+		BaseAppID:   "demo",
+		AppRoot:     t.TempDir(),
+		SessionID:   "session-a",
+		ReportToken: "report-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := devdash.OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+	controller := &agentDashboardController{store: store, agent: agentServer}
+	dashboard := newDashboardServerWithController(controller, t.TempDir(), "127.0.0.1:0", "", nil)
+	server := httptest.NewServer(dashboard.http.Handler)
+	t.Cleanup(server.Close)
+
+	app := devdash.AppRecord{
+		ID:        "demo",
+		SessionID: session.SessionID,
+		Name:      "Demo",
+		Root:      session.AppRoot,
+		Running:   true,
+		UpdatedAt: time.Now().UTC(),
+	}
+	postControlPlane := func(payload dashboardControlPlaneRequest) int {
+		t.Helper()
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+dashboardControlPlanePath, bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer report-secret")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if got := postControlPlane(dashboardControlPlaneRequest{SessionID: session.SessionID, UpsertApp: &app}); got != http.StatusNoContent {
+		t.Fatalf("upsert status = %d", got)
+	}
+	stored, err := store.GetAppSession(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("stored app session: %v", err)
+	}
+	if stored.ID != "demo" || !stored.Running {
+		t.Fatalf("stored app = %+v", stored)
+	}
+
+	if got := postControlPlane(dashboardControlPlaneRequest{
+		SessionID: session.SessionID,
+		ProcessEvent: &dashboardProcessEventPost{
+			AppID:       "demo",
+			SessionID:   session.SessionID,
+			Kind:        "process/reload",
+			PayloadJSON: json.RawMessage(`{"pid":"42"}`),
+		},
+	}); got != http.StatusNoContent {
+		t.Fatalf("process event status = %d", got)
+	}
+	events, err := store.ListProcessEvents(ctx, "demo", 10)
+	if err != nil {
+		t.Fatalf("process events: %v", err)
+	}
+	if len(events) != 1 || events[0].Kind != "process/reload" || string(events[0].PayloadJSON) != `{"pid":"42"}` {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T) {
 	t.Parallel()
 
@@ -322,7 +430,7 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(counts) != 1 || counts[0].Level != "INFO" || counts[0].Count != 1 {
+	if len(counts) != 0 {
 		t.Fatalf("log counts = %+v", counts)
 	}
 }
@@ -411,7 +519,7 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(counts) != 1 || counts[0].Level != "warn" || counts[0].Count != 1 {
+	if len(counts) != 0 {
 		t.Fatalf("stale log counts = %+v", counts)
 	}
 	currentCounts, err := store.CountLogsByLevelForSession(context.Background(), "demo", session.SessionID, time.Now().Add(-time.Minute))

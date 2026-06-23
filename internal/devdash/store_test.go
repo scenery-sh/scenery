@@ -73,39 +73,17 @@ func TestStoreSaveStateCompactsAndPrunesLocalHistory(t *testing.T) {
 		_ = store.Close()
 	})
 
-	now := time.Now().UTC()
 	state := newStoreState()
-	for i := range maxStoredTraceSummaries + 5 {
-		traceID := fmt.Sprintf("trace-%04d", i)
-		state.TraceSummaries = append(state.TraceSummaries, storeTraceSummary(TraceSummary{
-			AppID:         "app-test",
-			SessionID:     "session-a",
-			TraceID:       traceID,
-			SpanID:        "root",
-			Type:          "REQUEST",
-			IsRoot:        true,
-			StartedAt:     now.Add(time.Duration(i) * time.Millisecond),
-			DurationNanos: uint64(time.Millisecond),
-			ServiceName:   "tasks",
-		}))
-	}
-	for i := range maxStoredTraceEvents + 5 {
-		traceID := fmt.Sprintf("trace-%04d", i)
-		state.TraceEvents = append(state.TraceEvents, storeTraceEvent(TraceEvent{
+	now := time.Now().UTC()
+	for i := range maxStoredProcessOutput + 100 {
+		state.ProcessOutput = append(state.ProcessOutput, ProcessOutput{
 			AppID:     "app-test",
 			SessionID: "session-a",
-			TraceID:   traceID,
-			SpanID:    "root",
-			EventID:   uint64(i + 1),
-			EventTime: now.Add(time.Duration(i) * time.Millisecond),
-			Event: map[string]any{
-				"request": map[string]any{
-					"method": "POST",
-					"path":   "/tasks/items",
-					"body":   strings.Repeat("x", 128),
-				},
-			},
-		}))
+			PID:       fmt.Sprintf("%d", i),
+			Stream:    "stdout",
+			Output:    []byte(strings.Repeat("x", 256)),
+			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
+		})
 	}
 
 	if err := store.saveState(state); err != nil {
@@ -123,21 +101,248 @@ func TestStoreSaveStateCompactsAndPrunesLocalHistory(t *testing.T) {
 	if err := json.Unmarshal(data, &saved); err != nil {
 		t.Fatalf("unmarshal saved state: %v", err)
 	}
-	if len(saved.TraceSummaries) != maxStoredTraceSummaries {
-		t.Fatalf("trace summary count = %d, want %d", len(saved.TraceSummaries), maxStoredTraceSummaries)
+	if len(saved.ProcessOutput) > maxStoredProcessOutput {
+		t.Fatalf("process output count = %d, want <= %d", len(saved.ProcessOutput), maxStoredProcessOutput)
 	}
-	if len(saved.TraceEvents) != maxStoredTraceEvents {
-		t.Fatalf("trace event count = %d, want %d", len(saved.TraceEvents), maxStoredTraceEvents)
+	if len(saved.ProcessOutput) == 0 {
+		t.Fatal("byte budget pruned all process output, want recent history retained")
 	}
-	if got := saved.TraceSummaries[0].TraceID; got != "trace-0005" {
-		t.Fatalf("first kept trace summary = %q, want trace-0005", got)
-	}
-	if got := saved.TraceEvents[0].TraceID; got != "trace-0005" {
-		t.Fatalf("first kept trace event = %q, want trace-0005", got)
+	if len(data) > softStoreFileBytes {
+		t.Fatalf("saved state size = %d, want <= soft budget %d", len(data), softStoreFileBytes)
 	}
 }
 
-func TestStoreDeferredObservabilityWritesFlush(t *testing.T) {
+func TestStoreDropsLegacyObservabilityArraysOnSave(t *testing.T) {
+	t.Parallel()
+
+	cacheRoot := t.TempDir()
+	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cacheRoot, "devdash.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"trace_summaries":[{"app_id":"app-test","trace_id":"trace-a"}],"trace_events":[{"app_id":"app-test","trace_id":"trace-a"}],"log_events":[{"app_id":"app-test","level":"INFO","message":"hello"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenStore(cacheRoot)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+	if err := store.UpsertApp(context.Background(), AppRecord{ID: "app-test", Name: "app-test", Root: "/tmp/app"}); err != nil {
+		t.Fatalf("upsert app: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{`"trace_summaries"`, `"trace_events"`, `"log_events"`} {
+		if bytes.Contains(data, []byte(key)) {
+			t.Fatalf("legacy observability key %s survived save: %s", key, data)
+		}
+	}
+}
+
+func TestStoreBudgetRejectsLargeSessions(t *testing.T) {
+	t.Parallel()
+
+	cacheRoot := t.TempDir()
+	store, err := OpenStore(cacheRoot)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	ctx := context.Background()
+	metadata := largeAppMetadata(t, "rev-shared", 2*1024*1024)
+	apiEncoding := json.RawMessage(`{"rpc":"shape"}`)
+	now := time.Now().UTC()
+	for i := range 20 {
+		if err := store.UpsertApp(ctx, AppRecord{
+			ID:           "app-test",
+			BaseAppID:    "app-test",
+			RuntimeAppID: fmt.Sprintf("app-test--session-%02d", i),
+			SessionID:    fmt.Sprintf("session-%02d", i),
+			Name:         "app-test",
+			Root:         fmt.Sprintf("/tmp/worktree-%02d", i),
+			ListenAddr:   fmt.Sprintf("127.0.0.1:%d", 4100+i),
+			Metadata:     metadata,
+			APIEncoding:  apiEncoding,
+			Running:      true,
+			UpdatedAt:    now.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("upsert session %d: %v", i, err)
+		}
+	}
+	if err := store.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(cacheRoot, "devdash.json"))
+	if err != nil {
+		t.Fatalf("read devdash.json: %v", err)
+	}
+	if len(data) > hardStoreFileBytes {
+		t.Fatalf("devdash.json size = %d, want <= %d", len(data), hardStoreFileBytes)
+	}
+	if bytes.Contains(data, []byte("svc_payload")) {
+		t.Fatalf("devdash.json still contains inline app metadata")
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal raw store: %v", err)
+	}
+	if got := len(raw["app_sessions"]); got > 128*1024 {
+		t.Fatalf("app_sessions serialized size = %d, want compact", got)
+	}
+	metadataBlobs, err := filepath.Glob(filepath.Join(cacheRoot, "app-model", "metadata", "sha256", "*.json"))
+	if err != nil {
+		t.Fatalf("glob metadata blobs: %v", err)
+	}
+	if len(metadataBlobs) != 1 {
+		t.Fatalf("metadata blob count = %d, want 1: %v", len(metadataBlobs), metadataBlobs)
+	}
+
+	sessions, err := store.ListAppSessions(ctx)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(sessions) != 20 {
+		t.Fatalf("session count = %d, want 20", len(sessions))
+	}
+	if bytes.Contains(sessions[0].Metadata, []byte("svc_payload")) {
+		t.Fatalf("list sessions hydrated large metadata")
+	}
+	session, err := store.GetAppSession(ctx, "session-00")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if !bytes.Contains(session.Metadata, []byte("svc_payload")) {
+		t.Fatalf("detail session did not hydrate metadata")
+	}
+	if string(session.APIEncoding) != string(apiEncoding) {
+		t.Fatalf("hydrated api encoding = %s, want %s", session.APIEncoding, apiEncoding)
+	}
+}
+
+func TestLegacyFatSessionMetadataMigratesToRefs(t *testing.T) {
+	t.Parallel()
+
+	cacheRoot := t.TempDir()
+	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+		t.Fatalf("mkdir cache root: %v", err)
+	}
+	metadata := largeAppMetadata(t, "legacy-rev", 512*1024)
+	legacyApp := AppRecord{
+		ID:          "legacy-app",
+		SessionID:   "legacy-session",
+		Name:        "legacy-app",
+		Root:        "/tmp/legacy",
+		Metadata:    metadata,
+		APIEncoding: json.RawMessage(`{"legacy":true}`),
+		Running:     true,
+		UpdatedAt:   time.Now().UTC(),
+	}
+	legacyData, err := json.Marshal(map[string]any{
+		"version": 1,
+		"apps": map[string]AppRecord{
+			"legacy-app": legacyApp,
+		},
+		"app_sessions": map[string]AppRecord{
+			"legacy-session": legacyApp,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal legacy store: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheRoot, "devdash.json"), append(legacyData, '\n'), 0o644); err != nil {
+		t.Fatalf("write legacy store: %v", err)
+	}
+
+	store, err := OpenStore(cacheRoot)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+	if err := store.Flush(context.Background()); err != nil {
+		t.Fatalf("flush migrated store: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(cacheRoot, "devdash.json"))
+	if err != nil {
+		t.Fatalf("read migrated store: %v", err)
+	}
+	if bytes.Contains(data, []byte("svc_payload")) || bytes.Contains(data, []byte("Metadata")) || bytes.Contains(data, []byte("APIEncoding")) {
+		t.Fatalf("migrated store still contains legacy inline app model: %s", data)
+	}
+	if !bytes.Contains(data, []byte("metadata_ref")) || !bytes.Contains(data, []byte("api_encoding_ref")) {
+		t.Fatalf("migrated store missing app model refs: %s", data)
+	}
+	session, err := store.GetAppSession(context.Background(), "legacy-session")
+	if err != nil {
+		t.Fatalf("get migrated session: %v", err)
+	}
+	if !bytes.Contains(session.Metadata, []byte("svc_payload")) {
+		t.Fatalf("migrated session did not hydrate metadata")
+	}
+	if string(session.APIEncoding) != `{"legacy":true}` {
+		t.Fatalf("migrated api encoding = %s", session.APIEncoding)
+	}
+}
+
+func TestStoreStateSerializedSizeUnderBudget(t *testing.T) {
+	t.Parallel()
+
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	state := newStoreState()
+	now := time.Now().UTC()
+	for i := range 300 {
+		state.ProcessOutput = append(state.ProcessOutput, ProcessOutput{
+			ID:        int64(i + 1),
+			AppID:     "app-test",
+			SessionID: "session-a",
+			PID:       "123",
+			Stream:    "stdout",
+			Output:    bytes.Repeat([]byte("x"), 64*1024),
+			CreatedAt: now.Add(time.Duration(i) * time.Millisecond),
+		})
+	}
+	state.NextProcessOutputID = 301
+
+	if err := store.saveState(state); err != nil {
+		t.Fatalf("save oversized state: %v", err)
+	}
+	data, err := os.ReadFile(store.path)
+	if err != nil {
+		t.Fatalf("read saved state: %v", err)
+	}
+	if len(data) > softStoreFileBytes {
+		t.Fatalf("saved store size = %d, want <= soft budget %d", len(data), softStoreFileBytes)
+	}
+	var saved storeState
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("unmarshal saved state: %v", err)
+	}
+	if len(saved.ProcessOutput) >= 300 {
+		t.Fatalf("process output count = %d, want byte-pruned below 300", len(saved.ProcessOutput))
+	}
+}
+
+func TestStoreObservabilityWritesAreCompatibilityNoops(t *testing.T) {
 	t.Parallel()
 
 	cacheRoot := t.TempDir()
@@ -176,29 +381,58 @@ func TestStoreDeferredObservabilityWritesFlush(t *testing.T) {
 		t.Fatalf("append deferred event: %v", err)
 	}
 
-	events, err := store.GetTraceEventsForSession(ctx, "app-test", "session-a", "trace-deferred", "root")
-	if err != nil {
-		t.Fatalf("get in-memory deferred event: %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("in-memory deferred event count = %d, want 1", len(events))
-	}
 	if err := store.Flush(ctx); err != nil {
 		t.Fatalf("flush deferred state: %v", err)
 	}
+	if err := store.WriteLogEventDeferred(ctx, &LogEvent{
+		AppID:     "app-test",
+		SessionID: "session-a",
+		Level:     "INFO",
+		Message:   "hello",
+		Timestamp: now,
+	}); err != nil {
+		t.Fatalf("write deferred log: %v", err)
+	}
+	if err := store.Flush(ctx); err != nil {
+		t.Fatalf("flush deferred log: %v", err)
+	}
+	events, err := store.GetTraceEventsForSession(ctx, "app-test", "session-a", "trace-deferred", "root")
+	if err != nil {
+		t.Fatalf("get trace events: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("stored trace events = %d, want 0", len(events))
+	}
+	summaries, err := store.GetTraceSummariesForSession(ctx, "app-test", "session-a", "trace-deferred")
+	if err != nil {
+		t.Fatalf("get trace summaries: %v", err)
+	}
+	if len(summaries) != 0 {
+		t.Fatalf("stored trace summaries = %d, want 0", len(summaries))
+	}
+	logs, err := store.CountLogsByLevelForSession(ctx, "app-test", "session-a", now.Add(-time.Minute))
+	if err != nil {
+		t.Fatalf("count logs: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Fatalf("stored log counts = %+v, want empty", logs)
+	}
+}
 
-	reopened, err := OpenStore(cacheRoot)
+func largeAppMetadata(t *testing.T, revision string, payloadBytes int) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{
+		"app_revision": revision,
+		"svcs": map[string]any{
+			"svc": map[string]any{
+				"svc_payload": strings.Repeat("x", payloadBytes),
+			},
+		},
+	})
 	if err != nil {
-		t.Fatalf("reopen store: %v", err)
+		t.Fatalf("marshal large metadata: %v", err)
 	}
-	defer reopened.Close()
-	summaries, err := reopened.GetTraceSummariesForSession(ctx, "app-test", "session-a", "trace-deferred")
-	if err != nil {
-		t.Fatalf("get flushed summary: %v", err)
-	}
-	if len(summaries) != 1 {
-		t.Fatalf("flushed summary count = %d, want 1", len(summaries))
-	}
+	return data
 }
 
 func TestStoreFlushErrorAllowsDeferredRetry(t *testing.T) {
@@ -654,7 +888,7 @@ func TestStoreKeepsDistinctAppSessionsForSameApp(t *testing.T) {
 	}
 }
 
-func TestStoreQueryTraceSummariesAndMetrics(t *testing.T) {
+func TestStoreTraceSummaryQueriesReturnNoPersistedHistory(t *testing.T) {
 	t.Parallel()
 
 	store, err := OpenStore(t.TempDir())
@@ -703,7 +937,7 @@ func TestStoreQueryTraceSummariesAndMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query traces: %v", err)
 	}
-	if len(items) != 1 || items[0].TraceID != "trace-2" {
+	if len(items) != 0 {
 		t.Fatalf("items = %+v", items)
 	}
 
@@ -715,12 +949,12 @@ func TestStoreQueryTraceSummariesAndMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query metrics: %v", err)
 	}
-	if len(metrics) != 3 {
-		t.Fatalf("metrics count = %d, want 3", len(metrics))
+	if len(metrics) != 0 {
+		t.Fatalf("metrics count = %d, want 0", len(metrics))
 	}
 }
 
-func TestStoreFiltersObservabilityBySession(t *testing.T) {
+func TestStoreObservabilitySessionQueriesReturnNoPersistedHistory(t *testing.T) {
 	t.Parallel()
 
 	store, err := OpenStore(t.TempDir())
@@ -789,7 +1023,7 @@ func TestStoreFiltersObservabilityBySession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query traces: %v", err)
 	}
-	if len(items) != 1 || items[0].TraceID != "trace-a" || items[0].SessionID != "session-a" {
+	if len(items) != 0 {
 		t.Fatalf("session traces = %+v", items)
 	}
 
@@ -797,7 +1031,7 @@ func TestStoreFiltersObservabilityBySession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get trace events: %v", err)
 	}
-	if len(events) != 1 || events[0].SessionID != "session-a" || events[0].AppRootHash != "root123" || events[0].Branch != "feature/a" || events[0].Worktree != "onlv-a" {
+	if len(events) != 0 {
 		t.Fatalf("session events = %+v", events)
 	}
 
@@ -805,20 +1039,20 @@ func TestStoreFiltersObservabilityBySession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count events: %v", err)
 	}
-	if eventCount != 1 {
-		t.Fatalf("event count = %d, want 1", eventCount)
+	if eventCount != 0 {
+		t.Fatalf("event count = %d, want 0", eventCount)
 	}
 
 	logs, err := store.CountLogsByLevelForSession(ctx, "app-test", "session-a", now.Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("count logs: %v", err)
 	}
-	if len(logs) != 1 || logs[0].Level != "INFO" || logs[0].Count != 1 {
+	if len(logs) != 0 {
 		t.Fatalf("session logs = %+v", logs)
 	}
 }
 
-func TestStoreKeepsTraceSummariesDistinctBySession(t *testing.T) {
+func TestStoreTraceSummarySessionQueriesStayEmpty(t *testing.T) {
 	t.Parallel()
 
 	store, err := OpenStore(t.TempDir())
@@ -851,15 +1085,15 @@ func TestStoreKeepsTraceSummariesDistinctBySession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 2 {
-		t.Fatalf("trace summary count = %d, want 2", len(all))
+	if len(all) != 0 {
+		t.Fatalf("trace summary count = %d, want 0", len(all))
 	}
 	for _, sessionID := range []string{"session-a", "session-b"} {
 		items, err := store.GetTraceSummariesForSession(ctx, "app-test", sessionID, "trace-replay")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(items) != 1 || items[0].SessionID != sessionID {
+		if len(items) != 0 {
 			t.Fatalf("items for %s = %+v", sessionID, items)
 		}
 	}

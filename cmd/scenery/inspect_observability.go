@@ -12,6 +12,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	inspectdata "scenery.sh/internal/inspect"
+	obs "scenery.sh/internal/observability"
 )
 
 const (
@@ -156,12 +157,12 @@ func buildInspectTracesResponse(ctx context.Context, appRoot string, cfg appcfg.
 	resp.Warnings = warnings
 
 	query := inspectTraceQuery(appID, opts)
-	items, usingVictoria := queryVictoriaTraceSummaries(ctx, query)
-	if !usingVictoria {
-		items, err = store.QueryTraceSummaries(ctx, query)
-		if err != nil {
-			return inspectTracesResponse{}, err
-		}
+	items, warning, err := queryVictoriaTraceSummaries(ctx, query)
+	if err != nil {
+		return inspectTracesResponse{}, err
+	}
+	if warning != "" {
+		resp.Warnings = append(resp.Warnings, warning)
 	}
 	if opts.Slowest {
 		devdash.SortTraceSummariesByDuration(items)
@@ -205,24 +206,23 @@ func buildInspectMetricsResponse(ctx context.Context, appRoot string, cfg appcfg
 	resp.Warnings = warnings
 
 	query := inspectTraceQuery(appID, opts)
-	items, usingVictoria := queryVictoriaTraceSummaries(ctx, query)
-	if !usingVictoria {
-		items, err = store.QueryTraceMetrics(ctx, query)
-		if err != nil {
-			return inspectMetricsResponse{}, err
-		}
+	items, warning, err := queryVictoriaTraceSummaries(ctx, query)
+	if err != nil {
+		return inspectMetricsResponse{}, err
+	}
+	if warning != "" {
+		resp.Warnings = append(resp.Warnings, warning)
 	}
 	resp.Summary = buildInspectMetricsSummary(items)
 	resp.Services = buildInspectTraceMetrics(items, "service")
 	resp.Endpoints = buildInspectTraceMetrics(items, "endpoint")
-	eventCount, err := store.CountTraceEventsForSession(ctx, appID, query.SessionID, query.Since)
+	resp.Warnings = append(resp.Warnings, "trace event counts are not materialized after the devdash JSON observability cutover")
+	logs, logWarning, err := queryVictoriaLogCounts(ctx, appID, query.SessionID, opts.Since)
 	if err != nil {
 		return inspectMetricsResponse{}, err
 	}
-	resp.Summary.EventCount = eventCount
-	logs, err := store.CountLogsByLevelForSession(ctx, appID, query.SessionID, query.Since)
-	if err != nil {
-		return inspectMetricsResponse{}, err
+	if logWarning != "" {
+		resp.Warnings = append(resp.Warnings, logWarning)
 	}
 	resp.Logs = logs
 	for _, item := range logs {
@@ -272,16 +272,53 @@ func inspectTraceQuery(appID string, opts inspectTraceQueryOptions) devdash.Trac
 	return query
 }
 
-func queryVictoriaTraceSummaries(ctx context.Context, query devdash.TraceQuery) ([]*devdash.TraceSummary, bool) {
+func queryVictoriaTraceSummaries(ctx context.Context, query devdash.TraceQuery) ([]*devdash.TraceSummary, string, error) {
 	stack := defaultVictoriaQueryStack()
 	if stack == nil {
-		return nil, false
+		return nil, "VictoriaTraces is unavailable", nil
 	}
 	items, err := stack.QueryTraceSummaries(ctx, query)
-	if err != nil || len(items) == 0 {
-		return nil, false
+	if err != nil {
+		return nil, "VictoriaTraces query failed: " + err.Error(), nil
 	}
-	return items, true
+	return items, "", nil
+}
+
+func queryVictoriaLogCounts(ctx context.Context, appID, sessionID string, since time.Duration) ([]devdash.LogLevelCount, string, error) {
+	stack := defaultVictoriaQueryStack()
+	if stack == nil || stack.BaseURL("logs") == "" {
+		return nil, "VictoriaLogs is unavailable", nil
+	}
+	result, err := obs.QueryLogs(ctx, obs.LogsQuery{
+		BaseURL: stack.BaseURL("logs"),
+		Scope: obs.QueryScope{
+			AppID:     appID,
+			SessionID: sessionID,
+			Enforced:  true,
+		},
+		Query:   "*",
+		Bounds:  queryBounds(since, since.String(), time.Time{}, time.Time{}),
+		Limit:   2000,
+		Timeout: 3 * time.Second,
+		Fields:  []string{"level", "severityText", "severity_text"},
+	})
+	if err != nil {
+		return nil, "VictoriaLogs query failed: " + err.Error(), nil
+	}
+	counts := map[string]int64{}
+	for _, entry := range result.Logs {
+		level := strings.TrimSpace(entry.Level)
+		if level == "" {
+			level = "unknown"
+		}
+		counts[level]++
+	}
+	items := make([]devdash.LogLevelCount, 0, len(counts))
+	for level, count := range counts {
+		items = append(items, devdash.LogLevelCount{Level: level, Count: count})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Level < items[j].Level })
+	return items, "", nil
 }
 
 func buildInspectTraceQueryRecord(appID string, opts inspectTraceQueryOptions) inspectTraceQueryRecord {

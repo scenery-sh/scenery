@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -52,6 +53,7 @@ type devSupervisor struct {
 	addr    string
 
 	store        *devdash.Store
+	storeWriter  dashboardControlPlaneWriter
 	dashboard    *dashboardServer
 	proxy        *localproxy.Proxy
 	temporal     *temporalDevServer
@@ -83,19 +85,31 @@ const (
 
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend devBackend, console *runConsole) (*devSupervisor, error) {
+func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend devBackend, console *runConsole, agent *localagent.Client, agentSession *localagent.Session) (*devSupervisor, error) {
 	supervisorCtx, cancel := context.WithCancel(ctx)
 	backend = backend.normalized()
-	store, err := openDevdashStore()
+	token, err := randomToken()
 	if err != nil {
 		cancel()
 		return nil, err
 	}
-	token, err := randomToken()
-	if err != nil {
-		cancel()
-		_ = store.Close()
-		return nil, err
+	var (
+		store       *devdash.Store
+		storeWriter dashboardControlPlaneWriter
+	)
+	if agent != nil && agentSession != nil && !localproxy.Enabled() {
+		storeWriter, err = newDashboardControlPlaneClient(ctx, agent, *agentSession, token)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+	} else {
+		store, err = openDevdashStore()
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		storeWriter = localDashboardControlPlaneWriter{store: store}
 	}
 	appID := cfg.AppID()
 	if console == nil {
@@ -103,15 +117,18 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend 
 	}
 
 	s := &devSupervisor{
-		ctx:         supervisorCtx,
-		cancel:      cancel,
-		root:        root,
-		cfg:         cfg,
-		backend:     backend,
-		addr:        backend.Addr,
-		store:       store,
-		reportToken: token,
-		console:     console,
+		ctx:          supervisorCtx,
+		cancel:       cancel,
+		root:         root,
+		cfg:          cfg,
+		backend:      backend,
+		addr:         backend.Addr,
+		store:        store,
+		storeWriter:  storeWriter,
+		reportToken:  token,
+		console:      console,
+		agent:        agent,
+		agentSession: agentSession,
 		status: devdash.AppRecord{
 			ID:         appID,
 			Name:       cfg.Name,
@@ -125,7 +142,9 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend 
 	uiDir, err := prepareDashboardUIDir(supervisorCtx, s.console)
 	if err != nil {
 		cancel()
-		_ = store.Close()
+		if store != nil {
+			_ = store.Close()
+		}
 		return nil, err
 	}
 	s.dashboard = newDashboardServer(s, uiDir)
@@ -421,7 +440,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		Method: "process/compile-start",
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "compile-start", s.compactAppStatus())
+	s.writeProcessEvent(ctx, "compile-start", s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event("process.compile-start", map[string]any{
 			"initial": initial,
@@ -488,7 +507,7 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 		Method: method,
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), method, s.compactAppStatus())
+	s.writeProcessEvent(ctx, method, s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event(method, map[string]any{
 			"pid":         current.pid,
@@ -1253,7 +1272,7 @@ func (s *devSupervisor) handleExit(ctx context.Context, app *runningApp) {
 		Method: "process/stop",
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "process-stop", s.compactAppStatus())
+	s.writeProcessEvent(ctx, "process-stop", s.compactAppStatus())
 	if s.console != nil {
 		s.console.Event("process.stop", map[string]any{
 			"pid": app.pid,
@@ -1365,7 +1384,23 @@ func (s *devSupervisor) persistStatus(ctx context.Context) error {
 	s.mu.RLock()
 	status := s.status
 	s.mu.RUnlock()
-	return s.store.UpsertApp(ctx, status)
+	if s.storeWriter == nil {
+		return nil
+	}
+	return s.storeWriter.UpsertApp(ctx, status)
+}
+
+func (s *devSupervisor) writeProcessEvent(ctx context.Context, kind string, payload any) {
+	if s == nil {
+		return
+	}
+	if s.storeWriter == nil && s.store != nil {
+		s.storeWriter = localDashboardControlPlaneWriter{store: s.store}
+	}
+	if s.storeWriter == nil {
+		return
+	}
+	_ = s.storeWriter.WriteProcessEvent(ctx, s.activeAppID(), s.currentSessionID(), kind, payload)
 }
 
 func (s *devSupervisor) setCompiling(compiling bool, compileErr string) {
@@ -2002,7 +2037,7 @@ func (s *devSupervisor) handleCompileError(ctx context.Context, metadata, apiEnc
 		Method: "process/compile-error",
 		Params: s.appStatus(),
 	})
-	_ = s.store.WriteProcessEvent(ctx, s.activeAppID(), "compile-error", map[string]any{"error": err.Error()})
+	s.writeProcessEvent(ctx, "compile-error", map[string]any{"error": err.Error()})
 	s.eventSink().Emit(ctx, devdash.DevSource{ID: "build", Kind: "build", Name: "build", Status: "error", Reason: err.Error()}, "error", "build failed", map[string]any{
 		"error": err.Error(),
 	})
@@ -2052,12 +2087,23 @@ func (s *devSupervisor) listApps(ctx context.Context) ([]map[string]any, error) 
 	if appID == "" {
 		return []map[string]any{}, nil
 	}
+	if s.store == nil {
+		status := s.appStatus()
+		return []map[string]any{{
+			"id":           status.AppID,
+			"name":         firstNonEmpty(s.cfg.Name, status.AppID),
+			"app_root":     status.AppRoot,
+			"session_id":   status.SessionID,
+			"offline":      !status.Running,
+			"compileError": status.CompileError,
+		}}, nil
+	}
 	app, err := s.store.GetApp(ctx, appID)
 	if err != nil {
 		status := s.appStatus()
 		return []map[string]any{{
 			"id":           status.AppID,
-			"name":         status.AppID,
+			"name":         firstNonEmpty(s.cfg.Name, status.AppID),
 			"app_root":     status.AppRoot,
 			"session_id":   status.SessionID,
 			"offline":      !status.Running,
@@ -2077,6 +2123,13 @@ func (s *devSupervisor) listApps(ctx context.Context) ([]map[string]any, error) 
 func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {
 	if appID == "" {
 		appID = s.activeAppID()
+	}
+	if s.store == nil {
+		status := s.appStatus()
+		if appID == "" || appID == status.AppID || appID == status.SessionID || appID == status.RuntimeAppID {
+			return status, nil
+		}
+		return devdash.AppStatus{}, sql.ErrNoRows
 	}
 	app, err := s.store.GetApp(ctx, appID)
 	if err != nil {

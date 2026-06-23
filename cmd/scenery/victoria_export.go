@@ -21,16 +21,19 @@ var victoriaExportClient = &http.Client{Timeout: time.Second}
 const sceneryRequestDurationMetricName = "scenery_request_duration_seconds"
 
 func (s *dashboardServer) exportVictoriaTraceSummary(ctx context.Context, summary *devdash.TraceSummary) {
+	s.exportVictoriaTraceSummaryWithEvents(ctx, summary, nil)
+}
+
+func (s *dashboardServer) exportVictoriaTraceSummaryWithEvents(ctx context.Context, summary *devdash.TraceSummary, events []*devdash.TraceEvent) {
 	victoria := s.dashboardVictoria()
 	if s == nil || victoria == nil || summary == nil {
 		return
 	}
 	traceEndpoint := victoria.Endpoint("traces")
-	rawEvents, _ := s.dashboardStore().GetTraceEventsForSession(ctx, summary.AppID, summary.SessionID, summary.TraceID, summary.SpanID)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if traceEndpoint != "" {
-		_ = postVictoriaProtobuf(ctx, traceEndpoint, buildOTLPTraceProto(summary, rawEvents))
+		_ = postVictoriaProtobuf(ctx, traceEndpoint, buildOTLPTraceProto(summary, events))
 	}
 	if metricsEndpoint := victoria.Endpoint("metrics"); metricsEndpoint != "" {
 		_ = postVictoriaProtobuf(ctx, metricsEndpoint, buildOTLPMetricProto(summary))

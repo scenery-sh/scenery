@@ -5,9 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
-
-	"scenery.sh/internal/devdash"
 )
 
 func TestParseTracesClearArgs(t *testing.T) {
@@ -27,27 +24,6 @@ func TestRunTracesClear(t *testing.T) {
 	cacheRoot := t.TempDir()
 	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"adminapp","id":"admin-id"}`)
-
-	store, err := devdash.OpenStore(cacheRoot)
-	if err != nil {
-		t.Fatalf("OpenStore() error = %v", err)
-	}
-	defer store.Close()
-
-	endpoint := "Ping"
-	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-		AppID:         "admin-id",
-		TraceID:       "trace-1",
-		SpanID:        "span-1",
-		Type:          "RPC",
-		IsRoot:        true,
-		StartedAt:     time.Now().UTC(),
-		DurationNanos: 123,
-		ServiceName:   "svc",
-		EndpointName:  &endpoint,
-	}); err != nil {
-		t.Fatalf("AppendTraceSummary() error = %v", err)
-	}
 
 	restore := chdirForTest(t, root)
 	defer restore()
@@ -73,12 +49,5 @@ func TestRunTracesClear(t *testing.T) {
 	}
 	if payload.Data.AppID != "admin-id" || payload.Data.Cleared != "traces" {
 		t.Fatalf("data = %+v", payload.Data)
-	}
-	list, err := store.ListTraceSummaries(context.Background(), "admin-id", 10, "")
-	if err != nil {
-		t.Fatalf("ListTraceSummaries() error = %v", err)
-	}
-	if len(list) != 0 {
-		t.Fatalf("expected traces cleared, got %d summaries", len(list))
 	}
 }

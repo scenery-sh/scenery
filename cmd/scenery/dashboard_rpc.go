@@ -67,9 +67,6 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		if err != nil {
 			return nil, err
 		}
-		if err := s.dashboardStore().ClearTracesForSession(ctx, dashboardStoreAppID(status), status.SessionID); err != nil {
-			return nil, err
-		}
 		if victoria := s.dashboardVictoria(); victoria != nil {
 			victoria.MarkCleared(dashboardStoreAppID(status), time.Now().UTC())
 		}

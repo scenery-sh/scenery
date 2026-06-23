@@ -285,19 +285,6 @@ func writeHarnessParallelObservability(ctx context.Context, store *devdash.Store
 		}); err != nil {
 			return err
 		}
-		if err := store.AppendTraceSummary(ctx, &devdash.TraceSummary{
-			AppID:         appID,
-			SessionID:     session.SessionID,
-			TraceID:       "same-trace",
-			SpanID:        "same-span",
-			Type:          "REQUEST",
-			IsRoot:        true,
-			StartedAt:     now,
-			DurationNanos: 1000,
-			ServiceName:   "svc",
-		}); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -334,9 +321,9 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	logsA, errA := store.ListProcessOutputForSession(ctx, appID, sessionA.SessionID, 10)
 	logsB, errB := store.ListProcessOutputForSession(ctx, appID, sessionB.SessionID, 10)
 	check(errA == nil && errB == nil && len(logsA) == 1 && len(logsB) == 1 && string(logsA[0].Output) != string(logsB[0].Output), "process output must remain session-scoped")
-	tracesA, errA := store.GetTraceSummariesForSession(ctx, appID, sessionA.SessionID, "same-trace")
-	tracesB, errB := store.GetTraceSummariesForSession(ctx, appID, sessionB.SessionID, "same-trace")
-	check(errA == nil && errB == nil && len(tracesA) == 1 && len(tracesB) == 1 && tracesA[0].SessionID != tracesB[0].SessionID, "trace summaries must remain session-scoped")
+	appA, errA := store.GetAppForSession(ctx, appID, sessionA.SessionID)
+	appB, errB := store.GetAppForSession(ctx, appID, sessionB.SessionID)
+	check(errA == nil && errB == nil && appA.SessionID != "" && appB.SessionID != "" && appA.SessionID != appB.SessionID, "dashboard app sessions must remain session-scoped")
 	if _, err := client.Delete(ctx, sessionA.SessionID, false); err != nil {
 		check(false, "deleting one session must succeed without signaling")
 	} else if _, err := client.Delete(ctx, sessionB.SessionID, false); err != nil {

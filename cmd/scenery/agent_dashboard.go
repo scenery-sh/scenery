@@ -108,7 +108,14 @@ func (c *agentDashboardController) dashboardStatusFor(ctx context.Context, appID
 		if len(records) == 0 {
 			return devdash.AppStatus{}, sql.ErrNoRows
 		}
-		return appRecordStatus(c.appRecordWithRegistryLiveness(records[0])), nil
+		selected := c.appRecordWithRegistryLiveness(records[0])
+		routeID := firstNonEmpty(selected.RouteID, selected.SessionID, selected.ID)
+		if routeID != "" {
+			if hydrated, err := c.store.GetAppSession(ctx, routeID); err == nil {
+				selected = c.appRecordWithRegistryLiveness(hydrated)
+			}
+		}
+		return appRecordStatus(selected), nil
 	}
 	app, err := c.store.GetAppSession(ctx, appID)
 	if err != nil {

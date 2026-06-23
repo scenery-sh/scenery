@@ -91,6 +91,9 @@ func (s *victoriaStack) QueryTraceSummaries(ctx context.Context, query devdash.T
 	}
 	traces, err := queryVictoriaJaegerTraces(ctx, baseURL, query)
 	if err != nil {
+		if strings.Contains(err.Error(), "VictoriaTraces returned no traces") {
+			return []*devdash.TraceSummary{}, nil
+		}
 		return nil, err
 	}
 	items := summariesFromVictoriaTraces(query.AppID, traces)

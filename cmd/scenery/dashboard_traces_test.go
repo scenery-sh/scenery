@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -11,14 +10,11 @@ import (
 func TestDashboardTraceEventsForServiceInitSynthesizesSpanBoundaries(t *testing.T) {
 	t.Parallel()
 
-	server := newTestDashboardServer(t)
-	ctx := context.Background()
-
 	traceID := "6bd7469c20430af3eb2cc9896851d723"
 	spanID := "4babf8489f07f89b"
 	startedAt := time.Date(2026, time.April, 14, 14, 33, 56, 725492916, time.UTC)
 
-	if err := server.supervisor.store.AppendTraceSummary(ctx, &devdash.TraceSummary{
+	summary := &devdash.TraceSummary{
 		AppID:         "app-test",
 		TraceID:       traceID,
 		SpanID:        spanID,
@@ -28,52 +24,47 @@ func TestDashboardTraceEventsForServiceInitSynthesizesSpanBoundaries(t *testing.
 		DurationNanos: 84,
 		ServiceName:   "console",
 		EndpointName:  ptrString("init"),
-	}); err != nil {
-		t.Fatalf("append summary: %v", err)
 	}
 
-	if err := server.supervisor.store.AppendTraceEvent(ctx, &devdash.TraceEvent{
-		AppID:     "app-test",
-		TraceID:   traceID,
-		SpanID:    spanID,
-		EventID:   7,
-		EventTime: startedAt,
-		Event: map[string]any{
-			"span_event": map[string]any{
-				"service_init_start": map[string]any{
-					"service": "console",
+	events := []*devdash.TraceEvent{
+		{
+			AppID:     "app-test",
+			TraceID:   traceID,
+			SpanID:    spanID,
+			EventID:   7,
+			EventTime: startedAt,
+			Event: map[string]any{
+				"span_event": map[string]any{
+					"service_init_start": map[string]any{
+						"service": "console",
+					},
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append start event: %v", err)
-	}
-	if err := server.supervisor.store.AppendTraceEvent(ctx, &devdash.TraceEvent{
-		AppID:     "app-test",
-		TraceID:   traceID,
-		SpanID:    spanID,
-		EventID:   8,
-		EventTime: startedAt.Add(84 * time.Nanosecond),
-		Event: map[string]any{
-			"span_event": map[string]any{
-				"service_init_end": map[string]any{
-					"error": nil,
+		{
+			AppID:     "app-test",
+			TraceID:   traceID,
+			SpanID:    spanID,
+			EventID:   8,
+			EventTime: startedAt.Add(84 * time.Nanosecond),
+			Event: map[string]any{
+				"span_event": map[string]any{
+					"service_init_end": map[string]any{
+						"error": nil,
+					},
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append end event: %v", err)
 	}
 
-	events, err := server.traceEventsFor(ctx, "app-test", "", traceID)
-	if err != nil {
-		t.Fatalf("traceEventsFor: %v", err)
-	}
-	if len(events) != 4 {
-		t.Fatalf("expected 4 events, got %d", len(events))
+	compat := buildCompatTraceEvents(summary, events)
+	sortCompatTraceEvents(compat)
+	payloads := compatTracePayloads(compat)
+	if len(payloads) != 4 {
+		t.Fatalf("expected 4 events, got %d", len(payloads))
 	}
 
-	first := events[0]
+	first := payloads[0]
 	if _, ok := first["event"]; ok {
 		t.Fatal("expected compatibility event payload without nested event envelope")
 	}
@@ -92,13 +83,13 @@ func TestDashboardTraceEventsForServiceInitSynthesizesSpanBoundaries(t *testing.
 		t.Fatalf("unexpected synthesized path: %v", request["path"])
 	}
 
-	second := events[1]
+	second := payloads[1]
 	spanEvent := second["span_event"].(map[string]any)
 	if _, ok := spanEvent["service_init_start"]; !ok {
 		t.Fatalf("expected preserved service_init_start event, got %#v", second)
 	}
 
-	last := events[len(events)-1]
+	last := payloads[len(payloads)-1]
 	if _, ok := last["span_end"]; !ok {
 		t.Fatalf("expected synthesized span_end, got %#v", last)
 	}
@@ -107,15 +98,12 @@ func TestDashboardTraceEventsForServiceInitSynthesizesSpanBoundaries(t *testing.
 func TestDashboardTraceEventsForSpanFlattensRequestEvents(t *testing.T) {
 	t.Parallel()
 
-	server := newTestDashboardServer(t)
-	ctx := context.Background()
-
 	traceID := "00000000000000010000000000000002"
 	spanID := "0000000000000003"
 	parentSpanID := "0000000000000001"
 	startedAt := time.Date(2026, time.April, 14, 15, 0, 0, 0, time.UTC)
 
-	if err := server.supervisor.store.AppendTraceSummary(ctx, &devdash.TraceSummary{
+	summary := &devdash.TraceSummary{
 		AppID:         "app-test",
 		TraceID:       traceID,
 		SpanID:        spanID,
@@ -126,58 +114,53 @@ func TestDashboardTraceEventsForSpanFlattensRequestEvents(t *testing.T) {
 		ServiceName:   "tenants",
 		EndpointName:  ptrString("Config"),
 		ParentSpanID:  &parentSpanID,
-	}); err != nil {
-		t.Fatalf("append summary: %v", err)
 	}
 
-	if err := server.supervisor.store.AppendTraceEvent(ctx, &devdash.TraceEvent{
-		AppID:     "app-test",
-		TraceID:   traceID,
-		SpanID:    spanID,
-		EventID:   11,
-		EventTime: startedAt,
-		Event: map[string]any{
-			"span_start": map[string]any{
-				"request": map[string]any{
-					"service_name":  "tenants",
-					"endpoint_name": "Config",
-					"http_method":   "GET",
-					"path":          "/tenants/config",
+	events := []*devdash.TraceEvent{
+		{
+			AppID:     "app-test",
+			TraceID:   traceID,
+			SpanID:    spanID,
+			EventID:   11,
+			EventTime: startedAt,
+			Event: map[string]any{
+				"span_start": map[string]any{
+					"request": map[string]any{
+						"service_name":  "tenants",
+						"endpoint_name": "Config",
+						"http_method":   "GET",
+						"path":          "/tenants/config",
+					},
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append span_start: %v", err)
-	}
-	if err := server.supervisor.store.AppendTraceEvent(ctx, &devdash.TraceEvent{
-		AppID:     "app-test",
-		TraceID:   traceID,
-		SpanID:    spanID,
-		EventID:   12,
-		EventTime: startedAt.Add(5 * time.Millisecond),
-		Event: map[string]any{
-			"span_end": map[string]any{
-				"duration_nanos": uint64(5 * time.Millisecond),
-				"request": map[string]any{
-					"service_name":     "tenants",
-					"endpoint_name":    "Config",
-					"http_status_code": 200,
+		{
+			AppID:     "app-test",
+			TraceID:   traceID,
+			SpanID:    spanID,
+			EventID:   12,
+			EventTime: startedAt.Add(5 * time.Millisecond),
+			Event: map[string]any{
+				"span_end": map[string]any{
+					"duration_nanos": uint64(5 * time.Millisecond),
+					"request": map[string]any{
+						"service_name":     "tenants",
+						"endpoint_name":    "Config",
+						"http_status_code": 200,
+					},
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append span_end: %v", err)
 	}
 
-	events, err := server.traceEventsForSpan(ctx, "app-test", "", traceID, spanID)
-	if err != nil {
-		t.Fatalf("traceEventsForSpan: %v", err)
-	}
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(events))
+	compat := buildCompatTraceEvents(summary, events)
+	sortCompatTraceEvents(compat)
+	payloads := compatTracePayloads(compat)
+	if len(payloads) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(payloads))
 	}
 
-	first := events[0]
+	first := payloads[0]
 	if _, ok := first["event"]; ok {
 		t.Fatal("expected flattened compatibility payload")
 	}

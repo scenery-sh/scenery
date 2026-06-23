@@ -6,6 +6,51 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Devdash Control-Plane Store Slimming
+
+- Status: completed
+- Owner: scenery runtime / agent DX
+- Completed: 2026-06-23
+- Quality: B
+- ExecPlan: [0076 Devdash Control-Plane Store Slimming](0076-devdash-control-plane-store-slimming.md)
+
+Shipped:
+
+- Removed trace summaries, trace events, and report log events from the persisted dashboard store.
+- Cut dashboard and CLI trace/metric reads over to Victoria-backed query paths.
+- Kept report ingestion store-free for observability event data.
+- Enforced a compact `devdash.json` byte budget, with app-model sidecar blobs covering large metadata/API-encoding payloads.
+- Routed agent-backed `scenery up` app/session/process mutations through the agent dashboard control-plane endpoint so the agent dashboard process owns global store writes.
+
+Validation:
+
+- `go test ./cmd/scenery ./internal/devdash`
+- `go test ./...`
+- `scenery harness self --summary --write` passed with warnings only.
+
+## Devdash App-Model Blob Store
+
+- Status: completed
+- Owner: scenery runtime / agent DX
+- Completed: 2026-06-23
+- Quality: B
+- ExecPlan: [0078 Devdash App-Model Blob Store](0078-devdash-app-model-blob-store.md)
+
+Shipped:
+
+- Split persisted devdash app/session records from the public `AppRecord` compatibility shape.
+- Moved large app-model `Metadata` and `APIEncoding` payloads into content-addressed sidecar blobs under the dashboard cache root.
+- Migrated legacy fat `apps` and `app_sessions` records on load/save.
+- Kept list paths compact while hydrating detail/status paths.
+- Added serialized-size budget enforcement with a 2 MB soft target, 8 MB hard cap, byte-aware pruning, and top-level size diagnostics.
+
+Validation:
+
+- `go test ./internal/devdash`
+- `go test ./cmd/scenery`
+- `go test ./...`
+- `.scenery/harness/bin/scenery harness self --summary --write` passed with warnings only.
+
 ## Static Model/View IR
 
 - Status: completed

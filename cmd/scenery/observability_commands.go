@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 func tracesCommand(args []string) error {
@@ -96,13 +97,8 @@ func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error 
 		return err
 	}
 	appID := cfg.AppID()
-	store, err := openDevdashStore()
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	if err := store.ClearTraces(ctx, appID); err != nil {
-		return err
+	if stack := defaultVictoriaQueryStack(); stack != nil {
+		stack.MarkCleared(appID, time.Now().UTC())
 	}
 	resp := adminResponse{
 		SchemaVersion: "scenery.traces.clear.v1",

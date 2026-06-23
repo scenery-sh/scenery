@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,18 +42,18 @@ type storeStamp struct {
 }
 
 const (
-	maxStoredProcessEvents  = 1000
-	maxStoredProcessOutput  = 5000
-	maxStoredDevEvents      = 5000
-	maxStoredTraceSummaries = 2000
-	maxStoredTraceEvents    = 6000
-	maxStoredLogEvents      = 5000
-	deferredSaveDelay       = 500 * time.Millisecond
+	maxStoredProcessEvents = 1000
+	maxStoredProcessOutput = 5000
+	maxStoredDevEvents     = 5000
+	deferredSaveDelay      = 500 * time.Millisecond
 
 	// Process events are diagnostic breadcrumbs. A payload above this size
 	// (e.g. full app metadata on every reload) bloats devdash.json until
 	// every store refresh re-parses hundreds of megabytes of JSON.
 	maxProcessEventPayloadBytes = 64 * 1024
+
+	softStoreFileBytes = 2 * 1024 * 1024
+	hardStoreFileBytes = 8 * 1024 * 1024
 )
 
 type ProcessEvent struct {
@@ -80,21 +82,87 @@ type LogLevelCount struct {
 }
 
 type storeState struct {
-	Version             int                      `json:"version"`
-	Apps                map[string]AppRecord     `json:"apps,omitempty"`
-	AppSessions         map[string]AppRecord     `json:"app_sessions,omitempty"`
-	ProcessEvents       []ProcessEvent           `json:"process_events,omitempty"`
-	ProcessOutput       []ProcessOutput          `json:"process_output,omitempty"`
-	DevSources          map[string]DevSource     `json:"dev_sources,omitempty"`
-	DevEvents           []storedDevEvent         `json:"dev_events,omitempty"`
-	TraceSummaries      []storedTraceSummary     `json:"trace_summaries,omitempty"`
-	TraceEvents         []storedTraceEvent       `json:"trace_events,omitempty"`
-	LogEvents           []LogEvent               `json:"log_events,omitempty"`
-	Onboarding          OnboardingState          `json:"onboarding,omitempty"`
-	StoredRequests      map[string]StoredRequest `json:"stored_requests,omitempty"`
-	NextProcessEventID  int64                    `json:"next_process_event_id,omitempty"`
-	NextProcessOutputID int64                    `json:"next_process_output_id,omitempty"`
-	NextDevEventID      int64                    `json:"next_dev_event_id,omitempty"`
+	Version             int                          `json:"version"`
+	Apps                map[string]StoredApp         `json:"apps,omitempty"`
+	AppSessions         map[string]StoredAppSession  `json:"app_sessions,omitempty"`
+	AppModelRefs        map[string]StoredAppModelRef `json:"app_model_refs,omitempty"`
+	ProcessEvents       []ProcessEvent               `json:"process_events,omitempty"`
+	ProcessOutput       []ProcessOutput              `json:"process_output,omitempty"`
+	DevSources          map[string]DevSource         `json:"dev_sources,omitempty"`
+	DevEvents           []storedDevEvent             `json:"dev_events,omitempty"`
+	Onboarding          OnboardingState              `json:"onboarding,omitempty"`
+	StoredRequests      map[string]StoredRequest     `json:"stored_requests,omitempty"`
+	NextProcessEventID  int64                        `json:"next_process_event_id,omitempty"`
+	NextProcessOutputID int64                        `json:"next_process_output_id,omitempty"`
+	NextDevEventID      int64                        `json:"next_dev_event_id,omitempty"`
+}
+
+type StoredApp struct {
+	RouteID         string            `json:"route_id,omitempty"`
+	ID              string            `json:"id"`
+	BaseAppID       string            `json:"base_app_id,omitempty"`
+	RuntimeAppID    string            `json:"runtime_app_id,omitempty"`
+	SessionID       string            `json:"session_id,omitempty"`
+	Name            string            `json:"name,omitempty"`
+	Root            string            `json:"root,omitempty"`
+	ListenAddr      string            `json:"listen_addr,omitempty"`
+	Grafana         json.RawMessage   `json:"grafana,omitempty"`
+	Routes          map[string]string `json:"routes,omitempty"`
+	Aliases         map[string]string `json:"aliases,omitempty"`
+	Offline         bool              `json:"offline,omitempty"`
+	Running         bool              `json:"running,omitempty"`
+	Compiling       bool              `json:"compiling,omitempty"`
+	CompileError    string            `json:"compile_error,omitempty"`
+	PID             string            `json:"pid,omitempty"`
+	UpdatedAt       time.Time         `json:"updated_at,omitempty"`
+	MetadataRef     string            `json:"metadata_ref,omitempty"`
+	MetadataHash    string            `json:"metadata_hash,omitempty"`
+	APIEncodingRef  string            `json:"api_encoding_ref,omitempty"`
+	APIEncodingHash string            `json:"api_encoding_hash,omitempty"`
+	AppRevision     string            `json:"app_revision,omitempty"`
+
+	legacyMetadata    json.RawMessage
+	legacyAPIEncoding json.RawMessage
+}
+
+type StoredAppSession struct {
+	RouteID         string            `json:"route_id,omitempty"`
+	ID              string            `json:"id"`
+	BaseAppID       string            `json:"base_app_id,omitempty"`
+	RuntimeAppID    string            `json:"runtime_app_id,omitempty"`
+	SessionID       string            `json:"session_id,omitempty"`
+	Name            string            `json:"name,omitempty"`
+	Root            string            `json:"root,omitempty"`
+	ListenAddr      string            `json:"listen_addr,omitempty"`
+	Grafana         json.RawMessage   `json:"grafana,omitempty"`
+	Routes          map[string]string `json:"routes,omitempty"`
+	Aliases         map[string]string `json:"aliases,omitempty"`
+	Offline         bool              `json:"offline,omitempty"`
+	Running         bool              `json:"running,omitempty"`
+	Compiling       bool              `json:"compiling,omitempty"`
+	CompileError    string            `json:"compile_error,omitempty"`
+	PID             string            `json:"pid,omitempty"`
+	UpdatedAt       time.Time         `json:"updated_at,omitempty"`
+	MetadataRef     string            `json:"metadata_ref,omitempty"`
+	MetadataHash    string            `json:"metadata_hash,omitempty"`
+	APIEncodingRef  string            `json:"api_encoding_ref,omitempty"`
+	APIEncodingHash string            `json:"api_encoding_hash,omitempty"`
+	AppRevision     string            `json:"app_revision,omitempty"`
+
+	legacyMetadata    json.RawMessage
+	legacyAPIEncoding json.RawMessage
+}
+
+type StoredAppModelRef struct {
+	Ref         string    `json:"ref"`
+	Kind        string    `json:"kind"`
+	Hash        string    `json:"hash"`
+	AppID       string    `json:"app_id"`
+	Root        string    `json:"root,omitempty"`
+	AppRevision string    `json:"app_revision,omitempty"`
+	Path        string    `json:"path,omitempty"`
+	Bytes       int64     `json:"bytes,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }
 
 type storedDevEvent struct {
@@ -104,16 +172,146 @@ type storedDevEvent struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type storedTraceSummary struct {
-	TraceSummary
-	AppID     string `json:"app_id"`
-	TestTrace bool   `json:"test_trace,omitempty"`
+func (app *StoredApp) UnmarshalJSON(data []byte) error {
+	type storedApp StoredApp
+	var current storedApp
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*app = StoredApp(current)
+	var legacy AppRecord
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return nil
+	}
+	mergeStoredAppLegacy(app, legacy)
+	return nil
 }
 
-type storedTraceEvent struct {
-	TraceEvent
-	AppID string          `json:"app_id"`
-	Data  json.RawMessage `json:"data,omitempty"`
+func (session *StoredAppSession) UnmarshalJSON(data []byte) error {
+	type storedAppSession StoredAppSession
+	var current storedAppSession
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*session = StoredAppSession(current)
+	var legacy AppRecord
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return nil
+	}
+	mergeStoredAppSessionLegacy(session, legacy)
+	return nil
+}
+
+func mergeStoredAppLegacy(app *StoredApp, legacy AppRecord) {
+	if app.ID == "" {
+		app.ID = legacy.ID
+	}
+	if app.RouteID == "" {
+		app.RouteID = legacy.RouteID
+	}
+	if app.BaseAppID == "" {
+		app.BaseAppID = legacy.BaseAppID
+	}
+	if app.RuntimeAppID == "" {
+		app.RuntimeAppID = legacy.RuntimeAppID
+	}
+	if app.SessionID == "" {
+		app.SessionID = legacy.SessionID
+	}
+	if app.Name == "" {
+		app.Name = legacy.Name
+	}
+	if app.Root == "" {
+		app.Root = legacy.Root
+	}
+	if app.ListenAddr == "" {
+		app.ListenAddr = legacy.ListenAddr
+	}
+	if len(app.Grafana) == 0 {
+		app.Grafana = copyRawMessage(legacy.Grafana)
+	}
+	if app.Routes == nil {
+		app.Routes = maps.Clone(legacy.Routes)
+	}
+	if app.Aliases == nil {
+		app.Aliases = maps.Clone(legacy.Aliases)
+	}
+	if !app.Offline {
+		app.Offline = legacy.Offline
+	}
+	if !app.Running {
+		app.Running = legacy.Running
+	}
+	if !app.Compiling {
+		app.Compiling = legacy.Compiling
+	}
+	if app.CompileError == "" {
+		app.CompileError = legacy.CompileError
+	}
+	if app.PID == "" {
+		app.PID = legacy.PID
+	}
+	if app.UpdatedAt.IsZero() {
+		app.UpdatedAt = legacy.UpdatedAt
+	}
+	app.legacyMetadata = copyRawMessage(legacy.Metadata)
+	app.legacyAPIEncoding = copyRawMessage(legacy.APIEncoding)
+}
+
+func mergeStoredAppSessionLegacy(session *StoredAppSession, legacy AppRecord) {
+	if session.ID == "" {
+		session.ID = legacy.ID
+	}
+	if session.RouteID == "" {
+		session.RouteID = legacy.RouteID
+	}
+	if session.BaseAppID == "" {
+		session.BaseAppID = legacy.BaseAppID
+	}
+	if session.RuntimeAppID == "" {
+		session.RuntimeAppID = legacy.RuntimeAppID
+	}
+	if session.SessionID == "" {
+		session.SessionID = legacy.SessionID
+	}
+	if session.Name == "" {
+		session.Name = legacy.Name
+	}
+	if session.Root == "" {
+		session.Root = legacy.Root
+	}
+	if session.ListenAddr == "" {
+		session.ListenAddr = legacy.ListenAddr
+	}
+	if len(session.Grafana) == 0 {
+		session.Grafana = copyRawMessage(legacy.Grafana)
+	}
+	if session.Routes == nil {
+		session.Routes = maps.Clone(legacy.Routes)
+	}
+	if session.Aliases == nil {
+		session.Aliases = maps.Clone(legacy.Aliases)
+	}
+	if !session.Offline {
+		session.Offline = legacy.Offline
+	}
+	if !session.Running {
+		session.Running = legacy.Running
+	}
+	if !session.Compiling {
+		session.Compiling = legacy.Compiling
+	}
+	if session.CompileError == "" {
+		session.CompileError = legacy.CompileError
+	}
+	if session.PID == "" {
+		session.PID = legacy.PID
+	}
+	if session.UpdatedAt.IsZero() {
+		session.UpdatedAt = legacy.UpdatedAt
+	}
+	session.legacyMetadata = copyRawMessage(legacy.Metadata)
+	session.legacyAPIEncoding = copyRawMessage(legacy.APIEncoding)
 }
 
 var storeLocks sync.Map
@@ -256,6 +454,9 @@ func (s *Store) loadStateWithStamp() (*storeState, storeStamp, error) {
 		return nil, storeStamp{}, err
 	}
 	normalizeStoreState(&state)
+	if err := s.migrateStoreStateAppModels(&state); err != nil {
+		return nil, storeStamp{}, err
+	}
 	pruneStoreState(&state)
 	return &state, stamp, nil
 }
@@ -295,10 +496,24 @@ func (s *Store) refreshForExternalChangeLocked() error {
 
 func (s *Store) saveState(state *storeState) error {
 	normalizeStoreState(state)
+	if err := s.migrateStoreStateAppModels(state); err != nil {
+		return err
+	}
 	pruneStoreState(state)
+	pruneStoreStateToBudget(state, softStoreFileBytes)
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
+	}
+	if len(data) > hardStoreFileBytes {
+		pruneStoreStateToBudget(state, hardStoreFileBytes)
+		data, err = json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		if len(data) > hardStoreFileBytes {
+			return fmt.Errorf("devdash store exceeds hard budget: %d > %d (%s)", len(data), hardStoreFileBytes, formatStoreSizeBreakdown(state))
+		}
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".devdash-*.json")
 	if err != nil {
@@ -348,10 +563,99 @@ func pruneStoreState(state *storeState) {
 	state.ProcessEvents = tailSlice(state.ProcessEvents, maxStoredProcessEvents)
 	state.ProcessOutput = tailSlice(state.ProcessOutput, maxStoredProcessOutput)
 	state.DevEvents = tailSlice(state.DevEvents, maxStoredDevEvents)
-	state.TraceSummaries = tailSlice(state.TraceSummaries, maxStoredTraceSummaries)
-	state.TraceEvents = tailSlice(state.TraceEvents, maxStoredTraceEvents)
-	state.LogEvents = tailSlice(state.LogEvents, maxStoredLogEvents)
 	truncateOversizedProcessEvents(state.ProcessEvents)
+	pruneOrphanedAppModelRefs(state)
+}
+
+func pruneStoreStateToBudget(state *storeState, targetBytes int) {
+	if state == nil || targetBytes <= 0 {
+		return
+	}
+	for serializedStoreSize(state) > targetBytes {
+		switch {
+		case len(state.ProcessOutput) > 0:
+			state.ProcessOutput = dropOldestBudgetChunk(state.ProcessOutput)
+		case len(state.DevEvents) > 0:
+			state.DevEvents = dropOldestBudgetChunk(state.DevEvents)
+		case len(state.ProcessEvents) > 0:
+			state.ProcessEvents = dropOldestBudgetChunk(state.ProcessEvents)
+		default:
+			return
+		}
+	}
+}
+
+func dropOldestBudgetChunk[T any](items []T) []T {
+	if len(items) <= 1 {
+		return nil
+	}
+	drop := len(items) / 4
+	if drop < 1 {
+		drop = 1
+	}
+	if drop > 256 {
+		drop = 256
+	}
+	return items[drop:]
+}
+
+func serializedStoreSize(state *storeState) int {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return 0
+	}
+	return len(data)
+}
+
+func storeSizeBreakdown(state *storeState) map[string]int {
+	if state == nil {
+		return nil
+	}
+	parts := map[string]any{
+		"apps":                   state.Apps,
+		"app_sessions":           state.AppSessions,
+		"app_model_refs":         state.AppModelRefs,
+		"process_events":         state.ProcessEvents,
+		"process_output":         state.ProcessOutput,
+		"dev_sources":            state.DevSources,
+		"dev_events":             state.DevEvents,
+		"onboarding":             state.Onboarding,
+		"stored_requests":        state.StoredRequests,
+		"next_process_event_id":  state.NextProcessEventID,
+		"next_process_output_id": state.NextProcessOutputID,
+		"next_dev_event_id":      state.NextDevEventID,
+	}
+	out := make(map[string]int, len(parts))
+	for key, value := range parts {
+		data, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		out[key] = len(data)
+	}
+	return out
+}
+
+func formatStoreSizeBreakdown(state *storeState) string {
+	breakdown := storeSizeBreakdown(state)
+	keys := make([]string, 0, len(breakdown))
+	for key := range breakdown {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if breakdown[keys[i]] == breakdown[keys[j]] {
+			return keys[i] < keys[j]
+		}
+		return breakdown[keys[i]] > breakdown[keys[j]]
+	})
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if breakdown[key] == 0 || breakdown[key] == 4 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d", key, breakdown[key]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // truncateOversizedProcessEvents retroactively applies the payload size cap
@@ -374,6 +678,34 @@ func truncateOversizedProcessEvents(events []ProcessEvent) {
 	}
 }
 
+func pruneOrphanedAppModelRefs(state *storeState) {
+	if state == nil || len(state.AppModelRefs) == 0 {
+		return
+	}
+	live := map[string]bool{}
+	for _, app := range state.Apps {
+		if app.MetadataRef != "" {
+			live[app.MetadataRef] = true
+		}
+		if app.APIEncodingRef != "" {
+			live[app.APIEncodingRef] = true
+		}
+	}
+	for _, session := range state.AppSessions {
+		if session.MetadataRef != "" {
+			live[session.MetadataRef] = true
+		}
+		if session.APIEncodingRef != "" {
+			live[session.APIEncodingRef] = true
+		}
+	}
+	for ref := range state.AppModelRefs {
+		if !live[ref] {
+			delete(state.AppModelRefs, ref)
+		}
+	}
+}
+
 func tailSlice[T any](items []T, max int) []T {
 	if max <= 0 || len(items) <= max {
 		return items
@@ -392,10 +724,13 @@ func normalizeStoreState(state *storeState) {
 		state.Version = 1
 	}
 	if state.Apps == nil {
-		state.Apps = map[string]AppRecord{}
+		state.Apps = map[string]StoredApp{}
 	}
 	if state.AppSessions == nil {
-		state.AppSessions = map[string]AppRecord{}
+		state.AppSessions = map[string]StoredAppSession{}
+	}
+	if state.AppModelRefs == nil {
+		state.AppModelRefs = map[string]StoredAppModelRef{}
 	}
 	if state.DevSources == nil {
 		state.DevSources = map[string]DevSource{}
@@ -408,7 +743,8 @@ func normalizeStoreState(state *storeState) {
 	}
 	if len(state.AppSessions) == 0 && len(state.Apps) > 0 {
 		for _, app := range state.Apps {
-			state.AppSessions[appSessionRecordKey(app)] = app
+			session := storedAppSessionFromApp(app)
+			state.AppSessions[storedAppSessionRecordKey(session)] = session
 		}
 	}
 	if state.NextProcessEventID <= 0 {
@@ -470,36 +806,6 @@ func (event storedDevEvent) toDevEvent() DevEvent {
 	return item
 }
 
-func storeTraceSummary(summary TraceSummary) storedTraceSummary {
-	return storedTraceSummary{
-		TraceSummary: summary,
-		AppID:        summary.AppID,
-		TestTrace:    summary.TestTrace,
-	}
-}
-
-func (summary storedTraceSummary) toTraceSummary() TraceSummary {
-	item := summary.TraceSummary
-	item.AppID = summary.AppID
-	item.TestTrace = summary.TestTrace
-	return item
-}
-
-func storeTraceEvent(event TraceEvent) storedTraceEvent {
-	return storedTraceEvent{
-		TraceEvent: event,
-		AppID:      event.AppID,
-		Data:       event.Data,
-	}
-}
-
-func (event storedTraceEvent) toTraceEvent() TraceEvent {
-	item := event.TraceEvent
-	item.AppID = event.AppID
-	item.Data = event.Data
-	return item
-}
-
 func appSessionRecordKey(app AppRecord) string {
 	if app.RouteID != "" {
 		return app.RouteID
@@ -508,6 +814,16 @@ func appSessionRecordKey(app AppRecord) string {
 		return app.SessionID
 	}
 	return app.ID
+}
+
+func storedAppSessionRecordKey(session StoredAppSession) string {
+	if session.RouteID != "" {
+		return session.RouteID
+	}
+	if session.SessionID != "" {
+		return session.SessionID
+	}
+	return session.ID
 }
 
 func normalizeAppRecord(app AppRecord) AppRecord {
@@ -526,15 +842,278 @@ func normalizeAppRecord(app AppRecord) AppRecord {
 	return app
 }
 
+func (s *Store) splitAppRecordForStore(app AppRecord) (StoredApp, StoredAppSession, []StoredAppModelRef, error) {
+	appRevision := appRevisionFromMetadata(app.Metadata)
+	metadataRef, err := s.putAppModelBlob("metadata", app.ID, app.Root, appRevision, app.Metadata)
+	if err != nil {
+		return StoredApp{}, StoredAppSession{}, nil, err
+	}
+	apiEncodingRef, err := s.putAppModelBlob("api-encoding", app.ID, app.Root, appRevision, app.APIEncoding)
+	if err != nil {
+		return StoredApp{}, StoredAppSession{}, nil, err
+	}
+	stored := storedAppFromAppRecord(app)
+	session := storedAppSessionFromAppRecord(app)
+	applyAppModelRefsToStoredApp(&stored, appRevision, metadataRef, apiEncodingRef)
+	applyAppModelRefsToStoredAppSession(&session, appRevision, metadataRef, apiEncodingRef)
+	refs := make([]StoredAppModelRef, 0, 2)
+	if metadataRef.Ref != "" {
+		refs = append(refs, metadataRef)
+	}
+	if apiEncodingRef.Ref != "" {
+		refs = append(refs, apiEncodingRef)
+	}
+	return stored, session, refs, nil
+}
+
+func storedAppFromAppRecord(app AppRecord) StoredApp {
+	return StoredApp{
+		RouteID:      app.RouteID,
+		ID:           app.ID,
+		BaseAppID:    app.BaseAppID,
+		RuntimeAppID: app.RuntimeAppID,
+		SessionID:    app.SessionID,
+		Name:         app.Name,
+		Root:         app.Root,
+		ListenAddr:   app.ListenAddr,
+		Grafana:      compactRawMessage(app.Grafana),
+		Routes:       maps.Clone(app.Routes),
+		Aliases:      maps.Clone(app.Aliases),
+		Offline:      app.Offline,
+		Running:      app.Running,
+		Compiling:    app.Compiling,
+		CompileError: app.CompileError,
+		PID:          app.PID,
+		UpdatedAt:    app.UpdatedAt,
+	}
+}
+
+func storedAppSessionFromAppRecord(app AppRecord) StoredAppSession {
+	return StoredAppSession{
+		RouteID:      app.RouteID,
+		ID:           app.ID,
+		BaseAppID:    app.BaseAppID,
+		RuntimeAppID: app.RuntimeAppID,
+		SessionID:    app.SessionID,
+		Name:         app.Name,
+		Root:         app.Root,
+		ListenAddr:   app.ListenAddr,
+		Grafana:      compactRawMessage(app.Grafana),
+		Routes:       maps.Clone(app.Routes),
+		Aliases:      maps.Clone(app.Aliases),
+		Offline:      app.Offline,
+		Running:      app.Running,
+		Compiling:    app.Compiling,
+		CompileError: app.CompileError,
+		PID:          app.PID,
+		UpdatedAt:    app.UpdatedAt,
+	}
+}
+
+func storedAppSessionFromApp(app StoredApp) StoredAppSession {
+	return StoredAppSession{
+		RouteID:         app.RouteID,
+		ID:              app.ID,
+		BaseAppID:       app.BaseAppID,
+		RuntimeAppID:    app.RuntimeAppID,
+		SessionID:       app.SessionID,
+		Name:            app.Name,
+		Root:            app.Root,
+		ListenAddr:      app.ListenAddr,
+		Grafana:         copyRawMessage(app.Grafana),
+		Routes:          maps.Clone(app.Routes),
+		Aliases:         maps.Clone(app.Aliases),
+		Offline:         app.Offline,
+		Running:         app.Running,
+		Compiling:       app.Compiling,
+		CompileError:    app.CompileError,
+		PID:             app.PID,
+		UpdatedAt:       app.UpdatedAt,
+		MetadataRef:     app.MetadataRef,
+		MetadataHash:    app.MetadataHash,
+		APIEncodingRef:  app.APIEncodingRef,
+		APIEncodingHash: app.APIEncodingHash,
+		AppRevision:     app.AppRevision,
+	}
+}
+
+func (app StoredApp) toAppRecord() AppRecord {
+	return AppRecord{
+		RouteID:      app.RouteID,
+		ID:           app.ID,
+		BaseAppID:    app.BaseAppID,
+		RuntimeAppID: app.RuntimeAppID,
+		SessionID:    app.SessionID,
+		Name:         app.Name,
+		Root:         app.Root,
+		ListenAddr:   app.ListenAddr,
+		Grafana:      copyRawMessage(app.Grafana),
+		Routes:       maps.Clone(app.Routes),
+		Aliases:      maps.Clone(app.Aliases),
+		Offline:      app.Offline,
+		Running:      app.Running,
+		Compiling:    app.Compiling,
+		CompileError: app.CompileError,
+		PID:          app.PID,
+		UpdatedAt:    app.UpdatedAt,
+	}
+}
+
+func (session StoredAppSession) toAppRecord() AppRecord {
+	return AppRecord{
+		RouteID:      session.RouteID,
+		ID:           session.ID,
+		BaseAppID:    session.BaseAppID,
+		RuntimeAppID: session.RuntimeAppID,
+		SessionID:    session.SessionID,
+		Name:         session.Name,
+		Root:         session.Root,
+		ListenAddr:   session.ListenAddr,
+		Grafana:      copyRawMessage(session.Grafana),
+		Routes:       maps.Clone(session.Routes),
+		Aliases:      maps.Clone(session.Aliases),
+		Offline:      session.Offline,
+		Running:      session.Running,
+		Compiling:    session.Compiling,
+		CompileError: session.CompileError,
+		PID:          session.PID,
+		UpdatedAt:    session.UpdatedAt,
+	}
+}
+
+func applyAppModelRefsToStoredApp(app *StoredApp, appRevision string, metadataRef, apiEncodingRef StoredAppModelRef) {
+	app.AppRevision = firstNonEmptyString(app.AppRevision, appRevision)
+	if metadataRef.Ref != "" {
+		app.MetadataRef = metadataRef.Ref
+		app.MetadataHash = metadataRef.Hash
+	}
+	if apiEncodingRef.Ref != "" {
+		app.APIEncodingRef = apiEncodingRef.Ref
+		app.APIEncodingHash = apiEncodingRef.Hash
+	}
+}
+
+func applyAppModelRefsToStoredAppSession(session *StoredAppSession, appRevision string, metadataRef, apiEncodingRef StoredAppModelRef) {
+	session.AppRevision = firstNonEmptyString(session.AppRevision, appRevision)
+	if metadataRef.Ref != "" {
+		session.MetadataRef = metadataRef.Ref
+		session.MetadataHash = metadataRef.Hash
+	}
+	if apiEncodingRef.Ref != "" {
+		session.APIEncodingRef = apiEncodingRef.Ref
+		session.APIEncodingHash = apiEncodingRef.Hash
+	}
+}
+
+func (s *Store) hydrateStoredApp(state *storeState, stored StoredApp) (AppRecord, error) {
+	app := stored.toAppRecord()
+	var err error
+	app.Metadata, err = s.readAppModelBlob(stored.MetadataRef)
+	if err != nil {
+		return AppRecord{}, err
+	}
+	app.APIEncoding, err = s.readAppModelBlob(stored.APIEncodingRef)
+	if err != nil {
+		return AppRecord{}, err
+	}
+	return normalizeAppRecord(app), nil
+}
+
+func (s *Store) hydrateStoredAppSession(state *storeState, stored StoredAppSession) (AppRecord, error) {
+	app := stored.toAppRecord()
+	var err error
+	app.Metadata, err = s.readAppModelBlob(stored.MetadataRef)
+	if err != nil {
+		return AppRecord{}, err
+	}
+	app.APIEncoding, err = s.readAppModelBlob(stored.APIEncodingRef)
+	if err != nil {
+		return AppRecord{}, err
+	}
+	return normalizeAppRecord(app), nil
+}
+
+func (s *Store) migrateStoreStateAppModels(state *storeState) error {
+	if state == nil {
+		return nil
+	}
+	normalizeStoreState(state)
+	for key, app := range state.Apps {
+		refs, err := s.migrateStoredAppModel(app.ID, app.Root, app.AppRevision, app.legacyMetadata, app.legacyAPIEncoding, func(metadataRef, apiEncodingRef StoredAppModelRef) {
+			applyAppModelRefsToStoredApp(&app, appRevisionFromMetadata(app.legacyMetadata), metadataRef, apiEncodingRef)
+			app.legacyMetadata = nil
+			app.legacyAPIEncoding = nil
+			state.Apps[key] = app
+		})
+		if err != nil {
+			return err
+		}
+		for _, ref := range refs {
+			state.AppModelRefs[ref.Ref] = ref
+		}
+	}
+	for key, session := range state.AppSessions {
+		refs, err := s.migrateStoredAppModel(session.ID, session.Root, session.AppRevision, session.legacyMetadata, session.legacyAPIEncoding, func(metadataRef, apiEncodingRef StoredAppModelRef) {
+			applyAppModelRefsToStoredAppSession(&session, appRevisionFromMetadata(session.legacyMetadata), metadataRef, apiEncodingRef)
+			session.legacyMetadata = nil
+			session.legacyAPIEncoding = nil
+			if session.RouteID == "" {
+				session.RouteID = key
+			}
+			state.AppSessions[key] = session
+		})
+		if err != nil {
+			return err
+		}
+		for _, ref := range refs {
+			state.AppModelRefs[ref.Ref] = ref
+		}
+	}
+	return nil
+}
+
+func (s *Store) migrateStoredAppModel(appID, root, revision string, metadata, apiEncoding json.RawMessage, apply func(StoredAppModelRef, StoredAppModelRef)) ([]StoredAppModelRef, error) {
+	if len(metadata) == 0 && len(apiEncoding) == 0 {
+		return nil, nil
+	}
+	appRevision := firstNonEmptyString(revision, appRevisionFromMetadata(metadata))
+	metadataRef, err := s.putAppModelBlob("metadata", appID, root, appRevision, metadata)
+	if err != nil {
+		return nil, err
+	}
+	apiEncodingRef, err := s.putAppModelBlob("api-encoding", appID, root, appRevision, apiEncoding)
+	if err != nil {
+		return nil, err
+	}
+	apply(metadataRef, apiEncodingRef)
+	refs := make([]StoredAppModelRef, 0, 2)
+	if metadataRef.Ref != "" {
+		refs = append(refs, metadataRef)
+	}
+	if apiEncodingRef.Ref != "" {
+		refs = append(refs, apiEncodingRef)
+	}
+	return refs, nil
+}
+
 func (s *Store) UpsertApp(ctx context.Context, app AppRecord) error {
-	app = normalizeAppRecord(app)
+	if app.UpdatedAt.IsZero() {
+		app.UpdatedAt = time.Now().UTC()
+	}
 	return s.withState(ctx, true, func(state *storeState) error {
-		legacy := app
-		legacy.RouteID = legacy.ID
-		state.Apps[app.ID] = legacy
-		session := app
-		session.RouteID = appSessionRecordKey(app)
-		state.AppSessions[session.RouteID] = session
+		appRecord, sessionRecord, refs, err := s.splitAppRecordForStore(app)
+		if err != nil {
+			return err
+		}
+		appRecord.RouteID = appRecord.ID
+		state.Apps[app.ID] = appRecord
+		sessionRecord.RouteID = appSessionRecordKey(app)
+		state.AppSessions[sessionRecord.RouteID] = sessionRecord
+		for _, ref := range refs {
+			if ref.Ref != "" {
+				state.AppModelRefs[ref.Ref] = ref
+			}
+		}
 		return nil
 	})
 }
@@ -542,9 +1121,11 @@ func (s *Store) UpsertApp(ctx context.Context, app AppRecord) error {
 func (s *Store) ListApps(ctx context.Context) ([]AppRecord, error) {
 	var apps []AppRecord
 	err := s.withState(ctx, false, func(state *storeState) error {
-		for _, app := range state.Apps {
+		for _, stored := range state.Apps {
+			app := stored.toAppRecord()
 			app.RouteID = app.ID
 			app.Offline = !app.Running
+			app = normalizeAppRecord(app)
 			apps = append(apps, app)
 		}
 		sort.SliceStable(apps, func(i, j int) bool {
@@ -561,9 +1142,11 @@ func (s *Store) ListApps(ctx context.Context) ([]AppRecord, error) {
 func (s *Store) ListAppSessions(ctx context.Context) ([]AppRecord, error) {
 	var apps []AppRecord
 	err := s.withState(ctx, false, func(state *storeState) error {
-		for routeID, app := range state.AppSessions {
+		for routeID, stored := range state.AppSessions {
+			app := stored.toAppRecord()
 			app.RouteID = routeID
 			app.Offline = !app.Running
+			app = normalizeAppRecord(app)
 			apps = append(apps, app)
 		}
 		sort.SliceStable(apps, func(i, j int) bool {
@@ -586,10 +1169,14 @@ func (s *Store) ListAppSessions(ctx context.Context) ([]AppRecord, error) {
 func (s *Store) GetApp(ctx context.Context, appID string) (AppRecord, error) {
 	var app AppRecord
 	err := s.withState(ctx, false, func(state *storeState) error {
-		var found bool
-		app, found = state.Apps[appID]
-		if !found {
+		found, ok := state.Apps[appID]
+		if !ok {
 			return sql.ErrNoRows
+		}
+		var err error
+		app, err = s.hydrateStoredApp(state, found)
+		if err != nil {
+			return err
 		}
 		app.RouteID = app.ID
 		app.Offline = !app.Running
@@ -602,7 +1189,11 @@ func (s *Store) GetAppSession(ctx context.Context, routeID string) (AppRecord, e
 	var app AppRecord
 	err := s.withState(ctx, false, func(state *storeState) error {
 		if found, ok := state.AppSessions[routeID]; ok {
-			app = found
+			var err error
+			app, err = s.hydrateStoredAppSession(state, found)
+			if err != nil {
+				return err
+			}
 			app.RouteID = routeID
 			app.Offline = !app.Running
 			return nil
@@ -610,8 +1201,12 @@ func (s *Store) GetAppSession(ctx context.Context, routeID string) (AppRecord, e
 		var matches []AppRecord
 		for key, candidate := range state.AppSessions {
 			if candidate.SessionID == routeID {
-				candidate.RouteID = key
-				matches = append(matches, candidate)
+				record, err := s.hydrateStoredAppSession(state, candidate)
+				if err != nil {
+					return err
+				}
+				record.RouteID = key
+				matches = append(matches, record)
 			}
 		}
 		if len(matches) == 0 {
@@ -631,8 +1226,12 @@ func (s *Store) GetAppForSession(ctx context.Context, appID, sessionID string) (
 		var matches []AppRecord
 		for key, candidate := range state.AppSessions {
 			if candidate.ID == appID && candidate.SessionID == sessionID {
-				candidate.RouteID = key
-				matches = append(matches, candidate)
+				record, err := s.hydrateStoredAppSession(state, candidate)
+				if err != nil {
+					return err
+				}
+				record.RouteID = key
+				matches = append(matches, record)
 			}
 		}
 		if len(matches) == 0 {
@@ -969,32 +1568,20 @@ func splitDevSourceKey(key string) (string, string, string) {
 }
 
 func (s *Store) AppendTraceSummary(ctx context.Context, summary *TraceSummary) error {
-	return s.appendTraceSummary(ctx, summary, false)
+	return s.appendTraceSummary(ctx, summary)
 }
 
 func (s *Store) AppendTraceSummaryDeferred(ctx context.Context, summary *TraceSummary) error {
-	return s.appendTraceSummary(ctx, summary, true)
+	return s.appendTraceSummary(ctx, summary)
 }
 
-func (s *Store) appendTraceSummary(ctx context.Context, summary *TraceSummary, deferred bool) error {
+func (s *Store) appendTraceSummary(ctx context.Context, summary *TraceSummary) error {
+	_ = s
+	_ = ctx
 	if summary == nil {
 		return errors.New("trace summary is nil")
 	}
-	replacement := storeTraceSummary(*summary)
-	update := func(state *storeState) error {
-		for i, existing := range state.TraceSummaries {
-			if existing.AppID == replacement.AppID && existing.SessionID == replacement.SessionID && existing.TraceID == replacement.TraceID && existing.SpanID == replacement.SpanID {
-				state.TraceSummaries[i] = replacement
-				return nil
-			}
-		}
-		state.TraceSummaries = append(state.TraceSummaries, replacement)
-		return nil
-	}
-	if deferred {
-		return s.withDeferredState(ctx, update)
-	}
-	return s.withState(ctx, true, update)
+	return nil
 }
 
 func (s *Store) ListTraceSummaries(ctx context.Context, appID string, limit int, messageID string) ([]*TraceSummary, error) {
@@ -1041,28 +1628,12 @@ func (s *Store) QueryTraceMetrics(ctx context.Context, query TraceQuery) ([]*Tra
 }
 
 func (s *Store) queryTraceSummaries(ctx context.Context, query TraceQuery, messageID string, includeChildren bool) ([]*TraceSummary, error) {
-	if query.Limit <= 0 && !includeChildren {
-		query.Limit = 100
-	}
-	var items []*TraceSummary
-	err := s.withState(ctx, false, func(state *storeState) error {
-		for _, stored := range state.TraceSummaries {
-			summary := stored.toTraceSummary()
-			if !traceSummaryMatches(summary, query, messageID, includeChildren) {
-				continue
-			}
-			item := summary
-			items = append(items, &item)
-		}
-		sort.SliceStable(items, func(i, j int) bool {
-			return items[i].StartedAt.After(items[j].StartedAt)
-		})
-		if query.Limit > 0 && len(items) > query.Limit {
-			items = items[:query.Limit]
-		}
-		return nil
-	})
-	return items, err
+	_ = s
+	_ = ctx
+	_ = query
+	_ = messageID
+	_ = includeChildren
+	return []*TraceSummary{}, nil
 }
 
 func traceSummaryMatches(summary TraceSummary, query TraceQuery, messageID string, includeChildren bool) bool {
@@ -1110,26 +1681,20 @@ func traceSummaryMatches(summary TraceSummary, query TraceQuery, messageID strin
 }
 
 func (s *Store) AppendTraceEvent(ctx context.Context, event *TraceEvent) error {
-	return s.appendTraceEvent(ctx, event, false)
+	return s.appendTraceEvent(ctx, event)
 }
 
 func (s *Store) AppendTraceEventDeferred(ctx context.Context, event *TraceEvent) error {
-	return s.appendTraceEvent(ctx, event, true)
+	return s.appendTraceEvent(ctx, event)
 }
 
-func (s *Store) appendTraceEvent(ctx context.Context, event *TraceEvent, deferred bool) error {
+func (s *Store) appendTraceEvent(ctx context.Context, event *TraceEvent) error {
+	_ = s
+	_ = ctx
 	if event == nil {
 		return errors.New("trace event is nil")
 	}
-	stored := storeTraceEvent(*event)
-	update := func(state *storeState) error {
-		state.TraceEvents = append(state.TraceEvents, stored)
-		return nil
-	}
-	if deferred {
-		return s.withDeferredState(ctx, update)
-	}
-	return s.withState(ctx, true, update)
+	return nil
 }
 
 func (s *Store) GetTraceEvents(ctx context.Context, appID, traceID, spanID string) ([]*TraceEvent, error) {
@@ -1137,52 +1702,33 @@ func (s *Store) GetTraceEvents(ctx context.Context, appID, traceID, spanID strin
 }
 
 func (s *Store) GetTraceEventsForSession(ctx context.Context, appID, sessionID, traceID, spanID string) ([]*TraceEvent, error) {
-	var list []*TraceEvent
-	err := s.withState(ctx, false, func(state *storeState) error {
-		for _, stored := range state.TraceEvents {
-			event := stored.toTraceEvent()
-			if event.AppID != appID || event.TraceID != traceID || event.SpanID != spanID {
-				continue
-			}
-			if sessionID != "" && event.SessionID != sessionID {
-				continue
-			}
-			item := event
-			if item.SessionID == "" {
-				item.SessionID = sessionID
-			}
-			list = append(list, &item)
-		}
-		sort.SliceStable(list, func(i, j int) bool { return list[i].EventID < list[j].EventID })
-		return nil
-	})
-	return list, err
+	_ = s
+	_ = ctx
+	_ = appID
+	_ = sessionID
+	_ = traceID
+	_ = spanID
+	return []*TraceEvent{}, nil
 }
 
 func (s *Store) WriteLogEvent(ctx context.Context, event *LogEvent) error {
-	return s.writeLogEvent(ctx, event, false)
+	return s.writeLogEvent(ctx, event)
 }
 
 func (s *Store) WriteLogEventDeferred(ctx context.Context, event *LogEvent) error {
-	return s.writeLogEvent(ctx, event, true)
+	return s.writeLogEvent(ctx, event)
 }
 
-func (s *Store) writeLogEvent(ctx context.Context, event *LogEvent, deferred bool) error {
+func (s *Store) writeLogEvent(ctx context.Context, event *LogEvent) error {
+	_ = s
+	_ = ctx
 	if event == nil {
 		return errors.New("log event is nil")
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
-	stored := *event
-	update := func(state *storeState) error {
-		state.LogEvents = append(state.LogEvents, stored)
-		return nil
-	}
-	if deferred {
-		return s.withDeferredState(ctx, update)
-	}
-	return s.withState(ctx, true, update)
+	return nil
 }
 
 func (s *Store) ClearTraces(ctx context.Context, appID string) error {
@@ -1190,45 +1736,11 @@ func (s *Store) ClearTraces(ctx context.Context, appID string) error {
 }
 
 func (s *Store) ClearTracesForSession(ctx context.Context, appID, sessionID string) error {
-	return s.withState(ctx, true, func(state *storeState) error {
-		state.TraceSummaries = filterTraceSummaries(state.TraceSummaries, appID, sessionID)
-		state.TraceEvents = filterTraceEvents(state.TraceEvents, appID, sessionID)
-		state.LogEvents = filterLogEvents(state.LogEvents, appID, sessionID)
-		return nil
-	})
-}
-
-func filterTraceSummaries(items []storedTraceSummary, appID, sessionID string) []storedTraceSummary {
-	out := items[:0]
-	for _, item := range items {
-		if item.AppID == appID && (sessionID == "" || item.SessionID == sessionID) {
-			continue
-		}
-		out = append(out, item)
-	}
-	return out
-}
-
-func filterTraceEvents(items []storedTraceEvent, appID, sessionID string) []storedTraceEvent {
-	out := items[:0]
-	for _, item := range items {
-		if item.AppID == appID && (sessionID == "" || item.SessionID == sessionID) {
-			continue
-		}
-		out = append(out, item)
-	}
-	return out
-}
-
-func filterLogEvents(items []LogEvent, appID, sessionID string) []LogEvent {
-	out := items[:0]
-	for _, item := range items {
-		if item.AppID == appID && (sessionID == "" || item.SessionID == sessionID) {
-			continue
-		}
-		out = append(out, item)
-	}
-	return out
+	_ = s
+	_ = ctx
+	_ = appID
+	_ = sessionID
+	return nil
 }
 
 func (s *Store) CountTraceEvents(ctx context.Context, appID string, since time.Time) (int64, error) {
@@ -1236,24 +1748,12 @@ func (s *Store) CountTraceEvents(ctx context.Context, appID string, since time.T
 }
 
 func (s *Store) CountTraceEventsForSession(ctx context.Context, appID, sessionID string, since time.Time) (int64, error) {
-	var count int64
-	err := s.withState(ctx, false, func(state *storeState) error {
-		for _, stored := range state.TraceEvents {
-			event := stored.toTraceEvent()
-			if event.AppID != appID {
-				continue
-			}
-			if sessionID != "" && event.SessionID != sessionID {
-				continue
-			}
-			if !since.IsZero() && event.EventTime.Before(since.UTC()) {
-				continue
-			}
-			count++
-		}
-		return nil
-	})
-	return count, err
+	_ = s
+	_ = ctx
+	_ = appID
+	_ = sessionID
+	_ = since
+	return 0, nil
 }
 
 func (s *Store) CountLogsByLevel(ctx context.Context, appID string, since time.Time) ([]LogLevelCount, error) {
@@ -1261,36 +1761,12 @@ func (s *Store) CountLogsByLevel(ctx context.Context, appID string, since time.T
 }
 
 func (s *Store) CountLogsByLevelForSession(ctx context.Context, appID, sessionID string, since time.Time) ([]LogLevelCount, error) {
-	counts := map[string]int64{}
-	err := s.withState(ctx, false, func(state *storeState) error {
-		for _, event := range state.LogEvents {
-			if event.AppID != appID {
-				continue
-			}
-			if sessionID != "" && event.SessionID != sessionID {
-				continue
-			}
-			if !since.IsZero() && event.Timestamp.Before(since.UTC()) {
-				continue
-			}
-			counts[event.Level]++
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	items := make([]LogLevelCount, 0, len(counts))
-	for level, count := range counts {
-		items = append(items, LogLevelCount{Level: level, Count: count})
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Count != items[j].Count {
-			return items[i].Count > items[j].Count
-		}
-		return items[i].Level < items[j].Level
-	})
-	return items, nil
+	_ = s
+	_ = ctx
+	_ = appID
+	_ = sessionID
+	_ = since
+	return []LogLevelCount{}, nil
 }
 
 func (s *Store) GetOnboarding(ctx context.Context) (OnboardingState, error) {
@@ -1438,6 +1914,121 @@ func compactRawMessage(value json.RawMessage) json.RawMessage {
 		return append(json.RawMessage(nil), value...)
 	}
 	return normalized
+}
+
+func copyRawMessage(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), value...)
+}
+
+func appRevisionFromMetadata(metadata json.RawMessage) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	var decoded struct {
+		AppRevision string `json:"app_revision"`
+	}
+	if err := json.Unmarshal(metadata, &decoded); err != nil {
+		return ""
+	}
+	return decoded.AppRevision
+}
+
+func (s *Store) putAppModelBlob(kind, appID, root, appRevision string, value json.RawMessage) (StoredAppModelRef, error) {
+	value = compactRawMessage(value)
+	if isEmptyJSONValue(value) {
+		return StoredAppModelRef{}, nil
+	}
+	hashBytes := sha256.Sum256(value)
+	hash := hex.EncodeToString(hashBytes[:])
+	ref := kind + ":sha256:" + hash
+	blobDir := filepath.Join(filepath.Dir(s.path), "app-model", kind, "sha256")
+	if err := os.MkdirAll(blobDir, 0o755); err != nil {
+		return StoredAppModelRef{}, err
+	}
+	blobPath := filepath.Join(blobDir, hash+".json")
+	if _, err := os.Stat(blobPath); errors.Is(err, os.ErrNotExist) {
+		tmp, err := os.CreateTemp(blobDir, "."+hash+"-*.json")
+		if err != nil {
+			return StoredAppModelRef{}, err
+		}
+		tmpName := tmp.Name()
+		ok := false
+		defer func() {
+			if !ok {
+				_ = os.Remove(tmpName)
+			}
+		}()
+		if _, err := tmp.Write(value); err != nil {
+			_ = tmp.Close()
+			return StoredAppModelRef{}, err
+		}
+		if _, err := tmp.Write([]byte("\n")); err != nil {
+			_ = tmp.Close()
+			return StoredAppModelRef{}, err
+		}
+		if err := tmp.Close(); err != nil {
+			return StoredAppModelRef{}, err
+		}
+		if err := os.Rename(tmpName, blobPath); err != nil {
+			return StoredAppModelRef{}, err
+		}
+		ok = true
+	} else if err != nil {
+		return StoredAppModelRef{}, err
+	}
+	rel, err := filepath.Rel(filepath.Dir(s.path), blobPath)
+	if err != nil {
+		rel = blobPath
+	}
+	return StoredAppModelRef{
+		Ref:         ref,
+		Kind:        kind,
+		Hash:        hash,
+		AppID:       appID,
+		Root:        root,
+		AppRevision: appRevision,
+		Path:        rel,
+		Bytes:       int64(len(value)),
+		UpdatedAt:   time.Now().UTC(),
+	}, nil
+}
+
+func (s *Store) readAppModelBlob(ref string) (json.RawMessage, error) {
+	if strings.TrimSpace(ref) == "" {
+		return nil, nil
+	}
+	kind, hash, ok := splitAppModelRef(ref)
+	if !ok {
+		return nil, fmt.Errorf("invalid app model ref %q", ref)
+	}
+	blobPath := filepath.Join(filepath.Dir(s.path), "app-model", kind, "sha256", hash+".json")
+	data, err := os.ReadFile(blobPath)
+	if err != nil {
+		return nil, fmt.Errorf("read app model blob %s: %w", ref, err)
+	}
+	return compactRawMessage(data), nil
+}
+
+func splitAppModelRef(ref string) (string, string, bool) {
+	kind, rest, ok := strings.Cut(ref, ":sha256:")
+	if !ok || strings.TrimSpace(kind) == "" || len(rest) != sha256.Size*2 {
+		return "", "", false
+	}
+	if _, err := hex.DecodeString(rest); err != nil {
+		return "", "", false
+	}
+	return kind, rest, true
+}
+
+func isEmptyJSONValue(value json.RawMessage) bool {
+	value = bytes.TrimSpace(value)
+	if len(value) == 0 || bytes.Equal(value, []byte("null")) || bytes.Equal(value, []byte("{}")) || bytes.Equal(value, []byte("[]")) {
+		return true
+	}
+	return false
 }
 
 func newStoredRequestID() (string, error) {

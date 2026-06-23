@@ -10,18 +10,21 @@ After this plan, observability event data (traces, report logs) lives only in th
 
 ## Progress
 
-- [ ] Inventory all readers of trace summaries, trace events, and report log events served from the devdash store (dashboard RPCs, `scenery traces`, inspect surfaces) and map each to an existing or new Victoria query.
-- [ ] Cut dashboard/CLI trace reads over to VictoriaTraces; delete `TraceSummaries`, `TraceEvents`, and `LogEvents` from `storeState` and the report-ingest writes in `cmd/scenery/dashboard.go`.
-- [ ] Make the report ingest path enqueue-only: `handleReport` must not hold the store mutex; Victoria export becomes the single sink.
-- [ ] Give `devdash.json` a single writer (the agent dashboard process); route other processes through the agent API instead of shared-file stamp reloads.
-- [ ] Add a store byte budget (soft prune target plus hard cap) and a self-harness check that fails when `devdash.json` exceeds it.
-- [ ] Update `docs/local-contract.md`, `docs/agent-guide.md`, and `docs/knowledge.json`; add a drift note to ExecPlan 0056 pointing here.
+- [x] 2026-06-23: Inventory all readers of trace summaries, trace events, and report log events served from the devdash store (dashboard RPCs, `scenery traces`, inspect surfaces) and map each to an existing or new Victoria query.
+- [x] 2026-06-23: Cut dashboard/CLI trace reads over to VictoriaTraces; delete `TraceSummaries`, `TraceEvents`, and `LogEvents` from `storeState` and the report-ingest writes in `cmd/scenery/dashboard.go`.
+- [x] 2026-06-23: Make the report ingest path enqueue-only: `handleReport` must not hold the store mutex; Victoria export becomes the single sink.
+- [x] 2026-06-23: Give `devdash.json` a single writer (the agent dashboard process); route agent-backed `scenery up` app/session/process writes through the agent dashboard control-plane endpoint instead of opening the shared store directly.
+- [x] 2026-06-23: Add a store byte budget (soft prune target plus hard cap) and a self-harness check that fails when `devdash.json` exceeds it.
+- [x] 2026-06-23: Update `docs/local-contract.md`, `docs/agent-guide.md`, and `docs/knowledge.json`; add a drift note to ExecPlan 0056 pointing here.
 
 ## Surprises & Discoveries
 
 - 2026-06-12: `~/.scenery/agent/dashboard/devdash.json` reached 422 MB. Profiling showed 465 `process_events` items at ~1.8 MB each: every `process/reload` persisted the full `appStatus()` including `Meta` and `APIEncoding`. Prune caps were item counts, never bytes. Evidence: `scenery logs --limit 1` took 5.4 s wall clock; after compaction to 15 MB it took 0.21 s.
 - 2026-06-12: `app_sessions` records each carry the same ~1.7 MB `Metadata` blob (6 records ≈ 10 MB), so even the "small" residue is dominated by duplicated app metadata.
 - 2026-06-12: `handleReport` writes every trace/log report into the JSON store *and* exports to Victoria — the data is duplicated, and the JSON copy is what dashboard reads still depend on, so it cannot simply be dropped without the read cutover.
+- 2026-06-23: ExecPlan 0078 landed the first store-slimming slice: `apps` and `app_sessions` persist compact records with content-addressed app-model blob refs, legacy fat session records migrate on load/save, and `devdash.json` has a 2 MB soft budget plus 8 MB hard cap. Evidence: `go test ./internal/devdash` and `go test ./cmd/scenery` passed.
+- 2026-06-23: The observability cutover is now implemented: `handleReport` no longer writes trace summaries, trace events, or report logs to the store; dashboard trace RPCs and CLI trace/metric inspect paths use Victoria; legacy observability arrays are dropped on the next store save. Evidence: `go test ./internal/devdash ./cmd/scenery` passed.
+- 2026-06-23: Single-writer ownership is now implemented for the hot control-plane writer path. Agent-backed `scenery up` no longer opens the global dashboard store directly; it posts app/session and process-event mutations to the agent dashboard backend over an authenticated internal control-plane endpoint. Agent-disabled and explicit local-proxy fallback paths still use the in-process local store. Evidence: `go test ./cmd/scenery ./internal/devdash` passed.
 
 ## Decision Log
 
@@ -35,7 +38,7 @@ After this plan, observability event data (traces, report logs) lives only in th
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed on 2026-06-23. `devdash.json` is now a compact, bounded control-plane store: large app-model blobs live in content-addressed sidecars, trace/report-log history is Victoria-only, legacy observability arrays are dropped on save, and agent-backed dev supervisors route store mutations through the agent-owned dashboard process. The remaining risk is live soak coverage under the original 2026-06-12 rebuild-storm workload; the implementation-level tests and self-harness cover migration, byte budget, Victoria read paths, and authenticated control-plane writes.
 
 ## Context and Orientation
 

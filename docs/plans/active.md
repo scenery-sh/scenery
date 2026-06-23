@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0076 Devdash Control-Plane Store Slimming](0076-devdash-control-plane-store-slimming.md)
-  - Status: active
-  - Owner: scenery runtime / agent DX
-  - Created: 2026-06-12
-  - Focus: serve trace and report-log reads from Victoria only, shrink `devdash.json` to small single-writer control-plane state with an enforced byte budget, and record the drift from ExecPlan 0056's metadata-only outcome after the 2026-06-12 422 MB store incident.
 - [0064 Agent-First Development Control Plane](0064-agent-first-development-control-plane.md)
   - Status: active
   - Owner: scenery maintainers / agent DX

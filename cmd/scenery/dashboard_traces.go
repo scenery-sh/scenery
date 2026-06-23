@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"sort"
 	"strconv"
@@ -18,55 +19,19 @@ type compatTraceEvent struct {
 }
 
 func (s *dashboardServer) traceEventsFor(ctx context.Context, appID, sessionID, traceID string) ([]map[string]any, error) {
+	_ = sessionID
 	if victoria := s.dashboardVictoria(); victoria != nil {
-		if events, err := victoria.TraceEventsFor(ctx, appID, traceID, ""); err == nil && len(events) > 0 {
-			return events, nil
-		}
+		return victoria.TraceEventsFor(ctx, appID, traceID, "")
 	}
-	summaries, err := s.dashboardStore().GetTraceSummariesForSession(ctx, appID, sessionID, traceID)
-	if err != nil {
-		return nil, err
-	}
-
-	var compat []compatTraceEvent
-	for _, summary := range summaries {
-		rawEvents, err := s.dashboardStore().GetTraceEventsForSession(ctx, appID, sessionID, traceID, summary.SpanID)
-		if err != nil {
-			return nil, err
-		}
-		compat = append(compat, buildCompatTraceEvents(summary, rawEvents)...)
-	}
-
-	sortCompatTraceEvents(compat)
-	return compatTracePayloads(compat), nil
+	return nil, fmt.Errorf("VictoriaTraces is unavailable")
 }
 
 func (s *dashboardServer) traceEventsForSpan(ctx context.Context, appID, sessionID, traceID, spanID string) ([]map[string]any, error) {
+	_ = sessionID
 	if victoria := s.dashboardVictoria(); victoria != nil {
-		if events, err := victoria.TraceEventsFor(ctx, appID, traceID, spanID); err == nil && len(events) > 0 {
-			return events, nil
-		}
+		return victoria.TraceEventsFor(ctx, appID, traceID, spanID)
 	}
-	rawEvents, err := s.dashboardStore().GetTraceEventsForSession(ctx, appID, sessionID, traceID, spanID)
-	if err != nil {
-		return nil, err
-	}
-
-	var summary *devdash.TraceSummary
-	summaries, err := s.dashboardStore().GetTraceSummariesForSession(ctx, appID, sessionID, traceID)
-	if err != nil {
-		return nil, err
-	}
-	for _, candidate := range summaries {
-		if candidate.SpanID == spanID {
-			summary = candidate
-			break
-		}
-	}
-
-	compat := buildCompatTraceEvents(summary, rawEvents)
-	sortCompatTraceEvents(compat)
-	return compatTracePayloads(compat), nil
+	return nil, fmt.Errorf("VictoriaTraces is unavailable")
 }
 
 func (s *dashboardServer) listTraceSummaries(ctx context.Context, appID, sessionID string, limit int, messageID string) ([]*devdash.TraceSummary, error) {
@@ -76,35 +41,35 @@ func (s *dashboardServer) listTraceSummaries(ctx context.Context, appID, session
 			SessionID: sessionID,
 			Limit:     limit,
 		})
-		if err == nil && len(items) > 0 {
-			if messageID != "" {
-				items = filterTraceSummariesByMessageID(items, messageID)
-			}
-			return items, nil
+		if err != nil {
+			return nil, err
 		}
+		if messageID != "" {
+			items = filterTraceSummariesByMessageID(items, messageID)
+		}
+		return items, nil
 	}
-	return s.dashboardStore().ListTraceSummariesForSession(ctx, appID, sessionID, limit, messageID)
+	return nil, fmt.Errorf("VictoriaTraces is unavailable")
 }
 
 func (s *dashboardServer) getTraceSummaries(ctx context.Context, appID, sessionID, traceID string) ([]*devdash.TraceSummary, error) {
 	if victoria := s.dashboardVictoria(); victoria != nil {
 		items, err := victoria.GetTraceSummaries(ctx, appID, traceID)
-		if err == nil && len(items) > 0 {
-			if sessionID == "" {
-				return items, nil
-			}
-			filtered := items[:0]
-			for _, item := range items {
-				if item.SessionID == sessionID {
-					filtered = append(filtered, item)
-				}
-			}
-			if len(filtered) > 0 {
-				return filtered, nil
+		if err != nil {
+			return nil, err
+		}
+		if sessionID == "" {
+			return items, nil
+		}
+		filtered := items[:0]
+		for _, item := range items {
+			if item.SessionID == sessionID {
+				filtered = append(filtered, item)
 			}
 		}
+		return filtered, nil
 	}
-	return s.dashboardStore().GetTraceSummariesForSession(ctx, appID, sessionID, traceID)
+	return nil, fmt.Errorf("VictoriaTraces is unavailable")
 }
 
 func filterTraceSummariesByMessageID(items []*devdash.TraceSummary, messageID string) []*devdash.TraceSummary {
