@@ -25,7 +25,7 @@ const (
 
 const (
 	defaultHarnessTotalSeconds = 7
-	releaseHarnessTotalSeconds = 20
+	releaseHarnessTotalSeconds = 30
 )
 
 type harnessChangedAreaReport struct {
