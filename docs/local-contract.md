@@ -156,6 +156,9 @@ Current shape:
       }
     }
   },
+  "watch": {
+    "ignore": ["reference/"]
+  },
   "generators": {
     "clients": [
       {
@@ -291,6 +294,7 @@ Rules:
 - App identity for runtime environment, dashboard routes, local logs, browser harness routes, and local observability is `id` when present, otherwise `name`. `name` remains the display name and source/build package identity.
 - `proxy` is optional.
 - `build.go_flags` is an optional array of literal Go argv entries used for Scenery-owned app compilation. Values are not shell-split; write one argument per item, for example `["-tags=roofmapnet_native"]`. Scenery passes these flags to generated app `go build` invocations and generated-workspace `scenery test` `go test` invocations, while process `GOFLAGS` still applies for local one-off overrides. The normalized flag list participates in the build fingerprint/cache key.
+- `watch.ignore` is an optional array of app-root-relative exclusion patterns for `scenery up`. Directory patterns such as `reference/` skip that subtree during watcher setup and rebuild fingerprint scans while leaving Git tracking untouched. `watch.ignore` is exclusion-only; use `.gitignore` for Git behavior.
 - `auth` is optional. When `auth.enabled` is true, scenery registers the built-in standard auth handler and auth endpoints.
 - `observability` is optional.
 - `temporal` is optional and disabled by default. Scenery only starts or connects to Temporal when `temporal.enabled` is explicitly `true`; workflow/activity declarations, TypeScript worker settings, and local `auto_start` settings do not enable Temporal by themselves.
@@ -516,7 +520,7 @@ Toolchain rules:
 
 Command split:
 
-- `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths as outside the watch surface and does not descend into ignored directories. A second live code copy requires a separate Git worktree.
+- `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths and app config `watch.ignore` paths as outside the watch surface and does not descend into ignored directories. `watch.ignore` also excludes those paths from the rebuild/change fingerprint used by the dev loop, but it does not affect Git tracking. A second live code copy requires a separate Git worktree.
 - `scenery up --detach` requires the local agent, starts the same dev supervisor in a background child process, waits for that child PID to register as the app root's runtime owner, prints a Docker-style app action summary, status/log/stop commands, and currently registered routes/aliases, then returns. Detached child stdout/stderr from the supervisor is written under the agent directory; app process output continues to flow through the scoped dashboard log store.
 - `scenery logs --follow` follows the app root's live runtime logs by default with the same app-root, limit, stream, source, kind, level, grep, since, backend, and JSONL options, and it does not mutate runtime state.
 - `scenery logs`, plain `scenery logs --follow`, and `scenery console` read structured dev events for the selected app root's live runtime. `--backend auto` and `--backend victoria` currently select the same Victoria-backed substrate path; use backend selection only when intentionally debugging that substrate. `SCENERY_LOGS_BACKEND` accepts the same values and applies to the console as well.

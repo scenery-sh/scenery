@@ -5,12 +5,15 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"strings"
+
+	"scenery.sh/internal/app"
 )
 
 type watchIgnoreMatcher struct {
-	root   string
-	loaded map[string]struct{}
-	rules  []watchIgnoreRule
+	root        string
+	loaded      map[string]struct{}
+	configRules []watchIgnoreRule
+	gitRules    []watchIgnoreRule
 }
 
 type watchIgnoreRule struct {
@@ -23,11 +26,26 @@ type watchIgnoreRule struct {
 
 func newWatchIgnoreMatcher(root string) *watchIgnoreMatcher {
 	m := &watchIgnoreMatcher{
-		root:   root,
-		loaded: make(map[string]struct{}),
+		root:        root,
+		loaded:      make(map[string]struct{}),
+		configRules: watchConfigIgnoreRules(root),
 	}
 	m.loadDir("")
 	return m
+}
+
+func watchConfigIgnoreRules(root string) []watchIgnoreRule {
+	patterns, err := app.ReadWatchIgnorePatterns(root)
+	if err != nil {
+		return nil
+	}
+	rules := make([]watchIgnoreRule, 0, len(patterns))
+	for _, pattern := range patterns {
+		if rule, ok := parseWatchConfigIgnoreRule(pattern); ok {
+			rules = append(rules, rule)
+		}
+	}
+	return rules
 }
 
 func (m *watchIgnoreMatcher) loadDir(rel string) {
@@ -46,7 +64,7 @@ func (m *watchIgnoreMatcher) loadDir(rel string) {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		if rule, ok := parseWatchIgnoreRule(rel, line); ok {
-			m.rules = append(m.rules, rule)
+			m.gitRules = append(m.gitRules, rule)
 		}
 	}
 }
@@ -59,14 +77,41 @@ func (m *watchIgnoreMatcher) ignored(rel string, isDir bool) bool {
 	if rel == "" {
 		return false
 	}
+	for _, rule := range m.configRules {
+		if rule.matches(rel, isDir) {
+			return true
+		}
+	}
 	ignored := false
-	for _, rule := range m.rules {
+	for _, rule := range m.gitRules {
 		if !rule.matches(rel, isDir) {
 			continue
 		}
 		ignored = !rule.negated
 	}
 	return ignored
+}
+
+func parseWatchConfigIgnoreRule(line string) (watchIgnoreRule, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "!") {
+		return watchIgnoreRule{}, false
+	}
+	dirOnly := strings.HasSuffix(line, "/")
+	line = strings.TrimRight(line, "/")
+	line = strings.TrimPrefix(line, "/")
+	if line == "" {
+		return watchIgnoreRule{}, false
+	}
+	pattern := pathpkg.Clean(filepath.ToSlash(line))
+	if pattern == "." || pattern == ".." || strings.HasPrefix(pattern, "../") || strings.Contains(pattern, "/../") {
+		return watchIgnoreRule{}, false
+	}
+	return watchIgnoreRule{
+		pattern:  pattern,
+		dirOnly:  dirOnly,
+		hasSlash: strings.Contains(pattern, "/"),
+	}, true
 }
 
 func parseWatchIgnoreRule(base, line string) (watchIgnoreRule, bool) {
