@@ -380,6 +380,33 @@ Common failure: relying on wall-clock behavior in unit tests. Keep cron tests de
 
 Use `scenery.sh/pgxpool` when you want PostgreSQL operations to appear in scenery local traces.
 
+For the default app database, prefer `scenery.sh/db` so services share one traced pool selected by `dev.services.postgres.database_url_env`:
+
+```go
+package api
+
+import (
+	"context"
+
+	"example.com/app/db/queries"
+	scenerydb "scenery.sh/db"
+)
+
+type Service struct {
+	q *queries.Queries
+}
+
+func initService(ctx context.Context) (*Service, error) {
+	pool, err := scenerydb.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &Service{q: queries.New(pool)}, nil
+}
+```
+
+`scenery.sh/db` is intentionally scoped to the configured default Postgres database. Use `scenery.sh/pgxpool` directly for explicit secondary databases.
+
 Validate:
 
 ```sh
