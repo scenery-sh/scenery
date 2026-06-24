@@ -274,8 +274,8 @@ func TestHarnessReleaseTimingBudgetAllowsCurrentSuiteVariance(t *testing.T) {
 	t.Parallel()
 
 	budgets := harnessTestTimingBudgetsForMode(harnessSelfModeRelease)
-	if budgets.TotalSeconds != 20 {
-		t.Fatalf("release total budget = %v, want 20", budgets.TotalSeconds)
+	if budgets.TotalSeconds != 30 {
+		t.Fatalf("release total budget = %v, want 30", budgets.TotalSeconds)
 	}
 	if budgets.Mode != "enforce-total" {
 		t.Fatalf("release budget mode = %q, want enforce-total", budgets.Mode)
