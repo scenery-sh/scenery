@@ -362,6 +362,34 @@ func TestEdgeDNSStatusAcceptsFunctionalExternalResolver(t *testing.T) {
 	}
 }
 
+func TestWaitForEdgeDNSStartupDetectsProcessExitBehindExistingListener(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	logPath := filepath.Join(t.TempDir(), "dnsmasq.log")
+	if err := os.WriteFile(logPath, []byte("dnsmasq: failed to create listening socket for 127.0.0.1: Address already in use\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exitCh := make(chan error, 1)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		exitCh <- os.ErrPermission
+	}()
+
+	err = waitForEdgeDNSStartup(listener.Addr().String(), exitCh, logPath, 0, 200*time.Millisecond)
+	if err == nil {
+		t.Fatal("waitForEdgeDNSStartup returned nil for a dnsmasq process that exited during startup")
+	}
+	if !strings.Contains(err.Error(), "dnsmasq exited during startup") || !strings.Contains(err.Error(), "Address already in use") {
+		t.Fatalf("waitForEdgeDNSStartup() err = %v, want startup exit with log tail", err)
+	}
+}
+
 func TestEdgeDNSHelperArgsNormalizeDomain(t *testing.T) {
 	t.Parallel()
 

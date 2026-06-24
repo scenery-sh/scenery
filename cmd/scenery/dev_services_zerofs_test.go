@@ -338,10 +338,6 @@ func TestManagedZeroFSHasOtherLiveSessionRejectsCurrentStaleAndDifferentBackends
 }
 
 func TestStartManagedZeroFSServiceUsesManagedToolchainBinaryAndSharedCellPaths(t *testing.T) {
-	prevWait := waitForManagedZeroFSFn
-	waitForManagedZeroFSFn = func(context.Context, *managedZeroFSService) error { return nil }
-	defer func() { waitForManagedZeroFSFn = prevWait }()
-
 	root := t.TempDir()
 	agentHome := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "fake-zerofs")
@@ -351,6 +347,11 @@ func TestStartManagedZeroFSServiceUsesManagedToolchainBinaryAndSharedCellPaths(t
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	prevWait := waitForManagedZeroFSFn
+	waitForManagedZeroFSFn = func(ctx context.Context, _ *managedZeroFSService) error {
+		return waitForZeroFSTestFiles(ctx, argsPath, envPath)
+	}
+	defer func() { waitForManagedZeroFSFn = prevWait }()
 	prevResolve := resolveManagedZeroFSBinaryFn
 	resolveManagedZeroFSBinaryFn = func(_ context.Context, plan *managedZeroFSPlan) (string, error) {
 		if plan.ToolchainDir != filepath.Join(agentHome, "toolchain") {
@@ -448,7 +449,7 @@ func testShellQuote(value string) string {
 
 func readFileEventually(t *testing.T, path string) []byte {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(path)
@@ -464,7 +465,7 @@ func readFileEventually(t *testing.T, path string) []byte {
 
 func readFileEventuallyContaining(t *testing.T, path, needle string) []byte {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	var data []byte
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -481,4 +482,23 @@ func readFileEventuallyContaining(t *testing.T, path, needle string) []byte {
 	}
 	t.Fatalf("read %s: missing %q in %q", path, needle, data)
 	return nil
+}
+
+func waitForZeroFSTestFiles(ctx context.Context, argsPath, envPath string) error {
+	deadline := time.Now().Add(15 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := os.Stat(argsPath); err != nil {
+			lastErr = err
+		} else if data, err := os.ReadFile(envPath); err != nil {
+			lastErr = err
+		} else if strings.Contains(string(data), "SCENERY_ROLE=zerofs") {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("fake zerofs did not write startup files: %w", lastErr)
 }

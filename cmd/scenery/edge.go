@@ -654,6 +654,7 @@ func waitForEdgeDNSStartup(listen string, exitCh <-chan error, logPath string, l
 	defer deadline.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
+	listening := false
 	for {
 		select {
 		case err := <-exitCh:
@@ -666,6 +667,9 @@ func waitForEdgeDNSStartup(listen string, exitCh <-chan error, logPath string, l
 			}
 			return fmt.Errorf("dnsmasq exited during startup")
 		case <-deadline.C:
+			if listening {
+				return nil
+			}
 			tail := tailFileFromOffset(logPath, logOffset, 4096)
 			if tail != "" {
 				return fmt.Errorf("dnsmasq did not listen on %s within %s: %s", listen, timeout, tail)
@@ -675,7 +679,7 @@ func waitForEdgeDNSStartup(listen string, exitCh <-chan error, logPath string, l
 			conn, err := net.DialTimeout("tcp", listen, 50*time.Millisecond)
 			if err == nil {
 				_ = conn.Close()
-				return nil
+				listening = true
 			}
 		}
 	}

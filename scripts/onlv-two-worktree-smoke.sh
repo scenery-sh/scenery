@@ -171,9 +171,27 @@ install_worktree_dependencies "$WT_A" a
 install_worktree_dependencies "$WT_B" b
 
 start_edge() {
+  local domain="$1"
   local out="$LOG_DIR/edge-install.json"
   local err="$LOG_DIR/edge-install.stderr"
-  if "$SCENERY_BIN" system edge install --json >"$out" 2>"$err"; then
+  local dns_out="$LOG_DIR/edge-dns-install.json"
+  local dns_err="$LOG_DIR/edge-dns-install.stderr"
+  local dns_status="$LOG_DIR/edge-dns-status.json"
+  local edge_args=(system edge install)
+  if [[ -n "$domain" ]]; then
+    if "$SCENERY_BIN" system edge dns status --domain "$domain" --json >"$dns_status" 2>"$dns_err" &&
+      [[ "$(json_get "$dns_status" ready)" == "True" ]]; then
+      :
+    else
+      if ! "$SCENERY_BIN" system edge dns install --domain "$domain" --json >"$dns_out" 2>"$dns_err"; then
+        cat "$dns_err" >&2 || true
+        return 1
+      fi
+    fi
+    edge_args+=(--domain "$domain")
+  fi
+  edge_args+=(--json)
+  if "$SCENERY_BIN" "${edge_args[@]}" >"$out" 2>"$err"; then
     EDGE_STARTED=1
     return 0
   fi
@@ -189,7 +207,18 @@ start_edge() {
   return 1
 }
 
-start_edge
+route_base_domain() {
+  python3 - "$1/.scenery.json" <<'PY'
+import json
+import sys
+
+data = json.loads(open(sys.argv[1]).read())
+print((data.get("proxy") or {}).get("route_base_domain") or "")
+PY
+}
+
+EDGE_DOMAIN="$(route_base_domain "$WT_A")"
+start_edge "$EDGE_DOMAIN"
 
 start_session() {
   local wt="$1"

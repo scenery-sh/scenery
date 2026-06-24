@@ -323,6 +323,23 @@ func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
 	}
 }
 
+func TestStorageProxySocketPathFallsBackToShortTempPath(t *testing.T) {
+	t.Parallel()
+
+	stateRoot := filepath.Join(t.TempDir(), strings.Repeat("long-session-component-", 5))
+	path := storageProxySocketPath(&localagent.Session{
+		SessionID: strings.Repeat("feature-branch-", 8),
+		AppRoot:   filepath.Join(t.TempDir(), strings.Repeat("long-app-root-", 4)),
+		StateRoot: stateRoot,
+	})
+	if !strings.HasPrefix(path, filepath.Join(os.TempDir(), "scenery-storage-")) {
+		t.Fatalf("fallback storage proxy path = %q, want temp scenery-storage path", path)
+	}
+	if len(path) > 100 {
+		t.Fatalf("fallback storage proxy path length = %d, want <= 100: %q", len(path), path)
+	}
+}
+
 func startStorageP9Server(t *testing.T, socketPath, root string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {

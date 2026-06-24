@@ -116,15 +116,11 @@ func storageProxySocketPath(session *localagent.Session) string {
 	if len(path) <= 100 {
 		return path
 	}
-	sessionID := localagentLabel(session.SessionID)
-	if sessionID == "" {
-		sessionID = "session"
-	}
-	hash := appRootHash(firstNonEmpty(session.AppRoot, session.StateRoot))
+	hash := shortIdentityHash(firstNonEmpty(session.StateRoot, session.AppRoot, session.SessionID))
 	if hash == "" {
 		hash = "storage"
 	}
-	return filepath.Join(os.TempDir(), "scenery-storage-"+hash+"-"+sessionID+".sock")
+	return filepath.Join(os.TempDir(), "scenery-storage-"+hash+".sock")
 }
 
 func storageProxyHandler(stores map[string]publicstorage.Store) http.HandlerFunc {
