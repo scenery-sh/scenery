@@ -230,7 +230,7 @@ Use non-JSON output only for human inspection.
 
 ## Runtime Command Choice
 
-- Use `scenery up` to run the app root's one live dev runtime and expose capabilities for local development, debugging, agents, dashboard, logs, traces, metrics, managed dev services, and frontend routing. Paths ignored by `.gitignore` are outside the watcher/rebuild surface. Use a Git worktree for another live code copy.
+- Use `scenery up` to run the app root's one live dev runtime and expose capabilities for local development, debugging, agents, dashboard, logs, traces, metrics, managed dev services, and frontend routing. Paths ignored by `.gitignore` or app config `watch.ignore` are outside the watcher/rebuild surface; `watch.ignore` is Scenery-only and does not affect Git tracking. Use a Git worktree for another live code copy.
 - During a watcher rebuild restart, the runtime drains in-flight streaming raw responses (SSE/long-poll) by canceling their request contexts so they end with a clean terminator, and the agent router answers requests for a restarting backend with `503` plus `Retry-After: 1` instead of `502`; clients should treat that as a brief retryable window.
 - Managed Vite/Astro frontend dev servers are runtime children; if one exits unexpectedly, the dev supervisor restarts it on a new hidden loopback port and updates the agent route backend.
 - Use `scenery up --detach` when the local agent should keep that dev runtime running in the background.

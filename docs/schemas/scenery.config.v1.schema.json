@@ -30,6 +30,28 @@
       },
       "additionalProperties": false
     },
+    "watch": {
+      "type": "object",
+      "description": "Scenery-owned dev watcher configuration for app-root-relative paths.",
+      "properties": {
+        "ignore": {
+          "type": ["array", "null"],
+          "description": "App-root-relative exclusion patterns for scenery up. Directory patterns such as reference/ skip the subtree without affecting Git tracking.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "not": {
+              "anyOf": [
+                { "pattern": "^/" },
+                { "pattern": "^!" },
+                { "pattern": "(^|/)\\.\\.(/|$)" }
+              ]
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "dev": {
       "type": "object",
       "properties": {

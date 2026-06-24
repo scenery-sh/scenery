@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -61,6 +62,42 @@ func TestDiscoverRootAcceptsBuildGoFlags(t *testing.T) {
 	}
 	if got, want := strings.Join(cfg.Build.GoFlags, "\x00"), "-tags=roofmapnet_native\x00-gcflags=all=-N -l"; got != want {
 		t.Fatalf("Build.GoFlags = %#v, want %#v", cfg.Build.GoFlags, []string{"-tags=roofmapnet_native", "-gcflags=all=-N -l"})
+	}
+}
+
+func TestDiscoverRootAcceptsWatchIgnoreConfig(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{
+		"name": "watchapp",
+		"watch": {
+			"ignore": ["reference/", "tmp/*.go"]
+		}
+	}`)
+
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if got, want := strings.Join(cfg.Watch.Ignore, "\x00"), "reference/\x00tmp/*.go"; got != want {
+		t.Fatalf("Watch.Ignore = %#v, want %#v", cfg.Watch.Ignore, []string{"reference/", "tmp/*.go"})
+	}
+}
+
+func TestDiscoverRootAcceptsWatchIgnoreConfigAlias(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".config.json", `{
+		"name": "watchapp",
+		"watch": {
+			"ignore": ["reference/"]
+		}
+	}`)
+
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if len(cfg.Watch.Ignore) != 1 || cfg.Watch.Ignore[0] != "reference/" {
+		t.Fatalf("Watch.Ignore = %#v, want reference/", cfg.Watch.Ignore)
 	}
 }
 
@@ -224,6 +261,35 @@ func TestDiscoverRootRejectsUnknownBuildField(t *testing.T) {
 	_, _, err := DiscoverRoot(root)
 	if err == nil || !strings.Contains(err.Error(), `unknown .scenery.json field "build.shell"`) {
 		t.Fatalf("DiscoverRoot unknown field error = %v", err)
+	}
+}
+
+func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		want    string
+	}{
+		{name: "empty", pattern: "", want: "watch.ignore contains an empty pattern"},
+		{name: "absolute", pattern: "/tmp/cache", want: `watch.ignore pattern "/tmp/cache" must be app-root-relative`},
+		{name: "parent", pattern: "../reference", want: `watch.ignore pattern "../reference" must be app-root-relative`},
+		{name: "negated", pattern: "!reference/", want: `watch.ignore pattern "!reference/" is invalid`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeAppTestFile(t, root, ".scenery.json", `{
+				"name": "watchapp",
+				"watch": {
+					"ignore": [`+strconv.Quote(tt.pattern)+`]
+				}
+			}`)
+
+			_, _, err := DiscoverRoot(root)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("DiscoverRoot invalid watch.ignore error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

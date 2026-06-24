@@ -25,6 +25,7 @@ type Config struct {
 	ID            string                `json:"id"`
 	Build         BuildConfig           `json:"build"`
 	Proxy         ProxyConfig           `json:"proxy"`
+	Watch         WatchConfig           `json:"watch"`
 	Dev           DevConfig             `json:"dev"`
 	Storage       StorageConfig         `json:"storage"`
 	Generators    GeneratorsConfig      `json:"generators"`
@@ -42,6 +43,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		ID            string                `json:"id"`
 		Build         BuildConfig           `json:"build"`
 		Proxy         ProxyConfig           `json:"proxy"`
+		Watch         WatchConfig           `json:"watch"`
 		Dev           DevConfig             `json:"dev"`
 		Storage       *StorageConfig        `json:"storage,omitempty"`
 		Generators    GeneratorsConfig      `json:"generators"`
@@ -57,6 +59,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		ID:            c.ID,
 		Build:         c.Build,
 		Proxy:         c.Proxy,
+		Watch:         c.Watch,
 		Dev:           c.Dev,
 		Generators:    c.Generators,
 		Database:      c.Database,
@@ -151,6 +154,10 @@ func (c Config) ManagedPostgresService() DevServiceConfig {
 
 type BuildConfig struct {
 	GoFlags []string `json:"go_flags"`
+}
+
+type WatchConfig struct {
+	Ignore []string `json:"ignore"`
 }
 
 type ProxyConfig struct {
@@ -420,10 +427,30 @@ func looksLikeSceneryConfig(data []byte) bool {
 }
 
 func (c Config) Validate() error {
+	if err := c.validateWatch(); err != nil {
+		return err
+	}
 	if err := c.validateDevServices(); err != nil {
 		return err
 	}
 	return c.validateStorage()
+}
+
+func (c Config) validateWatch() error {
+	for _, pattern := range c.Watch.Ignore {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			return errors.New("watch.ignore contains an empty pattern")
+		}
+		clean := filepath.ToSlash(filepath.Clean(strings.TrimRight(pattern, "/")))
+		if filepath.IsAbs(pattern) || strings.HasPrefix(clean, "../") || clean == ".." || strings.Contains(clean, "/../") {
+			return fmt.Errorf("watch.ignore pattern %q must be app-root-relative", pattern)
+		}
+		if strings.HasPrefix(pattern, "!") {
+			return fmt.Errorf("watch.ignore pattern %q is invalid; watch.ignore only supports exclusions", pattern)
+		}
+	}
+	return nil
 }
 
 func (c Config) validateDevServices() error {
@@ -536,6 +563,23 @@ func decodeConfig(path string, data []byte, cfg *Config) error {
 		return fmt.Errorf("%s: decode %s: %w", path, filepath.Base(path), err)
 	}
 	return nil
+}
+
+func ReadWatchIgnorePatterns(appRoot string) ([]string, error) {
+	path, data, err := readConfigCandidate(appRoot)
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, nil
+	}
+	var partial struct {
+		Watch WatchConfig `json:"watch"`
+	}
+	if err := json.Unmarshal(data, &partial); err != nil {
+		return nil, fmt.Errorf("%s: decode %s watch.ignore: %w", path, filepath.Base(path), err)
+	}
+	return append([]string(nil), partial.Watch.Ignore...), nil
 }
 
 func rejectUnknownConfigFields(path string, data []byte) error {

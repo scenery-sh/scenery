@@ -18,6 +18,12 @@ If the app needs Go build tags or other build-time flags, add them as literal ar
 {"name":"hello","build":{"go_flags":["-tags=roofmapnet_native"]}}
 ```
 
+If the app has a Git-tracked non-runtime tree that should not trigger `scenery up` rebuilds, add a Scenery-only watch ignore:
+
+```json
+{"name":"hello","watch":{"ignore":["reference/"]}}
+```
+
 Create `go.mod`:
 
 ```go
