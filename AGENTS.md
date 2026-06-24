@@ -255,7 +255,7 @@ When editing source that changes the public app model, confirm the docs and test
 - `//scenery:authhandler`
 - request tags: `json`, `header`, `query`, `qs`, `cookie`
 - response tag: `scenery:"httpstatus"`
-- public packages: `scenery`, `auth`, `errs`, `middleware`, `temporal`, `cron`, `pgxpool`, `et`
+- public packages: `scenery`, `auth`, `errs`, `middleware`, `temporal`, `cron`, `db`, `pgxpool`, `et`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
 - worker, Temporal, cron, middleware, and generated TypeScript client behavior when touched

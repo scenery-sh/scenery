@@ -125,6 +125,7 @@ Struct tags:
 - `scenery.sh/temporal`
 - `scenery.sh/cron`
 - `scenery.sh/storage`
+- `scenery.sh/db`
 - `scenery.sh/pgxpool`
 - `scenery.sh/et`
 

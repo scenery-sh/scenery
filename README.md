@@ -284,6 +284,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary, including generated CRUD action policy, for inspection and generators.
 - `scenery.sh/temporal` exposes workflow/activity declarations and start helpers for the scenery-managed Temporal runtime.
 - `scenery.sh/cron` exposes cron job declarations.
+- `scenery.sh/db` exposes the app's shared default Postgres pool for services and sqlc.
 - `scenery.sh/pgxpool` wraps `pgxpool` with scenery DB tracing.
 - `scenery.sh/et` exposes endpoint/service mocking helpers for tests.
 
