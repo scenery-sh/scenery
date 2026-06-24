@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -352,24 +351,6 @@ func TestLocalPostgresTCPAdminURL(t *testing.T) {
 	}
 }
 
-func TestPostgresMajorVersionFromOutput(t *testing.T) {
-	t.Parallel()
-
-	for input, want := range map[string]string{
-		"postgres (PostgreSQL) 14.0": "14",
-		"postgres (PostgreSQL) 18":   "18",
-		"postgres (PostgreSQL) 9.6":  "9",
-	} {
-		got, err := postgresMajorVersionFromOutput(input)
-		if err != nil {
-			t.Fatalf("postgresMajorVersionFromOutput(%q) returned error: %v", input, err)
-		}
-		if got != want {
-			t.Fatalf("postgresMajorVersionFromOutput(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
-
 func TestManagedPostgresServerArgsEnableLogicalReplication(t *testing.T) {
 	t.Parallel()
 
@@ -401,31 +382,6 @@ func TestIsPostgresDuplicateDatabaseRace(t *testing.T) {
 	}
 	if isPostgresDuplicateDatabaseRace(&pq.Error{Code: "42601"}) {
 		t.Fatal("syntax error should not be treated as duplicate database race")
-	}
-}
-
-func TestResolveLocalPostgresBinariesFindsExplicitSibling(t *testing.T) {
-	dir := t.TempDir()
-	initdb := filepath.Join(dir, "initdb")
-	postgres := filepath.Join(dir, "postgres")
-	if err := os.WriteFile(initdb, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(postgres, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	prevLookPath := execLookPath
-	defer func() { execLookPath = prevLookPath }()
-	execLookPath = func(file string) (string, error) {
-		t.Fatalf("resolveLocalPostgresBinaries should not search PATH for %s", file)
-		return "", os.ErrNotExist
-	}
-	binaries, err := resolveLocalPostgresBinaries([]string{devPostgresInitDBEnv + "=" + initdb})
-	if err != nil {
-		t.Fatalf("resolveLocalPostgresBinaries returned error: %v", err)
-	}
-	if binaries.InitDB != initdb || binaries.Postgres != postgres {
-		t.Fatalf("binaries = %+v", binaries)
 	}
 }
 

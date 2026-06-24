@@ -600,7 +600,10 @@ func isWatchedFile(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	base := filepath.Base(rel)
 	switch base {
-	case ".gitignore", ".scenery.json", "go.mod", "go.sum", "go.work", "go.work.sum":
+	case ".gitignore", "go.mod", "go.sum", "go.work", "go.work.sum":
+		return true
+	}
+	if app.IsConfigFilename(base) {
 		return true
 	}
 	if isWatchedRootDotFile(rel) {
@@ -622,10 +625,10 @@ func isWatchedFile(rel string) bool {
 
 func isWatchedRootDotFile(rel string) bool {
 	switch filepath.ToSlash(rel) {
-	case ".env", ".env.local", ".scenery.json":
+	case ".env", ".env.local":
 		return true
 	default:
-		return false
+		return app.IsConfigFilename(rel)
 	}
 }
 

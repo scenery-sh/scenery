@@ -67,7 +67,8 @@ func buildDataGeneratorPlan(appRoot string, cfg appcfg.Config, appModel *model.A
 	if len(schemas) == 0 && len(seeds) == 0 && len(web) == 0 {
 		return nil, false, nil
 	}
-	inputs := []string{".scenery.json", "**/*.go"}
+	configRel := cfg.SourceRelPath(appRoot)
+	inputs := []string{configRel, "**/*.go"}
 	outputs := make([]string, 0, len(schemas)+len(seeds))
 	for _, schema := range schemas {
 		outputs = append(outputs, schema.GeneratedPath)
@@ -84,7 +85,7 @@ func buildDataGeneratorPlan(appRoot string, cfg appcfg.Config, appModel *model.A
 		webRecords = append(webRecords, generatorRecord{
 			ID:      "web:" + bundle.Frontend,
 			Kind:    "model-web",
-			Inputs:  uniqueSorted([]string{".scenery.json", "**/*.go", filepath.ToSlash(filepath.Join(bundle.FrontendRoot, "**/*.{ts,tsx}"))}),
+			Inputs:  uniqueSorted([]string{configRel, "**/*.go", filepath.ToSlash(filepath.Join(bundle.FrontendRoot, "**/*.{ts,tsx}"))}),
 			Outputs: uniqueSorted(bundleOutputs),
 			Tool:    "scenery-model-webgen",
 		})
@@ -201,7 +202,7 @@ func buildGeneratedSchemaDiffResult(appRoot string, cfg appcfg.Config, appModel 
 			Name:       cfg.Name,
 			ID:         cfg.ID,
 			Root:       appRoot,
-			ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+			ConfigPath: cfg.SourcePath(appRoot),
 			ModulePath: appModel.ModulePath,
 		},
 		Drift:     driftRecords,

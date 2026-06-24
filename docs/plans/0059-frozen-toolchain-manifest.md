@@ -13,7 +13,7 @@ A contributor, release binary, or CI job should be able to answer:
 After this change, bumping a managed tool version in the manifest changes the artifact key. The next `scenery toolchain sync`, or the next command that needs that tool, downloads the matching binary or verifies/pulls the matching Docker image into a Scenery-owned location.
 Scenery must not silently use binaries found in the system `PATH`. The allowed sources are:
 - the Scenery-managed toolchain store;
-- explicit per-tool env overrides;
+- explicit per-tool env overrides only for documented operator-facing tools that are intentionally not hidden dev-service substrate;
 - explicit external-service URLs where the command is configured to reuse an external service;
 - manifest-pinned Docker images.
 The user-visible surface is:
@@ -37,6 +37,7 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 - [x] (2026-06-01 09:02Z) Audit Temporal, Postgres, Electric, frontend worker runtimes, and other dev services for implicit `PATH` or unpinned Docker image resolution.
 - [x] (2026-06-01 09:02Z) Add docs, schemas, environment contract updates, and knowledge index updates.
 - [x] (2026-06-01 09:02Z) Add tests and self-harness coverage.
+- [x] (2026-06-24) Promote ZeroFS into the frozen toolchain manifest and remove `SCENERY_DEV_ZEROFS_BIN`, `SCENERY_TEMPORAL_BIN`, `SCENERY_DEV_POSTGRES_BIN`, and `SCENERY_DEV_POSTGRES_INITDB` as managed-substrate binary overrides. ZeroFS and Temporal CLI now resolve through the managed toolchain store, and managed Postgres starts from the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured.
 - [ ] (YYYY-MM-DD HH:MMZ) Complete validation and update retrospective.
 ## Surprises & Discoveries
 - Observation: Scenery already has a partial internal pin file at `internal/devtools/versions.json`.
@@ -83,9 +84,9 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 - Decision: Remove implicit `PATH` fallback for managed toolchain artifacts.
   Rationale: The user explicitly wants Scenery to avoid system/path binaries even when available. Managed tools should resolve from explicit env override, Scenery store, or manifest-driven download.
   Date/Author: 2026-06-01 / Codex.
-- Decision: Keep explicit per-tool binary env overrides.
-  Rationale: Explicit env variables such as `SCENERY_GRAFANA_BIN` are deliberate control points. They are acceptable because they are not silent system discovery.
-  Date/Author: 2026-06-01 / Codex.
+- Decision: Do not expose binary-path env overrides for hidden managed dev-service substrate.
+  Rationale: ZeroFS, Temporal CLI, and managed Postgres are Scenery-owned toolchain/runtime substrate. Agents and target apps should get the frozen version from `scenery.toolchain.json` through the managed store, not configure individual binary paths. Explicit external-service URLs remain valid when the user intentionally points Scenery at infrastructure they own.
+  Date/Author: 2026-06-24 / Codex.
 - Decision: Treat Go modules and UI package-manager files as `source_locks`, not managed toolchain downloads.
   Rationale: `go.mod`, `go.sum`, `package.json`, and package lock files already freeze source dependency graphs. The toolchain manifest should reference and report those lock surfaces without duplicating the entire dependency graph.
   Date/Author: 2026-06-01 / Codex.
@@ -424,8 +425,8 @@ For each Scenery-managed artifact:
 For package-manager/runtime commands such as `bun`, `npm`, `node`, or `tsx`, decide explicitly:
 - If Scenery only invokes the project’s chosen package manager, document it as a source dependency, not a Scenery-managed toolchain artifact.
 - If Scenery downloads or installs a hidden runtime, put it in the toolchain manifest.
-Temporal local dev server currently uses a Temporal CLI executable. If Scenery continues to auto-start local Temporal, prefer making Temporal CLI a managed toolchain artifact. If the decision is not to manage it, remove auto-start expectations or require an explicit `SCENERY_TEMPORAL_BIN`.
-Postgres local startup may use `initdb` and `postgres` binaries or Docker. If Scenery owns startup, those binaries/images must be manifest-controlled or explicit. No implicit `PATH`.
+Temporal local dev server uses the managed `temporal-cli` toolchain artifact. Do not add `SCENERY_TEMPORAL_BIN` back as a hidden substrate override.
+Postgres local startup uses the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured. Do not add local `initdb`/`postgres` binary env overrides back as hidden substrate controls.
 Electric local startup may use a local binary or Docker image. If Scenery owns startup, those binaries/images must be manifest-controlled or explicit. No implicit image tag or implicit `PATH`.
 ### Milestone 7: Add Docker image control
 Extend the toolchain manifest for images:

@@ -377,10 +377,6 @@ func (s *Store) withState(ctx context.Context, write bool, fn func(*storeState) 
 	return s.withStatePersist(ctx, write, true, fn)
 }
 
-func (s *Store) withDeferredState(ctx context.Context, mutation storeMutation) error {
-	return s.withStatePersist(ctx, true, false, mutation)
-}
-
 func (s *Store) withStatePersist(ctx context.Context, write bool, immediate bool, fn storeMutation) error {
 	if s == nil || s.path == "" || s.shared == nil {
 		return errors.New("devdash store is nil")
@@ -1634,50 +1630,6 @@ func (s *Store) queryTraceSummaries(ctx context.Context, query TraceQuery, messa
 	_ = messageID
 	_ = includeChildren
 	return []*TraceSummary{}, nil
-}
-
-func traceSummaryMatches(summary TraceSummary, query TraceQuery, messageID string, includeChildren bool) bool {
-	if summary.AppID != query.AppID {
-		return false
-	}
-	if !includeChildren && !summary.IsRoot {
-		return false
-	}
-	if query.SessionID != "" && summary.SessionID != query.SessionID {
-		return false
-	}
-	if query.TraceID != "" && summary.TraceID != query.TraceID {
-		return false
-	}
-	if query.ServiceName != "" && summary.ServiceName != query.ServiceName {
-		return false
-	}
-	if query.EndpointName != "" && (summary.EndpointName == nil || *summary.EndpointName != query.EndpointName) {
-		return false
-	}
-	switch query.Status {
-	case "ok":
-		if summary.IsError {
-			return false
-		}
-	case "error":
-		if !summary.IsError {
-			return false
-		}
-	}
-	if !query.Since.IsZero() && summary.StartedAt.Before(query.Since.UTC()) {
-		return false
-	}
-	if query.MinDurationNanos > 0 && summary.DurationNanos < query.MinDurationNanos {
-		return false
-	}
-	if messageID != "" {
-		data, _ := json.Marshal(summary)
-		if !strings.Contains(string(data), messageID) {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *Store) AppendTraceEvent(ctx context.Context, event *TraceEvent) error {

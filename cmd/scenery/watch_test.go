@@ -22,6 +22,7 @@ func TestScanWatchedFilesIncludesWatchedSourceFiles(t *testing.T) {
 	root := t.TempDir()
 
 	writeWatchFile(t, root, ".scenery.json", `{"name":"watchapp"}`)
+	writeWatchFile(t, root, ".config.json", `{"name":"watchapp"}`)
 	writeWatchFile(t, root, "go.mod", "module example.com/watchapp\n\ngo 1.26.3\n")
 	writeWatchFile(t, root, "go.sum", "example.com/mod v1.0.0 h1:abc\n")
 	writeWatchFile(t, root, ".env", "DatabaseURL=postgres://localhost/db\n")
@@ -39,7 +40,7 @@ func TestScanWatchedFilesIncludesWatchedSourceFiles(t *testing.T) {
 		t.Fatalf("scanWatchedFiles returned error: %v", err)
 	}
 
-	for _, want := range []string{".scenery.json", "go.mod", "go.sum", ".env", ".env.local", "svc/api.go", "svc/native.cpp", "svc/native.h", "svc/native.s"} {
+	for _, want := range []string{".scenery.json", ".config.json", "go.mod", "go.sum", ".env", ".env.local", "svc/api.go", "svc/native.cpp", "svc/native.h", "svc/native.s"} {
 		if _, ok := snapshot[want]; !ok {
 			t.Fatalf("snapshot missing %q: %+v", want, snapshot)
 		}
@@ -99,6 +100,7 @@ func TestShouldIgnoreWatchPath(t *testing.T) {
 		{path: "svc/native.cpp", want: false},
 		{path: ".env", want: false},
 		{path: ".env.local", want: false},
+		{path: ".config.json", want: false},
 		{path: ".git/config", want: true},
 		{path: "node_modules/pkg/index.js", want: true},
 		{path: "scenery_internal_main/main.go", want: true},

@@ -1275,28 +1275,6 @@
       ]
     },
     {
-      "name": "SCENERY_DEV_POSTGRES_BIN",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "dev.services",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Explicit local `postgres` binary path; scenery does not search `PATH` for it",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_DEV_POSTGRES_EXTERNAL",
       "match": "exact",
       "scope": "runtime",
@@ -1311,28 +1289,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "`1` keeps an explicit external `DatabaseURL` instead of creating a managed session database. External mode requires `DatabaseURL`; `DATABASE_URL` is ignored as the app database authority.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_DEV_POSTGRES_INITDB",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "dev.services",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Explicit local `initdb` binary path; scenery does not search `PATH` for it",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -1488,28 +1444,6 @@
       "owner": "scenery runtime",
       "rationale": "`0` disables automatic Victoria managed-toolchain downloads",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_DEV_ZEROFS_BIN",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "app.services.storage",
-      "stability": "beta",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime / storage",
-      "rationale": "Explicit local ZeroFS binary path for managed Scenery storage development; Scenery does not search ambient PATH for this substrate.",
-      "preferred_surface": ".scenery.json dev.services.storage for stable config; env only for explicit local binary override",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -2475,7 +2409,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Explicit local ZeroFS binary path used to launch managed Scenery storage when dev.services.<name>.kind is zerofs.",
+      "rationale": "Marks generated runtime processes started in standalone development mode.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -2609,28 +2543,6 @@
       "owner": "scenery runtime / storage",
       "rationale": "Protected Scenery route URL for the ZeroFS operator/debug Web UI attached to the current dev session.",
       "preferred_surface": "scenery storage webui --json",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_TEMPORAL_BIN",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Explicit Temporal CLI binary path for local dev server and deployment admin commands. Without this, scenery uses the managed toolchain artifact",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
       "docs": [

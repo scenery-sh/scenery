@@ -560,7 +560,7 @@ func (s *devSupervisor) reloadConfig() (app.Config, error) {
 		return app.Config{}, err
 	}
 	if filepath.Clean(root) != filepath.Clean(s.root) {
-		return app.Config{}, fmt.Errorf(".scenery.json moved from %s to %s", s.root, root)
+		return app.Config{}, fmt.Errorf("scenery app config moved from %s to %s", s.root, root)
 	}
 	return cfg, nil
 }

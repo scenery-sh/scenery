@@ -12,9 +12,15 @@ import (
 	"strings"
 )
 
-var ErrRootNotFound = errors.New("no .scenery.json found in current directory or any parent")
+const (
+	PrimaryConfigFilename = ".scenery.json"
+	AliasConfigFilename   = ".config.json"
+)
+
+var ErrRootNotFound = errors.New("no .scenery.json or .config.json found in current directory or any parent")
 
 type Config struct {
+	ConfigPath    string                `json:"-"`
 	Name          string                `json:"name"`
 	ID            string                `json:"id"`
 	Build         BuildConfig           `json:"build"`
@@ -75,6 +81,45 @@ func (c Config) AppID() string {
 		return c.ID
 	}
 	return c.Name
+}
+
+func (c Config) SourcePath(appRoot string) string {
+	if c.ConfigPath != "" {
+		return c.ConfigPath
+	}
+	return ConfigPath(appRoot)
+}
+
+func (c Config) SourceRelPath(appRoot string) string {
+	rel, err := filepath.Rel(appRoot, c.SourcePath(appRoot))
+	if err != nil {
+		return filepath.ToSlash(filepath.Base(c.SourcePath(appRoot)))
+	}
+	return filepath.ToSlash(rel)
+}
+
+func ConfigPath(appRoot string) string {
+	return filepath.Join(appRoot, PrimaryConfigFilename)
+}
+
+func ResolveConfigPath(appRoot string) (string, error) {
+	path, _, err := readConfigCandidate(appRoot)
+	if err != nil {
+		return "", err
+	}
+	if path != "" {
+		return path, nil
+	}
+	return ConfigPath(appRoot), nil
+}
+
+func IsConfigFilename(name string) bool {
+	switch filepath.Base(name) {
+	case PrimaryConfigFilename, AliasConfigFilename:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c Config) StorageCellID() string {
@@ -302,17 +347,21 @@ func DiscoverRoot(start string) (string, Config, error) {
 		return "", Config{}, err
 	}
 	for {
-		path := filepath.Join(dir, ".scenery.json")
-		if data, err := os.ReadFile(path); err == nil {
+		path, data, err := readConfigCandidate(dir)
+		if err != nil {
+			return "", Config{}, err
+		}
+		if path != "" {
 			var cfg Config
 			if err := decodeConfig(path, data, &cfg); err != nil {
 				return "", Config{}, err
 			}
+			cfg.ConfigPath = path
 			if cfg.Name == "" {
 				cfg.Name = cfg.ID
 			}
 			if cfg.Name == "" {
-				return "", Config{}, errors.New(".scenery.json must define a non-empty name or id")
+				return "", Config{}, fmt.Errorf("%s must define a non-empty name or id", filepath.Base(path))
 			}
 			if err := cfg.Validate(); err != nil {
 				return "", Config{}, fmt.Errorf("%s: %w", path, err)
@@ -326,6 +375,48 @@ func DiscoverRoot(start string) (string, Config, error) {
 		dir = parent
 	}
 	return "", Config{}, ErrRootNotFound
+}
+
+func readConfigCandidate(dir string) (string, []byte, error) {
+	path := filepath.Join(dir, PrimaryConfigFilename)
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return path, data, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", nil, err
+	}
+
+	path = filepath.Join(dir, AliasConfigFilename)
+	data, err = os.ReadFile(path)
+	if err == nil {
+		if looksLikeSceneryConfig(data) {
+			return path, data, nil
+		}
+		return "", nil, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", nil, err
+	}
+	return "", nil, nil
+}
+
+func looksLikeSceneryConfig(data []byte) bool {
+	var obj map[string]json.RawMessage
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&obj); err != nil {
+		return false
+	}
+	if len(obj) == 0 {
+		return false
+	}
+	fields := jsonStructFields(reflect.TypeFor[Config]())
+	for name := range obj {
+		if _, ok := fields[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Config) Validate() error {
@@ -442,7 +533,7 @@ func decodeConfig(path string, data []byte, cfg *Config) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(cfg); err != nil {
-		return fmt.Errorf("%s: decode .scenery.json: %w", path, err)
+		return fmt.Errorf("%s: decode %s: %w", path, filepath.Base(path), err)
 	}
 	return nil
 }
@@ -452,15 +543,15 @@ func rejectUnknownConfigFields(path string, data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&raw); err != nil {
-		return fmt.Errorf("%s: decode .scenery.json: %w", path, err)
+		return fmt.Errorf("%s: decode %s: %w", path, filepath.Base(path), err)
 	}
-	if err := rejectUnknownFieldsValue(raw, reflect.TypeFor[Config](), nil); err != nil {
+	if err := rejectUnknownFieldsValue(raw, reflect.TypeFor[Config](), nil, filepath.Base(path)); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
 }
 
-func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string) error {
+func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, configName string) error {
 	typ = indirectType(typ)
 	switch typ.Kind() {
 	case reflect.Struct:
@@ -473,9 +564,9 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string) error 
 			field, ok := fields[name]
 			childPath := appendJSONPath(path, name)
 			if !ok {
-				return unknownConfigFieldError(childPath)
+				return unknownConfigFieldError(childPath, configName)
 			}
-			if err := rejectUnknownFieldsValue(child, field.Type, childPath); err != nil {
+			if err := rejectUnknownFieldsValue(child, field.Type, childPath, configName); err != nil {
 				return err
 			}
 		}
@@ -489,7 +580,7 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string) error 
 			return nil
 		}
 		for name, child := range obj {
-			if err := rejectUnknownFieldsValue(child, elem, appendJSONPath(path, name)); err != nil {
+			if err := rejectUnknownFieldsValue(child, elem, appendJSONPath(path, name), configName); err != nil {
 				return err
 			}
 		}
@@ -499,7 +590,7 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string) error 
 			return nil
 		}
 		for i, child := range items {
-			if err := rejectUnknownFieldsValue(child, typ.Elem(), appendJSONIndex(path, i)); err != nil {
+			if err := rejectUnknownFieldsValue(child, typ.Elem(), appendJSONIndex(path, i), configName); err != nil {
 				return err
 			}
 		}
@@ -507,13 +598,13 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string) error 
 	return nil
 }
 
-func unknownConfigFieldError(path []string) error {
+func unknownConfigFieldError(path []string, configName string) error {
 	jsonPath := strings.Join(path, ".")
 	removedProxyHostPath := "proxy." + removedProxyHostField()
 	if jsonPath == removedProxyHostPath {
-		return fmt.Errorf("unknown .scenery.json field %q; %s was removed and has no compatibility behavior; remove it and use dev session routes or proxy.api_host/proxy.console_host/proxy.frontends for local routing", jsonPath, removedProxyHostPath)
+		return fmt.Errorf("unknown %s field %q; %s was removed and has no compatibility behavior; remove it and use dev session routes or proxy.api_host/proxy.console_host/proxy.frontends for local routing", configName, jsonPath, removedProxyHostPath)
 	}
-	return fmt.Errorf("unknown .scenery.json field %q", jsonPath)
+	return fmt.Errorf("unknown %s field %q", configName, jsonPath)
 }
 
 func removedProxyHostField() string {

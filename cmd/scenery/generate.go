@@ -352,7 +352,7 @@ func baseGeneratorGraph(appRoot string, cfg appcfg.Config, hasApp bool) generato
 			Name:       cfg.Name,
 			ID:         cfg.ID,
 			Root:       appRoot,
-			ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+			ConfigPath: cfg.SourcePath(appRoot),
 		},
 		Generators:  []generatorRecord{},
 		DBArtifacts: []databaseArtifactRecord{},
@@ -373,11 +373,12 @@ func buildClientGeneratorPlans(appRoot string, cfg appcfg.Config, hasApp bool, o
 		}
 		output := normalizeOutputPath(appRoot, opts.Output)
 		id := "client:" + firstNonEmpty(opts.Target, cfg.AppID())
+		configRel := cfg.SourceRelPath(appRoot)
 		return []clientGeneratorPlan{{
 			Record: generatorRecord{
 				ID:      id,
 				Kind:    "typescript-client",
-				Inputs:  []string{".scenery.json", "**/*.go"},
+				Inputs:  []string{configRel, "**/*.go"},
 				Outputs: []string{filepath.ToSlash(output)},
 				Tool:    "scenery-clientgen",
 			},
@@ -401,11 +402,12 @@ func buildClientGeneratorPlans(appRoot string, cfg appcfg.Config, hasApp bool, o
 		}
 		output := normalizeOutputPath(appRoot, client.Output)
 		id := firstNonEmpty(client.ID, "client:"+firstNonEmpty(client.Target, cfg.AppID()))
+		configRel := cfg.SourceRelPath(appRoot)
 		plans = append(plans, clientGeneratorPlan{
 			Record: generatorRecord{
 				ID:      id,
 				Kind:    "typescript-client",
-				Inputs:  []string{".scenery.json", "**/*.go"},
+				Inputs:  []string{configRel, "**/*.go"},
 				Outputs: []string{filepath.ToSlash(output)},
 				Tool:    "scenery-clientgen",
 			},

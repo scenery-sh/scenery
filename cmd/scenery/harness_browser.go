@@ -154,7 +154,7 @@ func runSceneryHarnessUI(ctx context.Context, stdout io.Writer, args []string) e
 			Name:       cfg.Name,
 			ID:         cfg.ID,
 			Root:       appRoot,
-			ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+			ConfigPath: cfg.SourcePath(appRoot),
 		},
 		Routes:    []harnessUIRoute{},
 		Artifacts: []harnessArtifact{},

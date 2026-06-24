@@ -37,6 +37,7 @@ This is a platform rewrite, not a compatibility shim for an app-specific drive p
 - [x] 2026-06-22: Replaced process-only ZeroFS readiness with a real ZeroFS 1.2.5 proof: `scenery up --app-root testdata/apps/storage-basic --json --detach` starts the managed ZeroFS process, registers `zerofs-storage-basic`, exposes the protected storage Web UI route, starts the session-local storage proxy, and a public fixture endpoint writes and reads `probe/public.txt` through `storage.Default(ctx)` over the real ZeroFS 9P socket.
 - [x] 2026-06-22: Added ZeroFS-available self-harness proof. When `SCENERY_DEV_ZEROFS_BIN` points to an executable binary, `scenery harness self --summary --write` starts the fixture app with real ZeroFS, calls the storage probe over the app API Unix socket, asserts `inspect storage` readiness `ready`, and cleans up the throwaway agent home; without the binary the proof records a skipped diagnostic.
 - [x] 2026-06-22: Validated the Scenery storage replacement path in `/Users/petrbrazdil/Repos/onlv` on branch `feat/scenery-storage-onlv-migration`: ONLV now declares storage cell `onlv`, backend file helpers write/list/read/delete through `scenery.sh/storage`, Pulse Drive/viewer/contact/annotation writes use generated `client.storage`, and validation passed with `scenery check --json`, `go test ./...`, `bun run typecheck`, `bun run lint`, `scenery harness --json --write`, and an isolated `scenery storage put|get` byte-for-byte smoke.
+- [x] 2026-06-24: Current contract update: managed ZeroFS now resolves from the pinned `zerofs` artifact in `scenery.toolchain.json`; previous `SCENERY_DEV_ZEROFS_BIN` notes in this plan are historical implementation evidence, not supported setup instructions.
 
 ## Surprises & Discoveries
 
@@ -56,6 +57,7 @@ This is a platform rewrite, not a compatibility shim for an app-specific drive p
 - 2026-06-22: A tiny `disk_size_gb = 1` cache can produce a zero-block warning and never create the 9P socket on this macOS machine. The real-binary proof succeeded with `disk_size_gb = 10` and `memory_size_gb = 1`, matching ZeroFS examples.
 - 2026-06-22: ZeroFS 1.2.5 did not create the 9P Unix socket when `[servers.ninep]` had only `unix_socket`. Adding a private loopback `addresses` listener activates 9P while the Scenery storage proxy still uses the Unix socket data path. This is a substrate detail, not an app integration surface.
 - 2026-06-22: The shared agent-root socket path can exceed macOS Unix-domain socket path limits. Managed ZeroFS now keeps durable cache/object/config/log files under the shared agent storage root, but places 9P/RPC Unix sockets under a short temp path keyed by the storage cell identity.
+- 2026-06-24: ZeroFS binary selection moved out of app/runtime env and into the Scenery managed toolchain. `docs/local-contract.md`, `docs/environment.md`, and `scenery.toolchain.json` are the current contract for storage substrate resolution.
 
 ## Decision Log
 
@@ -738,7 +740,7 @@ docs/schemas/scenery.storage.list.v1.schema.json
 docs/schemas/scenery.storage.object.v1.schema.json
 ```
 
-New env vars must be finalized before implementation and registered in `docs/environment.registry.json`. Candidate names:
+Historical candidate names from the initial plan are below. Current supported env vars live in `docs/environment.md` and `docs/environment.registry.json`; `SCENERY_DEV_ZEROFS_BIN` was not retained.
 
 ```text
 SCENERY_STORAGE_CONFIG

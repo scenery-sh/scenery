@@ -554,7 +554,7 @@ func appInfo(appRoot string, cfg appcfg.Config, app *model.App) AppRef {
 		Name:       cfg.Name,
 		ID:         cfg.ID,
 		Root:       appRoot,
-		ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+		ConfigPath: cfg.SourcePath(appRoot),
 	}
 	if app != nil {
 		ref.ModulePath = app.ModulePath

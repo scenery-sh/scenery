@@ -87,19 +87,16 @@ App-defined auth env names such as `JWTSecret`, `GoogleOAuthClientID`, `GoogleOA
 | `SCENERY_TOOLCHAIN_DIR` | user input | Overrides the managed toolchain store root. Default is `.scenery/toolchain/` under the app or repo root; machine-level edge tools use `~/.scenery/toolchain/`. |
 | `SCENERY_TOOLCHAIN_DOWNLOAD` | user input | `0` disables automatic downloads for managed toolchain binaries. |
 
-Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driven downloads or source builds into the managed store. Some app-root tools also expose documented per-tool env overrides. They do not fall back to ambient system `PATH` binaries.
+Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driven downloads or source builds into the managed store. Scenery-owned toolchain binaries and images do not fall back to ambient system `PATH` binaries.
 
 ## Managed Dev Services
 
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `SCENERY_DEV_POSTGRES_ADMIN_URL` | user input | Explicit admin Postgres URL for the managed dev database planner. |
-| `SCENERY_DEV_POSTGRES_BIN` | user input | Explicit local `postgres` binary path; scenery does not search `PATH` for it. |
-| `SCENERY_DEV_POSTGRES_INITDB` | user input | Explicit local `initdb` binary path; scenery does not search `PATH` for it. |
 | `SCENERY_DEV_POSTGRES_EXTERNAL` | user input | `1` keeps an explicit external `DatabaseURL` instead of creating a managed session database. External mode requires `DatabaseURL`; `DATABASE_URL` is ignored as the app database authority. |
 | `SCENERY_DEV_ELECTRIC_UPSTREAM` | user input | Explicit Electric upstream; scenery registers it as the session Electric backend. |
 | `SCENERY_DEV_ELECTRIC_BIN` | user input | Explicit local Electric binary path; scenery does not search `PATH` for it. |
-| `SCENERY_DEV_ZEROFS_BIN` | user input | Explicit local ZeroFS binary path for managed Scenery storage; scenery does not search `PATH` for it. |
 | `SCENERY_STORAGE_CONFIG` | injected | App-facing storage capability config consumed by `scenery.sh/storage`. It contains configured store names and Scenery-owned backend metadata such as a session-local proxy socket, not raw object-store credentials. |
 | `SCENERY_STORAGE_CELL_ID` | injected | Stable shared storage cell ID for the app's configured storage capability. |
 | `SCENERY_STORAGE_CELL_ROOT` | injected | Scenery-owned shared storage-cell root used to expand managed ZeroFS service env. App code should use `scenery.sh/storage` instead of this substrate path. |
@@ -126,7 +123,6 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_TEMPORAL_VERSIONING_BEHAVIOR` | user input | `pinned` or `auto_upgrade`; default is `pinned`. |
 | `SCENERY_TEMPORAL_HOST_RESOURCE_REPORTING` | user input | `0` disables Temporal Go SDK host resource reporting. Enabled by default. |
 | `SCENERY_BUILD_ID` | injected/user input | Worker build ID. Agent dev uses the session ID. |
-| `SCENERY_TEMPORAL_BIN` | user input | Explicit Temporal CLI binary path for local dev server and deployment admin commands. Without this, scenery uses the managed toolchain artifact. |
 
 ## Observability, Victoria, And Grafana
 

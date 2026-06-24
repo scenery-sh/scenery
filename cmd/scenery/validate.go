@@ -425,7 +425,7 @@ func buildValidationInspectResponse(appRoot string, cfg appcfg.Config, profile s
 		Resolved:      plan.Steps,
 		Tasks:         tasks,
 		Diagnostics:   plan.Diagnostics,
-		Source:        filepath.Join(appRoot, ".scenery.json"),
+		Source:        cfg.SourcePath(appRoot),
 	}, nil
 }
 
@@ -442,6 +442,7 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 		Edges:         []validationGraphEdge{},
 	}
 	seen := map[string]bool{}
+	configRel := cfg.SourceRelPath(appRoot)
 	addNode := func(node validationGraphNode) {
 		if node.ID == "" || seen[node.ID] {
 			return
@@ -452,7 +453,7 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 	var walk func(name string, stack []string)
 	walk = func(name string, stack []string) {
 		id := "profile:" + name
-		addNode(validationGraphNode{ID: id, Name: name, Kind: "profile", Source: ".scenery.json"})
+		addNode(validationGraphNode{ID: id, Name: name, Kind: "profile", Source: configRel})
 		for _, active := range stack {
 			if active == name {
 				resp.Diagnostics = append(resp.Diagnostics, validationDiagnostic("validation", "error", "profile cycle detected: "+strings.Join(append(stack, name), " -> ")))
@@ -473,7 +474,7 @@ func buildValidationGraphResponse(appRoot string, cfg appcfg.Config, profile str
 			if ref.Kind == "builtin" {
 				childID = "builtin:" + ref.Name
 			}
-			addNode(validationGraphNode{ID: childID, Name: ref.Name, Kind: ref.Kind, Source: validationStepSource(ref)})
+			addNode(validationGraphNode{ID: childID, Name: ref.Name, Kind: ref.Kind, Source: validationStepSource(ref, configRel)})
 			resp.Edges = append(resp.Edges, validationGraphEdge{From: id, To: childID, Kind: ref.Kind})
 			if ref.Kind == "profile" {
 				walk(ref.Name, append(stack, name))
@@ -595,11 +596,11 @@ func parseValidationStep(step string) validationStepRef {
 	}
 }
 
-func validationStepSource(ref validationStepRef) string {
+func validationStepSource(ref validationStepRef, configRel string) string {
 	if ref.Kind == "builtin" {
 		return "scenery"
 	}
-	return ".scenery.json"
+	return configRel
 }
 
 func validationStepCommand(appRoot string, ref validationStepRef) []string {
@@ -763,7 +764,7 @@ func validateValidationConfig(appRoot string, cfg appcfg.Config) []checkDiagnost
 		diags = append(diags, validationDiagnostic("validation", "error", "profile cycle detected: "+strings.Join(cycle, " -> ")))
 	}
 	for i := range diags {
-		diags[i].File = filepath.Join(appRoot, ".scenery.json")
+		diags[i].File = cfg.SourcePath(appRoot)
 	}
 	return diags
 }
@@ -840,7 +841,7 @@ func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []valida
 		}
 		if kind == taskKindConfigured {
 			if task, ok := cfg.Tasks[ref.Name]; ok {
-				out = append(out, configuredTaskListRecord(appRoot, ref.Name, task))
+				out = append(out, configuredTaskListRecord(appRoot, cfg, ref.Name, task))
 			}
 		}
 	}

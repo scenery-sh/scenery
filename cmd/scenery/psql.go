@@ -124,7 +124,7 @@ func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
 			Name:       cfg.Name,
 			ID:         cfg.ID,
 			Root:       appRoot,
-			ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+			ConfigPath: cfg.SourcePath(appRoot),
 		},
 		Apply: dbApplyRecord{
 			Provider: provider,

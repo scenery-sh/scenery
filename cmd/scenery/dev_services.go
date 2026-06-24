@@ -31,15 +31,13 @@ const (
 	devPostgresDefaultVersion   = "18"
 	devPostgresDefaultIsolation = "database"
 	devPostgresAdminURLEnv      = "SCENERY_DEV_POSTGRES_ADMIN_URL"
-	devPostgresBinEnv           = "SCENERY_DEV_POSTGRES_BIN"
-	devPostgresInitDBEnv        = "SCENERY_DEV_POSTGRES_INITDB"
 	devPostgresExternalEnv      = "SCENERY_DEV_POSTGRES_EXTERNAL"
 	devElectricDefaultRoute     = "electric"
 	devElectricUpstreamEnv      = "SCENERY_DEV_ELECTRIC_UPSTREAM"
 	devElectricBinEnv           = "SCENERY_DEV_ELECTRIC_BIN"
 	devElectricContainerPort    = 3000
 	devZeroFSDefaultRoute       = "storage"
-	devZeroFSBinEnv             = "SCENERY_DEV_ZEROFS_BIN"
+	devZeroFSToolchainArtifact  = "zerofs"
 	appDatabaseURLEnv           = "DatabaseURL"
 	legacyDatabaseURLEnv        = "DATABASE_URL"
 )
@@ -68,7 +66,7 @@ type managedZeroFSPlan struct {
 	StorageCellID string
 	Route         string
 	Image         string
-	Binary        string
+	ToolchainDir  string
 	CellRoot      string
 	CacheDir      string
 	ObjectsDir    string
@@ -81,11 +79,6 @@ type managedZeroFSPlan struct {
 	WebUIAddrPath string
 	LogPath       string
 	Env           map[string]string
-}
-
-type localPostgresBinaries struct {
-	InitDB   string
-	Postgres string
 }
 
 type managedPostgresServer struct {
@@ -1209,103 +1202,12 @@ func postgresServiceVersion(cfg app.Config) string {
 
 func startLocalManagedPostgres(ctx context.Context, root, version string) (*managedPostgresServer, error) {
 	version = firstNonEmpty(strings.TrimSpace(version), devPostgresDefaultVersion)
-	binaries, err := resolveLocalPostgresBinaries(envpolicy.Environ())
-	var localVersion string
-	if err == nil {
-		if detected, versionErr := postgresBinaryMajorVersion(ctx, binaries.Postgres); versionErr == nil {
-			localVersion = detected
-			if localVersion == version {
-				return startLocalManagedPostgresBinary(ctx, root, localVersion, binaries)
-			}
-		}
-	}
 	if docker, dockerErr := execLookPath("docker"); dockerErr == nil {
 		if dockerAvailable(ctx, docker) {
 			return startLocalManagedPostgresContainer(ctx, root, version, docker)
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	detected, versionErr := postgresBinaryMajorVersion(ctx, binaries.Postgres)
-	if versionErr != nil {
-		return nil, versionErr
-	}
-	return nil, fmt.Errorf("managed Postgres needs version %s but local postgres is version %s and docker is unavailable", version, detected)
-}
-
-func startLocalManagedPostgresBinary(ctx context.Context, root, version string, binaries localPostgresBinaries) (*managedPostgresServer, error) {
-	dataDir := filepath.Join(root, "data-"+version)
-	socketDir := filepath.Join(root, "run")
-	if err := os.MkdirAll(socketDir, 0o755); err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(filepath.Join(dataDir, "PG_VERSION")); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, err
-		}
-		if err := initLocalPostgresDataDir(ctx, binaries.InitDB, root, dataDir); err != nil {
-			return nil, err
-		}
-	}
-	port, err := localPostgresPort(root)
-	if err != nil {
-		return nil, err
-	}
-	adminURL := localPostgresAdminURL(socketDir, port)
-	if managedPostgresAdminReachable(ctx, adminURL) {
-		if owner, err := verifyManagedPostgresPortOwner(root); err == nil {
-			return &managedPostgresServer{AdminURL: adminURL, DataDir: dataDir, SocketDir: socketDir, Port: port, Source: "local-binary", Version: version, ownerPID: owner.PID}, nil
-		}
-		port, err = resetLocalPostgresPort(root)
-		if err != nil {
-			return nil, err
-		}
-		adminURL = localPostgresAdminURL(socketDir, port)
-	}
-	logPath := filepath.Join(root, "postgres.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil, err
-	}
-	args := append([]string{"-D", dataDir, "-k", socketDir, "-h", "", "-p", fmt.Sprintf("%d", port)}, managedPostgresServerArgs()...)
-	cmd := exec.CommandContext(context.Background(), binaries.Postgres, args...)
-	configureDetachedChildProcess(cmd)
-	configureCommandCancellation(cmd, 5*time.Second)
-	cmd.Dir = root
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.Env = envpolicy.Environ()
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return nil, err
-	}
-	server := &managedPostgresServer{
-		AdminURL:  adminURL,
-		DataDir:   dataDir,
-		SocketDir: socketDir,
-		Port:      port,
-		Source:    "local-binary",
-		Version:   version,
-		LogPath:   logPath,
-		ownerPID:  cmd.Process.Pid,
-		cmd:       cmd,
-		done:      make(chan error, 1),
-	}
-	go func() {
-		server.done <- cmd.Wait()
-		close(server.done)
-		_ = logFile.Close()
-	}()
-	if err := waitForManagedPostgres(ctx, server); err != nil {
-		_ = interruptManagedPostgresServer(server)
-		return nil, err
-	}
-	if err := writeManagedPostgresPortOwner(root, localagent.CaptureOwner(cmd.Process.Pid, "managed postgres")); err != nil {
-		_ = interruptManagedPostgresServer(server)
-		return nil, err
-	}
-	return server, nil
+	return nil, fmt.Errorf("managed Postgres needs Docker to run pinned image postgres:%s", version)
 }
 
 func startLocalManagedPostgresContainer(ctx context.Context, root, version, docker string) (*managedPostgresServer, error) {
@@ -1488,50 +1390,6 @@ func managedPostgresServerArgs() []string {
 		"-c", "max_wal_senders=10",
 		"-c", "max_replication_slots=10",
 	}
-}
-
-func resolveLocalPostgresBinaries(env []string) (localPostgresBinaries, error) {
-	initdb, _ := lookupEnvValue(env, devPostgresInitDBEnv)
-	postgres, _ := lookupEnvValue(env, devPostgresBinEnv)
-	if initdb != "" && postgres == "" {
-		if sibling := filepath.Join(filepath.Dir(initdb), "postgres"); isExecutableFile(sibling) {
-			postgres = sibling
-		}
-	}
-	if postgres != "" && initdb == "" {
-		if sibling := filepath.Join(filepath.Dir(postgres), "initdb"); isExecutableFile(sibling) {
-			initdb = sibling
-		}
-	}
-	if initdb == "" || postgres == "" {
-		return localPostgresBinaries{}, fmt.Errorf("managed Postgres needs explicit %s/%s or Docker; system PATH initdb/postgres are not used for managed toolchain artifacts", devPostgresInitDBEnv, devPostgresBinEnv)
-	}
-	if !isExecutableFile(initdb) {
-		return localPostgresBinaries{}, fmt.Errorf("%s points to a non-executable file: %s", devPostgresInitDBEnv, initdb)
-	}
-	if !isExecutableFile(postgres) {
-		return localPostgresBinaries{}, fmt.Errorf("%s points to a non-executable file: %s", devPostgresBinEnv, postgres)
-	}
-	return localPostgresBinaries{InitDB: initdb, Postgres: postgres}, nil
-}
-
-func initLocalPostgresDataDir(ctx context.Context, initdb, root, dataDir string) error {
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return err
-	}
-	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(initCtx, initdb, "-D", dataDir, "-U", "scenery", "-A", "trust")
-	cmd.Dir = root
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(output))
-		if msg == "" {
-			return err
-		}
-		return fmt.Errorf("initdb failed: %w\n%s", err, msg)
-	}
-	return nil
 }
 
 func waitForManagedPostgres(ctx context.Context, server *managedPostgresServer) error {
@@ -1795,16 +1653,6 @@ func localPostgresTCPAdminURL(port int) string {
 	}).String()
 }
 
-func postgresBinaryMajorVersion(ctx context.Context, postgres string) (string, error) {
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(checkCtx, postgres, "--version").Output()
-	if err != nil {
-		return "", err
-	}
-	return postgresMajorVersionFromOutput(string(output))
-}
-
 func dockerAvailable(ctx context.Context, docker string) bool {
 	// `docker info` can take several seconds on a loaded machine (e.g. CI
 	// runners executing concurrent workflows); a short timeout misclassifies
@@ -1812,24 +1660,6 @@ func dockerAvailable(ctx context.Context, docker string) bool {
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return exec.CommandContext(checkCtx, docker, "info").Run() == nil
-}
-
-func postgresMajorVersionFromOutput(output string) (string, error) {
-	fields := strings.Fields(output)
-	for i := len(fields) - 1; i >= 0; i-- {
-		part := strings.Trim(fields[i], " ,")
-		if part == "" {
-			continue
-		}
-		major := part
-		if before, _, ok := strings.Cut(part, "."); ok {
-			major = before
-		}
-		if _, err := strconv.Atoi(major); err == nil {
-			return major, nil
-		}
-	}
-	return "", fmt.Errorf("could not parse Postgres version from %q", strings.TrimSpace(output))
 }
 
 func managedPostgresContainerName(root, version string, port int) string {

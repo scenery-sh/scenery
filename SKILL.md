@@ -1,11 +1,11 @@
 ---
 name: scenery
-description: Use when building, running, debugging, inspecting, validating, or generating clients for scenery applications. scenery is a Go-native service runtime and CLI using .scenery.json, //scenery directives, typed endpoints, local dev supervision, logs, traces, metrics, workers, and TypeScript client generation.
+description: Use when building, running, debugging, inspecting, validating, or generating clients for scenery applications. scenery is a Go-native service runtime and CLI using .scenery.json/.config.json app config, //scenery directives, typed endpoints, local dev supervision, logs, traces, metrics, workers, and TypeScript client generation.
 ---
 
 # scenery
 
-scenery is a Go-native service runtime and local development platform. It runs app-root dev runtimes, exposes capabilities for inspection and action, and hides backing substrate details unless you intentionally debug them. Apps are ordinary Go modules with a `.scenery.json` app root and `//scenery:` directives in Go source.
+scenery is a Go-native service runtime and local development platform. It runs app-root dev runtimes, exposes capabilities for inspection and action, and hides backing substrate details unless you intentionally debug them. Apps are ordinary Go modules with a `.scenery.json` app config, or `.config.json` alias, at the app root and `//scenery:` directives in Go source.
 
 This skill is the portable agent entrypoint. It teaches shared scenery behavior, but it does not replace app-local instructions. Client apps should also keep a small `AGENTS.md` with app root, frontend roots, generated client paths, required environment names, validation commands, and product invariants. In target apps, read the root `AGENTS.md` and every child `AGENTS.md` on the path to files you expect to touch before editing non-trivial changes.
 
@@ -44,11 +44,11 @@ Run `scenery doctor --json` before deep app debugging when local readiness is in
 
 ## Mental Model
 
-- `.scenery.json` marks the app root.
-- App-required Go build tags or build-time flags belong in `.scenery.json` as `build.go_flags`, for example `["-tags=roofmapnet_native"]`; Scenery applies them to app builds and generated-workspace tests.
+- `.scenery.json` marks the app root; `.config.json` is accepted as an alias when `.scenery.json` is absent.
+- App-required Go build tags or build-time flags belong in app config as `build.go_flags`, for example `["-tags=roofmapnet_native"]`; Scenery applies them to app builds and generated-workspace tests.
 - Go source is the app model.
 - `scenery up` starts the supervised local platform: app process, rebuild/restart loop, dashboard, API Explorer, logs, traces, metrics, managed dev services when configured, and optional frontend routing through the local agent.
-- Storage is a Scenery-owned app capability when `.scenery.json` declares `storage`. Use `scenery inspect storage --json` and `scenery storage status|webui|ls|stat|put|get|rm --json`; app code launched by Scenery can use `scenery.sh/storage` through the injected storage capability env, and browser code can use generated TypeScript `client.storage` helpers or reserved `/__scenery/storage/<store>/...` routes for configured auth stores. In agent-backed dev sessions, app storage calls go through Scenery's session-local proxy to the managed ZeroFS 9P socket; apps should not inspect that socket directly. Private stores are internal-only: external storage routes deny them, while app/runtime helpers and Scenery's private route table may use them. Inspect/status includes `storage.runtime` with lease ownership when an agent-managed ZeroFS substrate is attached. `scenery down` releases only the current session's ZeroFS lease and preserves shared storage-cell data. Treat ZeroFS sockets, object directories, and agent storage roots as substrate details unless intentionally debugging storage.
+- Storage is a Scenery-owned app capability when app config declares `storage`. Use `scenery inspect storage --json` and `scenery storage status|webui|ls|stat|put|get|rm --json`; app code launched by Scenery can use `scenery.sh/storage` through the injected storage capability env, and browser code can use generated TypeScript `client.storage` helpers or reserved `/__scenery/storage/<store>/...` routes for configured auth stores. In agent-backed dev sessions, app storage calls go through Scenery's session-local proxy to the managed ZeroFS 9P socket; apps should not inspect that socket directly. Private stores are internal-only: external storage routes deny them, while app/runtime helpers and Scenery's private route table may use them. Inspect/status includes `storage.runtime` with lease ownership when an agent-managed ZeroFS substrate is attached. `scenery down` releases only the current session's ZeroFS lease and preserves shared storage-cell data. Treat ZeroFS sockets, object directories, and agent storage roots as substrate details unless intentionally debugging storage.
 - `scenery serve` starts a headless API-role server and does not start dashboard, proxy, or watch mode.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and called through generated helpers.
 - Typed endpoints decode path, query, header, cookie, and JSON body inputs into Go values.
@@ -97,7 +97,7 @@ curl http://127.0.0.1:4000/hello/world
 //scenery:authhandler
 ```
 
-Standard auth can be enabled from `.scenery.json` without app-local wrapper endpoints. Its tenant tables are framework-owned in PostgreSQL schema `scenery_auth` including `scenery_auth.tenants`; app-local `tenants` services or tables are product-domain concerns only.
+Standard auth can be enabled from app config without app-local wrapper endpoints. Its tenant tables are framework-owned in PostgreSQL schema `scenery_auth` including `scenery_auth.tenants`; app-local `tenants` services or tables are product-domain concerns only.
 
 Typed endpoint shape:
 
@@ -181,9 +181,9 @@ scenery system toolchain list --json
 scenery system toolchain verify --json
 ```
 
-Scenery-managed tools live under `.scenery/toolchain/`, `~/.scenery/toolchain/` for machine-level edge tools, or `SCENERY_TOOLCHAIN_DIR`. Treat managed dnsmasq, Caddy, Grafana, Victoria, and Temporal CLI details as substrate unless intentionally debugging them. Agents should not rely on system `PATH` binaries for those issues; use `scenery system toolchain sync --json` for app-root tools, `scenery system edge dns install` for wildcard local DNS, or `scenery system edge install` for Caddy edge. Shared substrate failures appear in `scenery ps --json` under `substrates` with `last_exit`, `component_exits`, and stdout/stderr log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontend processes are restarted by `scenery up` when their dev-server process exits unexpectedly.
+Scenery-managed tools live under `.scenery/toolchain/`, `~/.scenery/toolchain/` for machine-level edge tools, or `SCENERY_TOOLCHAIN_DIR`. Treat managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, and ZeroFS details as substrate unless intentionally debugging them. Agents should not rely on system `PATH` binaries for those issues; use `scenery system toolchain sync --json` for app-root tools, `scenery system edge dns install` for wildcard local DNS, or `scenery system edge install` for Caddy edge. Shared substrate failures appear in `scenery ps --json` under `substrates` with `last_exit`, `component_exits`, and stdout/stderr log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontend processes are restarted by `scenery up` when their dev-server process exits unexpectedly.
 
-Do not introduce new scenery-owned production environment variables by default. Prefer `.scenery.json`, explicit CLI flags, or checked-in manifests; when an env variable is truly required, update `docs/environment.registry.json`, `docs/environment.md`, and tests together.
+Do not introduce new scenery-owned production environment variables by default. Prefer app config, explicit CLI flags, or checked-in manifests; when an env variable is truly required, update `docs/environment.registry.json`, `docs/environment.md`, and tests together.
 
 ## Generated TypeScript Client
 
@@ -232,7 +232,7 @@ For managed Postgres branch work, use `scenery db postgres status --json` to ins
 
 ## Tasks
 
-Use `scenery task` for configured repo tasks and app-local code tasks. Configured tasks use plain names from `.scenery.json`. Code tasks use `<domain>:<name>` and run from the app root without requiring the app model to parse cleanly.
+Use `scenery task` for configured repo tasks and app-local code tasks. Configured tasks use plain names from app config. Code tasks use `<domain>:<name>` and run from the app root without requiring the app model to parse cleanly.
 
 ```sh
 scenery task list --json

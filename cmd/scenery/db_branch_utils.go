@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
@@ -30,7 +29,7 @@ func inspectAppRef(appRoot string, cfg appcfg.Config) inspectdata.AppRef {
 		Name:       cfg.Name,
 		ID:         cfg.ID,
 		Root:       appRoot,
-		ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+		ConfigPath: cfg.SourcePath(appRoot),
 	}
 }
 

@@ -4,7 +4,7 @@
 
 scenery is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
-Applications mark their root with `.scenery.json`, declare endpoints with `//scenery:` directives, and run as one local HTTP server. scenery handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.
+Applications mark their root with `.scenery.json` (preferred) or `.config.json`, declare endpoints with `//scenery:` directives, and run as one local HTTP server. scenery handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.
 
 scenery is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, observability, Grafana workbench, local HTTPS routing, Temporal worker tooling, and cron UI are development-focused capabilities. Their backing services and files are substrate details unless you intentionally debug them.
 
@@ -22,7 +22,7 @@ scenery is used in production. The stable v0 surface is intentionally small and 
 
 Available now:
 
-- `.scenery.json` root discovery
+- `.scenery.json` root discovery, with `.config.json` accepted as an alias
 - `scenery up`, `scenery serve`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
 - typed and raw HTTP endpoints
 - public, auth, and private endpoints
@@ -92,6 +92,8 @@ Create `.scenery.json`:
 ```json
 {"name":"hello"}
 ```
+
+`.scenery.json` is the preferred app config filename. `.config.json` is accepted as an alias when `.scenery.json` is absent.
 
 When an app requires Go build tags or other build-time flags, keep them in the app config instead of exporting `GOFLAGS` for every command:
 
@@ -165,7 +167,7 @@ scenery console
 
 `--detach` starts the app root's agent-backed dev runtime in the background and returns after it is registered. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime; for shared storage cells, it releases only that runtime's lease and preserves shared data. Use Git worktrees when you need multiple live code copies.
 
-`scenery up` uses canonical agent-routed app URLs from `.scenery.json` proxy config. Generated local routes default to `https://api.<route-id>.local.dev`, `https://console.<route-id>.local.dev`, and frontend routes under the same `local.dev` base. The route id is internal state, not something users select. If `proxy.route_base_domain` is explicitly configured, the local edge is required for normal browser-facing URLs: startup fails loudly when DNS, the privileged listener, Caddy, or the HTTPS probe is not ready instead of publishing internal `:9440` router URLs as app routes. Configured hosts are exposed separately as friendly aliases only when the live app root owns that free alias. Stale alias leases are reclaimed after owner verification; use `scenery up --claim-aliases` only when intentionally transferring live aliases to this app root. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
+`scenery up` uses canonical agent-routed app URLs from the app config's proxy settings. Generated local routes default to `https://api.<route-id>.local.dev`, `https://console.<route-id>.local.dev`, and frontend routes under the same `local.dev` base. The route id is internal state, not something users select. If `proxy.route_base_domain` is explicitly configured, the local edge is required for normal browser-facing URLs: startup fails loudly when DNS, the privileged listener, Caddy, or the HTTPS probe is not ready instead of publishing internal `:9440` router URLs as app routes. Configured hosts are exposed separately as friendly aliases only when the live app root owns that free alias. Stale alias leases are reclaimed after owner verification; use `scenery up --claim-aliases` only when intentionally transferring live aliases to this app root. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
 
 Example proxy config:
 

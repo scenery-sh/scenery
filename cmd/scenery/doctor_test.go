@@ -304,10 +304,12 @@ func TestDoctorResourceThresholds(t *testing.T) {
 	}
 }
 
-func TestRunSceneryDoctorWarnsWhenManagedZeroFSBinaryMissing(t *testing.T) {
-	t.Setenv(devZeroFSBinEnv, "")
+func TestRunSceneryDoctorWarnsWhenManagedZeroFSToolchainMissingAndDownloadsDisabled(t *testing.T) {
+	t.Setenv("SCENERY_TOOLCHAIN_DOWNLOAD", "0")
 	deps := fakeDoctorDeps(t)
+	agentHome := t.TempDir()
 	deps.Getwd = func() (string, error) { return "/apps/storage", nil }
+	deps.AgentHome = func() (string, error) { return agentHome, nil }
 	deps.DiscoverApp = func(start string) (doctorAppInfo, appcfg.Config, bool, error) {
 		return doctorAppInfo{Root: start, ConfigPath: filepath.Join(start, ".scenery.json"), Name: "storage"}, appcfg.Config{
 			Name: "storage",
@@ -321,8 +323,8 @@ func TestRunSceneryDoctorWarnsWhenManagedZeroFSBinaryMissing(t *testing.T) {
 	}
 
 	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
-	check := doctorCheckByID(resp.Checks, "storage.zerofs_binary")
-	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, devZeroFSBinEnv) {
+	check := doctorCheckByID(resp.Checks, "storage.zerofs_toolchain")
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "toolchain downloads are disabled") {
 		t.Fatalf("zerofs doctor check = %+v", check)
 	}
 }

@@ -109,6 +109,7 @@ Use the scenery skill for shared scenery behavior.
 
 ## App Roots
 - scenery app root: `<path>`
+- scenery app config: `<path>/.scenery.json` (or `<path>/.config.json`)
 - frontend root: `<path>`
 - generated client: `<path>`
 
@@ -150,7 +151,7 @@ Use three layers in client apps such as `github.com/pbrazdil/onlv`:
 
 This avoids duplicating stale runtime documentation into every client app while still giving agents the local context they need.
 
-When an app needs Go build tags or other app-owned build-time flags, prefer `.scenery.json` `build.go_flags` such as `["-tags=roofmapnet_native"]` over asking every agent to export `GOFLAGS` before `scenery up`, `scenery check`, or `scenery test`.
+When an app needs Go build tags or other app-owned build-time flags, prefer app config `build.go_flags` such as `["-tags=roofmapnet_native"]` over asking every agent to export `GOFLAGS` before `scenery up`, `scenery check`, or `scenery test`.
 
 ## CLI Surfaces For Agents
 
@@ -222,7 +223,7 @@ tenant, and create/patch payload types do not expose `tenant_id`. Tenant fields
 may be `string`, a named string type, or `github.com/google/uuid.UUID`; other
 tenant field types fail parse/check with an explicit diagnostic.
 
-When local dev fails because the host may be missing Go, disk space, memory, Docker engine readiness, or optional tools, run `scenery doctor --json` first. For managed storage apps, doctor reports missing or non-executable `SCENERY_DEV_ZEROFS_BIN` before `scenery up` tries to start ZeroFS. Stay on scenery command surfaces for ordinary app work. Use `scenery help --json` for machine-readable command discovery, `scenery help all` for the grouped human command reference, and `scenery ps --json` when dev runtime status will feed another tool. Inspect managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, Postgres, Electric, or ZeroFS details only when intentionally debugging the substrate. Shared substrate failures are visible in `scenery ps --json` under `substrates`, including exit metadata and stdout/stderr log paths; dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`. Managed Postgres substrate rows describe the reusable physical server only; per-runtime database URL/name values are exposed through the dev runtime environment. Postgres branch leases live under the agent Postgres state root, and `.scenery/worktree-db.json` pins the current app root or worktree to a branch database. Electric remains scoped to the dev runtime and is published as an internal backend, not a global substrate. Do not install global binaries as a hidden fix; use `scenery system edge dns install` for wildcard local DNS, `scenery system edge install` for Caddy, `scenery system toolchain sync --json` for managed app-root tools, set documented per-tool env overrides for tools that have them, or document the configured external service.
+When local dev fails because the host may be missing Go, disk space, memory, Docker engine readiness, or optional tools, run `scenery doctor --json` first. For managed storage apps, doctor reports the pinned `zerofs` toolchain artifact and warns when downloads are disabled before the artifact is installed. Stay on scenery command surfaces for ordinary app work. Use `scenery help --json` for machine-readable command discovery, `scenery help all` for the grouped human command reference, and `scenery ps --json` when dev runtime status will feed another tool. Inspect managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, Postgres, Electric, or ZeroFS details only when intentionally debugging the substrate. Shared substrate failures are visible in `scenery ps --json` under `substrates`, including exit metadata and stdout/stderr log paths; dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`. Managed Postgres substrate rows describe the reusable physical server only; per-runtime database URL/name values are exposed through the dev runtime environment. Postgres branch leases live under the agent Postgres state root, and `.scenery/worktree-db.json` pins the current app root or worktree to a branch database. Electric remains scoped to the dev runtime and is published as an internal backend, not a global substrate. Do not install global binaries as a hidden fix; use `scenery system edge dns install` for wildcard local DNS, `scenery system edge install` for Caddy, `scenery system toolchain sync --json` for managed app-root tools, or document the configured external service.
 
 Use non-JSON output only for human inspection.
 
@@ -245,7 +246,7 @@ Use non-JSON output only for human inspection.
 - Use `scenery db postgres status --json`, `scenery db postgres start --json`, `scenery db postgres stop --json`, `scenery db branch status --json`, and `scenery db branch list --json` for managed Postgres branch work. Branch pins live at `.scenery/worktree-db.json`; Scenery-owned local branch leases live in `branches.json` under the agent Postgres state root. The phase-one branch provider supports local database isolation through `branch_strategy: "template_database"`: checkout creates or reuses a branch database from the parent template database and records a ready endpoint without persisting raw connection URLs. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes its lease, `expire` updates lease metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, and `restore` currently maps to template reset. `scenery up`, `scenery db psql`, DB setup, and Electric consume ready branch endpoints and fail explicitly when the lease is missing, expired, protected, or endpoint-less. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` for the smaller self-harness mode.
 - Use `scenery task list`, `scenery task inspect <target>`, and `scenery task run <target>` for configured repo tasks and app-local code tasks. Configured tasks use plain names; code tasks use `<domain>:<name>`, and task arguments must appear after `--`.
 - Use `scenery task run <name>` only for repo-local workflows that are not core scenery lifecycle commands.
-- Use `scenery validate` for app-owned quality gates defined in `.scenery.json`. `scenery harness` remains the framework-owned app-model proof; `scenery validate quick|changed|full --json --write` runs app-specific tasks/profiles and writes `.scenery/harness/validation/latest.json`.
+- Use `scenery validate` for app-owned quality gates defined in app config. `scenery harness` remains the framework-owned app-model proof; `scenery validate quick|changed|full --json --write` runs app-specific tasks/profiles and writes `.scenery/harness/validation/latest.json`.
 
 ## Generated And Cache Artifacts
 
@@ -333,7 +334,7 @@ Generated clients are the application-code integration surface. Agents should us
 ## Environment
 
 - List required environment names in docs; never include values.
-- Do not add new scenery-owned production env vars unless the user explicitly asks for one or an active ExecPlan records the exception. Prefer `.scenery.json`, CLI flags, or checked-in manifests, and update `docs/environment.registry.json` when env is truly required.
+- Do not add new scenery-owned production env vars unless the user explicitly asks for one or an active ExecPlan records the exception. Prefer app config, CLI flags, or checked-in manifests, and update `docs/environment.registry.json` when env is truly required.
 - Process environment wins over local files.
 - Local startup expects app-root `.env` for `scenery up`, local `scenery serve`, local `scenery task run`, and local `scenery worker`.
 - `.env.local` is optional and overrides `.env` only when the parent process did not already define a key.

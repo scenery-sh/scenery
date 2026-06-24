@@ -337,7 +337,7 @@ func TestManagedZeroFSHasOtherLiveSessionRejectsCurrentStaleAndDifferentBackends
 	}
 }
 
-func TestStartManagedZeroFSServiceUsesExplicitBinaryAndSharedCellPaths(t *testing.T) {
+func TestStartManagedZeroFSServiceUsesManagedToolchainBinaryAndSharedCellPaths(t *testing.T) {
 	prevWait := waitForManagedZeroFSFn
 	waitForManagedZeroFSFn = func(context.Context, *managedZeroFSService) error { return nil }
 	defer func() { waitForManagedZeroFSFn = prevWait }()
@@ -351,6 +351,14 @@ func TestStartManagedZeroFSServiceUsesExplicitBinaryAndSharedCellPaths(t *testin
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	prevResolve := resolveManagedZeroFSBinaryFn
+	resolveManagedZeroFSBinaryFn = func(_ context.Context, plan *managedZeroFSPlan) (string, error) {
+		if plan.ToolchainDir != filepath.Join(agentHome, "toolchain") {
+			t.Fatalf("toolchain dir = %q, want %q", plan.ToolchainDir, filepath.Join(agentHome, "toolchain"))
+		}
+		return bin, nil
+	}
+	defer func() { resolveManagedZeroFSBinaryFn = prevResolve }()
 	cfg := app.Config{
 		Name: "storageapp",
 		Storage: app.StorageConfig{
@@ -364,11 +372,11 @@ func TestStartManagedZeroFSServiceUsesExplicitBinaryAndSharedCellPaths(t *testin
 		}},
 	}
 	session := &localagent.Session{SessionID: "dev", BaseAppID: "storageapp", StateRoot: t.TempDir()}
-	plan, err := resolveManagedZeroFSPlan(cfg, session, []string{devZeroFSBinEnv + "=" + bin}, agentHome)
+	plan, err := resolveManagedZeroFSPlan(cfg, session, nil, agentHome)
 	if err != nil {
 		t.Fatalf("resolveManagedZeroFSPlan returned error: %v", err)
 	}
-	service, backend, err := startManagedZeroFSService(t.Context(), root, session, plan, []string{"PATH=" + os.Getenv("PATH"), devZeroFSBinEnv + "=" + bin})
+	service, backend, err := startManagedZeroFSService(t.Context(), root, session, plan, []string{"PATH=" + os.Getenv("PATH")})
 	if err != nil {
 		t.Fatalf("startManagedZeroFSService returned error: %v", err)
 	}

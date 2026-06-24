@@ -749,9 +749,16 @@ func currentAppSourceFingerprint(appRoot string) (string, error) {
 		return "", err
 	}
 	h := sha256.New()
-	configPath := filepath.Join(appRoot, ".scenery.json")
+	configPath, err := app.ResolveConfigPath(appRoot)
+	if err != nil {
+		return "", err
+	}
 	if data, err := os.ReadFile(configPath); err == nil {
-		_, _ = h.Write([]byte(".scenery.json"))
+		rel, relErr := filepath.Rel(appRoot, configPath)
+		if relErr != nil {
+			rel = filepath.Base(configPath)
+		}
+		_, _ = h.Write([]byte(filepath.ToSlash(rel)))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write(data)
 		_, _ = h.Write([]byte{0})
@@ -1569,13 +1576,17 @@ func WriteLatestBuildManifest(result *Result, phase string) error {
 	if err != nil {
 		return err
 	}
+	configPath, err := app.ResolveConfigPath(result.AppRoot)
+	if err != nil {
+		return err
+	}
 	manifest := LatestBuildManifest{
 		SchemaVersion: "scenery.build.latest.v1",
 		App: LatestBuildManifestApp{
 			Name:       result.AppName,
 			ID:         result.AppID,
 			Root:       result.AppRoot,
-			ConfigPath: filepath.Join(result.AppRoot, ".scenery.json"),
+			ConfigPath: configPath,
 		},
 		Build: LatestBuildManifestRecord{
 			Phase:                 phase,

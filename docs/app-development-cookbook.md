@@ -10,6 +10,8 @@ Create `.scenery.json`:
 {"name":"hello"}
 ```
 
+`.scenery.json` is preferred. `.config.json` is accepted as an alias when `.scenery.json` is absent.
+
 If the app needs Go build tags or other build-time flags, add them as literal argv entries:
 
 ```json
@@ -83,7 +85,7 @@ Common failure: missing pointer request or unsupported signature. Check `scenery
 
 ## Storage Objects
 
-Declare Scenery-owned storage in `.scenery.json`:
+Declare Scenery-owned storage in app config:
 
 ```json
 {
@@ -155,7 +157,7 @@ await appStore.delete("uploads/example.txt")
 
 ## Auth Endpoint
 
-Enable standard auth in `.scenery.json`:
+Enable standard auth in app config:
 
 ```json
 {
@@ -331,7 +333,7 @@ Common failure: relying on globals outside request handling. Pass context or act
 
 ## Temporal Workflow Or Activity
 
-Use `scenery.sh/temporal` for beta workflow and activity declarations. Packages that call `temporal.NewWorkflow` or `temporal.NewActivity` are imported by generated main so worker processes can register them. Set `temporal.enabled: true` in `.scenery.json` to opt in; Temporal remains off when the field is omitted, even if declarations or TypeScript worker settings are present. Use `scenery up` for local combined API/worker execution, and use `scenery worker` for worker-only processes. Set `ActivityConfig.MaxConcurrency` when a dedicated task queue should cap concurrent activity executions for resource-heavy work, and pass `temporal.WithHeartbeatTimeout(...)` when a workflow activity needs a heartbeat timeout.
+Use `scenery.sh/temporal` for beta workflow and activity declarations. Packages that call `temporal.NewWorkflow` or `temporal.NewActivity` are imported by generated main so worker processes can register them. Set `temporal.enabled: true` in app config to opt in; Temporal remains off when the field is omitted, even if declarations or TypeScript worker settings are present. Use `scenery up` for local combined API/worker execution, and use `scenery worker` for worker-only processes. Set `ActivityConfig.MaxConcurrency` when a dedicated task queue should cap concurrent activity executions for resource-heavy work, and pass `temporal.WithHeartbeatTimeout(...)` when a workflow activity needs a heartbeat timeout.
 
 ## Cron Job
 
@@ -396,7 +398,7 @@ Generate a client:
 scenery generate client --lang typescript --output ./src/scenery-client.ts
 ```
 
-If `.scenery.json` declares `generators.clients`, inspect and run the configured graph:
+If app config declares `generators.clients`, inspect and run the configured graph:
 
 ```sh
 scenery inspect generators --json
@@ -467,7 +469,7 @@ Common failure: putting two single-file Go tasks with `package main` in the same
 
 ## Validation Profiles
 
-Use `validation` profiles in `.scenery.json` when an app has quality gates beyond the core framework harness:
+Use `validation` profiles in app config when an app has quality gates beyond the core framework harness:
 
 ```json
 {
@@ -535,7 +537,7 @@ During `scenery up`, the supervisor runs this DB setup lifecycle before starting
 
 `SERVICE/db/seed.sql` is data, not Atlas schema input and not SQLC input. The first seed implementation fails closed when a previously-applied seed changes or destructive seed SQL is detected, rather than offering force or reseed escape hatches.
 
-For managed branch configs, `.scenery.json` can declare `dev.services.postgres.kind: "postgres"` with `mode: "local"`, `isolation: "database"`, and `branch_strategy: "template_database"`. `scenery db postgres start --json` prepares the shared local Postgres dev cell, `scenery db postgres status --json` inspects it, and `scenery db branch checkout <name> --json` writes `.scenery/worktree-db.json`, ensures the parent template database exists, creates or reuses the branch database, and records redacted endpoint metadata. `scenery db branch list --json` reads Scenery-owned local leases from `branches.json`, and `scenery db branch status --json` can report missing, expired, protected, or ready local leases. A ready lease may expose redacted endpoint metadata so `scenery up`, `scenery db psql`, DB setup, and Electric can synthesize a process-local `DatabaseURL`. Missing, expired, protected, or endpoint-less leases fail explicitly. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes the lease, `expire` updates local registry metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, `scenery down --state` removes the local worktree pin, and `scenery worktree create <name> --json` creates a Git worktree, writes the target pin, and runs branch-provider ensure. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` when that live proof is intentionally out of scope.
+For managed branch configs, app config can declare `dev.services.postgres.kind: "postgres"` with `mode: "local"`, `isolation: "database"`, and `branch_strategy: "template_database"`. `scenery db postgres start --json` prepares the shared local Postgres dev cell, `scenery db postgres status --json` inspects it, and `scenery db branch checkout <name> --json` writes `.scenery/worktree-db.json`, ensures the parent template database exists, creates or reuses the branch database, and records redacted endpoint metadata. `scenery db branch list --json` reads Scenery-owned local leases from `branches.json`, and `scenery db branch status --json` can report missing, expired, protected, or ready local leases. A ready lease may expose redacted endpoint metadata so `scenery up`, `scenery db psql`, DB setup, and Electric can synthesize a process-local `DatabaseURL`. Missing, expired, protected, or endpoint-less leases fail explicitly. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes the lease, `expire` updates local registry metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, `scenery down --state` removes the local worktree pin, and `scenery worktree create <name> --json` creates a Git worktree, writes the target pin, and runs branch-provider ensure. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` when that live proof is intentionally out of scope.
 
 ## Electric Txid Observation
 
@@ -543,7 +545,7 @@ For Electric-backed writes, call generated TypeScript `WithMeta` methods so the 
 
 ## Agent Routes And Frontends
 
-Use `.scenery.json` proxy config:
+Use app config proxy settings:
 
 ```json
 {
@@ -633,7 +635,7 @@ scenery harness ui --json
 
 ## Common Mistakes And Fixes
 
-- Missing `.scenery.json`: create it at the app root or pass `--app-root`.
+- Missing app config: create `.scenery.json` or `.config.json` at the app root, or pass `--app-root`.
 - Stale generated client: rerun `scenery generate client` or configured `scenery generate client`.
 - Auth endpoint returns unauthorized: inspect standard auth bootstrap and bearer token.
 - `tenants` migration or runtime error: if the relation is `scenery_auth.tenants`, it is framework-owned standard auth state; an unqualified app `tenants` relation is app-domain schema drift.

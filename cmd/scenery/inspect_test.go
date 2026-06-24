@@ -607,6 +607,47 @@ func Me(ctx context.Context) (*MeResponse, error) {
 	})
 }
 
+func TestRunSceneryInspectReportsConfigJSONAlias(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".config.json", `{"name":"aliasinspect","id":"alias-id"}`)
+	writeTestAppFile(t, root, "go.mod", "module example.com/aliasinspect\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRootForTest(t)+"\n")
+	writeTestAppFile(t, root, "svc/api.go", `package svc
+
+import "context"
+
+//scenery:service
+type Service struct{}
+
+//scenery:api public
+func (*Service) Ping(context.Context) error { return nil }
+`)
+
+	var out bytes.Buffer
+	if err := runSceneryInspect([]string{"app", "--json", "--app-root", root}, &out); err != nil {
+		t.Fatalf("runSceneryInspect returned error: %v", err)
+	}
+
+	var payload struct {
+		App struct {
+			ConfigPath string `json:"config_path"`
+		} `json:"app"`
+		Config struct {
+			Name string `json:"name"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decode inspect app: %v\n%s", err, out.String())
+	}
+	if got, want := payload.App.ConfigPath, filepath.Join(root, ".config.json"); got != want {
+		t.Fatalf("config_path = %q, want %q", got, want)
+	}
+	if payload.Config.Name != "aliasinspect" {
+		t.Fatalf("config name = %q, want aliasinspect", payload.Config.Name)
+	}
+}
+
 func TestRunSceneryInspectBuildUsesLatestManifest(t *testing.T) {
 	t.Parallel()
 

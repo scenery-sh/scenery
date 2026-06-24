@@ -75,7 +75,7 @@ Use a multi-context domain docs layout with root `CONTEXT-MAP.md` plus per-conte
 
 scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Grafana, Victoria, Temporal dev server, local proxying, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
-- App roots are marked by `.scenery.json`.
+- App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
 - Go source is the app model: services, endpoints, auth handlers, middleware, Temporal declarations, cron jobs, and generated clients are discovered from code.
 - `scenery serve` builds once and starts a headless API-role runtime.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
@@ -91,7 +91,7 @@ Do not revive deprecated non-scenery APIs, legacy directive spellings, or compat
 
 - Prefer the Go standard library. Add dependencies only when the payoff is clear and the maintenance surface is justified.
 - Keep public surface small, current, and singular. Remove obsolete spellings instead of carrying compatibility shims.
-- Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`.
+- Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Grafana, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 
@@ -236,7 +236,7 @@ The installable scenery skill is necessary but not enough for client repositorie
 
 Client apps should keep a small app-local `AGENTS.md` that records only app-specific facts:
 
-- app root and `.scenery.json` location
+- app root and app config path (`.scenery.json` or `.config.json`)
 - frontend roots and generated client output paths
 - required local environment names without values
 - standard validation commands for that app

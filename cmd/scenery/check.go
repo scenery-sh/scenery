@@ -67,7 +67,7 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		Name:       cfg.Name,
 		ID:         cfg.ID,
 		Root:       appRoot,
-		ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+		ConfigPath: cfg.SourcePath(appRoot),
 	}
 
 	model, err := parse.App(appRoot, cfg.Name)

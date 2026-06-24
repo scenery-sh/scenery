@@ -220,7 +220,7 @@ func defaultDoctorProbeDeps() doctorProbeDeps {
 			}
 			return doctorAppInfo{
 				Root:       root,
-				ConfigPath: filepath.Join(root, ".scenery.json"),
+				ConfigPath: cfg.SourcePath(root),
 				Name:       cfg.Name,
 				ID:         cfg.ID,
 			}, cfg, true, nil
@@ -298,7 +298,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 					Status:          doctorStatusError,
 					Severity:        doctorSeverityRequired,
 					Message:         "app root could not be discovered from " + appStart + ": " + err.Error(),
-					SuggestedAction: "Pass a directory inside an app that contains `.scenery.json`.",
+					SuggestedAction: "Pass a directory inside an app that contains `.scenery.json` or `.config.json`.",
 				})
 			}
 		} else if ok {
@@ -330,7 +330,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 
 	features := doctorFeatures(cfg, resp.App)
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
-	resp.Checks = append(resp.Checks, doctorStorageRuntimeChecks(features, appFound)...)
+	resp.Checks = append(resp.Checks, doctorStorageRuntimeChecks(ctx, deps, features, appFound)...)
 	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
 
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
@@ -634,35 +634,54 @@ func doctorFeatures(cfg appcfg.Config, app *doctorAppInfo) doctorAppFeatures {
 	return features
 }
 
-func doctorStorageRuntimeChecks(features doctorAppFeatures, appFound bool) []doctorCheck {
+func doctorStorageRuntimeChecks(ctx context.Context, deps doctorProbeDeps, features doctorAppFeatures, appFound bool) []doctorCheck {
 	if !appFound || !features.StorageConfigured || !features.ManagedZeroFS {
 		return nil
 	}
-	bin := strings.TrimSpace(envpolicy.Get(devZeroFSBinEnv))
 	check := doctorCheck{
-		ID:       "storage.zerofs_binary",
+		ID:       "storage.zerofs_toolchain",
 		Category: "storage",
-		Name:     "ZeroFS binary",
+		Name:     "ZeroFS toolchain",
 		Status:   doctorStatusOK,
 		Severity: doctorSeverityOptional,
 		Observed: map[string]any{
-			"env": devZeroFSBinEnv,
+			"artifact": devZeroFSToolchainArtifact,
 		},
 	}
-	if bin == "" {
+	agentHome, err := deps.AgentHome()
+	if err != nil {
 		check.Status = doctorStatusWarn
-		check.Message = "storage is configured with managed ZeroFS, but " + devZeroFSBinEnv + " is not set"
-		check.SuggestedAction = "Set " + devZeroFSBinEnv + " to an executable ZeroFS binary before running `scenery up` for this app."
+		check.Message = "storage is configured with managed ZeroFS, but the Scenery agent home could not be resolved: " + err.Error()
+		check.SuggestedAction = "Fix SCENERY_AGENT_HOME or run `scenery doctor --json` from a normal user shell."
 		return []doctorCheck{check}
 	}
-	check.Observed["path"] = bin
-	if !isExecutableFile(bin) {
-		check.Status = doctorStatusWarn
-		check.Message = devZeroFSBinEnv + " points to a non-executable file: " + bin
-		check.SuggestedAction = "Set " + devZeroFSBinEnv + " to an executable ZeroFS binary."
+	storeDir := zeroFSToolchainStoreDir(localagent.PathsForHome(agentHome))
+	check.Observed["store_dir"] = storeDir
+	status, err := managedToolchainArtifactStatusInDir(storeDir, devZeroFSToolchainArtifact)
+	if status.Name != "" {
+		check.Observed["status"] = status.Status
+		check.Observed["version"] = status.Version
+		if status.ManagedPath != "" {
+			check.Observed["path"] = status.ManagedPath
+		}
+	}
+	if err == nil && status.ManagedPath != "" && isExecutableFile(status.ManagedPath) {
+		check.Message = "managed ZeroFS is installed at " + status.ManagedPath
 		return []doctorCheck{check}
 	}
-	check.Message = "ZeroFS binary configured at " + bin
+	if isFalseEnv(envpolicy.Get("SCENERY_TOOLCHAIN_DOWNLOAD")) {
+		check.Status = doctorStatusWarn
+		check.Message = "managed ZeroFS is not installed and toolchain downloads are disabled"
+		check.SuggestedAction = "Enable toolchain downloads or run `scenery system toolchain sync --tool zerofs` before `scenery up`."
+		return []doctorCheck{check}
+	}
+	if err != nil && status.Name == "" {
+		check.Status = doctorStatusWarn
+		check.Message = "managed ZeroFS toolchain status could not be inspected: " + err.Error()
+		check.SuggestedAction = "Run `scenery system toolchain sync --tool zerofs` to repair the managed toolchain store."
+		return []doctorCheck{check}
+	}
+	check.Message = "managed ZeroFS will sync from the bundled toolchain manifest when `scenery up` needs it"
 	return []doctorCheck{check}
 }
 

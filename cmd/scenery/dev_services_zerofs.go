@@ -34,6 +34,7 @@ type managedZeroFSService struct {
 
 var waitForManagedZeroFSFn = waitForManagedZeroFS
 var probeManagedZeroFSSubstrateFn = probeManagedZeroFSSubstrate
+var resolveManagedZeroFSBinaryFn = resolveManagedZeroFSBinary
 
 func managedZeroFSDeclared(cfg app.Config) (string, app.DevServiceConfig, bool) {
 	for name, svc := range cfg.Dev.Services {
@@ -84,13 +85,12 @@ func resolveManagedZeroFSPlan(cfg app.Config, session *localagent.Session, env [
 	if socketID == "" {
 		socketID = "storage"
 	}
-	bin, _ := lookupEnvValue(env, devZeroFSBinEnv)
 	plan := &managedZeroFSPlan{
 		ServiceName:   name,
 		StorageCellID: cellID,
 		Route:         route,
 		Image:         strings.TrimSpace(svc.Image),
-		Binary:        strings.TrimSpace(bin),
+		ToolchainDir:  zeroFSToolchainStoreDir(paths),
 		CellRoot:      cellRoot,
 		CacheDir:      filepath.Join(cellRoot, "cache"),
 		ObjectsDir:    filepath.Join(cellRoot, "objects"),
@@ -168,30 +168,20 @@ func (s *devSupervisor) ensureManagedZeroFS(ctx context.Context) error {
 	if service, backend, ok, err := attachManagedZeroFSService(ctx, s.agent, plan); err != nil {
 		return err
 	} else if ok {
-		s.mu.Lock()
-		s.zeroFS = service
-		s.mu.Unlock()
-		session, err := s.registerManagedZeroFSSessionBackend(ctx, agentSession, plan, backend)
-		if err != nil {
-			return err
-		}
-		if s.console != nil && s.console.verbose {
-			s.console.Event("zerofs.attached", map[string]any{
-				"route":   plan.Route,
-				"webui":   service.WebUIAddr,
-				"source":  service.Source,
-				"cell_id": plan.StorageCellID,
-			})
-		}
-		s.eventSink().Emit(ctx, devdash.DevSource{ID: "zerofs", Kind: "substrate", Name: "zerofs", Role: "storage", Status: "running", URL: session.Routes[plan.Route]}, "info", "attached existing ZeroFS storage cell", map[string]any{
-			"route":   plan.Route,
-			"source":  service.Source,
-			"cell_id": plan.StorageCellID,
-		})
-		if err := upsertManagedZeroFSLease(ctx, s.agent, plan, service, session); err != nil {
-			return err
-		}
-		return nil
+		return s.attachManagedZeroFSExisting(ctx, agentSession, plan, service, backend)
+	}
+	kind := managedZeroFSSubstrateKind(plan.StorageCellID)
+	processUnlock := lockManagedSubstrateProcess(plan.CellRoot, kind)
+	defer processUnlock()
+	unlock, err := lockManagedSubstrateRoot(plan.CellRoot, kind)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if service, backend, ok, err := attachManagedZeroFSService(ctx, s.agent, plan); err != nil {
+		return err
+	} else if ok {
+		return s.attachManagedZeroFSExisting(ctx, agentSession, plan, service, backend)
 	}
 	service, backend, err := startManagedZeroFSService(ctx, s.root, agentSession, plan, baseEnv)
 	if err != nil {
@@ -240,6 +230,33 @@ func (s *devSupervisor) ensureManagedZeroFS(ctx context.Context) error {
 		"source":  service.Source,
 		"cell_id": plan.StorageCellID,
 	})
+	return nil
+}
+
+func (s *devSupervisor) attachManagedZeroFSExisting(ctx context.Context, agentSession *localagent.Session, plan *managedZeroFSPlan, service *managedZeroFSService, backend localagent.Backend) error {
+	s.mu.Lock()
+	s.zeroFS = service
+	s.mu.Unlock()
+	session, err := s.registerManagedZeroFSSessionBackend(ctx, agentSession, plan, backend)
+	if err != nil {
+		return err
+	}
+	if s.console != nil && s.console.verbose {
+		s.console.Event("zerofs.attached", map[string]any{
+			"route":   plan.Route,
+			"webui":   service.WebUIAddr,
+			"source":  service.Source,
+			"cell_id": plan.StorageCellID,
+		})
+	}
+	s.eventSink().Emit(ctx, devdash.DevSource{ID: "zerofs", Kind: "substrate", Name: "zerofs", Role: "storage", Status: "running", URL: session.Routes[plan.Route]}, "info", "attached existing ZeroFS storage cell", map[string]any{
+		"route":   plan.Route,
+		"source":  service.Source,
+		"cell_id": plan.StorageCellID,
+	})
+	if err := upsertManagedZeroFSLease(ctx, s.agent, plan, service, session); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -487,22 +504,57 @@ func startManagedZeroFSService(ctx context.Context, root string, session *locala
 	if err := os.WriteFile(startPlan.WebUIAddrPath, []byte(startPlan.WebUIListen+"\n"), 0o644); err != nil {
 		return nil, localagent.Backend{}, err
 	}
-	if startPlan.Binary == "" {
-		return nil, localagent.Backend{}, fmt.Errorf("dev.services.%s needs %s or dev.services.%s.image with docker available", startPlan.ServiceName, devZeroFSBinEnv, startPlan.ServiceName)
+	binaryPath, err := resolveManagedZeroFSBinaryFn(ctx, &startPlan)
+	if err != nil {
+		return nil, localagent.Backend{}, err
 	}
-	if !isExecutableFile(startPlan.Binary) {
-		return nil, localagent.Backend{}, fmt.Errorf("%s points to a non-executable file: %s", devZeroFSBinEnv, startPlan.Binary)
-	}
-	service, err := startManagedZeroFSBinary(ctx, root, session, &startPlan, baseEnv)
+	service, err := startManagedZeroFSBinary(ctx, root, session, &startPlan, binaryPath, baseEnv)
 	if err != nil {
 		return nil, localagent.Backend{}, err
 	}
 	return service, localagent.Backend{Network: "tcp", Addr: startPlan.WebUIListen}, nil
 }
 
-func startManagedZeroFSBinary(ctx context.Context, root string, session *localagent.Session, plan *managedZeroFSPlan, baseEnv []string) (*managedZeroFSService, error) {
+func resolveManagedZeroFSBinary(ctx context.Context, plan *managedZeroFSPlan) (string, error) {
+	storeDir := ""
+	if plan != nil {
+		storeDir = strings.TrimSpace(plan.ToolchainDir)
+	}
+	if storeDir == "" {
+		storeDir = toolchainStoreDirForStateRoot("")
+	}
+	if status, err := managedToolchainArtifactStatusInDir(storeDir, devZeroFSToolchainArtifact); err == nil && status.ManagedPath != "" && isExecutableFile(status.ManagedPath) {
+		return status.ManagedPath, nil
+	}
+	status, err := syncManagedToolchainArtifactInDir(ctx, storeDir, devZeroFSToolchainArtifact)
+	if err != nil {
+		return "", fmt.Errorf("managed ZeroFS is not installed and could not be synced: %w", err)
+	}
+	if status.ManagedPath == "" || !isExecutableFile(status.ManagedPath) {
+		return "", fmt.Errorf("managed ZeroFS is not installed in %s; run `scenery system toolchain sync --tool %s` with downloads enabled", storeDir, devZeroFSToolchainArtifact)
+	}
+	return status.ManagedPath, nil
+}
+
+func zeroFSToolchainStoreDir(paths localagent.Paths) string {
+	if strings.TrimSpace(envpolicy.Get("SCENERY_TOOLCHAIN_DIR")) != "" {
+		return toolchainStoreDirForStateRoot("")
+	}
+	if strings.TrimSpace(paths.Home) == "" {
+		return toolchainStoreDirForStateRoot("")
+	}
+	return filepath.Join(paths.Home, "toolchain")
+}
+
+func startManagedZeroFSBinary(ctx context.Context, root string, session *localagent.Session, plan *managedZeroFSPlan, binaryPath string, baseEnv []string) (*managedZeroFSService, error) {
+	if strings.TrimSpace(binaryPath) == "" {
+		return nil, fmt.Errorf("managed ZeroFS binary path is empty")
+	}
+	if !isExecutableFile(binaryPath) {
+		return nil, fmt.Errorf("managed ZeroFS binary is not executable: %s", binaryPath)
+	}
 	env := managedZeroFSProcessEnv(plan, baseEnv, managedZeroFSSessionEnv(root, session)...)
-	service, err := startManagedZeroFSProcess(ctx, root, "binary", plan.LogPath, plan.Binary, []string{"run", "-c", plan.ConfigPath}, env, plan)
+	service, err := startManagedZeroFSProcess(ctx, root, "managed-toolchain", plan.LogPath, binaryPath, []string{"run", "-c", plan.ConfigPath}, env, plan)
 	if err != nil {
 		return nil, err
 	}

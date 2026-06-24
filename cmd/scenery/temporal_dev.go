@@ -137,24 +137,18 @@ func startTemporalDevServer(ctx context.Context, root string, cfg app.Config, co
 }
 
 func resolveTemporalCLI(ctx context.Context, storeDir string, download bool) (string, error) {
-	if path := strings.TrimSpace(envpolicy.Get("SCENERY_TEMPORAL_BIN")); path != "" {
-		if isExecutableFile(path) {
-			return path, nil
-		}
-		return "", fmt.Errorf("SCENERY_TEMPORAL_BIN points to a non-executable file: %s", path)
-	}
 	if status, err := managedToolchainArtifactStatusInDir(storeDir, "temporal-cli"); err == nil && status.ManagedPath != "" && isExecutableFile(status.ManagedPath) {
 		return status.ManagedPath, nil
 	}
 	if !download {
-		return "", fmt.Errorf("managed Temporal CLI is not installed; system PATH binaries are not used for managed toolchain artifacts; run `scenery system toolchain sync --tool temporal-cli` or set SCENERY_TEMPORAL_BIN explicitly")
+		return "", fmt.Errorf("managed Temporal CLI is not installed; system PATH binaries are not used for managed toolchain artifacts; run `scenery system toolchain sync --tool temporal-cli`")
 	}
 	status, err := syncManagedToolchainArtifactInDir(ctx, storeDir, "temporal-cli")
 	if err != nil {
 		return "", fmt.Errorf("managed Temporal CLI is not installed and could not be synced: %w", err)
 	}
 	if status.ManagedPath == "" || !isExecutableFile(status.ManagedPath) {
-		return "", fmt.Errorf("managed Temporal CLI is not installed; run `scenery system toolchain sync --tool temporal-cli` or set SCENERY_TEMPORAL_BIN explicitly")
+		return "", fmt.Errorf("managed Temporal CLI is not installed; run `scenery system toolchain sync --tool temporal-cli`")
 	}
 	return status.ManagedPath, nil
 }

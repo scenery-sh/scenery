@@ -64,6 +64,70 @@ func TestDiscoverRootAcceptsBuildGoFlags(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootAcceptsConfigJSONAlias(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".config.json", `{"name":"aliasapp","id":"alias-id"}`)
+
+	appRoot, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if appRoot != root {
+		t.Fatalf("app root = %q, want %q", appRoot, root)
+	}
+	if cfg.Name != "aliasapp" || cfg.ID != "alias-id" {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+	if got, want := cfg.SourcePath(root), filepath.Join(root, ".config.json"); got != want {
+		t.Fatalf("SourcePath = %q, want %q", got, want)
+	}
+	if got := cfg.SourceRelPath(root); got != ".config.json" {
+		t.Fatalf("SourceRelPath = %q, want .config.json", got)
+	}
+}
+
+func TestDiscoverRootPrefersSceneryJSONOverConfigAlias(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{"name":"canonical"}`)
+	writeAppTestFile(t, root, ".config.json", `{"name":"alias"}`)
+
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if cfg.Name != "canonical" {
+		t.Fatalf("cfg.Name = %q, want canonical", cfg.Name)
+	}
+	if got, want := cfg.SourcePath(root), filepath.Join(root, ".scenery.json"); got != want {
+		t.Fatalf("SourcePath = %q, want %q", got, want)
+	}
+}
+
+func TestDiscoverRootIgnoresUnrelatedConfigJSONBelowAppRoot(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{"name":"canonical"}`)
+	child := filepath.Join(root, "apps", "web")
+	writeAppTestFile(t, child, ".config.json", `{"compilerOptions":{"jsx":"react-jsx"}}`)
+
+	appRoot, cfg, err := DiscoverRoot(child)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if appRoot != root || cfg.Name != "canonical" {
+		t.Fatalf("appRoot = %q cfg.Name = %q, want %q canonical", appRoot, cfg.Name, root)
+	}
+}
+
+func TestDiscoverRootReportsAliasUnknownFieldsAsConfigJSON(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".config.json", `{"name":"aliasapp","extra":true}`)
+
+	_, _, err := DiscoverRoot(root)
+	if err == nil || !strings.Contains(err.Error(), `unknown .config.json field "extra"`) {
+		t.Fatalf("DiscoverRoot alias unknown field error = %v", err)
+	}
+}
+
 func TestConfigDatabaseURLEnv(t *testing.T) {
 	t.Parallel()
 

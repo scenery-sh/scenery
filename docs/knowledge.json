@@ -62,7 +62,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Repo-local operating manual for agents changing scenery itself, including the app-root runtime/capability model, validation, docs review-due signals, drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, validation, docs review-due signals, drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -79,7 +79,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root dev runtimes and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, scoped observability queries, managed toolchain diagnostics, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, scoped observability queries, managed toolchain diagnostics, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -97,7 +97,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root runtime capabilities, storage inspect/CLI lease surfaces, scoped observability queries, managed toolchain commands, app validation profiles, internal dashboard cache artifacts, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config and runtime capabilities, storage inspect/CLI lease surfaces, scoped observability queries, managed toolchain commands, app validation profiles, internal dashboard cache artifacts, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -167,7 +167,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root runtime capabilities, storage config/CLI/lease schemas, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, runtime capabilities, storage config/CLI/lease schemas, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -309,7 +309,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-08",
       "review_after": "2026-07-01",
-      "summary": "Practical recipes for building scenery apps, endpoints, storage objects, auth, middleware, Temporal workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, app config, endpoints, storage objects, auth, middleware, Temporal workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",

@@ -542,7 +542,7 @@ func inspectAppModelCacheKey(appRoot, appName string) (string, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		switch {
-		case rel == ".scenery.json", rel == "go.mod", rel == "go.sum", strings.HasSuffix(rel, ".go"):
+		case appcfg.IsConfigFilename(rel), rel == "go.mod", rel == "go.sum", strings.HasSuffix(rel, ".go"):
 		default:
 			return nil
 		}
@@ -641,7 +641,7 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 		App:           inspectAppInfo(appRoot, cfg, nil),
 		Paths: inspectPathsRecord{
 			AppRoot:        appRoot,
-			ConfigPath:     filepath.Join(appRoot, ".scenery.json"),
+			ConfigPath:     cfg.SourcePath(appRoot),
 			CacheRoot:      cacheRoot,
 			BuildRoot:      filepath.Join(cacheRoot, "build"),
 			WorkspaceDir:   workspaceDir,
@@ -943,7 +943,7 @@ func inspectAppInfo(appRoot string, cfg appcfg.Config, app *model.App) inspectda
 			Name:       cfg.Name,
 			ID:         cfg.ID,
 			Root:       appRoot,
-			ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+			ConfigPath: cfg.SourcePath(appRoot),
 		}
 	}
 	return inspectdata.BuildAppResponse(appRoot, cfg, app).App

@@ -1,6 +1,6 @@
 {
   "schema_version": "scenery.toolchain.v1",
-  "manifest_version": 1,
+  "manifest_version": 2,
   "source_locks": [
     {
       "name": "go-modules",
@@ -211,6 +211,28 @@
           "stability": "unstable"
         }
       ]
+    },
+    {
+      "name": "zerofs",
+      "kind": "binary",
+      "version": "1.2.5",
+      "license": "AGPL-3.0-only",
+      "default_binary": "zerofs",
+      "binaries": ["zerofs"],
+      "platforms": {
+        "linux/amd64": {
+          "archive": "tar.gz",
+          "url": "https://github.com/Barre/ZeroFS/releases/download/v1.2.5/zerofs-pgo-multiplatform.tar.gz",
+          "sha256": "af0a6a5e85bfcba96d5b2bb81608584d03b9543cde22b8dac432f5ad336a4647",
+          "extract": "zerofs-linux-amd64-pgo"
+        },
+        "darwin/arm64": {
+          "archive": "tar.gz",
+          "url": "https://github.com/Barre/ZeroFS/releases/download/v1.2.5/zerofs-pgo-multiplatform.tar.gz",
+          "sha256": "af0a6a5e85bfcba96d5b2bb81608584d03b9543cde22b8dac432f5ad336a4647",
+          "extract": "zerofs-darwin-aarch64-pgo"
+        }
+      }
     },
     {
       "name": "temporal-cli",

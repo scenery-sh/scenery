@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -467,7 +468,7 @@ func envFindingDiagnosticFile(repoRoot string, finding harnessEnvVarFinding) str
 
 func envFindingSuggestedAction(finding harnessEnvVarFinding) string {
 	if !finding.Registered {
-		return "Remove the env usage, move configuration to `.scenery.json`, a CLI flag, or a checked-in manifest, or add a registry entry with rationale if explicitly approved."
+		return "Remove the env usage, move configuration to `.scenery.json` (or `.config.json`), a CLI flag, or a checked-in manifest, or add a registry entry with rationale if explicitly approved."
 	}
 	if finding.Scope == "runtime" && finding.Stability == "test_only" {
 		return "Remove the test-only env from production code or replace it with a supported runtime configuration surface."
@@ -482,7 +483,7 @@ func appendDirectOSEnvDiagnostics(repoRoot string, diagnostics []checkDiagnostic
 			Severity:        "error",
 			File:            filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(finding))),
 			Message:         "production code reads or mutates process environment outside internal/envpolicy: " + finding,
-			SuggestedAction: "Route environment access through internal/envpolicy, or move configuration to `.scenery.json`, a CLI flag, or a checked-in manifest.",
+			SuggestedAction: "Route environment access through internal/envpolicy, or move configuration to `.scenery.json` (or `.config.json`), a CLI flag, or a checked-in manifest.",
 		})
 	}
 	return diagnostics
@@ -710,7 +711,8 @@ func buildHarnessFixtureMatrixReport(ctx context.Context, repoRoot string) *harn
 			continue
 		}
 		appRoot := filepath.Join(fixtureRoot, entry.Name())
-		if _, err := os.Stat(filepath.Join(appRoot, ".scenery.json")); err != nil {
+		configPath, err := appcfg.ResolveConfigPath(appRoot)
+		if err != nil || !pathExists(configPath) {
 			continue
 		}
 		result := harnessFixtureResult{

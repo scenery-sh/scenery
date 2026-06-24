@@ -366,15 +366,3 @@ func writeStorageJSON(w io.Writer, payload any) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(payload)
 }
-
-func storageUsage() string {
-	return strings.Join([]string{
-		"scenery storage status --json [--app-root <path>]",
-		"scenery storage webui --json [--app-root <path>]",
-		"scenery storage ls <store> [--prefix <prefix>] [--cursor <cursor>] [--limit <n>] --json [--app-root <path>]",
-		"scenery storage stat <store> <key> --json [--app-root <path>]",
-		"scenery storage put <store> <key> <file> --json [--app-root <path>]",
-		"scenery storage get <store> <key> --output <file> --json [--app-root <path>]",
-		"scenery storage rm <store> <key> [--recursive] --json [--app-root <path>]",
-	}, "\n")
-}

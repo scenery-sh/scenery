@@ -167,16 +167,6 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 		"real_zerofs_probe": "skipped",
 	}
 	baseEnv := envpolicy.Environ()
-	zeroFSBin, _ := lookupEnvValue(baseEnv, devZeroFSBinEnv)
-	zeroFSBin = strings.TrimSpace(zeroFSBin)
-	if zeroFSBin == "" {
-		summary["real_zerofs_skip_reason"] = devZeroFSBinEnv + " is not set"
-		return summary, nil
-	}
-	if !isExecutableFile(zeroFSBin) {
-		summary["real_zerofs_skip_reason"] = devZeroFSBinEnv + " is not executable"
-		return summary, nil
-	}
 	agentHome := filepath.Join(repoRoot, ".scenery", "harness", "storage-real-zerofs-agent-home")
 	sessionRoot := filepath.Join(fixtureRoot, ".scenery", "sessions", "main-f49603")
 	cleanupHarnessRealZeroFSAgent(ctx, repoRoot, sceneryPath, agentHome, envWithOverrides(baseEnv, "SCENERY_AGENT_HOME="+agentHome))
@@ -186,7 +176,7 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 	if err := os.RemoveAll(sessionRoot); err != nil {
 		return summary, err
 	}
-	env := envWithOverrides(baseEnv, "SCENERY_AGENT_HOME="+agentHome, devZeroFSBinEnv+"="+zeroFSBin)
+	env := envWithOverrides(baseEnv, "SCENERY_AGENT_HOME="+agentHome)
 	upCommand := []string{sceneryPath, "up", "--app-root", fixtureRoot, "--json", "--detach"}
 	upOut, upErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, upCommand)
 	if err != nil {
@@ -247,8 +237,12 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 		return summary, fmt.Errorf("real ZeroFS inspect storage not ready: %s", strings.TrimSpace(inspectOut))
 	}
 	summary["real_zerofs_probe"] = "passed"
-	summary["real_zerofs_bin"] = filepath.ToSlash(zeroFSBin)
 	summary["real_zerofs_agent_home"] = filepath.ToSlash(agentHome)
+	if status, err := managedToolchainArtifactStatusInDir(filepath.Join(agentHome, "toolchain"), devZeroFSToolchainArtifact); err == nil {
+		summary["real_zerofs_bin"] = filepath.ToSlash(status.ManagedPath)
+		summary["real_zerofs_toolchain_store"] = filepath.ToSlash(filepath.Join(agentHome, "toolchain"))
+		summary["real_zerofs_toolchain_version"] = status.Version
+	}
 	summary["real_zerofs_response"] = probeBody
 	summary["real_zerofs_readiness"] = inspect.Storage.Readiness
 	summary["real_zerofs_substrate_kind"] = inspect.Storage.Runtime.SubstrateKind

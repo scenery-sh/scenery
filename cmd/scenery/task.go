@@ -263,7 +263,7 @@ func buildTaskList(appRoot string, cfg appcfg.Config) (taskListResponse, error) 
 	sort.Strings(names)
 	for _, name := range names {
 		task := cfg.Tasks[name]
-		resp.Tasks = append(resp.Tasks, configuredTaskListRecord(appRoot, name, task))
+		resp.Tasks = append(resp.Tasks, configuredTaskListRecord(appRoot, cfg, name, task))
 	}
 	codeTasks, err := listScriptCandidates(appRoot)
 	if err != nil {
@@ -290,7 +290,7 @@ func buildTaskInspect(appRoot string, cfg appcfg.Config, opts taskOptions) (task
 		if !ok {
 			return taskInspectResponse{}, fmt.Errorf("configured task %q is not configured", opts.Target)
 		}
-		resp.Task = configuredTaskListRecord(appRoot, opts.Target, task)
+		resp.Task = configuredTaskListRecord(appRoot, cfg, opts.Target, task)
 	case taskKindCode:
 		target, err := parseScriptTarget(opts.Target)
 		if err != nil {
@@ -322,6 +322,7 @@ func buildTaskGraph(appRoot string, cfg appcfg.Config) (taskGraphResponse, error
 		Edges:         []taskGraphEdge{},
 	}
 	seenNodes := map[string]bool{}
+	configRel := cfg.SourceRelPath(appRoot)
 	addNode := func(node taskGraphNode) {
 		if node.Target == "" || seenNodes[node.Kind+"\x00"+node.Target] {
 			return
@@ -338,7 +339,7 @@ func buildTaskGraph(appRoot string, cfg appcfg.Config) (taskGraphResponse, error
 			Steps:   append([]string(nil), task.Steps...),
 			EnvKeys: sortedMapKeys(task.Env),
 		})
-		addNode(taskGraphNode{Target: name, Kind: taskKindConfigured, Source: ".scenery.json"})
+		addNode(taskGraphNode{Target: name, Kind: taskKindConfigured, Source: configRel})
 		for _, step := range task.Steps {
 			step = strings.TrimSpace(step)
 			if step == "" {
@@ -382,15 +383,15 @@ func taskAppRef(appRoot string, cfg appcfg.Config) inspectdata.AppRef {
 		Name:       cfg.Name,
 		ID:         cfg.ID,
 		Root:       appRoot,
-		ConfigPath: filepath.Join(appRoot, ".scenery.json"),
+		ConfigPath: cfg.SourcePath(appRoot),
 	}
 }
 
-func configuredTaskListRecord(appRoot, name string, task appcfg.TaskConfig) taskListRecord {
+func configuredTaskListRecord(appRoot string, cfg appcfg.Config, name string, task appcfg.TaskConfig) taskListRecord {
 	return taskListRecord{
 		Target:       name,
 		Kind:         taskKindConfigured,
-		Source:       ".scenery.json",
+		Source:       cfg.SourceRelPath(appRoot),
 		Name:         name,
 		CWD:          task.CWD,
 		Run:          task.Run,
