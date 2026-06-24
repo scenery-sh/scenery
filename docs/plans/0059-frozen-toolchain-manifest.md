@@ -38,6 +38,7 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 - [x] (2026-06-01 09:02Z) Add docs, schemas, environment contract updates, and knowledge index updates.
 - [x] (2026-06-01 09:02Z) Add tests and self-harness coverage.
 - [x] (2026-06-24) Promote ZeroFS into the frozen toolchain manifest and remove `SCENERY_DEV_ZEROFS_BIN`, `SCENERY_TEMPORAL_BIN`, `SCENERY_DEV_POSTGRES_BIN`, and `SCENERY_DEV_POSTGRES_INITDB` as managed-substrate binary overrides. ZeroFS and Temporal CLI now resolve through the managed toolchain store, and managed Postgres starts from the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured.
+- [x] (2026-06-24) Add `scenery upgrade` to fetch a verified release binary, replace the local executable, and run the upgraded binary's managed toolchain sync for already-installed tools by default or the whole manifest with `--toolchain all`.
 - [ ] (YYYY-MM-DD HH:MMZ) Complete validation and update retrospective.
 ## Surprises & Discoveries
 - Observation: Scenery already has a partial internal pin file at `internal/devtools/versions.json`.
@@ -93,6 +94,9 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 - Decision: Make the release binary expose the bundled toolchain manifest SHA.
   Rationale: Each Scenery release should be auditable. `scenery version --json` should prove which toolchain manifest the binary was built with.
   Date/Author: 2026-06-01 / Codex.
+- Decision: Make `scenery upgrade` run post-install toolchain sync from the upgraded binary.
+  Rationale: The release binary is the source of truth for the frozen manifest. Syncing through the upgraded executable ensures changed ZeroFS, Temporal, Postgres, and other Scenery-owned substrate versions come from the new release instead of the old binary or ambient system tools. The default limits work to tools already present locally; `--toolchain all` is the explicit full pull.
+  Date/Author: 2026-06-24 / Codex.
 - Decision: Leave tag-only image refs as explicit unstable migration metadata for this change.
   Rationale: Digest-pinning every image is desirable, but strict verification already fails on tag-only refs and the manifest exposes the instability instead of hiding it.
   Date/Author: 2026-06-01 / Codex.

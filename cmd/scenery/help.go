@@ -77,6 +77,7 @@ var rootHelpGroups = []helpRootGroup{
 	{Name: "System", Entries: []helpRootEntry{
 		{Command: "doctor", Summary: "Check host and app readiness"},
 		{Command: "version", Summary: "Print version information"},
+		{Command: "upgrade", Summary: "Upgrade the local Scenery binary"},
 		{Command: "system", Summary: "Manage agent, edge, trust, and toolchain"},
 	}},
 }
@@ -203,6 +204,7 @@ var helpReferenceGroups = []helpReferenceGroup{
 	{Name: "System", Commands: []string{
 		"scenery doctor",
 		"scenery version",
+		"scenery upgrade",
 		"scenery system agent",
 		"scenery system agent restart",
 		"scenery system edge",
@@ -506,6 +508,16 @@ var helpCommands = []helpCommandEntry{
 		Summary:   "Print version information.",
 		Usage:     []string{"scenery version [--json]"},
 		Flags:     []string{"--json"},
+		JSON:      true,
+		Stability: "stable",
+	},
+	{
+		Command:   "upgrade",
+		Group:     "System",
+		Summary:   "Upgrade the local Scenery binary.",
+		Usage:     []string{"scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]"},
+		Flags:     []string{"--version latest|vX.Y.Z", "--target <path>", "--toolchain installed|all|none", "--skip-toolchain", "--force", "--dry-run", "--json"},
+		Notes:     []string{"Downloads are verified against the release checksums.txt asset.", "`--toolchain installed` syncs managed tools already present in the local store; `all` syncs every manifest artifact and image from the upgraded binary."},
 		JSON:      true,
 		Stability: "stable",
 	},

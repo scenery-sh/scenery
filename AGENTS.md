@@ -136,6 +136,7 @@ scenery metrics list --json
 scenery logs --jsonl --limit 200
 scenery harness --json --write
 scenery harness self --summary --write
+scenery upgrade --json
 ```
 
 Use `scenery doctor --json` before expensive troubleshooting when the failure may be local environment readiness: missing or old Go, low disk or memory, absent optional tools, or an app root that is not discoverable.

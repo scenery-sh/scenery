@@ -377,6 +377,7 @@ scenery worker deployment ramp --build-id <id> --percentage <0-100> [--deploymen
 scenery worker deployment drain --build-id <id> [--deployment <name>] [--force] [--app-root <path>] [--json]
 scenery worker temporal prune --stale [--yes] [--app-root <path>] [--json]
 scenery version [--json]
+scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain sync [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
@@ -505,6 +506,8 @@ Toolchain rules:
 - Binary artifacts may use `platforms` for downloaded archives or `source_build: {kind: "go", package: "./cmd/..."}` for source-built Scenery binaries. Source-built artifacts are compiled with `go build` into the managed toolchain store and report `source: "source-build"` in toolchain status.
 - `--tool <name>` selectors must match a manifest artifact exactly. Unknown selectors fail closed with `unknown toolchain artifact "<name>"` instead of returning an empty successful status.
 - `scenery version --json` includes `toolchain_manifest.schema_version`, `sha256`, `artifact_count`, and `source_lock_count` for the bundled manifest.
+- `scenery upgrade --json` emits `scenery.upgrade.v1`. It fetches the latest GitHub release by default, selects the release asset for the current `GOOS/GOARCH`, verifies it against the release `checksums.txt`, and replaces the current executable path unless `--target <path>` is set. If the current version already matches the selected release, it skips binary replacement unless `--force` is set. `--dry-run` reports the selected release and target path without downloading the archive or mutating the binary.
+- After a successful binary upgrade, `scenery upgrade` runs the upgraded binary's bundled toolchain sync unless `--toolchain none` or `--skip-toolchain` is set. The default `--toolchain installed` syncs manifest entries already present in the local managed store and updates present Docker image artifacts such as Postgres when their manifest entry is selected. `--toolchain all` runs `scenery system toolchain sync --images --json` with the upgraded binary, so every manifest binary artifact and image is pulled or built from the upgraded manifest.
 - The default local store is `.scenery/toolchain/` under the app/repo root. Machine-level edge tools use `~/.scenery/toolchain/` under the local agent home. `SCENERY_TOOLCHAIN_DIR` overrides both store roots.
 - `SCENERY_TOOLCHAIN_DOWNLOAD=0` disables automatic managed binary downloads. Per-tool download disable variables such as `SCENERY_DEV_GRAFANA_DOWNLOAD=0` and `SCENERY_DEV_VICTORIA_DOWNLOAD=0` still apply to their startup paths.
 - Managed Caddy resolves from the managed store or manifest-driven download. Managed Grafana, Victoria, and Temporal CLI binaries resolve from explicit env overrides, the managed store, or manifest-driven download. They do not use implicit system `PATH` binaries.

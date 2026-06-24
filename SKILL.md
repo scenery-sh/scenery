@@ -181,7 +181,7 @@ scenery system toolchain list --json
 scenery system toolchain verify --json
 ```
 
-Scenery-managed tools live under `.scenery/toolchain/`, `~/.scenery/toolchain/` for machine-level edge tools, or `SCENERY_TOOLCHAIN_DIR`. Treat managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, and ZeroFS details as substrate unless intentionally debugging them. Agents should not rely on system `PATH` binaries for those issues; use `scenery system toolchain sync --json` for app-root tools, `scenery system edge dns install` for wildcard local DNS, or `scenery system edge install` for Caddy edge. Shared substrate failures appear in `scenery ps --json` under `substrates` with `last_exit`, `component_exits`, and stdout/stderr log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontend processes are restarted by `scenery up` when their dev-server process exits unexpectedly.
+Scenery-managed tools live under `.scenery/toolchain/`, `~/.scenery/toolchain/` for machine-level edge tools, or `SCENERY_TOOLCHAIN_DIR`. Treat managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, and ZeroFS details as substrate unless intentionally debugging them. Agents should not rely on system `PATH` binaries for those issues; use `scenery system toolchain sync --json` for app-root tools, `scenery system edge dns install` for wildcard local DNS, or `scenery system edge install` for Caddy edge. Use `scenery upgrade` to replace a prebuilt local Scenery binary with the latest verified release; it then syncs managed toolchain entries already present locally, and `--toolchain all` pulls every frozen tool/image from the upgraded manifest. Shared substrate failures appear in `scenery ps --json` under `substrates` with `last_exit`, `component_exits`, and stdout/stderr log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontend processes are restarted by `scenery up` when their dev-server process exits unexpectedly.
 
 Do not introduce new scenery-owned production environment variables by default. Prefer app config, explicit CLI flags, or checked-in manifests; when an env variable is truly required, update `docs/environment.registry.json`, `docs/environment.md`, and tests together.
 
@@ -264,6 +264,7 @@ scenery serve [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <name>]
 scenery worker temporal prune --stale [--yes] [--app-root <path>] [--json]
 scenery version --json
+scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain sync [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]

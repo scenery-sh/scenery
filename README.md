@@ -73,6 +73,14 @@ After installing a prebuilt binary, verify it with:
 scenery version --json
 ```
 
+To update a local prebuilt install later:
+
+```sh
+scenery upgrade
+```
+
+`scenery upgrade` verifies the selected release archive against `checksums.txt`, replaces the current local binary, and then syncs managed toolchain entries already present in the local store. Use `scenery upgrade --toolchain all` when you intentionally want every frozen tool and image from the upgraded binary pulled immediately.
+
 ## Agent Skill
 
 scenery includes an installable agent skill for using scenery apps:
@@ -211,6 +219,7 @@ scenery worker deployment set-current --build-id <id> [--deployment <name>] [--a
 scenery worker deployment ramp --build-id <id> --percentage <n> [--deployment <name>] [--app-root <path>] [--json]
 scenery worker deployment drain --build-id <id> [--deployment <name>] [--force] [--app-root <path>] [--json]
 scenery version [--json]
+scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--images]
 scenery system toolchain sync [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
@@ -311,6 +320,8 @@ scenery system toolchain list --json
 scenery system toolchain sync --json
 scenery system toolchain verify --json
 ```
+
+`scenery upgrade` uses the upgraded binary's bundled manifest for the post-upgrade toolchain sync, so pinned versions change with the Scenery release instead of ambient system tools.
 
 Caddy edge, Grafana, Victoria sidecars, and the local Temporal CLI are backing substrate for local capabilities. Caddy edge is managed-toolchain only; for the other tools, use documented env overrides, the managed store, `scenery ps --json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
 

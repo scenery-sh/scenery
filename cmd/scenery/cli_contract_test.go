@@ -53,6 +53,7 @@ func TestHelpAllContainsCanonicalCommands(t *testing.T) {
 		"scenery metrics",
 		"scenery doctor",
 		"scenery version",
+		"scenery upgrade",
 		"scenery system",
 		"scenery harness",
 	} {
@@ -112,6 +113,7 @@ func TestCommandHelpAndJSONManifest(t *testing.T) {
 	}
 	foundPS := false
 	foundDown := false
+	foundUpgrade := false
 	for _, command := range manifest.Commands {
 		if command.Command == "ps" && command.JSON && strings.Contains(strings.Join(command.Usage, "\n"), "scenery ps [--json]") {
 			foundPS = true
@@ -119,12 +121,18 @@ func TestCommandHelpAndJSONManifest(t *testing.T) {
 		if command.Command == "down" && command.JSON && strings.Contains(strings.Join(command.Usage, "\n"), "scenery down") && strings.Contains(strings.Join(command.Flags, "\n"), "--json") {
 			foundDown = true
 		}
+		if command.Command == "upgrade" && command.JSON && strings.Contains(strings.Join(command.Usage, "\n"), "scenery upgrade") && strings.Contains(strings.Join(command.Flags, "\n"), "--toolchain installed|all|none") {
+			foundUpgrade = true
+		}
 	}
 	if !foundPS {
 		t.Fatalf("help manifest missing ps json command: %+v", manifest.Commands)
 	}
 	if !foundDown {
 		t.Fatalf("help manifest missing down json command: %+v", manifest.Commands)
+	}
+	if !foundUpgrade {
+		t.Fatalf("help manifest missing upgrade json command: %+v", manifest.Commands)
 	}
 }
 
