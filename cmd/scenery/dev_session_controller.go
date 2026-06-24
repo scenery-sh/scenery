@@ -37,6 +37,18 @@ type PreparedDevSession struct {
 	Cleanup           func()
 }
 
+func devAPIUnixSocketPath(stateRoot string) string {
+	path := filepath.Join(stateRoot, "run", "api.sock")
+	if len(path) <= 100 {
+		return path
+	}
+	id := shortIdentityHash(stateRoot)
+	if id == "" {
+		id = "api"
+	}
+	return filepath.Join(os.TempDir(), "scenery-api-"+id+".sock")
+}
+
 func prepareDevAgentSession(ctx context.Context, root string, cfg app.Config, listen devListenRequest, console *runConsole) (*localagent.Client, *localagent.Session, devBackend, func(), error) {
 	prepared, err := prepareDevAgentSessionDetailed(ctx, root, cfg, listen, console)
 	if err != nil {
@@ -196,7 +208,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		if listen.Addr == "" {
 			backend = devBackend{
 				Network: "unix",
-				Addr:    filepath.Join(session.StateRoot, "run", "api.sock"),
+				Addr:    devAPIUnixSocketPath(session.StateRoot),
 			}
 			backends[localagent.RouteAPI] = localagent.Backend{Network: backend.Network, Addr: backend.Addr}
 			session, err = client.Register(ctx, localagent.RegisterRequest{

@@ -353,8 +353,11 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 		t.Fatalf("backend network = %q, want unix", backend.Network)
 	}
 	wantPrefix := filepath.Join(root, ".scenery", "sessions", session.SessionID, "run")
-	if !strings.HasPrefix(backend.Addr, wantPrefix) || filepath.Base(backend.Addr) != "api.sock" {
+	if len(filepath.Join(wantPrefix, "api.sock")) <= 100 && (!strings.HasPrefix(backend.Addr, wantPrefix) || filepath.Base(backend.Addr) != "api.sock") {
 		t.Fatalf("backend addr = %q, want under %q", backend.Addr, wantPrefix)
+	}
+	if len(filepath.Join(wantPrefix, "api.sock")) > 100 && filepath.Dir(backend.Addr) != filepath.Clean(os.TempDir()) {
+		t.Fatalf("backend addr = %q, want temp fallback for long socket path", backend.Addr)
 	}
 	api := session.Backends[localagent.RouteAPI]
 	if api.Network != "unix" || api.Addr != backend.Addr {
@@ -386,6 +389,28 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 
 	cancel()
 	waitForTestAgentServer(t, agentDone)
+}
+
+func TestDevAPIUnixSocketPathFallsBackWhenStateRootIsTooLong(t *testing.T) {
+	t.Parallel()
+
+	shortRoot := filepath.Join(string(filepath.Separator), "tmp", "scenery-short", ".scenery", "sessions", "dev")
+	shortPath := devAPIUnixSocketPath(shortRoot)
+	if want := filepath.Join(shortRoot, "run", "api.sock"); shortPath != want {
+		t.Fatalf("short socket path = %q, want %q", shortPath, want)
+	}
+
+	longRoot := filepath.Join(os.TempDir(), strings.Repeat("nested-", 20), ".scenery", "sessions", "dev")
+	longPath := devAPIUnixSocketPath(longRoot)
+	if strings.HasPrefix(longPath, longRoot) {
+		t.Fatalf("long socket path did not fall back: %q", longPath)
+	}
+	if filepath.Dir(longPath) != filepath.Clean(os.TempDir()) || !strings.HasPrefix(filepath.Base(longPath), "scenery-api-") || filepath.Ext(longPath) != ".sock" {
+		t.Fatalf("long socket fallback path = %q", longPath)
+	}
+	if len(longPath) > 100 {
+		t.Fatalf("long socket fallback path length = %d, want <= 100: %q", len(longPath), longPath)
+	}
 }
 
 func TestRouteNamespaceForConfigUsesWorkspaceAndConfiguredHosts(t *testing.T) {

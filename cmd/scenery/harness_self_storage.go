@@ -199,7 +199,7 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 	if stateRoot == "" {
 		return summary, fmt.Errorf("real ZeroFS detach JSON did not include session.state_root")
 	}
-	socketPath := filepath.Join(stateRoot, "run", "api.sock")
+	socketPath := devAPIUnixSocketPath(stateRoot)
 	probeBody, err := waitForHarnessStorageHTTPProbe(ctx, socketPath, 2*time.Minute)
 	if err != nil {
 		return summary, err
