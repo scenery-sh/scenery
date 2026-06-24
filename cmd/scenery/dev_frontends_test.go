@@ -301,22 +301,27 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 }
 
 func TestManagedFrontendExitRestartsAndUpdatesAgentSession(t *testing.T) {
+	t.Parallel()
+
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	agentDone := startTestAgentServer(t, ctx)
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "app")
+	frontendRoot := filepath.Join(appRoot, "apps", "web")
+	agentClient, agentDone := startManagedFrontendTestAgentServer(t, ctx, filepath.Join(root, "agent-home"))
 	defer func() {
 		cancel()
 		<-agentDone
 	}()
 
-	root := t.TempDir()
-	appRoot := filepath.Join(root, "app")
-	frontendRoot := filepath.Join(appRoot, "apps", "web")
 	writeFrontendPackage(t, frontendRoot, `{"scripts":{"dev":"vite"}}`)
 	serverPath := frontendTestServerBinary(t)
 	markerPath := filepath.Join(root, "frontend-starts.log")
-	t.Setenv("SCENERY_FRONTEND_TEST_SERVER", serverPath)
-	t.Setenv("SCENERY_FRONTEND_RESTART_MARKER", markerPath)
+	if err := os.WriteFile(filepath.Join(appRoot, ".env"), []byte(
+		"SCENERY_FRONTEND_TEST_SERVER="+serverPath+"\n"+
+			"SCENERY_FRONTEND_RESTART_MARKER="+markerPath+"\n",
+	), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	writeFrontendBinWithScript(t, frontendRoot, "vite", `
 set -eu
 port=""
@@ -339,9 +344,48 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 			},
 		},
 	}
-	prepared, err := prepareDevAgentSessionDetailed(ctx, appRoot, cfg, devListenRequest{}, nil)
+	session, err := agentClient.Register(ctx, localagent.RegisterRequest{
+		BaseAppID:  cfg.AppID(),
+		AppRoot:    appRoot,
+		Status:     "starting",
+		OwnerPID:   os.Getpid(),
+		ClaimOwner: true,
+	})
 	if err != nil {
-		t.Fatalf("prepareDevAgentSessionDetailed: %v", err)
+		t.Fatalf("register agent session: %v", err)
+	}
+	baseEnv, err := appEnvWithDotEnv(os.Environ(), appRoot, ".env", ".env.local")
+	if err != nil {
+		t.Fatalf("load frontend test env: %v", err)
+	}
+	frontendBackends, frontendProcesses, err := managedFrontendBackendsForSession(ctx, appRoot, cfg, baseEnv, session)
+	if err != nil {
+		t.Fatalf("start managed frontend: %v", err)
+	}
+	if len(frontendBackends) > 0 {
+		session, err = agentClient.Register(ctx, localagent.RegisterRequest{
+			BaseAppID:  cfg.AppID(),
+			AppRoot:    appRoot,
+			SessionID:  session.SessionID,
+			Branch:     session.Branch,
+			Status:     "starting",
+			OwnerPID:   os.Getpid(),
+			Backends:   frontendBackends,
+			Processes:  frontendSessionProcesses(frontendProcesses),
+			ClaimOwner: true,
+		})
+		if err != nil {
+			stopManagedFrontendProcesses(frontendProcesses)
+			t.Fatalf("register frontend backend: %v", err)
+		}
+	}
+	prepared := &PreparedDevSession{
+		Client:            agentClient,
+		Session:           &session,
+		FrontendProcesses: frontendProcesses,
+		Cleanup: func() {
+			stopManagedFrontendProcesses(frontendProcesses)
+		},
 	}
 	defer prepared.Cleanup()
 	if len(prepared.FrontendProcesses) != 1 {
@@ -388,6 +432,32 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("frontend did not restart with updated session backend; old addr=%s pid=%d latest=%+v", oldAddr, oldPID, latest)
+}
+
+func startManagedFrontendTestAgentServer(t *testing.T, ctx context.Context, home string) (*localagent.Client, <-chan error) {
+	t.Helper()
+	paths := localagent.PathsForHome(home)
+	if err := localagent.EnsureDirs(paths); err != nil {
+		t.Fatal(err)
+	}
+	server, err := localagent.NewServer(localagent.RunOptions{
+		Home:       home,
+		RouterAddr: "127.0.0.1:0",
+		DashboardBackend: localagent.Backend{
+			Network: "tcp",
+			Addr:    "127.0.0.1:9",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx) }()
+	client := localagent.NewClient(paths.SocketPath)
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	return client, done
 }
 
 func writeFrontendPackage(t *testing.T, root, data string) {
