@@ -40,6 +40,13 @@ scenery harness self --release --summary --write
 scripts/release-gate.sh
 ```
 
+Keep the release guard strict, but make the strictness land on Scenery-owned
+release safety: contracts, schemas, release artifacts, fixture runtimes, route
+isolation, and managed-substrate semantics. Nondeterministic external host or
+client-app substrate readiness must be reported as explicit evidence with
+phase/session/substrate context; it should not masquerade as a core release
+safety failure unless the release gate is intentionally validating that boundary.
+
 For dashboard route or UI behavior changes, also run:
 
 ```text
@@ -103,6 +110,7 @@ JSON output conforms to:
 
 - [scenery.harness.result.v1.schema.json](schemas/scenery.harness.result.v1.schema.json)
 - [scenery.harness.artifact.v1.schema.json](schemas/scenery.harness.artifact.v1.schema.json)
+- [scenery.dev.failure.v1.schema.json](schemas/scenery.dev.failure.v1.schema.json)
 - [scenery.inspect.harness.v1.schema.json](schemas/scenery.inspect.harness.v1.schema.json)
 - [scenery.harness.ui.v1.schema.json](schemas/scenery.harness.ui.v1.schema.json)
 - [scenery.harness.ui.dom.v1.schema.json](schemas/scenery.harness.ui.dom.v1.schema.json)
@@ -125,8 +133,16 @@ large evidence payloads such as Go test JSONL are written under:
 ```
 
 The same evidence model is shared by the app harness, self-harness, UI harness,
-release gate, and future ONLV gates so agents can inspect failures without
-scraping terminal scrollback.
+and release gate so agents can inspect failures without scraping terminal
+scrollback.
+
+Managed dev substrate failures that occur outside a harness command may also
+write `scenery.dev.failure.v1` artifacts. Those records are intentionally
+phase/session/substrate oriented: they identify the failing phase, whether a
+session existed, and the concrete substrate component, process, socket, log, and
+config paths involved. Release-oriented output should point at these artifacts
+when substrate readiness is the failing condition so agents can distinguish
+release-surface regressions from external readiness variance.
 
 When `scenery harness ui --json --write` is present, the browser harness writes:
 

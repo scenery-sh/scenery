@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.dev.failure.v1.schema.json",
+  "title": "scenery managed dev failure evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "created_at",
+    "status",
+    "phase",
+    "error",
+    "app",
+    "session",
+    "substrate"
+  ],
+  "properties": {
+    "schema_version": { "const": "scenery.dev.failure.v1" },
+    "created_at": { "type": "string", "minLength": 1 },
+    "status": { "const": "failed" },
+    "phase": { "type": "string", "minLength": 1 },
+    "error": { "type": "string" },
+    "suggested_action": { "type": "string", "minLength": 1 },
+    "app": { "$ref": "#/$defs/app" },
+    "session": { "$ref": "#/$defs/session" },
+    "substrate": { "$ref": "#/$defs/substrate" }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string" },
+        "id": { "type": "string" }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["active", "not_created", "missing"]
+        },
+        "id": { "type": "string" },
+        "state_root": { "type": "string" },
+        "base_app_id": { "type": "string" },
+        "runtime_app_id": { "type": "string" }
+      }
+    },
+    "substrate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "component"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "component": { "type": "string", "minLength": 1 },
+        "storage_cell_id": { "type": "string" },
+        "route": { "type": "string" },
+        "source": { "type": "string" },
+        "pid": { "type": "integer" },
+        "config_path": { "type": "string" },
+        "log_path": { "type": "string" },
+        "ninep_socket": { "type": "string" },
+        "rpc_socket": { "type": "string" },
+        "webui_addr": { "type": "string" },
+        "process_tail": { "type": "string" }
+      }
+    }
+  }
+}

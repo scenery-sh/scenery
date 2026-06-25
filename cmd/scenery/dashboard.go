@@ -24,6 +24,7 @@ import (
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
 
+	dashboardstatic "scenery.sh/cmd/scenery/dashboard_static"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
@@ -363,8 +364,13 @@ func dashboardAssetFS(assetsDir string) (fs.FS, error) {
 	if dir := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_DASHBOARD_UI_DIR")); dir != "" {
 		return os.DirFS(dir), nil
 	}
+	if embedded := embeddedDashboardAssetFS(); embedded != nil {
+		return embedded, nil
+	}
 	return nil, fs.ErrNotExist
 }
+
+var embeddedDashboardAssetFS = dashboardstatic.FS
 
 func isDashboardStaticPath(path string) bool {
 	switch path {

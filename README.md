@@ -62,6 +62,7 @@ scenery version --json
 ```
 
 The module path is `scenery.sh`. Source installs are useful when working from a checkout or testing unreleased changes.
+Release binaries embed the built dashboard UI and do not build it at runtime. From source, run `./scripts/build-dashboard-ui-embed.sh` before `go install ./cmd/scenery` when the installed binary should carry the current dashboard build.
 
 ## Prebuilt CLI Binaries
 
@@ -324,7 +325,7 @@ scenery system toolchain verify --json
 
 `scenery upgrade` uses the upgraded binary's bundled manifest for the post-upgrade toolchain sync, so pinned versions change with the Scenery release instead of ambient system tools.
 
-Caddy edge, Grafana, Victoria sidecars, and the local Temporal CLI are backing substrate for local capabilities. Caddy edge is managed-toolchain only; for the other tools, use documented env overrides, the managed store, `scenery ps --json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
+Caddy edge, managed ZeroFS storage, Grafana, Victoria sidecars, and the local Temporal CLI are backing substrate for local capabilities. Caddy edge and managed ZeroFS are managed-toolchain only; when an app requires managed ZeroFS, `scenery up` preflights the pinned `zerofs` artifact before registering dev-session routes and fails with the `scenery system toolchain sync --tool zerofs` repair path if it is unavailable. ZeroFS readiness then uses a bounded two-minute startup window and includes the relevant cell, socket, Web UI, config, log, PID, output-tail context, and a `scenery.dev.failure.v1` evidence artifact path if that window expires. Preflight failures write the same structured evidence under the app root's `.scenery/evidence/`, while session-backed runtime failures write it under the session state root's `artifacts/` directory. For the other tools, use documented env overrides, the managed store, `scenery ps --json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
 
 ## Observability And Inspection
 

@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"scenery.sh/internal/devdash"
@@ -62,6 +64,41 @@ func TestDashboardFallbackWhenUIDirMissing(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "dashboard UI build is not available") {
 		t.Fatalf("unexpected fallback body: %q", body)
+	}
+}
+
+func TestDashboardServesEmbeddedUIAssets(t *testing.T) {
+	old := embeddedDashboardAssetFS
+	embeddedDashboardAssetFS = func() fs.FS {
+		return fstest.MapFS{
+			"index.html":    {Data: []byte(`<!doctype html><html><body>embedded __APP_ID__</body></html>`)},
+			"assets/app.js": {Data: []byte(`console.log("embedded-dashboard")`)},
+		}
+	}
+	t.Cleanup(func() {
+		embeddedDashboardAssetFS = old
+	})
+
+	server := newTestDashboardServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app-test", nil)
+	server.handleRoot(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	if body := rec.Body.String(); body != "<!doctype html><html><body>embedded app-test</body></html>" {
+		t.Fatalf("unexpected index body: %q", body)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/assets/app.js", nil)
+	server.handleRoot(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected asset status: %d", rec.Code)
+	}
+	if body := rec.Body.String(); body != `console.log("embedded-dashboard")` {
+		t.Fatalf("unexpected asset body: %q", body)
 	}
 }
 

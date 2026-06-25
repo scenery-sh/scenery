@@ -1,27 +1,12 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
-
-	"scenery.sh/internal/app"
-	"scenery.sh/internal/envpolicy"
 )
-
-type uiBuildSpec struct {
-	envVar       string
-	root         string
-	installTitle string
-	buildTitle   string
-	sourcePaths  []string
-}
 
 var dashboardUISourcePaths = []string{
 	"package.json",
@@ -37,73 +22,12 @@ var dashboardUISourcePaths = []string{
 	"public",
 }
 
-func prepareDashboardUIDir(ctx context.Context, console *runConsole) (string, error) {
-	return prepareUIDir(ctx, console, uiBuildSpec{
-		envVar:       "SCENERY_DEV_DASHBOARD_UI_DIR",
-		root:         filepath.Join(app.RepoRoot(), "ui"),
-		installTitle: "Installing scenery dashboard UI packages",
-		buildTitle:   "Building scenery dashboard UI",
-		sourcePaths:  dashboardUISourcePaths,
-	})
-}
-
 func dashboardUIDepsStale(uiRoot string) (bool, error) {
 	return uiDepsStale(uiRoot)
 }
 
 func dashboardUIBuildStale(uiRoot string) (bool, error) {
 	return uiBuildStale(uiRoot, dashboardUISourcePaths)
-}
-
-func prepareUIDir(ctx context.Context, console *runConsole, spec uiBuildSpec) (string, error) {
-	if dir := strings.TrimSpace(envpolicy.Get(spec.envVar)); dir != "" {
-		return dir, nil
-	}
-	if _, err := os.Stat(filepath.Join(spec.root, "package.json")); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-
-	depsStale, err := uiDepsStale(spec.root)
-	if err != nil {
-		return "", err
-	}
-	if depsStale {
-		installFn := func() error { return installUIDeps(ctx, spec.root) }
-		if console != nil {
-			if err := console.Phase(spec.installTitle, installFn); err != nil {
-				return "", err
-			}
-		} else if err := installFn(); err != nil {
-			return "", err
-		}
-	}
-
-	stale, err := uiBuildStale(spec.root, spec.sourcePaths)
-	if err != nil {
-		return "", err
-	}
-	if stale {
-		buildFn := func() error { return buildUI(ctx, spec.root) }
-		if console != nil {
-			if err := console.Phase(spec.buildTitle, buildFn); err != nil {
-				return "", err
-			}
-		} else if err := buildFn(); err != nil {
-			return "", err
-		}
-	}
-
-	distDir := filepath.Join(spec.root, "dist")
-	if _, err := os.Stat(filepath.Join(distDir, "index.html")); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	return distDir, nil
 }
 
 func uiDepsStale(uiRoot string) (bool, error) {
@@ -204,40 +128,4 @@ func latestDashboardUIModTime(path string) (time.Time, bool, error) {
 		return time.Time{}, false, err
 	}
 	return latest, found, nil
-}
-
-func buildUI(ctx context.Context, uiRoot string) error {
-	bunPath, err := exec.LookPath("bun")
-	if err != nil {
-		return fmt.Errorf("UI build requires bun: %w", err)
-	}
-	cmd := commandTreeContext(ctx, bunPath, "run", "build")
-	cmd.Dir = uiRoot
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(output))
-		if msg == "" {
-			return fmt.Errorf("UI build failed: %w", err)
-		}
-		return fmt.Errorf("UI build failed: %w\n%s", err, msg)
-	}
-	return nil
-}
-
-func installUIDeps(ctx context.Context, uiRoot string) error {
-	bunPath, err := exec.LookPath("bun")
-	if err != nil {
-		return fmt.Errorf("UI install requires bun: %w", err)
-	}
-	cmd := commandTreeContext(ctx, bunPath, "install")
-	cmd.Dir = uiRoot
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(output))
-		if msg == "" {
-			return fmt.Errorf("UI install failed: %w", err)
-		}
-		return fmt.Errorf("UI install failed: %w\n%s", err, msg)
-	}
-	return nil
 }

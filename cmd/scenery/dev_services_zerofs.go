@@ -19,18 +19,28 @@ import (
 )
 
 type managedZeroFSService struct {
-	StorageCellID string
-	Route         string
-	WebUIAddr     string
-	Source        string
-	LogPath       string
-	ConfigPath    string
-	NinePSocket   string
-	RPCSocket     string
-	process       *devManagedProcess
-	cmd           *exec.Cmd
-	done          chan error
+	StorageCellID    string
+	Route            string
+	WebUIAddr        string
+	Source           string
+	AppRoot          string
+	SessionID        string
+	SessionStateRoot string
+	BaseAppID        string
+	RuntimeAppID     string
+	LogPath          string
+	ConfigPath       string
+	NinePSocket      string
+	RPCSocket        string
+	process          *devManagedProcess
+	cmd              *exec.Cmd
+	done             chan error
 }
+
+const (
+	managedZeroFSReadinessTimeout  = 2 * time.Minute
+	managedZeroFSReadinessInterval = 200 * time.Millisecond
+)
 
 var waitForManagedZeroFSFn = waitForManagedZeroFS
 var probeManagedZeroFSSubstrateFn = probeManagedZeroFSSubstrate
@@ -146,6 +156,46 @@ func managedZeroFSEncryptionPassword(plan *managedZeroFSPlan) string {
 	return "scenery-local-dev-" + plan.StorageCellID
 }
 
+func managedDevServicePreflightRequired(cfg app.Config) bool {
+	_, _, ok := managedZeroFSDeclared(cfg)
+	return ok
+}
+
+func preflightRequiredManagedDevServices(ctx context.Context, root string, cfg app.Config) error {
+	return preflightRequiredManagedZeroFS(ctx, root, cfg)
+}
+
+func preflightRequiredManagedZeroFS(ctx context.Context, root string, cfg app.Config) error {
+	name, _, ok := managedZeroFSDeclared(cfg)
+	if !ok {
+		return nil
+	}
+	if name == "" {
+		name = "storage"
+	}
+	if len(cfg.Storage.Stores) == 0 {
+		return fmt.Errorf("dev.services.%s requires top-level storage.stores", name)
+	}
+	if localagent.DisabledByEnv() {
+		return fmt.Errorf("dev.services.%s requires the scenery agent for managed ZeroFS storage; unset SCENERY_AGENT_DISABLE before `scenery up`", name)
+	}
+	session := &localagent.Session{SessionID: "preflight", BaseAppID: cfg.AppID(), AppRoot: root}
+	plan, err := resolveManagedZeroFSPlan(cfg, session, nil, "")
+	if err != nil {
+		return fmt.Errorf("dev.services.%s managed ZeroFS preflight failed: %w", name, err)
+	}
+	if plan == nil {
+		return nil
+	}
+	if _, err := resolveManagedZeroFSBinaryFn(ctx, plan); err != nil {
+		service := managedZeroFSServiceFromPlan(root, plan, "managed-toolchain")
+		service.BaseAppID = cfg.AppID()
+		evidencePath, evidenceErr := writeManagedZeroFSFailureEvidence(root, nil, service, "managed-zerofs.preflight", err, "Run `scenery system toolchain sync --tool "+devZeroFSToolchainArtifact+"` with downloads enabled, or set SCENERY_TOOLCHAIN_DIR to a managed store that already contains it.")
+		return fmt.Errorf("dev.services.%s managed ZeroFS preflight failed: required managed toolchain artifact %q is unavailable: %w\nFix: run `scenery system toolchain sync --tool %s` with downloads enabled, or set SCENERY_TOOLCHAIN_DIR to a managed store that already contains it%s", name, devZeroFSToolchainArtifact, err, devZeroFSToolchainArtifact, managedZeroFSEvidenceErrorSuffix(evidencePath, evidenceErr))
+	}
+	return nil
+}
+
 func (s *devSupervisor) ensureManagedZeroFS(ctx context.Context) error {
 	if s == nil || s.currentZeroFS() != nil {
 		return nil
@@ -234,6 +284,7 @@ func (s *devSupervisor) ensureManagedZeroFS(ctx context.Context) error {
 }
 
 func (s *devSupervisor) attachManagedZeroFSExisting(ctx context.Context, agentSession *localagent.Session, plan *managedZeroFSPlan, service *managedZeroFSService, backend localagent.Backend) error {
+	populateManagedZeroFSSessionContext(service, s.root, agentSession)
 	s.mu.Lock()
 	s.zeroFS = service
 	s.mu.Unlock()
@@ -506,7 +557,7 @@ func startManagedZeroFSService(ctx context.Context, root string, session *locala
 	}
 	binaryPath, err := resolveManagedZeroFSBinaryFn(ctx, &startPlan)
 	if err != nil {
-		return nil, localagent.Backend{}, err
+		return nil, localagent.Backend{}, managedZeroFSErrorWithEvidence(root, session, &startPlan, "managed-toolchain", "managed-zerofs.toolchain", err, "Run `scenery system toolchain sync --tool "+devZeroFSToolchainArtifact+"` with downloads enabled, or set SCENERY_TOOLCHAIN_DIR to a managed store that already contains it.")
 	}
 	service, err := startManagedZeroFSBinary(ctx, root, session, &startPlan, binaryPath, baseEnv)
 	if err != nil {
@@ -548,15 +599,17 @@ func zeroFSToolchainStoreDir(paths localagent.Paths) string {
 
 func startManagedZeroFSBinary(ctx context.Context, root string, session *localagent.Session, plan *managedZeroFSPlan, binaryPath string, baseEnv []string) (*managedZeroFSService, error) {
 	if strings.TrimSpace(binaryPath) == "" {
-		return nil, fmt.Errorf("managed ZeroFS binary path is empty")
+		err := fmt.Errorf("managed ZeroFS binary path is empty")
+		return nil, managedZeroFSErrorWithEvidence(root, session, plan, "managed-toolchain", "managed-zerofs.toolchain", err, "Run `scenery system toolchain sync --tool "+devZeroFSToolchainArtifact+"` with downloads enabled.")
 	}
 	if !isExecutableFile(binaryPath) {
-		return nil, fmt.Errorf("managed ZeroFS binary is not executable: %s", binaryPath)
+		err := fmt.Errorf("managed ZeroFS binary is not executable: %s", binaryPath)
+		return nil, managedZeroFSErrorWithEvidence(root, session, plan, "managed-toolchain", "managed-zerofs.toolchain", err, "Run `scenery system toolchain sync --tool "+devZeroFSToolchainArtifact+"` with downloads enabled.")
 	}
 	env := managedZeroFSProcessEnv(plan, baseEnv, managedZeroFSSessionEnv(root, session)...)
-	service, err := startManagedZeroFSProcess(ctx, root, "managed-toolchain", plan.LogPath, binaryPath, []string{"run", "-c", plan.ConfigPath}, env, plan)
+	service, err := startManagedZeroFSProcess(ctx, root, session, "managed-toolchain", plan.LogPath, binaryPath, []string{"run", "-c", plan.ConfigPath}, env, plan)
 	if err != nil {
-		return nil, err
+		return nil, managedZeroFSErrorWithEvidence(root, session, plan, "managed-toolchain", "managed-zerofs.start", err, "Inspect the evidence artifact and ZeroFS log path, then rerun `scenery up` after fixing the substrate.")
 	}
 	if err := waitForManagedZeroFSFn(ctx, service); err != nil {
 		_ = service.Interrupt()
@@ -565,7 +618,7 @@ func startManagedZeroFSBinary(ctx context.Context, root string, session *localag
 	return service, nil
 }
 
-func startManagedZeroFSProcess(ctx context.Context, root, source, logPath, command string, args, env []string, plan *managedZeroFSPlan) (*managedZeroFSService, error) {
+func startManagedZeroFSProcess(ctx context.Context, root string, session *localagent.Session, source, logPath, command string, args, env []string, plan *managedZeroFSPlan) (*managedZeroFSService, error) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return nil, err
 	}
@@ -593,6 +646,7 @@ func startManagedZeroFSProcess(ctx context.Context, root, source, logPath, comma
 		Route:         plan.Route,
 		WebUIAddr:     plan.WebUIListen,
 		Source:        source,
+		AppRoot:       root,
 		LogPath:       logPath,
 		ConfigPath:    plan.ConfigPath,
 		NinePSocket:   plan.NinePSocket,
@@ -601,6 +655,7 @@ func startManagedZeroFSProcess(ctx context.Context, root, source, logPath, comma
 		cmd:           process.Cmd,
 		done:          make(chan error, 1),
 	}
+	populateManagedZeroFSSessionContext(service, root, session)
 	go func() {
 		<-process.done
 		process.mu.Lock()
@@ -655,11 +710,39 @@ func waitForManagedZeroFS(ctx context.Context, service *managedZeroFSService) er
 	if service == nil || service.process == nil {
 		return fmt.Errorf("missing managed ZeroFS process")
 	}
-	return service.process.WaitReady(ctx, devProcessReadyRequest{
-		Timeout:  30 * time.Second,
-		Interval: 200 * time.Millisecond,
+	err := service.process.WaitReady(ctx, devProcessReadyRequest{
+		Timeout:  managedZeroFSReadinessTimeout,
+		Interval: managedZeroFSReadinessInterval,
 		Probe:    func(ctx context.Context) error { return probeManagedZeroFSSubstrate(ctx, service) },
 	})
+	if err != nil {
+		evidencePath, evidenceErr := writeManagedZeroFSFailureEvidence(service.AppRoot, nil, service, "managed-zerofs.readiness", err, "Inspect the evidence artifact and ZeroFS log path, then rerun `scenery up` after fixing the substrate.")
+		contextText := managedZeroFSReadinessContext(service) + managedZeroFSEvidenceErrorSuffix(evidencePath, evidenceErr)
+		return fmt.Errorf("managed ZeroFS readiness failed for storage cell %q: %w\n%s", firstNonEmpty(service.StorageCellID, "unknown"), err, contextText)
+	}
+	return nil
+}
+
+func managedZeroFSReadinessContext(service *managedZeroFSService) string {
+	if service == nil {
+		return "ZeroFS context: unavailable"
+	}
+	lines := []string{
+		"ZeroFS context:",
+		"  cell_id: " + firstNonEmpty(service.StorageCellID, "unknown"),
+		"  source: " + firstNonEmpty(service.Source, "unknown"),
+		"  pid: " + strconv.Itoa(firstPositiveInt(service.PID(), 0)),
+		"  config: " + firstNonEmpty(service.ConfigPath, "unknown"),
+		"  log: " + firstNonEmpty(service.LogPath, "unknown"),
+		"  ninep_socket: " + firstNonEmpty(service.NinePSocket, "unknown"),
+		"  rpc_socket: " + firstNonEmpty(service.RPCSocket, "unknown"),
+	}
+	if strings.TrimSpace(service.WebUIAddr) != "" {
+		lines = append(lines, "  webui: http://"+strings.TrimSpace(service.WebUIAddr))
+	} else {
+		lines = append(lines, "  webui: unknown")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func probeManagedZeroFSSubstrate(ctx context.Context, service *managedZeroFSService) error {

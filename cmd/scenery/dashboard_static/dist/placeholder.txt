@@ -1,0 +1,1 @@
+Generated dashboard UI assets are copied here by scripts/build-dashboard-ui-embed.sh before release binaries are built.

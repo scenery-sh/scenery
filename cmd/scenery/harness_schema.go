@@ -96,6 +96,39 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		}},
 		ReproCommand: "cd " + repoRoot + " && go test -json ./...",
 	}
+	devFailurePayload := managedDevFailureEvidence{
+		SchemaVersion:   managedDevFailureEvidenceSchema,
+		CreatedAt:       "2026-06-25T00:00:00Z",
+		Status:          "failed",
+		Phase:           "managed-zerofs.readiness",
+		Error:           "substrate managed ZeroFS did not become ready within 2m0s",
+		SuggestedAction: "Inspect the evidence artifact and ZeroFS log path, then rerun `scenery up` after fixing the substrate.",
+		App: managedDevFailureApp{
+			Root: "/tmp/scenery-app",
+			ID:   "scenery-app",
+		},
+		Session: managedDevFailureSession{
+			Status:       "active",
+			ID:           "session-123",
+			StateRoot:    "/tmp/scenery-app/.scenery/sessions/session-123",
+			BaseAppID:    "scenery-app",
+			RuntimeAppID: "scenery-app-session-123",
+		},
+		Substrate: managedDevFailureZeroFSSubstrate{
+			Kind:          "zerofs-scenery-app",
+			Component:     "zerofs",
+			StorageCellID: "scenery-app",
+			Route:         "storage",
+			Source:        "managed-toolchain",
+			PID:           1234,
+			ConfigPath:    "/tmp/scenery-agent/storage/scenery-app/run/zerofs.toml",
+			LogPath:       "/tmp/scenery-agent/storage/scenery-app/run/zerofs.log",
+			NinePSocket:   "/tmp/scenery-zerofs-app-9p.sock",
+			RPCSocket:     "/tmp/scenery-zerofs-app-rpc.sock",
+			WebUIAddr:     "127.0.0.1:49152",
+			ProcessTail:   "zerofs still booting",
+		},
+	}
 	var helpJSON bytes.Buffer
 	helpPayload := map[string]any{}
 	if err := writeHelpJSON(&helpJSON); err == nil {
@@ -113,6 +146,7 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "inspect.docs", schemaRel: "docs/schemas/scenery.inspect.docs.v1.schema.json", payload: inspectDocsPayload},
 		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.v1.schema.json", payload: inspectHarnessPayload},
 		{name: "harness.artifact", schemaRel: "docs/schemas/scenery.harness.artifact.v1.schema.json", payload: artifactEvidencePayload},
+		{name: "dev.failure", schemaRel: "docs/schemas/scenery.dev.failure.v1.schema.json", payload: devFailurePayload},
 		{name: "harness.self", schemaRel: "docs/schemas/scenery.harness.self.v1.schema.json", payload: resp},
 		{name: "harness.self.summary", schemaRel: "docs/schemas/scenery.harness.self.summary.v1.schema.json", payload: buildHarnessSelfSummary(resp)},
 		{name: "harness.toolchain", schemaRel: "docs/schemas/scenery.harness.toolchain.v1.schema.json", payload: resp.Toolchain},

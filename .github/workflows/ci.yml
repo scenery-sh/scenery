@@ -44,6 +44,9 @@ jobs:
       - name: Check basic fixture app
         run: go run ./cmd/scenery check --app-root testdata/apps/basic --json
 
+      - name: Build dashboard embed
+        run: ./scripts/build-dashboard-ui-embed.sh
+
       - name: Clean install
         run: go install ./cmd/scenery
 

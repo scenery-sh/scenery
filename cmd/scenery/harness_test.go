@@ -655,6 +655,7 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 		"docs/schemas/scenery.validation.result.v1.schema.json",
 		"docs/schemas/scenery.traces.clear.v1.schema.json",
 		"docs/schemas/scenery.dev.event.v1.schema.json",
+		"docs/schemas/scenery.dev.failure.v1.schema.json",
 		"docs/schemas/scenery.logs.event.v1.schema.json",
 		"docs/schemas/scenery.logs.query.v1.schema.json",
 		"docs/schemas/scenery.logs.tail.entry.v1.schema.json",

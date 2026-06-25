@@ -229,7 +229,7 @@ var helpCommands = []helpCommandEntry{
 		Summary:   "Show local dev app roots.",
 		Usage:     []string{"scenery ps [--json] [--app-root <path>] [--watch]"},
 		Flags:     []string{"--json", "--app-root <path>", "--watch"},
-		Notes:     []string{"Human table output is the default.", "`--json` emits scenery.agent.status.v1 for agents and automation."},
+		Notes:     []string{"Human table output is the default and shows console URLs.", "`--json` emits scenery.agent.status.v1 for agents and automation."},
 		JSON:      true,
 		Stability: "stable",
 	},

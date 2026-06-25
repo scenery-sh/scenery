@@ -141,15 +141,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend 
 		},
 		logCollapse: newTemporalActivityLogCollapser(3),
 	}
-	uiDir, err := prepareDashboardUIDir(supervisorCtx, s.console)
-	if err != nil {
-		cancel()
-		if store != nil {
-			_ = store.Close()
-		}
-		return nil, err
-	}
-	s.dashboard = newDashboardServer(s, uiDir)
+	s.dashboard = newDashboardServer(s, "")
 	s.events = newDevEventSink(s)
 	return s, nil
 }

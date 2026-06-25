@@ -6,7 +6,9 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 The current `main` branch is close to the intended agent-native local-dev local-runtime end state: `scenery dev` defaults to an agent-routed app-root runtime, owner metadata exists for internal runtime records and substrates, frontend routes are runtime-scoped, ONLV has moved to agent-native defaults, and the router preserves public host/proto/port context.
 
-The remaining work is operational hardening. The default path must stay agent-safe even when older environment variables are exported, cleanup must not leave managed databases behind, ordinary agent restarts must not interrupt live shared substrates, the legacy machine-global proxy must be removed from the normal `scenery dev` surface, `dev.setup` needs a lifecycle policy, and the real two-worktree ONLV smoke must be an executable release gate.
+The remaining work is operational hardening. The default path must stay agent-safe even when older environment variables are exported, cleanup must not leave managed databases behind, ordinary agent restarts must not interrupt live shared substrates, the legacy machine-global proxy must be removed from the normal `scenery dev` surface, and `dev.setup` needs a lifecycle policy. Scenery release validation must stay inside the Scenery repo and must not create client-application worktrees.
+
+Release guard policy: keep the guard strict, but stop letting nondeterministic external substrate readiness masquerade as core release safety. Strictness belongs on Scenery-owned invariants, contracts, schemas, fixtures, and release artifacts; external app or host substrate readiness belongs in explicit evidence and diagnostics unless the release is intentionally validating that substrate boundary.
 
 This is not a redesign. The goal is to close the remaining correctness edges in priority order while preserving the current agent model.
 
@@ -23,7 +25,9 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [ ] Phase 1.3: Make `scenery agent restart` preserve shared substrates by default.
 - [ ] Phase 1.4: Remove or hard-block the legacy local proxy from the normal `scenery dev` surface with no backwards-compatibility alias.
 - [ ] Phase 2: Add `dev.setup` run policy and update ONLV to use schema-change setup.
-- [ ] Phase 3: Add and wire a real two-worktree ONLV parallel smoke gate.
+- [x] 2026-06-25: Removed the ONLV client-app worktree smoke from Scenery release validation. `scripts/release-gate.sh` no longer creates ONLV worktrees, and the old smoke script was deleted.
+- [x] 2026-06-25: Added structured `scenery.dev.failure.v1` evidence artifacts for required managed ZeroFS preflight, toolchain/start, and bounded readiness failures, including phase, session, and substrate context.
+- [ ] Phase 3: Keep parallel runtime safety covered by Scenery-owned fixtures and self-harness checks, not client-app worktrees.
 - [ ] Phase 4: Consider optional `doctor dev`, browser-profile isolation, and later network sandbox hardening after the default path is stable.
 - [ ] Phase 5.1: Add single-instance locks for the edge Caddy and `scenery system agent`, and reap stale binders on owned ports (TCP and UDP 19443, router port) at startup.
 - [ ] Phase 5.2: Add a rebrand-migration sweep that detects and stops pre-rebrand `~/.onlava` processes and offers `~/.onlava` state cleanup.
@@ -38,11 +42,13 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - 2026-05-27: `internal/agent/server.go` verifies substrate owners before signaling, but `Server.Close()` still walks registered substrates and interrupts verified component PIDs. An ordinary `scenery agent restart` can therefore disrupt live shared Postgres, Electric, Temporal, Victoria, or Grafana substrates used by running app runtimes. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/main.go` still lets `scenery dev --proxy` enable the legacy local proxy path after printing a warning. The underlying `internal/localproxy` defaults remain machine-global ports `80` and `443`, so warning-only behavior is still a footgun for parallel worktrees. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/dev_supervisor.go` runs all `dev.setup` commands inside every `RebuildAndRestart` after compile and before app start. This is fine for fast idempotent scripts but will become expensive once setup includes migrations, seed data, imports, or codegen. Source review on 2026-05-28 confirmed this is still open.
-- 2026-05-27: `cmd/scenery/harness_parallel.go` contains a self-harness parallel session check, but this plan still requires a high-signal ONLV two-worktree smoke script that starts the real target app with managed Postgres, Electric, frontend, Temporal, logs, traces, and teardown as an executable release gate. Source review on 2026-05-28 confirmed the current harness check is still synthetic and in-process.
+- 2026-05-27: `cmd/scenery/harness_parallel.go` contains a self-harness parallel session check. Earlier versions of this plan proposed a high-signal ONLV client-app smoke, but Scenery release validation should not create or mutate ONLV worktrees; app-specific validation belongs in the client app.
 - 2026-06-11: Explicit session-selection flags conflict with the current product rule. Parallel live development should be expressed as multiple Git worktrees, not multiple user-named runtimes from one app directory.
 - 2026-06-12: A pre-rebrand `~/.onlava` edge Caddy (started 2026-06-08) ran for four days racing the current `~/.scenery` edge on TCP and UDP 127.0.0.1:19443 via SO_REUSEPORT, and three orphaned `scenery system agent` processes pointed `--router-listen` at an already-owned port. Nothing in `scenery doctor` or `scenery ps` surfaced either condition; both were found via `lsof -nP -iTCP:19443 -sTCP:LISTEN` and `lsof -nP -iUDP:19443` while debugging an unrelated SSE incident. Duplicate UDP binders are a live HTTP/3 hazard because QUIC flows hash across both processes.
 - 2026-06-12: Narrowing the Postgres branch registry lock exposed the real contended resource: branch database DDL races on the parent template database can produce `pq: tuple concurrently updated (XX000)`. The registry lock should stay metadata-only; branch create/reset/drop now serialize with a parent-database operation lock.
-- 2026-06-12: A 30-second file-lock timeout was too short for legitimate cold shared substrate startup under the ONLV two-worktree smoke. Grafana cold startup can keep the second session waiting long enough to trip a 30-second timeout even though the system is healthy, so lock waits now warn early and periodically while allowing a two-minute bounded wait.
+- 2026-06-12: A 30-second file-lock timeout was too short for legitimate cold shared substrate startup under parallel runtime validation. Grafana cold startup can keep another session waiting long enough to trip a 30-second timeout even though the system is healthy, so lock waits now warn early and periodically while allowing a two-minute bounded wait.
+- 2026-06-25: ZeroFS preflight failures happen before a real dev-session state root exists, so their structured evidence belongs under the app root's `.scenery/evidence/` directory with `session.status: "not_created"`. Readiness failures happen after process startup and can write under the active session state root's `artifacts/` directory.
+- 2026-06-25: Strict release gates are most useful when they separate core Scenery release safety from host or client-app substrate variance. Flaky external readiness should produce structured evidence with phase/session/substrate context, not a disguised verdict that the Scenery release itself is unsafe.
 
 ## Decision Log
 
@@ -71,6 +77,15 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - Decision: Use bounded nonblocking lock acquisition with early and periodic diagnostics instead of silent blocking flock waits.
   Rationale: Release-gate and multi-worktree runs need a clear named lock path when contention is real, while legitimate cold substrate startup needs more than the original 30-second wait budget.
   Date/Author: 2026-06-12 / Codex.
+- Decision: Do not run ONLV client-app worktree smoke from Scenery release validation.
+  Rationale: Scenery's release gate must validate Scenery-owned behavior. Creating two ONLV worktrees from inside the Scenery repo couples a core release guard to mutable client-app state and local substrate readiness.
+  Date/Author: 2026-06-25 / Codex.
+- Decision: Keep the release guard strict while classifying nondeterministic external substrate readiness as diagnostic evidence, not core release safety.
+  Rationale: A strict guard should block regressions in Scenery-owned contracts, schemas, release artifacts, fixture runtimes, routing isolation, and managed-substrate semantics. External host/client readiness can still be checked when explicitly requested, but it must report which phase/session/substrate failed and should not masquerade as a failure of the core Scenery release surface.
+  Date/Author: 2026-06-25 / Codex.
+- Decision: Managed dev substrate failures should write structured failure evidence instead of relying only on terminal text.
+  Rationale: The failure artifact answers which phase failed, whether a session existed, and which substrate component, process, socket, log, and config were involved. This is especially important for required ZeroFS preflight and bounded readiness failures that are intermittent under release validation.
+  Date/Author: 2026-06-25 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -108,7 +123,7 @@ Milestone 1 fixes correctness edges in the runtime: dashboard store ownership, D
 
 Milestone 2 improves setup lifecycle so target apps can choose whether setup runs once per session, on schema changes, always, or manually.
 
-Milestone 3 adds the real ONLV two-worktree release gate and wires it into a required validation path.
+Milestone 3 keeps parallel runtime validation in Scenery-owned fixtures and self-harness checks. Client-app worktree smokes are explicitly outside the Scenery release gate.
 
 Milestone 4 contains optional hardening after stability: `scenery doctor dev --json`, browser-profile isolation, and later network sandboxing.
 
@@ -122,7 +137,7 @@ Then split agent control-plane restart from substrate shutdown. Add command opti
 
 After that, replace warning-only legacy proxy behavior with removal or a hard block. Do not keep `--proxy`, `--trust`, or `SCENERY_LOCAL_PROXY` as deprecated compatibility paths for normal `scenery dev`. If the machine-global proxy is still needed for tests, move it behind an internal test helper or a separately designed command rather than carrying old flags.
 
-Finally add setup policies and the ONLV release gate. `dev.setup` entries should support object form with `run` and `when`; legacy string entries need a deliberate compatibility decision. ONLV should use `schema-change` for `./scripts/db-safe-apply.sh`. The two-worktree smoke should start real ONLV worktrees with the current scenery binary and fail on fixed global ports, shared DB names, shared task queues, mixed logs/traces, or teardown bleed.
+Finally add setup policies and keep parallel runtime proof in the Scenery repo. `dev.setup` entries should support object form with `run` and `when`; legacy string entries need a deliberate compatibility decision. ONLV should use `schema-change` for `./scripts/db-safe-apply.sh`, but Scenery release validation must not create ONLV worktrees.
 
 ## Concrete Steps
 
@@ -156,11 +171,10 @@ Finally add setup policies and the ONLV release gate. `dev.setup` entries should
    - Decide and document legacy string behavior. Prefer interpreting strings as `initial` if this is acceptable; otherwise keep strings as `always` for compatibility and state the migration path.
    - Detect schema changes using changed paths and configured/default migration patterns. Start with conservative file suffix/path matching such as `.sql`, migrations directories, Atlas files, and app-configured patterns if needed.
    - Update `docs/schemas/scenery.config.v1.schema.json`, `docs/local-contract.md`, and ONLV `.scenery.json`.
-7. Two-worktree ONLV release gate:
-   - Add `scripts/dev-parallel-smoke.sh`.
-   - The script creates two temporary ONLV worktrees, starts both with `SCENERY_BIN=<path-to-current-scenery>`, waits for sessions, asserts isolated routes/resources, downs both sessions with `scenery down --all`, and removes the worktrees.
-   - Wire the script into `scenery harness self --json --write` or a top-level `scripts/release-gate.sh`.
-   - Make the script fail if any fixed global port, shared managed database, shared Temporal task queue, shared frontend/Electric route, mixed logs/traces, or cross-session teardown leak appears.
+7. Parallel runtime validation:
+   - Keep this coverage inside `scenery harness self --json --write` and Scenery-owned fixture apps.
+   - Do not create or mutate ONLV worktrees from the Scenery repo.
+   - Make Scenery-owned parallel checks fail if fixed global ports, shared managed databases, shared Temporal task queues, mixed logs/traces, or cross-session teardown leaks appear.
 
 ## Validation and Acceptance
 
@@ -216,10 +230,11 @@ Setup policy acceptance:
 - Editing migration/schema files runs setup before app restart.
 - `scenery dev setup` runs `manual` setup entries on demand and reports failures clearly.
 
-Two-worktree gate acceptance:
+Parallel runtime acceptance:
 
-- The gate proves two ONLV worktrees have different internal `session_id`, different `runtime_app_id`, Unix-socket API backends, runtime-scoped frontend/Electric/Grafana/Temporal routes, different managed DB names, different Temporal task queues, runtime-scoped logs/traces, and no teardown bleed from worktree A to worktree B.
-- The gate fails if any fixed global port or shared DB/task queue leaks back into the default path.
+- Scenery-owned parallel validation proves separate internal `session_id` values, separate `runtime_app_id` values, isolated API backends, runtime-scoped routes, different managed DB names, different Temporal task queues, runtime-scoped logs/traces, and no teardown bleed.
+- The validation fails if any fixed global port or shared DB/task queue leaks back into the default path.
+- Release-gate failures must distinguish Scenery-owned invariant regressions from external substrate readiness. When the failed condition is host/client substrate readiness, the failure output must point at structured evidence instead of relying on terminal scrollback or implying that the release artifact is intrinsically unsafe.
 
 ## Idempotence and Recovery
 
@@ -229,7 +244,7 @@ DB-aware cleanup must handle partial failure. If database drop succeeds but meta
 
 Agent restart must preserve sessions and shared substrate metadata by default. Explicit substrate shutdown should verify owners before signaling and should skip ambiguous or mismatched owners rather than risking wrong-process termination.
 
-The two-worktree smoke script must clean up after success and failure. Use traps so `scenery down --all --app-root <worktree>` and `git worktree remove` run even when an assertion fails.
+Any Scenery-owned parallel smoke must clean up after success and failure. Use traps so `scenery down --all --app-root <fixture-root>` and temporary directory cleanup run even when an assertion fails.
 
 ## Artifacts and Notes
 
@@ -241,7 +256,6 @@ docs/plans/active.md
 docs/environment.md
 docs/local-contract.md
 docs/schemas/scenery.config.v1.schema.json
-scripts/dev-parallel-smoke.sh
 scripts/release-gate.sh
 .scenery/harness/self-latest.json
 ```

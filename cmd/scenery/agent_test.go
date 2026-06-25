@@ -218,6 +218,13 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 	if len(status.Sessions) != 1 || status.Sessions[0].SessionID != session.SessionID {
 		t.Fatalf("status sessions = %+v, want %s", status.Sessions, session.SessionID)
 	}
+	if route := status.Sessions[0].Routes[localagent.RouteAPI]; !strings.Contains(route, "http://api.") {
+		t.Fatalf("status json missing api route: %+v", status.Sessions[0].Routes)
+	}
+	consoleURL := status.Sessions[0].Routes[localagent.RouteDashboard]
+	if !strings.Contains(consoleURL, "http://console.") {
+		t.Fatalf("status json missing console route: %+v", status.Sessions[0].Routes)
+	}
 	if len(status.Substrates) != 1 || status.Substrates[0].Status != "exited" || status.Substrates[0].LastExit == nil {
 		t.Fatalf("status substrates = %+v", status.Substrates)
 	}
@@ -225,11 +232,11 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 	output = commandOutput(t, func(stdout io.Writer) error {
 		return statusCommandWithClient(client, stdout, []string{"--app-root", appRoot})
 	})
-	if !strings.Contains(output, "APP ROOT") || !strings.Contains(output, "STATUS") || !strings.Contains(output, "API") {
+	if !strings.Contains(output, "APP ROOT") || !strings.Contains(output, "STATUS") || !strings.Contains(output, "CONSOLE") {
 		t.Fatalf("human status output missing table header:\n%s", output)
 	}
-	if strings.Contains(output, "SESSION") || !strings.Contains(output, appRoot) || !strings.Contains(output, "http://api.") {
-		t.Fatalf("human status output should show app root entries and API route:\n%s", output)
+	if strings.Contains(output, "SESSION") || !strings.Contains(output, appRoot) || !strings.Contains(output, consoleURL) || strings.Contains(output, "http://api.") {
+		t.Fatalf("human status output should show app root entries and console route:\n%s", output)
 	}
 
 	output = commandOutput(t, func(stdout io.Writer) error {

@@ -2,6 +2,10 @@ version: 2
 
 project_name: scenery
 
+before:
+  hooks:
+    - ./scripts/build-dashboard-ui-embed.sh
+
 builds:
   - id: scenery
     main: ./cmd/scenery

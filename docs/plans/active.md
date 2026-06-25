@@ -16,7 +16,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery runtime / ONLV integration
   - Created: 2026-05-27
-  - Focus: source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, setup policy, and the two-worktree ONLV gate.
+  - Focus: source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, setup policy, and Scenery-owned parallel runtime validation.
 - [0049 Browser Direct API Routing](0049-browser-direct-api-routing.md)
   - Status: active
   - Owner: scenery runtime / ONLV Pulse integration

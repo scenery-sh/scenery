@@ -59,6 +59,10 @@ Child `AGENTS.md` files:
 
 ## Agent skills
 
+### Browser automation
+
+When browser interaction is needed, use the `chrome:control-chrome` skill by default unless the user explicitly asks for a different browser surface or tool.
+
 ### Issue tracker
 
 Issues and product specs for this repo live in GitHub Issues. See `docs/agents/issue-tracker.md`.

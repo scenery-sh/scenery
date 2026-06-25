@@ -130,6 +130,12 @@ ui_builds() {
   run bun run build
 }
 
+dashboard_embed() {
+  cd "$ROOT"
+  need bun
+  run ./scripts/build-dashboard-ui-embed.sh
+}
+
 self_harness() {
   cd "$ROOT"
   run "$SCENERY_BIN" harness self --json --write
@@ -174,6 +180,7 @@ for raw in files.read_bytes().split(b"\0"):
     shutil.copy2(src, out)
 PY
   cd "$tmp/src"
+  run ./scripts/build-dashboard-ui-embed.sh
   run go install ./cmd/scenery
 }
 
@@ -200,14 +207,6 @@ external_app_smoke() {
   [[ -f "$EXTERNAL_APP_ROOT/.scenery.json" ]] || die "SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT is not a Scenery app: $EXTERNAL_APP_ROOT"
   run "$SCENERY_BIN" inspect app --json --app-root "$EXTERNAL_APP_ROOT"
   run "$SCENERY_BIN" check --json --app-root "$EXTERNAL_APP_ROOT"
-}
-
-onlv_two_worktree_smoke() {
-  if [[ -z "${SCENERY_ONLV_SMOKE_ROOT:-}" && -z "${SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT:-}" && ! -d "/Users/petrbrazdil/Repos/onlv" ]]; then
-    printf 'skipping ONLV two-worktree smoke; set SCENERY_ONLV_SMOKE_ROOT to enable\n'
-    return
-  fi
-  run env SCENERY_BIN="$SCENERY_BIN" SCENERY_ONLV_SMOKE_LOG_DIR="$LOG_DIR/onlv-two-worktree" "$ROOT/scripts/onlv-two-worktree-smoke.sh"
 }
 
 router_safety() {
@@ -297,8 +296,8 @@ main() {
   step "race tests" race_tests
   step "go lint" lint_go
   step "ui build" ui_builds
+  step "dashboard embed" dashboard_embed
   step "install scenery" install_scenery
-  step "ONLV two-worktree smoke" onlv_two_worktree_smoke
   step "self harness" self_harness
   step "clean checkout install" clean_checkout_install
   step "fixture smoke" fixture_smoke

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -335,6 +337,87 @@ func TestManagedZeroFSHasOtherLiveSessionRejectsCurrentStaleAndDifferentBackends
 	if managedZeroFSHasOtherLiveSession(sessions, "current", "storage", "127.0.0.1:49152") {
 		t.Fatal("did not expect current, stale, or different backend sessions to keep shared ZeroFS cell alive")
 	}
+}
+
+func TestWaitForManagedZeroFSUsesBoundedTwoMinuteReadinessWithContext(t *testing.T) {
+	t.Parallel()
+
+	missingRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	synctest.Test(t, func(t *testing.T) {
+		service := &managedZeroFSService{
+			StorageCellID:    "shared-cell",
+			Route:            "storage",
+			Source:           "managed-toolchain",
+			AppRoot:          missingRoot,
+			SessionID:        "session-123",
+			SessionStateRoot: stateRoot,
+			BaseAppID:        "storageapp",
+			RuntimeAppID:     "storageapp-session-123",
+			LogPath:          filepath.Join(missingRoot, "zerofs.log"),
+			ConfigPath:       filepath.Join(missingRoot, "zerofs.toml"),
+			NinePSocket:      filepath.Join(missingRoot, "missing-9p.sock"),
+			RPCSocket:        filepath.Join(missingRoot, "missing-rpc.sock"),
+			WebUIAddr:        "127.0.0.1:49152",
+			process: &devManagedProcess{
+				Name:       "managed ZeroFS",
+				Kind:       "substrate",
+				PID:        4242,
+				Tail:       &safeLineTail{limit: 10},
+				done:       make(chan struct{}),
+				outputDone: make(chan struct{}),
+			},
+		}
+		service.process.Tail.Add("zerofs still booting")
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- waitForManagedZeroFS(context.Background(), service)
+		}()
+
+		synctest.Wait()
+		select {
+		case err := <-errCh:
+			t.Fatalf("waitForManagedZeroFS returned before readiness timeout: %v", err)
+		default:
+		}
+
+		time.Sleep(managedZeroFSReadinessTimeout)
+		err := <-errCh
+		if err == nil {
+			t.Fatal("waitForManagedZeroFS returned nil, want readiness timeout")
+		}
+		message := err.Error()
+		for _, want := range []string{
+			"managed ZeroFS readiness failed for storage cell \"shared-cell\"",
+			"substrate managed ZeroFS did not become ready within 2m0s",
+			"zerofs still booting",
+			"ZeroFS context:",
+			"cell_id: shared-cell",
+			"source: managed-toolchain",
+			"pid: 4242",
+			"config: " + service.ConfigPath,
+			"log: " + service.LogPath,
+			"ninep_socket: " + service.NinePSocket,
+			"rpc_socket: " + service.RPCSocket,
+			"webui: http://127.0.0.1:49152",
+			"Evidence: " + filepath.Join(stateRoot, "artifacts", "managed-zerofs-readiness-failure.json"),
+		} {
+			if !strings.Contains(message, want) {
+				t.Fatalf("readiness error missing %q:\n%s", want, message)
+			}
+		}
+		var evidence managedDevFailureEvidence
+		data, readErr := os.ReadFile(filepath.Join(stateRoot, "artifacts", "managed-zerofs-readiness-failure.json"))
+		if readErr != nil {
+			t.Fatalf("read readiness evidence: %v", readErr)
+		}
+		if err := json.Unmarshal(data, &evidence); err != nil {
+			t.Fatalf("unmarshal readiness evidence: %v\n%s", err, data)
+		}
+		if evidence.SchemaVersion != managedDevFailureEvidenceSchema || evidence.Phase != "managed-zerofs.readiness" || evidence.Session.ID != "session-123" || evidence.Session.Status != "active" || evidence.Substrate.Kind != "zerofs-shared-cell" || evidence.Substrate.StorageCellID != "shared-cell" || evidence.Substrate.ProcessTail != "zerofs still booting" {
+			t.Fatalf("readiness evidence = %+v", evidence)
+		}
+	})
 }
 
 func TestStartManagedZeroFSServiceUsesManagedToolchainBinaryAndSharedCellPaths(t *testing.T) {

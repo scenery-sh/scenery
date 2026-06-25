@@ -79,7 +79,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -97,7 +97,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, storage inspect/CLI lease surfaces, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, internal dashboard cache artifacts, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, storage inspect/CLI lease surfaces, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, internal dashboard cache artifacts, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -167,7 +167,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, storage config/CLI/lease schemas, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, storage config/CLI/lease schemas including required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence artifacts, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -189,6 +189,7 @@
         "docs/schemas/scenery.worktree.create.v1.schema.json",
         "docs/schemas/scenery.worktree.list.v1.schema.json",
         "docs/schemas/scenery.worktree.remove.v1.schema.json",
+        "docs/schemas/scenery.dev.failure.v1.schema.json",
         "docs/schemas/scenery.harness.artifact.v1.schema.json",
         "docs/schemas/scenery.harness.self.summary.v1.schema.json",
         "docs/schemas/scenery.inspect.harness.v1.schema.json",
@@ -286,7 +287,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-10",
       "review_after": "2026-07-07",
-      "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, managed Postgres branch self-harness proof, and doc-gardening rules for review-due and drift handling.",
+      "summary": "Agent validation loop, shared harness evidence model, structured dev failure evidence, agent-context handoff file, browser UI harness route journeys and DOM artifacts, managed Postgres branch self-harness proof, and doc-gardening rules for review-due and drift handling.",
       "tags": [
         "harness",
         "agents",
@@ -294,6 +295,7 @@
       ],
       "schema_refs": [
         "docs/schemas/scenery.harness.artifact.v1.schema.json",
+        "docs/schemas/scenery.dev.failure.v1.schema.json",
         "docs/schemas/scenery.harness.self.summary.v1.schema.json",
         "docs/schemas/scenery.inspect.harness.v1.schema.json",
         "docs/schemas/scenery.agent_context.v1.schema.json",
@@ -717,7 +719,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Active ExecPlan for source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, setup policy, and the two-worktree ONLV gate.",
+      "summary": "Active ExecPlan for source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, setup policy, and Scenery-owned parallel runtime validation.",
       "tags": [
         "plans",
         "execplans",

@@ -16,31 +16,34 @@ func writeStatusTable(w io.Writer, sessions []localagent.Session) {
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "APP ROOT\tSTATUS\tAPI\tUPDATED")
+	fmt.Fprintln(tw, "APP ROOT\tSTATUS\tCONSOLE\tUPDATED")
 	for _, session := range sessions {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
 			statusTableValue(session.AppRoot),
 			statusTableValue(session.Status),
-			statusTableValue(statusSessionAPIURL(session)),
+			statusTableValue(statusSessionConsoleURL(session)),
 			statusTableUpdated(session.UpdatedAt),
 		)
 	}
 	_ = tw.Flush()
 }
 
-func statusSessionAPIURL(session localagent.Session) string {
+func statusSessionConsoleURL(session localagent.Session) string {
 	if session.Routes != nil {
-		if value := strings.TrimSpace(session.Routes[localagent.RouteAPI]); value != "" {
+		if value := strings.TrimSpace(session.Routes[localagent.RouteDashboard]); value != "" {
 			return value
 		}
 	}
 	if session.Aliases != nil {
-		if value := strings.TrimSpace(session.Aliases[localagent.RouteAPI]); value != "" {
+		if value := strings.TrimSpace(session.Aliases[localagent.RouteDashboard]); value != "" {
 			return value
 		}
 	}
 	if session.RouteNamespace.Hosts != nil {
-		if host := strings.TrimSpace(session.RouteNamespace.Hosts[localagent.RouteAPI]); host != "" {
+		if host := strings.TrimSpace(session.RouteNamespace.Hosts["console"]); host != "" {
+			return host
+		}
+		if host := strings.TrimSpace(session.RouteNamespace.Hosts[localagent.RouteDashboard]); host != "" {
 			return host
 		}
 	}

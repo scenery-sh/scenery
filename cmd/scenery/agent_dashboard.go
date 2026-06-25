@@ -34,16 +34,11 @@ func startAgentDashboard(ctx context.Context, agentServer *localagent.Server, ad
 	if err != nil {
 		return nil, err
 	}
-	uiDir, err := prepareDashboardUIDir(ctx, nil)
-	if err != nil {
-		_ = store.Close()
-		return nil, err
-	}
 	controller := &agentDashboardController{
 		store: store,
 		agent: agentServer,
 	}
-	server := newDashboardServerWithController(controller, paths.AgentDir, addr, uiDir, nil)
+	server := newDashboardServerWithController(controller, paths.AgentDir, addr, "", nil)
 	if err := server.Start(ctx); err != nil {
 		_ = store.Close()
 		return nil, err

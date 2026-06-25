@@ -241,6 +241,53 @@ func TestStorageCapabilityEnvUsesProxyForSessionStateRoot(t *testing.T) {
 	}
 }
 
+func TestRequiredManagedZeroFSPreflightFailsWhenToolchainUnavailable(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	t.Setenv("SCENERY_TOOLCHAIN_DIR", filepath.Join(t.TempDir(), "toolchain"))
+	t.Setenv("SCENERY_TOOLCHAIN_DOWNLOAD", "0")
+	cfg := appcfg.Config{
+		Name: "storageapp",
+		Storage: appcfg.StorageConfig{
+			Default: "app",
+			Stores: map[string]appcfg.StorageStoreConfig{
+				"app": {Kind: "zerofs"},
+			},
+		},
+		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
+			"storage": {Kind: "zerofs"},
+		}},
+	}
+	root := t.TempDir()
+	err := preflightRequiredManagedDevServices(context.Background(), root, cfg)
+	if err == nil {
+		t.Fatal("preflight succeeded, want required managed ZeroFS toolchain failure")
+	}
+	evidencePath := filepath.Join(root, ".scenery", "evidence", "managed-zerofs-preflight-failure.json")
+	message := err.Error()
+	for _, want := range []string{
+		"dev.services.storage managed ZeroFS preflight failed",
+		`required managed toolchain artifact "zerofs" is unavailable`,
+		"toolchain downloads disabled by SCENERY_TOOLCHAIN_DOWNLOAD=0",
+		"scenery system toolchain sync --tool zerofs",
+		"Evidence: " + evidencePath,
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("preflight error missing %q:\n%s", want, message)
+		}
+	}
+	var evidence managedDevFailureEvidence
+	data, readErr := os.ReadFile(evidencePath)
+	if readErr != nil {
+		t.Fatalf("read preflight evidence: %v", readErr)
+	}
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		t.Fatalf("unmarshal preflight evidence: %v\n%s", err, data)
+	}
+	if evidence.SchemaVersion != managedDevFailureEvidenceSchema || evidence.Phase != "managed-zerofs.preflight" || evidence.Session.Status != "not_created" || evidence.Substrate.Kind != "zerofs-storageapp" || evidence.Substrate.Component != "zerofs" || evidence.App.Root != root {
+		t.Fatalf("preflight evidence = %+v", evidence)
+	}
+}
+
 func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
 	shortRoot, err := os.MkdirTemp("/tmp", "scn-storage-*")
 	if err != nil {
