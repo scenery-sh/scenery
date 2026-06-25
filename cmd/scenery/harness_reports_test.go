@@ -352,16 +352,20 @@ func TestBuildHarnessEmbedReportChecksBinaryFreshnessCoverage(t *testing.T) {
 	writeTestAppFile(t, root, "go.mod", "module scenery.sh\n")
 	writeTestAppFile(t, root, "internal/devtools/versions.go", "package devtools\n\nimport \"embed\"\n\n//go:embed versions.json\nvar _ embed.FS\n")
 	writeTestAppFile(t, root, "internal/devtools/versions.json", "{}\n")
+	writeTestAppFile(t, root, "cmd/scenery/dashboard_static/embed.go", "package dashboardstatic\n\nimport \"embed\"\n\n//go:embed dist\nvar _ embed.FS\n")
+	writeTestAppFile(t, root, "cmd/scenery/dashboard_static/dist/index.html", "<!doctype html>\n")
 
 	report, diagnostics := buildHarnessEmbedReport(root, nil)
 	if hasErrorDiagnostics(diagnostics) {
 		t.Fatalf("embed diagnostics = %+v", diagnostics)
 	}
-	if len(report.Embeds) != 1 {
+	if len(report.Embeds) != 2 {
 		t.Fatalf("embeds = %+v", report.Embeds)
 	}
-	if !report.Embeds[0].CoveredByBinaryFreshness {
-		t.Fatalf("embed not covered: %+v", report.Embeds[0])
+	for _, embed := range report.Embeds {
+		if !embed.CoveredByBinaryFreshness {
+			t.Fatalf("embed not covered: %+v", embed)
+		}
 	}
 }
 

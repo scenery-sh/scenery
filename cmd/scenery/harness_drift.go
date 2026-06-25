@@ -659,6 +659,9 @@ func buildHarnessEmbedReport(repoRoot string, diagnostics []checkDiagnostic) (ha
 
 func harnessBinaryFreshnessCoversRel(rel string) bool {
 	rel = filepath.ToSlash(rel)
+	if strings.HasPrefix(rel, dashboardStaticDistRel+"/") && harnessBinaryInputFile(rel) {
+		return true
+	}
 	for _, prefix := range []string{"auth/", "cmd/", "cron/", "db/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "runtimeapp/", "temporal/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {

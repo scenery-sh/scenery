@@ -590,7 +590,7 @@ func latestHarnessBinaryInputModTime(path string) (time.Time, bool, error) {
 			return err
 		}
 		if d.IsDir() {
-			if harnessBinaryInputSkipDir(d.Name()) || appwalk.SkipDir(path, walkPath) {
+			if harnessBinaryInputSkipDirForWalk(path, walkPath) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -622,6 +622,20 @@ func latestHarnessBinaryInputModTime(path string) (time.Time, bool, error) {
 // harnessBinaryFreshnessCoversRel applies it to path segments.
 func harnessBinaryInputSkipDir(name string) bool {
 	return name == "coverage" || appwalk.SkipDirName(name)
+}
+
+const dashboardStaticDistRel = "cmd/scenery/dashboard_static/dist"
+
+func harnessBinaryInputSkipDirForWalk(root, path string) bool {
+	if harnessBinaryEmbeddedDistPath(path) {
+		return false
+	}
+	return harnessBinaryInputSkipDir(filepath.Base(path)) || appwalk.SkipDir(root, path)
+}
+
+func harnessBinaryEmbeddedDistPath(path string) bool {
+	path = filepath.ToSlash(filepath.Clean(path))
+	return strings.HasSuffix(path, "/"+dashboardStaticDistRel) || path == dashboardStaticDistRel
 }
 
 func harnessBinaryInputFile(path string) bool {

@@ -99,16 +99,19 @@ func TestLatestHarnessSourceModTimeIncludesEmbeddedNonGoInputs(t *testing.T) {
 	writeTestAppFile(t, root, "internal/devtools/versions.json", `{"grafana":"1.0.0"}`)
 	writeTestAppFile(t, root, "internal/devtools/versions_test.go", "package devtools\n")
 	writeTestAppFile(t, root, "internal/devtools/node_modules/ignored.json", `{"ignored":true}`)
+	writeTestAppFile(t, root, "cmd/scenery/dashboard_static/dist/index.html", "<!doctype html>\n")
 
 	oldTime := time.Unix(1_700_000_000, 0)
 	embedTime := oldTime.Add(1 * time.Hour)
 	testTime := embedTime.Add(1 * time.Hour)
-	ignoredTime := testTime.Add(1 * time.Hour)
+	dashboardDistTime := testTime.Add(1 * time.Hour)
+	ignoredTime := dashboardDistTime.Add(1 * time.Hour)
 	for path, modTime := range map[string]time.Time{
-		filepath.Join(root, "go.mod"):                                      oldTime,
-		filepath.Join(root, "internal/devtools/versions.json"):             embedTime,
-		filepath.Join(root, "internal/devtools/versions_test.go"):          testTime,
-		filepath.Join(root, "internal/devtools/node_modules/ignored.json"): ignoredTime,
+		filepath.Join(root, "go.mod"):                                       oldTime,
+		filepath.Join(root, "internal/devtools/versions.json"):              embedTime,
+		filepath.Join(root, "internal/devtools/versions_test.go"):           testTime,
+		filepath.Join(root, "cmd/scenery/dashboard_static/dist/index.html"): dashboardDistTime,
+		filepath.Join(root, "internal/devtools/node_modules/ignored.json"):  ignoredTime,
 	} {
 		if err := os.Chtimes(path, modTime, modTime); err != nil {
 			t.Fatalf("Chtimes(%s): %v", path, err)
@@ -122,8 +125,8 @@ func TestLatestHarnessSourceModTimeIncludesEmbeddedNonGoInputs(t *testing.T) {
 	if !ok {
 		t.Fatal("latestHarnessSourceModTime() ok = false")
 	}
-	if !latest.Equal(embedTime) {
-		t.Fatalf("latest source time = %s, want embedded non-Go time %s", latest, embedTime)
+	if !latest.Equal(dashboardDistTime) {
+		t.Fatalf("latest source time = %s, want embedded dashboard dist time %s", latest, dashboardDistTime)
 	}
 }
 
