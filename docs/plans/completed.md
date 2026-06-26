@@ -162,6 +162,25 @@ Validation:
 
 - Passed Scenery-side Go checks, generated data dry-run, docs inspection, and model DSL web typecheck/render proof.
 
+## Tasks Read-Only Stress Test
+
+- Status: completed
+- Owner: scenery app model / generators
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0085 Tasks Read-Only Stress Test](0085-tasks-readonly-stress-test.md)
+
+Shipped:
+
+- Added static page filter, sort, and column display metadata to the beta `scenery.sh/page` DSL.
+- Exposed `column_displays`, `filters`, and `sorts` through `scenery inspect views --json` and its schema.
+- Generated collection materializers now apply static source-row filters/sorts before producing page records.
+- Upgraded `testdata/apps/model-dsl` into a realistic read-only Tasks stress fixture with status, priority, assignee, due/created/updated dates, static open-task filtering, default ordering, and host render proof.
+
+Validation:
+
+- Passed focused parser/webgen/inspect/generated-data checks and model DSL web typecheck/build/render proof; full-repo validation is recorded in the ExecPlan.
+
 ## Scenery Storage
 
 - Status: completed

@@ -360,6 +360,16 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 	b.WriteString("  source: string\n")
 	b.WriteString("  field: keyof Row & string\n")
 	b.WriteString("  label: string\n")
+	b.WriteString("  display?: \"text\" | \"datetime\" | \"badge\"\n")
+	b.WriteString("}\n\n")
+	b.WriteString("export interface CollectionFilter {\n")
+	b.WriteString("  field: string\n")
+	b.WriteString("  op: \"eq\" | \"neq\" | \"is_null\" | \"is_not_null\"\n")
+	b.WriteString("  value?: string\n")
+	b.WriteString("}\n\n")
+	b.WriteString("export interface CollectionSort {\n")
+	b.WriteString("  field: string\n")
+	b.WriteString("  direction: \"asc\" | \"desc\"\n")
 	b.WriteString("}\n\n")
 	b.WriteString("export interface TanStackDBCollectionDefinition<Record, ShapeRow> {\n")
 	b.WriteString("  id: string\n")
@@ -368,9 +378,22 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 	b.WriteString("  title: string\n")
 	b.WriteString("  shape: ElectricShapeDefinition<ShapeRow>\n")
 	b.WriteString("  columns: readonly CollectionColumn<Record>[]\n")
+	b.WriteString("  filters: readonly CollectionFilter[]\n")
+	b.WriteString("  sorts: readonly CollectionSort[]\n")
 	b.WriteString("  getKey: (row: Record) => string\n")
 	b.WriteString("  materialize: (rows: Iterable<ShapeRow>) => Record[]\n")
 	b.WriteString("}\n\n")
+	if viewsHaveQueries(views) {
+		b.WriteString("function compareCollectionValues(a: any, b: any, direction: \"asc\" | \"desc\"): number {\n")
+		b.WriteString("  if (a == null && b == null) return 0\n")
+		b.WriteString("  if (a == null) return direction === \"desc\" ? 1 : -1\n")
+		b.WriteString("  if (b == null) return direction === \"desc\" ? -1 : 1\n")
+		b.WriteString("  const left = typeof a === \"number\" ? a : String(a)\n")
+		b.WriteString("  const right = typeof b === \"number\" ? b : String(b)\n")
+		b.WriteString("  const result = left < right ? -1 : left > right ? 1 : 0\n")
+		b.WriteString("  return direction === \"desc\" ? -result : result\n")
+		b.WriteString("}\n\n")
+	}
 	for _, view := range views {
 		entity := entities[view.Entity]
 		if entity == nil {
@@ -378,15 +401,59 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 		}
 		rowType := view.Projection.RecordName
 		shapeRowType := entity.Name + "Row"
+		displayByField := viewDisplayByField(view)
 		fmt.Fprintf(&b, "export const %sColumns = [\n", lowerFirst(view.Name))
 		for _, column := range view.Columns {
 			field, ok := entityFieldByName(entity, column)
 			if !ok {
 				continue
 			}
-			fmt.Fprintf(&b, "  { source: %s, field: %s, label: %s },\n", strconv.Quote(field.Name), strconv.Quote(field.Column), strconv.Quote(field.Name))
+			if display := displayByField[field.Name]; display != "" {
+				fmt.Fprintf(&b, "  { source: %s, field: %s, label: %s, display: %s },\n", strconv.Quote(field.Name), strconv.Quote(field.Column), strconv.Quote(field.Name), strconv.Quote(display))
+			} else {
+				fmt.Fprintf(&b, "  { source: %s, field: %s, label: %s },\n", strconv.Quote(field.Name), strconv.Quote(field.Column), strconv.Quote(field.Name))
+			}
 		}
 		fmt.Fprintf(&b, "] as const satisfies readonly CollectionColumn<%s>[]\n\n", rowType)
+		fmt.Fprintf(&b, "export const %sFilters = [\n", lowerFirst(view.Name))
+		for _, filter := range view.Filters {
+			if filter.Value != "" {
+				fmt.Fprintf(&b, "  { field: %s, op: %s, value: %s },\n", strconv.Quote(filter.Column), strconv.Quote(filter.Op), strconv.Quote(filter.Value))
+			} else {
+				fmt.Fprintf(&b, "  { field: %s, op: %s },\n", strconv.Quote(filter.Column), strconv.Quote(filter.Op))
+			}
+		}
+		b.WriteString("] as const satisfies readonly CollectionFilter[]\n\n")
+		fmt.Fprintf(&b, "export const %sSorts = [\n", lowerFirst(view.Name))
+		for _, sort := range view.Sorts {
+			fmt.Fprintf(&b, "  { field: %s, direction: %s },\n", strconv.Quote(sort.Column), strconv.Quote(sort.Direction))
+		}
+		b.WriteString("] as const satisfies readonly CollectionSort[]\n\n")
+		fmt.Fprintf(&b, "function materialize%sCollection(rows: Iterable<%s>): %s[] {\n", view.Name, shapeRowType, rowType)
+		if len(view.Filters) == 0 && len(view.Sorts) == 0 {
+			fmt.Fprintf(&b, "  return materialize%sRows(rows)\n", view.Name)
+		} else {
+			b.WriteString("  const queried = Array.from(rows)")
+			for _, filter := range view.Filters {
+				b.WriteString(".filter((row) => ")
+				b.WriteString(renderCollectionFilter(filter))
+				b.WriteString(")")
+			}
+			b.WriteString("\n")
+			if len(view.Sorts) > 0 {
+				b.WriteString("  queried.sort((a, b) =>\n")
+				for i, sort := range view.Sorts {
+					prefix := "    "
+					if i > 0 {
+						prefix = "    || "
+					}
+					fmt.Fprintf(&b, "%scompareCollectionValues(a[%s], b[%s], %s)\n", prefix, strconv.Quote(sort.Column), strconv.Quote(sort.Column), strconv.Quote(sort.Direction))
+				}
+				b.WriteString("  )\n")
+			}
+			fmt.Fprintf(&b, "  return materialize%sRows(queried)\n", view.Name)
+		}
+		b.WriteString("}\n\n")
 		fmt.Fprintf(&b, "export const %sCollection = {\n", lowerFirst(view.Name))
 		fmt.Fprintf(&b, "  id: %s,\n", strconv.Quote(view.Name))
 		fmt.Fprintf(&b, "  entity: %s,\n", strconv.Quote(entity.Name))
@@ -394,8 +461,10 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 		fmt.Fprintf(&b, "  title: %s,\n", strconv.Quote(view.Title))
 		fmt.Fprintf(&b, "  shape: %sShape,\n", lowerFirst(entity.Name))
 		fmt.Fprintf(&b, "  columns: %sColumns,\n", lowerFirst(view.Name))
+		fmt.Fprintf(&b, "  filters: %sFilters,\n", lowerFirst(view.Name))
+		fmt.Fprintf(&b, "  sorts: %sSorts,\n", lowerFirst(view.Name))
 		fmt.Fprintf(&b, "  getKey: (row: %s) => String(row[%s]),\n", rowType, strconv.Quote(idColumn(entity)))
-		fmt.Fprintf(&b, "  materialize: materialize%sRows,\n", view.Name)
+		fmt.Fprintf(&b, "  materialize: materialize%sCollection,\n", view.Name)
 		fmt.Fprintf(&b, "} as const satisfies TanStackDBCollectionDefinition<%s, %s>\n\n", rowType, shapeRowType)
 	}
 	b.WriteString("export const collections = [\n")
@@ -670,6 +739,39 @@ func fieldColumns(fields []model.EntityField) []string {
 		out = append(out, field.Column)
 	}
 	return out
+}
+
+func viewsHaveQueries(views []*model.View) bool {
+	for _, view := range views {
+		if len(view.Filters) > 0 || len(view.Sorts) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func viewDisplayByField(view *model.View) map[string]string {
+	out := make(map[string]string, len(view.ColumnDisplays))
+	for _, display := range view.ColumnDisplays {
+		out[display.Field] = display.Kind
+	}
+	return out
+}
+
+func renderCollectionFilter(filter model.ViewFilter) string {
+	field := "row[" + strconv.Quote(filter.Column) + "]"
+	switch filter.Op {
+	case "eq":
+		return field + " === " + strconv.Quote(filter.Value)
+	case "neq":
+		return field + " !== " + strconv.Quote(filter.Value)
+	case "is_null":
+		return field + " == null"
+	case "is_not_null":
+		return field + " != null"
+	default:
+		return "true"
+	}
 }
 
 func entityFieldByName(entity *model.Entity, name string) (model.EntityField, bool) {

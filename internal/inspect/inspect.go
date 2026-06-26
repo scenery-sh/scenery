@@ -120,17 +120,38 @@ type ViewsResponse struct {
 }
 
 type ViewRecord struct {
-	Name       string               `json:"name"`
-	Kind       string               `json:"kind"`
-	Package    string               `json:"package"`
-	File       string               `json:"file"`
-	Line       int                  `json:"line"`
-	Entity     string               `json:"entity"`
-	Route      string               `json:"route,omitempty"`
-	Title      string               `json:"title,omitempty"`
-	Columns    []string             `json:"columns,omitempty"`
-	Projection ViewProjectionRecord `json:"projection"`
-	Slots      []ViewSlotRecord     `json:"slots,omitempty"`
+	Name           string                    `json:"name"`
+	Kind           string                    `json:"kind"`
+	Package        string                    `json:"package"`
+	File           string                    `json:"file"`
+	Line           int                       `json:"line"`
+	Entity         string                    `json:"entity"`
+	Route          string                    `json:"route,omitempty"`
+	Title          string                    `json:"title,omitempty"`
+	Columns        []string                  `json:"columns,omitempty"`
+	ColumnDisplays []ViewColumnDisplayRecord `json:"column_displays,omitempty"`
+	Filters        []ViewFilterRecord        `json:"filters,omitempty"`
+	Sorts          []ViewSortRecord          `json:"sorts,omitempty"`
+	Projection     ViewProjectionRecord      `json:"projection"`
+	Slots          []ViewSlotRecord          `json:"slots,omitempty"`
+}
+
+type ViewColumnDisplayRecord struct {
+	Field string `json:"field"`
+	Kind  string `json:"kind"`
+}
+
+type ViewFilterRecord struct {
+	Field  string `json:"field"`
+	Column string `json:"column"`
+	Op     string `json:"op"`
+	Value  string `json:"value,omitempty"`
+}
+
+type ViewSortRecord struct {
+	Field     string `json:"field"`
+	Column    string `json:"column"`
+	Direction string `json:"direction"`
 }
 
 type ViewProjectionRecord struct {
@@ -494,6 +515,15 @@ func BuildViewsResponse(appRoot string, cfg appcfg.Config, app *model.App) Views
 			Columns:    append([]string(nil), view.Columns...),
 			Projection: ViewProjectionRecord{RecordType: view.Projection.RecordName, SourceRow: view.Projection.SourceRowName},
 			Slots:      []ViewSlotRecord{},
+		}
+		for _, display := range view.ColumnDisplays {
+			item.ColumnDisplays = append(item.ColumnDisplays, ViewColumnDisplayRecord{Field: display.Field, Kind: display.Kind})
+		}
+		for _, filter := range view.Filters {
+			item.Filters = append(item.Filters, ViewFilterRecord{Field: filter.Field, Column: filter.Column, Op: filter.Op, Value: filter.Value})
+		}
+		for _, sort := range view.Sorts {
+			item.Sorts = append(item.Sorts, ViewSortRecord{Field: sort.Field, Column: sort.Column, Direction: sort.Direction})
 		}
 		for _, field := range view.Projection.Fields {
 			item.Projection.Fields = append(item.Projection.Fields, ViewProjectionFieldRecord{

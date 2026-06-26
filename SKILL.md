@@ -211,7 +211,7 @@ multi-schema HCL.
 `scenery generate data --dry-run --json`
  also writes beta generated frontend packages under `.scenery/gen/web/<frontend>/`
  for configured frontends with static collection pages, including runtime adapter
-factories, page projection records in `projections.ts`, default page components, and route registration helpers for app-owned Electric/TanStack/layout-kit wiring;
+factories, page projection records in `projections.ts`, static page filter/sort/display metadata, default page components, and route registration helpers for app-owned Electric/TanStack/layout-kit wiring;
 generated Electric shape metadata uses the same schema-qualified table as the DB artifacts.
 
 To mount a generated page, declare the entity/page in Go, run `scenery generate data --dry-run --json`, point a frontend alias such as `@scenery/generated` at `.scenery/gen/web/<frontend>/index.ts`, import the generated page or route from that alias, mount it, and run the host typecheck/render or build command.

@@ -73,12 +73,27 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 		var payload struct {
 			SchemaVersion string `json:"schema_version"`
 			Views         []struct {
-				Name    string   `json:"name"`
-				Kind    string   `json:"kind"`
-				Entity  string   `json:"entity"`
-				Route   string   `json:"route"`
-				Columns []string `json:"columns"`
-				Slots   []struct {
+				Name           string   `json:"name"`
+				Kind           string   `json:"kind"`
+				Entity         string   `json:"entity"`
+				Route          string   `json:"route"`
+				Columns        []string `json:"columns"`
+				ColumnDisplays []struct {
+					Field string `json:"field"`
+					Kind  string `json:"kind"`
+				} `json:"column_displays"`
+				Filters []struct {
+					Field  string `json:"field"`
+					Column string `json:"column"`
+					Op     string `json:"op"`
+					Value  string `json:"value"`
+				} `json:"filters"`
+				Sorts []struct {
+					Field     string `json:"field"`
+					Column    string `json:"column"`
+					Direction string `json:"direction"`
+				} `json:"sorts"`
+				Slots []struct {
 					Name string `json:"name"`
 				} `json:"slots"`
 			} `json:"views"`
@@ -90,8 +105,17 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 			t.Fatalf("views payload = %+v", payload)
 		}
 		view := payload.Views[0]
-		if view.Name != "TaskList" || view.Kind != "collection" || view.Entity != "Task" || view.Route != "/tasks" || strings.Join(view.Columns, ",") != "Title,Status,CreatedAt" || len(view.Slots) != 1 || view.Slots[0].Name != "TaskStatusBadge" {
+		if view.Name != "TaskList" || view.Kind != "collection" || view.Entity != "Task" || view.Route != "/tasks" || strings.Join(view.Columns, ",") != "Title,Status,Priority,Assignee,DueAt,CreatedAt,UpdatedAt" || len(view.Slots) != 1 || view.Slots[0].Name != "TaskStatusBadge" {
 			t.Fatalf("view = %+v", view)
+		}
+		if len(view.ColumnDisplays) != 5 || view.ColumnDisplays[0].Field != "Status" || view.ColumnDisplays[0].Kind != "badge" {
+			t.Fatalf("column displays = %+v", view.ColumnDisplays)
+		}
+		if len(view.Filters) != 1 || view.Filters[0].Field != "Status" || view.Filters[0].Column != "status" || view.Filters[0].Op != "neq" || view.Filters[0].Value != "done" {
+			t.Fatalf("filters = %+v", view.Filters)
+		}
+		if len(view.Sorts) != 2 || view.Sorts[0].Field != "DueAt" || view.Sorts[0].Column != "due_at" || view.Sorts[0].Direction != "asc" || view.Sorts[1].Field != "CreatedAt" || view.Sorts[1].Column != "created_at" || view.Sorts[1].Direction != "desc" {
+			t.Fatalf("sorts = %+v", view.Sorts)
 		}
 	})
 

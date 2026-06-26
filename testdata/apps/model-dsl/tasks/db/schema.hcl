@@ -7,6 +7,11 @@ enum "tasks" "tasks_status" {
   values = ["todo", "doing", "done"]
 }
 
+enum "tasks" "tasks_priority" {
+  schema = schema.tasks
+  values = ["low", "normal", "high"]
+}
+
 table "tasks" "tasks" {
   schema = schema.tasks
 
@@ -30,12 +35,32 @@ table "tasks" "tasks" {
     type = enum.tasks.tasks_status
   }
 
+  column "priority" {
+    null = false
+    type = enum.tasks.tasks_priority
+  }
+
+  column "assignee_name" {
+    null = false
+    type = text
+  }
+
+  column "due_at" {
+    null = false
+    type = timestamptz
+  }
+
   column "project_id" {
     null = false
     type = text
   }
 
   column "created_at" {
+    null = false
+    type = timestamptz
+  }
+
+  column "updated_at" {
     null = false
     type = timestamptz
   }

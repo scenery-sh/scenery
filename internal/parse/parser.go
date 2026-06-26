@@ -1410,6 +1410,18 @@ func parsePageView(root string, pkg *model.Package, file *model.File, decl *ast.
 				continue
 			}
 			view.Columns = values
+		case "ColumnDisplays":
+			displays, displayErrs := parsePageColumnDisplays(pkg, importAliases(file.AST), kv.Value)
+			errs = append(errs, displayErrs...)
+			view.ColumnDisplays = displays
+		case "Filters":
+			filters, filterErrs := parsePageFilters(pkg, importAliases(file.AST), kv.Value)
+			errs = append(errs, filterErrs...)
+			view.Filters = filters
+		case "Sorts":
+			sorts, sortErrs := parsePageSorts(pkg, importAliases(file.AST), kv.Value)
+			errs = append(errs, sortErrs...)
+			view.Sorts = sorts
 		case "Slots":
 			slots, slotErrs := parsePageSlots(root, pkg, importAliases(file.AST), kv.Value)
 			errs = append(errs, slotErrs...)
@@ -1467,6 +1479,7 @@ func validateViews(app *model.App) []string {
 		if len(projectionErrs) == 0 {
 			view.Projection = projection
 		}
+		errs = append(errs, validateViewQuery(view, entity)...)
 	}
 	return errs
 }

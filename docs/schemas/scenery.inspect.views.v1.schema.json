@@ -40,8 +40,41 @@
         "route": { "type": "string" },
         "title": { "type": "string" },
         "columns": { "type": "array", "items": { "type": "string" } },
+        "column_displays": { "type": "array", "items": { "$ref": "#/$defs/column_display" } },
+        "filters": { "type": "array", "items": { "$ref": "#/$defs/filter" } },
+        "sorts": { "type": "array", "items": { "$ref": "#/$defs/sort" } },
         "projection": { "$ref": "#/$defs/projection" },
         "slots": { "type": "array", "items": { "$ref": "#/$defs/slot" } }
+      }
+    },
+    "column_display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "kind"],
+      "properties": {
+        "field": { "type": "string" },
+        "kind": { "enum": ["text", "datetime", "badge"] }
+      }
+    },
+    "filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "column", "op"],
+      "properties": {
+        "field": { "type": "string" },
+        "column": { "type": "string" },
+        "op": { "enum": ["eq", "neq", "is_null", "is_not_null"] },
+        "value": { "type": "string" }
+      }
+    },
+    "sort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "column", "direction"],
+      "properties": {
+        "field": { "type": "string" },
+        "column": { "type": "string" },
+        "direction": { "enum": ["asc", "desc"] }
       }
     },
     "projection": {

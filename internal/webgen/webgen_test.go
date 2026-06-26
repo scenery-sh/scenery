@@ -59,6 +59,12 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 	if !strings.Contains(files[".scenery/gen/web/web/collections.ts"], `} as const satisfies TanStackDBCollectionDefinition<TaskListRecord, TaskRow>`) {
 		t.Fatalf("collection should keep source rows separate from page records:\n%s", files[".scenery/gen/web/web/collections.ts"])
 	}
+	if !strings.Contains(files[".scenery/gen/web/web/collections.ts"], `display: "badge"`) ||
+		!strings.Contains(files[".scenery/gen/web/web/collections.ts"], `{ field: "status", op: "neq", value: "done" }`) ||
+		!strings.Contains(files[".scenery/gen/web/web/collections.ts"], `{ field: "title", direction: "asc" }`) ||
+		!strings.Contains(files[".scenery/gen/web/web/collections.ts"], `materialize: materializeTaskListCollection`) {
+		t.Fatalf("collection missing static query/display metadata:\n%s", files[".scenery/gen/web/web/collections.ts"])
+	}
 	if !strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `taskList?: RuntimeRows<TaskRow>`) ||
 		!strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `export type TaskListRuntime = CollectionRuntime<TaskListRecord, TaskRow>`) ||
 		!strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `materialize: () => definition.materialize(rows())`) {
@@ -104,6 +110,15 @@ func testAppModel() *model.App {
 		Route:   "/tasks",
 		Title:   "Tasks",
 		Columns: []string{"Title", "Status"},
+		ColumnDisplays: []model.ViewColumnDisplay{
+			{Field: "Status", Kind: "badge"},
+		},
+		Filters: []model.ViewFilter{
+			{Field: "Status", Column: "status", Op: "neq", Value: "done"},
+		},
+		Sorts: []model.ViewSort{
+			{Field: "Title", Column: "title", Direction: "asc"},
+		},
 		Projection: model.ViewProjection{
 			RecordName:    "TaskListRecord",
 			SourceRowName: "TaskRow",

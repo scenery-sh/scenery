@@ -279,17 +279,38 @@ func safeRouteSegment(value string) string {
 }
 
 type View struct {
-	Package    *Package
-	File       *File
-	Name       string
-	Kind       string
-	Entity     string
-	Route      string
-	Title      string
-	Columns    []string
-	Projection ViewProjection
-	Slots      []ViewSlot
-	TokenPos   token.Pos
+	Package        *Package
+	File           *File
+	Name           string
+	Kind           string
+	Entity         string
+	Route          string
+	Title          string
+	Columns        []string
+	ColumnDisplays []ViewColumnDisplay
+	Filters        []ViewFilter
+	Sorts          []ViewSort
+	Projection     ViewProjection
+	Slots          []ViewSlot
+	TokenPos       token.Pos
+}
+
+type ViewColumnDisplay struct {
+	Field string
+	Kind  string
+}
+
+type ViewFilter struct {
+	Field  string
+	Op     string
+	Value  string
+	Column string
+}
+
+type ViewSort struct {
+	Field     string
+	Direction string
+	Column    string
 }
 
 type ViewProjection struct {

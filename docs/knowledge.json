@@ -735,6 +735,31 @@
       ]
     },
     {
+      "path": "docs/plans/0085-tasks-readonly-stress-test.md",
+      "title": "Tasks Read-Only Stress Test",
+      "owner": "scenery app model / generators",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Completed ExecPlan proving a realistic read-only Tasks page with static filter/sort IR, minimal column display metadata, generated source-row materialization, and host fixture typecheck/build/render proof.",
+      "tags": [
+        "plans",
+        "execplans",
+        "models",
+        "views",
+        "generators",
+        "frontend",
+        "tasks",
+        "pilot",
+        "agents"
+      ],
+      "schema_refs": [
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",

@@ -398,14 +398,14 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	if got := crudActionList(entity.CRUD.Disabled); got != "delete" {
 		t.Fatalf("crud disabled = %q", got)
 	}
-	if len(entity.Seeds) != 1 || len(entity.Seeds[0].Values) != 6 {
+	if len(entity.Seeds) != 1 || len(entity.Seeds[0].Values) != 10 {
 		t.Fatalf("seeds = %+v", entity.Seeds)
 	}
 	seedValues := map[string]model.EntitySeedValue{}
 	for _, value := range entity.Seeds[0].Values {
 		seedValues[value.Field] = value
 	}
-	if seedValues["TenantID"].Value != "00000000-0000-0000-0000-000000000001" || seedValues["Status"].Value != "todo" || seedValues["CreatedAt"].Kind != model.EntitySeedTimestamp || seedValues["CreatedAt"].Value != "2026-06-12T12:00:00Z" {
+	if seedValues["TenantID"].Value != "00000000-0000-0000-0000-000000000001" || seedValues["Status"].Value != "todo" || seedValues["Priority"].Value != "normal" || seedValues["DueAt"].Kind != model.EntitySeedTimestamp || seedValues["DueAt"].Value != "2026-06-18T09:00:00Z" || seedValues["CreatedAt"].Kind != model.EntitySeedTimestamp || seedValues["CreatedAt"].Value != "2026-06-12T12:00:00Z" {
 		t.Fatalf("seed values = %+v", seedValues)
 	}
 	if len(app.Services) != 1 || len(app.Services[0].Generated) != 4 {
@@ -434,8 +434,17 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	if view.Name != "TaskList" || view.Entity != "Task" || view.Route != "/tasks" || view.Title != "Tasks" {
 		t.Fatalf("view = %+v", view)
 	}
-	if strings.Join(view.Columns, ",") != "Title,Status,CreatedAt" || len(view.Slots) != 1 || view.Slots[0].Name != "TaskStatusBadge" {
+	if strings.Join(view.Columns, ",") != "Title,Status,Priority,Assignee,DueAt,CreatedAt,UpdatedAt" || len(view.Slots) != 1 || view.Slots[0].Name != "TaskStatusBadge" {
 		t.Fatalf("view projection = %+v", view)
+	}
+	if len(view.ColumnDisplays) != 5 || view.ColumnDisplays[0].Field != "Status" || view.ColumnDisplays[0].Kind != "badge" {
+		t.Fatalf("column displays = %+v", view.ColumnDisplays)
+	}
+	if len(view.Filters) != 1 || view.Filters[0].Field != "Status" || view.Filters[0].Column != "status" || view.Filters[0].Op != "neq" || view.Filters[0].Value != "done" {
+		t.Fatalf("filters = %+v", view.Filters)
+	}
+	if len(view.Sorts) != 2 || view.Sorts[0].Field != "DueAt" || view.Sorts[0].Column != "due_at" || view.Sorts[0].Direction != "asc" || view.Sorts[1].Field != "CreatedAt" || view.Sorts[1].Column != "created_at" || view.Sorts[1].Direction != "desc" {
+		t.Fatalf("sorts = %+v", view.Sorts)
 	}
 	if view.Projection.RecordName != "TaskListRecord" || view.Projection.SourceRowName != "TaskRow" {
 		t.Fatalf("projection names = %+v", view.Projection)
@@ -444,7 +453,7 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	for _, field := range view.Projection.Fields {
 		projectionColumns = append(projectionColumns, field.Column)
 	}
-	if strings.Join(projectionColumns, ",") != "id,title,status,created_at" {
+	if strings.Join(projectionColumns, ",") != "id,title,status,priority,assignee_name,due_at,created_at,updated_at" {
 		t.Fatalf("projection columns = %+v", view.Projection.Fields)
 	}
 }

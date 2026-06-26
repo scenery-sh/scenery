@@ -1,11 +1,24 @@
-import { createGeneratedRoutes, registerGeneratedRoutes, TaskListPage, type TaskListRecord } from "@scenery/generated"
+import {
+  createGeneratedRoutes,
+  createGeneratedRuntime,
+  registerGeneratedRoutes,
+  TaskListPage,
+  taskListCollection,
+  type TaskListRecord,
+  type TaskRow,
+} from "@scenery/generated"
 import type { CollectionPageRoute } from "@scenery/layout-kit"
 
-export function generatedRouteSummary(records: readonly TaskListRecord[]) {
-  const [route] = createGeneratedRoutes()
+export function generatedRouteSummary(rows: readonly TaskRow[]) {
+  const runtime = createGeneratedRuntime({
+    electric: { baseURL: "http://example.test" },
+    rows: { taskList: rows },
+  })
+  const records = runtime.collections.taskList.materialize()
+  const [route] = createGeneratedRoutes(runtime)
   const registered: CollectionPageRoute[] = []
-  registerGeneratedRoutes((item) => registered.push(item))
-  const rendered = route.component({ rows: records }) as { rowCount?: number }
+  registerGeneratedRoutes((item) => registered.push(item), runtime)
+  const rendered = route.component() as { rowCount?: number }
   const page = TaskListPage({ rows: records }) as { rowCount?: number }
   return {
     id: route.id,
@@ -17,6 +30,10 @@ export function generatedRouteSummary(records: readonly TaskListRecord[]) {
     rowCount: rendered.rowCount,
     pageRowCount: page.rowCount,
     registeredCount: registered.length,
+    materialized: records satisfies TaskListRecord[],
+    filters: taskListCollection.filters,
+    sorts: taskListCollection.sorts,
+    columns: taskListCollection.columns,
     rendered,
   }
 }

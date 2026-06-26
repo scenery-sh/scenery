@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "render": "tsx src/render-generated.ts"
   },
   "devDependencies": {
