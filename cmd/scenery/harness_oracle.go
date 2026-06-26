@@ -588,10 +588,11 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		step.OK = false
 		step.Error = strings.TrimSpace(runErr.Error())
 		step.OutputTail = tailString(string(output), 8192)
+		failureSummary := summarizeGoTestFailures(output)
 		step.Diagnostics = append(step.Diagnostics, checkDiagnostic{
 			Stage:           step.Name,
 			Severity:        "error",
-			Message:         firstNonEmpty(strings.TrimSpace(step.OutputTail), step.Error),
+			Message:         firstNonEmpty(failureSummary, strings.TrimSpace(step.OutputTail), step.Error),
 			SuggestedAction: rerunSuggestion(command, repoRoot),
 		})
 		report.Diagnostics = step.Diagnostics
@@ -700,6 +701,52 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		})
 	}
 	return report
+}
+
+func summarizeGoTestFailures(output []byte) string {
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	recentOutput := map[string]string{}
+	hasTestFailure := map[string]bool{}
+	var failures []string
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var event goTestJSONEvent
+		if err := json.Unmarshal(line, &event); err != nil || event.Package == "" {
+			continue
+		}
+		key := event.Package + "\x00" + event.Test
+		if event.Action == "output" && strings.TrimSpace(event.Output) != "" {
+			recentOutput[key] = tailString(recentOutput[key]+event.Output, 1200)
+			continue
+		}
+		if event.Action != "fail" {
+			continue
+		}
+		if event.Test == "" && hasTestFailure[event.Package] {
+			continue
+		}
+		label := event.Package
+		if event.Test != "" {
+			label += " " + event.Test
+			hasTestFailure[event.Package] = true
+		}
+		detail := strings.TrimSpace(recentOutput[key])
+		if detail == "" && event.Test != "" {
+			detail = strings.TrimSpace(recentOutput[event.Package+"\x00"])
+		}
+		if detail == "" {
+			failures = append(failures, label+" failed")
+		} else {
+			failures = append(failures, label+": "+detail)
+		}
+		if len(failures) >= 5 {
+			break
+		}
+	}
+	return strings.Join(failures, "\n")
 }
 
 func defaultHarnessTestTimingBudgets() harnessTestTimingBudgets {

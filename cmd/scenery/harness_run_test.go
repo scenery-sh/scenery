@@ -149,6 +149,27 @@ func TestRunHarnessPostgresBranchStep(t *testing.T) {
 	}
 }
 
+func TestSummarizeGoTestFailures(t *testing.T) {
+	output := []byte(strings.Join([]string{
+		`{"Action":"output","Package":"scenery.sh/internal/storage","Test":"TestLease","Output":"=== RUN   TestLease\n"}`,
+		`{"Action":"output","Package":"scenery.sh/internal/storage","Test":"TestLease","Output":"storage_test.go:12: expected lease\n"}`,
+		`{"Action":"fail","Package":"scenery.sh/internal/storage","Test":"TestLease","Elapsed":0.01}`,
+		`{"Action":"output","Package":"scenery.sh/cmd/scenery","Output":"cmd/scenery/main.go:12:2: missing module\n"}`,
+		`{"Action":"fail","Package":"scenery.sh/cmd/scenery","Elapsed":0.01}`,
+	}, "\n"))
+
+	summary := summarizeGoTestFailures(output)
+	if !strings.Contains(summary, "scenery.sh/internal/storage TestLease") {
+		t.Fatalf("summary missing test failure: %q", summary)
+	}
+	if !strings.Contains(summary, "expected lease") {
+		t.Fatalf("summary missing test output: %q", summary)
+	}
+	if !strings.Contains(summary, "scenery.sh/cmd/scenery") || !strings.Contains(summary, "missing module") {
+		t.Fatalf("summary missing package failure: %q", summary)
+	}
+}
+
 func TestParseHarnessSelfArgsSupportsSummaryAndFullModes(t *testing.T) {
 	t.Parallel()
 
