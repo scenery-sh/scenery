@@ -49,8 +49,16 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 	if strings.Contains(files[".scenery/gen/web/web/collections.ts"], `source: "ID"`) {
 		t.Fatalf("collection columns should follow declared page columns, not implicit projection fields:\n%s", files[".scenery/gen/web/web/collections.ts"])
 	}
-	if !strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `export function createTaskListRuntime`) {
+	if !strings.Contains(files[".scenery/gen/web/web/collections.ts"], `} as const satisfies TanStackDBCollectionDefinition<TaskListRecord, TaskRow>`) {
+		t.Fatalf("collection should keep source rows separate from page records:\n%s", files[".scenery/gen/web/web/collections.ts"])
+	}
+	if !strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `taskList?: RuntimeRows<TaskRow>`) ||
+		!strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `export type TaskListRuntime = CollectionRuntime<TaskListRecord, TaskRow>`) ||
+		!strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `materialize: () => definition.materialize(rows())`) {
 		t.Fatalf("runtime missing collection adapter factory:\n%s", files[".scenery/gen/web/web/runtime.ts"])
+	}
+	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `rows: props.runtime?.materialize() ?? props.rows ?? []`) {
+		t.Fatalf("routes should consume materialized page records:\n%s", files[".scenery/gen/web/web/routes.tsx"])
 	}
 	if !strings.Contains(files[".scenery/gen/web/web/shapes.ts"], `schema: "tasks"`) ||
 		!strings.Contains(files[".scenery/gen/web/web/shapes.ts"], `qualifiedTable: "tasks.tasks"`) ||

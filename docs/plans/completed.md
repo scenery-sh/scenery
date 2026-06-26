@@ -106,6 +106,25 @@ Shipped:
 - Generated web packages now include `projections.ts`; generated collections/runtime/routes use page record types while Electric shapes keep storage row types.
 - Computed page columns now fail with a deterministic diagnostic instead of being silently skipped.
 
+## Electric Page Projection Materializers
+
+- Status: completed
+- Owner: scenery app model / generators
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0082 Electric Page Projection Materializers](0082-electric-page-projection-materializers.md)
+
+Shipped:
+
+- Proved the generated Electric-backed web package keeps raw source rows and page records separate.
+- `projections.ts` materializes `TaskRow` values into `TaskListRecord` values from `ViewProjection` fields.
+- Generated collections/runtime keep `TanStackDBCollectionDefinition<TaskListRecord, TaskRow>` and `CollectionRuntime<TaskListRecord, TaskRow>` boundaries.
+- Generated routes and slots consume `TaskListRecord` page records, while runtime row sources remain `TaskRow`.
+
+Validation:
+
+- Passed focused generated-web and model tests, full `go test ./...`, docs inspection, generated data dry-run, and temporary model DSL web typecheck/render proof.
+
 ## Scenery Storage
 
 - Status: completed

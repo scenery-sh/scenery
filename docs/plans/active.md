@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0082 Electric Page Projection Materializers](0082-electric-page-projection-materializers.md)
-  - Status: active
-  - Owner: scenery app model / generators
-  - Created: 2026-06-26
-  - Focus: realize the 0081 page-record projection IR for Electric-backed generated web collections with raw source rows, generated page records, and client-side materializers.
 - [0079 Victoria Shared Substrate Visibility](0079-victoria-shared-substrate-visibility.md)
   - Status: active
   - Owner: scenery runtime / agent DX

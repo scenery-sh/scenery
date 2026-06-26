@@ -13,14 +13,14 @@ Keep this narrow. This is not the Tasks stress test, not computed projections, n
 ## Progress
 
 - [x] 2026-06-26: Added this ExecPlan from the requested Oracle follow-up.
-- [ ] Audit current 0081 generated output before editing; keep what already satisfies this plan and only patch missing contract or proof.
-- [ ] Prove the model DSL fixture has raw `TaskRow`, page-facing `TaskListRecord`, a generated row-to-record materializer, and generated consumers typed as `TaskListRecord`.
-- [ ] Run focused Go and temporary generated-web validation.
-- [ ] Update Outcomes & Retrospective when complete.
+- [x] 2026-06-26: Audited current 0081 generated output; the implementation already had the materializer boundary, so no production generator patch was needed.
+- [x] 2026-06-26: Tightened generated-web golden assertions for raw `TaskRow`, page-facing `TaskListRecord`, row-to-record materializer output, and generated consumers typed as `TaskListRecord`.
+- [x] 2026-06-26: Ran focused Go, full Go, docs, generated data, and temporary generated-web typecheck/render validation.
+- [x] 2026-06-26: Completed this ExecPlan and moved it to completed plan indexing.
 
 ## Surprises & Discoveries
 
-- None yet.
+- The 0081 implementation had already moved runtime row sources to raw shape rows and route/page consumers to materialized projection records. The missing 0082 work was durable proof, not another abstraction.
 
 ## Decision Log
 
@@ -38,7 +38,7 @@ Keep this narrow. This is not the Tasks stress test, not computed projections, n
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-06-26. The Electric-backed generated web package now has tested proof of the operational projection boundary: `TaskRow` remains the raw Electric/source row, `TaskListRecord` is the page-facing record, `projections.ts` materializes from source rows to page records, collections and runtime keep `TaskRow`/`TaskListRecord` distinct, and generated routes pass materialized page records to layout-kit. Computed projection fields remain rejected.
 
 ## Context and Orientation
 

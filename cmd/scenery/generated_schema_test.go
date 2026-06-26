@@ -83,8 +83,17 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 			t.Fatalf("%s missing %q:\n%s", name, data, first[name])
 		}
 	}
-	if !strings.Contains(first["models.ts"], "tenant_id: string") || !strings.Contains(first["models.ts"], "status: TaskStatus") || !strings.Contains(first["projections.ts"], "export function materializeTaskList(row: TaskRow): TaskListRecord") || !strings.Contains(first["routes.tsx"], "satisfies Record<\"TaskStatusBadge\", ComponentSlot<TaskListRecord>>") {
-		t.Fatalf("generated web type or slot assertions missing:\nmodels:\n%s\nprojections:\n%s\nroutes:\n%s", first["models.ts"], first["projections.ts"], first["routes.tsx"])
+	if !strings.Contains(first["models.ts"], "tenant_id: string") ||
+		!strings.Contains(first["models.ts"], "status: TaskStatus") ||
+		!strings.Contains(first["projections.ts"], "export function materializeTaskList(row: TaskRow): TaskListRecord") ||
+		!strings.Contains(first["projections.ts"], `created_at: row["created_at"]`) ||
+		!strings.Contains(first["collections.ts"], "TanStackDBCollectionDefinition<TaskListRecord, TaskRow>") ||
+		!strings.Contains(first["runtime.ts"], "taskList?: RuntimeRows<TaskRow>") ||
+		!strings.Contains(first["runtime.ts"], "export type TaskListRuntime = CollectionRuntime<TaskListRecord, TaskRow>") ||
+		!strings.Contains(first["runtime.ts"], "materialize: () => definition.materialize(rows())") ||
+		!strings.Contains(first["routes.tsx"], "satisfies Record<\"TaskStatusBadge\", ComponentSlot<TaskListRecord>>") ||
+		!strings.Contains(first["routes.tsx"], "rows: props.runtime?.materialize() ?? props.rows ?? []") {
+		t.Fatalf("generated web projection boundary missing:\nmodels:\n%s\nprojections:\n%s\ncollections:\n%s\nruntime:\n%s\nroutes:\n%s", first["models.ts"], first["projections.ts"], first["collections.ts"], first["runtime.ts"], first["routes.tsx"])
 	}
 	if strings.Contains(first["models.ts"], "export interface TaskCreate {\n  id: string\n  tenant_id: string") || strings.Contains(first["models.ts"], "export interface TaskPatch {\n  tenant_id?: string") {
 		t.Fatalf("generated web create/patch should not expose tenant_id as client-writable:\n%s", first["models.ts"])
