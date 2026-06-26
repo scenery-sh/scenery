@@ -213,13 +213,7 @@ func parseAgentArgs(args []string) (agentOptions, error) {
 }
 
 func (opts agentOptions) effectiveRouterTLS() bool {
-	if opts.Trust || opts.RouterTLS {
-		return true
-	}
-	if opts.RouterHTTP {
-		return false
-	}
-	return localagent.RouterTLSDefault()
+	return opts.Trust || opts.RouterTLS
 }
 
 func currentAgentHealth(ctx context.Context, client *localagent.Client) (localagent.HealthResponse, bool) {

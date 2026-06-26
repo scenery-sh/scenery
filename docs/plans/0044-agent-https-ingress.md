@@ -12,10 +12,10 @@ After this work, the agent can run its router in TLS mode on a configurable addr
 
 * [x] 2026-05-27: Create this ExecPlan and link it from `docs/plans/active.md`.
 * [x] 2026-05-27: Expose reusable local CA helpers from the local proxy package without adding dependencies.
-* [x] 2026-05-27: Add agent router TLS options, env parsing, and CLI flags.
+* [x] 2026-05-27: Add agent router TLS options and CLI flags.
 * [x] 2026-05-27: Generate HTTPS route URLs when the agent router runs with TLS.
 * [x] 2026-05-27: Add on-demand leaf certificate generation for routed agent hostnames.
-* [x] 2026-05-27: Make HTTPS the default for newly started agents, with `--router-http` and `SCENERY_AGENT_ROUTER_TLS=0` as explicit HTTP opt-outs.
+* [x] 2026-05-27: Make HTTPS the default for newly started agents, with `--router-http` as an explicit HTTP opt-out. This default was later reversed; current contract lives in `docs/local-contract.md`.
 * [x] 2026-05-27: Update local contract docs and tests.
 * [x] 2026-05-27: Run focused tests and full repository tests.
 * [x] 2026-05-27: Run binary install, self harness, and diff checks.
@@ -31,7 +31,7 @@ Record implementation findings here with commands, test output, or file referenc
 ## Decision Log
 
 * Decision: Make agent TLS an explicit router mode first, then flip newly started agents to HTTPS by default after ONLV uses agent-routed URLs everywhere.
-  Rationale: Existing local workflows and tests used the high-port HTTP agent router. Staging the change kept the first TLS implementation small; after API, frontend, Electric, Grafana, and Temporal routes became agent-owned, keeping HTTP as the default would preserve the wrong end state. `--router-http` and `SCENERY_AGENT_ROUTER_TLS=0` remain available for local debugging.
+  Rationale: Existing local workflows and tests used the high-port HTTP agent router. Staging the change kept the first TLS implementation small; after API, frontend, Electric, Grafana, and Temporal routes became agent-owned, keeping HTTP as the default would preserve the wrong end state. `--router-http` remains available for local debugging. This default was later reversed; current contract lives in `docs/local-contract.md`.
   Date/Author: 2026-05-27 / Codex
 
 * Decision: Use on-demand per-host leaf certificates rather than one static wildcard certificate.
@@ -45,7 +45,7 @@ Completed on 2026-05-27.
 Shipped outcome:
 
 * Exported a small local CA helper surface from `internal/localproxy` for loading/creating the CA, checking/installing trust, and generating in-memory leaf certificates.
-* Added agent router TLS mode via `scenery agent --router-tls` and `SCENERY_AGENT_ROUTER_TLS=1`, then made TLS the default for newly started agents.
+* Added agent router TLS mode via `scenery agent --router-tls`, then made TLS the default for newly started agents. This default was later reversed; current contract lives in `docs/local-contract.md`.
 * Added `scenery agent --trust` and `SCENERY_AGENT_TRUST=1` to attempt local CA trust installation while keeping router startup tolerant of trust-install failures.
 * Added router scheme tracking in agent state/health and session route generation so default agents emit `https://...scenery.localhost` routes.
 * Added SNI-based on-demand TLS certificates for agent-routed `*.scenery.localhost` hosts, including two-label session hosts such as `api.<session>.scenery.localhost`.
@@ -101,7 +101,7 @@ Prefer a small extension of the existing standard-library local proxy CA code. T
 ## Concrete Steps
 
 1. Export a minimal local CA type and helper functions from `internal/localproxy` for loading/creating the CA, checking/installing trust, and generating a leaf certificate for requested DNS names.
-2. Add `SCENERY_AGENT_ROUTER_TLS=1`, `SCENERY_AGENT_TRUST=1`, `scenery agent --router-tls`, and `scenery agent --trust`.
+2. Add `SCENERY_AGENT_TRUST=1`, `scenery agent --router-tls`, and `scenery agent --trust`.
 3. Store the router scheme in the agent registry/session generation path so newly registered sessions get `https://` URLs when TLS is active.
 4. Use `tls.Config.GetCertificate` in the agent router to issue and cache per-SNI certificates for `*.scenery.localhost` and `*.*.scenery.localhost` style routed hosts.
 5. Add tests for route URL scheme selection and HTTPS router serving.
@@ -152,6 +152,5 @@ New explicit controls:
 
 ```text
 scenery agent --router-tls [--trust]
-SCENERY_AGENT_ROUTER_TLS=1
 SCENERY_AGENT_TRUST=1
 ```

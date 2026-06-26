@@ -95,6 +95,7 @@ Do not revive deprecated non-scenery APIs, legacy directive spellings, or compat
 
 - Prefer the Go standard library. Add dependencies only when the payoff is clear and the maintenance surface is justified.
 - Keep public surface small, current, and singular. Remove obsolete spellings instead of carrying compatibility shims.
+- Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
 - Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Grafana, Victoria, node modules, coverage, `.DS_Store`, or local environment files.

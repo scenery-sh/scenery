@@ -28,14 +28,20 @@ func TestParseAgentArgs(t *testing.T) {
 	}
 }
 
-func TestAgentRouterTLSDefaultsOn(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_ROUTER_TLS", "")
+func TestAgentRouterTLSFlags(t *testing.T) {
 	opts, err := parseAgentArgs(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if opts.effectiveRouterTLS() {
+		t.Fatalf("effectiveRouterTLS() = true, want false")
+	}
+	opts, err = parseAgentArgs([]string{"--router-tls"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !opts.effectiveRouterTLS() {
-		t.Fatalf("effectiveRouterTLS() = false, want true")
+		t.Fatalf("effectiveRouterTLS() with --router-tls = false, want true")
 	}
 	opts, err = parseAgentArgs([]string{"--router-http"})
 	if err != nil {
@@ -44,13 +50,12 @@ func TestAgentRouterTLSDefaultsOn(t *testing.T) {
 	if opts.effectiveRouterTLS() {
 		t.Fatalf("effectiveRouterTLS() with --router-http = true, want false")
 	}
-	t.Setenv("SCENERY_AGENT_ROUTER_TLS", "0")
-	opts, err = parseAgentArgs(nil)
+	opts, err = parseAgentArgs([]string{"--trust"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.effectiveRouterTLS() {
-		t.Fatalf("effectiveRouterTLS() with SCENERY_AGENT_ROUTER_TLS=0 = true, want false")
+	if !opts.effectiveRouterTLS() {
+		t.Fatalf("effectiveRouterTLS() with --trust = false, want true")
 	}
 }
 

@@ -596,7 +596,7 @@ Shipped:
 
 Shipped:
 
-- Explicit agent router TLS mode through `scenery agent --router-tls` and `SCENERY_AGENT_ROUTER_TLS=1`.
+- Explicit agent router TLS mode through `scenery agent --router-tls`; the short-lived router TLS env override was removed later.
 - Trust-install controls through `scenery agent --trust` and `SCENERY_AGENT_TRUST=1`, reusing the existing scenery local CA.
 - Agent session routes use `https://...scenery.localhost` when the agent router runs with TLS.
 - SNI-based on-demand leaf certificates for routed agent hostnames, including two-label session hosts.

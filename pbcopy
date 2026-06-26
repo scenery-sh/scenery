@@ -1,7 +1,7 @@
  seconds  status   package                                                       test
  -------  ------   -------                                                       ----
     0.00  pass     scenery.sh                                    TestMetaIncludesLocalEnvironmentDefaults
-    0.00  pass     scenery.sh/cmd/scenery                         TestAgentRouterTLSDefaultsOn
+    0.00  pass     scenery.sh/cmd/scenery                         TestAgentRouterTLSFlags
     0.00  pass     scenery.sh/cmd/scenery                         TestAppChildEnvForcesColorWhenRequested
     0.00  pass     scenery.sh/cmd/scenery                         TestAppChildEnvLeavesColorUnsetWhenDisabled
     0.00  pass     scenery.sh/cmd/scenery                         TestAppStartupExitErrorIncludesOutput

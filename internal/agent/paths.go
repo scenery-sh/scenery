@@ -15,7 +15,6 @@ const (
 	envAgentHome       = "SCENERY_AGENT_HOME"
 	envAgentSocket     = "SCENERY_AGENT_SOCKET"
 	envAgentRouterAddr = "SCENERY_AGENT_ROUTER_ADDR"
-	envAgentRouterTLS  = "SCENERY_AGENT_ROUTER_TLS"
 	envAgentTrust      = "SCENERY_AGENT_TRUST"
 	envAgentDisable    = "SCENERY_AGENT_DISABLE"
 
@@ -87,18 +86,6 @@ func RouterAddrFromEnv() string {
 		return value
 	}
 	return defaultRouterAddr
-}
-
-func RouterTLSFromEnv() bool {
-	return envEnabled(envAgentRouterTLS)
-}
-
-func RouterTLSDefault() bool {
-	value, ok := envpolicy.Lookup(envAgentRouterTLS)
-	if !ok || strings.TrimSpace(value) == "" {
-		return true
-	}
-	return envValueEnabled(value)
 }
 
 func TrustFromEnv() bool {

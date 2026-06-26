@@ -79,7 +79,7 @@ func NewServer(opts RunOptions) (*Server, error) {
 	if routerAddr == "" {
 		routerAddr = RouterAddrFromEnv()
 	}
-	routerTLS := opts.RouterTLS || RouterTLSFromEnv()
+	routerTLS := opts.RouterTLS
 	routerScheme := "http"
 	if routerTLS {
 		routerScheme = "https"

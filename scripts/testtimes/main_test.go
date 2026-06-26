@@ -34,7 +34,7 @@ func TestUseDefaultShardsOnlyForDefaultInvocation(t *testing.T) {
 
 func TestShardedCmdSceneryRegexesCoverNameBucketsOnce(t *testing.T) {
 	samples := []string{
-		"TestAgentRouterTLSDefaultsOn",
+		"TestAgentRouterTLSFlags",
 		"TestEnsureTypeScriptWorkerDependenciesRunsBunInstallAndWritesMarker",
 		"TestFindSceneryRepoRoot",
 		"TestManagedElectricBackendsAndEnv",

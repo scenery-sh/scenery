@@ -681,28 +681,6 @@
       ]
     },
     {
-      "name": "SCENERY_AGENT_ROUTER_TLS",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "agent.routing",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`0` disables HTTPS routing; `1` forces HTTPS. Default is HTTPS",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_AGENT_SOCKET",
       "match": "exact",
       "scope": "runtime",

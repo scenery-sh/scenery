@@ -13,7 +13,6 @@ Process environment wins over values loaded from `.env` and `.env.local`. `scene
 | `SCENERY_AGENT_HOME` | user input | Overrides the machine-wide local agent home. Default is `~/.scenery`. |
 | `SCENERY_AGENT_SOCKET` | user input | Overrides the agent Unix control socket path. |
 | `SCENERY_AGENT_ROUTER_ADDR` | user input | Overrides the agent router listen address. Default is `127.0.0.1:9440`. |
-| `SCENERY_AGENT_ROUTER_TLS` | user input | `0` disables HTTPS routing; `1` forces HTTPS. Default is HTTPS. |
 | `SCENERY_AGENT_TRUST` | user input | `1` asks the agent to trust the existing local scenery CA when starting HTTPS routing. |
 | `SCENERY_AGENT_DISABLE` | user input | `1` disables local agent usage. `scenery up --detach` requires this to be unset. |
 | `SCENERY_DEV_CACHE_DIR` | user input | Overrides build/dashboard cache root. This does not change agent home. |
