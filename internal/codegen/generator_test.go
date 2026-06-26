@@ -536,11 +536,6 @@ func Run(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got := string(out.Generated["scenery_internal_main/main.go"])
-	if strings.Contains(got, `scenery.sh/runtimeapp`) {
-		t.Fatalf("generated main imported runtimeapp by default:\n%s", got)
-	}
-
 	out, err = codegen.GenerateWithConfig(app, appcfg.Config{
 		Observability: appcfg.ObservabilityConfig{
 			Logs: appcfg.EndpointFilterConfig{
@@ -575,7 +570,7 @@ func Run(ctx context.Context) error { return nil }
 		t.Fatalf("generate: %v", err)
 	}
 
-	got = string(out.Generated["scenery_internal_main/main.go"])
+	got := string(out.Generated["scenery_internal_main/main.go"])
 	for _, want := range []string{
 		`Observability: sceneryruntime.ObservabilityConfig{`,
 		`Logs: sceneryruntime.EndpointFilterConfig{ExcludeEndpoints: []string{"sync.*"}}`,

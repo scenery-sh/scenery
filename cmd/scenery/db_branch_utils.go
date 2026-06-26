@@ -39,7 +39,6 @@ func postgresServiceUsesBranching(svc appcfg.DevServiceConfig) bool {
 	}
 	return strings.TrimSpace(svc.BranchPolicy) != "" ||
 		strings.TrimSpace(svc.BranchNameTemplate) != "" ||
-		strings.TrimSpace(svc.BranchStrategy) != "" ||
 		strings.TrimSpace(svc.ParentBranch) != "" ||
 		strings.TrimSpace(svc.ParentDatabase) != ""
 }

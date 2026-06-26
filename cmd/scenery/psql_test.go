@@ -192,7 +192,7 @@ func TestResolveDatabaseURLForConfigUsesReadyPostgresBranchConnection(t *testing
 		Name: "demo",
 		ID:   "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", BranchStrategy: "template_database", Project: "demo", ParentDatabase: "demo_main"},
+			"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", Project: "demo", ParentDatabase: "demo_main"},
 		}},
 	}
 	_, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, nil, true)
@@ -233,7 +233,7 @@ func TestBuildPSQLInvocationUsesReadyPostgresBranchPasswordWithoutPrompt(t *test
 		Name: "demo",
 		ID:   "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", BranchStrategy: "template_database", Project: "demo", ParentDatabase: "demo_main"},
+			"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", Project: "demo", ParentDatabase: "demo_main"},
 		}},
 	}
 	pin, err := buildWorktreeDBPin(root, cfg, "demo/review-a")

@@ -54,7 +54,6 @@ func TestWorktreeCreateListAndRemoveWithPostgresBranchPin(t *testing.T) {
 					"kind": "postgres",
 					"mode": "local",
 					"isolation": "database",
-					"branch_strategy": "template_database",
 					"project": "demo",
 					"parent_database": "demo_main",
 					"branch_name_template": "{app}/{git_branch}"
@@ -158,7 +157,7 @@ func TestWorktreeCreateRollsBackWhenPostgresBranchPinWriteFails(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","branch_strategy":"template_database","project":"demo","parent_database":"demo_main","branch_name_template":"{app}/{git_branch}"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","project":"demo","parent_database":"demo_main","branch_name_template":"{app}/{git_branch}"}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
@@ -209,7 +208,7 @@ func TestWorktreeCreateSkipsPostgresBranchPinForManualBranchPolicy(t *testing.T)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","branch_strategy":"template_database","project":"demo","branch_policy":"manual"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","project":"demo","branch_policy":"manual"}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
@@ -239,7 +238,7 @@ func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFails(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","branch_strategy":"template_database","project":"demo","parent_database":"demo_main","branch_name_template":"{app}/{git_branch}"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","project":"demo","parent_database":"demo_main","branch_name_template":"{app}/{git_branch}"}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")

@@ -12,7 +12,6 @@
         "parent_database": "postgreselectric_main",
         "branch_policy": "worktree",
         "branch_name_template": "{app}/{git_branch}",
-        "branch_strategy": "template_database",
         "ttl": "168h",
         "database": "postgreselectric",
         "role": "scenery",

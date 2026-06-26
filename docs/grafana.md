@@ -1,8 +1,8 @@
 # Grafana Dev Integration
 
-`scenery up` can supervise a local Grafana process alongside the local Victoria observability sidecars. When the local agent is active, the first dev session registers Grafana as a shared agent substrate and later sessions reuse it after verifying the expected datasource and dashboard UIDs. Grafana is dev-only: `scenery serve` does not start it.
+`scenery up` can supervise a local Grafana process alongside the local Victoria observability sidecars. When the local agent is active, the first dev session registers Grafana as a shared substrate under the agent state root, effectively per user/machine where that agent runs, and later sessions reuse it after verifying the expected datasource and dashboard UIDs. Grafana is dev-only: `scenery serve` does not start it, and Scenery does not install an OS-level Grafana or Victoria service for all users or all possible agent homes.
 
-Generated files live under `.scenery/grafana/` by default when the agent is disabled. Shared agent Grafana state lives under the agent directory:
+Generated files live under `.scenery/grafana/` by default when the agent is disabled. Shared agent Grafana state lives under the agent directory, parallel to the shared-agent Victoria substrate:
 
 ```text
 .scenery/grafana/conf/grafana.ini

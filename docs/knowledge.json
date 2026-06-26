@@ -267,9 +267,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-06-01",
-      "review_after": "2026-06-24",
-      "summary": "Dev-only Grafana supervision, managed toolchain binary resolution, provisioning paths, stable datasource/dashboard UIDs, and environment controls.",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Dev-only Grafana supervision, shared-agent substrate state, managed toolchain binary resolution, provisioning paths, stable datasource/dashboard UIDs, and environment controls.",
       "tags": [
         "grafana",
         "observability",
@@ -496,6 +496,44 @@
         "agents",
         "docs",
         "harness"
+      ]
+    },
+    {
+      "path": "docs/plans/0079-victoria-shared-substrate-visibility.md",
+      "title": "Victoria Shared Substrate Visibility",
+      "owner": "scenery runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Active ExecPlan for keeping Victoria efficient through the existing shared-agent substrate, clarifying lifecycle docs, surfacing reuse/ownership, and avoiding OS-level service management unless measured startup cost later justifies it.",
+      "tags": [
+        "plans",
+        "execplans",
+        "victoria",
+        "observability",
+        "agents"
+      ]
+    },
+    {
+      "path": "docs/plans/0080-zerofs-production-readiness.md",
+      "title": "ZeroFS Production Readiness",
+      "owner": "scenery runtime / storage",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Active ExecPlan for hardening Scenery's existing ZeroFS-backed beta storage capability into production-ready app storage by adding tenant enforcement, durable metadata, atomic writes, crash/restart proof, production proxy/config boundaries, secret/legal gates, cleanup and observability, and migration proof without replacing the current Scenery storage architecture.",
+      "tags": [
+        "plans",
+        "execplans",
+        "storage",
+        "zerofs",
+        "production",
+        "runtime",
+        "security"
       ]
     },
     {

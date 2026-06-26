@@ -84,20 +84,11 @@ var packageLayerRules = []packageLayerRule{
 		},
 	},
 	{
-		Name:         "runtimeapp excludes dev-only packages",
-		PathPrefixes: []string{"runtimeapp/"},
-		ForbiddenImports: []string{
-			"scenery.sh/cmd/scenery",
-			"scenery.sh/internal/devdash",
-		},
-	},
-	{
 		Name:         "localproxy stays independent from app build/runtime internals",
 		PathPrefixes: []string{"internal/localproxy/"},
 		ForbiddenImports: []string{
 			"scenery.sh/cmd/scenery",
 			"scenery.sh/internal/build",
-			"scenery.sh/runtimeapp",
 		},
 	},
 }

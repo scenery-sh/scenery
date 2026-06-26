@@ -71,7 +71,7 @@ func TestParseDevArgsRejectsSessionSelection(t *testing.T) {
 	}
 }
 
-func TestDevCommandUsesWatcherPath(t *testing.T) {
+func TestUpCommandUsesWatcherPath(t *testing.T) {
 	prev := runWithWatchFunc
 	defer func() { runWithWatchFunc = prev }()
 
@@ -81,21 +81,21 @@ func TestDevCommandUsesWatcherPath(t *testing.T) {
 		if listen.Network != "tcp" || listen.Addr != "127.0.0.1:4444" || !listen.Explicit || !listen.ClaimAliases || !verbose || !jsonMode || appRoot != "/tmp/app" {
 			t.Fatalf("watch args = %+v %v %v %q", listen, verbose, jsonMode, appRoot)
 		}
-		if got := getenvForTest("SCENERY_LOCAL_PROXY"); got != "" {
+		if got := os.Getenv("SCENERY_LOCAL_PROXY"); got != "" {
 			t.Fatalf("SCENERY_LOCAL_PROXY = %q, want empty", got)
 		}
 		return nil
 	}
 
-	if err := devCommand([]string{"--port", "4444", "--verbose", "--json", "--app-root", "/tmp/app", "--claim-aliases"}); err != nil {
-		t.Fatalf("devCommand returned error: %v", err)
+	if err := upCommand([]string{"--port", "4444", "--verbose", "--json", "--app-root", "/tmp/app", "--claim-aliases"}); err != nil {
+		t.Fatalf("upCommand returned error: %v", err)
 	}
 	if !called {
 		t.Fatal("expected watcher path to be called")
 	}
 }
 
-func TestDevCommandUsesDetachedPath(t *testing.T) {
+func TestUpCommandUsesDetachedPath(t *testing.T) {
 	prevDetached := runDetachedDevFunc
 	prevWatch := runWithWatchFunc
 	defer func() {
@@ -119,15 +119,15 @@ func TestDevCommandUsesDetachedPath(t *testing.T) {
 		return nil
 	}
 
-	if err := devCommand([]string{"--app-root", "/tmp/app", "--detach"}); err != nil {
-		t.Fatalf("devCommand returned error: %v", err)
+	if err := upCommand([]string{"--app-root", "/tmp/app", "--detach"}); err != nil {
+		t.Fatalf("upCommand returned error: %v", err)
 	}
 	if !detachedCalled {
 		t.Fatal("expected detached path to be called")
 	}
 }
 
-func TestDevCommandDetachedChildUsesWatcherPath(t *testing.T) {
+func TestUpCommandDetachedChildUsesWatcherPath(t *testing.T) {
 	prevDetached := runDetachedDevFunc
 	prevWatch := runWithWatchFunc
 	defer func() {
@@ -149,15 +149,15 @@ func TestDevCommandDetachedChildUsesWatcherPath(t *testing.T) {
 		return nil
 	}
 
-	if err := devCommand([]string{"--app-root", "/tmp/app", "--detach"}); err != nil {
-		t.Fatalf("devCommand returned error: %v", err)
+	if err := upCommand([]string{"--app-root", "/tmp/app", "--detach"}); err != nil {
+		t.Fatalf("upCommand returned error: %v", err)
 	}
 	if !watchCalled {
 		t.Fatal("expected watcher path to be called")
 	}
 }
 
-func TestDevCommandDoesNotEnableProxyByDefault(t *testing.T) {
+func TestUpCommandDoesNotEnableProxyByDefault(t *testing.T) {
 	prev := runWithWatchFunc
 	defer func() { runWithWatchFunc = prev }()
 	t.Setenv("SCENERY_LOCAL_PROXY", "")
@@ -168,21 +168,21 @@ func TestDevCommandDoesNotEnableProxyByDefault(t *testing.T) {
 		if listen.Addr != "" || listen.Network != "" || listen.Explicit || listen.PreferTCP {
 			t.Fatalf("listen = %+v, want agent/private default", listen)
 		}
-		if got := getenvForTest("SCENERY_LOCAL_PROXY"); got != "" {
+		if got := os.Getenv("SCENERY_LOCAL_PROXY"); got != "" {
 			t.Fatalf("SCENERY_LOCAL_PROXY = %q, want empty", got)
 		}
 		return nil
 	}
 
-	if err := devCommand([]string{}); err != nil {
-		t.Fatalf("devCommand returned error: %v", err)
+	if err := upCommand([]string{}); err != nil {
+		t.Fatalf("upCommand returned error: %v", err)
 	}
 	if !called {
 		t.Fatal("expected watcher path to be called")
 	}
 }
 
-func TestDevCommandRespectsProxyDisableEnv(t *testing.T) {
+func TestUpCommandRespectsProxyDisableEnv(t *testing.T) {
 	prev := runWithWatchFunc
 	defer func() { runWithWatchFunc = prev }()
 	t.Setenv("SCENERY_LOCAL_PROXY", "0")
@@ -190,21 +190,21 @@ func TestDevCommandRespectsProxyDisableEnv(t *testing.T) {
 	called := false
 	runWithWatchFunc = func(listen devListenRequest, verbose, jsonMode bool, appRoot string) error {
 		called = true
-		if got := getenvForTest("SCENERY_LOCAL_PROXY"); got != "0" {
+		if got := os.Getenv("SCENERY_LOCAL_PROXY"); got != "0" {
 			t.Fatalf("SCENERY_LOCAL_PROXY = %q, want 0", got)
 		}
 		return nil
 	}
 
-	if err := devCommand([]string{}); err != nil {
-		t.Fatalf("devCommand returned error: %v", err)
+	if err := upCommand([]string{}); err != nil {
+		t.Fatalf("upCommand returned error: %v", err)
 	}
 	if !called {
 		t.Fatal("expected watcher path to be called")
 	}
 }
 
-func TestDevCommandRejectsLegacyProxyFlag(t *testing.T) {
+func TestUpCommandRejectsLegacyProxyFlag(t *testing.T) {
 	prev := runWithWatchFunc
 	defer func() { runWithWatchFunc = prev }()
 	t.Setenv("SCENERY_LOCAL_PROXY", "0")
@@ -214,13 +214,13 @@ func TestDevCommandRejectsLegacyProxyFlag(t *testing.T) {
 		return nil
 	}
 
-	err := devCommand([]string{"--proxy"})
+	err := upCommand([]string{"--proxy"})
 	if err == nil || !strings.Contains(err.Error(), "legacy local proxy") {
-		t.Fatalf("devCommand --proxy error = %v, want legacy proxy rejection", err)
+		t.Fatalf("upCommand --proxy error = %v, want legacy proxy rejection", err)
 	}
 }
 
-func TestDevCommandPreservesTrustSkipEnv(t *testing.T) {
+func TestUpCommandPreservesTrustSkipEnv(t *testing.T) {
 	prev := runWithWatchFunc
 	defer func() { runWithWatchFunc = prev }()
 	t.Setenv("SCENERY_LOCAL_PROXY", "")
@@ -229,21 +229,21 @@ func TestDevCommandPreservesTrustSkipEnv(t *testing.T) {
 	called := false
 	runWithWatchFunc = func(listen devListenRequest, verbose, jsonMode bool, appRoot string) error {
 		called = true
-		if got := getenvForTest("SCENERY_LOCAL_PROXY_SKIP_TRUST_INSTALL"); got != "1" {
+		if got := os.Getenv("SCENERY_LOCAL_PROXY_SKIP_TRUST_INSTALL"); got != "1" {
 			t.Fatalf("SCENERY_LOCAL_PROXY_SKIP_TRUST_INSTALL = %q, want 1", got)
 		}
 		return nil
 	}
 
-	if err := devCommand([]string{}); err != nil {
-		t.Fatalf("devCommand returned error: %v", err)
+	if err := upCommand([]string{}); err != nil {
+		t.Fatalf("upCommand returned error: %v", err)
 	}
 	if !called {
 		t.Fatal("expected watcher path to be called")
 	}
 }
 
-func TestDevCommandRejectsLegacyProxyEnv(t *testing.T) {
+func TestUpCommandRejectsLegacyProxyEnv(t *testing.T) {
 	prev := runWithWatchFunc
 	defer func() { runWithWatchFunc = prev }()
 	t.Setenv("SCENERY_LOCAL_PROXY", "1")
@@ -253,14 +253,10 @@ func TestDevCommandRejectsLegacyProxyEnv(t *testing.T) {
 		return nil
 	}
 
-	err := devCommand([]string{})
+	err := upCommand([]string{})
 	if err == nil || !strings.Contains(err.Error(), "SCENERY_LOCAL_PROXY") {
-		t.Fatalf("devCommand with SCENERY_LOCAL_PROXY=1 error = %v, want env rejection", err)
+		t.Fatalf("upCommand with SCENERY_LOCAL_PROXY=1 error = %v, want env rejection", err)
 	}
-}
-
-func getenvForTest(key string) string {
-	return os.Getenv(key)
 }
 
 func TestServeCommandUsesHeadlessPath(t *testing.T) {

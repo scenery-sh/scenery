@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -109,23 +107,7 @@ func Main(cfg AppConfig) error {
 	}()
 
 	if !launchedBySupervisor() {
-		info := StandaloneDevInfo{}
-		if standaloneDevStarter != nil {
-			session, started, err := standaloneDevStarter(runCtx, cfg)
-			if err != nil {
-				slog.Warn("standalone dev runtime unavailable", "err", err)
-			}
-			if session != nil {
-				defer func() {
-					_ = session.Close()
-				}()
-			}
-			info = started
-			if info.APIURL != "" {
-				SetPublicBaseURL(info.APIURL)
-			}
-		}
-		printRuntimeBanner(osStdout(), cfg.ListenAddr, info)
+		printRuntimeBanner(osStdout(), cfg.ListenAddr)
 	}
 
 	logTrace(context.Background(), fmt.Sprintf("registered %d API endpoints", len(listEndpoints())))
@@ -235,56 +217,22 @@ func launchedBySupervisor() bool {
 	return envpolicy.Get("SCENERY_DEV_SUPERVISOR") == "1"
 }
 
-func printRuntimeBanner(out io.Writer, listenAddr string, info StandaloneDevInfo) {
+func printRuntimeBanner(out io.Writer, listenAddr string) {
 	if out == nil {
 		return
 	}
 	apiURL := "http://" + listenAddr
-	if info.APIURL != "" {
-		apiURL = info.APIURL
-	}
-
-	title := "scenery server running!"
-	if info.APIURL != "" || info.ConsoleURL != "" || len(info.FrontendURLs) > 0 {
-		title = "scenery development server running!"
-	}
 
 	lines := []string{
 		"",
-		"  " + title,
+		"  scenery server running!",
 		"",
 		fmt.Sprintf("  %-26s  %s", "Your API is running at:", apiURL),
-	}
-	if info.ConsoleURL != "" {
-		lines = append(lines, fmt.Sprintf("  %-26s  %s", "Development Dashboard URL:", info.ConsoleURL))
-	}
-	for _, name := range sortedStandaloneFrontendNames(info.FrontendURLs) {
-		lines = append(lines, fmt.Sprintf("  %-26s  %s", standaloneFrontendLabel(name), info.FrontendURLs[name]))
 	}
 	lines = append(lines, "")
 	for _, line := range lines {
 		_, _ = fmt.Fprintln(out, line)
 	}
-}
-
-func sortedStandaloneFrontendNames(frontends map[string]string) []string {
-	if len(frontends) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(frontends))
-	for name := range frontends {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func standaloneFrontendLabel(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "Frontend URL:"
-	}
-	return "Frontend " + name + " URL:"
 }
 
 var osStdout = func() io.Writer { return os.Stdout }

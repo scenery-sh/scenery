@@ -13,23 +13,13 @@ func TestPrintRuntimeBanner(t *testing.T) {
 	SetAppConfig(AppConfig{Name: "testapp", ListenAddr: "127.0.0.1:4000"})
 
 	var out bytes.Buffer
-	printRuntimeBanner(&out, "127.0.0.1:4000", StandaloneDevInfo{
-		APIURL:     "https://api.test.localhost",
-		ConsoleURL: "https://console.test.localhost",
-		FrontendURLs: map[string]string{
-			"web": "https://web.test.localhost",
-		},
-	})
+	printRuntimeBanner(&out, "127.0.0.1:4000")
 
 	text := out.String()
 	for _, want := range []string{
-		"scenery development server running!",
+		"scenery server running!",
 		"Your API is running at:",
-		"https://api.test.localhost",
-		"Development Dashboard URL:",
-		"https://console.test.localhost",
-		"Frontend web URL:",
-		"https://web.test.localhost",
+		"http://127.0.0.1:4000",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("banner %q missing %q", text, want)

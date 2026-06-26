@@ -200,8 +200,14 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 		StderrLogPath: "/tmp/temporal.stderr.log",
 	}
 	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
-		Kind:     localagent.SubstrateTemporal,
+		Kind:     localagent.SubstrateVictoria,
 		Status:   "exited",
+		OwnerPID: 321,
+		PIDs:     map[string]int{"logs": 123, "metrics": 456},
+		URLs: map[string]string{
+			"logs":    "http://127.0.0.1:9428",
+			"metrics": "http://127.0.0.1:8428",
+		},
 		LastExit: &exit,
 		ComponentExits: map[string]localagent.SubstrateExit{
 			"server": exit,
@@ -242,6 +248,9 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 	}
 	if strings.Contains(output, "SESSION") || !strings.Contains(output, appRoot) || !strings.Contains(output, consoleURL) || strings.Contains(output, "http://api.") {
 		t.Fatalf("human status output should show app root entries and console route:\n%s", output)
+	}
+	if !strings.Contains(output, "Shared substrates:") || !strings.Contains(output, "victoria") || !strings.Contains(output, "metrics=456") || !strings.Contains(output, "http://127.0.0.1:8428") {
+		t.Fatalf("human status output missing shared substrate details:\n%s", output)
 	}
 
 	output = commandOutput(t, func(stdout io.Writer) error {

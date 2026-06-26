@@ -7,6 +7,16 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0080 ZeroFS Production Readiness](0080-zerofs-production-readiness.md)
+  - Status: active
+  - Owner: scenery runtime / storage
+  - Created: 2026-06-26
+  - Focus: harden Scenery's existing ZeroFS-backed beta storage capability into production-ready app storage by adding tenant enforcement, durable metadata, atomic writes, crash/restart proof, production proxy/config boundaries, secret/legal gates, cleanup/observability, and migration proof without replacing the current Scenery storage architecture.
+- [0079 Victoria Shared Substrate Visibility](0079-victoria-shared-substrate-visibility.md)
+  - Status: active
+  - Owner: scenery runtime / agent DX
+  - Created: 2026-06-26
+  - Focus: keep Victoria efficient through the existing shared-agent substrate, make reuse/ownership visible, and avoid OS-level service infrastructure unless measurements later justify it.
 - [0064 Agent-First Development Control Plane](0064-agent-first-development-control-plane.md)
   - Status: active
   - Owner: scenery maintainers / agent DX

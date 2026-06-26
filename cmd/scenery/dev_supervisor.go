@@ -393,7 +393,7 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 		return startVictoriaStack(s.ctx, s.root, s.console)
 	}
 	adapter := victoriaSubstrateAdapter{console: s.console}
-	handle, _, err := s.substrateManager().Ensure(ctx, filepath.Join(paths.AgentDir, "victoria"), adapter)
+	handle, reused, err := s.substrateManager().Ensure(ctx, filepath.Join(paths.AgentDir, "victoria"), adapter)
 	stack, _ := handle.(*victoriaStack)
 	if err != nil {
 		warnVictoria(s.console, "failed to prepare shared Victoria substrate with agent: %v", err)
@@ -406,6 +406,8 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 	if s.console != nil && s.console.verbose {
 		s.console.Event("victoria.shared", map[string]any{
 			"owner":     "agent",
+			"mode":      "shared-agent",
+			"reused":    reused,
 			"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,
 		})
 	}
@@ -943,7 +945,7 @@ func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]
 			status = "pending"
 			message = "database branch lease resolved"
 		}
-		provider := branchProviderNameForConfig(s.cfg)
+		provider := postgresBranchProviderName
 		s.eventSink().Emit(ctx, devdash.DevSource{ID: provider, Kind: "substrate", Name: provider, Role: "database", Status: status}, "info", message, map[string]any{
 			"branch":  resolution.Pin.Branch,
 			"source":  resolution.Source,

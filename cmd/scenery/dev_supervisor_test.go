@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -631,7 +633,6 @@ func TestManagedAppEnvUsesReadyPostgresBranchLease(t *testing.T) {
 					Kind:               "postgres",
 					Mode:               "local",
 					Isolation:          "database",
-					BranchStrategy:     "template_database",
 					Project:            "demo",
 					ParentDatabase:     "demo_main",
 					BranchPolicy:       "session",
@@ -695,7 +696,6 @@ func TestManagedAppEnvUsesConfiguredPostgresBranchDatabaseURLEnv(t *testing.T) {
 					Kind:           "postgres",
 					Mode:           "local",
 					Isolation:      "database",
-					BranchStrategy: "template_database",
 					Project:        "demo",
 					ParentDatabase: "demo_main",
 					DatabaseURLEnv: "APP_DATABASE_URL",
@@ -766,7 +766,7 @@ func TestManagedAppEnvSkipsBranchingWhenExternalPostgresIsConfigured(t *testing.
 		cfg: app.Config{
 			Name: "demo",
 			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-				"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", BranchStrategy: "template_database", Project: "demo"},
+				"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", Project: "demo"},
 			}},
 		},
 		status:       devdash.AppRecord{ID: "demo"},
@@ -1110,6 +1110,64 @@ func TestAgentVictoriaStackRejectsClosedListenerSubstrate(t *testing.T) {
 	}
 	if _, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria); !localagent.IsNotFound(err) {
 		t.Fatalf("victoria substrate after closed listener rejection err=%v", err)
+	}
+}
+
+func TestStartVictoriaStackReportsSharedReuse(t *testing.T) {
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
+	ctx := context.Background()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- server.Run(runCtx) }()
+	defer stopAgentServerForTest(t, cancel, done)
+
+	client := localagent.NewClient(server.Paths().SocketPath)
+	defer client.CloseIdleConnections()
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	urls := map[string]string{}
+	endpoints := map[string]string{}
+	pids := map[string]int{}
+	ownerPID := startFakeSubstrateOwner(t)
+	for _, spec := range victoriaComponentSpecs() {
+		ts := httptest.NewServer(nil)
+		t.Cleanup(ts.Close)
+		urls[spec.Name] = ts.URL
+		endpoints[spec.Name] = ts.URL + spec.EndpointPath
+		pids[spec.Name] = ownerPID
+	}
+	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:      localagent.SubstrateVictoria,
+		Status:    "ready",
+		OwnerPID:  ownerPID,
+		PIDs:      pids,
+		URLs:      urls,
+		Endpoints: endpoints,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	s := &devSupervisor{
+		agent:   client,
+		console: newRunConsole(&out, &out, true, true, "demo", t.TempDir()),
+	}
+	if stack := s.startVictoriaStack(ctx); stack == nil {
+		t.Fatal("startVictoriaStack returned nil")
+	}
+	var event runEvent
+	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &event); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	}
+	if event.Type != "victoria.shared" || event.Data["owner"] != "agent" || event.Data["mode"] != "shared-agent" || event.Data["reused"] != true {
+		t.Fatalf("victoria.shared event = %+v", event)
+	}
+	if endpoints, ok := event.Data["endpoints"].(map[string]any); !ok || endpoints["metrics"] == "" {
+		t.Fatalf("victoria.shared endpoints = %+v", event.Data["endpoints"])
 	}
 }
 

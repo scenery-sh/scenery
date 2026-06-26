@@ -70,7 +70,6 @@ func runHarnessPostgresBranchCheck(parent context.Context) (map[string]any, []ch
         "mode": "local",
         "version": "18",
         "isolation": "database",
-        "branch_strategy": "template_database",
         "project": "branch-harness",
         "parent_database": "branch_harness_main",
         "branch_policy": "manual",
@@ -204,7 +203,7 @@ func harnessWithBranchDB(ctx context.Context, appRoot string, pin worktreeDBPin,
 	if err != nil {
 		return err
 	}
-	conn, err := dbBranchProviderForConfig(cfg).Connection(ctx, pin)
+	conn, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, pin)
 	if err != nil {
 		return err
 	}

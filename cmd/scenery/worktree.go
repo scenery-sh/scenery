@@ -62,7 +62,7 @@ type worktreeRemoveResult struct {
 }
 
 var ensureDBBranchForWorktreeCreateFn = func(ctx context.Context, cfg appcfg.Config, pin worktreeDBPin) (dbBranchBackendStatus, error) {
-	return dbBranchProviderForConfig(cfg).EnsureBranch(ctx, pin)
+	return (postgresBranchProvider{cfg: cfg}).EnsureBranch(ctx, pin)
 }
 
 func worktreeCommand(args []string) error {

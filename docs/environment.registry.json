@@ -2308,28 +2308,6 @@
       ]
     },
     {
-      "name": "SCENERY_STANDALONE_DEV",
-      "match": "exact",
-      "scope": "internal",
-      "direction": "internal",
-      "category": "app.identity",
-      "stability": "internal",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Marks generated runtime processes started in standalone development mode.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_STORAGE_CONFIG",
       "match": "exact",
       "scope": "runtime",

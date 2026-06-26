@@ -143,7 +143,7 @@ func runDBBranchList(ctx context.Context, stdout io.Writer, opts dbBranchOptions
 		Branches:      []worktreeDBPin{},
 		RegistryPath:  registryPath,
 	}
-	provider := dbBranchProviderForConfig(cfg)
+	provider := postgresBranchProvider{cfg: cfg}
 	seen := map[string]bool{}
 	for _, lease := range registry.Leases {
 		if !isSceneryOwnedDBLease(lease) {
@@ -192,7 +192,7 @@ func runDBBranchCheckout(ctx context.Context, stdout io.Writer, opts dbBranchOpt
 	if err := writeWorktreeDBPin(appRoot, pin); err != nil {
 		return err
 	}
-	if _, err := dbBranchProviderForConfig(cfg).EnsureBranch(ctx, pin); err != nil {
+	if _, err := (postgresBranchProvider{cfg: cfg}).EnsureBranch(ctx, pin); err != nil {
 		return err
 	}
 	result, err := buildDBBranchStatus(ctx, appRoot, cfg)
@@ -302,7 +302,7 @@ func runDBBranchReset(ctx context.Context, _ io.Writer, opts dbBranchOptions) er
 	if !opts.Yes {
 		return fmt.Errorf("scenery db branch reset requires --yes")
 	}
-	return dbBranchProviderForConfig(cfg).ResetBranch(ctx, pin, opts)
+	return (postgresBranchProvider{cfg: cfg}).ResetBranch(ctx, pin, opts)
 }
 
 func runDBBranchDelete(ctx context.Context, _ io.Writer, opts dbBranchOptions) error {
@@ -332,7 +332,7 @@ func runDBBranchDelete(ctx context.Context, _ io.Writer, opts dbBranchOptions) e
 	if ok && branch == pin.Branch && !opts.Force {
 		return fmt.Errorf("refusing to delete current branch %q without --force", branch)
 	}
-	return dbBranchProviderForConfig(cfg).DeleteBranch(ctx, targetPin, branch, opts)
+	return (postgresBranchProvider{cfg: cfg}).DeleteBranch(ctx, targetPin, branch, opts)
 }
 
 func buildDBBranchStatus(ctx context.Context, appRoot string, cfg appcfg.Config) (dbBranchStatusResult, error) {
@@ -347,13 +347,13 @@ func buildDBBranchStatus(ctx context.Context, appRoot string, cfg appcfg.Config)
 	if ok {
 		status = "pinned"
 		pinPtr = &pin
-		backendStatus = dbBranchProviderForConfig(cfg).InspectBranch(ctx, pin)
+		backendStatus = (postgresBranchProvider{cfg: cfg}).InspectBranch(ctx, pin)
 	}
 	return dbBranchStatusResult{
 		SchemaVersion:  dbBranchStatusSchemaVersion,
 		OK:             true,
 		App:            inspectAppRef(appRoot, cfg),
-		Provider:       branchProviderNameForConfig(cfg),
+		Provider:       postgresBranchProviderName,
 		Status:         status,
 		BackendStatus:  backendStatus.Status,
 		BackendMessage: backendStatus.Message,

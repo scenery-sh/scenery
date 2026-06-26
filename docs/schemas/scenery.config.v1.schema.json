@@ -199,7 +199,6 @@
         "parent_database": { "type": "string", "description": "Protected parent template database for Postgres branch databases." },
         "branch_policy": { "type": "string", "enum": ["", "manual", "worktree", "session"], "description": "How Scenery derives or requires a managed database branch; inspect output may include an empty value for services where branch policy is not used." },
         "branch_name_template": { "type": "string", "description": "Template for derived managed database branch names. Supported placeholders are {app}, {git_branch}, {worktree}, and {session}." },
-        "branch_strategy": { "type": "string", "enum": ["", "template_database", "dump_restore", "cluster_basebackup", "filesystem_snapshot", "external"], "description": "Postgres branch clone strategy. Phase one implements template_database." },
         "ttl": { "type": "string", "description": "Branch lease TTL as a Go duration." },
         "role": { "type": "string", "description": "Database role used for branch connections." },
         "database_url_env": { "type": "string", "description": "App env var receiving the managed database URL. Defaults to DatabaseURL." },

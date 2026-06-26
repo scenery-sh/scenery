@@ -24,7 +24,6 @@ func TestDiscoverRootAcceptsPostgresBranchConfig(t *testing.T) {
 					"parent_database": "pgapp_main",
 					"branch_policy": "worktree",
 					"branch_name_template": "{app}/{git_branch}",
-					"branch_strategy": "template_database",
 					"ttl": "168h",
 					"database": "pgapp",
 					"role": "scenery",
@@ -41,7 +40,7 @@ func TestDiscoverRootAcceptsPostgresBranchConfig(t *testing.T) {
 	svc := cfg.Dev.Services["postgres"]
 	if svc.Kind != "postgres" || svc.Mode != "local" || svc.Isolation != "database" || svc.Project != "pgapp" ||
 		svc.ParentBranch != "main" || svc.ParentDatabase != "pgapp_main" || svc.BranchPolicy != "worktree" ||
-		svc.BranchNameTemplate != "{app}/{git_branch}" || svc.BranchStrategy != "template_database" ||
+		svc.BranchNameTemplate != "{app}/{git_branch}" ||
 		svc.TTL != "168h" || svc.Database != "pgapp" || svc.Role != "scenery" || svc.DatabaseURLEnv != "DatabaseURL" {
 		t.Fatalf("service = %+v", svc)
 	}

@@ -24,7 +24,6 @@ const (
 	postgresBranchProviderName          = "postgres"
 	postgresBranchRegistrySchemaVersion = "scenery.db.branch.registry.v2"
 	postgresDefaultMode                 = "local"
-	postgresDefaultBranchStrategy       = "template_database"
 )
 
 type postgresBranchProvider struct {
@@ -519,10 +518,6 @@ func (p postgresBranchProvider) adminURL(ctx context.Context) (string, error) {
 }
 
 func (p postgresBranchProvider) ensureTemplateDatabaseBranch(ctx context.Context, adminURL string, pin worktreeDBPin) error {
-	strategy := postgresBranchStrategy(p.cfg)
-	if strategy != postgresDefaultBranchStrategy {
-		return fmt.Errorf("dev.services.postgres branch_strategy %q is not implemented yet; use %q", strategy, postgresDefaultBranchStrategy)
-	}
 	exists, err := postgresDatabaseExists(ctx, adminURL, pin.Database)
 	if err != nil {
 		return err
@@ -632,11 +627,6 @@ func postgresBranchEndpoint(adminURL string, pin worktreeDBPin) (dbBranchEndpoin
 		SSLMode:  firstNonEmpty(parsed.Query().Get("sslmode"), "disable"),
 		Source:   postgresBranchProviderName,
 	}, nil
-}
-
-func postgresBranchStrategy(cfg appcfg.Config) string {
-	_, svc, _ := managedPostgresDeclared(cfg)
-	return firstNonEmpty(strings.TrimSpace(svc.BranchStrategy), postgresDefaultBranchStrategy)
 }
 
 func postgresParentDatabaseName(cfg appcfg.Config, pin worktreeDBPin) string {

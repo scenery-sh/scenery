@@ -99,7 +99,7 @@ func registryPins(registry dbBranchRegistry, cfg appcfg.Config) []worktreeDBPin 
 func registryListLeases(ctx context.Context, registry dbBranchRegistry, cfg appcfg.Config) []dbBranchListLease {
 	project := branchProjectForConfig(cfg)
 	leases := make([]dbBranchListLease, 0, len(registry.Leases))
-	provider := dbBranchProviderForConfig(cfg)
+	provider := postgresBranchProvider{cfg: cfg}
 	for _, lease := range registry.Leases {
 		if !isSceneryOwnedDBLease(lease) {
 			continue
@@ -116,10 +116,6 @@ func readBranchRegistryForConfig(appcfg.Config) (dbBranchRegistry, string, error
 	return readPostgresBranchRegistryForDefaultRoot()
 }
 
-func branchProviderNameForConfig(appcfg.Config) string {
-	return postgresBranchProviderName
-}
-
 func branchProjectForConfig(cfg appcfg.Config) string {
 	if _, svc, ok := managedPostgresDeclared(cfg); ok {
 		if project := sanitizeDBIdentifier(svc.Project); project != "" {
@@ -129,7 +125,7 @@ func branchProjectForConfig(cfg appcfg.Config) string {
 	return sanitizeDBIdentifier(firstNonEmpty(cfg.AppID(), "app"))
 }
 
-func dbBranchListLeaseFromRegistryLease(ctx context.Context, provider dbBranchProvider, lease dbBranchLease) dbBranchListLease {
+func dbBranchListLeaseFromRegistryLease(ctx context.Context, provider postgresBranchProvider, lease dbBranchLease) dbBranchListLease {
 	backend := provider.InspectBranch(ctx, lease.Pin)
 	return dbBranchListLease{
 		Pin:       lease.Pin,
@@ -196,10 +192,8 @@ func pruneExpiredDBBranchLeases(cfg appcfg.Config, project, currentBranchID stri
 		return 0, err
 	}
 	adminURL := ""
-	if provider, ok := dbBranchProviderForConfig(cfg).(postgresBranchProvider); ok {
-		if value, err := provider.adminURL(context.Background()); err == nil {
-			adminURL = value
-		}
+	if value, err := (postgresBranchProvider{cfg: cfg}).adminURL(context.Background()); err == nil {
+		adminURL = value
 	}
 	now := time.Now().UTC()
 	var pruned int

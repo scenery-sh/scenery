@@ -55,7 +55,6 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_DEV_REPORT_TOKEN` | injected | Token used by the app child to report logs/traces to the dev dashboard. |
 | `SCENERY_DEV_DETACHED_CHILD` | internal | Marks the background child used by `scenery up --detach`. |
 | `SCENERY_PUBLIC_BASE_URL` | injected | Public API base URL advertised to app code. |
-| `SCENERY_STANDALONE_DEV` | internal | Marks a generated runtime process started in standalone dev mode. |
 
 ## App Service URLs And Auth
 

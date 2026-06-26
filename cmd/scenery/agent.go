@@ -388,7 +388,8 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 			"substrates":     substrates,
 		})
 	}
-	writeStatusTable(stdout, sessions)
+	substrates, _ := client.ListSubstrates(ctx)
+	writeStatusTable(stdout, sessions, substrates)
 	if opts.Watch {
 		fmt.Fprintln(stdout, "---")
 	}

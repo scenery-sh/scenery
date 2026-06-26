@@ -548,7 +548,6 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 		"pgxpool",
 		"rlog",
 		"runtime",
-		"runtimeapp",
 		"temporal",
 	}
 	var latest time.Time

@@ -744,7 +744,7 @@ func TestManagedElectricDatabaseURLUsesReadyPostgresBranch(t *testing.T) {
 		Name: "demo",
 		ID:   "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", BranchStrategy: "template_database", Project: "demo", ParentDatabase: "demo_main"},
+			"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", Project: "demo", ParentDatabase: "demo_main"},
 			"electric": {Kind: "electric"},
 		}},
 	}

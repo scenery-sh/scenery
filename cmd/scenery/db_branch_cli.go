@@ -28,7 +28,7 @@ func runDBBranchRestore(ctx context.Context, stdout io.Writer, opts dbBranchOpti
 	if !opts.Yes {
 		return fmt.Errorf("scenery db branch restore requires --yes")
 	}
-	point, err := dbBranchProviderForConfig(cfg).RestoreBranch(ctx, pin, opts)
+	point, err := (postgresBranchProvider{cfg: cfg}).RestoreBranch(ctx, pin, opts)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func runDBBranchDiff(ctx context.Context, stdout io.Writer, opts dbBranchOptions
 	if !ok {
 		return fmt.Errorf("no worktree database branch pin exists; run `scenery db branch checkout <name>` first")
 	}
-	diff, err := dbBranchProviderForConfig(cfg).DiffBranch(ctx, pin, target, opts)
+	diff, err := (postgresBranchProvider{cfg: cfg}).DiffBranch(ctx, pin, target, opts)
 	if err != nil {
 		return err
 	}

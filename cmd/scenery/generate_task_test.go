@@ -557,7 +557,6 @@ func TestDBSetupApplyUsesManagedPostgresBranchDatabaseURL(t *testing.T) {
         "kind": "postgres",
         "mode": "local",
         "isolation": "database",
-        "branch_strategy": "template_database",
         "project": "managedsetup",
         "parent_database": "managedsetup_main",
         "branch_policy": "manual",

@@ -4,6 +4,7 @@
   "type": "registry:component",
   "title": "Form",
   "description": "approved scenery Form primitive.",
+  "dependencies": ["@tanstack/react-form"],
   "files": [
     {
       "path": "ui/src/components/registry/primitives/form.tsx",

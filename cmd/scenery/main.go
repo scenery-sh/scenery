@@ -125,10 +125,6 @@ func upCommand(args []string) error {
 	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.AppRoot)
 }
 
-func devCommand(args []string) error {
-	return upCommand(args)
-}
-
 type devOptions struct {
 	Listen       string
 	Port         int

@@ -346,7 +346,7 @@ func resolveDBSnapshotTarget(ctx context.Context, appRoot string, cfg appcfg.Con
 					return dbSnapshotTarget{}, err
 				}
 				pin = resolution.Pin
-				connection, err = dbBranchProviderForConfig(cfg).Connection(ctx, pin)
+				connection, err = (postgresBranchProvider{cfg: cfg}).Connection(ctx, pin)
 				if err != nil {
 					return dbSnapshotTarget{}, fmt.Errorf("dev.services.%s could not resolve Postgres branch connection: %w", name, err)
 				}
@@ -385,7 +385,7 @@ func restoreDBSnapshot(ctx context.Context, appRoot string, cfg appcfg.Config, t
 		}
 	}
 	if target.Kind == "postgres_branch" && target.BranchPin != nil {
-		if err := dbBranchProviderForConfig(cfg).ResetBranch(ctx, *target.BranchPin, dbBranchOptions{AppRoot: appRoot}); err != nil {
+		if err := (postgresBranchProvider{cfg: cfg}).ResetBranch(ctx, *target.BranchPin, dbBranchOptions{AppRoot: appRoot}); err != nil {
 			return err
 		}
 		pin, connection, err := resolveDBBranchConnection(ctx, appRoot, cfg)

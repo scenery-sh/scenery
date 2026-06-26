@@ -192,7 +192,6 @@ type DevServiceConfig struct {
 	ParentDatabase     string            `json:"parent_database"`
 	BranchPolicy       string            `json:"branch_policy"`
 	BranchNameTemplate string            `json:"branch_name_template"`
-	BranchStrategy     string            `json:"branch_strategy"`
 	TTL                string            `json:"ttl"`
 	Role               string            `json:"role"`
 	DatabaseURLEnv     string            `json:"database_url_env"`

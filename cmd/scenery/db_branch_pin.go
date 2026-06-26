@@ -24,7 +24,7 @@ func resolveDBBranchConnection(ctx context.Context, appRoot string, cfg appcfg.C
 	if !ok {
 		return worktreeDBPin{}, dbBranchConnectionInfo{}, fmt.Errorf("dev.services.postgres has no worktree branch pin; run `scenery db branch checkout <name>` or `scenery up` first")
 	}
-	connection, err := dbBranchProviderForConfig(cfg).Connection(ctx, pin)
+	connection, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, pin)
 	if err != nil {
 		return pin, dbBranchConnectionInfo{}, err
 	}
@@ -43,7 +43,7 @@ func resolveDBBranchDatabaseURL(ctx context.Context, appRoot string, cfg appcfg.
 	if err != nil {
 		return "", err
 	}
-	connection, err := dbBranchProviderForConfig(cfg).Connection(ctx, resolution.Pin)
+	connection, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, resolution.Pin)
 	if err != nil {
 		return "", err
 	}
@@ -55,7 +55,7 @@ func dbBranchManagedPostgresEnv(ctx context.Context, appRoot string, cfg appcfg.
 	if err != nil {
 		return nil, dbBranchResolution{}, dbBranchConnectionInfo{}, err
 	}
-	connection, err := dbBranchProviderForConfig(cfg).Connection(ctx, resolution.Pin)
+	connection, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, resolution.Pin)
 	if err != nil {
 		return nil, resolution, dbBranchConnectionInfo{}, err
 	}
@@ -177,7 +177,7 @@ func buildWorktreeDBPinForSession(appRoot string, cfg appcfg.Config, session *lo
 
 func ensureDBBranchPinForSession(ctx context.Context, appRoot string, cfg appcfg.Config, session *localagent.Session) (dbBranchResolution, error) {
 	pinPath := worktreeDBPinPath(appRoot)
-	provider := dbBranchProviderForConfig(cfg)
+	provider := postgresBranchProvider{cfg: cfg}
 	if existing, ok, err := readWorktreeDBPin(pinPath); err != nil {
 		return dbBranchResolution{}, err
 	} else if ok {

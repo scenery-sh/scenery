@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"time"
 
 	inspectdata "scenery.sh/internal/inspect"
@@ -137,14 +136,4 @@ type dbBranchRestorePoint struct {
 	Project      string    `json:"project"`
 	DatabaseName string    `json:"database_name"`
 	CreatedAt    time.Time `json:"created_at"`
-}
-
-type dbBranchProvider interface {
-	EnsureBranch(context.Context, worktreeDBPin) (dbBranchBackendStatus, error)
-	InspectBranch(context.Context, worktreeDBPin) dbBranchBackendStatus
-	Connection(context.Context, worktreeDBPin) (dbBranchConnectionInfo, error)
-	ResetBranch(context.Context, worktreeDBPin, dbBranchOptions) error
-	DeleteBranch(context.Context, worktreeDBPin, string, dbBranchOptions) error
-	RestoreBranch(context.Context, worktreeDBPin, dbBranchOptions) (dbBranchRestorePoint, error)
-	DiffBranch(context.Context, worktreeDBPin, string, dbBranchOptions) (string, error)
 }
