@@ -193,6 +193,7 @@ func handleStorageProxyObject(w http.ResponseWriter, req *http.Request, store pu
 	case http.MethodPut:
 		obj, err := store.Put(req.Context(), key, req.Body, publicstorage.PutOptions{
 			ContentType: req.Header.Get("Content-Type"),
+			Metadata:    publicstorage.MetadataFromHeaders(req.Header),
 			IfNoneMatch: req.Header.Get("If-None-Match") == "*",
 		})
 		if err != nil {
@@ -302,6 +303,7 @@ func setStorageProxyObjectHeaders(header http.Header, obj *publicstorage.Object)
 	if !obj.ModifiedAt.IsZero() {
 		header.Set("Last-Modified", obj.ModifiedAt.UTC().Format(http.TimeFormat))
 	}
+	publicstorage.SetMetadataHeaders(header, obj.Metadata)
 }
 
 func writeStorageProxyError(w http.ResponseWriter, err error) {

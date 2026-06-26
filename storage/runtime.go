@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -16,6 +17,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/storageconfig"
@@ -45,22 +48,27 @@ func loadRuntimeConfig() (storageconfig.RuntimeConfig, error) {
 }
 
 func newRuntimeStore(name string, cfg storageconfig.RuntimeStoreConfig) (Store, error) {
+	var store Store
 	switch strings.TrimSpace(cfg.Kind) {
 	case "local":
 		root := strings.TrimSpace(cfg.Root)
 		if root == "" {
 			return nil, fmt.Errorf("storage store %q root is empty", name)
 		}
-		return &localRuntimeStore{name: name, root: root, maxObjectBytes: cfg.MaxObjectBytes}, nil
+		store = &localRuntimeStore{name: name, root: root, maxObjectBytes: cfg.MaxObjectBytes}
 	case "proxy":
 		socket := strings.TrimSpace(cfg.ProxySocket)
 		if socket == "" {
 			return nil, fmt.Errorf("storage store %q proxy socket is empty", name)
 		}
-		return newProxyRuntimeStore(name, socket), nil
+		store = newProxyRuntimeStore(name, socket)
 	default:
 		return nil, fmt.Errorf("storage store %q backend %q is not supported by this runtime", name, cfg.Kind)
 	}
+	if cfg.TenantScoped {
+		store = newTenantScopedStore(store)
+	}
+	return store, nil
 }
 
 func newProxyRuntimeStore(name, socket string) *proxyRuntimeStore {
@@ -84,6 +92,7 @@ func (s *proxyRuntimeStore) Put(ctx context.Context, key string, body io.Reader,
 	if opts.ContentType != "" {
 		req.Header.Set("Content-Type", opts.ContentType)
 	}
+	SetMetadataHeaders(req.Header, opts.Metadata)
 	if opts.IfNoneMatch {
 		req.Header.Set("If-None-Match", "*")
 	}
@@ -266,6 +275,15 @@ func proxyStorageError(resp *http.Response, store, key string) error {
 }
 
 func (s *localRuntimeStore) Put(ctx context.Context, key string, body io.Reader, opts PutOptions) (*Object, error) {
+	if opts.IfNoneMatch {
+		return withStoragePutLock(s.name, key, func() (*Object, error) {
+			return s.putUnlocked(ctx, key, body, opts)
+		})
+	}
+	return s.putUnlocked(ctx, key, body, opts)
+}
+
+func (s *localRuntimeStore) putUnlocked(ctx context.Context, key string, body io.Reader, opts PutOptions) (*Object, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -310,10 +328,16 @@ func (s *localRuntimeStore) Put(ctx context.Context, key string, body io.Reader,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if err := tmp.Sync(); err != nil {
+		return nil, err
+	}
 	if err := tmp.Close(); err != nil {
 		return nil, err
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
+		return nil, err
+	}
+	if err := syncLocalDir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
 	removeTmp = false
@@ -326,6 +350,10 @@ func (s *localRuntimeStore) Put(ctx context.Context, key string, body io.Reader,
 		contentType = mime.TypeByExtension(filepath.Ext(key))
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
+	meta := storageMetadataSidecar{ContentType: contentType, Metadata: cloneMetadata(opts.Metadata)}
+	if err := s.writeMetadata(key, meta); err != nil {
+		return nil, err
+	}
 	return &Object{
 		Store:       s.name,
 		Key:         key,
@@ -334,7 +362,7 @@ func (s *localRuntimeStore) Put(ctx context.Context, key string, body io.Reader,
 		ETag:        `"` + sum + `"`,
 		SHA256:      sum,
 		ModifiedAt:  info.ModTime().UTC(),
-		Metadata:    cloneMetadata(opts.Metadata),
+		Metadata:    cloneMetadata(meta.Metadata),
 	}, nil
 }
 
@@ -372,11 +400,15 @@ func (s *localRuntimeStore) Get(ctx context.Context, key string, opts GetOptions
 			_ = file.Close()
 			return nil, nil, &InvalidKeyError{Key: key, Reason: "range length must be non-negative"}
 		}
-		obj.SizeBytes = *opts.Length
+		length := *opts.Length
+		if opts.Offset != nil && length > obj.SizeBytes-*opts.Offset {
+			length = obj.SizeBytes - *opts.Offset
+		}
+		obj.SizeBytes = length
 		return struct {
 			io.Reader
 			io.Closer
-		}{Reader: io.LimitReader(file, *opts.Length), Closer: file}, obj, nil
+		}{Reader: io.LimitReader(file, length), Closer: file}, obj, nil
 	}
 	if opts.Offset != nil {
 		obj.SizeBytes -= *opts.Offset
@@ -406,14 +438,23 @@ func (s *localRuntimeStore) Head(ctx context.Context, key string) (*Object, erro
 	if err != nil {
 		return nil, err
 	}
+	meta, err := s.readMetadata(key)
+	if err != nil {
+		return nil, err
+	}
+	contentType := meta.ContentType
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(key))
+	}
 	return &Object{
 		Store:       s.name,
 		Key:         key,
 		SizeBytes:   info.Size(),
-		ContentType: mime.TypeByExtension(filepath.Ext(key)),
+		ContentType: contentType,
 		ETag:        `"` + sum + `"`,
 		SHA256:      sum,
 		ModifiedAt:  info.ModTime().UTC(),
+		Metadata:    cloneMetadata(meta.Metadata),
 	}, nil
 }
 
@@ -438,6 +479,9 @@ func (s *localRuntimeStore) List(ctx context.Context, opts ListOptions) (*ListPa
 			return err
 		}
 		key := filepath.ToSlash(rel)
+		if isStorageMetadataKey(key) {
+			return nil
+		}
 		if strings.HasPrefix(key, opts.Prefix) {
 			keys = append(keys, key)
 		}
@@ -490,6 +534,12 @@ func (s *localRuntimeStore) Delete(ctx context.Context, key string) error {
 		}
 		return err
 	}
+	if err := syncLocalDir(filepath.Dir(s.path(key))); err != nil {
+		return err
+	}
+	if err := s.deleteMetadata(key); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -509,7 +559,19 @@ func (s *localRuntimeStore) DeletePrefix(ctx context.Context, prefix string) err
 			return err
 		}
 		if strings.HasPrefix(filepath.ToSlash(rel), prefix) {
-			return os.Remove(path)
+			key := filepath.ToSlash(rel)
+			if isStorageMetadataKey(key) {
+				return nil
+			}
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			if err := syncLocalDir(filepath.Dir(path)); err != nil {
+				return err
+			}
+			if err := s.deleteMetadata(key); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -517,6 +579,73 @@ func (s *localRuntimeStore) DeletePrefix(ctx context.Context, prefix string) err
 
 func (s *localRuntimeStore) path(key string) string {
 	return filepath.Join(s.root, filepath.FromSlash(key))
+}
+
+func (s *localRuntimeStore) metadataPath(key string) string {
+	return filepath.Join(s.root, filepath.FromSlash(storageMetadataKey(key)))
+}
+
+func (s *localRuntimeStore) writeMetadata(key string, meta storageMetadataSidecar) error {
+	path := s.metadataPath(key)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".scenery-meta-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	removeTmp := true
+	defer func() {
+		_ = tmp.Close()
+		if removeTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := json.NewEncoder(tmp).Encode(meta); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	if err := syncLocalDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	removeTmp = false
+	return nil
+}
+
+func (s *localRuntimeStore) readMetadata(key string) (storageMetadataSidecar, error) {
+	data, err := os.ReadFile(s.metadataPath(key))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return storageMetadataSidecar{}, nil
+		}
+		return storageMetadataSidecar{}, err
+	}
+	var meta storageMetadataSidecar
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return storageMetadataSidecar{}, err
+	}
+	meta.Metadata = cloneMetadata(meta.Metadata)
+	return meta, nil
+}
+
+func (s *localRuntimeStore) deleteMetadata(key string) error {
+	path := s.metadataPath(key)
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return syncLocalDir(filepath.Dir(path))
 }
 
 func localFileSHA256(path string) (string, error) {
@@ -541,4 +670,40 @@ func cloneMetadata(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+type storageMetadataSidecar struct {
+	ContentType string            `json:"content_type,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+func storageMetadataKey(key string) string {
+	return "__scenery/metadata/" + key + ".json"
+}
+
+func isStorageMetadataKey(key string) bool {
+	return strings.HasPrefix(key, "__scenery/metadata/")
+}
+
+func syncLocalDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	if err := dir.Sync(); err != nil && !errors.Is(err, syscall.EINVAL) {
+		return err
+	}
+	return nil
+}
+
+var storagePutLocks sync.Map
+
+func withStoragePutLock[T any](store, key string, fn func() (T, error)) (T, error) {
+	lockKey := store + "\x00" + key
+	value, _ := storagePutLocks.LoadOrStore(lockKey, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	return fn()
 }

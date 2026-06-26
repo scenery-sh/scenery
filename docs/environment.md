@@ -95,10 +95,10 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_DEV_POSTGRES_EXTERNAL` | user input | `1` keeps an explicit external `DatabaseURL` instead of creating a managed session database. External mode requires `DatabaseURL`; `DATABASE_URL` is ignored as the app database authority. |
 | `SCENERY_DEV_ELECTRIC_UPSTREAM` | user input | Explicit Electric upstream; scenery registers it as the session Electric backend. |
 | `SCENERY_DEV_ELECTRIC_BIN` | user input | Explicit local Electric binary path; scenery does not search `PATH` for it. |
-| `SCENERY_STORAGE_CONFIG` | injected | App-facing storage capability config consumed by `scenery.sh/storage`. It contains configured store names and Scenery-owned backend metadata such as a session-local proxy socket, not raw object-store credentials. |
+| `SCENERY_STORAGE_CONFIG` | injected/user input | App-facing storage capability config consumed by `scenery.sh/storage`. Dev sessions inject it; headless runtimes require an explicit operator-provided value. It contains configured store names and Scenery-owned backend metadata such as a proxy socket, not raw object-store credentials. |
 | `SCENERY_STORAGE_CELL_ID` | injected | Stable shared storage cell ID for the app's configured storage capability. |
 | `SCENERY_STORAGE_CELL_ROOT` | injected | Scenery-owned shared storage-cell root used to expand managed ZeroFS service env. App code should use `scenery.sh/storage` instead of this substrate path. |
-| `SCENERY_STORAGE_ZEROFS_CONFIG` | injected | Path to the Scenery-written ZeroFS TOML for the managed ZeroFS process. Substrate/debug metadata only. |
+| `SCENERY_STORAGE_ZEROFS_CONFIG` | injected | Path to the Scenery-written `0600` ZeroFS TOML for the managed ZeroFS process. Substrate/debug metadata only. |
 | `SCENERY_ZEROFS_WEBUI_ADDR` | injected | Private loopback ZeroFS Web UI listener address for the managed ZeroFS process. Substrate/debug metadata only. |
 | `SCENERY_ZEROFS_WEBUI_URL` | injected | Protected Scenery route URL for the ZeroFS operator/debug Web UI when a storage route is attached to the current dev session. |
 | `ELECTRIC_REPLICATION_STREAM_ID` | user input/injected | Electric replication stream ID. scenery sets a deterministic session-scoped default. |

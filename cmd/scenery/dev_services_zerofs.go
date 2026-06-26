@@ -528,7 +528,10 @@ func startManagedZeroFSService(ctx context.Context, root string, session *locala
 	if plan == nil {
 		return nil, localagent.Backend{}, nil
 	}
-	if err := os.MkdirAll(plan.RunDir, 0o755); err != nil {
+	if err := os.MkdirAll(plan.RunDir, 0o700); err != nil {
+		return nil, localagent.Backend{}, err
+	}
+	if err := os.Chmod(plan.RunDir, 0o700); err != nil {
 		return nil, localagent.Backend{}, err
 	}
 	for _, dir := range []string{plan.CacheDir, plan.ObjectsDir} {
@@ -549,7 +552,10 @@ func startManagedZeroFSService(ctx context.Context, root string, session *locala
 	startPlan.WebUIListen = net.JoinHostPort("127.0.0.1", strconv.Itoa(webUIPort))
 	_ = os.Remove(startPlan.NinePSocket)
 	_ = os.Remove(startPlan.RPCSocket)
-	if err := os.WriteFile(startPlan.ConfigPath, []byte(managedZeroFSConfigTOML(&startPlan)), 0o644); err != nil {
+	if err := os.WriteFile(startPlan.ConfigPath, []byte(managedZeroFSConfigTOML(&startPlan)), 0o600); err != nil {
+		return nil, localagent.Backend{}, err
+	}
+	if err := os.Chmod(startPlan.ConfigPath, 0o600); err != nil {
 		return nil, localagent.Backend{}, err
 	}
 	if err := os.WriteFile(startPlan.WebUIAddrPath, []byte(startPlan.WebUIListen+"\n"), 0o644); err != nil {

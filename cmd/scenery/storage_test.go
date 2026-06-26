@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -241,6 +244,52 @@ func TestStorageCapabilityEnvUsesProxyForSessionStateRoot(t *testing.T) {
 	}
 }
 
+func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testing.T) {
+	t.Setenv(storageconfig.RuntimeConfigEnv, "")
+	cfg := appcfg.Config{
+		Name: "storageapp",
+		Storage: appcfg.StorageConfig{
+			Default: "app",
+			Stores: map[string]appcfg.StorageStoreConfig{
+				"app": {Kind: "zerofs"},
+			},
+		},
+	}
+	_, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	if err == nil {
+		t.Fatal("appProcessEnv succeeded without explicit storage runtime config")
+	}
+	if !strings.Contains(err.Error(), "headless runtimes require explicit "+storageconfig.RuntimeConfigEnv) ||
+		!strings.Contains(err.Error(), "scenery up") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAppProcessEnvAcceptsExplicitStorageRuntimeConfig(t *testing.T) {
+	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"proxy","proxy_socket":"/tmp/storage.sock"}}}`
+	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
+	cfg := appcfg.Config{
+		Name: "storageapp",
+		Storage: appcfg.StorageConfig{
+			Default: "app",
+			Stores: map[string]appcfg.StorageStoreConfig{
+				"app": {Kind: "zerofs"},
+			},
+		},
+	}
+	env, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	if err != nil {
+		t.Fatalf("appProcessEnv returned error: %v", err)
+	}
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, storageconfig.RuntimeConfigEnv+"="+raw) {
+		t.Fatalf("env missing explicit runtime config: %v", env)
+	}
+	if strings.Contains(joined, `"kind":"local"`) {
+		t.Fatalf("headless env synthesized local storage config: %v", env)
+	}
+}
+
 func TestRequiredManagedZeroFSPreflightFailsWhenToolchainUnavailable(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", filepath.Join(t.TempDir(), "toolchain"))
@@ -333,21 +382,24 @@ func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Default returned error: %v", err)
 	}
-	if _, err := store.Put(context.Background(), "reports/report.txt", strings.NewReader("storage report"), publicstorage.PutOptions{ContentType: "text/plain"}); err != nil {
+	if _, err := store.Put(context.Background(), "reports/report.txt", strings.NewReader("storage report"), publicstorage.PutOptions{
+		ContentType: "application/x-report",
+		Metadata:    map[string]string{"source": "proxy"},
+	}); err != nil {
 		t.Fatalf("proxy put returned error: %v", err)
 	}
 	page, err := store.List(context.Background(), publicstorage.ListOptions{Prefix: "reports/"})
 	if err != nil {
 		t.Fatalf("proxy list returned error: %v", err)
 	}
-	if len(page.Objects) != 1 || page.Objects[0].Key != "reports/report.txt" {
+	if len(page.Objects) != 1 || page.Objects[0].Key != "reports/report.txt" || page.Objects[0].Metadata["Source"] != "proxy" {
 		t.Fatalf("proxy list page = %+v", page)
 	}
 	head, err := store.Head(context.Background(), "reports/report.txt")
 	if err != nil {
 		t.Fatalf("proxy head returned error: %v", err)
 	}
-	if head.SizeBytes != int64(len("storage report")) {
+	if head.SizeBytes != int64(len("storage report")) || head.ContentType != "application/x-report" || head.Metadata["Source"] != "proxy" {
 		t.Fatalf("proxy head = %+v", head)
 	}
 	body, obj, err := store.Get(context.Background(), "reports/report.txt", publicstorage.GetOptions{})
@@ -359,14 +411,43 @@ func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "storage report" || obj.Key != "reports/report.txt" {
+	if string(data) != "storage report" || obj.Key != "reports/report.txt" || obj.Metadata["Source"] != "proxy" {
 		t.Fatalf("proxy get data=%q object=%+v", data, obj)
 	}
+	assertStorageProxyConcurrentIfNoneMatch(t, store)
 	if err := store.Delete(context.Background(), "reports/report.txt"); err != nil {
 		t.Fatalf("proxy delete returned error: %v", err)
 	}
 	if _, err := store.Head(context.Background(), "reports/report.txt"); err == nil {
 		t.Fatal("proxy head succeeded after delete")
+	}
+}
+
+func assertStorageProxyConcurrentIfNoneMatch(t *testing.T, store publicstorage.Store) {
+	t.Helper()
+	var success int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := store.Put(context.Background(), "reports/once.txt", strings.NewReader("once"), publicstorage.PutOptions{IfNoneMatch: true})
+			if err == nil {
+				atomic.AddInt32(&success, 1)
+				return
+			}
+			var exists *publicstorage.AlreadyExistsError
+			if !errors.As(err, &exists) {
+				t.Errorf("proxy Put IfNoneMatch error = %T %[1]v", err)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if success != 1 {
+		t.Fatalf("successful proxy IfNoneMatch writes = %d, want 1", success)
 	}
 }
 

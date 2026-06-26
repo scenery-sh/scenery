@@ -224,8 +224,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-06-01",
-      "review_after": "2026-06-26",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
       "summary": "Human reference for scenery-owned environment variables, app-injected process identity, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
@@ -301,6 +301,24 @@
         "docs/schemas/scenery.agent_context.v1.schema.json",
         "docs/schemas/scenery.harness.ui.v1.schema.json",
         "docs/schemas/scenery.harness.ui.dom.v1.schema.json"
+      ]
+    },
+    {
+      "path": "docs/zerofs-legal.md",
+      "title": "ZeroFS Legal Posture",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Current legal posture for the AGPL-licensed pinned ZeroFS toolchain artifact and the production-readiness release gate for managed storage.",
+      "tags": [
+        "storage",
+        "zerofs",
+        "legal",
+        "toolchain",
+        "release"
       ]
     },
     {

@@ -23,12 +23,7 @@ func ServeObject(w http.ResponseWriter, req *http.Request, body io.ReadCloser, o
 	if !obj.ModifiedAt.IsZero() {
 		w.Header().Set("Last-Modified", obj.ModifiedAt.UTC().Format(http.TimeFormat))
 	}
-	for k, v := range obj.Metadata {
-		if k == "" || strings.ContainsAny(k, "\r\n:") {
-			continue
-		}
-		w.Header().Set("X-Scenery-Storage-Meta-"+k, v)
-	}
+	SetMetadataHeaders(w.Header(), obj.Metadata)
 	w.Header().Set("Accept-Ranges", "bytes")
 
 	start, length, ranged, ok := parseRange(req.Header.Get("Range"), obj.SizeBytes)
@@ -60,6 +55,34 @@ func ServeObject(w http.ResponseWriter, req *http.Request, body io.ReadCloser, o
 		return
 	}
 	_, _ = io.Copy(w, body)
+}
+
+func SetMetadataHeaders(header http.Header, metadata map[string]string) {
+	for k, v := range metadata {
+		if k == "" || strings.ContainsAny(k, "\r\n:") {
+			continue
+		}
+		header.Set("X-Scenery-Storage-Meta-"+k, v)
+	}
+}
+
+func MetadataFromHeaders(header http.Header) map[string]string {
+	const prefix = "X-Scenery-Storage-Meta-"
+	out := map[string]string{}
+	for k, values := range header {
+		if len(k) < len(prefix) || !strings.EqualFold(k[:len(prefix)], prefix) || len(values) == 0 {
+			continue
+		}
+		name := strings.TrimSpace(k[len(prefix):])
+		if name == "" || strings.ContainsAny(name, "\r\n:") {
+			continue
+		}
+		out[name] = values[0]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func parseRange(header string, size int64) (start, length int64, ranged, ok bool) {

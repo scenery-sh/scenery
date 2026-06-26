@@ -57,3 +57,14 @@ func (e *NotConfiguredError) Error() string {
 	}
 	return fmt.Sprintf("scenery storage store %q is not configured", e.Store)
 }
+
+type TenantRequiredError struct {
+	Store string
+}
+
+func (e *TenantRequiredError) Error() string {
+	if e == nil || e.Store == "" {
+		return "scenery storage tenant is required"
+	}
+	return fmt.Sprintf("scenery storage store %q requires a tenant", e.Store)
+}

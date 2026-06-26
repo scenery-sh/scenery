@@ -344,7 +344,7 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command: "storage",
 		Group:   "App resources",
-		Summary: "Inspect configured storage capability state.",
+		Summary: "Inspect beta local-dev storage capability state.",
 		Usage: []string{
 			"scenery storage status --json [--app-root <path>]",
 			"scenery storage webui --json [--app-root <path>]",

@@ -477,6 +477,20 @@ func TestStartManagedZeroFSServiceUsesManagedToolchainBinaryAndSharedCellPaths(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	info, err := os.Stat(service.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("ZeroFS config mode = %o, want 0600", got)
+	}
+	runInfo, err := os.Stat(filepath.Dir(service.ConfigPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("ZeroFS run dir mode = %o, want 0700", got)
+	}
 	if got := string(config); !strings.Contains(got, "[servers.ninep]") || strings.Contains(got, "[servers.nfs]") || strings.Contains(got, "[servers.nbd]") {
 		t.Fatalf("ZeroFS config drifted:\n%s", got)
 	}

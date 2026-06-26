@@ -123,6 +123,11 @@ Declare Scenery-owned storage in app config:
 }
 ```
 
+Storage is still beta. Managed ZeroFS is the local-dev path behind `scenery up`;
+headless `scenery serve` and standalone `scenery worker` require an explicit
+operator-provided `SCENERY_STORAGE_CONFIG` instead of silently creating local
+storage.
+
 Inspect and exercise the configured store through Scenery JSON surfaces:
 
 ```sh
@@ -133,9 +138,16 @@ scenery storage ls app --prefix uploads/ --json
 scenery storage stat app uploads/example.txt --json
 scenery storage get app uploads/example.txt --output /tmp/example.txt --json
 scenery storage rm app uploads/example.txt --json
+scenery storage rm app uploads/ --recursive --json
 ```
 
 App code launched by Scenery can import `scenery.sh/storage` and call `storage.Default(ctx)` or `storage.Named(ctx, "app")`. The package reads Scenery-injected capability metadata and, in agent-backed dev sessions, talks to a session-local Scenery storage proxy. That proxy speaks to the managed ZeroFS 9P Unix socket; app code should not depend on Scenery agent-state paths, ZeroFS sockets, proxy sockets, or object directories.
+
+For stores with `tenant_scoped: true`, caller-visible keys stay unchanged while Scenery stores them under a tenant namespace. Authenticated HTTP storage routes derive the tenant from standard auth data. Private/internal calls must pass a standard-auth request context or wrap the context with `storage.WithTenantID(ctx, tenantID)`.
+
+`PutOptions.ContentType` and `PutOptions.Metadata` are returned by `Head`, `Get`, and `List`. Browser/proxy routes carry metadata through `X-Scenery-Storage-Meta-*` headers.
+
+For beta import/export checks, use `put` to import files, `ls`/`stat` to verify object metadata and checksums, `get` to export bytes, and `rm --recursive` to roll back a test prefix. This is a single-object/prefix operational proof, not a production backup system.
 
 When a managed ZeroFS storage cell is attached, `scenery inspect storage --json` and `scenery storage status --json` include runtime lease ownership. `scenery down` releases only the current session's storage lease; shared storage-cell data remains under the agent storage root until a future explicit storage cleanup path exists.
 

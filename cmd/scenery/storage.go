@@ -350,6 +350,26 @@ func storageCapabilityEnv(cfg appcfg.Config, session *localagent.Session, baseEn
 	return result, nil
 }
 
+func headlessStorageCapabilityEnv(cfg appcfg.Config, baseEnv []string) ([]string, error) {
+	if len(cfg.Storage.Stores) == 0 {
+		return nil, nil
+	}
+	if storageRuntimeConfigPresent(baseEnv) {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("storage is configured, but headless runtimes require explicit %s; run `scenery up` for managed dev ZeroFS or set %s to an operator-provided storage runtime config", storageconfig.RuntimeConfigEnv, storageconfig.RuntimeConfigEnv)
+}
+
+func storageRuntimeConfigPresent(env []string) bool {
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok && key == storageconfig.RuntimeConfigEnv && strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func buildStorageWebUIResponse(cfg appcfg.Config) storageWebUIResponse {
 	configured := len(cfg.Storage.Stores) > 0
 	if !configured {

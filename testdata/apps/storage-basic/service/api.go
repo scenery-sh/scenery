@@ -26,7 +26,14 @@ func (*Service) StorageProbe(ctx context.Context) (ObjectSummary, error) {
 
 //scenery:api public path=/storage/probe-public method=POST
 func (*Service) PublicStorageProbe(ctx context.Context) (ObjectSummary, error) {
+	ctx = storage.WithTenantID(ctx, "storage-probe")
 	return runStorageProbe(ctx, "probe/public.txt", "hello public")
+}
+
+//scenery:api public path=/storage/probe-public method=GET
+func (*Service) ReadPublicStorageProbe(ctx context.Context) (ObjectSummary, error) {
+	ctx = storage.WithTenantID(ctx, "storage-probe")
+	return readStorageProbe(ctx, "probe/public.txt")
 }
 
 func runStorageProbe(ctx context.Context, key, value string) (ObjectSummary, error) {
@@ -38,7 +45,23 @@ func runStorageProbe(ctx context.Context, key, value string) (ObjectSummary, err
 	if err != nil {
 		return ObjectSummary{}, err
 	}
-	body, _, err := store.Get(ctx, obj.Key, storage.GetOptions{})
+	return readObjectSummary(ctx, store, obj.Key, obj.SizeBytes)
+}
+
+func readStorageProbe(ctx context.Context, key string) (ObjectSummary, error) {
+	store, err := storage.Default(ctx)
+	if err != nil {
+		return ObjectSummary{}, err
+	}
+	obj, err := store.Head(ctx, key)
+	if err != nil {
+		return ObjectSummary{}, err
+	}
+	return readObjectSummary(ctx, store, key, obj.SizeBytes)
+}
+
+func readObjectSummary(ctx context.Context, store storage.Store, key string, size int64) (ObjectSummary, error) {
+	body, _, err := store.Get(ctx, key, storage.GetOptions{})
 	if err != nil {
 		return ObjectSummary{}, err
 	}
@@ -47,5 +70,5 @@ func runStorageProbe(ctx context.Context, key, value string) (ObjectSummary, err
 	if err != nil {
 		return ObjectSummary{}, err
 	}
-	return ObjectSummary{Key: obj.Key, SizeBytes: obj.SizeBytes, Body: string(data)}, nil
+	return ObjectSummary{Key: key, SizeBytes: size, Body: string(data)}, nil
 }

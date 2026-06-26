@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath strin
 		"output":     strings.TrimSpace(stdout.String()),
 		"agent_home": filepath.ToSlash(agentHome),
 	}
-	objectPath := filepath.Join(agentHome, "agent", "storage", "storage-basic", "objects", "app", "task", "probe.txt")
+	objectPath := filepath.Join(agentHome, "agent", "storage", "storage-basic", "objects", "app", "__scenery", "tenants", base64.RawURLEncoding.EncodeToString([]byte("storage-probe")), "task", "probe.txt")
 	if err != nil {
 		step.OK = false
 		step.Error = strings.TrimSpace(err.Error())
@@ -200,7 +201,7 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 		return summary, fmt.Errorf("real ZeroFS detach JSON did not include session.state_root")
 	}
 	socketPath := devAPIUnixSocketPath(stateRoot)
-	probeBody, err := waitForHarnessStorageHTTPProbe(ctx, socketPath, 2*time.Minute)
+	probeBody, err := waitForHarnessStorageHTTPProbe(ctx, socketPath, http.MethodPost, 2*time.Minute)
 	if err != nil {
 		return summary, err
 	}
@@ -247,7 +248,79 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 	summary["real_zerofs_readiness"] = inspect.Storage.Readiness
 	summary["real_zerofs_substrate_kind"] = inspect.Storage.Runtime.SubstrateKind
 	summary["real_zerofs_lease_count"] = inspect.Storage.Runtime.LeaseCount
+	zeroFSPID, err := harnessManagedZeroFSPID(ctx, repoRoot, env, sceneryPath, inspect.Storage.Runtime.SubstrateKind)
+	if err != nil {
+		return summary, err
+	}
+	if zeroFSPID <= 0 {
+		return summary, fmt.Errorf("real ZeroFS restart proof could not find managed ZeroFS PID")
+	}
+	if proc, err := os.FindProcess(zeroFSPID); err == nil {
+		_ = proc.Signal(os.Interrupt)
+	}
+	time.Sleep(750 * time.Millisecond)
+	downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "--json"}
+	if downOut, downErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, downCommand); err != nil {
+		return summary, fmt.Errorf("real ZeroFS restart proof down failed after interrupting pid %d: %s\n%s", zeroFSPID, strings.TrimSpace(err.Error()), tailString(firstNonEmpty(downErr, downOut), 8192))
+	}
+	restartOut, restartErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, upCommand)
+	if err != nil {
+		return summary, fmt.Errorf("real ZeroFS restart scenery up failed after interrupting pid %d: %s\n%s", zeroFSPID, strings.TrimSpace(err.Error()), tailString(firstNonEmpty(restartErr, restartOut), 8192))
+	}
+	var restart struct {
+		Session struct {
+			StateRoot string `json:"state_root"`
+		} `json:"session"`
+	}
+	if err := json.Unmarshal([]byte(restartOut), &restart); err != nil {
+		return summary, fmt.Errorf("parse real ZeroFS restart detach JSON: %w", err)
+	}
+	restartStateRoot := strings.TrimSpace(restart.Session.StateRoot)
+	if restartStateRoot == "" {
+		return summary, fmt.Errorf("real ZeroFS restart detach JSON did not include session.state_root")
+	}
+	restartProbeBody, err := waitForHarnessStorageHTTPProbe(ctx, devAPIUnixSocketPath(restartStateRoot), http.MethodGet, 2*time.Minute)
+	if err != nil {
+		return summary, err
+	}
+	var restartProbe struct {
+		Key       string `json:"key"`
+		SizeBytes int64  `json:"size_bytes"`
+		Body      string `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(restartProbeBody), &restartProbe); err != nil {
+		return summary, fmt.Errorf("parse real ZeroFS restart probe response: %w: %s", err, restartProbeBody)
+	}
+	if restartProbe.Key != probe.Key || restartProbe.Body != probe.Body || restartProbe.SizeBytes != probe.SizeBytes {
+		return summary, fmt.Errorf("unexpected real ZeroFS restart probe response: %s", restartProbeBody)
+	}
+	summary["real_zerofs_restart_probe"] = "passed"
+	summary["real_zerofs_interrupted_pid"] = zeroFSPID
+	summary["real_zerofs_restart_response"] = restartProbeBody
 	return summary, nil
+}
+
+func harnessManagedZeroFSPID(ctx context.Context, repoRoot string, env []string, sceneryPath, substrateKind string) (int, error) {
+	psCommand := []string{sceneryPath, "ps", "--json"}
+	psOut, psErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, psCommand)
+	if err != nil {
+		return 0, fmt.Errorf("real ZeroFS restart proof ps failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(psErr, psOut), 8192))
+	}
+	var status struct {
+		Substrates []struct {
+			Kind string         `json:"kind"`
+			PIDs map[string]int `json:"pids"`
+		} `json:"substrates"`
+	}
+	if err := json.Unmarshal([]byte(psOut), &status); err != nil {
+		return 0, fmt.Errorf("parse real ZeroFS ps JSON: %w", err)
+	}
+	for _, substrate := range status.Substrates {
+		if substrate.Kind == substrateKind {
+			return firstPositiveInt(substrate.PIDs["zerofs"], 0), nil
+		}
+	}
+	return 0, nil
 }
 
 func cleanupHarnessRealZeroFSAgent(ctx context.Context, repoRoot, sceneryPath, agentHome string, env []string) {
@@ -322,11 +395,11 @@ func addHarnessCleanupPID(pids map[int]bool, pid int) {
 	}
 }
 
-func waitForHarnessStorageHTTPProbe(ctx context.Context, socketPath string, timeout time.Duration) (string, error) {
+func waitForHarnessStorageHTTPProbe(ctx context.Context, socketPath, method string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		body, err := harnessStorageHTTPProbe(ctx, socketPath)
+		body, err := harnessStorageHTTPProbe(ctx, socketPath, method)
 		if err == nil {
 			return body, nil
 		}
@@ -340,7 +413,7 @@ func waitForHarnessStorageHTTPProbe(ctx context.Context, socketPath string, time
 	return "", fmt.Errorf("real ZeroFS storage HTTP probe did not succeed within %s: %v", timeout, lastErr)
 }
 
-func harnessStorageHTTPProbe(ctx context.Context, socketPath string) (string, error) {
+func harnessStorageHTTPProbe(ctx context.Context, socketPath, method string) (string, error) {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
@@ -348,7 +421,7 @@ func harnessStorageHTTPProbe(ctx context.Context, socketPath string) (string, er
 	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/storage/probe-public", nil)
+	req, err := http.NewRequestWithContext(ctx, method, "http://unix/storage/probe-public", nil)
 	if err != nil {
 		return "", err
 	}

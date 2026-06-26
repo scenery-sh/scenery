@@ -2311,7 +2311,7 @@
       "name": "SCENERY_STORAGE_CONFIG",
       "match": "exact",
       "scope": "runtime",
-      "direction": "injected",
+      "direction": "injected_user_input",
       "category": "app.services.storage",
       "stability": "beta",
       "secret": false,
@@ -2321,7 +2321,7 @@
         "tests"
       ],
       "owner": "scenery runtime / storage",
-      "rationale": "App-facing storage capability config consumed by scenery.sh/storage. It records store names and Scenery-owned backend metadata such as a session-local proxy socket without raw object-store credentials.",
+      "rationale": "App-facing storage capability config consumed by scenery.sh/storage. Dev sessions inject it; headless runtimes require an explicit operator-provided value. It records store names and Scenery-owned backend metadata such as a proxy socket without raw object-store credentials.",
       "preferred_surface": ".scenery.json storage declarations plus scenery.sh/storage",
       "replacement": "",
       "sunset": "",

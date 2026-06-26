@@ -13,7 +13,8 @@ import (
 )
 
 func main() {
-	if err := run(context.Background()); err != nil {
+	ctx := storage.WithTenantID(context.Background(), "storage-probe")
+	if err := run(ctx); err != nil {
 		panic(err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/authbridge"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/storageconfig"
 	"scenery.sh/storage"
@@ -92,6 +93,7 @@ func (s *server) handleStorageObject(w http.ResponseWriter, req *http.Request, p
 	case http.MethodPut:
 		obj, err := store.Put(ctx, key, req.Body, storage.PutOptions{
 			ContentType: req.Header.Get("Content-Type"),
+			Metadata:    storage.MetadataFromHeaders(req.Header),
 			IfNoneMatch: req.Header.Get("If-None-Match") == "*",
 		})
 		if err != nil {
@@ -121,7 +123,7 @@ func (s *server) handleStorageObject(w http.ResponseWriter, req *http.Request, p
 }
 
 func authenticateStorageHTTPRequest(w http.ResponseWriter, req *http.Request, store string, internal bool) (context.Context, bool) {
-	access, err := storageHTTPStoreAccess(store)
+	storeCfg, access, err := storageHTTPStoreConfig(store)
 	if err != nil {
 		errs.HTTPError(w, err)
 		return nil, false
@@ -146,36 +148,58 @@ func authenticateStorageHTTPRequest(w http.ResponseWriter, req *http.Request, st
 		return nil, false
 	}
 	ctx := req.Context()
+	if storeCfg.TenantScoped {
+		tenant, ok := storageHTTPTenantID(authInfo.Data)
+		if !ok {
+			errs.HTTPError(w, errs.B().Code(errs.PermissionDenied).Msg("storage tenant is required").Err())
+			return nil, false
+		}
+		ctx = storage.WithTenantID(ctx, tenant)
+	}
 	if authInfo.UID != "" {
 		ctx = WithAuthContext(ctx, authInfo)
 	}
 	return ctx, true
 }
 
-func storageHTTPStoreAccess(name string) (Access, error) {
+func storageHTTPStoreConfig(name string) (storageconfig.RuntimeStoreConfig, Access, error) {
 	cfg, err := loadStorageHTTPRuntimeConfig()
 	if err != nil {
-		return Auth, storageHTTPError(err)
+		return storageconfig.RuntimeStoreConfig{}, Auth, storageHTTPError(err)
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = strings.TrimSpace(cfg.Default)
 	}
 	if name == "" {
-		return Auth, errs.B().Code(errs.FailedPrecondition).Msg("scenery storage default store is not configured").Err()
+		return storageconfig.RuntimeStoreConfig{}, Auth, errs.B().Code(errs.FailedPrecondition).Msg("scenery storage default store is not configured").Err()
 	}
 	store, ok := cfg.Stores[name]
 	if !ok {
-		return Auth, errs.B().Code(errs.NotFound).Msgf("storage store %q is not configured", name).Err()
+		return storageconfig.RuntimeStoreConfig{}, Auth, errs.B().Code(errs.NotFound).Msgf("storage store %q is not configured", name).Err()
 	}
 	switch strings.TrimSpace(store.Access) {
 	case "", "auth":
-		return Auth, nil
+		return store, Auth, nil
 	case "private":
-		return Private, nil
+		return store, Private, nil
 	default:
-		return Auth, errs.B().Code(errs.FailedPrecondition).Msgf("storage store %q access is invalid", name).Err()
+		return storageconfig.RuntimeStoreConfig{}, Auth, errs.B().Code(errs.FailedPrecondition).Msgf("storage store %q access is invalid", name).Err()
 	}
+}
+
+func storageHTTPTenantID(data any) (string, bool) {
+	if tenant, ok := authbridge.TenantID(data); ok && strings.TrimSpace(tenant) != "" {
+		return strings.TrimSpace(tenant), true
+	}
+	type auditTenant interface {
+		AuditTenantID() string
+	}
+	if audit, ok := data.(auditTenant); ok {
+		tenant := strings.TrimSpace(audit.AuditTenantID())
+		return tenant, tenant != ""
+	}
+	return "", false
 }
 
 func loadStorageHTTPRuntimeConfig() (storageconfig.RuntimeConfig, error) {
@@ -231,6 +255,10 @@ func storageHTTPError(err error) error {
 	var notConfigured *storage.NotConfiguredError
 	if errors.As(err, &notConfigured) {
 		return errs.B().Code(errs.FailedPrecondition).Msg(err.Error()).Cause(err).Err()
+	}
+	var tenantRequired *storage.TenantRequiredError
+	if errors.As(err, &tenantRequired) {
+		return errs.B().Code(errs.PermissionDenied).Msg(err.Error()).Cause(err).Err()
 	}
 	return errs.Wrap(err, "storage request failed")
 }

@@ -1,9 +1,11 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,6 +44,15 @@ func NewZeroFSStore(name, socketPath string, opts ZeroFSStoreOptions) *ZeroFSSto
 }
 
 func (s *ZeroFSStore) Put(ctx context.Context, key string, body io.Reader, opts public.PutOptions) (*public.Object, error) {
+	if opts.IfNoneMatch {
+		return withStoragePutLock(s.name, key, func() (*public.Object, error) {
+			return s.putUnlocked(ctx, key, body, opts)
+		})
+	}
+	return s.putUnlocked(ctx, key, body, opts)
+}
+
+func (s *ZeroFSStore) putUnlocked(ctx context.Context, key string, body io.Reader, opts public.PutOptions) (*public.Object, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -50,24 +61,27 @@ func (s *ZeroFSStore) Put(ctx context.Context, key string, body io.Reader, opts 
 	}
 	session, err := s.connect(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connect ZeroFS store %q: %w", s.name, err)
 	}
 	defer session.Close()
 	if opts.IfNoneMatch {
 		if _, err := s.headWithSession(ctx, session.root, key); err == nil {
 			return nil, &public.AlreadyExistsError{Store: s.name, Key: key}
-		} else if !isP9NotFound(err) {
-			return nil, err
+		} else {
+			var missing *public.NotFoundError
+			if !errors.As(err, &missing) && !isP9NotFound(err) {
+				return nil, err
+			}
 		}
 	}
 	dir, base, err := s.ensureParent(ctx, session.root, key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("prepare ZeroFS parent for %q: %w", key, err)
 	}
 	defer dir.Close()
 	tmpName, file, err := createP9TempFile(dir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create ZeroFS temp file for %q: %w", key, err)
 	}
 	cleanupTemp := true
 	defer func() {
@@ -88,31 +102,46 @@ func (s *ZeroFSStore) Put(ctx context.Context, key string, body io.Reader, opts 
 	}
 	n, err := copyToP9File(ctx, file, io.TeeReader(reader, h))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("write ZeroFS object %q: %w", key, err)
 	}
 	if s.maxObjectBytes > 0 && n > s.maxObjectBytes {
 		return nil, fmt.Errorf("storage object %q exceeds max_object_bytes %d", key, s.maxObjectBytes)
 	}
-	_ = file.FSync()
+	if err := syncP9File(file); err != nil {
+		return nil, fmt.Errorf("fsync ZeroFS object %q: %w", key, err)
+	}
 	if err := file.Close(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("close ZeroFS object %q: %w", key, err)
 	}
 	fileClosed = true
 	if err := dir.RenameAt(tmpName, dir, base); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("rename ZeroFS object %q: %w", key, err)
+	}
+	if err := syncP9Dir(dir); err != nil {
+		return nil, fmt.Errorf("sync ZeroFS parent for %q: %w", key, err)
 	}
 	cleanupTemp = false
 	sum := hex.EncodeToString(h.Sum(nil))
-	obj, err := s.headWithSession(ctx, session.root, key)
+	contentType := firstNonEmpty(opts.ContentType, mime.TypeByExtension(filepath.Ext(key)))
+	meta := storageMetadataSidecar{ContentType: contentType, Metadata: cloneMap(opts.Metadata)}
+	metadataSession, err := s.connect(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connect ZeroFS metadata store %q: %w", s.name, err)
 	}
-	obj.SizeBytes = n
-	obj.ContentType = firstNonEmpty(opts.ContentType, obj.ContentType)
-	obj.ETag = `"` + sum + `"`
-	obj.SHA256 = sum
-	obj.Metadata = cloneMap(opts.Metadata)
-	return obj, nil
+	defer metadataSession.Close()
+	if err := s.writeMetadataWithSession(ctx, metadataSession.root, key, meta); err != nil {
+		return nil, fmt.Errorf("write ZeroFS metadata for %q: %w", key, err)
+	}
+	return &public.Object{
+		Store:       s.name,
+		Key:         key,
+		SizeBytes:   n,
+		ContentType: meta.ContentType,
+		ETag:        `"` + sum + `"`,
+		SHA256:      sum,
+		ModifiedAt:  time.Now().UTC(),
+		Metadata:    cloneMap(meta.Metadata),
+	}, nil
 }
 
 func (s *ZeroFSStore) PutFile(ctx context.Context, key, localPath string, opts public.PutOptions) (*public.Object, error) {
@@ -155,11 +184,15 @@ func (s *ZeroFSStore) Get(ctx context.Context, key string, opts public.GetOption
 	offset := int64(0)
 	if opts.Offset != nil {
 		offset = *opts.Offset
-		obj.SizeBytes -= offset
 	}
+	available := obj.SizeBytes - offset
+	obj.SizeBytes = available
 	var remaining *int64
 	if opts.Length != nil {
 		length := *opts.Length
+		if length > available {
+			length = available
+		}
 		remaining = &length
 		obj.SizeBytes = length
 	}
@@ -264,6 +297,10 @@ func (s *ZeroFSStore) Delete(ctx context.Context, key string) error {
 		}
 		return err
 	}
+	if err := syncP9Dir(dir); err != nil {
+		return err
+	}
+	_ = s.deleteMetadataWithSession(session.root, key)
 	return nil
 }
 
@@ -379,15 +416,112 @@ func (s *ZeroFSStore) headWithSession(ctx context.Context, root p9.File, key str
 	if err != nil {
 		return nil, err
 	}
+	meta, err := s.readMetadataWithSession(ctx, root, key)
+	if err != nil {
+		return nil, err
+	}
+	contentType := meta.ContentType
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(key))
+	}
 	return &public.Object{
 		Store:       s.name,
 		Key:         key,
 		SizeBytes:   int64(attr.Size),
-		ContentType: mime.TypeByExtension(filepath.Ext(key)),
+		ContentType: contentType,
 		ETag:        `"` + sum + `"`,
 		SHA256:      sum,
 		ModifiedAt:  time.Unix(int64(attr.MTimeSeconds), int64(attr.MTimeNanoSeconds)).UTC(),
+		Metadata:    cloneMap(meta.Metadata),
 	}, nil
+}
+
+func (s *ZeroFSStore) writeMetadataWithSession(ctx context.Context, root p9.File, key string, meta storageMetadataSidecar) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	dir, base, err := s.ensureParent(ctx, root, storageMetadataKey(key))
+	if err != nil {
+		return fmt.Errorf("prepare metadata parent: %w", err)
+	}
+	defer dir.Close()
+	tmpName, file, err := createP9TempFile(dir)
+	if err != nil {
+		return fmt.Errorf("create metadata temp file: %w", err)
+	}
+	cleanupTemp := true
+	defer func() {
+		if cleanupTemp {
+			_ = dir.UnlinkAt(tmpName, 0)
+		}
+	}()
+	fileClosed := false
+	defer func() {
+		if !fileClosed {
+			_ = file.Close()
+		}
+	}()
+	if _, err := copyToP9File(ctx, file, bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("write metadata temp file: %w", err)
+	}
+	if err := syncP9File(file); err != nil {
+		return fmt.Errorf("fsync metadata temp file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close metadata temp file: %w", err)
+	}
+	fileClosed = true
+	if err := dir.RenameAt(tmpName, dir, base); err != nil {
+		return fmt.Errorf("rename metadata sidecar: %w", err)
+	}
+	if err := syncP9Dir(dir); err != nil {
+		return fmt.Errorf("sync metadata parent: %w", err)
+	}
+	cleanupTemp = false
+	return nil
+}
+
+func (s *ZeroFSStore) readMetadataWithSession(ctx context.Context, root p9.File, key string) (storageMetadataSidecar, error) {
+	file, err := s.walkObject(root, storageMetadataKey(key))
+	if err != nil {
+		if isP9NotFound(err) {
+			return storageMetadataSidecar{}, nil
+		}
+		return storageMetadataSidecar{}, err
+	}
+	defer file.Close()
+	if _, _, err := file.Open(p9.ReadOnly); err != nil {
+		return storageMetadataSidecar{}, err
+	}
+	data, err := io.ReadAll(&zeroFSFileReader{ctx: ctx, file: file})
+	if err != nil {
+		return storageMetadataSidecar{}, err
+	}
+	var meta storageMetadataSidecar
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return storageMetadataSidecar{}, err
+	}
+	meta.Metadata = cloneMap(meta.Metadata)
+	return meta, nil
+}
+
+func (s *ZeroFSStore) deleteMetadataWithSession(root p9.File, key string) error {
+	dir, base, err := s.walkParent(root, storageMetadataKey(key))
+	if err != nil {
+		if isP9NotFound(err) {
+			return nil
+		}
+		return err
+	}
+	defer dir.Close()
+	if err := dir.UnlinkAt(base, 0); err != nil && !isP9NotFound(err) {
+		return err
+	}
+	if err := syncP9Dir(dir); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *ZeroFSStore) collectKeys(ctx context.Context, dir p9.File, rel, prefix string, keys *[]string) error {
@@ -427,7 +561,7 @@ func (s *ZeroFSStore) collectKeys(ctx context.Context, dir p9.File, rel, prefix 
 					return err
 				}
 				_ = child.Close()
-			} else if strings.HasPrefix(key, prefix) {
+			} else if !isStorageMetadataKey(key) && strings.HasPrefix(key, prefix) {
 				*keys = append(*keys, key)
 			}
 			offset = entry.Offset
@@ -468,7 +602,7 @@ func ensureP9Dir(root p9.File, parts []string) (p9.File, error) {
 
 func createP9TempFile(dir p9.File) (string, p9.File, error) {
 	for i := 0; i < 16; i++ {
-		name := fmt.Sprintf(".scenery-put-%d-%d", time.Now().UnixNano(), i)
+		name := fmt.Sprintf("__scenery-put-%d-%d", time.Now().UnixNano(), i)
 		createDir, err := walkP9(dir, nil)
 		if err != nil {
 			return "", nil, err
@@ -586,6 +720,19 @@ func isP9NotFound(err error) bool {
 
 func isP9Exists(err error) bool {
 	return errors.Is(err, linux.EEXIST)
+}
+
+func syncP9File(file p9.File) error {
+	// Real ZeroFS 1.2.5 reports EREMCHG for file FSync and can poison the
+	// resulting object handle. Keep the adapter beta/local-dev until ZeroFS
+	// exposes a durability primitive Scenery can safely require.
+	return nil
+}
+
+func syncP9Dir(dir p9.File) error {
+	// See syncP9File. Directory FSync is unsupported by the local 9P test
+	// backend and by real ZeroFS 1.2.5.
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {
