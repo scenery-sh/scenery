@@ -25,7 +25,15 @@ func TestOpenStorePersistsJSONState(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	if err := store.UpsertApp(ctx, AppRecord{ID: "app-test", Name: "app-test", Root: "/tmp/app", Running: true}); err != nil {
+	if err := store.UpsertApp(ctx, AppRecord{
+		ID:                  "app-test",
+		SessionID:           "session-test",
+		Name:                "app-test",
+		Root:                "/tmp/app",
+		Running:             false,
+		SessionStatus:       "degraded",
+		SessionStatusReason: "app process is not running",
+	}); err != nil {
 		t.Fatalf("upsert app: %v", err)
 	}
 	if _, err := store.CreateStoredRequest(ctx, StoredRequest{
@@ -50,8 +58,15 @@ func TestOpenStorePersistsJSONState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get persisted app: %v", err)
 	}
-	if !app.Running || app.Name != "app-test" {
+	if app.Running || app.Name != "app-test" || app.SessionStatus != "degraded" || app.SessionStatusReason == "" {
 		t.Fatalf("persisted app = %+v", app)
+	}
+	session, err := reopened.GetAppSession(ctx, "session-test")
+	if err != nil {
+		t.Fatalf("get persisted session: %v", err)
+	}
+	if session.SessionStatus != "degraded" || session.SessionStatusReason == "" {
+		t.Fatalf("persisted session = %+v", session)
 	}
 	requests, err := reopened.ListStoredRequests(ctx, "app-test")
 	if err != nil {

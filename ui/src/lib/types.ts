@@ -5,6 +5,8 @@ export interface AppSummary {
   session_id?: string;
   base_app_id?: string;
   offline: boolean;
+  sessionStatus?: string;
+  sessionStatusReason?: string;
   compileError?: string;
 }
 
@@ -22,6 +24,8 @@ export interface AppStatus {
   grafana?: GrafanaState;
   routes?: Record<string, string>;
   aliases?: Record<string, string>;
+  sessionStatus?: string;
+  sessionStatusReason?: string;
   compiling: boolean;
   compileError?: string;
 }

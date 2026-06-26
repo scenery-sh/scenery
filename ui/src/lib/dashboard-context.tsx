@@ -73,19 +73,25 @@ export function DashboardProvider({
     if (!rpc) {
       return;
     }
-    const [nextApps, nextStatus, nextTraces, nextOutputs] = await Promise.all([
+    const [nextApps, nextStatus] = await Promise.all([
       rpc.request<AppSummary[]>("list-apps"),
       rpc.request<AppStatus>("status", { app_id: appId }),
-      rpc.request<TraceSummary[]>("traces/list", { app_id: appId }),
-      rpc.request<ProcessOutput[]>("process/output/list", { app_id: appId, limit: 300 }),
     ]);
     setApps(nextApps);
     setStatus(nextStatus);
-    setTraces(nextTraces ?? []);
-    setOutputs((nextOutputs ?? []).map((item) => ({
-      ...item,
-      output: processOutputText(item),
-    })));
+    const [nextTraces, nextOutputs] = await Promise.allSettled([
+      rpc.request<TraceSummary[]>("traces/list", { app_id: appId }),
+      rpc.request<ProcessOutput[]>("process/output/list", { app_id: appId, limit: 300 }),
+    ]);
+    if (nextTraces.status === "fulfilled") {
+      setTraces(nextTraces.value ?? []);
+    }
+    if (nextOutputs.status === "fulfilled") {
+      setOutputs((nextOutputs.value ?? []).map((item) => ({
+        ...item,
+        output: processOutputText(item),
+      })));
+    }
   }, [appId]);
 
   useEffect(() => {
@@ -138,7 +144,7 @@ export function DashboardProvider({
           break;
       }
     });
-    void refreshAll();
+    void refreshAll().catch(() => undefined);
     const poll = window.setInterval(() => {
       void refreshAll().catch(() => undefined);
     }, 5000);

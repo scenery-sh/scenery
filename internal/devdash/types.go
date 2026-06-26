@@ -22,43 +22,47 @@ func ListenAddr() string {
 }
 
 type AppRecord struct {
-	RouteID      string
-	ID           string
-	BaseAppID    string
-	RuntimeAppID string
-	SessionID    string
-	Name         string
-	Root         string
-	ListenAddr   string
-	Metadata     json.RawMessage
-	APIEncoding  json.RawMessage
-	Grafana      json.RawMessage
-	Routes       map[string]string
-	Aliases      map[string]string
-	Offline      bool
-	Running      bool
-	Compiling    bool
-	CompileError string
-	PID          string
-	UpdatedAt    time.Time
+	RouteID             string
+	ID                  string
+	BaseAppID           string
+	RuntimeAppID        string
+	SessionID           string
+	Name                string
+	Root                string
+	ListenAddr          string
+	Metadata            json.RawMessage
+	APIEncoding         json.RawMessage
+	Grafana             json.RawMessage
+	Routes              map[string]string
+	Aliases             map[string]string
+	Offline             bool
+	Running             bool
+	SessionStatus       string
+	SessionStatusReason string
+	Compiling           bool
+	CompileError        string
+	PID                 string
+	UpdatedAt           time.Time
 }
 
 type AppStatus struct {
-	Running      bool              `json:"running"`
-	AppID        string            `json:"appID"`
-	BaseAppID    string            `json:"baseAppID,omitempty"`
-	RuntimeAppID string            `json:"runtimeAppID,omitempty"`
-	SessionID    string            `json:"sessionID,omitempty"`
-	AppRoot      string            `json:"appRoot"`
-	PID          string            `json:"pid,omitempty"`
-	Meta         json.RawMessage   `json:"meta,omitempty"`
-	Addr         string            `json:"addr,omitempty"`
-	APIEncoding  json.RawMessage   `json:"apiEncoding,omitempty"`
-	Grafana      *GrafanaState     `json:"grafana,omitempty"`
-	Routes       map[string]string `json:"routes,omitempty"`
-	Aliases      map[string]string `json:"aliases,omitempty"`
-	Compiling    bool              `json:"compiling"`
-	CompileError string            `json:"compileError,omitempty"`
+	Running             bool              `json:"running"`
+	AppID               string            `json:"appID"`
+	BaseAppID           string            `json:"baseAppID,omitempty"`
+	RuntimeAppID        string            `json:"runtimeAppID,omitempty"`
+	SessionID           string            `json:"sessionID,omitempty"`
+	AppRoot             string            `json:"appRoot"`
+	PID                 string            `json:"pid,omitempty"`
+	Meta                json.RawMessage   `json:"meta,omitempty"`
+	Addr                string            `json:"addr,omitempty"`
+	APIEncoding         json.RawMessage   `json:"apiEncoding,omitempty"`
+	Grafana             *GrafanaState     `json:"grafana,omitempty"`
+	Routes              map[string]string `json:"routes,omitempty"`
+	Aliases             map[string]string `json:"aliases,omitempty"`
+	SessionStatus       string            `json:"sessionStatus,omitempty"`
+	SessionStatusReason string            `json:"sessionStatusReason,omitempty"`
+	Compiling           bool              `json:"compiling"`
+	CompileError        string            `json:"compileError,omitempty"`
 }
 
 type GrafanaState struct {

@@ -2,6 +2,14 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardProvider, useDashboard } from "../lib/dashboard-context";
+import {
+  appStatusSessionState,
+  appSummarySessionState,
+  isRunningSession,
+  sessionStateDotClass,
+  sessionStateLabel,
+} from "../lib/session-status";
+import type { AppStatus } from "../lib/types";
 import { cn } from "../lib/utils";
 import {
   AppShell,
@@ -56,8 +64,9 @@ function DashboardShell({ appId }: { appId: string }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const appSummary = apps.find((item) => item.id === appId);
   const appName = appSummary?.name || status?.appID || appId;
+  const statusState = appStatusSessionState(status, connected);
   const runningApps = useMemo(
-    () => apps.filter((item) => !item.offline),
+    () => apps.filter((item) => isRunningSession(appSummarySessionState(item))),
     [apps],
   );
 
@@ -98,35 +107,14 @@ function DashboardShell({ appId }: { appId: string }) {
               <button
                 type="button"
                 data-scenery-ui="AppStatus"
-                data-scenery-state={
-                  status?.compileError
-                    ? "compile-error"
-                    : status?.compiling
-                      ? "compiling"
-                      : status?.running
-                        ? "running"
-                        : connected
-                          ? "stopped"
-                          : "disconnected"
-                }
+                data-scenery-state={statusState}
                 className="flex h-8 w-6 items-center justify-center rounded-md transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                title={statusTooltip(
-                  status?.compileError,
-                  status?.compiling,
-                  status?.running,
-                  connected,
-                )}
+                title={statusTooltip(status, connected)}
               >
                 <figure
                   className={cn(
                     "h-3 w-3 shrink-0 rounded-full",
-                    status?.compileError
-                      ? "bg-red-500"
-                      : status?.compiling
-                        ? "animate-spin border-2 border-sidebar-foreground border-t-transparent"
-                        : status?.running
-                          ? "bg-success"
-                          : "bg-neutral-600 opacity-inactive",
+                    sessionStateDotClass(statusState),
                   )}
                 />
               </button>
@@ -137,12 +125,7 @@ function DashboardShell({ appId }: { appId: string }) {
                 className={appShellAppMenuButtonClass()}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
-                title={statusTooltip(
-                  status?.compileError,
-                  status?.compiling,
-                  status?.running,
-                  connected,
-                )}
+                title={statusTooltip(status, connected)}
               >
                 <span className="truncate text-sm font-medium">{appName}</span>
                 <IconChevronDown
@@ -166,29 +149,37 @@ function DashboardShell({ appId }: { appId: string }) {
                         No running apps
                       </div>
                     ) : (
-                      runningApps.map((item) => (
-                        <Link
-                          key={item.id}
-                          to="/$appId"
-                          params={{ appId: item.id }}
-                          onClick={() => setMenuOpen(false)}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground",
-                            item.id === appId &&
-                              "bg-accent text-accent-foreground",
-                          )}
-                        >
-                          <figure className="h-2 w-2 shrink-0 rounded-full bg-success" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">
-                              {item.name}
+                      runningApps.map((item) => {
+                        const state = appSummarySessionState(item);
+                        return (
+                          <Link
+                            key={item.id}
+                            to="/$appId"
+                            params={{ appId: item.id }}
+                            onClick={() => setMenuOpen(false)}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground",
+                              item.id === appId &&
+                                "bg-accent text-accent-foreground",
+                            )}
+                          >
+                            <figure
+                              className={cn(
+                                "h-2 w-2 shrink-0 rounded-full",
+                                sessionStateDotClass(state),
+                              )}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">
+                                {item.name}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {item.session_id || item.id}
+                              </span>
                             </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {item.session_id || item.id}
-                            </span>
-                          </span>
-                        </Link>
-                      ))
+                          </Link>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -504,23 +495,27 @@ function IconSidebar({ className }: { className?: string }) {
   );
 }
 
-function statusTooltip(
-  compileError: string | undefined,
-  compiling: boolean | undefined,
-  running: boolean | undefined,
-  connected: boolean,
-): string {
-  if (!connected) {
-    return "Disconnected from scenery. Attempting to reconnect.";
+function statusTooltip(status: AppStatus | null, connected: boolean): string {
+  const state = appStatusSessionState(status, connected);
+  if (status?.sessionStatusReason) {
+    return `${sessionStateLabel(state)}: ${status.sessionStatusReason}`;
   }
-  if (compiling) {
-    return "Compiling...";
+  switch (state) {
+    case "compile-error":
+      return "Compile error.";
+    case "compiling":
+      return "Compiling...";
+    case "running":
+      return "App is running.";
+    case "starting":
+      return "App is starting.";
+    case "degraded":
+      return "Session is degraded.";
+    case "stale":
+      return "Session is stale.";
+    case "stopped":
+      return "App is not running.";
+    case "disconnected":
+      return "Disconnected from scenery. Attempting to reconnect.";
   }
-  if (compileError) {
-    return "Compile error.";
-  }
-  if (running) {
-    return "App is running.";
-  }
-  return "App is not running.";
 }

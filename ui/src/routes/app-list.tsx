@@ -1,6 +1,12 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardRpcClient } from "../lib/rpc";
+import {
+  appSummarySessionState,
+  isSelectableSession,
+  sessionStateDotClass,
+  sessionStateLabel,
+} from "../lib/session-status";
 import { useResolvedTheme } from "../lib/theme";
 import type { AppSummary } from "../lib/types";
 import { cn, dashboardWebsocketURL } from "../lib/utils";
@@ -49,7 +55,10 @@ export function AppListPage() {
   }, []);
 
   const immediatelyUsefulApps = useMemo(
-    () => (apps ?? []).filter((app) => !app.offline || app.compileError),
+    () =>
+      (apps ?? []).filter((app) =>
+        isSelectableSession(appSummarySessionState(app)),
+      ),
     [apps],
   );
 
@@ -94,37 +103,47 @@ export function AppListPage() {
               starting an existing app using <code>scenery dev</code>.
             </p>
           ) : (
-            apps.map((app) => (
-              <Link
-                key={app.id}
-                to="/$appId"
-                params={{ appId: app.id }}
-                className={cn(
-                  "flex items-center justify-between rounded-md border border-border px-4 py-3 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  app.offline && "opacity-50",
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <figure
-                    className={cn(
-                      "h-2 w-2 rounded-full",
-                      app.compileError
-                        ? "bg-red-500"
-                        : app.offline
-                          ? "bg-transparent border border-border"
-                          : "bg-success",
-                    )}
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{app.name}</span>
-                    {app.compileError ? (
-                      <span className="block truncate text-xs text-red-500">Compile error</span>
-                    ) : null}
+            apps.map((app) => {
+              const state = appSummarySessionState(app);
+              const muted = state === "stale" || state === "stopped";
+              return (
+                <Link
+                  key={app.id}
+                  to="/$appId"
+                  params={{ appId: app.id }}
+                  className={cn(
+                    "flex items-center justify-between rounded-md border border-border px-4 py-3 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    muted && "opacity-50",
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <figure
+                      className={cn(
+                        "h-2 w-2 rounded-full",
+                        sessionStateDotClass(state),
+                      )}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {app.name}
+                      </span>
+                      {state !== "running" ? (
+                        <span
+                          className={cn(
+                            "block truncate text-xs text-muted-foreground",
+                            state === "compile-error" && "text-red-500",
+                            state === "degraded" && "text-amber-400",
+                          )}
+                        >
+                          {sessionStateLabel(state)}
+                        </span>
+                      ) : null}
+                    </span>
                   </span>
-                </span>
-                <span aria-hidden="true">›</span>
-              </Link>
-            ))
+                  <span aria-hidden="true">›</span>
+                </Link>
+              );
+            })
           )}
         </div>
       </div>

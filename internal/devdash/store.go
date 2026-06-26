@@ -98,56 +98,60 @@ type storeState struct {
 }
 
 type StoredApp struct {
-	RouteID         string            `json:"route_id,omitempty"`
-	ID              string            `json:"id"`
-	BaseAppID       string            `json:"base_app_id,omitempty"`
-	RuntimeAppID    string            `json:"runtime_app_id,omitempty"`
-	SessionID       string            `json:"session_id,omitempty"`
-	Name            string            `json:"name,omitempty"`
-	Root            string            `json:"root,omitempty"`
-	ListenAddr      string            `json:"listen_addr,omitempty"`
-	Grafana         json.RawMessage   `json:"grafana,omitempty"`
-	Routes          map[string]string `json:"routes,omitempty"`
-	Aliases         map[string]string `json:"aliases,omitempty"`
-	Offline         bool              `json:"offline,omitempty"`
-	Running         bool              `json:"running,omitempty"`
-	Compiling       bool              `json:"compiling,omitempty"`
-	CompileError    string            `json:"compile_error,omitempty"`
-	PID             string            `json:"pid,omitempty"`
-	UpdatedAt       time.Time         `json:"updated_at,omitempty"`
-	MetadataRef     string            `json:"metadata_ref,omitempty"`
-	MetadataHash    string            `json:"metadata_hash,omitempty"`
-	APIEncodingRef  string            `json:"api_encoding_ref,omitempty"`
-	APIEncodingHash string            `json:"api_encoding_hash,omitempty"`
-	AppRevision     string            `json:"app_revision,omitempty"`
+	RouteID             string            `json:"route_id,omitempty"`
+	ID                  string            `json:"id"`
+	BaseAppID           string            `json:"base_app_id,omitempty"`
+	RuntimeAppID        string            `json:"runtime_app_id,omitempty"`
+	SessionID           string            `json:"session_id,omitempty"`
+	Name                string            `json:"name,omitempty"`
+	Root                string            `json:"root,omitempty"`
+	ListenAddr          string            `json:"listen_addr,omitempty"`
+	Grafana             json.RawMessage   `json:"grafana,omitempty"`
+	Routes              map[string]string `json:"routes,omitempty"`
+	Aliases             map[string]string `json:"aliases,omitempty"`
+	Offline             bool              `json:"offline,omitempty"`
+	Running             bool              `json:"running,omitempty"`
+	SessionStatus       string            `json:"session_status,omitempty"`
+	SessionStatusReason string            `json:"session_status_reason,omitempty"`
+	Compiling           bool              `json:"compiling,omitempty"`
+	CompileError        string            `json:"compile_error,omitempty"`
+	PID                 string            `json:"pid,omitempty"`
+	UpdatedAt           time.Time         `json:"updated_at,omitempty"`
+	MetadataRef         string            `json:"metadata_ref,omitempty"`
+	MetadataHash        string            `json:"metadata_hash,omitempty"`
+	APIEncodingRef      string            `json:"api_encoding_ref,omitempty"`
+	APIEncodingHash     string            `json:"api_encoding_hash,omitempty"`
+	AppRevision         string            `json:"app_revision,omitempty"`
 
 	legacyMetadata    json.RawMessage
 	legacyAPIEncoding json.RawMessage
 }
 
 type StoredAppSession struct {
-	RouteID         string            `json:"route_id,omitempty"`
-	ID              string            `json:"id"`
-	BaseAppID       string            `json:"base_app_id,omitempty"`
-	RuntimeAppID    string            `json:"runtime_app_id,omitempty"`
-	SessionID       string            `json:"session_id,omitempty"`
-	Name            string            `json:"name,omitempty"`
-	Root            string            `json:"root,omitempty"`
-	ListenAddr      string            `json:"listen_addr,omitempty"`
-	Grafana         json.RawMessage   `json:"grafana,omitempty"`
-	Routes          map[string]string `json:"routes,omitempty"`
-	Aliases         map[string]string `json:"aliases,omitempty"`
-	Offline         bool              `json:"offline,omitempty"`
-	Running         bool              `json:"running,omitempty"`
-	Compiling       bool              `json:"compiling,omitempty"`
-	CompileError    string            `json:"compile_error,omitempty"`
-	PID             string            `json:"pid,omitempty"`
-	UpdatedAt       time.Time         `json:"updated_at,omitempty"`
-	MetadataRef     string            `json:"metadata_ref,omitempty"`
-	MetadataHash    string            `json:"metadata_hash,omitempty"`
-	APIEncodingRef  string            `json:"api_encoding_ref,omitempty"`
-	APIEncodingHash string            `json:"api_encoding_hash,omitempty"`
-	AppRevision     string            `json:"app_revision,omitempty"`
+	RouteID             string            `json:"route_id,omitempty"`
+	ID                  string            `json:"id"`
+	BaseAppID           string            `json:"base_app_id,omitempty"`
+	RuntimeAppID        string            `json:"runtime_app_id,omitempty"`
+	SessionID           string            `json:"session_id,omitempty"`
+	Name                string            `json:"name,omitempty"`
+	Root                string            `json:"root,omitempty"`
+	ListenAddr          string            `json:"listen_addr,omitempty"`
+	Grafana             json.RawMessage   `json:"grafana,omitempty"`
+	Routes              map[string]string `json:"routes,omitempty"`
+	Aliases             map[string]string `json:"aliases,omitempty"`
+	Offline             bool              `json:"offline,omitempty"`
+	Running             bool              `json:"running,omitempty"`
+	SessionStatus       string            `json:"session_status,omitempty"`
+	SessionStatusReason string            `json:"session_status_reason,omitempty"`
+	Compiling           bool              `json:"compiling,omitempty"`
+	CompileError        string            `json:"compile_error,omitempty"`
+	PID                 string            `json:"pid,omitempty"`
+	UpdatedAt           time.Time         `json:"updated_at,omitempty"`
+	MetadataRef         string            `json:"metadata_ref,omitempty"`
+	MetadataHash        string            `json:"metadata_hash,omitempty"`
+	APIEncodingRef      string            `json:"api_encoding_ref,omitempty"`
+	APIEncodingHash     string            `json:"api_encoding_hash,omitempty"`
+	AppRevision         string            `json:"app_revision,omitempty"`
 
 	legacyMetadata    json.RawMessage
 	legacyAPIEncoding json.RawMessage
@@ -242,6 +246,12 @@ func mergeStoredAppLegacy(app *StoredApp, legacy AppRecord) {
 	if !app.Running {
 		app.Running = legacy.Running
 	}
+	if app.SessionStatus == "" {
+		app.SessionStatus = legacy.SessionStatus
+	}
+	if app.SessionStatusReason == "" {
+		app.SessionStatusReason = legacy.SessionStatusReason
+	}
 	if !app.Compiling {
 		app.Compiling = legacy.Compiling
 	}
@@ -297,6 +307,12 @@ func mergeStoredAppSessionLegacy(session *StoredAppSession, legacy AppRecord) {
 	}
 	if !session.Running {
 		session.Running = legacy.Running
+	}
+	if session.SessionStatus == "" {
+		session.SessionStatus = legacy.SessionStatus
+	}
+	if session.SessionStatusReason == "" {
+		session.SessionStatusReason = legacy.SessionStatusReason
 	}
 	if !session.Compiling {
 		session.Compiling = legacy.Compiling
@@ -864,116 +880,126 @@ func (s *Store) splitAppRecordForStore(app AppRecord) (StoredApp, StoredAppSessi
 
 func storedAppFromAppRecord(app AppRecord) StoredApp {
 	return StoredApp{
-		RouteID:      app.RouteID,
-		ID:           app.ID,
-		BaseAppID:    app.BaseAppID,
-		RuntimeAppID: app.RuntimeAppID,
-		SessionID:    app.SessionID,
-		Name:         app.Name,
-		Root:         app.Root,
-		ListenAddr:   app.ListenAddr,
-		Grafana:      compactRawMessage(app.Grafana),
-		Routes:       maps.Clone(app.Routes),
-		Aliases:      maps.Clone(app.Aliases),
-		Offline:      app.Offline,
-		Running:      app.Running,
-		Compiling:    app.Compiling,
-		CompileError: app.CompileError,
-		PID:          app.PID,
-		UpdatedAt:    app.UpdatedAt,
+		RouteID:             app.RouteID,
+		ID:                  app.ID,
+		BaseAppID:           app.BaseAppID,
+		RuntimeAppID:        app.RuntimeAppID,
+		SessionID:           app.SessionID,
+		Name:                app.Name,
+		Root:                app.Root,
+		ListenAddr:          app.ListenAddr,
+		Grafana:             compactRawMessage(app.Grafana),
+		Routes:              maps.Clone(app.Routes),
+		Aliases:             maps.Clone(app.Aliases),
+		Offline:             app.Offline,
+		Running:             app.Running,
+		SessionStatus:       app.SessionStatus,
+		SessionStatusReason: app.SessionStatusReason,
+		Compiling:           app.Compiling,
+		CompileError:        app.CompileError,
+		PID:                 app.PID,
+		UpdatedAt:           app.UpdatedAt,
 	}
 }
 
 func storedAppSessionFromAppRecord(app AppRecord) StoredAppSession {
 	return StoredAppSession{
-		RouteID:      app.RouteID,
-		ID:           app.ID,
-		BaseAppID:    app.BaseAppID,
-		RuntimeAppID: app.RuntimeAppID,
-		SessionID:    app.SessionID,
-		Name:         app.Name,
-		Root:         app.Root,
-		ListenAddr:   app.ListenAddr,
-		Grafana:      compactRawMessage(app.Grafana),
-		Routes:       maps.Clone(app.Routes),
-		Aliases:      maps.Clone(app.Aliases),
-		Offline:      app.Offline,
-		Running:      app.Running,
-		Compiling:    app.Compiling,
-		CompileError: app.CompileError,
-		PID:          app.PID,
-		UpdatedAt:    app.UpdatedAt,
+		RouteID:             app.RouteID,
+		ID:                  app.ID,
+		BaseAppID:           app.BaseAppID,
+		RuntimeAppID:        app.RuntimeAppID,
+		SessionID:           app.SessionID,
+		Name:                app.Name,
+		Root:                app.Root,
+		ListenAddr:          app.ListenAddr,
+		Grafana:             compactRawMessage(app.Grafana),
+		Routes:              maps.Clone(app.Routes),
+		Aliases:             maps.Clone(app.Aliases),
+		Offline:             app.Offline,
+		Running:             app.Running,
+		SessionStatus:       app.SessionStatus,
+		SessionStatusReason: app.SessionStatusReason,
+		Compiling:           app.Compiling,
+		CompileError:        app.CompileError,
+		PID:                 app.PID,
+		UpdatedAt:           app.UpdatedAt,
 	}
 }
 
 func storedAppSessionFromApp(app StoredApp) StoredAppSession {
 	return StoredAppSession{
-		RouteID:         app.RouteID,
-		ID:              app.ID,
-		BaseAppID:       app.BaseAppID,
-		RuntimeAppID:    app.RuntimeAppID,
-		SessionID:       app.SessionID,
-		Name:            app.Name,
-		Root:            app.Root,
-		ListenAddr:      app.ListenAddr,
-		Grafana:         copyRawMessage(app.Grafana),
-		Routes:          maps.Clone(app.Routes),
-		Aliases:         maps.Clone(app.Aliases),
-		Offline:         app.Offline,
-		Running:         app.Running,
-		Compiling:       app.Compiling,
-		CompileError:    app.CompileError,
-		PID:             app.PID,
-		UpdatedAt:       app.UpdatedAt,
-		MetadataRef:     app.MetadataRef,
-		MetadataHash:    app.MetadataHash,
-		APIEncodingRef:  app.APIEncodingRef,
-		APIEncodingHash: app.APIEncodingHash,
-		AppRevision:     app.AppRevision,
+		RouteID:             app.RouteID,
+		ID:                  app.ID,
+		BaseAppID:           app.BaseAppID,
+		RuntimeAppID:        app.RuntimeAppID,
+		SessionID:           app.SessionID,
+		Name:                app.Name,
+		Root:                app.Root,
+		ListenAddr:          app.ListenAddr,
+		Grafana:             copyRawMessage(app.Grafana),
+		Routes:              maps.Clone(app.Routes),
+		Aliases:             maps.Clone(app.Aliases),
+		Offline:             app.Offline,
+		Running:             app.Running,
+		SessionStatus:       app.SessionStatus,
+		SessionStatusReason: app.SessionStatusReason,
+		Compiling:           app.Compiling,
+		CompileError:        app.CompileError,
+		PID:                 app.PID,
+		UpdatedAt:           app.UpdatedAt,
+		MetadataRef:         app.MetadataRef,
+		MetadataHash:        app.MetadataHash,
+		APIEncodingRef:      app.APIEncodingRef,
+		APIEncodingHash:     app.APIEncodingHash,
+		AppRevision:         app.AppRevision,
 	}
 }
 
 func (app StoredApp) toAppRecord() AppRecord {
 	return AppRecord{
-		RouteID:      app.RouteID,
-		ID:           app.ID,
-		BaseAppID:    app.BaseAppID,
-		RuntimeAppID: app.RuntimeAppID,
-		SessionID:    app.SessionID,
-		Name:         app.Name,
-		Root:         app.Root,
-		ListenAddr:   app.ListenAddr,
-		Grafana:      copyRawMessage(app.Grafana),
-		Routes:       maps.Clone(app.Routes),
-		Aliases:      maps.Clone(app.Aliases),
-		Offline:      app.Offline,
-		Running:      app.Running,
-		Compiling:    app.Compiling,
-		CompileError: app.CompileError,
-		PID:          app.PID,
-		UpdatedAt:    app.UpdatedAt,
+		RouteID:             app.RouteID,
+		ID:                  app.ID,
+		BaseAppID:           app.BaseAppID,
+		RuntimeAppID:        app.RuntimeAppID,
+		SessionID:           app.SessionID,
+		Name:                app.Name,
+		Root:                app.Root,
+		ListenAddr:          app.ListenAddr,
+		Grafana:             copyRawMessage(app.Grafana),
+		Routes:              maps.Clone(app.Routes),
+		Aliases:             maps.Clone(app.Aliases),
+		Offline:             app.Offline,
+		Running:             app.Running,
+		SessionStatus:       app.SessionStatus,
+		SessionStatusReason: app.SessionStatusReason,
+		Compiling:           app.Compiling,
+		CompileError:        app.CompileError,
+		PID:                 app.PID,
+		UpdatedAt:           app.UpdatedAt,
 	}
 }
 
 func (session StoredAppSession) toAppRecord() AppRecord {
 	return AppRecord{
-		RouteID:      session.RouteID,
-		ID:           session.ID,
-		BaseAppID:    session.BaseAppID,
-		RuntimeAppID: session.RuntimeAppID,
-		SessionID:    session.SessionID,
-		Name:         session.Name,
-		Root:         session.Root,
-		ListenAddr:   session.ListenAddr,
-		Grafana:      copyRawMessage(session.Grafana),
-		Routes:       maps.Clone(session.Routes),
-		Aliases:      maps.Clone(session.Aliases),
-		Offline:      session.Offline,
-		Running:      session.Running,
-		Compiling:    session.Compiling,
-		CompileError: session.CompileError,
-		PID:          session.PID,
-		UpdatedAt:    session.UpdatedAt,
+		RouteID:             session.RouteID,
+		ID:                  session.ID,
+		BaseAppID:           session.BaseAppID,
+		RuntimeAppID:        session.RuntimeAppID,
+		SessionID:           session.SessionID,
+		Name:                session.Name,
+		Root:                session.Root,
+		ListenAddr:          session.ListenAddr,
+		Grafana:             copyRawMessage(session.Grafana),
+		Routes:              maps.Clone(session.Routes),
+		Aliases:             maps.Clone(session.Aliases),
+		Offline:             session.Offline,
+		Running:             session.Running,
+		SessionStatus:       session.SessionStatus,
+		SessionStatusReason: session.SessionStatusReason,
+		Compiling:           session.Compiling,
+		CompileError:        session.CompileError,
+		PID:                 session.PID,
+		UpdatedAt:           session.UpdatedAt,
 	}
 }
 

@@ -59,6 +59,22 @@ func TestAgentDashboardControllerUsesSessionRouteIDs(t *testing.T) {
 	}
 }
 
+func TestAppRecordStatusUsesStoredSessionHealth(t *testing.T) {
+	t.Parallel()
+
+	status := appRecordStatus(devdash.AppRecord{
+		ID:                  "demo",
+		SessionID:           "session-a",
+		Root:                "/tmp/demo",
+		Running:             true,
+		SessionStatus:       "degraded",
+		SessionStatusReason: "app process 42 is not running",
+	})
+	if status.Running || status.SessionStatus != "degraded" || status.SessionStatusReason == "" {
+		t.Fatalf("status = %+v, want degraded and not running", status)
+	}
+}
+
 func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 	t.Parallel()
 
@@ -194,10 +210,14 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
+	owner := localagent.CaptureOwner(os.Getpid(), "scenery up")
 	session, err := client.Register(ctx, localagent.RegisterRequest{
 		BaseAppID: "demo",
 		AppRoot:   t.TempDir(),
 		Branch:    "feature/live",
+		Status:    "running",
+		OwnerPID:  owner.PID,
+		Owner:     owner,
 		RouteNamespace: localagent.RouteNamespace{
 			Hosts: map[string]string{
 				localagent.RouteAPI: "api.demo.localhost",
@@ -207,6 +227,20 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		Backends: map[string]localagent.Backend{
 			localagent.RouteAPI: {Network: "tcp", Addr: "127.0.0.1:4000"},
 			"victoria":          {Network: "tcp", Addr: "127.0.0.1:8428"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	degradedSession, err := client.Register(ctx, localagent.RegisterRequest{
+		BaseAppID: "demo",
+		AppRoot:   t.TempDir(),
+		SessionID: "degraded-session",
+		Status:    "running",
+		OwnerPID:  owner.PID,
+		Owner:     owner,
+		Processes: map[string]localagent.Process{
+			"frontend-web": {PID: 2147483647},
 		},
 	})
 	if err != nil {
@@ -236,6 +270,17 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		{
 			ID:           "demo",
 			BaseAppID:    "demo",
+			RuntimeAppID: "demo--" + degradedSession.SessionID,
+			SessionID:    degradedSession.SessionID,
+			Name:         "demo",
+			Root:         degradedSession.AppRoot,
+			ListenAddr:   "127.0.0.1:4300",
+			Running:      true,
+			UpdatedAt:    now.Add(2 * time.Second),
+		},
+		{
+			ID:           "demo",
+			BaseAppID:    "demo",
 			RuntimeAppID: "demo--stale-session",
 			SessionID:    "stale-session",
 			Name:         "demo",
@@ -256,21 +301,40 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		t.Fatal(err)
 	}
 	offlineByID := map[string]bool{}
+	statusByID := map[string]string{}
+	reasonByID := map[string]string{}
 	for _, app := range apps {
 		id, _ := app["id"].(string)
 		offline, _ := app["offline"].(bool)
 		offlineByID[id] = offline
+		statusByID[id], _ = app["sessionStatus"].(string)
+		reasonByID[id], _ = app["sessionStatusReason"].(string)
 	}
 	if offlineByID[session.SessionID] {
 		t.Fatalf("live session marked offline: apps=%+v", apps)
 	}
+	if statusByID[session.SessionID] != "running" {
+		t.Fatalf("live session status = %q, want running: apps=%+v", statusByID[session.SessionID], apps)
+	}
+	if !offlineByID[degradedSession.SessionID] {
+		t.Fatalf("degraded session not marked offline: apps=%+v", apps)
+	}
+	if statusByID[degradedSession.SessionID] != "degraded" || reasonByID[degradedSession.SessionID] == "" {
+		t.Fatalf("degraded session status = %q reason %q, apps=%+v", statusByID[degradedSession.SessionID], reasonByID[degradedSession.SessionID], apps)
+	}
 	if !offlineByID["stale-session"] {
 		t.Fatalf("stale session not marked offline: apps=%+v", apps)
+	}
+	if statusByID["stale-session"] != "stale" {
+		t.Fatalf("stale session status = %q, want stale: apps=%+v", statusByID["stale-session"], apps)
 	}
 
 	status, err := controller.dashboardStatusFor(ctx, session.SessionID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !status.Running || status.SessionStatus != "running" {
+		t.Fatalf("live status health = %+v, want running", status)
 	}
 	if status.Routes[localagent.RouteAPI] == "" || status.Routes[localagent.RouteDashboard] == "" {
 		t.Fatalf("live status routes missing user-facing entries: %+v", status.Routes)
@@ -285,12 +349,20 @@ func TestAgentDashboardControllerMarksMissingRegistrySessionOffline(t *testing.T
 		t.Fatalf("live status exposed victoria alias: %+v", status.Aliases)
 	}
 
+	status, err = controller.dashboardStatusFor(ctx, degradedSession.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Running || status.SessionStatus != "degraded" || status.SessionStatusReason == "" {
+		t.Fatalf("degraded status health = %+v, want degraded and not running", status)
+	}
+
 	status, err = controller.dashboardStatusFor(ctx, "stale-session")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Running {
-		t.Fatalf("stale status still running: %+v", status)
+	if status.Running || status.SessionStatus != "stale" {
+		t.Fatalf("stale status health = %+v, want stale and not running", status)
 	}
 }
 

@@ -404,16 +404,21 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 func markInconsistentStatusSessions(sessions []localagent.Session) []localagent.Session {
 	out := append([]localagent.Session(nil), sessions...)
 	for i := range out {
-		if !sessionStatusHealthy(out[i].Status) {
-			continue
-		}
-		status, reason := classifySessionStatus(out[i])
-		if status != "" {
-			out[i].Status = status
-			out[i].StatusReason = reason
-		}
+		out[i].Status, out[i].StatusReason = effectiveSessionStatus(out[i])
 	}
 	return out
+}
+
+func effectiveSessionStatus(session localagent.Session) (string, string) {
+	status := strings.TrimSpace(session.Status)
+	reason := strings.TrimSpace(session.StatusReason)
+	if !sessionStatusHealthy(status) {
+		return status, reason
+	}
+	if next, nextReason := classifySessionStatus(session); next != "" {
+		return next, nextReason
+	}
+	return status, reason
 }
 
 func sessionStatusHealthy(status string) bool {

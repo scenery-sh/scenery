@@ -2105,8 +2105,12 @@ func (s *devSupervisor) compactAppStatus() devdash.AppStatus {
 
 func (s *devSupervisor) appStatus() devdash.AppStatus {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return devdash.AppStatus{
+	var session *localagent.Session
+	if s.agentSession != nil {
+		copy := *s.agentSession
+		session = &copy
+	}
+	status := devdash.AppStatus{
 		Running:      s.status.Running,
 		AppID:        s.status.ID,
 		BaseAppID:    s.status.BaseAppID,
@@ -2123,6 +2127,9 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 		Compiling:    s.status.Compiling,
 		CompileError: s.status.CompileError,
 	}
+	s.mu.RUnlock()
+	applySessionStatusToAppStatus(&status, session)
+	return status
 }
 
 func (s *devSupervisor) listApps(ctx context.Context) ([]map[string]any, error) {
@@ -2133,33 +2140,45 @@ func (s *devSupervisor) listApps(ctx context.Context) ([]map[string]any, error) 
 	if s.store == nil {
 		status := s.appStatus()
 		return []map[string]any{{
-			"id":           status.AppID,
-			"name":         firstNonEmpty(s.cfg.Name, status.AppID),
-			"app_root":     status.AppRoot,
-			"session_id":   status.SessionID,
-			"offline":      !status.Running,
-			"compileError": status.CompileError,
+			"id":                  status.AppID,
+			"name":                firstNonEmpty(s.cfg.Name, status.AppID),
+			"app_root":            status.AppRoot,
+			"session_id":          status.SessionID,
+			"offline":             !status.Running,
+			"sessionStatus":       status.SessionStatus,
+			"sessionStatusReason": status.SessionStatusReason,
+			"compileError":        status.CompileError,
 		}}, nil
 	}
 	app, err := s.store.GetApp(ctx, appID)
 	if err != nil {
 		status := s.appStatus()
 		return []map[string]any{{
-			"id":           status.AppID,
-			"name":         firstNonEmpty(s.cfg.Name, status.AppID),
-			"app_root":     status.AppRoot,
-			"session_id":   status.SessionID,
-			"offline":      !status.Running,
-			"compileError": status.CompileError,
+			"id":                  status.AppID,
+			"name":                firstNonEmpty(s.cfg.Name, status.AppID),
+			"app_root":            status.AppRoot,
+			"session_id":          status.SessionID,
+			"offline":             !status.Running,
+			"sessionStatus":       status.SessionStatus,
+			"sessionStatusReason": status.SessionStatusReason,
+			"compileError":        status.CompileError,
 		}}, nil
 	}
+	var session *localagent.Session
+	if current := s.currentAgentSession(); current != nil {
+		copy := *current
+		session = &copy
+	}
+	applySessionStatusToAppRecord(&app, session)
 	return []map[string]any{{
-		"id":           app.ID,
-		"name":         app.Name,
-		"app_root":     app.Root,
-		"session_id":   app.SessionID,
-		"offline":      !app.Running,
-		"compileError": app.CompileError,
+		"id":                  app.ID,
+		"name":                app.Name,
+		"app_root":            app.Root,
+		"session_id":          app.SessionID,
+		"offline":             !app.Running,
+		"sessionStatus":       app.SessionStatus,
+		"sessionStatusReason": app.SessionStatusReason,
+		"compileError":        app.CompileError,
 	}}, nil
 }
 
@@ -2185,8 +2204,13 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 	s.mu.RLock()
 	routes := s.statusDashboardRoutesLocked(app.SessionID)
 	aliases := s.statusDashboardAliasesLocked(app.SessionID)
+	var session *localagent.Session
+	if s.agentSession != nil {
+		copy := *s.agentSession
+		session = &copy
+	}
 	s.mu.RUnlock()
-	return devdash.AppStatus{
+	status := devdash.AppStatus{
 		Running:      app.Running,
 		AppID:        routeID,
 		BaseAppID:    app.BaseAppID,
@@ -2202,7 +2226,9 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 		Aliases:      aliases,
 		Compiling:    app.Compiling,
 		CompileError: app.CompileError,
-	}, nil
+	}
+	applySessionStatusToAppStatus(&status, session)
+	return status, nil
 }
 
 // statusDashboardRoutesLocked requires s.mu to be held.

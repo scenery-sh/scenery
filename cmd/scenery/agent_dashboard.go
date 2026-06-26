@@ -81,13 +81,15 @@ func (c *agentDashboardController) dashboardListApps(ctx context.Context) ([]map
 			continue
 		}
 		items = append(items, map[string]any{
-			"id":           routeID,
-			"name":         app.Name,
-			"app_root":     app.Root,
-			"session_id":   app.SessionID,
-			"base_app_id":  firstNonEmpty(app.BaseAppID, app.ID),
-			"offline":      !app.Running,
-			"compileError": app.CompileError,
+			"id":                  routeID,
+			"name":                app.Name,
+			"app_root":            app.Root,
+			"session_id":          app.SessionID,
+			"base_app_id":         firstNonEmpty(app.BaseAppID, app.ID),
+			"offline":             !app.Running,
+			"sessionStatus":       app.SessionStatus,
+			"sessionStatusReason": app.SessionStatusReason,
+			"compileError":        app.CompileError,
 		})
 	}
 	return items, nil
@@ -174,13 +176,17 @@ func (c *agentDashboardController) dashboardVictoria() dashboardVictoria {
 
 func (c *agentDashboardController) appRecordWithRegistryLiveness(app devdash.AppRecord) devdash.AppRecord {
 	if c == nil || c.agent == nil || strings.TrimSpace(app.SessionID) == "" {
+		applySessionStatusToAppRecord(&app, nil)
 		return app
 	}
 	session, ok := c.agent.GetSession(app.SessionID)
-	if !ok || strings.TrimSpace(session.Status) == "stopped" {
+	if !ok {
 		app.Running = false
+		app.SessionStatus = "stale"
+		app.SessionStatusReason = "session not found in agent registry"
 		return app
 	}
+	applySessionStatusToAppRecord(&app, &session)
 	app.Routes = visibleDashboardRoutesFromAgent(session.Routes)
 	app.Aliases = visibleDashboardRoutesFromAgent(session.Aliases)
 	return app
@@ -200,21 +206,25 @@ func sortedStringMapValues(values map[string]string) []string {
 
 func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 	routeID := firstNonEmpty(app.RouteID, app.SessionID, app.ID)
-	return devdash.AppStatus{
-		Running:      app.Running,
-		AppID:        routeID,
-		BaseAppID:    firstNonEmpty(app.BaseAppID, app.ID),
-		RuntimeAppID: app.RuntimeAppID,
-		SessionID:    app.SessionID,
-		AppRoot:      app.Root,
-		PID:          app.PID,
-		Meta:         app.Metadata,
-		Addr:         app.ListenAddr,
-		APIEncoding:  app.APIEncoding,
-		Grafana:      decodeGrafanaState(app.Grafana),
-		Routes:       app.Routes,
-		Aliases:      app.Aliases,
-		Compiling:    app.Compiling,
-		CompileError: app.CompileError,
+	status := devdash.AppStatus{
+		Running:             app.Running,
+		AppID:               routeID,
+		BaseAppID:           firstNonEmpty(app.BaseAppID, app.ID),
+		RuntimeAppID:        app.RuntimeAppID,
+		SessionID:           app.SessionID,
+		AppRoot:             app.Root,
+		PID:                 app.PID,
+		Meta:                app.Metadata,
+		Addr:                app.ListenAddr,
+		APIEncoding:         app.APIEncoding,
+		Grafana:             decodeGrafanaState(app.Grafana),
+		Routes:              app.Routes,
+		Aliases:             app.Aliases,
+		SessionStatus:       app.SessionStatus,
+		SessionStatusReason: app.SessionStatusReason,
+		Compiling:           app.Compiling,
+		CompileError:        app.CompileError,
 	}
+	applySessionStatusToAppStatus(&status, nil)
+	return status
 }
