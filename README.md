@@ -66,7 +66,7 @@ Release binaries embed the built dashboard UI and do not build it at runtime. Fr
 
 ## Prebuilt CLI Binaries
 
-Tagged releases publish prebuilt `scenery` archives for macOS, Linux, and Windows on the [GitHub Releases](https://github.com/scenery-sh/scenery/releases) page.
+Tagged releases currently publish a prebuilt `scenery` archive for macOS Apple Silicon (`darwin/arm64`) on the [GitHub Releases](https://github.com/scenery-sh/scenery/releases) page.
 
 After installing a prebuilt binary, verify it with:
 
