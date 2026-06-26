@@ -874,3 +874,21 @@ Expected `docs/knowledge.json` entry:
 Do not include raw secrets in any artifact. Use fake sentinel values in tests and assert they do not appear in inspect JSON, status JSON, logs, dashboard events, harness output, or failure evidence.
 
 The production recommendation should not be made until this plan’s final validation and acceptance section passes.
+
+## Interfaces and Dependencies
+
+Keep the public app-facing storage interface as `scenery.sh/storage`. App code should continue to receive Scenery capability metadata through `SCENERY_STORAGE_CONFIG`; it must not receive raw ZeroFS sockets, object roots, object-store credentials, or ZeroFS-specific APIs.
+
+Primary internal interfaces and contracts:
+
+* `storage.Store`, `storage.Object`, `storage.PutOptions`, `storage.GetOptions`, and typed storage errors in `storage/`.
+* Runtime storage config in `internal/storageconfig/runtime.go`.
+* Runtime/browser storage routes in `runtime/storage_http.go` and generated TypeScript storage helpers.
+* Managed ZeroFS lifecycle, storage proxy, and CLI storage commands under `cmd/scenery/`.
+* App config storage declarations and schema entries under `internal/app/` and `docs/schemas/`.
+
+Dependencies:
+
+* Use the existing Go standard library, existing Scenery packages, existing Temporal/auth/database dependencies, and the pinned ZeroFS toolchain artifact already recorded in `scenery.toolchain.json`.
+* Do not add a new storage backend, ORM, broker, filesystem mount dependency, or secret-management dependency unless this plan is updated with a concrete production gate that cannot be met otherwise.
+* Treat ZeroFS licensing and production distribution as an explicit dependency gate; production readiness cannot be marked complete until the legal/licensing decision is recorded.
