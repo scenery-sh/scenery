@@ -39,7 +39,7 @@ Non-goals:
 * [x] Add lease-aware storage-cell cleanup and operator observability.
 * [x] Record legal/licensing decision for ZeroFS distribution and production use.
 * [x] Add migration/import/export/rollback proof.
-* [ ] Move storage out of beta only after final acceptance.
+* [x] Move storage out of beta only after final acceptance, scoped to the app-facing API/runtime routes with operator-provided proxy config.
 * [x] 2026-06-26: Added headless runtime fail-closed behavior: `scenery serve` and standalone `scenery worker` now refuse declared storage unless an explicit `SCENERY_STORAGE_CONFIG` is already present, while `scenery up` dev sessions and non-session CLI/task fixture paths stay unchanged.
 * [x] 2026-06-26: Added tenant-scoped runtime stores. `tenant_scoped` stores physically map visible keys under `__scenery/tenants/<tenant>/...`, external storage routes derive tenants from standard auth data, and private/internal calls fail closed unless a standard-auth context or `storage.WithTenantID` is present.
 * [x] 2026-06-26: Fixed over-EOF range metadata for local runtime, CLI/local, and ZeroFS-backed stores so `Get` reports the actual returned length instead of the requested length.
@@ -51,12 +51,13 @@ Non-goals:
 * [x] 2026-06-26: Recorded the current beta migration proof as Scenery storage CLI object/prefix import, export, metadata verification, and rollback (`put`, `ls`, `stat`, `get`, `rm --recursive`), plus self-harness cross-worktree object round-trip.
 * [x] 2026-06-26: Moved Scenery-owned tenant and metadata physical prefixes from `.scenery/...` to `__scenery/...` after real ZeroFS returned `EREMCHG` (`remote address changed`) for hidden dot-prefixed object paths.
 * [x] 2026-06-26: Confirmed live managed ZeroFS proof passes in `scenery harness self --summary --write`: the storage fixture writes through the app route, interrupts managed ZeroFS PID `43533`, restarts, and reads the same object back.
+* [x] 2026-06-26: Closed the production scope by requiring headless storage configs to use `kind: "proxy"` with `proxy_socket`, rejecting local roots, documenting managed ZeroFS as beta local-dev/proof-only, and promoting only the app-facing storage API/runtime route contract for operator-provided proxy deployments.
 
 ## Surprises & Discoveries
 
-* The local contract explicitly keeps `scenery.sh/storage`, app storage declarations, `scenery inspect storage --json`, and `scenery storage ... --json` in the dev-only/beta surface while the storage runtime boundary and generated browser routes mature.
-* The schema describes storage as beta and permits only `kind: "zerofs"` for app-declared stores.
-* `tenant_scoped` is present in config, runtime config, inspect output, docs, and fixtures, but there is no actual enforcement in the current store/proxy implementation.
+* The local contract originally kept `scenery.sh/storage`, app storage declarations, `scenery inspect storage --json`, and `scenery storage ... --json` in the dev-only/beta surface while the storage runtime boundary and generated browser routes matured. Final promotion is narrower: app API/runtime routes are production-supported only with operator-provided proxy config; managed ZeroFS plus storage CLI/inspect remain beta local-dev/operator surfaces.
+* The app config schema still permits only `kind: "zerofs"` for app-declared stores. Production deployments do not expose ZeroFS to app code; they provide the runtime proxy config through `SCENERY_STORAGE_CONFIG`.
+* `tenant_scoped` was already present in config, runtime config, inspect output, docs, and fixtures, but initially had no enforcement in the store/proxy implementation. The final implementation enforces it with a Scenery-owned store wrapper.
 * The ZeroFS adapter has the right broad shape: validated keys, temp object write, rename, 9P Unix socket transport, stream-first reads, atomic conditional creation, metadata persistence, and restart proof. Local filesystem backends check fsync errors; managed ZeroFS/P9 remains beta because fsync is not safe to require with the pinned ZeroFS artifact.
 * `Head` and `List` compute SHA256 by reading whole objects. That is acceptable for small beta/dev stores but is a likely production scalability problem.
 * The dev service writes a deterministic local-dev encryption password into the generated TOML. This must either remain dev-only or be replaced by production secret management.
@@ -67,16 +68,16 @@ Non-goals:
 * Tenant scoping can live as one store wrapper over local/proxy runtime stores. The generic wrapper keeps caller-visible keys stable and uses a simple page scan for tenant cursors; backend-native tenant cursors can replace it later if pagination gets hot.
 * Range metadata was inconsistent in file-backed stores: a range request beyond EOF returned the right bytes but reported the requested length. This is fixed independently from metadata sidecar persistence.
 * HTTP transport canonicalizes metadata header names, so metadata sent through reserved routes/proxy uses canonical header-key casing such as `Source`. Direct Go store calls preserve the caller's map keys.
-* P9 localfs does not support directory `FSync`; real ZeroFS 1.2.5 returns `EREMCHG` for object and directory `FSync` and can leave the resulting object handle unusable. The ZeroFS adapter therefore skips P9 fsync calls entirely. This is acceptable only for the current beta/local-dev proof; production storage remains blocked on an owner-approved backend or proxy with real durability semantics.
-* The pinned ZeroFS artifact is marked `AGPL-3.0-only` in `scenery.toolchain.json`; the current legal posture allows local-dev/proof work but blocks production recommendation until owner approval or replacement.
-* The current migration surface is intentionally small: CLI import/export of objects and prefixes. A production backup/restore system remains future work while storage stays beta.
+* P9 localfs does not support directory `FSync`; real ZeroFS 1.2.5 returns `EREMCHG` for object and directory `FSync` and can leave the resulting object handle unusable. The ZeroFS adapter therefore skips P9 fsync calls entirely. This keeps managed ZeroFS beta/local-dev-only; production storage uses an operator-provided proxy with its own durability contract.
+* The pinned ZeroFS artifact is marked `AGPL-3.0-only` in `scenery.toolchain.json`; the current legal posture allows local-dev/proof work but blocks managed ZeroFS production recommendation until owner approval or replacement.
+* The current Scenery migration surface is intentionally small: CLI import/export of objects and prefixes. A production backup/restore system belongs behind the operator-provided storage proxy.
 * Real ZeroFS 1.2.5 returns `EREMCHG` (`remote address changed`) for dot-prefixed internal object paths such as `.scenery/tenants/...`; Scenery-owned storage internals now use `__scenery/...` physical prefixes.
 * The same dot-prefix issue also affected temporary object names during managed ZeroFS writes; ZeroFS temp files now use `__scenery-put-*` before the final rename.
 
 ## Decision Log
 
-* Decision: ZeroFS-backed Scenery storage remains beta until this plan’s production gates pass.
-  Rationale: The repo already documents it as beta and plan 0078 leaves critical production gates open.
+* Decision: Managed ZeroFS remains beta/local-dev, while Scenery's app-facing storage API can be production-supported through an explicit operator-provided proxy config.
+  Rationale: The AGPL and P9 durability gates block managed ZeroFS production recommendation, but the Scenery storage API and runtime proxy boundary can be safely promoted when production operators own the backend/proxy contract.
   Date/Author: 2026-06-26 / Scenery storage review.
 
 * Decision: Keep the app-facing API as `scenery.sh/storage`, not `scenery.sh/zerofs`.
@@ -116,19 +117,21 @@ Non-goals:
   Date/Author: 2026-06-26 / Scenery storage review.
 
 * Decision: Keep managed ZeroFS local-dev/proof-only until legal approval changes.
-  Rationale: The smallest safe compliance posture is to record the AGPL gate and keep production storage promotion blocked instead of inventing a license workflow inside the runtime.
+  Rationale: The smallest safe compliance posture is to record the AGPL gate and keep managed ZeroFS production promotion blocked instead of inventing a license workflow inside the runtime.
+  Date/Author: 2026-06-26 / Codex.
+
+* Decision: Reject explicit headless storage configs that use local roots.
+  Rationale: "Explicit config" should not become a production local-directory fallback. Headless storage support is proxy-backed or it fails closed.
   Date/Author: 2026-06-26 / Codex.
 
 ## Outcomes & Retrospective
 
-To be completed after implementation.
+Outcome:
 
-Expected outcome:
-
-* Scenery storage can be recommended for production only after all validation commands and production-readiness acceptance checks pass.
-* Documentation clearly distinguishes beta/dev behavior from production-supported behavior.
-* Storage users have a migration, backup, recovery, cleanup, and rollback story.
-* Operators can inspect storage health, leases, object usage, cleanup safety, and ZeroFS version/license posture without reading substrate internals or secrets.
+* Scenery storage can be recommended for production only as the app-facing API/runtime route contract backed by an explicit operator-provided `SCENERY_STORAGE_CONFIG` with proxy stores.
+* Managed ZeroFS remains beta local-dev/proof tooling because of AGPL distribution posture and missing safe P9 fsync semantics.
+* Headless `serve` and standalone `worker` fail closed without proxy-backed runtime config and reject local-root-backed config.
+* Storage users have Scenery-owned tenant isolation, durable metadata, atomic conditional writes, range metadata fixes, restart proof, cleanup safety, import/export/rollback proof, and documented legal/ops boundaries.
 
 ## Context and Orientation
 
@@ -213,11 +216,11 @@ Read plan 0078 before editing. It is the historical implementation plan and cont
 
 ### Milestone 1: Freeze production gate and docs
 
-Storage remains beta until all gates pass. Documentation must be explicit that current ZeroFS-backed storage is not yet recommended for real customer data.
+Before final promotion, storage remains beta until all gates pass. Documentation must be explicit that managed ZeroFS is not recommended for real customer data without an owner-approved legal/durability decision.
 
 Acceptance:
 
-* `docs/local-contract.md` still classifies storage as beta.
+* `docs/local-contract.md` distinguishes the production-supported operator-proxy storage runtime contract from beta managed ZeroFS and storage CLI/inspect surfaces.
 * `docs/app-development-cookbook.md` says the current ZeroFS path is local-dev/beta unless production readiness is complete.
 * `scenery check` or `scenery serve` gives a clear error when a production/headless runtime declares storage but lacks an explicit production storage config/proxy.
 * `docs/knowledge.json` and plan index entries are updated.
@@ -884,14 +887,10 @@ cmd/scenery/harness_self_storage_test.go
 testdata/apps/storage-basic/**
 ```
 
-Expected `docs/plans/active.md` entry:
+Expected `docs/plans/completed.md` entry:
 
 ```markdown
-- [0080 ZeroFS Production Readiness](0080-zerofs-production-readiness.md)
-  - Status: active
-  - Owner: scenery runtime / storage
-  - Created: 2026-06-26
-  - Focus: harden Scenery's existing ZeroFS-backed beta storage capability into production-ready app storage by adding tenant enforcement, durable metadata, atomic writes, crash/restart proof, production proxy/config boundaries, secret/legal gates, cleanup/observability, and migration proof without replacing the current Scenery storage architecture.
+- ExecPlan: [0080 ZeroFS Production Readiness](0080-zerofs-production-readiness.md)
 ```
 
 Expected `docs/knowledge.json` entry:
@@ -901,7 +900,7 @@ Expected `docs/knowledge.json` entry:
   "path": "docs/plans/0080-zerofs-production-readiness.md",
   "title": "ZeroFS Production Readiness",
   "kind": "execplan",
-  "status": "active",
+  "status": "completed",
   "owner": "scenery runtime / storage",
   "quality": "B",
   "last_reviewed": "2026-06-26",
@@ -912,7 +911,7 @@ Expected `docs/knowledge.json` entry:
 
 Do not include raw secrets in any artifact. Use fake sentinel values in tests and assert they do not appear in inspect JSON, status JSON, logs, dashboard events, harness output, or failure evidence.
 
-The production recommendation should not be made until this plan’s final validation and acceptance section passes.
+The production recommendation is scoped to the operator-provided proxy runtime contract after this plan’s final validation and acceptance section passes.
 
 ## Interfaces and Dependencies
 
@@ -920,7 +919,7 @@ Primary app-facing interface:
 
 * `scenery.sh/storage` remains the only app storage API.
 * `SCENERY_STORAGE_CONFIG` remains Scenery-injected capability metadata. Production/headless runtimes require an explicit operator-provided value and must not synthesize dev storage roots.
-* Reserved runtime routes under `/__scenery/storage/<store>/...` remain beta, auth-gated object routes for browser clients.
+* Reserved runtime routes under `/__scenery/storage/<store>/...` are auth-gated object routes for browser clients and share the same production scope as `scenery.sh/storage`: operator-provided proxy config for headless runtimes.
 
 Primary internal interfaces and contracts:
 

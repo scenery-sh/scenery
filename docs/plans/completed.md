@@ -6,6 +6,24 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## ZeroFS Production Readiness
+
+- Status: completed
+- Owner: scenery runtime / storage
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0080 ZeroFS Production Readiness](0080-zerofs-production-readiness.md)
+
+Shipped:
+
+- Promoted the app-facing `scenery.sh/storage` API, reserved runtime routes, and generated browser helpers for production only when headless runtimes receive explicit operator-provided proxy-backed `SCENERY_STORAGE_CONFIG`.
+- Kept managed ZeroFS, storage CLI/status/Web UI, and inspect lease surfaces beta local-dev/operator tooling because the pinned ZeroFS artifact is AGPL-licensed and P9 fsync is unsafe with the current backend.
+- Added tenant scoping, durable object metadata, atomic `IfNoneMatch` writes, range metadata fixes, headless fail-closed behavior, restart proof, lease-aware cleanup, and CLI import/export/rollback proof.
+
+Validation:
+
+- Passed focused storage/headless/docs checks, `go test ./...`, and `go run ./cmd/scenery harness self --summary --write` with warning-class harness findings only.
+
 ## Devdash Control-Plane Store Slimming
 
 - Status: completed

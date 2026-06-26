@@ -370,6 +370,27 @@ func TestAppProcessEnvAcceptsExplicitStorageRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestAppProcessEnvRejectsExplicitLocalStorageRuntimeConfig(t *testing.T) {
+	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"local","root":"` + t.TempDir() + `"}}}`
+	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
+	cfg := appcfg.Config{
+		Name: "storageapp",
+		Storage: appcfg.StorageConfig{
+			Default: "app",
+			Stores: map[string]appcfg.StorageStoreConfig{
+				"app": {Kind: "zerofs"},
+			},
+		},
+	}
+	_, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	if err == nil {
+		t.Fatal("appProcessEnv accepted explicit local storage runtime config")
+	}
+	if !strings.Contains(err.Error(), `must use kind "proxy"`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRequiredManagedZeroFSPreflightFailsWhenToolchainUnavailable(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", filepath.Join(t.TempDir(), "toolchain"))

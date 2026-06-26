@@ -123,10 +123,12 @@ Declare Scenery-owned storage in app config:
 }
 ```
 
-Storage is still beta. Managed ZeroFS is the local-dev path behind `scenery up`;
-headless `scenery serve` and standalone `scenery worker` require an explicit
-operator-provided `SCENERY_STORAGE_CONFIG` instead of silently creating local
-storage.
+The app-facing storage API is production-supported when headless `scenery serve`
+or standalone `scenery worker` receives an explicit operator-provided
+`SCENERY_STORAGE_CONFIG` whose stores use `kind: "proxy"` and `proxy_socket`.
+Managed ZeroFS remains the beta local-dev path behind `scenery up`; headless
+runtimes reject missing or local-root storage config instead of silently creating
+local storage.
 
 Inspect and exercise the configured store through Scenery JSON surfaces:
 
@@ -142,7 +144,7 @@ scenery storage rm app uploads/ --recursive --json
 scenery storage cleanup --json
 ```
 
-App code launched by Scenery can import `scenery.sh/storage` and call `storage.Default(ctx)` or `storage.Named(ctx, "app")`. The package reads Scenery-injected capability metadata and, in agent-backed dev sessions, talks to a session-local Scenery storage proxy. That proxy speaks to the managed ZeroFS 9P Unix socket; app code should not depend on Scenery agent-state paths, ZeroFS sockets, proxy sockets, or object directories.
+App code launched by Scenery can import `scenery.sh/storage` and call `storage.Default(ctx)` or `storage.Named(ctx, "app")`. The package reads Scenery-injected capability metadata and talks to the configured proxy socket. In agent-backed dev sessions, that proxy speaks to the managed ZeroFS 9P Unix socket; app code should not depend on Scenery agent-state paths, ZeroFS sockets, proxy sockets, or object directories.
 
 For stores with `tenant_scoped: true`, caller-visible keys stay unchanged while Scenery stores them under a tenant namespace. Authenticated HTTP storage routes derive the tenant from standard auth data. Private/internal calls must pass a standard-auth request context or wrap the context with `storage.WithTenantID(ctx, tenantID)`.
 

@@ -423,20 +423,42 @@ func headlessStorageCapabilityEnv(cfg appcfg.Config, baseEnv []string) ([]string
 	if len(cfg.Storage.Stores) == 0 {
 		return nil, nil
 	}
-	if storageRuntimeConfigPresent(baseEnv) {
+	if raw, ok := storageRuntimeConfigValue(baseEnv); ok {
+		if err := validateHeadlessStorageRuntimeConfig(raw); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	return nil, fmt.Errorf("storage is configured, but headless runtimes require explicit %s; run `scenery up` for managed dev ZeroFS or set %s to an operator-provided storage runtime config", storageconfig.RuntimeConfigEnv, storageconfig.RuntimeConfigEnv)
 }
 
-func storageRuntimeConfigPresent(env []string) bool {
+func storageRuntimeConfigValue(env []string) (string, bool) {
 	for _, item := range env {
 		key, value, ok := strings.Cut(item, "=")
 		if ok && key == storageconfig.RuntimeConfigEnv && strings.TrimSpace(value) != "" {
-			return true
+			return value, true
 		}
 	}
-	return false
+	return "", false
+}
+
+func validateHeadlessStorageRuntimeConfig(raw string) error {
+	cfg, ok, err := storageconfig.LoadRuntimeConfigValue(raw)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%s must define at least one store for headless storage runtimes", storageconfig.RuntimeConfigEnv)
+	}
+	for name, store := range cfg.Stores {
+		if strings.TrimSpace(store.Kind) != "proxy" {
+			return fmt.Errorf("headless storage store %q must use kind \"proxy\"; managed ZeroFS and local roots are dev-only", name)
+		}
+		if strings.TrimSpace(store.ProxySocket) == "" {
+			return fmt.Errorf("headless storage store %q must set proxy_socket", name)
+		}
+	}
+	return nil
 }
 
 func buildStorageWebUIResponse(cfg appcfg.Config) storageWebUIResponse {
