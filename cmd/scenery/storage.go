@@ -29,6 +29,7 @@ type storageCLIOptions struct {
 	Cursor    string
 	Limit     int
 	Recursive bool
+	Yes       bool
 }
 
 type storageStatusResponse struct {
@@ -65,6 +66,16 @@ type storageDeleteResponse struct {
 	Deleted       bool   `json:"deleted"`
 }
 
+type storageCleanupResponse struct {
+	SchemaVersion string `json:"schema_version"`
+	StorageCellID string `json:"storage_cell_id"`
+	CellRoot      string `json:"cell_root"`
+	Exists        bool   `json:"exists"`
+	DryRun        bool   `json:"dry_run"`
+	Deleted       bool   `json:"deleted"`
+	LeaseCount    int    `json:"lease_count"`
+}
+
 func storageCommand(args []string) error {
 	return runStorageCommand(args, os.Stdout)
 }
@@ -96,6 +107,8 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		})
 	case "webui":
 		return writeStorageJSON(stdout, buildStorageWebUIResponse(cfg))
+	case "cleanup":
+		return runStorageCleanup(context.Background(), stdout, cfg, opts)
 	case "ls":
 		store, err := storageStoreForCLI(cfg, opts.Store)
 		if err != nil {
@@ -180,7 +193,7 @@ func parseStorageArgs(args []string) (storageCLIOptions, error) {
 	}
 	opts := storageCLIOptions{Command: args[0]}
 	switch opts.Command {
-	case "status", "webui":
+	case "status", "webui", "cleanup":
 	case "ls":
 		if len(args) < 2 {
 			return storageCLIOptions{}, fmt.Errorf("scenery storage ls requires <store>")
@@ -254,11 +267,67 @@ func parseStorageArgs(args []string) (storageCLIOptions, error) {
 			opts.Output = args[i]
 		case "--recursive":
 			opts.Recursive = true
+		case "--yes":
+			opts.Yes = true
 		default:
 			return storageCLIOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
 	}
 	return opts, nil
+}
+
+func runStorageCleanup(ctx context.Context, stdout io.Writer, cfg appcfg.Config, opts storageCLIOptions) error {
+	plan, err := resolveManagedZeroFSPlan(cfg, &localagent.Session{SessionID: "cleanup", BaseAppID: cfg.AppID()}, nil, "")
+	if err != nil {
+		return err
+	}
+	if plan == nil {
+		return fmt.Errorf("storage is not configured")
+	}
+	leaseCount, leaseErr := storageCleanupLeaseCount(ctx, plan.StorageCellID)
+	if opts.Yes && leaseErr != nil {
+		return fmt.Errorf("cannot verify storage leases before cleanup: %w", leaseErr)
+	}
+	if opts.Yes && leaseCount > 0 {
+		return fmt.Errorf("refusing to cleanup storage cell %q with %d live lease(s)", plan.StorageCellID, leaseCount)
+	}
+	_, statErr := os.Stat(plan.CellRoot)
+	exists := statErr == nil
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return statErr
+	}
+	deleted := false
+	if opts.Yes && exists {
+		if err := os.RemoveAll(plan.CellRoot); err != nil {
+			return err
+		}
+		deleted = true
+		exists = false
+	}
+	return writeStorageJSON(stdout, storageCleanupResponse{
+		SchemaVersion: "scenery.storage.cleanup.v1",
+		StorageCellID: plan.StorageCellID,
+		CellRoot:      plan.CellRoot,
+		Exists:        exists,
+		DryRun:        !opts.Yes,
+		Deleted:       deleted,
+		LeaseCount:    leaseCount,
+	})
+}
+
+func storageCleanupLeaseCount(ctx context.Context, cellID string) (int, error) {
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		return 0, err
+	}
+	substrate, err := client.GetSubstrate(ctx, managedZeroFSSubstrateKind(cellID))
+	if err != nil {
+		if localagent.IsNotFound(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return len(inspectStorageLeases(ctx, client, substrate.Leases)), nil
 }
 
 func storageStoreForCLI(cfg appcfg.Config, name string) (publicstorage.Store, error) {

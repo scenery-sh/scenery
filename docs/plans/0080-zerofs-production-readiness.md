@@ -47,7 +47,7 @@ Non-goals:
 * [x] 2026-06-26: Added keyed `IfNoneMatch` write locking for runtime local, CLI/local, ZeroFS, and managed proxy paths; checked object and metadata fsync errors for the local filesystem backend; recorded that the managed ZeroFS/P9 backend cannot safely require fsync yet.
 * [x] 2026-06-26: Tightened generated managed ZeroFS config handling: the run directory is `0700`, the TOML containing the local-dev encryption password is `0600`, local metadata sidecar deletes sync their parent directories, and the ZeroFS AGPL production gate is recorded in `docs/zerofs-legal.md`.
 * [x] 2026-06-26: Extended the self-harness storage probe with live managed ZeroFS restart proof: write through the app route, interrupt the managed ZeroFS process, restart the dev runtime, and read the same object back through the app route.
-* [x] 2026-06-26: Confirmed the current lease-aware cleanup/ops path: `scenery down` releases only the current session lease, `inspect storage`/`storage status` report lease ownership and liveness, and shared storage-cell data remains preserved until an explicit destructive cleanup command exists.
+* [x] 2026-06-26: Added the lease-aware cleanup/ops path: `scenery down` releases only the current session lease, `inspect storage`/`storage status` report lease ownership and liveness, and `scenery storage cleanup --json` is dry-run by default, refuses live leases, and deletes the storage cell only with `--yes`.
 * [x] 2026-06-26: Recorded the current beta migration proof as Scenery storage CLI object/prefix import, export, metadata verification, and rollback (`put`, `ls`, `stat`, `get`, `rm --recursive`), plus self-harness cross-worktree object round-trip.
 * [x] 2026-06-26: Moved Scenery-owned tenant and metadata physical prefixes from `.scenery/...` to `__scenery/...` after real ZeroFS returned `EREMCHG` (`remote address changed`) for hidden dot-prefixed object paths.
 * [x] 2026-06-26: Confirmed live managed ZeroFS proof passes in `scenery harness self --summary --write`: the storage fixture writes through the app route, interrupts managed ZeroFS PID `43533`, restarts, and reads the same object back.
@@ -286,7 +286,7 @@ Give operators boring tools.
 
 Acceptance:
 
-* `scenery storage cell list|status|delete|prune --json` exists or an equivalent explicit cleanup surface exists.
+* `scenery storage cleanup --json` exists as the explicit storage-cell cleanup surface.
 * Destructive cleanup refuses live leases by default and requires `--yes`.
 * Inspect/status exposes readiness, leases, version, object usage, storage paths, log path, and last error without secrets.
 * Migration docs include backup, import/export or dual-write validation, checksum verification, rollback, and tenant isolation proof.
@@ -939,6 +939,7 @@ Scenery-owned substrate interfaces:
 Operational interfaces:
 
 * `scenery inspect storage --json` and `scenery storage status --json` expose storage readiness, lease ownership, and lease liveness without raw secrets.
+* `scenery storage cleanup --json` reports storage-cell cleanup as a dry run by default; `--yes` is required for deletion after live-lease verification.
 * `scenery storage put|get|ls|stat|rm --json` is the current beta object import/export/rollback surface.
 * `scenery down` releases only the current session's ZeroFS lease and preserves shared storage-cell data.
 

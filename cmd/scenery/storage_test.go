@@ -181,6 +181,86 @@ func TestRunStoragePutHonorsMaxObjectBytes(t *testing.T) {
 	}
 }
 
+func TestRunStorageCleanupDefaultsToDryRun(t *testing.T) {
+	agentHome := t.TempDir()
+	t.Setenv("SCENERY_AGENT_HOME", agentHome)
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".scenery.json", `{
+		"name": "storageapp",
+		"storage": {"stores": {"app": {"kind": "zerofs"}}},
+		"dev": {"services": {"storage": {"kind": "zerofs"}}}
+	}`)
+	cellRoot := filepath.Join(agentHome, "agent", "storage", "storageapp")
+	if err := os.MkdirAll(cellRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := runStorageCommand([]string{"cleanup", "--json", "--app-root", root}, &out); err != nil {
+		t.Fatalf("storage cleanup dry-run error = %v", err)
+	}
+	var payload storageCleanupResponse
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal cleanup: %v\n%s", err, out.String())
+	}
+	if !payload.DryRun || payload.Deleted || !payload.Exists || payload.CellRoot != cellRoot {
+		t.Fatalf("cleanup payload = %+v", payload)
+	}
+	if _, err := os.Stat(cellRoot); err != nil {
+		t.Fatalf("dry-run removed cell root: %v", err)
+	}
+}
+
+func TestRunStorageCleanupYesRefusesLiveLease(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	agentDone := startTestAgentServer(t, ctx)
+	defer func() {
+		cancel()
+		waitForTestAgentServer(t, agentDone)
+	}()
+	client, err := localagent.DefaultClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".scenery.json", `{
+		"name": "storageapp",
+		"storage": {"stores": {"app": {"kind": "zerofs"}}},
+		"dev": {"services": {"storage": {"kind": "zerofs"}}}
+	}`)
+	if _, err := client.Register(ctx, localagent.RegisterRequest{
+		BaseAppID: "storageapp",
+		AppRoot:   root,
+		SessionID: "main-live",
+		Status:    "running",
+		OwnerPID:  os.Getpid(),
+		Owner:     localagent.CaptureOwner(os.Getpid(), "test"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:   managedZeroFSSubstrateKind("storageapp"),
+		Status: "ready",
+		Leases: map[string]localagent.SubstrateLease{
+			"main-live": {
+				SessionID: "main-live",
+				AppRoot:   root,
+				OwnerPID:  os.Getpid(),
+				Owner:     localagent.CaptureOwner(os.Getpid(), "test"),
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	err = runStorageCommand([]string{"cleanup", "--yes", "--json", "--app-root", root}, &out)
+	if err == nil || !strings.Contains(err.Error(), "live lease") {
+		t.Fatalf("cleanup --yes error = %v, output = %s", err, out.String())
+	}
+}
+
 func TestStorageCapabilityEnvPointsAtSharedCell(t *testing.T) {
 	agentHome := t.TempDir()
 	cfg := appcfg.Config{

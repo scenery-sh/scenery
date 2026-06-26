@@ -139,6 +139,7 @@ scenery storage stat app uploads/example.txt --json
 scenery storage get app uploads/example.txt --output /tmp/example.txt --json
 scenery storage rm app uploads/example.txt --json
 scenery storage rm app uploads/ --recursive --json
+scenery storage cleanup --json
 ```
 
 App code launched by Scenery can import `scenery.sh/storage` and call `storage.Default(ctx)` or `storage.Named(ctx, "app")`. The package reads Scenery-injected capability metadata and, in agent-backed dev sessions, talks to a session-local Scenery storage proxy. That proxy speaks to the managed ZeroFS 9P Unix socket; app code should not depend on Scenery agent-state paths, ZeroFS sockets, proxy sockets, or object directories.
@@ -149,7 +150,7 @@ For stores with `tenant_scoped: true`, caller-visible keys stay unchanged while 
 
 For beta import/export checks, use `put` to import files, `ls`/`stat` to verify object metadata and checksums, `get` to export bytes, and `rm --recursive` to roll back a test prefix. This is a single-object/prefix operational proof, not a production backup system.
 
-When a managed ZeroFS storage cell is attached, `scenery inspect storage --json` and `scenery storage status --json` include runtime lease ownership. `scenery down` releases only the current session's storage lease; shared storage-cell data remains under the agent storage root until a future explicit storage cleanup path exists.
+When a managed ZeroFS storage cell is attached, `scenery inspect storage --json` and `scenery storage status --json` include runtime lease ownership. `scenery down` releases only the current session's storage lease. `scenery storage cleanup --json` reports the shared storage cell without deleting it; add `--yes` only after live leases are gone.
 
 When storage is configured, the app runtime also exposes auth-protected object routes for browser code:
 

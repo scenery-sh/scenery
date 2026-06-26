@@ -61,7 +61,7 @@ same as the stable v0 support surface.
 - `scenery inspect temporal --json`
 - `scenery inspect storage --json`
 - `scenery inspect validation --json`
-- `scenery storage status|webui|ls|stat|put|get|rm --json`
+- `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json`
 - `scenery traces list --json`
 - `scenery metrics list --json`
 - `scenery inspect docs --json`
@@ -110,7 +110,7 @@ Dev-only or beta surface:
 - `scenery inspect generators --json`
 - `scenery inspect temporal --json`
 - `scenery inspect storage --json`
-- `scenery storage status|webui|ls|stat|put|get|rm --json`
+- `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json`
 - `scenery system toolchain list|sync|verify|path`
 - `scenery doctor --json`
 - `scenery system edge install|trust|status|restart|uninstall|dns|privileged --json`
@@ -417,6 +417,7 @@ scenery storage stat <store> <key> [--app-root <path>] --json
 scenery storage put <store> <key> <file> [--app-root <path>] --json
 scenery storage get <store> <key> --output <file> [--app-root <path>] --json
 scenery storage rm <store> <key> [--recursive] [--app-root <path>] --json
+scenery storage cleanup [--yes] [--app-root <path>] --json
 scenery task list [--app-root <path>] [--json]
 scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]
 scenery task run <name> [--app-root <path>]
@@ -491,7 +492,7 @@ Inspect rules:
 - `--app-root` is optional. When omitted, scenery walks upward from the current working directory to find the app config.
 - Stable inspect subjects for v0 are `app`, `routes`, `services`, `endpoints`, `wire`, `build`, `paths`, and `docs`.
 - `generators`, `temporal`, `storage`, `traces`, `metrics`, and `observability` are beta diagnostic subjects. `generators` reports configured generation graph inputs and outputs. `temporal` reports effective Temporal config and, when enabled, a short connectivity check. `storage` reports declared stores, the resolved storage cell ID, default/share policy, dev service metadata, and readiness without exposing secret env values or raw object-store credentials. When the local agent has a matching managed ZeroFS substrate, storage inspect/status may include `storage.runtime` with normalized substrate kind/status, route, protected Web UI URL, attachment status, `lease_count`, and per-session lease ownership with live/stale status; raw socket paths and backend credentials remain hidden. `traces`, `metrics`, and `observability` read scenery-managed local observability data. Victoria is the current backing substrate, not the integration API. If no local state exists, query/discovery commands return valid JSON with warnings and empty result sets where possible.
-- `scenery storage status|webui|ls|stat|put|get|rm --json` is a beta storage capability CLI. Object commands operate on configured stores, validate keys with Scenery storage rules, and enforce configured `max_object_bytes`. The current JSON-only CLI foundation uses Scenery-owned storage-cell paths and must not print raw storage credentials or substrate-only socket paths unless a future explicit debug mode is added. `get` requires `--output` in JSON mode. The app runtime exposes the same configured stores through reserved `/__scenery/storage/<store>/...` HTTP routes when storage env is present; these routes are app data-plane routes, not dev/admin endpoints. Generated TypeScript clients include `client.storage` and `client.storage.store(name)` helpers for list, put, get, getText, getBlob, head, delete, and deletePrefix over those reserved auth storage routes. Stores with `access: "private"` are deliberately absent from the generated browser contract and are only available through app/runtime helpers or the runtime private route table.
+- `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json` is a beta storage capability CLI. Object commands operate on configured stores, validate keys with Scenery storage rules, and enforce configured `max_object_bytes`. `cleanup` reports the current storage cell by default, refuses destructive cleanup while live leases exist, and removes the storage cell only with `--yes` after lease verification. The current JSON-only CLI foundation uses Scenery-owned storage-cell paths and must not print raw storage credentials or substrate-only socket paths unless a future explicit debug mode is added. `get` requires `--output` in JSON mode. The app runtime exposes the same configured stores through reserved `/__scenery/storage/<store>/...` HTTP routes when storage env is present; these routes are app data-plane routes, not dev/admin endpoints. Generated TypeScript clients include `client.storage` and `client.storage.store(name)` helpers for list, put, get, getText, getBlob, head, delete, and deletePrefix over those reserved auth storage routes. Stores with `access: "private"` are deliberately absent from the generated browser contract and are only available through app/runtime helpers or the runtime private route table.
 - `scenery inspect observability --json` emits `scenery.inspect.observability.v1` with backend readiness for logs, metrics, and traces; native dialect names; examples; and the exact enforced query scope for the selected app/session.
 - The `scenery.inspect.traces.v1`, `scenery.inspect.metrics.v1`, `scenery.inspect.observability.v1`, `scenery.logs.query.v1`, `scenery.logs.tail.entry.v1`, `scenery.metrics.query.v1`, `scenery.metrics.labels.v1`, and `scenery.metrics.series.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable v0 API yet.
 - `--since` accepts Go duration strings such as `15m`, `1h`, or `24h`.
