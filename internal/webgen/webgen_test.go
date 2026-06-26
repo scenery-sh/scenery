@@ -42,6 +42,13 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `satisfies Record<"TaskStatusBadge", ComponentSlot<TaskListRecord>>`) {
 		t.Fatalf("routes missing slot assertion:\n%s", files[".scenery/gen/web/web/routes.tsx"])
 	}
+	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `export function TaskListPage(props: { rows?: readonly TaskListRecord[]; runtime?: GeneratedRuntime["collections"]["taskList"] } = {})`) ||
+		!strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `return createCollectionPage<TaskListRecord, typeof taskListSlots>`) {
+		t.Fatalf("routes missing mountable page component:\n%s", files[".scenery/gen/web/web/routes.tsx"])
+	}
+	if !strings.Contains(files[".scenery/gen/web/web/index.ts"], `export * from "./routes"`) {
+		t.Fatalf("index missing stable page/route barrel export:\n%s", files[".scenery/gen/web/web/index.ts"])
+	}
 	if !strings.Contains(files[".scenery/gen/web/web/projections.ts"], `export interface TaskListRecord`) ||
 		!strings.Contains(files[".scenery/gen/web/web/projections.ts"], `export function materializeTaskList(row: TaskRow): TaskListRecord`) {
 		t.Fatalf("projections missing page record materializer:\n%s", files[".scenery/gen/web/web/projections.ts"])

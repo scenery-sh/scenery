@@ -91,8 +91,10 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 		!strings.Contains(first["runtime.ts"], "taskList?: RuntimeRows<TaskRow>") ||
 		!strings.Contains(first["runtime.ts"], "export type TaskListRuntime = CollectionRuntime<TaskListRecord, TaskRow>") ||
 		!strings.Contains(first["runtime.ts"], "materialize: () => definition.materialize(rows())") ||
+		!strings.Contains(first["routes.tsx"], "export function TaskListPage(props: { rows?: readonly TaskListRecord[]; runtime?: GeneratedRuntime[\"collections\"][\"taskList\"] } = {})") ||
 		!strings.Contains(first["routes.tsx"], "satisfies Record<\"TaskStatusBadge\", ComponentSlot<TaskListRecord>>") ||
-		!strings.Contains(first["routes.tsx"], "rows: props.runtime?.materialize() ?? props.rows ?? []") {
+		!strings.Contains(first["routes.tsx"], "rows: props.runtime?.materialize() ?? props.rows ?? []") ||
+		!strings.Contains(first["index.ts"], "export * from \"./routes\"") {
 		t.Fatalf("generated web projection boundary missing:\nmodels:\n%s\nprojections:\n%s\ncollections:\n%s\nruntime:\n%s\nroutes:\n%s", first["models.ts"], first["projections.ts"], first["collections.ts"], first["runtime.ts"], first["routes.tsx"])
 	}
 	if strings.Contains(first["models.ts"], "export interface TaskCreate {\n  id: string\n  tenant_id: string") || strings.Contains(first["models.ts"], "export interface TaskPatch {\n  tenant_id?: string") {

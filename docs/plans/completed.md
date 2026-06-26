@@ -125,6 +125,43 @@ Validation:
 
 - Passed focused generated-web and model tests, full `go test ./...`, docs inspection, generated data dry-run, and temporary model DSL web typecheck/render proof.
 
+## Generated Page Mount Surface
+
+- Status: completed
+- Owner: scenery app model / generators
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0083 Generated Page Mount Surface](0083-generated-page-mount-surface.md)
+
+Shipped:
+
+- Confirmed the generated `TaskListPage` component is the minimal mount surface.
+- Kept generated pages exported through the existing `index.ts` barrel and host alias such as `@scenery/generated`.
+- Added tests proving generated pages consume `TaskListRecord` page records and type against layout-kit through `createCollectionPage`.
+
+Validation:
+
+- Passed focused generated-web tests, generated data dry-run, and model DSL web typecheck/render proof.
+
+## Simple Entity Page Pilot
+
+- Status: completed
+- Owner: scenery app model / ONLV integration
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0084 Simple Entity Page Pilot](0084-simple-entity-page-pilot.md)
+
+Shipped:
+
+- Used `testdata/apps/model-dsl` as the self-contained simple entity pilot.
+- Host fixture code imports `TaskListPage` and `TaskListRecord` through `@scenery/generated`.
+- Host fixture mounts the generated page with page records, without handwritten raw `TaskRow` usage.
+- Added the generated-page adoption recipe to agent-facing docs.
+
+Validation:
+
+- Passed Scenery-side Go checks, generated data dry-run, docs inspection, and model DSL web typecheck/render proof.
+
 ## Scenery Storage
 
 - Status: completed

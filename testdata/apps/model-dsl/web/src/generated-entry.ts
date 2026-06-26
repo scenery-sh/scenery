@@ -1,14 +1,12 @@
-import { createGeneratedRoutes, createGeneratedRuntime, registerGeneratedRoutes, type TaskRow } from "@scenery/generated"
+import { createGeneratedRoutes, registerGeneratedRoutes, TaskListPage, type TaskListRecord } from "@scenery/generated"
 import type { CollectionPageRoute } from "@scenery/layout-kit"
 
-export function generatedRouteSummary(rows: readonly TaskRow[]) {
-  const runtime = createGeneratedRuntime({
-    electric: { baseURL: "https://electric.local" },
-    rows: { taskList: rows },
-  })
-  const [route] = createGeneratedRoutes(runtime)
+export function generatedRouteSummary(records: readonly TaskListRecord[]) {
+  const [route] = createGeneratedRoutes()
   const registered: CollectionPageRoute[] = []
-  registerGeneratedRoutes((item) => registered.push(item), runtime)
+  registerGeneratedRoutes((item) => registered.push(item))
+  const rendered = route.component({ rows: records }) as { rowCount?: number }
+  const page = TaskListPage({ rows: records }) as { rowCount?: number }
   return {
     id: route.id,
     kind: route.kind,
@@ -16,9 +14,9 @@ export function generatedRouteSummary(rows: readonly TaskRow[]) {
     title: route.title,
     entity: route.entity,
     collection: route.collection,
-    shapeURL: runtime.collections.taskList.shapeURL,
-    rowCount: runtime.collections.taskList.materialize().length,
+    rowCount: rendered.rowCount,
+    pageRowCount: page.rowCount,
     registeredCount: registered.length,
-    rendered: route.component(),
+    rendered,
   }
 }

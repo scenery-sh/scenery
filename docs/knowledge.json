@@ -686,6 +686,55 @@
       ]
     },
     {
+      "path": "docs/plans/0083-generated-page-mount-surface.md",
+      "title": "Generated Page Mount Surface",
+      "owner": "scenery app model / generators",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Completed ExecPlan proving generated collection pages are mountable from host apps through a stable generated package barrel and alias while preserving page-record projection boundaries.",
+      "tags": [
+        "plans",
+        "execplans",
+        "models",
+        "views",
+        "generators",
+        "frontend",
+        "pages",
+        "agents"
+      ],
+      "schema_refs": [
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
+      ]
+    },
+    {
+      "path": "docs/plans/0084-simple-entity-page-pilot.md",
+      "title": "Simple Entity Page Pilot",
+      "owner": "scenery app model / ONLV integration",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Completed ExecPlan proving the generated page mount surface with the self-contained model DSL simple entity page pilot before the Tasks stress test.",
+      "tags": [
+        "plans",
+        "execplans",
+        "models",
+        "views",
+        "generators",
+        "frontend",
+        "pilot",
+        "onlv",
+        "agents"
+      ],
+      "schema_refs": [
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",
