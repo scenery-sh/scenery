@@ -91,6 +91,21 @@ Validation:
 - `testdata/apps/model-dsl` exercises generated schema/seed/backend/frontend contracts.
 - The ONLV `tasksnew` pilot in https://github.com/pbrazdil/onlv/issues/95 proved the generated model/page stack in a production app and fed discovered Scenery gaps back into the closed follow-up issues.
 
+## Page Record Projection IR
+
+- Status: completed
+- Owner: scenery app model / generators
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0081 Page Record Projection IR](0081-page-record-projection-ir.md)
+
+Shipped:
+
+- Added internal page-record projection IR for collection views.
+- `scenery inspect views --json` now exposes each view projection record type, source row, and projected fields.
+- Generated web packages now include `projections.ts`; generated collections/runtime/routes use page record types while Electric shapes keep storage row types.
+- Computed page columns now fail with a deterministic diagnostic instead of being silently skipped.
+
 ## Scenery Storage
 
 - Status: completed

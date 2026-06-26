@@ -437,6 +437,49 @@ func TestModelDSLParseBuildsStaticIR(t *testing.T) {
 	if strings.Join(view.Columns, ",") != "Title,Status,CreatedAt" || len(view.Slots) != 1 || view.Slots[0].Name != "TaskStatusBadge" {
 		t.Fatalf("view projection = %+v", view)
 	}
+	if view.Projection.RecordName != "TaskListRecord" || view.Projection.SourceRowName != "TaskRow" {
+		t.Fatalf("projection names = %+v", view.Projection)
+	}
+	var projectionColumns []string
+	for _, field := range view.Projection.Fields {
+		projectionColumns = append(projectionColumns, field.Column)
+	}
+	if strings.Join(projectionColumns, ",") != "id,title,status,created_at" {
+		t.Fatalf("projection columns = %+v", view.Projection.Fields)
+	}
+}
+
+func TestModelDSLRejectsComputedPageProjectionColumn(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, root, ".scenery.json", `{"name":"computedview"}`)
+	writeFile(t, root, "go.mod", "module example.com/computedview\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	writeFile(t, root, "tasks/model.go", `package tasks
+
+import (
+	"scenery.sh/model"
+	"scenery.sh/page"
+)
+
+//scenery:model
+type Task struct {
+	ID string
+	AgeDays int
+}
+
+var _ = model.Entity[Task](model.Field("AgeDays", model.Computed()))
+
+//scenery:page
+var TaskList = page.Collection[Task]{
+	Columns: []string{"AgeDays"},
+}
+`)
+
+	_, err := parse.App(root, "computedview")
+	if err == nil || !strings.Contains(err.Error(), `page TaskList column "AgeDays" is computed and cannot be materialized by generated collection projections yet`) {
+		t.Fatalf("expected computed projection error, got %v", err)
+	}
 }
 
 func TestModelDSLGeneratedCRUDUsesServiceScopedRouteBase(t *testing.T) {

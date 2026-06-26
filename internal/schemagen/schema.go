@@ -108,7 +108,7 @@ func renderServiceHCL(entities []*model.Entity) string {
 	for _, entity := range entities {
 		schema := model.EntityDatabaseSchema(entity)
 		for _, field := range entity.Fields {
-			if len(field.EnumValues) == 0 || field.Kind == model.EntityFieldComputed {
+			if len(field.EnumValues) == 0 || !model.EntityFieldIsStored(field) {
 				continue
 			}
 			fmt.Fprintf(&b, "enum %q %q {\n", schema, enumName(entity, field))
@@ -126,7 +126,7 @@ func renderServiceHCL(entities []*model.Entity) string {
 		fmt.Fprintf(&b, "table %q %q {\n", schema, entity.Table)
 		fmt.Fprintf(&b, "  schema = schema.%s\n\n", hclRef(schema))
 		for _, field := range entity.Fields {
-			if field.Kind == model.EntityFieldComputed {
+			if !model.EntityFieldIsStored(field) {
 				continue
 			}
 			fmt.Fprintf(&b, "  column %q {\n", field.Column)
@@ -147,7 +147,7 @@ func renderServiceHCL(entities []*model.Entity) string {
 func primaryKeyField(entity *model.Entity) *model.EntityField {
 	for i := range entity.Fields {
 		field := &entity.Fields[i]
-		if field.Kind != model.EntityFieldComputed && strings.EqualFold(field.Name, "id") {
+		if model.EntityFieldIsStored(*field) && strings.EqualFold(field.Name, "id") {
 			return field
 		}
 	}

@@ -60,7 +60,7 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 	}
 
 	webRoot := filepath.Join(root, ".scenery", "gen", "web", "web")
-	wantFiles := []string{"collections.ts", "index.ts", "models.ts", "package.json", "routes.tsx", "runtime.ts", "shapes.ts"}
+	wantFiles := []string{"collections.ts", "index.ts", "models.ts", "package.json", "projections.ts", "routes.tsx", "runtime.ts", "shapes.ts"}
 	first := map[string]string{}
 	for _, name := range wantFiles {
 		data, err := os.ReadFile(filepath.Join(webRoot, name))
@@ -72,6 +72,7 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 	for name, data := range map[string]string{
 		"models.ts":      "export interface TaskRow",
 		"shapes.ts":      "export const taskShape",
+		"projections.ts": "export interface TaskListRecord",
 		"collections.ts": "export interface TanStackDBCollectionDefinition",
 		"routes.tsx":     "registerGeneratedRoutes",
 		"runtime.ts":     "export function createTaskListRuntime",
@@ -82,8 +83,8 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 			t.Fatalf("%s missing %q:\n%s", name, data, first[name])
 		}
 	}
-	if !strings.Contains(first["models.ts"], "tenant_id: string") || !strings.Contains(first["models.ts"], "status: TaskStatus") || !strings.Contains(first["routes.tsx"], "satisfies Record<\"TaskStatusBadge\", ComponentSlot<TaskRow>>") {
-		t.Fatalf("generated web type or slot assertions missing:\nmodels:\n%s\nroutes:\n%s", first["models.ts"], first["routes.tsx"])
+	if !strings.Contains(first["models.ts"], "tenant_id: string") || !strings.Contains(first["models.ts"], "status: TaskStatus") || !strings.Contains(first["projections.ts"], "export function materializeTaskList(row: TaskRow): TaskListRecord") || !strings.Contains(first["routes.tsx"], "satisfies Record<\"TaskStatusBadge\", ComponentSlot<TaskListRecord>>") {
+		t.Fatalf("generated web type or slot assertions missing:\nmodels:\n%s\nprojections:\n%s\nroutes:\n%s", first["models.ts"], first["projections.ts"], first["routes.tsx"])
 	}
 	if strings.Contains(first["models.ts"], "export interface TaskCreate {\n  id: string\n  tenant_id: string") || strings.Contains(first["models.ts"], "export interface TaskPatch {\n  tenant_id?: string") {
 		t.Fatalf("generated web create/patch should not expose tenant_id as client-writable:\n%s", first["models.ts"])

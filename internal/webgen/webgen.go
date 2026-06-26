@@ -81,6 +81,7 @@ func renderBundle(appRoot, frontendName, frontendRootAbs, generatedDir string, e
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "package.json")), Contents: renderPackageJSON(frontendName)},
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "models.ts")), Contents: renderModels(entities)},
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "shapes.ts")), Contents: renderShapes(entities)},
+		{Path: filepath.ToSlash(filepath.Join(generatedDir, "projections.ts")), Contents: renderProjections(entities, views)},
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "collections.ts")), Contents: renderCollections(entities, views)},
 		{Path: filepath.ToSlash(filepath.Join(generatedDir, "runtime.ts")), Contents: renderRuntime(entities, views)},
 	}
@@ -190,6 +191,7 @@ func renderPackageJSON(frontendName string) string {
 		"    \".\": \"./index.ts\",\n" +
 		"    \"./models\": \"./models.ts\",\n" +
 		"    \"./shapes\": \"./shapes.ts\",\n" +
+		"    \"./projections\": \"./projections.ts\",\n" +
 		"    \"./collections\": \"./collections.ts\",\n" +
 		"    \"./runtime\": \"./runtime.ts\",\n" +
 		"    \"./routes\": \"./routes.tsx\"\n" +
@@ -272,17 +274,76 @@ func renderShapes(entities map[string]*model.Entity) string {
 	return b.String()
 }
 
+func renderProjections(entities map[string]*model.Entity, views []*model.View) string {
+	var b strings.Builder
+	writeHeader(&b)
+	importedTypes := map[string]bool{}
+	for _, view := range views {
+		if entity := entities[view.Entity]; entity != nil {
+			importedTypes[entity.Name+"Row"] = true
+			for _, projectionField := range view.Projection.Fields {
+				entityField, ok := entityFieldByName(entity, projectionField.Name)
+				if ok && len(entityField.EnumValues) > 0 {
+					importedTypes[enumTypeName(entity, entityField)] = true
+				}
+			}
+		}
+	}
+	if len(importedTypes) > 0 {
+		fmt.Fprintf(&b, "import type { %s } from \"./models\"\n\n", strings.Join(sortedKeys(importedTypes), ", "))
+	}
+	for _, view := range views {
+		entity := entities[view.Entity]
+		if entity == nil || view.Projection.RecordName == "" {
+			continue
+		}
+		recordType := view.Projection.RecordName
+		sourceRow := view.Projection.SourceRowName
+		fmt.Fprintf(&b, "export interface %s {\n", recordType)
+		for _, field := range view.Projection.Fields {
+			entityField, ok := entityFieldByName(entity, field.Name)
+			if !ok {
+				entityField = model.EntityField{Name: field.Name, TypeExpr: field.TypeExpr}
+			}
+			fmt.Fprintf(&b, "  %s: %s\n", tsProperty(field.Column), tsType(entity, entityField))
+		}
+		b.WriteString("}\n\n")
+		fmt.Fprintf(&b, "export function materialize%s(row: %s): %s {\n", view.Name, sourceRow, recordType)
+		b.WriteString("  return {\n")
+		for _, field := range view.Projection.Fields {
+			prop := tsProperty(field.Column)
+			fmt.Fprintf(&b, "    %s: row[%s],\n", prop, strconv.Quote(field.Column))
+		}
+		b.WriteString("  }\n")
+		b.WriteString("}\n\n")
+		fmt.Fprintf(&b, "export function materialize%sRows(rows: Iterable<%s>): %s[] {\n", view.Name, sourceRow, recordType)
+		fmt.Fprintf(&b, "  return Array.from(rows, materialize%s)\n", view.Name)
+		b.WriteString("}\n\n")
+	}
+	return b.String()
+}
+
 func renderCollections(entities map[string]*model.Entity, views []*model.View) string {
 	var b strings.Builder
 	writeHeader(&b)
 	importedRows := map[string]bool{}
+	importedRecords := map[string]bool{}
+	importedMaterializers := map[string]bool{}
 	for _, view := range views {
 		if entity := entities[view.Entity]; entity != nil {
 			importedRows[entity.Name+"Row"] = true
+			importedRecords[view.Projection.RecordName] = true
+			importedMaterializers["materialize"+view.Name+"Rows"] = true
 		}
 	}
 	if len(importedRows) > 0 {
 		fmt.Fprintf(&b, "import type { %s } from \"./models\"\n", strings.Join(sortedKeys(importedRows), ", "))
+	}
+	if len(importedRecords) > 0 {
+		fmt.Fprintf(&b, "import type { %s } from \"./projections\"\n", strings.Join(sortedKeys(importedRecords), ", "))
+	}
+	if len(importedMaterializers) > 0 {
+		fmt.Fprintf(&b, "import { %s } from \"./projections\"\n", strings.Join(sortedKeys(importedMaterializers), ", "))
 	}
 	b.WriteString("import type { ElectricShapeDefinition } from \"./shapes\"\n")
 	shapeNames := map[string]bool{}
@@ -300,25 +361,23 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 	b.WriteString("  field: keyof Row & string\n")
 	b.WriteString("  label: string\n")
 	b.WriteString("}\n\n")
-	b.WriteString("export interface TanStackDBCollectionDefinition<Row> {\n")
+	b.WriteString("export interface TanStackDBCollectionDefinition<Record, ShapeRow> {\n")
 	b.WriteString("  id: string\n")
 	b.WriteString("  entity: string\n")
 	b.WriteString("  route: string\n")
 	b.WriteString("  title: string\n")
-	b.WriteString("  shape: ElectricShapeDefinition<Row>\n")
-	b.WriteString("  columns: readonly CollectionColumn<Row>[]\n")
-	b.WriteString("  getKey: (row: Row) => string\n")
-	b.WriteString("  materialize: (rows: Iterable<Row>) => Row[]\n")
-	b.WriteString("}\n\n")
-	b.WriteString("export function materializeRows<Row>(rows: Iterable<Row>): Row[] {\n")
-	b.WriteString("  return Array.from(rows)\n")
+	b.WriteString("  shape: ElectricShapeDefinition<ShapeRow>\n")
+	b.WriteString("  columns: readonly CollectionColumn<Record>[]\n")
+	b.WriteString("  getKey: (row: Record) => string\n")
+	b.WriteString("  materialize: (rows: Iterable<ShapeRow>) => Record[]\n")
 	b.WriteString("}\n\n")
 	for _, view := range views {
 		entity := entities[view.Entity]
 		if entity == nil {
 			continue
 		}
-		rowType := entity.Name + "Row"
+		rowType := view.Projection.RecordName
+		shapeRowType := entity.Name + "Row"
 		fmt.Fprintf(&b, "export const %sColumns = [\n", lowerFirst(view.Name))
 		for _, column := range view.Columns {
 			field, ok := entityFieldByName(entity, column)
@@ -336,8 +395,8 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 		fmt.Fprintf(&b, "  shape: %sShape,\n", lowerFirst(entity.Name))
 		fmt.Fprintf(&b, "  columns: %sColumns,\n", lowerFirst(view.Name))
 		fmt.Fprintf(&b, "  getKey: (row: %s) => String(row[%s]),\n", rowType, strconv.Quote(idColumn(entity)))
-		b.WriteString("  materialize: materializeRows,\n")
-		fmt.Fprintf(&b, "} as const satisfies TanStackDBCollectionDefinition<%s>\n\n", rowType)
+		fmt.Fprintf(&b, "  materialize: materialize%sRows,\n", view.Name)
+		fmt.Fprintf(&b, "} as const satisfies TanStackDBCollectionDefinition<%s, %s>\n\n", rowType, shapeRowType)
 	}
 	b.WriteString("export const collections = [\n")
 	for _, view := range views {
@@ -353,15 +412,20 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 	var b strings.Builder
 	writeHeader(&b)
 	importedRows := map[string]bool{}
+	importedRecords := map[string]bool{}
 	importedCollections := map[string]bool{}
 	for _, view := range views {
 		if entity := entities[view.Entity]; entity != nil {
 			importedRows[entity.Name+"Row"] = true
+			importedRecords[view.Projection.RecordName] = true
 			importedCollections[lowerFirst(view.Name)+"Collection"] = true
 		}
 	}
 	if len(importedRows) > 0 {
 		fmt.Fprintf(&b, "import type { %s } from \"./models\"\n", strings.Join(sortedKeys(importedRows), ", "))
+	}
+	if len(importedRecords) > 0 {
+		fmt.Fprintf(&b, "import type { %s } from \"./projections\"\n", strings.Join(sortedKeys(importedRecords), ", "))
 	}
 	if len(importedCollections) > 0 {
 		fmt.Fprintf(&b, "import { %s } from \"./collections\"\n", strings.Join(sortedKeys(importedCollections), ", "))
@@ -371,15 +435,15 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 	b.WriteString("export interface ElectricRuntimeConfig {\n")
 	b.WriteString("  baseURL: string\n")
 	b.WriteString("}\n\n")
-	b.WriteString("export interface CollectionRuntime<Row> {\n")
+	b.WriteString("export interface CollectionRuntime<Record, ShapeRow> {\n")
 	b.WriteString("  id: string\n")
 	b.WriteString("  entity: string\n")
 	b.WriteString("  route: string\n")
 	b.WriteString("  title: string\n")
 	b.WriteString("  shapeURL: string\n")
-	b.WriteString("  definition: TanStackDBCollectionDefinition<Row>\n")
-	b.WriteString("  rows: () => readonly Row[]\n")
-	b.WriteString("  materialize: () => Row[]\n")
+	b.WriteString("  definition: TanStackDBCollectionDefinition<Record, ShapeRow>\n")
+	b.WriteString("  rows: () => readonly ShapeRow[]\n")
+	b.WriteString("  materialize: () => Record[]\n")
 	b.WriteString("}\n\n")
 	b.WriteString("export interface GeneratedRuntimeRowSources {\n")
 	for _, view := range views {
@@ -394,7 +458,7 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 	b.WriteString("}\n\n")
 	for _, view := range views {
 		if entity := entities[view.Entity]; entity != nil {
-			fmt.Fprintf(&b, "export type %sRuntime = CollectionRuntime<%sRow>\n", view.Name, entity.Name)
+			fmt.Fprintf(&b, "export type %sRuntime = CollectionRuntime<%s, %sRow>\n", view.Name, view.Projection.RecordName, entity.Name)
 		}
 	}
 	if len(views) > 0 {
@@ -451,16 +515,16 @@ func renderRoutes(appRoot, generatedDir string, entities map[string]*model.Entit
 	var b strings.Builder
 	writeHeader(&b)
 	routeAbs := filepath.Join(appRoot, filepath.FromSlash(generatedDir), "routes.tsx")
-	importedRows := map[string]bool{}
+	importedRecords := map[string]bool{}
 	importedCollections := map[string]bool{}
 	for _, view := range views {
-		if entity := entities[view.Entity]; entity != nil {
-			importedRows[entity.Name+"Row"] = true
+		if entities[view.Entity] != nil {
+			importedRecords[view.Projection.RecordName] = true
 			importedCollections[lowerFirst(view.Name)+"Collection"] = true
 		}
 	}
-	if len(importedRows) > 0 {
-		fmt.Fprintf(&b, "import type { %s } from \"./models\"\n", strings.Join(sortedKeys(importedRows), ", "))
+	if len(importedRecords) > 0 {
+		fmt.Fprintf(&b, "import type { %s } from \"./projections\"\n", strings.Join(sortedKeys(importedRecords), ", "))
 	}
 	if len(importedCollections) > 0 {
 		fmt.Fprintf(&b, "import { %s } from \"./collections\"\n", strings.Join(sortedKeys(importedCollections), ", "))
@@ -482,7 +546,7 @@ func renderRoutes(appRoot, generatedDir string, entities map[string]*model.Entit
 		if entity == nil {
 			continue
 		}
-		rowType := entity.Name + "Row"
+		rowType := view.Projection.RecordName
 		slotType := "Record<string, never>"
 		if len(view.Slots) > 0 {
 			var names []string
@@ -497,10 +561,16 @@ func renderRoutes(appRoot, generatedDir string, entities map[string]*model.Entit
 			fmt.Fprintf(&b, "} satisfies Record<%s, ComponentSlot<%s>>\n\n", tsUnion(names), rowType)
 			slotType = "typeof " + lowerFirst(view.Name) + "Slots"
 		}
+		fmt.Fprintf(&b, "const %sPageCollection = {\n", lowerFirst(view.Name))
+		fmt.Fprintf(&b, "  id: %sCollection.id,\n", lowerFirst(view.Name))
+		fmt.Fprintf(&b, "  route: %sCollection.route,\n", lowerFirst(view.Name))
+		fmt.Fprintf(&b, "  title: %sCollection.title,\n", lowerFirst(view.Name))
+		fmt.Fprintf(&b, "  materialize: (rows: Iterable<%s>) => Array.from(rows),\n", rowType)
+		b.WriteString("}\n\n")
 		fmt.Fprintf(&b, "export function %sPage(props: { rows?: readonly %s[]; runtime?: GeneratedRuntime[\"collections\"][%s] } = {}) {\n", view.Name, rowType, strconv.Quote(lowerFirst(view.Name)))
 		fmt.Fprintf(&b, "  return createCollectionPage<%s, %s>({\n", rowType, slotType)
-		fmt.Fprintf(&b, "    collection: %sCollection,\n", lowerFirst(view.Name))
-		b.WriteString("    rows: props.runtime?.rows() ?? props.rows ?? [],\n")
+		fmt.Fprintf(&b, "    collection: %sPageCollection,\n", lowerFirst(view.Name))
+		b.WriteString("    rows: props.runtime?.materialize() ?? props.rows ?? [],\n")
 		if len(view.Slots) > 0 {
 			fmt.Fprintf(&b, "    slots: %sSlots,\n", lowerFirst(view.Name))
 		} else {
@@ -533,6 +603,7 @@ func renderIndex() string {
 
 export * from "./models"
 export * from "./shapes"
+export * from "./projections"
 export * from "./collections"
 export * from "./runtime"
 export * from "./routes"
@@ -550,7 +621,7 @@ func storedFields(entity *model.Entity) []model.EntityField {
 	}
 	out := make([]model.EntityField, 0, len(entity.Fields))
 	for _, field := range entity.Fields {
-		if field.Kind != model.EntityFieldComputed {
+		if model.EntityFieldIsStored(field) {
 			out = append(out, field)
 		}
 	}

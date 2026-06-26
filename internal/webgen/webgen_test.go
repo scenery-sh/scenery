@@ -28,6 +28,7 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 	for _, path := range []string{
 		".scenery/gen/web/web/models.ts",
 		".scenery/gen/web/web/shapes.ts",
+		".scenery/gen/web/web/projections.ts",
 		".scenery/gen/web/web/collections.ts",
 		".scenery/gen/web/web/runtime.ts",
 		".scenery/gen/web/web/routes.tsx",
@@ -38,8 +39,15 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 			t.Fatalf("missing generated file %s in %+v", path, bundles[0].Files)
 		}
 	}
-	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `satisfies Record<"TaskStatusBadge", ComponentSlot<TaskRow>>`) {
+	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `satisfies Record<"TaskStatusBadge", ComponentSlot<TaskListRecord>>`) {
 		t.Fatalf("routes missing slot assertion:\n%s", files[".scenery/gen/web/web/routes.tsx"])
+	}
+	if !strings.Contains(files[".scenery/gen/web/web/projections.ts"], `export interface TaskListRecord`) ||
+		!strings.Contains(files[".scenery/gen/web/web/projections.ts"], `export function materializeTaskList(row: TaskRow): TaskListRecord`) {
+		t.Fatalf("projections missing page record materializer:\n%s", files[".scenery/gen/web/web/projections.ts"])
+	}
+	if strings.Contains(files[".scenery/gen/web/web/collections.ts"], `source: "ID"`) {
+		t.Fatalf("collection columns should follow declared page columns, not implicit projection fields:\n%s", files[".scenery/gen/web/web/collections.ts"])
 	}
 	if !strings.Contains(files[".scenery/gen/web/web/runtime.ts"], `export function createTaskListRuntime`) {
 		t.Fatalf("runtime missing collection adapter factory:\n%s", files[".scenery/gen/web/web/runtime.ts"])
@@ -81,7 +89,16 @@ func testAppModel() *model.App {
 		Route:   "/tasks",
 		Title:   "Tasks",
 		Columns: []string{"Title", "Status"},
-		Slots:   []model.ViewSlot{{Name: "TaskStatusBadge"}},
+		Projection: model.ViewProjection{
+			RecordName:    "TaskListRecord",
+			SourceRowName: "TaskRow",
+			Fields: []model.ProjectionField{
+				{Name: "ID", TypeExpr: "string", Kind: model.EntityFieldStored, Column: "id"},
+				{Name: "Title", TypeExpr: "string", Kind: model.EntityFieldStored, Column: "title"},
+				{Name: "Status", TypeExpr: "string", Kind: model.EntityFieldStored, Column: "status"},
+			},
+		},
+		Slots: []model.ViewSlot{{Name: "TaskStatusBadge"}},
 	}
 	return &model.App{Entities: []*model.Entity{entity}, Views: []*model.View{view}}
 }

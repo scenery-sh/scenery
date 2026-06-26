@@ -211,7 +211,7 @@ multi-schema HCL.
 `scenery generate data --dry-run --json`
 also writes beta generated frontend packages under `.scenery/gen/web/<frontend>/`
 for configured frontends with static collection pages, including runtime adapter
-factories and route registration helpers for app-owned Electric/TanStack/layout-kit wiring;
+factories, page projection records in `projections.ts`, and route registration helpers for app-owned Electric/TanStack/layout-kit wiring;
 generated Electric shape metadata uses the same schema-qualified table as the DB artifacts.
 
 When an app configures `generators`, prefer:

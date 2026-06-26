@@ -120,16 +120,30 @@ type ViewsResponse struct {
 }
 
 type ViewRecord struct {
-	Name    string           `json:"name"`
-	Kind    string           `json:"kind"`
-	Package string           `json:"package"`
-	File    string           `json:"file"`
-	Line    int              `json:"line"`
-	Entity  string           `json:"entity"`
-	Route   string           `json:"route,omitempty"`
-	Title   string           `json:"title,omitempty"`
-	Columns []string         `json:"columns,omitempty"`
-	Slots   []ViewSlotRecord `json:"slots,omitempty"`
+	Name       string               `json:"name"`
+	Kind       string               `json:"kind"`
+	Package    string               `json:"package"`
+	File       string               `json:"file"`
+	Line       int                  `json:"line"`
+	Entity     string               `json:"entity"`
+	Route      string               `json:"route,omitempty"`
+	Title      string               `json:"title,omitempty"`
+	Columns    []string             `json:"columns,omitempty"`
+	Projection ViewProjectionRecord `json:"projection"`
+	Slots      []ViewSlotRecord     `json:"slots,omitempty"`
+}
+
+type ViewProjectionRecord struct {
+	RecordType string                      `json:"record_type,omitempty"`
+	SourceRow  string                      `json:"source_row,omitempty"`
+	Fields     []ViewProjectionFieldRecord `json:"fields,omitempty"`
+}
+
+type ViewProjectionFieldRecord struct {
+	Name   string `json:"name"`
+	Column string `json:"column"`
+	Type   string `json:"type"`
+	Kind   string `json:"kind"`
 }
 
 type ViewSlotRecord struct {
@@ -469,16 +483,25 @@ func BuildViewsResponse(appRoot string, cfg appcfg.Config, app *model.App) Views
 	for _, view := range app.Views {
 		position := view.Package.GoPkg.Fset.Position(view.TokenPos)
 		item := ViewRecord{
-			Name:    view.Name,
-			Kind:    view.Kind,
-			Package: filepath.ToSlash(view.Package.RelDir),
-			File:    filepath.ToSlash(relOrSelf(appRoot, position.Filename)),
-			Line:    position.Line,
-			Entity:  view.Entity,
-			Route:   view.Route,
-			Title:   view.Title,
-			Columns: append([]string(nil), view.Columns...),
-			Slots:   []ViewSlotRecord{},
+			Name:       view.Name,
+			Kind:       view.Kind,
+			Package:    filepath.ToSlash(view.Package.RelDir),
+			File:       filepath.ToSlash(relOrSelf(appRoot, position.Filename)),
+			Line:       position.Line,
+			Entity:     view.Entity,
+			Route:      view.Route,
+			Title:      view.Title,
+			Columns:    append([]string(nil), view.Columns...),
+			Projection: ViewProjectionRecord{RecordType: view.Projection.RecordName, SourceRow: view.Projection.SourceRowName},
+			Slots:      []ViewSlotRecord{},
+		}
+		for _, field := range view.Projection.Fields {
+			item.Projection.Fields = append(item.Projection.Fields, ViewProjectionFieldRecord{
+				Name:   field.Name,
+				Column: field.Column,
+				Type:   field.TypeExpr,
+				Kind:   string(field.Kind),
+			})
 		}
 		for _, slot := range view.Slots {
 			item.Slots = append(item.Slots, ViewSlotRecord{Name: slot.Name})

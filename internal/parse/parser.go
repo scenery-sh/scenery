@@ -499,7 +499,7 @@ func generatedIDParamKind(field model.EntityField) runtimeapi.ParamKind {
 func primaryKeyField(entity *model.Entity) *model.EntityField {
 	for i := range entity.Fields {
 		field := &entity.Fields[i]
-		if field.Kind != model.EntityFieldComputed && strings.EqualFold(field.Name, "id") {
+		if model.EntityFieldIsStored(*field) && strings.EqualFold(field.Name, "id") {
 			return field
 		}
 	}
@@ -1311,7 +1311,7 @@ func validateEntitySeedRows(pkg *model.Package, spec *ast.TypeSpec, rows []model
 				errs = append(errs, sourceDiagnostic(pkg, value.TokenPos, fmt.Sprintf("model.Seed field %q does not match a field on %s", value.Field, spec.Name.Name)))
 				continue
 			}
-			if field.Kind == model.EntityFieldComputed {
+			if !model.EntityFieldIsStored(field) {
 				errs = append(errs, sourceDiagnostic(pkg, value.TokenPos, fmt.Sprintf("model.Seed field %q is computed and cannot be seeded", value.Field)))
 				continue
 			}
@@ -1451,17 +1451,65 @@ func parsePageSlots(root string, pkg *model.Package, aliases map[string]string, 
 }
 
 func validateViews(app *model.App) []string {
-	entities := make(map[string]bool)
+	entities := make(map[string]*model.Entity)
 	for _, entity := range app.Entities {
-		entities[entity.Name] = true
+		entities[entity.Name] = entity
 	}
 	var errs []string
 	for _, view := range app.Views {
-		if !entities[view.Entity] {
+		entity := entities[view.Entity]
+		if entity == nil {
 			errs = append(errs, sourceDiagnostic(view.Package, view.TokenPos, fmt.Sprintf("page %s references unknown model %s", view.Name, view.Entity)))
+			continue
+		}
+		projection, projectionErrs := buildViewProjection(view, entity)
+		errs = append(errs, projectionErrs...)
+		if len(projectionErrs) == 0 {
+			view.Projection = projection
 		}
 	}
 	return errs
+}
+
+func buildViewProjection(view *model.View, entity *model.Entity) (model.ViewProjection, []string) {
+	projection := model.ViewProjection{
+		RecordName:    view.Name + "Record",
+		SourceRowName: entity.Name + "Row",
+	}
+	fields := make(map[string]model.EntityField, len(entity.Fields))
+	for _, field := range entity.Fields {
+		fields[field.Name] = field
+	}
+	var errs []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if seen[name] {
+			return
+		}
+		field, ok := fields[name]
+		if !ok {
+			errs = append(errs, sourceDiagnostic(view.Package, view.TokenPos, fmt.Sprintf("page %s column %q does not match a field on %s", view.Name, name, entity.Name)))
+			return
+		}
+		if !model.EntityFieldIsStored(field) {
+			errs = append(errs, sourceDiagnostic(view.Package, view.TokenPos, fmt.Sprintf("page %s column %q is %s and cannot be materialized by generated collection projections yet", view.Name, name, field.Kind)))
+			return
+		}
+		seen[name] = true
+		projection.Fields = append(projection.Fields, model.ProjectionField{
+			Name:     field.Name,
+			Column:   field.Column,
+			TypeExpr: field.TypeExpr,
+			Kind:     field.Kind,
+		})
+	}
+	if _, ok := fields["ID"]; ok {
+		add("ID")
+	}
+	for _, column := range view.Columns {
+		add(column)
+	}
+	return projection, errs
 }
 
 func modelDirectiveTypeName(decl *ast.GenDecl) string {

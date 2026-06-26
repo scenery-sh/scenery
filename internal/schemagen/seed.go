@@ -121,7 +121,7 @@ func renderServiceSeedSQL(entities []*model.Entity) (string, error) {
 func generatedSeedFields(entity *model.Entity) []model.EntityField {
 	var fields []model.EntityField
 	for _, field := range entity.Fields {
-		if field.Kind != model.EntityFieldComputed {
+		if model.EntityFieldIsStored(field) {
 			fields = append(fields, field)
 		}
 	}

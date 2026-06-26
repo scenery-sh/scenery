@@ -639,6 +639,53 @@
       ]
     },
     {
+      "path": "docs/plans/0081-page-record-projection-ir.md",
+      "title": "Page Record Projection IR",
+      "owner": "scenery app model / generators",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Completed ExecPlan that split generated collection page records from storage/Electric rows with internal projection IR, inspect views projection output, generated projections.ts, and computed-column diagnostics.",
+      "tags": [
+        "plans",
+        "execplans",
+        "models",
+        "views",
+        "generators",
+        "projections",
+        "agents"
+      ],
+      "schema_refs": [
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
+      ]
+    },
+    {
+      "path": "docs/plans/0082-electric-page-projection-materializers.md",
+      "title": "Electric Page Projection Materializers",
+      "owner": "scenery app model / generators",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Active ExecPlan for realizing page-record projection IR in generated Electric-backed frontend code with raw source rows, generated page records, and client-side materializers.",
+      "tags": [
+        "plans",
+        "execplans",
+        "models",
+        "views",
+        "generators",
+        "projections",
+        "electric",
+        "agents"
+      ],
+      "schema_refs": [
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",

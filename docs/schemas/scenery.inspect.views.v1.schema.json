@@ -29,7 +29,7 @@
     "view": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "kind", "package", "file", "line", "entity"],
+      "required": ["name", "kind", "package", "file", "line", "entity", "projection"],
       "properties": {
         "name": { "type": "string" },
         "kind": { "const": "collection" },
@@ -40,7 +40,34 @@
         "route": { "type": "string" },
         "title": { "type": "string" },
         "columns": { "type": "array", "items": { "type": "string" } },
+        "projection": { "$ref": "#/$defs/projection" },
         "slots": { "type": "array", "items": { "$ref": "#/$defs/slot" } }
+      }
+    },
+    "projection": {
+      "description": "Collection view page-record projection in the model/view IR, mapping a source row type to a page record type.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_type", "source_row", "fields"],
+      "properties": {
+        "record_type": { "type": "string" },
+        "source_row": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/projection_field" }
+        }
+      }
+    },
+    "projection_field": {
+      "description": "Field carried from the source row into the page projection record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "column", "type", "kind"],
+      "properties": {
+        "name": { "type": "string" },
+        "column": { "type": "string" },
+        "type": { "type": "string" },
+        "kind": { "enum": ["stored", "relationship", "computed"] }
       }
     },
     "slot": {

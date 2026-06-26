@@ -127,13 +127,17 @@ type EntityField struct {
 	RenamedFrom string
 }
 
+func EntityFieldIsStored(field EntityField) bool {
+	return field.Kind != EntityFieldComputed
+}
+
 func (e *Entity) TenantField() *EntityField {
 	if e == nil {
 		return nil
 	}
 	for i := range e.Fields {
 		field := &e.Fields[i]
-		if field.Kind == EntityFieldComputed {
+		if !EntityFieldIsStored(*field) {
 			continue
 		}
 		if strings.EqualFold(field.Name, "TenantID") || strings.EqualFold(field.Column, "tenant_id") {
@@ -275,16 +279,30 @@ func safeRouteSegment(value string) string {
 }
 
 type View struct {
-	Package  *Package
-	File     *File
+	Package    *Package
+	File       *File
+	Name       string
+	Kind       string
+	Entity     string
+	Route      string
+	Title      string
+	Columns    []string
+	Projection ViewProjection
+	Slots      []ViewSlot
+	TokenPos   token.Pos
+}
+
+type ViewProjection struct {
+	RecordName    string
+	SourceRowName string
+	Fields        []ProjectionField
+}
+
+type ProjectionField struct {
 	Name     string
-	Kind     string
-	Entity   string
-	Route    string
-	Title    string
-	Columns  []string
-	Slots    []ViewSlot
-	TokenPos token.Pos
+	Column   string
+	TypeExpr string
+	Kind     EntityFieldKind
 }
 
 type ViewSlot struct {

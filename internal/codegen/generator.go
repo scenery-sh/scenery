@@ -866,7 +866,7 @@ func writeGeneratedModelStore(buf *strings.Builder, im *imports, entity *model.E
 func generatedModelStoredFields(entity *model.Entity) []model.EntityField {
 	var fields []model.EntityField
 	for _, field := range entity.Fields {
-		if field.Kind == model.EntityFieldComputed {
+		if !model.EntityFieldIsStored(field) {
 			continue
 		}
 		fields = append(fields, field)
@@ -903,7 +903,7 @@ func generatedModelCreateFields(entity *model.Entity) []model.EntityField {
 
 func generatedModelIDField(entity *model.Entity) model.EntityField {
 	for _, field := range entity.Fields {
-		if field.Kind != model.EntityFieldComputed && strings.EqualFold(field.Name, "id") {
+		if model.EntityFieldIsStored(field) && strings.EqualFold(field.Name, "id") {
 			return field
 		}
 	}
