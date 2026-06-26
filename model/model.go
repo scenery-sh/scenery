@@ -24,6 +24,10 @@ func Table(name string) EntityOption {
 	return entityOptionFunc(func() {})
 }
 
+func ExistingTable(schema, name string) EntityOption {
+	return entityOptionFunc(func() {})
+}
+
 func Field(name string, opts ...FieldOption) EntityOption {
 	return entityOptionFunc(func() {})
 }

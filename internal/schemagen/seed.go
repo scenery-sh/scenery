@@ -24,7 +24,7 @@ func BuildSeeds(appRoot string, app *model.App) ([]ServiceSeed, error) {
 	}
 	byService := make(map[string][]*model.Entity)
 	for _, entity := range app.Entities {
-		if entity == nil || len(entity.Seeds) == 0 {
+		if entity == nil || model.EntityIsExistingSource(entity) || len(entity.Seeds) == 0 {
 			continue
 		}
 		byService[model.EntityService(entity)] = append(byService[model.EntityService(entity)], entity)

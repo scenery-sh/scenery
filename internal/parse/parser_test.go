@@ -532,6 +532,45 @@ var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList
 	}
 }
 
+func TestModelDSLExistingTableSourceAllowsReadOnlyGeneratedEndpoints(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/existingtable\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	writeFile(t, root, "customers/model.go", `package customers
+
+import "scenery.sh/model"
+
+//scenery:service
+type Service struct{}
+
+//scenery:model
+type Customer struct { ID string; Email string }
+
+var _ = model.Entity[Customer](
+	model.ExistingTable("legacy", "customers"),
+	model.Generate(model.ActionList, model.ActionGet),
+)
+`)
+	app, err := parse.App(root, "existingtable")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	if len(app.Entities) != 1 {
+		t.Fatalf("entities = %+v", app.Entities)
+	}
+	entity := app.Entities[0]
+	if entity.Source.Kind != model.EntitySourceExisting || entity.Source.Schema != "legacy" || entity.Table != "customers" || model.EntityQualifiedTable(entity) != "legacy.customers" {
+		t.Fatalf("entity source = %+v table=%q qualified=%q", entity.Source, entity.Table, model.EntityQualifiedTable(entity))
+	}
+	if got := crudActionList(entity.CRUD.Actions); got != "list,get" {
+		t.Fatalf("crud actions = %q", got)
+	}
+	if len(app.Services) != 1 || len(app.Services[0].Generated) != 2 {
+		t.Fatalf("generated endpoints = %+v", app.Services)
+	}
+}
+
 func TestModelDSLNonTenantGeneratedCRUDDefaultsToAuthAccess(t *testing.T) {
 	t.Parallel()
 
@@ -730,6 +769,58 @@ var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList
 var _ = model.Entity[TaskArchive](model.Table("tasks"), model.Generate(model.ActionList))
 `,
 			want: `generated model endpoint GET /tasks/tasks collides with endpoint tasks.ListTasks at /tasks/tasks`,
+		},
+		{
+			name: "existing table requires schema",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.ExistingTable("", "tasks"))
+`,
+			want: `model.ExistingTable for Task requires a non-empty schema`,
+		},
+		{
+			name: "existing table requires table",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.ExistingTable("legacy", ""))
+`,
+			want: `model.ExistingTable for Task requires a non-empty table`,
+		},
+		{
+			name: "existing table rejects seed",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.ExistingTable("legacy", "tasks"), model.Seed(Task{ID: "x"}))
+`,
+			want: `model Task uses model.ExistingTable and cannot declare model.Seed rows`,
+		},
+		{
+			name: "existing table rejects generated mutations",
+			body: `package tasks
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.ExistingTable("legacy", "tasks"), model.Generate(model.ActionCreate))
+`,
+			want: `model Task uses model.ExistingTable and cannot generate create yet`,
 		},
 	}
 

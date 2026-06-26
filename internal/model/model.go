@@ -59,10 +59,24 @@ type Entity struct {
 	Name     string
 	TypeExpr string
 	Table    string
+	Source   EntitySource
 	Fields   []EntityField
 	Seeds    []EntitySeedRow
 	CRUD     EntityCRUD
 	TokenPos token.Pos
+}
+
+type EntitySourceKind string
+
+const (
+	EntitySourceGenerated EntitySourceKind = "generated"
+	EntitySourceExisting  EntitySourceKind = "existing"
+)
+
+type EntitySource struct {
+	Kind   EntitySourceKind
+	Schema string
+	Table  string
 }
 
 type EntitySeedRow struct {
@@ -204,6 +218,9 @@ func EntityService(entity *Entity) string {
 }
 
 func EntityDatabaseSchema(entity *Entity) string {
+	if entity != nil && strings.TrimSpace(entity.Source.Schema) != "" {
+		return strings.TrimSpace(entity.Source.Schema)
+	}
 	return safeDatabaseIdent(EntityService(entity))
 }
 
@@ -212,6 +229,17 @@ func EntityQualifiedTable(entity *Entity) string {
 		return ""
 	}
 	return EntityDatabaseSchema(entity) + "." + strings.TrimSpace(entity.Table)
+}
+
+func EntitySourceKindValue(entity *Entity) EntitySourceKind {
+	if entity != nil && entity.Source.Kind != "" {
+		return entity.Source.Kind
+	}
+	return EntitySourceGenerated
+}
+
+func EntityIsExistingSource(entity *Entity) bool {
+	return EntitySourceKindValue(entity) == EntitySourceExisting
 }
 
 func EntityCRUDRouteBase(entity *Entity) string {

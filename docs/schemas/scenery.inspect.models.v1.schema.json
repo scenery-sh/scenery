@@ -29,17 +29,29 @@
     "model": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "package", "file", "line", "table", "fields"],
+      "required": ["name", "package", "file", "line", "table", "source", "fields"],
       "properties": {
         "name": { "type": "string" },
         "package": { "type": "string" },
         "file": { "type": "string" },
         "line": { "type": "integer", "minimum": 1 },
         "table": { "type": "string" },
+        "source": { "$ref": "#/$defs/source" },
         "fields": {
           "type": "array",
           "items": { "$ref": "#/$defs/field" }
         }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "schema", "table", "qualified_table"],
+      "properties": {
+        "kind": { "enum": ["generated", "existing"] },
+        "schema": { "type": "string" },
+        "table": { "type": "string" },
+        "qualified_table": { "type": "string" }
       }
     },
     "field": {

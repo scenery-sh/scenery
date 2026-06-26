@@ -282,7 +282,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - Standard auth owns its tenant tables under `scenery_auth`; app-local `tenants` services or tables are product-domain concerns.
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping.
 - `scenery.sh/middleware` exposes middleware request/response types.
-- `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary, including generated CRUD action policy, collection page projections, and static page filter/sort/display metadata, for inspection and generators.
+- `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary, including generated CRUD action policy, existing table bindings, collection page projections, and static page filter/sort/display metadata, for inspection and generators.
 - `scenery.sh/temporal` exposes workflow/activity declarations and start helpers for the scenery-managed Temporal runtime.
 - `scenery.sh/cron` exposes cron job declarations.
 - `scenery.sh/db` exposes the app's shared default Postgres pool for services and sqlc.

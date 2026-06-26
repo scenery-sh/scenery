@@ -31,7 +31,7 @@ func Build(appRoot string, app *model.App) ([]ServiceSchema, error) {
 	}
 	byService := make(map[string][]*model.Entity)
 	for _, entity := range app.Entities {
-		if entity == nil {
+		if entity == nil || model.EntityIsExistingSource(entity) {
 			continue
 		}
 		service := model.EntityService(entity)

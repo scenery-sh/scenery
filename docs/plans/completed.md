@@ -181,6 +181,26 @@ Validation:
 
 - Passed focused parser/webgen/inspect/generated-data checks and model DSL web typecheck/build/render proof; full-repo validation is recorded in the ExecPlan.
 
+## Existing Table Model Bindings
+
+- Status: completed
+- Owner: scenery app model / generators
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0086 Existing Table Model Bindings](0086-existing-table-model-bindings.md)
+
+Shipped:
+
+- Added `model.ExistingTable(schema, table)` as the explicit existing physical table binding API.
+- Added entity source ownership metadata to the model IR and `scenery inspect models --json`.
+- Kept `model.Table(name)` backward-compatible as a generated Scenery-owned table in the service schema.
+- Made generated schema and seed output skip existing-table entities while generated read-only endpoints, Electric shape metadata, projections, collections, pages, routes, and barrel exports continue to target the explicit schema-qualified table.
+- Added `testdata/apps/existing-table-dsl` with a handwritten `legacy.customers` schema source and read-only generated Customer page proof.
+
+Validation:
+
+- Focused parser, schemagen, inspect, generated data, and existing-table fixture checks passed during implementation; full-repo validation is recorded in the ExecPlan.
+
 ## Scenery Storage
 
 - Status: completed

@@ -205,6 +205,9 @@ the app-owned service schema rather than `public`. Generated CRUD endpoints defa
 action. Generated CRUD route bases default to `/<service>/<table>`
 and `scenery check` reports collisions with reserved route prefixes
 (`/__scenery`, `/api`, `/sync`) or handwritten/generated app routes.
+Use `model.ExistingTable(schema, table)` for read-only generated pages/endpoints
+over an existing physical table; inspect models exposes source metadata, schema/seed
+generation skips that table, and generated mutations or `model.Seed(...)` rows are rejected.
 Generated Atlas HCL uses schema-qualified resource labels such as
 `table "<service>" "<table>"` so app-owned schemas can coexist with handwritten
 multi-schema HCL.

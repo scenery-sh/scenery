@@ -760,6 +760,31 @@
       ]
     },
     {
+      "path": "docs/plans/0086-existing-table-model-bindings.md",
+      "title": "Existing Table Model Bindings",
+      "owner": "scenery app model / generators",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-26",
+      "review_after": "2026-07-26",
+      "summary": "Completed ExecPlan adding model.ExistingTable source ownership so generated read-only endpoints and frontend pages can target existing physical tables without emitting generated schema or seed ownership artifacts.",
+      "tags": [
+        "plans",
+        "execplans",
+        "models",
+        "views",
+        "generators",
+        "frontend",
+        "existing-tables",
+        "agents"
+      ],
+      "schema_refs": [
+        "docs/schemas/scenery.inspect.models.v1.schema.json",
+        "docs/schemas/scenery.inspect.views.v1.schema.json"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",

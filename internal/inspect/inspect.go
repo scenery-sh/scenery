@@ -100,7 +100,15 @@ type ModelRecord struct {
 	File    string             `json:"file"`
 	Line    int                `json:"line"`
 	Table   string             `json:"table"`
+	Source  ModelSourceRecord  `json:"source"`
 	Fields  []ModelFieldRecord `json:"fields"`
+}
+
+type ModelSourceRecord struct {
+	Kind           string `json:"kind"`
+	Schema         string `json:"schema"`
+	Table          string `json:"table"`
+	QualifiedTable string `json:"qualified_table"`
 }
 
 type ModelFieldRecord struct {
@@ -471,7 +479,13 @@ func BuildModelsResponse(appRoot string, cfg appcfg.Config, app *model.App) Mode
 			File:    filepath.ToSlash(relOrSelf(appRoot, position.Filename)),
 			Line:    position.Line,
 			Table:   entity.Table,
-			Fields:  []ModelFieldRecord{},
+			Source: ModelSourceRecord{
+				Kind:           string(model.EntitySourceKindValue(entity)),
+				Schema:         model.EntityDatabaseSchema(entity),
+				Table:          entity.Table,
+				QualifiedTable: model.EntityQualifiedTable(entity),
+			},
+			Fields: []ModelFieldRecord{},
 		}
 		for _, field := range entity.Fields {
 			item.Fields = append(item.Fields, ModelFieldRecord{

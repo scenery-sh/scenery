@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -11,7 +10,7 @@ import (
 func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(repoRootForTest(t), "testdata", "apps", "model-dsl")
+	root := writeModelDSLAppFixture(t, modelDSLExpectedSchemaHCL)
 	inspectArgs := func(subject string) []string {
 		return []string{subject, "--json", "--app-root", root}
 	}
@@ -28,6 +27,12 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 			Models        []struct {
 				Name   string `json:"name"`
 				Table  string `json:"table"`
+				Source struct {
+					Kind           string `json:"kind"`
+					Schema         string `json:"schema"`
+					Table          string `json:"table"`
+					QualifiedTable string `json:"qualified_table"`
+				} `json:"source"`
 				Fields []struct {
 					Name       string   `json:"name"`
 					Kind       string   `json:"kind"`
@@ -45,6 +50,9 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 		}
 		if payload.Models[0].Name != "Task" || payload.Models[0].Table != "tasks" {
 			t.Fatalf("model = %+v", payload.Models[0])
+		}
+		if payload.Models[0].Source.Kind != "generated" || payload.Models[0].Source.Schema != "tasks" || payload.Models[0].Source.Table != "tasks" || payload.Models[0].Source.QualifiedTable != "tasks.tasks" {
+			t.Fatalf("source = %+v", payload.Models[0].Source)
 		}
 		var statusField *struct {
 			Name       string   `json:"name"`
@@ -174,6 +182,85 @@ func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 		}
 		if _, ok := generated["tasks.DeleteTask"]; ok {
 			t.Fatalf("disabled delete endpoint appeared: %+v", generated)
+		}
+	})
+}
+
+func TestRunSceneryInspectOutputsExistingTableModelJSON(t *testing.T) {
+	t.Parallel()
+
+	root := writeExistingTableDSLAppFixture(t)
+	inspectArgs := func(subject string) []string {
+		return []string{subject, "--json", "--app-root", root}
+	}
+
+	t.Run("models", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		if err := runSceneryInspect(inspectArgs("models"), &out); err != nil {
+			t.Fatalf("runSceneryInspect(models) error = %v", err)
+		}
+		var payload struct {
+			SchemaVersion string `json:"schema_version"`
+			Models        []struct {
+				Name   string `json:"name"`
+				Table  string `json:"table"`
+				Source struct {
+					Kind           string `json:"kind"`
+					Schema         string `json:"schema"`
+					Table          string `json:"table"`
+					QualifiedTable string `json:"qualified_table"`
+				} `json:"source"`
+			} `json:"models"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal(models): %v\n%s", err, out.String())
+		}
+		if payload.SchemaVersion != "scenery.inspect.models.v1" || len(payload.Models) != 1 {
+			t.Fatalf("models payload = %+v", payload)
+		}
+		model := payload.Models[0]
+		if model.Name != "Customer" || model.Table != "customers" || model.Source.Kind != "existing" || model.Source.Schema != "legacy" || model.Source.Table != "customers" || model.Source.QualifiedTable != "legacy.customers" {
+			t.Fatalf("model = %+v", model)
+		}
+	})
+
+	t.Run("generated endpoints", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		if err := runSceneryInspect(inspectArgs("endpoints"), &out); err != nil {
+			t.Fatalf("runSceneryInspect(endpoints) error = %v", err)
+		}
+		var payload struct {
+			Endpoints []struct {
+				ID        string   `json:"id"`
+				Path      string   `json:"path"`
+				Methods   []string `json:"methods"`
+				Generated bool     `json:"generated"`
+			} `json:"endpoints"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal(endpoints): %v\n%s", err, out.String())
+		}
+		generated := map[string]string{}
+		for _, ep := range payload.Endpoints {
+			if ep.Generated {
+				generated[ep.ID] = strings.Join(ep.Methods, ",") + " " + ep.Path
+			}
+		}
+		want := map[string]string{
+			"customers.ListCustomers": "GET /customers/customers",
+			"customers.GetCustomer":   "GET /customers/customers/:id",
+		}
+		if len(generated) != len(want) {
+			t.Fatalf("generated endpoints = %+v", generated)
+		}
+		for id, wantValue := range want {
+			if generated[id] != wantValue {
+				t.Fatalf("generated[%s] = %q, want %q (all %+v)", id, generated[id], wantValue, generated)
+			}
 		}
 	})
 }
