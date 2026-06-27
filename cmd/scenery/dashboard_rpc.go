@@ -41,6 +41,50 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		}
 		_ = json.Unmarshal(raw, &params)
 		return s.dashboardStatusFor(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
+	case "logs/list":
+		var params struct {
+			AppID    string `json:"app_id"`
+			Limit    int    `json:"limit"`
+			AfterID  int64  `json:"after_id"`
+			SourceID string `json:"source_id"`
+			Kind     string `json:"kind"`
+			Level    string `json:"level"`
+			Stream   string `json:"stream"`
+			Grep     string `json:"grep"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		if params.AppID == "" {
+			params.AppID = s.dashboardActiveAppID()
+		}
+		status, err := s.dashboardStatusFor(ctx, params.AppID)
+		if err != nil {
+			status = devdash.AppStatus{AppID: params.AppID}
+		}
+		victoria := s.dashboardVictoria()
+		if victoria == nil {
+			return nil, fmt.Errorf("VictoriaLogs is unavailable")
+		}
+		items, err := victoria.ListDevEvents(ctx, devdash.DevEventQuery{
+			AppID:     dashboardStoreAppID(status),
+			SessionID: status.SessionID,
+			SourceID:  params.SourceID,
+			Kind:      params.Kind,
+			Level:     params.Level,
+			Stream:    firstNonEmpty(params.Stream, "all"),
+			Grep:      params.Grep,
+			AfterID:   params.AfterID,
+			Limit:     params.Limit,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return dashboardLogEventsFromDevEvents(items), nil
+	case "observability/status":
+		var params struct {
+			AppID string `json:"app_id"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		return s.observabilityStatus(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
 	case "process/output/list":
 		var params struct {
 			AppID string `json:"app_id"`
@@ -184,4 +228,38 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		}
 		return nil, fmt.Errorf("method not found: %s", method)
 	}
+}
+
+type dashboardLogEvent struct {
+	ID        int64                 `json:"id"`
+	Time      string                `json:"time"`
+	SessionID string                `json:"session_id,omitempty"`
+	Source    devdash.DevSource     `json:"source"`
+	Level     string                `json:"level"`
+	Message   string                `json:"message"`
+	Fields    json.RawMessage       `json:"fields,omitempty"`
+	Raw       string                `json:"raw,omitempty"`
+	Parse     devdash.DevEventParse `json:"parse"`
+}
+
+func dashboardLogEventsFromDevEvents(items []devdash.DevEvent) []dashboardLogEvent {
+	out := make([]dashboardLogEvent, 0, len(items))
+	for _, item := range items {
+		createdAt := ""
+		if !item.CreatedAt.IsZero() {
+			createdAt = item.CreatedAt.Format(time.RFC3339Nano)
+		}
+		out = append(out, dashboardLogEvent{
+			ID:        item.ID,
+			Time:      createdAt,
+			SessionID: item.SessionID,
+			Source:    item.Source,
+			Level:     item.Level,
+			Message:   item.Message,
+			Fields:    item.Fields,
+			Raw:       item.Raw,
+			Parse:     item.Parse,
+		})
+	}
+	return out
 }

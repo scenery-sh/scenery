@@ -11,7 +11,6 @@ type ServiceCard = {
 const SERVICE_ORDER = [
   "api",
   "dashboard",
-  "grafana",
 ];
 
 export function HomePage() {
@@ -123,9 +122,6 @@ function serviceKind(name: string): string {
   }
   if (key === "dashboard") {
     return "Dashboard";
-  }
-  if (key === "grafana") {
-    return "Observability";
   }
   return "Frontend";
 }

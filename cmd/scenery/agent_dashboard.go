@@ -112,7 +112,9 @@ func (c *agentDashboardController) dashboardStatusFor(ctx context.Context, appID
 				selected = c.appRecordWithRegistryLiveness(hydrated)
 			}
 		}
-		return appRecordStatus(selected), nil
+		status := appRecordStatus(selected)
+		status.Observability = observabilityStateFromVictoria(c.dashboardVictoria(), status.AppID, status.SessionID, status.AppRoot, nil)
+		return status, nil
 	}
 	app, err := c.store.GetAppSession(ctx, appID)
 	if err != nil {
@@ -122,7 +124,9 @@ func (c *agentDashboardController) dashboardStatusFor(ctx context.Context, appID
 		}
 	}
 	app = c.appRecordWithRegistryLiveness(app)
-	return appRecordStatus(app), nil
+	status := appRecordStatus(app)
+	status.Observability = observabilityStateFromVictoria(c.dashboardVictoria(), status.AppID, status.SessionID, status.AppRoot, nil)
+	return status, nil
 }
 
 func (c *agentDashboardController) dashboardStore() *devdash.Store {
@@ -217,7 +221,6 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		Meta:                app.Metadata,
 		Addr:                app.ListenAddr,
 		APIEncoding:         app.APIEncoding,
-		Grafana:             decodeGrafanaState(app.Grafana),
 		Routes:              app.Routes,
 		Aliases:             app.Aliases,
 		SessionStatus:       app.SessionStatus,

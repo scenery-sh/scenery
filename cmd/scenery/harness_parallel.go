@@ -97,11 +97,11 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 	defer closeFrontendB()
-	grafanaAddr, closeGrafana, err := reserveHarnessAddr()
+	observabilityAddr, closeObservability, err := reserveHarnessAddr()
 	if err != nil {
 		return nil, nil, err
 	}
-	defer closeGrafana()
+	defer closeObservability()
 	root := filepath.Join(os.TempDir(), "scenery-harness-apps-"+harnessRandomLabel())
 	rootA := filepath.Join(root, "worktree-a")
 	rootB := filepath.Join(root, "worktree-b")
@@ -131,8 +131,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 
 	supervisorA := &devSupervisor{root: rootA, cfg: cfgA, agent: client, agentSession: sessionA}
 	supervisorB := &devSupervisor{root: rootB, cfg: cfgB, agent: client, agentSession: sessionB}
-	supervisorA.registerAgentSessionBackend(ctx, localagent.RouteGrafana, localagent.Backend{Network: "tcp", Addr: grafanaAddr})
-	supervisorB.registerAgentSessionBackend(ctx, localagent.RouteGrafana, localagent.Backend{Network: "tcp", Addr: grafanaAddr})
 	sessionA = supervisorA.agentSession
 	sessionB = supervisorB.agentSession
 
@@ -141,14 +139,14 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		Status:   "ready",
 		OwnerPID: os.Getpid(),
 		URLs: map[string]string{
-			"metrics": "http://" + grafanaAddr,
-			"logs":    "http://" + grafanaAddr,
-			"traces":  "http://" + grafanaAddr,
+			"metrics": "http://" + observabilityAddr,
+			"logs":    "http://" + observabilityAddr,
+			"traces":  "http://" + observabilityAddr,
 		},
 		Endpoints: map[string]string{
-			"metrics": "http://" + grafanaAddr + "/opentelemetry/v1/metrics",
-			"logs":    "http://" + grafanaAddr + "/insert/opentelemetry/v1/logs",
-			"traces":  "http://" + grafanaAddr + "/insert/opentelemetry/v1/traces",
+			"metrics": "http://" + observabilityAddr + "/opentelemetry/v1/metrics",
+			"logs":    "http://" + observabilityAddr + "/insert/opentelemetry/v1/logs",
+			"traces":  "http://" + observabilityAddr + "/insert/opentelemetry/v1/traces",
 		},
 	}); err != nil {
 		return nil, nil, err
@@ -269,7 +267,6 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends[localagent.RouteAPI].Addr != sessionB.Backends[localagent.RouteAPI].Addr, "API backends must be distinct")
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
 	check(routeIsSessionScoped(sessionA, "web") && routeIsSessionScoped(sessionB, "web") && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
-	check(routeIsSessionScoped(sessionA, localagent.RouteGrafana) && routeIsSessionScoped(sessionB, localagent.RouteGrafana), "Grafana routes must be session-scoped")
 	check(len(servicesA) == 1 && len(servicesB) == 1 && servicesA[0].Path != "" && servicesB[0].Path != "" && servicesA[0].Path != servicesB[0].Path, "managed SQLite database files must be distinct")
 	check(envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL"), "managed SQLite database URLs must be distinct")
 	if victoria := (&agentDashboardController{store: store, agent: server}).dashboardVictoria(); victoria == nil || victoria.Endpoint("traces") == "" {

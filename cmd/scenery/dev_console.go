@@ -747,8 +747,6 @@ func devConsoleSourceRank(id string) int {
 		return 30
 	case "sqlite":
 		return 40
-	case "grafana":
-		return 50
 	case "build":
 		return 80
 	case "supervisor":

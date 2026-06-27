@@ -221,7 +221,6 @@ type ProxyConfig struct {
 	RouteBaseDomain string                    `json:"route_base_domain"`
 	APIHost         string                    `json:"api_host"`
 	ConsoleHost     string                    `json:"console_host"`
-	GrafanaHost     string                    `json:"grafana_host"`
 	Frontends       map[string]FrontendConfig `json:"frontends"`
 }
 

@@ -118,7 +118,6 @@ type AppConfig struct {
 	ListenAddr       string
 	ProxyAPIHost     string
 	ProxyConsoleHost string
-	ProxyGrafanaHost string
 	ProxyFrontends   map[string]ProxyFrontendConfig
 	Observability    ObservabilityConfig
 	Role             string

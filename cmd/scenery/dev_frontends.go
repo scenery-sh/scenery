@@ -85,6 +85,26 @@ func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app
 	return backends, processes, nil
 }
 
+func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.FrontendConfig {
+	names := make([]string, 0, len(frontends))
+	for name := range frontends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	resolved := make([]localproxy.FrontendConfig, 0, len(names))
+	for _, name := range names {
+		frontend := frontends[name]
+		resolved = append(resolved, localproxy.FrontendConfig{
+			Name:                name,
+			Host:                frontend.Host,
+			Root:                frontend.Root,
+			Upstream:            frontend.Upstream,
+			AllowSharedUpstream: frontend.AllowSharedUpstream,
+		})
+	}
+	return resolved
+}
+
 func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session) []managedFrontendStartResult {
 	if len(frontends) == 0 {
 		return nil

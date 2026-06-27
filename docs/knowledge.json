@@ -284,24 +284,6 @@
       ]
     },
     {
-      "path": "docs/grafana.md",
-      "title": "Grafana Dev Integration",
-      "owner": "scenery runtime",
-      "status": "active",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-26",
-      "review_after": "2026-07-26",
-      "summary": "Dev-only Grafana supervision, shared-agent substrate state, managed toolchain binary resolution, provisioning paths, stable datasource/dashboard UIDs, and environment controls.",
-      "tags": [
-        "grafana",
-        "observability",
-        "dev",
-        "victoria",
-        "toolchain"
-      ]
-    },
-    {
       "path": "docs/harness-engineering.md",
       "title": "scenery Harness Engineering",
       "owner": "scenery runtime",

@@ -32,7 +32,6 @@ type AppRecord struct {
 	ListenAddr          string
 	Metadata            json.RawMessage
 	APIEncoding         json.RawMessage
-	Grafana             json.RawMessage
 	Routes              map[string]string
 	Aliases             map[string]string
 	Offline             bool
@@ -46,49 +45,51 @@ type AppRecord struct {
 }
 
 type AppStatus struct {
-	Running             bool              `json:"running"`
-	AppID               string            `json:"appID"`
-	BaseAppID           string            `json:"baseAppID,omitempty"`
-	RuntimeAppID        string            `json:"runtimeAppID,omitempty"`
-	SessionID           string            `json:"sessionID,omitempty"`
-	AppRoot             string            `json:"appRoot"`
-	PID                 string            `json:"pid,omitempty"`
-	Meta                json.RawMessage   `json:"meta,omitempty"`
-	Addr                string            `json:"addr,omitempty"`
-	APIEncoding         json.RawMessage   `json:"apiEncoding,omitempty"`
-	Grafana             *GrafanaState     `json:"grafana,omitempty"`
-	Routes              map[string]string `json:"routes,omitempty"`
-	Aliases             map[string]string `json:"aliases,omitempty"`
-	SessionStatus       string            `json:"sessionStatus,omitempty"`
-	SessionStatusReason string            `json:"sessionStatusReason,omitempty"`
-	Compiling           bool              `json:"compiling"`
-	CompileError        string            `json:"compileError,omitempty"`
+	Running             bool                `json:"running"`
+	AppID               string              `json:"appID"`
+	BaseAppID           string              `json:"baseAppID,omitempty"`
+	RuntimeAppID        string              `json:"runtimeAppID,omitempty"`
+	SessionID           string              `json:"sessionID,omitempty"`
+	AppRoot             string              `json:"appRoot"`
+	PID                 string              `json:"pid,omitempty"`
+	Meta                json.RawMessage     `json:"meta,omitempty"`
+	Addr                string              `json:"addr,omitempty"`
+	APIEncoding         json.RawMessage     `json:"apiEncoding,omitempty"`
+	Observability       *ObservabilityState `json:"observability,omitempty"`
+	Routes              map[string]string   `json:"routes,omitempty"`
+	Aliases             map[string]string   `json:"aliases,omitempty"`
+	SessionStatus       string              `json:"sessionStatus,omitempty"`
+	SessionStatusReason string              `json:"sessionStatusReason,omitempty"`
+	Compiling           bool                `json:"compiling"`
+	CompileError        string              `json:"compileError,omitempty"`
 }
 
-type GrafanaState struct {
-	Enabled          bool               `json:"enabled"`
-	Available        bool               `json:"available"`
-	Status           string             `json:"status"`
-	ServerReady      bool               `json:"server_ready,omitempty"`
-	DatasourcesReady bool               `json:"datasources_ready,omitempty"`
-	DashboardsReady  bool               `json:"dashboards_ready,omitempty"`
-	URL              string             `json:"url,omitempty"`
-	OverviewURL      string             `json:"overview_url,omitempty"`
-	LogsURL          string             `json:"logs_url,omitempty"`
-	EndpointURL      string             `json:"endpoint_url,omitempty"`
-	ConfigPath       string             `json:"config_path,omitempty"`
-	ProvisioningPath string             `json:"provisioning_path,omitempty"`
-	DashboardsPath   string             `json:"dashboards_path,omitempty"`
-	Datasources      map[string]string  `json:"datasources,omitempty"`
-	DatasourceStatus map[string]string  `json:"datasource_status,omitempty"`
-	Dashboards       []GrafanaDashboard `json:"dashboards,omitempty"`
-	Message          string             `json:"message,omitempty"`
+type ObservabilityState struct {
+	Enabled bool                      `json:"enabled"`
+	Backend string                    `json:"backend"`
+	Metrics ObservabilityBackendState `json:"metrics"`
+	Logs    ObservabilityBackendState `json:"logs"`
+	Traces  ObservabilityBackendState `json:"traces"`
+	Scope   *ObservabilityScope       `json:"scope,omitempty"`
+	Message string                    `json:"message,omitempty"`
 }
 
-type GrafanaDashboard struct {
-	UID   string `json:"uid"`
-	Title string `json:"title"`
-	URL   string `json:"url"`
+type ObservabilityBackendState struct {
+	Enabled   bool   `json:"enabled"`
+	Available bool   `json:"available"`
+	Status    string `json:"status"`
+	URL       string `json:"url,omitempty"`
+	QueryPath string `json:"query_path,omitempty"`
+	Dialect   string `json:"dialect,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+type ObservabilityScope struct {
+	AppID       string `json:"app_id,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
+	AppRootHash string `json:"app_root_hash,omitempty"`
+	Worktree    string `json:"worktree,omitempty"`
+	Branch      string `json:"branch,omitempty"`
 }
 
 type ProcessOutput struct {

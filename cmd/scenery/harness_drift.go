@@ -345,7 +345,6 @@ func buildHarnessEnvVarReport(repoRoot string, diagnostics []checkDiagnostic) (h
 	}
 	documentedText := readOptionalText(filepath.Join(repoRoot, "docs", "environment.md")) + "\n" +
 		readOptionalText(filepath.Join(repoRoot, "docs", "local-contract.md")) + "\n" +
-		readOptionalText(filepath.Join(repoRoot, "docs", "grafana.md")) + "\n" +
 		readOptionalText(filepath.Join(repoRoot, "SKILL.md")) + "\n" +
 		readOptionalText(filepath.Join(repoRoot, "AGENTS.md"))
 	scan := envpolicy.Scan(envpolicy.ScanOptions{

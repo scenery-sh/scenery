@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/termstyle"
 )
 
@@ -30,7 +29,6 @@ type runURLs struct {
 	Dashboard string
 	Frontends map[string]string
 	Victoria  map[string]string
-	Grafana   *devdash.GrafanaState
 }
 
 type runEvent struct {
@@ -153,9 +151,6 @@ func (c *runConsole) Banner(urls runURLs) {
 	for _, name := range sortedKeys(urls.Frontends) {
 		rows = append(rows, bannerRow{label: frontendLabel(name), url: urls.Frontends[name]})
 	}
-	if urls.Grafana != nil && urls.Grafana.URL != "" {
-		rows = append(rows, bannerRow{label: "Grafana:", url: urls.Grafana.URL})
-	}
 	if c.verbose {
 		for _, item := range []bannerRow{
 			{label: "VictoriaMetrics:", url: urls.Victoria["metrics"]},
@@ -258,12 +253,6 @@ func runURLData(urls runURLs, verbose bool) map[string]any {
 	}
 	if verbose {
 		data["victoria_urls"] = urls.Victoria
-	}
-	if urls.Grafana != nil {
-		data["grafana"] = urls.Grafana
-		if urls.Grafana.URL != "" {
-			data["grafana_url"] = urls.Grafana.URL
-		}
 	}
 	return data
 }

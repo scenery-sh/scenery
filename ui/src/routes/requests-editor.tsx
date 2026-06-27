@@ -255,7 +255,7 @@ export function ResponsePanel({
                 rel="noreferrer"
                 className="flex items-center text-sm underline"
               >
-                View in Grafana
+                View trace
               </a>
             ) : null}
           </div>

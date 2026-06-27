@@ -191,7 +191,6 @@ func routeNamespaceForConfig(cfg app.Config) localagent.RouteNamespace {
 	}
 	addHost(localagent.RouteAPI, cfg.Proxy.APIHost)
 	addHost("console", cfg.Proxy.ConsoleHost)
-	addHost(localagent.RouteGrafana, cfg.Proxy.GrafanaHost)
 	for name, frontend := range cfg.Proxy.Frontends {
 		addHost(name, frontend.Host)
 	}

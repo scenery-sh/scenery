@@ -51,7 +51,9 @@ type dashboardVictoria interface {
 	TraceEventsFor(context.Context, string, string, string) ([]map[string]any, error)
 	QueryTraceSummaries(context.Context, devdash.TraceQuery) ([]*devdash.TraceSummary, error)
 	GetTraceSummaries(context.Context, string, string) ([]*devdash.TraceSummary, error)
+	ListDevEvents(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error)
 	MarkCleared(string, time.Time)
+	URLs() map[string]string
 	Endpoint(string) string
 }
 

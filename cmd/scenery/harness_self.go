@@ -658,7 +658,6 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/local-contract.md",
 		"docs/environment.md",
 		"docs/environment.registry.json",
-		"docs/grafana.md",
 		"docs/app-development-cookbook.md",
 		"docs/ui-agent-contract.md",
 		"docs/plans/active.md",

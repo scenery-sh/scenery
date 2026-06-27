@@ -334,9 +334,6 @@ func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
 	if cfg.Proxy.ConsoleHost != "" {
 		fields = append(fields, fmt.Sprintf("ProxyConsoleHost: %q", cfg.Proxy.ConsoleHost))
 	}
-	if cfg.Proxy.GrafanaHost != "" {
-		fields = append(fields, fmt.Sprintf("ProxyGrafanaHost: %q", cfg.Proxy.GrafanaHost))
-	}
 	if literal := proxyFrontendsLiteral(cfg.Proxy.Frontends); literal != "" {
 		fields = append(fields, "ProxyFrontends: "+literal)
 	}

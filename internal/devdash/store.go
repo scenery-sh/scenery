@@ -106,7 +106,6 @@ type StoredApp struct {
 	Name                string            `json:"name,omitempty"`
 	Root                string            `json:"root,omitempty"`
 	ListenAddr          string            `json:"listen_addr,omitempty"`
-	Grafana             json.RawMessage   `json:"grafana,omitempty"`
 	Routes              map[string]string `json:"routes,omitempty"`
 	Aliases             map[string]string `json:"aliases,omitempty"`
 	Offline             bool              `json:"offline,omitempty"`
@@ -133,7 +132,6 @@ type StoredAppSession struct {
 	Name                string            `json:"name,omitempty"`
 	Root                string            `json:"root,omitempty"`
 	ListenAddr          string            `json:"listen_addr,omitempty"`
-	Grafana             json.RawMessage   `json:"grafana,omitempty"`
 	Routes              map[string]string `json:"routes,omitempty"`
 	Aliases             map[string]string `json:"aliases,omitempty"`
 	Offline             bool              `json:"offline,omitempty"`
@@ -168,6 +166,150 @@ type storedDevEvent struct {
 	AppID     string    `json:"app_id"`
 	AppRoot   string    `json:"app_root,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+func (app *StoredApp) UnmarshalJSON(data []byte) error {
+	type storedApp StoredApp
+	var current storedApp
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*app = StoredApp(current)
+	var legacy AppRecord
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return nil
+	}
+	mergeStoredAppLegacy(app, legacy)
+	return nil
+}
+
+func (session *StoredAppSession) UnmarshalJSON(data []byte) error {
+	type storedAppSession StoredAppSession
+	var current storedAppSession
+	if err := json.Unmarshal(data, &current); err != nil {
+		return err
+	}
+	*session = StoredAppSession(current)
+	var legacy AppRecord
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return nil
+	}
+	mergeStoredAppSessionLegacy(session, legacy)
+	return nil
+}
+
+func mergeStoredAppLegacy(app *StoredApp, legacy AppRecord) {
+	if app.ID == "" {
+		app.ID = legacy.ID
+	}
+	if app.RouteID == "" {
+		app.RouteID = legacy.RouteID
+	}
+	if app.BaseAppID == "" {
+		app.BaseAppID = legacy.BaseAppID
+	}
+	if app.RuntimeAppID == "" {
+		app.RuntimeAppID = legacy.RuntimeAppID
+	}
+	if app.SessionID == "" {
+		app.SessionID = legacy.SessionID
+	}
+	if app.Name == "" {
+		app.Name = legacy.Name
+	}
+	if app.Root == "" {
+		app.Root = legacy.Root
+	}
+	if app.ListenAddr == "" {
+		app.ListenAddr = legacy.ListenAddr
+	}
+	if app.Routes == nil {
+		app.Routes = maps.Clone(legacy.Routes)
+	}
+	if app.Aliases == nil {
+		app.Aliases = maps.Clone(legacy.Aliases)
+	}
+	if !app.Offline {
+		app.Offline = legacy.Offline
+	}
+	if !app.Running {
+		app.Running = legacy.Running
+	}
+	if app.SessionStatus == "" {
+		app.SessionStatus = legacy.SessionStatus
+	}
+	if app.SessionStatusReason == "" {
+		app.SessionStatusReason = legacy.SessionStatusReason
+	}
+	if !app.Compiling {
+		app.Compiling = legacy.Compiling
+	}
+	if app.CompileError == "" {
+		app.CompileError = legacy.CompileError
+	}
+	if app.PID == "" {
+		app.PID = legacy.PID
+	}
+	if app.UpdatedAt.IsZero() {
+		app.UpdatedAt = legacy.UpdatedAt
+	}
+}
+
+func mergeStoredAppSessionLegacy(session *StoredAppSession, legacy AppRecord) {
+	if session.ID == "" {
+		session.ID = legacy.ID
+	}
+	if session.RouteID == "" {
+		session.RouteID = legacy.RouteID
+	}
+	if session.BaseAppID == "" {
+		session.BaseAppID = legacy.BaseAppID
+	}
+	if session.RuntimeAppID == "" {
+		session.RuntimeAppID = legacy.RuntimeAppID
+	}
+	if session.SessionID == "" {
+		session.SessionID = legacy.SessionID
+	}
+	if session.Name == "" {
+		session.Name = legacy.Name
+	}
+	if session.Root == "" {
+		session.Root = legacy.Root
+	}
+	if session.ListenAddr == "" {
+		session.ListenAddr = legacy.ListenAddr
+	}
+	if session.Routes == nil {
+		session.Routes = maps.Clone(legacy.Routes)
+	}
+	if session.Aliases == nil {
+		session.Aliases = maps.Clone(legacy.Aliases)
+	}
+	if !session.Offline {
+		session.Offline = legacy.Offline
+	}
+	if !session.Running {
+		session.Running = legacy.Running
+	}
+	if session.SessionStatus == "" {
+		session.SessionStatus = legacy.SessionStatus
+	}
+	if session.SessionStatusReason == "" {
+		session.SessionStatusReason = legacy.SessionStatusReason
+	}
+	if !session.Compiling {
+		session.Compiling = legacy.Compiling
+	}
+	if session.CompileError == "" {
+		session.CompileError = legacy.CompileError
+	}
+	if session.PID == "" {
+		session.PID = legacy.PID
+	}
+	if session.UpdatedAt.IsZero() {
+		session.UpdatedAt = legacy.UpdatedAt
+	}
 }
 
 var storeLocks sync.Map
@@ -682,9 +824,6 @@ func normalizeAppRecord(app AppRecord) AppRecord {
 	if len(app.APIEncoding) == 0 {
 		app.APIEncoding = json.RawMessage(`{}`)
 	}
-	if len(app.Grafana) == 0 {
-		app.Grafana = json.RawMessage(`{}`)
-	}
 	return app
 }
 
@@ -722,7 +861,6 @@ func storedAppFromAppRecord(app AppRecord) StoredApp {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             compactRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -746,7 +884,6 @@ func storedAppSessionFromAppRecord(app AppRecord) StoredAppSession {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             compactRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -770,7 +907,6 @@ func storedAppSessionFromApp(app StoredApp) StoredAppSession {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             copyRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -799,7 +935,6 @@ func (app StoredApp) toAppRecord() AppRecord {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             copyRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -823,7 +958,6 @@ func (session StoredAppSession) toAppRecord() AppRecord {
 		Name:                session.Name,
 		Root:                session.Root,
 		ListenAddr:          session.ListenAddr,
-		Grafana:             copyRawMessage(session.Grafana),
 		Routes:              maps.Clone(session.Routes),
 		Aliases:             maps.Clone(session.Aliases),
 		Offline:             session.Offline,

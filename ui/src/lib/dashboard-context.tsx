@@ -111,13 +111,6 @@ export function DashboardProvider({
           setStatus(notification.params as AppStatus);
           void rpc.request<AppSummary[]>("list-apps").then(setApps).catch(() => undefined);
           break;
-        case "grafana/status":
-          setStatus((current) =>
-            current
-              ? { ...current, grafana: notification.params as AppStatus["grafana"] }
-              : current,
-          );
-          break;
         case "process/output": {
           const next = notification.params as ProcessOutput;
           if (next.appID !== appId) {

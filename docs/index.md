@@ -22,7 +22,6 @@ scenery harness self --summary
 - [Local Contract](local-contract.md): CLI grammar, stable JSON schemas, generated artifacts, and local runtime contracts.
 - [Environment Reference](environment.md): scenery-owned env vars, app-injected env, and local override escape hatches.
 - [App Development Cookbook](app-development-cookbook.md): practical recipes for building scenery apps.
-- [Grafana Dev Integration](grafana.md): local Grafana provisioning and environment controls for `scenery up`.
 - [ZeroFS Legal Posture](zerofs-legal.md): current licensing gate for managed ZeroFS storage.
 - [Harness Engineering](harness-engineering.md): agent validation loop, harness outputs, and self-harness expectations.
 - [Execution Plan Standard](../PLANS.md): required structure for long-running agent-executable implementation plans.
