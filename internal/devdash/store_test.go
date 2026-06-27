@@ -245,73 +245,6 @@ func TestStoreBudgetRejectsLargeSessions(t *testing.T) {
 	}
 }
 
-func TestLegacyFatSessionMetadataMigratesToRefs(t *testing.T) {
-	t.Parallel()
-
-	cacheRoot := t.TempDir()
-	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
-		t.Fatalf("mkdir cache root: %v", err)
-	}
-	metadata := largeAppMetadata(t, "legacy-rev", 512*1024)
-	legacyApp := AppRecord{
-		ID:          "legacy-app",
-		SessionID:   "legacy-session",
-		Name:        "legacy-app",
-		Root:        "/tmp/legacy",
-		Metadata:    metadata,
-		APIEncoding: json.RawMessage(`{"legacy":true}`),
-		Running:     true,
-		UpdatedAt:   time.Now().UTC(),
-	}
-	legacyData, err := json.Marshal(map[string]any{
-		"version": 1,
-		"apps": map[string]AppRecord{
-			"legacy-app": legacyApp,
-		},
-		"app_sessions": map[string]AppRecord{
-			"legacy-session": legacyApp,
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal legacy store: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(cacheRoot, "devdash.json"), append(legacyData, '\n'), 0o644); err != nil {
-		t.Fatalf("write legacy store: %v", err)
-	}
-
-	store, err := OpenStore(cacheRoot)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Close()
-	})
-	if err := store.Flush(context.Background()); err != nil {
-		t.Fatalf("flush migrated store: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(cacheRoot, "devdash.json"))
-	if err != nil {
-		t.Fatalf("read migrated store: %v", err)
-	}
-	if bytes.Contains(data, []byte("svc_payload")) || bytes.Contains(data, []byte("Metadata")) || bytes.Contains(data, []byte("APIEncoding")) {
-		t.Fatalf("migrated store still contains legacy inline app model: %s", data)
-	}
-	if !bytes.Contains(data, []byte("metadata_ref")) || !bytes.Contains(data, []byte("api_encoding_ref")) {
-		t.Fatalf("migrated store missing app model refs: %s", data)
-	}
-	session, err := store.GetAppSession(context.Background(), "legacy-session")
-	if err != nil {
-		t.Fatalf("get migrated session: %v", err)
-	}
-	if !bytes.Contains(session.Metadata, []byte("svc_payload")) {
-		t.Fatalf("migrated session did not hydrate metadata")
-	}
-	if string(session.APIEncoding) != `{"legacy":true}` {
-		t.Fatalf("migrated api encoding = %s", session.APIEncoding)
-	}
-}
-
 func TestStoreStateSerializedSizeUnderBudget(t *testing.T) {
 	t.Parallel()
 
@@ -731,8 +664,8 @@ func TestStoreDevEventsRoundTripAndFilters(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	events := []DevEvent{
-		DevEventFromOutput("app-test", "session-a", DevSource{ID: "api", Kind: "app", Name: "api", PID: "111", Stream: "stdout", Status: "running"}, []byte(`{"level":"info","msg":"registered","activity":"SendEmail"}`+"\n"), now),
-		DevEventFromOutput("app-test", "session-a", DevSource{ID: "worker:typescript", Kind: "worker", Name: "typescript", PID: "222", Stream: "stderr", Status: "running"}, []byte(`2026-05-31T12:00:00Z ERROR activity failed activity=SyncUser attempt=2`+"\n"), now.Add(time.Second)),
+		DevEventFromOutput("app-test", "session-a", DevSource{ID: "api", Kind: "app", Name: "api", PID: "111", Stream: "stdout", Status: "running"}, []byte(`{"level":"info","msg":"registered","task":"SendEmail"}`+"\n"), now),
+		DevEventFromOutput("app-test", "session-a", DevSource{ID: "worker:durable", Kind: "worker", Name: "durable", PID: "222", Stream: "stderr", Status: "running"}, []byte(`2026-05-31T12:00:00Z ERROR task failed task=SyncUser attempt=2`+"\n"), now.Add(time.Second)),
 		DevEventFromOutput("app-test", "session-b", DevSource{ID: "api", Kind: "app", Name: "api", PID: "333", Stream: "stdout", Status: "running"}, []byte("other session\n"), now.Add(2*time.Second)),
 	}
 	for _, event := range events {
@@ -744,7 +677,7 @@ func TestStoreDevEventsRoundTripAndFilters(t *testing.T) {
 	filtered, err := store.ListDevEvents(ctx, DevEventQuery{
 		AppID:     "app-test",
 		SessionID: "session-a",
-		SourceID:  "worker:typescript",
+		SourceID:  "worker:durable",
 		Level:     "error",
 		Grep:      "SyncUser",
 		Limit:     10,
@@ -756,10 +689,10 @@ func TestStoreDevEventsRoundTripAndFilters(t *testing.T) {
 		t.Fatalf("filtered events = %d, want 1: %+v", len(filtered), filtered)
 	}
 	event := filtered[0]
-	if event.Source.ID != "worker:typescript" || event.Source.Kind != "worker" || event.Level != "error" || event.Message != "activity failed" {
+	if event.Source.ID != "worker:durable" || event.Source.Kind != "worker" || event.Level != "error" || event.Message != "task failed" {
 		t.Fatalf("filtered event = %+v", event)
 	}
-	if string(event.Fields) != `{"activity":"SyncUser","attempt":2}` {
+	if string(event.Fields) != `{"attempt":2,"task":"SyncUser"}` {
 		t.Fatalf("fields = %s", event.Fields)
 	}
 

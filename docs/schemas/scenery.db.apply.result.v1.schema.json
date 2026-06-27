@@ -9,9 +9,8 @@
     "app": { "$ref": "#/$defs/appRef" },
     "apply": {
       "type": "object",
-      "required": ["provider", "status"],
+      "required": ["status"],
       "properties": {
-        "provider": { "type": "string" },
         "command": { "type": "string" },
         "cwd": { "type": "string" },
         "status": { "const": "applied" }

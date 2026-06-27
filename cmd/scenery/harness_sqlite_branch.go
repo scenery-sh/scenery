@@ -54,7 +54,6 @@ func runHarnessSQLiteBranchCheck(parent context.Context) (map[string]any, []chec
 		"SCENERY_DEV_CACHE_DIR":         nil,
 		"SCENERY_DEV_DASHBOARD_ADDR":    nil,
 		"SCENERY_AGENT_DISABLE":         nil,
-		"SCENERY_LOCAL_PROXY":           stringPtr("0"),
 		"SCENERY_DEV_VICTORIA":          stringPtr("0"),
 		"SCENERY_DEV_VICTORIA_DOWNLOAD": stringPtr("0"),
 	})

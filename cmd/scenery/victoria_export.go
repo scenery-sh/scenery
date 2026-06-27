@@ -304,9 +304,6 @@ func traceSummaryAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
 		{Key: "scenery.is_error", Value: summary.IsError},
 		{Key: "scenery.service", Value: summary.ServiceName},
 	}
-	if isTemporalTraceSummary(summary) {
-		attrs = append(attrs, otlpAttribute{Key: "scenery.temporal", Value: true})
-	}
 	if summary.SessionID != "" {
 		attrs = append(attrs, otlpAttribute{Key: "scenery.session_id", Value: summary.SessionID})
 	}
@@ -336,9 +333,6 @@ func metricAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
 		{Key: "scenery_is_error", Value: summary.IsError},
 		{Key: "scenery_service", Value: summary.ServiceName},
 	}
-	if isTemporalTraceSummary(summary) {
-		attrs = append(attrs, otlpAttribute{Key: "scenery_temporal", Value: true})
-	}
 	if summary.SessionID != "" {
 		attrs = append(attrs, otlpAttribute{Key: "scenery_session_id", Value: summary.SessionID})
 	}
@@ -358,10 +352,6 @@ func metricAttributePairs(summary *devdash.TraceSummary) []otlpAttribute {
 		attrs = append(attrs, otlpAttribute{Key: "scenery_message_id", Value: *summary.MessageID})
 	}
 	return attrs
-}
-
-func isTemporalTraceSummary(summary *devdash.TraceSummary) bool {
-	return summary != nil && strings.HasPrefix(summary.Type, "TEMPORAL_")
 }
 
 func logAttributePairs(event *devdash.LogEvent) []otlpAttribute {

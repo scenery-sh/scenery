@@ -6,7 +6,7 @@ This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`,
 ## Purpose / Big Picture
 
 Scenery already owns local development substrates such as the HTTPS edge,
-Grafana, Victoria, Temporal, managed Postgres, and sync. This plan extends
+Grafana, Victoria, legacy async runtime, managed Postgres, and sync. This plan extends
 that model to a local/self-hosted Neon development cell: a shared branchable
 Postgres substrate that Scenery installs, starts, inspects, and wires into app
 sessions without asking users or agents to maintain Neon Docker Compose files or

@@ -6,9 +6,9 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 the agent-native local-dev ExecPlan series describes moving local development from many public per-worktree ports to one machine-local agent that owns a control socket, a routed ingress, and session state. The immediate goal is a Scenery-native agent MVP that can run today without replacing every existing dev substrate.
 
-After this work, `scenery dev` auto-starts or connects to a local `scenery agent`, registers the current worktree as a session, writes a session manifest under `.scenery/sessions/<session_id>/manifest.json`, and exposes routed session URLs through the agent. The existing app, dashboard, Temporal, Victoria, Grafana, and optional local proxy remain supervised by `scenery dev` for this milestone, but their public identity moves behind agent session records. `scenery status --json` and `scenery down` become agent-backed controls.
+After this work, `scenery dev` auto-starts or connects to a local `scenery agent`, registers the current worktree as a session, writes a session manifest under `.scenery/sessions/<session_id>/manifest.json`, and exposes routed session URLs through the agent. The existing app, dashboard, legacy async runtime, Victoria, Grafana, and optional local proxy remain supervised by `scenery dev` for this milestone, but their public identity moves behind agent session records. `scenery status --json` and `scenery down` become agent-backed controls.
 
-This plan deliberately does not move shared Postgres, Temporal, Victoria, or Grafana into daemon-owned substrates. Those are later agent-native local-dev phases. The MVP must keep existing `scenery dev --listen ...` and `--proxy` behavior working while adding the daemon path.
+This plan deliberately does not move shared Postgres, legacy async runtime, Victoria, or Grafana into daemon-owned substrates. Those are later agent-native local-dev phases. The MVP must keep existing `scenery dev --listen ...` and `--proxy` behavior working while adding the daemon path.
 
 ## Progress
 
@@ -27,7 +27,7 @@ Record implementation findings here with commands, test output, or file referenc
 
 ## Decision Log
 
-* Decision: Ship an agent MVP without moving Temporal, Victoria, Grafana, Postgres, or sync into daemon-owned shared substrates.
+* Decision: Ship an agent MVP without moving legacy async runtime, Victoria, Grafana, Postgres, or sync into daemon-owned shared substrates.
   Rationale: The agent-native local-dev plan explicitly phases those moves after the daemon/router/session model. Keeping current supervision intact makes the first change testable and preserves current dev workflows.
   Date/Author: 2026-05-26 / Codex
 
@@ -77,7 +77,7 @@ internal/devdash/*
 internal/localproxy/*
 ```
 
-Existing `scenery dev` starts the app, dashboard, optional local proxy, Temporal dev server, Victoria stack, and Grafana from `cmd/scenery/dev_supervisor.go`. The dashboard currently binds `internal/devdash.ListenAddr()`, which defaults to `127.0.0.1:9401` but can be overridden with `SCENERY_DEV_DASHBOARD_ADDR`.
+Existing `scenery dev` starts the app, dashboard, optional local proxy, legacy async runtime dev server, Victoria stack, and Grafana from `cmd/scenery/dev_supervisor.go`. The dashboard currently binds `internal/devdash.ListenAddr()`, which defaults to `127.0.0.1:9401` but can be overridden with `SCENERY_DEV_DASHBOARD_ADDR`.
 
 The agent MVP adds a new `internal/agent` package. It should use the Go standard library for the control plane and registry. The control API runs over a Unix socket at `~/.scenery/run/agent.sock` by default, with `SCENERY_AGENT_HOME` and explicit command flags available for tests and advanced local setups. The router listens on a loopback TCP address and proxies host-routed requests such as `api.<session>.scenery.localhost`.
 

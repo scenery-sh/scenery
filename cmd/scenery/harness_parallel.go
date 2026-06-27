@@ -16,7 +16,6 @@ import (
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/sqlitedb"
-	sceneryruntime "scenery.sh/runtime"
 )
 
 var runHarnessParallelDevCheckFunc = runHarnessParallelDevCheck
@@ -58,7 +57,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		"SCENERY_DEV_CACHE_DIR":         nil,
 		"SCENERY_DEV_DASHBOARD_ADDR":    nil,
 		"SCENERY_AGENT_DISABLE":         nil,
-		"SCENERY_LOCAL_PROXY":           stringPtr("0"),
 		"SCENERY_DEV_VICTORIA":          stringPtr("0"),
 		"SCENERY_DEV_VICTORIA_DOWNLOAD": stringPtr("0"),
 	})
@@ -104,12 +102,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 	defer closeGrafana()
-	temporalAddr, closeTemporal, err := reserveHarnessAddr()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer closeTemporal()
-
 	root := filepath.Join(os.TempDir(), "scenery-harness-apps-"+harnessRandomLabel())
 	rootA := filepath.Join(root, "worktree-a")
 	rootB := filepath.Join(root, "worktree-b")
@@ -141,8 +133,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	supervisorB := &devSupervisor{root: rootB, cfg: cfgB, agent: client, agentSession: sessionB}
 	supervisorA.registerAgentSessionBackend(ctx, localagent.RouteGrafana, localagent.Backend{Network: "tcp", Addr: grafanaAddr})
 	supervisorB.registerAgentSessionBackend(ctx, localagent.RouteGrafana, localagent.Backend{Network: "tcp", Addr: grafanaAddr})
-	supervisorA.registerAgentSessionBackend(ctx, localagent.RouteTemporal, localagent.Backend{Network: "tcp", Addr: temporalAddr})
-	supervisorB.registerAgentSessionBackend(ctx, localagent.RouteTemporal, localagent.Backend{Network: "tcp", Addr: temporalAddr})
 	sessionA = supervisorA.agentSession
 	sessionB = supervisorB.agentSession
 
@@ -173,13 +163,12 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 
-	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, sqliteEnvA, sqliteEnvB, servicesA, servicesB, supervisorA.sessionTemporalEnv(), supervisorB.sessionTemporalEnv())
+	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, sqliteEnvA, sqliteEnvB, servicesA, servicesB)
 	summary := map[string]any{
 		"sessions":        2,
 		"databases":       len(servicesA) + len(servicesB),
 		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
 		"frontend_routes": []string{sessionA.Routes["web"], sessionB.Routes["web"]},
-		"temporal_queues": []string{envValueFromList(supervisorA.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv), envValueFromList(supervisorB.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv)},
 		"diagnostics":     len(diagnostics),
 	}
 	if hasErrorDiagnostics(diagnostics) {
@@ -207,7 +196,6 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 				"main": {Kind: "sqlite"},
 			},
 		},
-		Temporal: app.TemporalConfig{Enabled: true},
 	}
 }
 
@@ -261,7 +249,7 @@ func writeHarnessParallelObservability(ctx context.Context, store *devdash.Store
 	return nil
 }
 
-func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, sqliteEnvA, sqliteEnvB []string, servicesA, servicesB []sqlitedb.Service, temporalEnvA, temporalEnvB []string) []checkDiagnostic {
+func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, sqliteEnvA, sqliteEnvB []string, servicesA, servicesB []sqlitedb.Service) []checkDiagnostic {
 	var diagnostics []checkDiagnostic
 	check := func(ok bool, message string) {
 		if ok {
@@ -280,12 +268,10 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends[localagent.RouteAPI].Network == "unix" && sessionB.Backends[localagent.RouteAPI].Network == "unix", "default API backends must use Unix sockets")
 	check(sessionA.Backends[localagent.RouteAPI].Addr != sessionB.Backends[localagent.RouteAPI].Addr, "API backends must be distinct")
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
-	check(routeContainsSession(sessionA.Routes["web"], sessionA.SessionID) && routeContainsSession(sessionB.Routes["web"], sessionB.SessionID) && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
-	check(routeContainsSession(sessionA.Routes[localagent.RouteGrafana], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteGrafana], sessionB.SessionID), "Grafana routes must be session-scoped")
-	check(routeContainsSession(sessionA.Routes[localagent.RouteTemporal], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteTemporal], sessionB.SessionID), "Temporal routes must be session-scoped")
+	check(routeIsSessionScoped(sessionA, "web") && routeIsSessionScoped(sessionB, "web") && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
+	check(routeIsSessionScoped(sessionA, localagent.RouteGrafana) && routeIsSessionScoped(sessionB, localagent.RouteGrafana), "Grafana routes must be session-scoped")
 	check(len(servicesA) == 1 && len(servicesB) == 1 && servicesA[0].Path != "" && servicesB[0].Path != "" && servicesA[0].Path != servicesB[0].Path, "managed SQLite database files must be distinct")
 	check(envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL"), "managed SQLite database URLs must be distinct")
-	check(envValueFromList(temporalEnvA, sceneryruntime.DefaultTemporalTaskQueueEnv) != "" && envValueFromList(temporalEnvA, sceneryruntime.DefaultTemporalTaskQueueEnv) != envValueFromList(temporalEnvB, sceneryruntime.DefaultTemporalTaskQueueEnv), "Temporal task queue prefixes must be distinct")
 	if victoria := (&agentDashboardController{store: store, agent: server}).dashboardVictoria(); victoria == nil || victoria.Endpoint("traces") == "" {
 		check(false, "agent dashboard must read shared Victoria substrate")
 	}
@@ -301,6 +287,24 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 		check(false, "sibling session must remain after deleting the first session")
 	}
 	return diagnostics
+}
+
+func routeIsSessionScoped(session *localagent.Session, route string) bool {
+	if session == nil {
+		return false
+	}
+	value := strings.TrimSpace(session.Routes[route])
+	if value == "" {
+		return false
+	}
+	if session.RouteManifest.Mode == localagent.RouteModePath {
+		baseURL := strings.TrimRight(strings.TrimSpace(session.RouteManifest.BaseURL), "/")
+		if baseURL == "" || !strings.HasPrefix(value, baseURL+"/") {
+			return false
+		}
+		return session.RouteManifest.PortLease != nil && session.RouteManifest.PortLease.SessionID == session.SessionID
+	}
+	return routeContainsSession(value, session.SessionID)
 }
 
 func routeContainsSession(route, sessionID string) bool {

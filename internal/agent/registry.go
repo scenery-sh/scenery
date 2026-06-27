@@ -571,6 +571,9 @@ func (r *Registry) load() error {
 func (r *Registry) rebuildRouteHostIndexLocked() {
 	hosts := make(map[string]routeTarget)
 	for _, session := range r.sessions {
+		if session.RouteManifest.Mode == RouteModePath {
+			continue
+		}
 		for route, routeURL := range session.Routes {
 			host := normalizeRouteHost(routeURL)
 			route = normalizeAliasRoute(route)

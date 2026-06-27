@@ -883,7 +883,6 @@ func generatorFingerprintPaths() []string {
 		"middleware",
 		"rlog",
 		"runtime",
-		"temporal",
 	}
 }
 

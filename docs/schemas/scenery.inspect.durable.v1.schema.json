@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.durable.v1.schema.json",
+  "title": "scenery.inspect.durable.v1",
+  "type": "object",
+  "required": ["schema_version", "app", "durable", "declarations", "services"],
+  "properties": {
+    "schema_version": { "const": "scenery.inspect.durable.v1" },
+    "app": { "$ref": "#/$defs/appRef" },
+    "durable": {
+      "type": "object",
+      "required": ["state_root", "task_count", "service_count"],
+      "properties": {
+        "state_root": { "type": "string" },
+        "task_count": { "type": "integer", "minimum": 0 },
+        "service_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "declarations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "name", "service", "db_exists", "file", "line"],
+        "properties": {
+          "kind": { "const": "durable_task" },
+          "name": { "type": "string" },
+          "service": { "type": "string" },
+          "db_path": { "type": "string" },
+          "db_exists": { "type": "boolean" },
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 0 },
+          "input": { "type": "string" },
+          "output": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "services": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "db_path", "db_exists"],
+        "properties": {
+          "name": { "type": "string" },
+          "db_path": { "type": "string" },
+          "db_exists": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "appRef": {
+      "type": "object",
+      "required": ["name", "root", "config_path"],
+      "properties": {
+        "name": { "type": "string" },
+        "id": { "type": "string" },
+        "root": { "type": "string" },
+        "config_path": { "type": "string" },
+        "module_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

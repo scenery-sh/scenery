@@ -24,23 +24,23 @@ func TestRenderDevConsoleShowsSourcesLogsAndExpandedJSON(t *testing.T) {
 	event := devdash.DevEvent{
 		ID:        42,
 		SessionID: "feature-x",
-		Source:    devdash.DevSource{ID: "worker:typescript", Kind: "worker", Name: "typescript", PID: "12351", Status: "running"},
+		Source:    devdash.DevSource{ID: "worker:durable", Kind: "worker", Name: "durable", PID: "12351", Status: "running"},
 		Level:     "error",
-		Message:   "activity failed",
-		Fields:    []byte(`{"activity":"SyncUser","attempt":2}`),
-		Raw:       `ERROR activity failed activity=SyncUser attempt=2`,
+		Message:   "task failed",
+		Fields:    []byte(`{"attempt":2,"task":"SyncUser"}`),
+		Raw:       `ERROR task failed task=SyncUser attempt=2`,
 		Parse:     devdash.DevEventParse{Format: "level-text", OK: true},
 		CreatedAt: at,
 	}
 	snapshot := devConsoleSnapshot{
 		AppName:    "billing",
 		SessionID:  "feature-x",
-		Selected:   "worker:typescript",
+		Selected:   "worker:durable",
 		ErrorsOnly: true,
 		Expanded:   true,
 		Sources: buildDevConsoleSources([]devdash.DevSource{
 			{ID: "api", Kind: "app", Name: "api", PID: "12345", Status: "running"},
-			{ID: "worker:typescript", Kind: "worker", Name: "typescript", PID: "12351", Status: "running"},
+			{ID: "worker:durable", Kind: "worker", Name: "durable", PID: "12351", Status: "running"},
 		}, []devdash.DevEvent{event}),
 		Events: []devdash.DevEvent{event},
 	}
@@ -48,9 +48,9 @@ func TestRenderDevConsoleShowsSourcesLogsAndExpandedJSON(t *testing.T) {
 	out := renderDevConsole(snapshot)
 	for _, want := range []string{
 		"scenery console  billing",
-		"worker:typescript",
-		"activity failed",
-		`"activity": "SyncUser"`,
+		"worker:durable",
+		"task failed",
+		`"task": "SyncUser"`,
 		"event json",
 		`"schema_version": "scenery.dev.event.v1"`,
 		"q quit",
@@ -186,7 +186,7 @@ func TestRenderDevConsoleResponsiveLayoutsStayBounded(t *testing.T) {
 		Sources: buildDevConsoleSources([]devdash.DevSource{
 			{ID: "api", Kind: "app", Name: "api", PID: "12345", Status: "running"},
 			{ID: "frontend:web", Kind: "frontend", Name: "web", Status: "running"},
-			{ID: "worker:typescript", Kind: "worker", Name: "typescript", PID: "12351", Status: "running"},
+			{ID: "worker:durable", Kind: "worker", Name: "durable", PID: "12351", Status: "running"},
 		}, events),
 		Events: events,
 	}
@@ -344,25 +344,25 @@ func TestDevConsoleRefreshUsesSelectedBackend(t *testing.T) {
 	backend := &fakeDevEventBackend{
 		events: []devdash.DevEvent{
 			{ID: 1, AppID: "logsapp", SessionID: "session-a", Source: devdash.DevSource{ID: "api", Kind: "app"}, Level: "info", Message: "ok", CreatedAt: time.Now().UTC()},
-			{ID: 2, AppID: "logsapp", SessionID: "session-a", Source: devdash.DevSource{ID: "worker:typescript", Kind: "worker"}, Level: "error", Message: "boom", CreatedAt: time.Now().UTC()},
+			{ID: 2, AppID: "logsapp", SessionID: "session-a", Source: devdash.DevSource{ID: "worker:durable", Kind: "worker"}, Level: "error", Message: "boom", CreatedAt: time.Now().UTC()},
 		},
 		sources: []devdash.DevSource{
 			{ID: "api", Kind: "app"},
-			{ID: "worker:typescript", Kind: "worker"},
+			{ID: "worker:durable", Kind: "worker"},
 		},
 	}
 	state := devConsoleState{
 		opts:      logsOptions{Limit: 10},
 		appID:     "logsapp",
 		sessionID: "session-a",
-		selected:  "worker:typescript",
+		selected:  "worker:durable",
 		errors:    true,
 	}
 
 	if err := state.refresh(context.Background(), backend); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if backend.lastQuery.SourceID != "worker:typescript" || backend.lastQuery.Level != "error" {
+	if backend.lastQuery.SourceID != "worker:durable" || backend.lastQuery.Level != "error" {
 		t.Fatalf("backend query = %+v", backend.lastQuery)
 	}
 	if len(state.events) != 1 || state.events[0].Message != "boom" {

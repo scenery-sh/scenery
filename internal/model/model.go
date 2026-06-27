@@ -361,10 +361,8 @@ type ViewSlot struct {
 type RuntimeDeclarationKind string
 
 const (
-	RuntimeDeclarationTemporalWorkflow         RuntimeDeclarationKind = "temporal_workflow"
-	RuntimeDeclarationTemporalActivity         RuntimeDeclarationKind = "temporal_activity"
-	RuntimeDeclarationTemporalExternalActivity RuntimeDeclarationKind = "temporal_external_activity"
-	RuntimeDeclarationCronJob                  RuntimeDeclarationKind = "cron_job"
+	RuntimeDeclarationCronJob     RuntimeDeclarationKind = "cron_job"
+	RuntimeDeclarationDurableTask RuntimeDeclarationKind = "durable_task"
 )
 
 type RuntimeDeclaration struct {
@@ -377,6 +375,9 @@ type RuntimeDeclaration struct {
 	TaskQueue         string
 	TaskQueueExplicit bool
 	TaskQueueResolved bool
+	ServiceName       string
+	ServiceExplicit   bool
+	ServiceResolved   bool
 	InputType         string
 	OutputType        string
 }

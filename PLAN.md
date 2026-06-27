@@ -86,7 +86,7 @@ Goal: keep speed without architectural drift.
 Deliverables:
 
 - Extend architecture checks with package dependency direction rules.
-- Define allowed imports for public packages (`auth`, `errs`, `cron`, `middleware`, `temporal`, `db`, `rlog`) versus internal packages.
+- Define allowed imports for public packages (`auth`, `errs`, `cron`, `durable`, `middleware`, `db`, `rlog`) versus internal packages.
 - Add source ownership metadata for major areas: CLI, parser/build/codegen, runtime, dashboard UI, docs, fixtures.
 - Detect repeated local helper patterns that should be centralized.
 

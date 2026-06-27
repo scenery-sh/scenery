@@ -15,7 +15,7 @@ The dev-event plane is now VictoriaLogs-backed for CLI and console reads. The lo
 - [x] 2026-06-01: Moved dev-event ID assignment to the producer path before VictoriaLogs export.
 - [x] 2026-06-01: Replaced the remaining dashboard/session metadata store with `devdash.json`.
 - [x] 2026-06-01: Removed the embedded local SQL driver module dependency and architecture allowlist entry.
-- [x] 2026-06-01: Renamed the default Temporal dev-server database filename from `dev.sqlite` to `dev.db`.
+- [x] 2026-06-01: Renamed the default legacy async runtime dev-server database filename from `dev.sqlite` to `dev.db`.
 
 ## Surprises & Discoveries
 

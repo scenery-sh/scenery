@@ -5,7 +5,7 @@ Scenery apps are ordinary Go modules plus a small set of declarations. The DSL i
 - `.scenery.json` app config
 - `//scenery:*` Go directives
 - struct tags on request, response, and model fields
-- small Go builder packages such as `scenery.sh/model`, `scenery.sh/page`, `scenery.sh/temporal`, and `scenery.sh/cron`
+- small Go builder packages such as `scenery.sh/model`, `scenery.sh/page`, `scenery.sh/durable`, and `scenery.sh/cron`
 
 Use `docs/local-contract.md` for the exact machine contract. This file is the human map.
 
@@ -37,8 +37,7 @@ Common config surfaces:
 - `proxy.frontends`: frontend roots for dev routing and generated web packages.
 - `storage`: Scenery-owned storage stores, access, tenant scoping, and size limits.
 - `dev.services`: managed local dev services such as SQLite and ZeroFS.
-- `temporal.enabled`: opt-in Temporal runtime. Declarations alone do not enable Temporal.
-- `database.apply`: explicit database setup command provider.
+- `database.apply`: explicit database setup command.
 - `tasks`, `validation`: app-owned task and validation profiles.
 
 ## API Directives
@@ -304,44 +303,40 @@ Generated web packages export:
 
 Apps consume generated frontend code through an app-owned alias such as `@scenery/generated`.
 
-## Temporal DSL
+## Durable DSL
 
-Use `scenery.sh/temporal` for typed workflow and activity declarations. Set `temporal.enabled: true` in app config to run Temporal.
+Use `scenery.sh/durable` for typed durable task declarations, enqueue, schedules, local execution, signals, and step results. Scenery discovers `durable.NewTask` calls, imports their packages into generated main, reconciles declarations into service durable SQLite databases at runtime startup, `durable.Start` writes queued jobs, and `all`/`worker` roles execute registered Go handlers locally with retry scheduling from the task config. `durable.Schedule` records an interval schedule that the API/all runtime materializes into queued jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results; outside a durable job context it just runs the function. `durable.Signal` appends a JSON signal row and event for a durable run. `scenery inspect durable --json` reports declarations, services, DB paths, and whether the durable DB currently exists. The runtime exposes authenticated durable worker HTTP endpoints for lease, heartbeat, complete, and fail with hashed worker tokens and lease-ID fencing.
 
 ```go
-var capturePayment = temporal.NewActivity[CaptureInput, CaptureOutput](
-	"orders.Capture/v1",
-	temporal.ActivityConfig{TaskQueue: "orders.activities.go"},
-	capturePaymentFunc,
-)
-
-var fulfillOrder = temporal.NewWorkflow[FulfillInput, FulfillOutput](
-	"orders.Fulfill/v1",
-	temporal.WorkflowConfig{},
-	func(ctx temporal.WorkflowContext, in FulfillInput) (FulfillOutput, error) {
-		future := temporal.ExecuteActivity(ctx, capturePayment, CaptureInput{OrderID: in.OrderID})
-		return future.Get(ctx)
+var detectRoof = durable.NewTask[DetectInput, DetectOutput](
+	"roof.detect.v1",
+	durable.TaskConfig{
+		Service:     "maps",
+		MaxAttempts: 3,
+		Retry: durable.RetryPolicy{
+			InitialInterval: 5 * time.Second,
+			BackoffFactor:  2,
+			MaxInterval:    2 * time.Minute,
+		},
 	},
+	detectRoofFunc,
 )
 ```
 
-Main pieces:
+```go
+run, err := durable.Start(ctx, detectRoof, input, durable.StartOptions{DedupeKey: "roof:" + input.ID})
+```
 
-- `temporal.NewWorkflow[I, O](name, cfg, handler)`
-- `temporal.NewActivity[I, O](name, cfg, handler, opts...)`
-- `temporal.NewExternalActivity[I, O](name, cfg, opts...)`
-- `temporal.ExecuteActivity(ctx, activity, input)`
-- `temporal.Start(ctx, workflow, input, temporal.WorkflowID(id), opts...)`
-- `temporal.Start(ctx, workflow, input, temporal.WorkflowIDPrefix(prefix), opts...)`
-- `temporal.GetWorkflow[O](ctx, workflowID, runID)`
-- `temporal.MethodActivity` and `RegisterServiceAccessorFor` for service-backed activities
-
-Useful config and options:
-
-- workflow task queue and timeouts
-- activity task queue, start-to-close timeout, max concurrency, retry policy
-- heartbeat timeout through `temporal.WithHeartbeatTimeout`
-- start memo, search attributes, timeouts, pinned build ID, conflict/reuse policies
+```go
+result, err := durable.Step(ctx, "fetch-imagery", func(ctx context.Context) (Imagery, error) {
+	return fetchImagery(ctx, input.TileID)
+})
+err = durable.Signal(ctx, run, "operator-approved", Approval{By: userID})
+err = durable.Schedule(ctx, detectRoof, DetectInput{TileID: "north"}, durable.ScheduleOptions{
+	ID:    "detect-north",
+	Every: 15 * time.Minute,
+})
+```
 
 ## Cron DSL
 
@@ -354,7 +349,6 @@ var _ = cron.NewJob("nightly-sync", cron.JobConfig{
 	OverlapPolicy:        cron.OverlapSkip,
 	CatchupWindow:        10 * time.Minute,
 	PauseOnFailure:       true,
-	ActivityStartToClose: 15 * time.Minute,
 })
 
 func syncNightly(ctx context.Context) error {
@@ -371,8 +365,6 @@ Job config:
 - `OverlapPolicy`
 - `CatchupWindow`
 - `PauseOnFailure`
-- `ActivityStartToClose`
-- `ActivityRetryPolicy`
 
 Overlap policies include `skip`, `buffer_one`, `buffer_all`, `cancel_other`, `terminate_other`, and `allow_all`.
 
@@ -387,7 +379,7 @@ scenery inspect routes --json
 scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
-scenery inspect temporal --json
+scenery inspect durable --json
 scenery inspect generators --json
 ```
 

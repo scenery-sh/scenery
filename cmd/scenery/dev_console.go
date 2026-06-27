@@ -743,9 +743,7 @@ func devConsoleSourceRank(id string) int {
 		return 10
 	case "worker:go":
 		return 20
-	case "worker:typescript":
-		return 21
-	case "temporal":
+	case "worker:durable":
 		return 30
 	case "sqlite":
 		return 40

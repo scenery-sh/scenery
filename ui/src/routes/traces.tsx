@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { isTemporalTrace, requestTracesURL, temporalTracesURL, traceDashboardURL } from "../lib/grafana";
+import { requestTracesURL, traceDashboardURL } from "../lib/grafana";
 import { cn, formatDurationNanos, formatTimestamp } from "../lib/utils";
 import { useDashboard } from "../lib/dashboard-context";
 import type { TraceSummary } from "../lib/types";
@@ -17,12 +17,11 @@ function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: s
   const { appId, status, traces } = useDashboard();
   const grafana = status?.grafana;
   const requestURL = requestTracesURL(grafana);
-  const temporalURL = temporalTracesURL(grafana);
   const trace = useMemo(
     () => traces.find((item) => item.trace_id === traceId) ?? null,
     [traceId, traces],
   );
-  const primaryURL = traceDashboardURL(grafana, trace);
+  const primaryURL = traceDashboardURL(grafana);
 
   return (
     <div
@@ -50,8 +49,7 @@ function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: s
 
           <section className="rounded-md border border-border p-6">
             <div className="flex flex-wrap items-center gap-2">
-              <ExternalLink href={requestURL} label="Request traces" primary={!trace || !isTemporalTrace(trace)} />
-              <ExternalLink href={temporalURL} label="Temporal traces" primary={isTemporalTrace(trace)} />
+              <ExternalLink href={requestURL} label="Request traces" primary />
             </div>
             {!grafana?.available ? (
               <p className="mt-4 text-sm text-muted-foreground">

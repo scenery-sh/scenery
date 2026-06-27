@@ -192,7 +192,6 @@ func generatePackageFile(pkg *model.Package, cfg appcfg.Config) ([]byte, error) 
 		im.use("scenerymiddleware", "scenery.sh/middleware")
 	}
 	if serviceStruct != nil {
-		im.use("scenerytemporal", "scenery.sh/temporal")
 		im.use("sync", "sync")
 		im.use("time", "time")
 	}
@@ -226,9 +225,6 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
 	}
 	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
-	if effectiveTemporalConfig(appModel, cfg).Enabled {
-		buf.WriteString("\t_ \"scenery.sh/temporal\"\n")
-	}
 	for _, pkg := range appModel.Packages {
 		if hasResources(pkg) {
 			fmt.Fprintf(&buf, "\t_ %q\n", pkg.ImportPath)
@@ -338,9 +334,6 @@ func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
 	if cfg.Proxy.ConsoleHost != "" {
 		fields = append(fields, fmt.Sprintf("ProxyConsoleHost: %q", cfg.Proxy.ConsoleHost))
 	}
-	if cfg.Proxy.TemporalHost != "" {
-		fields = append(fields, fmt.Sprintf("ProxyTemporalHost: %q", cfg.Proxy.TemporalHost))
-	}
 	if cfg.Proxy.GrafanaHost != "" {
 		fields = append(fields, fmt.Sprintf("ProxyGrafanaHost: %q", cfg.Proxy.GrafanaHost))
 	}
@@ -350,31 +343,7 @@ func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
 	if literal := observabilityConfigLiteral(cfg.Observability); literal != "" {
 		fields = append(fields, "Observability: "+literal)
 	}
-	if literal := temporalConfigLiteral(effectiveTemporalConfig(appModel, cfg)); literal != "" {
-		fields = append(fields, "Temporal: "+literal)
-	}
 	return "sceneryruntime.AppConfig{" + strings.Join(fields, ", ") + "}"
-}
-
-func effectiveTemporalConfig(_ *model.App, cfg appcfg.Config) appcfg.TemporalConfig {
-	return cfg.Temporal
-}
-
-func appUsesTemporalRuntime(appModel *model.App) bool {
-	if appModel == nil {
-		return false
-	}
-	for _, decl := range appModel.Runtime {
-		switch decl.Kind {
-		case model.RuntimeDeclarationTemporalWorkflow, model.RuntimeDeclarationTemporalActivity, model.RuntimeDeclarationTemporalExternalActivity, model.RuntimeDeclarationCronJob:
-			return true
-		}
-	}
-	return false
-}
-
-func AppUsesTemporalRuntime(appModel *model.App) bool {
-	return appUsesTemporalRuntime(appModel)
 }
 
 func proxyFrontendsLiteral(frontends map[string]appcfg.FrontendConfig) string {
@@ -416,78 +385,6 @@ func observabilityConfigLiteral(cfg appcfg.ObservabilityConfig) string {
 		return ""
 	}
 	return "sceneryruntime.ObservabilityConfig{" + strings.Join(fields, ", ") + "}"
-}
-
-func temporalConfigLiteral(cfg appcfg.TemporalConfig) string {
-	fields := make([]string, 0, 7)
-	if cfg.Enabled {
-		fields = append(fields, "Enabled: true")
-	}
-	if cfg.Mode != "" {
-		fields = append(fields, fmt.Sprintf("Mode: %q", cfg.Mode))
-	}
-	if cfg.Namespace != "" {
-		fields = append(fields, fmt.Sprintf("Namespace: %q", cfg.Namespace))
-	}
-	if cfg.AddressEnv != "" {
-		fields = append(fields, fmt.Sprintf("AddressEnv: %q", cfg.AddressEnv))
-	}
-	if cfg.TaskQueuePrefix != "" {
-		fields = append(fields, fmt.Sprintf("TaskQueuePrefix: %q", cfg.TaskQueuePrefix))
-	}
-	if cfg.PayloadCodec != "" {
-		fields = append(fields, fmt.Sprintf("PayloadCodec: %q", cfg.PayloadCodec))
-	}
-	if cfg.APIKeyEnv != "" {
-		fields = append(fields, fmt.Sprintf("APIKeyEnv: %q", cfg.APIKeyEnv))
-	}
-	if literal := temporalTLSConfigLiteral(cfg.TLS); literal != "" {
-		fields = append(fields, "TLS: "+literal)
-	}
-	if literal := temporalLocalConfigLiteral(cfg.Local); literal != "" {
-		fields = append(fields, "Local: "+literal)
-	}
-	if len(fields) == 0 {
-		return ""
-	}
-	return "sceneryruntime.TemporalConfig{" + strings.Join(fields, ", ") + "}"
-}
-
-func temporalTLSConfigLiteral(cfg appcfg.TemporalTLSConfig) string {
-	fields := make([]string, 0, 5)
-	if cfg.Enabled {
-		fields = append(fields, "Enabled: true")
-	}
-	if cfg.ServerNameEnv != "" {
-		fields = append(fields, fmt.Sprintf("ServerNameEnv: %q", cfg.ServerNameEnv))
-	}
-	if cfg.CACertFileEnv != "" {
-		fields = append(fields, fmt.Sprintf("CACertFileEnv: %q", cfg.CACertFileEnv))
-	}
-	if cfg.ClientCertFileEnv != "" {
-		fields = append(fields, fmt.Sprintf("ClientCertFileEnv: %q", cfg.ClientCertFileEnv))
-	}
-	if cfg.ClientKeyFileEnv != "" {
-		fields = append(fields, fmt.Sprintf("ClientKeyFileEnv: %q", cfg.ClientKeyFileEnv))
-	}
-	if len(fields) == 0 {
-		return ""
-	}
-	return "sceneryruntime.TemporalTLSConfig{" + strings.Join(fields, ", ") + "}"
-}
-
-func temporalLocalConfigLiteral(cfg appcfg.TemporalLocalConfig) string {
-	fields := make([]string, 0, 2)
-	if cfg.AutoStart {
-		fields = append(fields, "AutoStart: true")
-	}
-	if cfg.DBFilename != "" {
-		fields = append(fields, fmt.Sprintf("DBFilename: %q", cfg.DBFilename))
-	}
-	if len(fields) == 0 {
-		return ""
-	}
-	return "sceneryruntime.TemporalLocalConfig{" + strings.Join(fields, ", ") + "}"
 }
 
 func endpointFilterConfigLiteral(cfg appcfg.EndpointFilterConfig) string {
@@ -1083,9 +980,6 @@ func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.En
 		fmt.Fprintf(buf, "\tsceneryruntime.RegisterServiceInitializer(%q, func() error {\n", ss.Service.Name)
 		fmt.Fprintf(buf, "\t\t_, err := %s()\n", ss.GetterName)
 		buf.WriteString("\t\treturn err\n")
-		buf.WriteString("\t})\n")
-		fmt.Fprintf(buf, "\tscenerytemporal.RegisterServiceAccessorFor[*%s](func() (any, error) {\n", ss.TypeName)
-		fmt.Fprintf(buf, "\t\treturn %s()\n", ss.GetterName)
 		buf.WriteString("\t})\n")
 	}
 	for _, mw := range middlewares {

@@ -419,7 +419,6 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/scenery.wire.capabilities.v1.schema.json",
 		"docs/schemas/scenery.inspect.build.v1.schema.json",
 		"docs/schemas/scenery.inspect.paths.v1.schema.json",
-		"docs/schemas/scenery.inspect.temporal.v1.schema.json",
 	}
 	return harnessKnowledge{
 		Entrypoints: harnessKnowledgeFiles(appRoot, entrypoints),

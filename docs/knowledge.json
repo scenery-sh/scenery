@@ -79,7 +79,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -97,14 +97,14 @@
       "freshness": "current",
       "last_reviewed": "2026-06-27",
       "review_after": "2026-07-27",
-      "summary": "Human-readable reference for the current Scenery DSL surface: app config, //scenery directives, request/response/model tags, static model/page IR, generated data/web output, Temporal declarations, cron jobs, and inspect commands.",
+      "summary": "Human-readable reference for the current Scenery DSL surface: app config, //scenery directives, request/response/model tags, static model/page IR, generated data/web output, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, durable inspect metadata, cron jobs, and inspect commands.",
       "tags": [
         "docs",
         "dsl",
         "apps",
         "models",
         "views",
-        "temporal",
+        "durable",
         "cron"
       ]
     },
@@ -187,7 +187,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, storage config/CLI/lease schemas including required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence artifacts, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, storage config/CLI/lease schemas including required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence artifacts, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -224,6 +224,9 @@
         "docs/schemas/scenery.harness.ui.v1.schema.json",
         "docs/schemas/scenery.harness.ui.dom.v1.schema.json",
         "docs/schemas/scenery.inspect.validation.v1.schema.json",
+        "docs/schemas/scenery.inspect.durable.v1.schema.json",
+        "docs/schemas/scenery.durable.worker_token.create.v1.schema.json",
+        "docs/schemas/scenery.durable.jobs.v1.schema.json",
         "docs/schemas/scenery.validation.list.v1.schema.json",
         "docs/schemas/scenery.validation.inspect.v1.schema.json",
         "docs/schemas/scenery.validation.graph.v1.schema.json",
@@ -246,7 +249,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Human reference for scenery-owned environment variables, app-injected process identity, managed toolchain controls, local dev overrides, and tooling escape hatches.",
+      "summary": "Human reference for scenery-owned environment variables, app-injected process identity, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
         "env",
@@ -268,7 +271,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-01",
       "review_after": "2026-07-01",
-      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness.",
+      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including remote durable worker endpoint/token/service variables.",
       "tags": [
         "environment",
         "env",
@@ -350,7 +353,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-08",
       "review_after": "2026-07-01",
-      "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, Temporal workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, durable workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -844,6 +847,46 @@
       ]
     },
     {
+      "path": "docs/plans/0089-sqlite-durable-execution-runtime.md",
+      "title": "SQLite Durable Execution Runtime Per Service",
+      "owner": "scenery runtime / durable execution",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-27",
+      "review_after": "2026-07-27",
+      "summary": "Completed ExecPlan that added per-service SQLite durable databases, local and remote durable workers, authenticated long-poll leasing, retries, schedules, steps, signals, job admin, inspection, schemas, docs, and migration guidance without NATS.",
+      "tags": [
+        "plans",
+        "execplans",
+        "durable-execution",
+        "sqlite",
+        "workers",
+        "runtime",
+        "agents"
+      ]
+    },
+    {
+      "path": "docs/plans/0090-local-path-routing.md",
+      "title": "Local Path Routing and Per-Runtime Dev Ports",
+      "owner": "scenery runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-27",
+      "review_after": "2026-07-27",
+      "summary": "Active ExecPlan for making localhost path routing with one automatic port per dev runtime the default local routing mode, keeping Caddy as the managed listener, making dnsmasq/domain routing optional, and exposing route manifests for agents.",
+      "tags": [
+        "plans",
+        "execplans",
+        "routing",
+        "agent",
+        "caddy",
+        "dev-runtime",
+        "agents"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",
@@ -915,24 +958,6 @@
         "database",
         "neon",
         "agents"
-      ]
-    },
-    {
-      "path": "docs/plans/0035-temporal-worker-production-hardening.md",
-      "title": "Temporal Worker Production Hardening",
-      "owner": "scenery runtime / ONLV integration",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-09",
-      "review_after": "2026-07-09",
-      "summary": "Completed ExecPlan for task-queue scoping, deterministic workflow starts, durable ONLV async flows, worker deployment promotion, cron policy, and manifest/connection hardening.",
-      "tags": [
-        "plans",
-        "execplans",
-        "temporal",
-        "workers",
-        "onlv"
       ]
     },
     {
@@ -1131,24 +1156,6 @@
         "doctor",
         "diagnostics",
         "agents"
-      ]
-    },
-    {
-      "path": "docs/plans/0047-typescript-temporal-workers.md",
-      "title": "TypeScript Temporal Workers",
-      "owner": "scenery runtime / Temporal",
-      "status": "active",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-07",
-      "review_after": "2026-07-07",
-      "summary": "Active ExecPlan for domain-local TypeScript Temporal activities, generated worker runtime files, external Go activity declarations, and validation.",
-      "tags": [
-        "plans",
-        "execplans",
-        "typescript",
-        "temporal",
-        "workers"
       ]
     },
     {

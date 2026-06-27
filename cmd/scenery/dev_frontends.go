@@ -16,7 +16,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/localproxy"
 )
 
@@ -44,7 +43,7 @@ type managedFrontendStartResult struct {
 
 func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
 	frontends := localProxyFrontends(cfg.Proxy.Frontends)
-	if len(frontends) == 0 || managedFrontendDisabled() {
+	if len(frontends) == 0 {
 		return nil, nil, nil
 	}
 	sort.Slice(frontends, func(i, j int) bool {
@@ -366,7 +365,24 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 		env = append(env,
 			"API_BASE_URL="+apiURL,
 			"SCENERY_API_BASE_URL="+apiURL,
+			"SCENERY_API_URL="+apiURL,
 			"VITE_API_BASE_URL="+apiURL,
+		)
+	}
+	if session.RouteManifest.Mode != "" {
+		frontendPath := routeBasePath(&session, frontendName)
+		frontendURL := strings.TrimSpace(session.Routes[localagentLabel(frontendName)])
+		env = append(env,
+			"SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
+			"SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
+			"SCENERY_API_BASE_PATH="+routeBasePath(&session, localagent.RouteAPI),
+			"SCENERY_FRONTEND_BASE_PATH="+frontendPath,
+			"SCENERY_FRONTEND_PUBLIC_URL="+frontendURL,
+			"VITE_SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
+			"VITE_SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
+			"VITE_SCENERY_API_BASE_PATH="+routeBasePath(&session, localagent.RouteAPI),
+			"VITE_SCENERY_FRONTEND_BASE_PATH="+frontendPath,
+			"VITE_SCENERY_FRONTEND_PUBLIC_URL="+frontendURL,
 		)
 	}
 	if allowedHost := managedFrontendAllowedHost(session, frontendName); allowedHost != "" {
@@ -503,13 +519,4 @@ func (p *managedFrontendProcess) Stop() error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func managedFrontendDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(envpolicy.Get("SCENERY_DISABLE_FRONTEND_PROXY"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }

@@ -31,7 +31,7 @@ Record implementation findings here with commands, test output, or file referenc
 ## Decision Log
 
 * Decision: Make agent TLS an explicit router mode first, then flip newly started agents to HTTPS by default after ONLV uses agent-routed URLs everywhere.
-  Rationale: Existing local workflows and tests used the high-port HTTP agent router. Staging the change kept the first TLS implementation small; after API, frontend, sync, Grafana, and Temporal routes became agent-owned, keeping HTTP as the default would preserve the wrong end state. `--router-http` remains available for local debugging. This default was later reversed; current contract lives in `docs/local-contract.md`.
+  Rationale: Existing local workflows and tests used the high-port HTTP agent router. Staging the change kept the first TLS implementation small; after API, frontend, sync, Grafana, and legacy async runtime routes became agent-owned, keeping HTTP as the default would preserve the wrong end state. `--router-http` remains available for local debugging. This default was later reversed; current contract lives in `docs/local-contract.md`.
   Date/Author: 2026-05-27 / Codex
 
 * Decision: Use on-demand per-host leaf certificates rather than one static wildcard certificate.

@@ -26,13 +26,10 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/codegen"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/localproxy"
-	"scenery.sh/internal/model"
-	sceneryruntime "scenery.sh/runtime"
 )
 
 type runningApp struct {
@@ -55,8 +52,6 @@ type devSupervisor struct {
 	store        *devdash.Store
 	storeWriter  dashboardControlPlaneWriter
 	dashboard    *dashboardServer
-	proxy        *localproxy.Proxy
-	temporal     *temporalDevServer
 	victoria     *victoriaStack
 	grafana      *grafanaComponent
 	zeroFS       *managedZeroFSService
@@ -71,12 +66,10 @@ type devSupervisor struct {
 	closeOnce          sync.Once
 	mu                 sync.RWMutex
 	current            *runningApp
-	typescript         *runningTypeScriptWorker
 	status             devdash.AppRecord
 	pendingDevEvents   []devdash.DevEvent
 	victoriaStarted    bool
 	dbSetupFingerprint string
-	logCollapse        *temporalActivityLogCollapser
 }
 
 const (
@@ -98,7 +91,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend 
 		store       *devdash.Store
 		storeWriter dashboardControlPlaneWriter
 	)
-	if agent != nil && agentSession != nil && !localproxy.Enabled() {
+	if agent != nil && agentSession != nil {
 		storeWriter, err = newDashboardControlPlaneClient(ctx, agent, *agentSession, token)
 		if err != nil {
 			cancel()
@@ -138,7 +131,6 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend 
 			Offline:    true,
 			UpdatedAt:  time.Now().UTC(),
 		},
-		logCollapse: newTemporalActivityLogCollapser(3),
 	}
 	s.dashboard = newDashboardServer(s, "")
 	s.events = newDevEventSink(s)
@@ -163,11 +155,9 @@ func (s *devSupervisor) Close() error {
 		}
 
 		app := s.detachCurrentApp()
-		typescript := s.detachTypeScriptWorker()
 		frontends := s.detachManagedFrontends()
 		victoria := s.victoria
 		grafana := s.grafana
-		temporal := s.temporal
 		zeroFS := s.zeroFS
 		if s.shouldDetachManagedZeroFS(context.Background(), zeroFS) {
 			zeroFS = nil
@@ -179,11 +169,6 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		if typescript != nil {
-			if err := typescript.interrupt(); err != nil {
-				errs = append(errs, err)
-			}
-		}
 		if victoria != nil {
 			if err := victoria.Interrupt(); err != nil {
 				errs = append(errs, err)
@@ -191,11 +176,6 @@ func (s *devSupervisor) Close() error {
 		}
 		if grafana != nil {
 			if err := grafana.Interrupt(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if temporal != nil {
-			if err := temporal.Interrupt(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -212,9 +192,6 @@ func (s *devSupervisor) Close() error {
 		closers := []closer{}
 		if s.dashboard != nil {
 			closers = append(closers, closer{name: "dashboard", fn: s.dashboard.Close})
-		}
-		if s.proxy != nil {
-			closers = append(closers, closer{name: "proxy", fn: s.proxy.Close})
 		}
 		if s.storageProxy != nil {
 			closers = append(closers, closer{name: "storage-proxy", fn: s.storageProxy.Close})
@@ -253,11 +230,6 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		if typescript != nil {
-			if err := typescript.waitOrKill(stopTimeout); err != nil {
-				errs = append(errs, err)
-			}
-		}
 		for _, frontend := range frontends {
 			if err := frontend.Stop(); err != nil {
 				errs = append(errs, err)
@@ -270,11 +242,6 @@ func (s *devSupervisor) Close() error {
 		}
 		if grafana != nil {
 			if err := grafana.WaitOrKill(5 * time.Second); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if temporal != nil {
-			if err := temporal.WaitOrKill(5 * time.Second); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -321,7 +288,7 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	if err := s.persistStatus(ctx); err != nil {
 		return err
 	}
-	if s.agent == nil || localproxy.Enabled() {
+	if s.agent == nil {
 		if err := s.dashboard.Start(ctx); err != nil {
 			return err
 		}
@@ -333,11 +300,6 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	}
 	if err := s.console.Phase("Starting storage proxy", func() error {
 		return s.ensureManagedStorageProxy(ctx)
-	}); err != nil {
-		return err
-	}
-	if err := s.console.Phase("Starting Temporal dev server", func() error {
-		return s.ensureTemporalDevServer(ctx)
 	}); err != nil {
 		return err
 	}
@@ -364,9 +326,6 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 		return s.startGrafana(s.ctx)
 	}); err != nil {
 		return err
-	}
-	if err := s.startLocalProxy(); err != nil {
-		slog.Warn("local HTTPS proxy unavailable", "err", err)
 	}
 	return nil
 }
@@ -471,7 +430,6 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	// restart rather than a crash; otherwise handleExit races the restart and
 	// can register the session as "stopped" after the new app is running.
 	previous := s.detachCurrentApp()
-	previousTS := s.detachTypeScriptWorker()
 	var current *runningApp
 	if err := s.console.Phase("Starting scenery application", func() error {
 		if previous != nil {
@@ -479,20 +437,9 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 				return err
 			}
 		}
-		if previousTS != nil {
-			if err := previousTS.stop(); err != nil {
-				return err
-			}
-		}
 		current, err = s.startApp(ctx, plan.Result, plan.Metadata, plan.APIEncoding)
 		if err != nil {
 			return err
-		}
-		if plan.TypeScript != nil {
-			if _, err = s.startTypeScriptWorker(ctx, *plan.TypeScript); err != nil {
-				_ = current.stop()
-				return err
-			}
 		}
 		return nil
 	}); err != nil {
@@ -547,17 +494,6 @@ func (s *devSupervisor) reloadConfig() (app.Config, error) {
 	return cfg, nil
 }
 
-func effectiveDevConfigForModel(cfg app.Config, appModel *model.App) app.Config {
-	if !cfg.Temporal.Enabled || !codegen.AppUsesTemporalRuntime(appModel) {
-		return cfg
-	}
-	if strings.TrimSpace(cfg.Temporal.Mode) == "" {
-		cfg.Temporal.Mode = "local"
-	}
-	cfg.Temporal.Local.AutoStart = true
-	return cfg
-}
-
 func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, metadata, apiEncoding json.RawMessage) (*runningApp, error) {
 	agentSession := s.currentAgentSession()
 	binary := result.Binary
@@ -581,13 +517,10 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		"SCENERY_DEV_SUPERVISOR=1",
 		"SCENERY_DEV_ENDPOINTS=1",
 		fmt.Sprintf("SCENERY_DEV_SUPERVISOR_PID=%d", os.Getpid()),
-		"SCENERY_LOCAL_PROXY=0",
 		"SCENERY_DEV_REPORT_URL="+s.devReportURL(),
 		"SCENERY_DEV_REPORT_TOKEN="+s.reportToken,
 	)
 	env = append(env, s.victoria.Env()...)
-	env = append(env, s.temporal.Env()...)
-	env = append(env, s.sessionTemporalEnv()...)
 	env = append(env, s.sessionIdentityEnv()...)
 	managedEnv, err := s.managedAppEnv(ctx, baseEnv)
 	if err != nil {
@@ -599,9 +532,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		return nil, err
 	}
 	env = append(env, storageEnv...)
-	if s.proxy != nil {
-		env = append(env, "SCENERY_PUBLIC_BASE_URL="+s.proxy.Routes().APIURL)
-	} else if agentSession != nil && agentSession.Routes[localagent.RouteAPI] != "" {
+	if agentSession != nil && agentSession.Routes[localagent.RouteAPI] != "" {
 		env = append(env, "SCENERY_PUBLIC_BASE_URL="+agentSession.Routes[localagent.RouteAPI])
 	}
 	env = append(env, s.sessionAuthEnv()...)
@@ -838,7 +769,7 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	if strings.TrimSpace(s.cfg.Database.Apply.Command) != "" {
 		applyStdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
 		applyStderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
-		applyErr := runDatabaseApplyProviderWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
+		applyErr := runDatabaseApplyCommandWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
 		applyStdout.Close()
 		applyStderr.Close()
 		if applyErr != nil {
@@ -934,7 +865,53 @@ func (s *devSupervisor) sessionIdentityEnv() []string {
 		"SCENERY_APP_ROOT_HASH=" + appRootHash(session.AppRoot),
 		"SCENERY_BRANCH=" + strings.TrimSpace(session.Branch),
 		"SCENERY_WORKTREE=" + appWorktreeName(session.AppRoot),
+		"SCENERY_ROUTE_MODE=" + string(firstRouteMode(session)),
+		"SCENERY_BASE_URL=" + strings.TrimSpace(session.RouteManifest.BaseURL),
+		"SCENERY_API_URL=" + strings.TrimSpace(session.Routes[localagent.RouteAPI]),
+		"SCENERY_API_BASE_PATH=" + routeBasePath(session, localagent.RouteAPI),
+		"SCENERY_PUBLIC_APP_URL=" + publicAppURLForSession(session),
 	}
+}
+
+func firstRouteMode(session *localagent.Session) localagent.RouteMode {
+	if session == nil {
+		return localagent.RouteModeHost
+	}
+	if session.RouteManifest.Mode != "" {
+		return session.RouteManifest.Mode
+	}
+	return localagent.RouteModeHost
+}
+
+func routeBasePath(session *localagent.Session, name string) string {
+	if session == nil || session.RouteManifest.Routes == nil {
+		return ""
+	}
+	record, ok := session.RouteManifest.Routes[name]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(record.Path)
+}
+
+func publicAppURLForSession(session *localagent.Session) string {
+	if session == nil {
+		return ""
+	}
+	names := make([]string, 0, len(session.RouteManifest.Routes))
+	for name, record := range session.RouteManifest.Routes {
+		if name == localagent.RouteAPI || name == localagent.RouteDashboard || name == localagent.RouteGrafana || name == "root" {
+			continue
+		}
+		if strings.TrimSpace(record.URL) != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	if len(names) > 0 {
+		return strings.TrimSpace(session.RouteManifest.Routes[names[0]].URL)
+	}
+	return strings.TrimSpace(firstNonEmpty(session.RouteManifest.BaseURL, session.Routes[localagent.RouteAPI]))
 }
 
 func appRootHash(root string) string {
@@ -979,33 +956,6 @@ func reportURLForBackend(backend localagent.Backend) string {
 		return ""
 	}
 	return "http://" + addr + devdash.ReportPath
-}
-
-func (s *devSupervisor) sessionTemporalEnv() []string {
-	if s == nil || !s.cfg.Temporal.Enabled {
-		return nil
-	}
-	session := s.currentAgentSession()
-	if session == nil {
-		return nil
-	}
-	sessionID := strings.TrimSpace(session.SessionID)
-	if sessionID == "" {
-		return nil
-	}
-	baseAppID := strings.TrimSpace(session.BaseAppID)
-	if baseAppID == "" {
-		baseAppID = s.activeAppID()
-	}
-	prefix := "scenery." + baseAppID + "." + sessionID
-	deploymentName := sceneryruntime.TemporalDeploymentName(sceneryruntime.TemporalRuntimeInfo{
-		DeploymentName: prefix,
-	})
-	return []string{
-		sceneryruntime.DefaultTemporalTaskQueueEnv + "=" + prefix,
-		sceneryruntime.DefaultTemporalDeploymentEnv + "=" + deploymentName,
-		sceneryruntime.DefaultTemporalBuildIDEnv + "=" + sessionID,
-	}
 }
 
 func (s *devSupervisor) sessionAuthEnv() []string {
@@ -1147,10 +1097,7 @@ func (s *devSupervisor) processOutputWriter(dst io.Writer) io.Writer {
 }
 
 func (s *devSupervisor) processOutputFilter(pid int, stream string, data []byte) []byte {
-	if s == nil || s.logCollapse == nil {
-		return data
-	}
-	return s.logCollapse.Filter(pid, stream, data)
+	return data
 }
 
 func isExpectedOutputReadError(err error) bool {
@@ -1468,20 +1415,6 @@ func (s *devSupervisor) detachCurrentApp() *runningApp {
 	return current
 }
 
-func (s *devSupervisor) currentTypeScriptWorker() *runningTypeScriptWorker {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.typescript
-}
-
-func (s *devSupervisor) detachTypeScriptWorker() *runningTypeScriptWorker {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current := s.typescript
-	s.typescript = nil
-	return current
-}
-
 func (s *devSupervisor) announceRebuild(paths []string) {
 	if s.console != nil {
 		s.console.RebuildDetected(paths)
@@ -1489,9 +1422,6 @@ func (s *devSupervisor) announceRebuild(paths []string) {
 }
 
 func (s *devSupervisor) apiURL() string {
-	if s.proxy != nil && s.proxy.Routes().APIURL != "" {
-		return s.proxy.Routes().APIURL
-	}
 	if session := s.currentAgentSession(); session != nil && session.Routes[localagent.RouteAPI] != "" {
 		return session.Routes[localagent.RouteAPI]
 	}
@@ -1499,23 +1429,10 @@ func (s *devSupervisor) apiURL() string {
 }
 
 func (s *devSupervisor) dashboardURL() string {
-	if s.proxy != nil && s.proxy.Routes().ConsoleURL != "" {
-		return localproxy.ConsoleAppURL(s.proxy.Routes(), s.activeAppID())
-	}
 	if session := s.currentAgentSession(); session != nil && session.Routes[localagent.RouteDashboard] != "" {
 		return session.Routes[localagent.RouteDashboard]
 	}
 	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.activeAppID())
-}
-
-func (s *devSupervisor) temporalURL() string {
-	if s.proxy != nil && s.proxy.Routes().TemporalURL != "" {
-		return s.proxy.Routes().TemporalURL
-	}
-	if session := s.currentAgentSession(); session != nil && session.Routes[localagent.RouteTemporal] != "" {
-		return session.Routes[localagent.RouteTemporal]
-	}
-	return s.temporal.URL()
 }
 
 func (s *devSupervisor) grafanaUpstream() string {
@@ -1526,111 +1443,10 @@ func (s *devSupervisor) grafanaUpstream() string {
 }
 
 func (s *devSupervisor) frontendURLs() map[string]string {
-	if s.proxy != nil {
-		return frontendURLs(s.proxy.Routes())
-	}
 	if session := s.currentAgentSession(); session != nil {
 		return frontendURLsFromAgentRoutes(session.Routes, s.cfg.Proxy.Frontends)
 	}
 	return nil
-}
-
-func (s *devSupervisor) ensureTemporalDevServer(ctx context.Context) error {
-	if s == nil {
-		return nil
-	}
-	if s.temporal != nil {
-		if s.temporal.Reachable(ctx, s.cfg.Name, s.cfg.Temporal) {
-			return nil
-		}
-		s.temporal = nil
-		if s.agent != nil {
-			_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateTemporal)
-		}
-	}
-	var (
-		temporal *temporalDevServer
-		err      error
-	)
-	if s.agent != nil {
-		temporal, err = s.ensureAgentTemporalDevServer(ctx)
-	} else {
-		temporal, err = startTemporalDevServer(ctx, s.root, s.cfg, s.console)
-	}
-	if err != nil {
-		return err
-	}
-	s.temporal = temporal
-	if temporal != nil {
-		s.registerAgentSessionBackend(ctx, localagent.RouteTemporal, backendFromHTTPURL(temporal.URL()))
-		s.eventSink().Emit(ctx, devdash.DevSource{ID: "temporal", Kind: "substrate", Name: "temporal", Role: "workflow-server", Status: "running", URL: temporal.URL()}, "info", "Temporal dev server ready", map[string]any{
-			"address":   temporal.info.Address,
-			"namespace": temporal.info.Namespace,
-			"ui_url":    temporal.URL(),
-		})
-		s.emitTemporalStaleWorkflowWarning(ctx)
-	}
-	return nil
-}
-
-func (s *devSupervisor) ensureAgentTemporalDevServer(ctx context.Context) (*temporalDevServer, error) {
-	if s == nil || s.agent == nil {
-		return startTemporalDevServer(ctx, s.root, s.cfg, s.console)
-	}
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		warnTemporal(s.console, "agent Temporal state path unavailable: %v", err)
-		return startTemporalDevServer(ctx, s.root, s.cfg, s.console)
-	}
-	adapter := temporalSubstrateAdapter{cfg: s.cfg, console: s.console}
-	handle, _, err := s.substrateManager().Ensure(ctx, filepath.Join(paths.AgentDir, "temporal"), adapter)
-	temporal, _ := handle.(*temporalDevServer)
-	if err != nil {
-		warnTemporal(s.console, "failed to prepare shared Temporal substrate with agent: %v", err)
-		return temporal, err
-	}
-	if temporal == nil {
-		return nil, nil
-	}
-	s.substrateManager().Monitor(temporal, adapter)
-	if s.console != nil && s.console.verbose {
-		s.console.Event("temporal.shared", map[string]any{
-			"owner":     "agent",
-			"address":   temporal.info.Address,
-			"namespace": temporal.info.Namespace,
-			"ui_url":    temporal.URL(),
-		})
-	}
-	return temporal, err
-}
-
-func (s *devSupervisor) agentTemporalDevServer(ctx context.Context) *temporalDevServer {
-	if s == nil || s.agent == nil {
-		return nil
-	}
-	substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateTemporal)
-	if err != nil {
-		return nil
-	}
-	handle, reusable := s.substrateManager().reusable(ctx, temporalSubstrateAdapter{cfg: s.cfg, console: s.console}, substrate)
-	if !reusable {
-		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateTemporal)
-		return nil
-	}
-	temporal, _ := handle.(*temporalDevServer)
-	if s.console != nil && s.console.verbose {
-		s.console.Event("temporal.reuse", map[string]any{
-			"owner":     "agent",
-			"address":   temporal.info.Address,
-			"namespace": temporal.info.Namespace,
-			"ui_url":    temporal.URL(),
-		})
-	}
-	return temporal
-}
-
-func (s *devSupervisor) monitorSharedTemporalDevServer(temporal *temporalDevServer) <-chan struct{} {
-	return s.substrateManager().Monitor(temporal, temporalSubstrateAdapter{cfg: s.cfg, console: s.console})
 }
 
 func substrateExitEventFields(exit localagent.SubstrateExit) map[string]any {
@@ -1664,7 +1480,7 @@ func (s *devSupervisor) startGrafana(ctx context.Context) error {
 	if s.agent != nil {
 		grafana, err = s.startAgentGrafana(ctx)
 	} else {
-		grafana, err = startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
+		grafana, err = startGrafanaForDev(ctx, s.root, s.victoria, "", s.console)
 	}
 	if grafana != nil {
 		s.grafana = grafana
@@ -1710,15 +1526,16 @@ func (s *devSupervisor) registerAgentSessionBackend(ctx context.Context, route s
 	backends := copyManagedBackends(session.Backends)
 	backends[route] = backend
 	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
-		BaseAppID:   s.activeAppID(),
-		AppRoot:     s.root,
-		SessionID:   session.SessionID,
-		Branch:      session.Branch,
-		Status:      firstNonEmpty(session.Status, "starting"),
-		OwnerPID:    os.Getpid(),
-		AppPID:      session.AppPID,
-		Backends:    backends,
-		ReportToken: s.reportToken,
+		BaseAppID:     s.activeAppID(),
+		AppRoot:       s.root,
+		SessionID:     session.SessionID,
+		Branch:        session.Branch,
+		Status:        firstNonEmpty(session.Status, "starting"),
+		OwnerPID:      os.Getpid(),
+		AppPID:        session.AppPID,
+		Backends:      backends,
+		RouteManifest: session.RouteManifest,
+		ReportToken:   s.reportToken,
 	})
 	if err != nil {
 		slog.Warn("failed to register scenery agent session backend", "route", route, "err", err)
@@ -1738,12 +1555,12 @@ func backendFromHTTPURL(raw string) localagent.Backend {
 
 func (s *devSupervisor) startAgentGrafana(ctx context.Context) (*grafanaComponent, error) {
 	if s == nil || s.agent == nil {
-		return startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
+		return startGrafanaForDev(ctx, s.root, s.victoria, "", s.console)
 	}
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
 		warnGrafana(s.console, "agent Grafana state path unavailable: %v", err)
-		return startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
+		return startGrafanaForDev(ctx, s.root, s.victoria, "", s.console)
 	}
 	adapter := grafanaSubstrateAdapter{victoria: s.victoria, console: s.console}
 	handle, _, err := s.substrateManager().Ensure(ctx, filepath.Join(paths.AgentDir, "grafana"), adapter)
@@ -1762,31 +1579,6 @@ func (s *devSupervisor) startAgentGrafana(ctx context.Context) (*grafanaComponen
 		})
 	}
 	return grafana, err
-}
-
-func (s *devSupervisor) plannedGrafanaPublicURL() string {
-	if s == nil || !localproxy.Enabled() {
-		return ""
-	}
-	workspace := s.cfg.Proxy.Workspace
-	if workspace == "" {
-		workspace = localproxy.DiscoverWorkspace(s.root, s.activeAppID())
-	}
-	proxyCfg := localproxy.BuildConfig(localproxy.Config{
-		Workspace:         workspace,
-		APIHost:           s.cfg.Proxy.APIHost,
-		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
-		TemporalHost:      s.cfg.Proxy.TemporalHost,
-		GrafanaHost:       s.cfg.Proxy.GrafanaHost,
-		APIUpstream:       s.addr,
-		DashboardUpstream: devdash.ListenAddr(),
-		TemporalUpstream:  temporalUIUpstreamForConfig(s.cfg),
-		GrafanaUpstream:   fmt.Sprintf("%s:%d", grafanaDefaultHost, grafanaDefaultPort),
-	})
-	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
-		return ""
-	}
-	return localproxy.PreviewRoutes(proxyCfg).GrafanaURL
 }
 
 func (s *devSupervisor) activeAppID() string {
@@ -1863,48 +1655,6 @@ func (s *devSupervisor) setAppIdentity(cfg app.Config) {
 	s.status.UpdatedAt = time.Now().UTC()
 }
 
-func (s *devSupervisor) startLocalProxy() error {
-	if !localproxy.Enabled() {
-		return nil
-	}
-	workspace := s.cfg.Proxy.Workspace
-	if workspace == "" {
-		workspace = localproxy.DiscoverWorkspace(s.root, s.activeAppID())
-	}
-	proxyCfg := localproxy.BuildConfig(localproxy.Config{
-		Workspace:         workspace,
-		APIHost:           s.cfg.Proxy.APIHost,
-		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
-		TemporalHost:      s.cfg.Proxy.TemporalHost,
-		GrafanaHost:       s.cfg.Proxy.GrafanaHost,
-		APIUpstream:       s.addr,
-		DashboardUpstream: devdash.ListenAddr(),
-		TemporalUpstream:  temporalUIUpstreamForConfig(s.cfg),
-		GrafanaUpstream:   s.grafanaUpstream(),
-		Frontends:         localproxy.ResolveFrontends(s.root, localProxyFrontends(s.cfg.Proxy.Frontends)),
-		Verbose:           s.console != nil && s.console.verbose,
-	})
-	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
-		return nil
-	}
-	proxy, err := localproxy.Start(proxyCfg)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.proxy = proxy
-	s.mu.Unlock()
-	if s.grafana != nil && proxy.Routes().GrafanaURL != "" {
-		state := grafanaStateWithBaseURL(s.grafana.State(), proxy.Routes().GrafanaURL)
-		s.setGrafanaState(state)
-		s.dashboard.notify(&devdash.Notification{
-			Method: "grafana/status",
-			Params: state,
-		})
-	}
-	return nil
-}
-
 func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.FrontendConfig {
 	names := make([]string, 0, len(frontends))
 	for name := range frontends {
@@ -1925,22 +1675,6 @@ func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.F
 	return resolved
 }
 
-func frontendURLs(routes localproxy.Routes) map[string]string {
-	if len(routes.Frontends) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(routes.Frontends))
-	for name := range routes.Frontends {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	urls := make(map[string]string, len(names))
-	for _, name := range names {
-		urls[name] = routes.Frontends[name].URL
-	}
-	return urls
-}
-
 func frontendURLsFromAgentRoutes(routes map[string]string, frontends map[string]app.FrontendConfig) map[string]string {
 	if len(routes) == 0 {
 		return nil
@@ -1957,7 +1691,7 @@ func frontendURLsFromAgentRoutes(routes map[string]string, frontends map[string]
 	} else {
 		for name, value := range routes {
 			switch name {
-			case localagent.RouteAPI, localagent.RouteDashboard, localagent.RouteGrafana, localagent.RouteTemporal:
+			case localagent.RouteAPI, localagent.RouteDashboard, localagent.RouteGrafana:
 				continue
 			}
 			if strings.TrimSpace(value) == "" {
@@ -1982,7 +1716,6 @@ func (s *devSupervisor) runURLs() runURLs {
 		API:       s.apiURL(),
 		Dashboard: s.dashboardURL(),
 		Frontends: s.frontendURLs(),
-		Temporal:  s.temporalURL(),
 		Victoria:  s.victoria.URLs(),
 		Grafana:   s.appStatus().Grafana,
 	}
@@ -2162,11 +1895,6 @@ func (s *devSupervisor) statusDashboardRoutesLocked(sessionID string) map[string
 			}
 		}
 	}
-	if s.proxy != nil {
-		if routes := visibleDashboardRoutesFromProxy(s.proxy.Routes(), s.activeAppIDLocked()); len(routes) > 0 {
-			return routes
-		}
-	}
 	return nil
 }
 
@@ -2199,16 +1927,17 @@ func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID s
 		return
 	}
 	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
-		BaseAppID:   s.activeAppID(),
-		AppRoot:     s.root,
-		SessionID:   session.SessionID,
-		Branch:      session.Branch,
-		Status:      status,
-		OwnerPID:    os.Getpid(),
-		AppPID:      appPID,
-		Processes:   s.sessionProcessesFor(session, appPID),
-		Backends:    session.Backends,
-		ReportToken: s.reportToken,
+		BaseAppID:     s.activeAppID(),
+		AppRoot:       s.root,
+		SessionID:     session.SessionID,
+		Branch:        session.Branch,
+		Status:        status,
+		OwnerPID:      os.Getpid(),
+		AppPID:        appPID,
+		Processes:     s.sessionProcessesFor(session, appPID),
+		Backends:      session.Backends,
+		RouteManifest: session.RouteManifest,
+		ReportToken:   s.reportToken,
 	})
 	if err != nil {
 		slog.Warn("failed to update scenery agent session", "err", err)
@@ -2224,11 +1953,6 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 	processes := copySessionProcesses(session.Processes)
 	if pid := atoiPID(appPID); pid > 0 {
 		processes[localagent.RouteAPI] = localagent.Process{PID: pid}
-	}
-	if worker := s.currentTypeScriptWorker(); worker != nil {
-		if pid := atoiPID(worker.pid); pid > 0 {
-			processes["worker-typescript"] = localagent.Process{PID: pid}
-		}
 	}
 	if zeroFS := s.currentZeroFS(); zeroFS != nil {
 		if pid := zeroFS.PID(); pid > 0 {

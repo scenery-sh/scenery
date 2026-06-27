@@ -10,28 +10,24 @@ import (
 )
 
 type JobConfig struct {
-	Title                string
-	Endpoint             any
-	Every                Duration
-	Schedule             string
-	OverlapPolicy        OverlapPolicy
-	CatchupWindow        time.Duration
-	PauseOnFailure       bool
-	ActivityStartToClose time.Duration
-	ActivityRetryPolicy  RetryPolicy
+	Title          string
+	Endpoint       any
+	Every          Duration
+	Schedule       string
+	OverlapPolicy  OverlapPolicy
+	CatchupWindow  time.Duration
+	PauseOnFailure bool
 }
 
 type Job struct {
-	ID                   string
-	Title                string
-	Every                Duration
-	Schedule             string
-	Endpoint             any
-	OverlapPolicy        OverlapPolicy
-	CatchupWindow        time.Duration
-	PauseOnFailure       bool
-	ActivityStartToClose time.Duration
-	ActivityRetryPolicy  RetryPolicy
+	ID             string
+	Title          string
+	Every          Duration
+	Schedule       string
+	Endpoint       any
+	OverlapPolicy  OverlapPolicy
+	CatchupWindow  time.Duration
+	PauseOnFailure bool
 }
 
 type Duration int64
@@ -52,26 +48,16 @@ const (
 	OverlapAllowAll       OverlapPolicy = "allow_all"
 )
 
-type RetryPolicy struct {
-	InitialInterval        time.Duration
-	BackoffCoefficient     float64
-	MaximumInterval        time.Duration
-	MaximumAttempts        int32
-	NonRetryableErrorTypes []string
-}
-
 func NewJob(id string, cfg JobConfig) *Job {
 	job := &Job{
-		ID:                   id,
-		Title:                cfg.Title,
-		Every:                cfg.Every,
-		Schedule:             cfg.Schedule,
-		Endpoint:             cfg.Endpoint,
-		OverlapPolicy:        cfg.OverlapPolicy,
-		CatchupWindow:        cfg.CatchupWindow,
-		PauseOnFailure:       cfg.PauseOnFailure,
-		ActivityStartToClose: cfg.ActivityStartToClose,
-		ActivityRetryPolicy:  cfg.ActivityRetryPolicy,
+		ID:             id,
+		Title:          cfg.Title,
+		Every:          cfg.Every,
+		Schedule:       cfg.Schedule,
+		Endpoint:       cfg.Endpoint,
+		OverlapPolicy:  cfg.OverlapPolicy,
+		CatchupWindow:  cfg.CatchupWindow,
+		PauseOnFailure: cfg.PauseOnFailure,
 	}
 	if job.Title == "" {
 		job.Title = job.ID
@@ -82,22 +68,14 @@ func NewJob(id string, cfg JobConfig) *Job {
 		panic(err)
 	}
 	sceneryruntime.RegisterCronJob(&sceneryruntime.CronJob{
-		ID:                   job.ID,
-		Title:                job.Title,
-		Every:                time.Duration(job.Every) * time.Second,
-		Schedule:             job.Schedule,
-		OverlapPolicy:        string(job.OverlapPolicy),
-		CatchupWindow:        job.CatchupWindow,
-		PauseOnFailure:       job.PauseOnFailure,
-		ActivityStartToClose: job.ActivityStartToClose,
-		ActivityRetryPolicy: sceneryruntime.CronRetryPolicy{
-			InitialInterval:        job.ActivityRetryPolicy.InitialInterval,
-			BackoffCoefficient:     job.ActivityRetryPolicy.BackoffCoefficient,
-			MaximumInterval:        job.ActivityRetryPolicy.MaximumInterval,
-			MaximumAttempts:        job.ActivityRetryPolicy.MaximumAttempts,
-			NonRetryableErrorTypes: job.ActivityRetryPolicy.NonRetryableErrorTypes,
-		},
-		Invoke: invoke,
+		ID:             job.ID,
+		Title:          job.Title,
+		Every:          time.Duration(job.Every) * time.Second,
+		Schedule:       job.Schedule,
+		OverlapPolicy:  string(job.OverlapPolicy),
+		CatchupWindow:  job.CatchupWindow,
+		PauseOnFailure: job.PauseOnFailure,
+		Invoke:         invoke,
 	})
 	return job
 }

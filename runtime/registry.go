@@ -85,40 +85,43 @@ type AuthHandler struct {
 }
 
 type CronJob struct {
-	ID                   string
-	Title                string
-	Every                time.Duration
-	Schedule             string
-	OverlapPolicy        string
-	CatchupWindow        time.Duration
-	PauseOnFailure       bool
-	ActivityStartToClose time.Duration
-	ActivityRetryPolicy  CronRetryPolicy
-	Invoke               func(context.Context) error
+	ID             string
+	Title          string
+	Every          time.Duration
+	Schedule       string
+	OverlapPolicy  string
+	CatchupWindow  time.Duration
+	PauseOnFailure bool
+	Invoke         func(context.Context) error
 
 	plan cronPlan
 }
 
-type CronRetryPolicy struct {
-	InitialInterval        time.Duration
-	BackoffCoefficient     float64
-	MaximumInterval        time.Duration
-	MaximumAttempts        int32
-	NonRetryableErrorTypes []string
+type DurableTask struct {
+	Name             string
+	Service          string
+	HandlerRef       string
+	Handler          func(context.Context, []byte) ([]byte, error)
+	DefaultTimeout   time.Duration
+	DefaultLease     time.Duration
+	MaxAttempts      int
+	RetryInitial     time.Duration
+	RetryMax         time.Duration
+	RetryBackoff     float64
+	RetryJitter      float64
+	RequirementsJSON string
 }
 
 type AppConfig struct {
-	Name              string
-	Workspace         string
-	ListenAddr        string
-	ProxyAPIHost      string
-	ProxyConsoleHost  string
-	ProxyTemporalHost string
-	ProxyGrafanaHost  string
-	ProxyFrontends    map[string]ProxyFrontendConfig
-	Observability     ObservabilityConfig
-	Temporal          TemporalConfig
-	Role              string
+	Name             string
+	Workspace        string
+	ListenAddr       string
+	ProxyAPIHost     string
+	ProxyConsoleHost string
+	ProxyGrafanaHost string
+	ProxyFrontends   map[string]ProxyFrontendConfig
+	Observability    ObservabilityConfig
+	Role             string
 }
 
 type ProxyFrontendConfig struct {
@@ -140,6 +143,7 @@ type registry struct {
 	middlewares         map[string]*Middleware
 	authHandler         *AuthHandler
 	cronJobs            map[string]*CronJob
+	durableTasks        map[string]*DurableTask
 	serviceInitializers map[string]func() error
 	serviceInitOrder    map[string]int
 	serviceShutdowns    map[string]serviceShutdown
@@ -150,6 +154,7 @@ var global = &registry{
 	endpoints:           make(map[string]*Endpoint),
 	middlewares:         make(map[string]*Middleware),
 	cronJobs:            make(map[string]*CronJob),
+	durableTasks:        make(map[string]*DurableTask),
 	serviceInitializers: make(map[string]func() error),
 	serviceInitOrder:    make(map[string]int),
 	serviceShutdowns:    make(map[string]serviceShutdown),
@@ -256,6 +261,31 @@ func RegisterCronJob(job *CronJob) {
 	global.cronJobs[job.ID] = job
 }
 
+func RegisterDurableTask(task *DurableTask) {
+	if task == nil {
+		panic("runtime: durable task cannot be nil")
+	}
+	task.Name = strings.TrimSpace(task.Name)
+	task.Service = strings.TrimSpace(task.Service)
+	if task.Name == "" {
+		panic("runtime: durable task name must not be empty")
+	}
+	if task.Service == "" {
+		panic(fmt.Sprintf("runtime: durable task %s service must not be empty", task.Name))
+	}
+	if task.Handler == nil {
+		panic(fmt.Sprintf("runtime: durable task %s handler must not be nil", task.Name))
+	}
+	key := task.Service + ":" + task.Name
+	global.mu.Lock()
+	defer global.mu.Unlock()
+	if _, exists := global.durableTasks[key]; exists {
+		panic(fmt.Sprintf("runtime: duplicate durable task registration for %s", key))
+	}
+	cp := *task
+	global.durableTasks[key] = &cp
+}
+
 func RegisterServiceInitializer(service string, init func() error) {
 	if strings.TrimSpace(service) == "" {
 		panic("runtime: service initializer missing service name")
@@ -336,6 +366,23 @@ func listCronJobs() []*CronJob {
 	}
 	slices.SortFunc(result, func(a, b *CronJob) int {
 		return compare(a.ID, b.ID)
+	})
+	return result
+}
+
+func listDurableTasks() []*DurableTask {
+	global.mu.RLock()
+	defer global.mu.RUnlock()
+	result := make([]*DurableTask, 0, len(global.durableTasks))
+	for _, task := range global.durableTasks {
+		cp := *task
+		result = append(result, &cp)
+	}
+	slices.SortFunc(result, func(a, b *DurableTask) int {
+		if cmp := strings.Compare(a.Service, b.Service); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(a.Name, b.Name)
 	})
 	return result
 }

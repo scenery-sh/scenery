@@ -21,7 +21,6 @@
         "route_base_domain": { "type": "string" },
         "api_host": { "type": "string" },
         "console_host": { "type": "string" },
-        "temporal_host": { "type": "string" },
         "grafana_host": { "type": "string" },
         "frontends": {
           "type": ["object", "null"],
@@ -62,6 +61,17 @@
         "setup": {
           "type": ["array", "null"],
           "items": { "type": "string" }
+        },
+        "routing": {
+          "type": "object",
+          "description": "Browser-facing local dev routing. The default mode is path, which assigns one stable localhost port per app root.",
+          "properties": {
+            "mode": { "type": "string", "enum": ["", "path", "host"] },
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "port_start": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "port_end": { "type": "integer", "minimum": 0, "maximum": 65535 }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -125,22 +135,6 @@
       "properties": {
         "logs": { "$ref": "#/$defs/endpointFilter" },
         "tracing": { "$ref": "#/$defs/endpointFilter" }
-      },
-      "additionalProperties": false
-    },
-    "temporal": {
-      "type": "object",
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "mode": { "type": "string", "enum": ["", "local", "production"] },
-        "namespace": { "type": "string" },
-        "address_env": { "type": "string" },
-        "task_queue_prefix": { "type": "string" },
-        "payload_codec": { "type": "string" },
-        "api_key_env": { "type": "string" },
-        "tls": { "$ref": "#/$defs/temporalTLS" },
-        "local": { "$ref": "#/$defs/temporalLocal" },
-        "typescript": { "$ref": "#/$defs/temporalTypeScript" }
       },
       "additionalProperties": false
     }
@@ -281,7 +275,6 @@
     "databaseApply": {
       "type": "object",
       "properties": {
-        "provider": { "type": "string", "enum": ["", "exec"] },
         "command": { "type": "string" },
         "cwd": { "type": "string" },
         "env": {
@@ -357,34 +350,6 @@
         "default_user_email": { "type": "string" },
         "default_user_id": { "type": "string" },
         "default_tenant_id": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "temporalLocal": {
-      "type": "object",
-      "properties": {
-        "auto_start": { "type": "boolean" },
-        "db_filename": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "temporalTLS": {
-      "type": "object",
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "server_name_env": { "type": "string" },
-        "ca_cert_file_env": { "type": "string" },
-        "client_cert_file_env": { "type": "string" },
-        "client_key_file_env": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "temporalTypeScript": {
-      "type": "object",
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "runtime": { "type": "string", "enum": ["", "bun", "node"] },
-        "auto_start": { "type": "boolean" }
       },
       "additionalProperties": false
     }

@@ -621,6 +621,28 @@
       ]
     },
     {
+      "name": "SCENERY_API_BASE_PATH",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "agent.routing",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Path-mode API prefix exposed to app/frontends",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_API_BASE_URL",
       "match": "exact",
       "scope": "runtime",
@@ -635,6 +657,28 @@
       ],
       "owner": "scenery runtime",
       "rationale": "scenery-prefixed API route exposed to app/frontends",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_API_URL",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "agent.routing",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Canonical API route URL exposed to app/frontends",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -841,6 +885,28 @@
       ]
     },
     {
+      "name": "SCENERY_BASE_URL",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "agent.routing",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Browser-facing base URL for the current dev runtime",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_BRANCH",
       "match": "exact",
       "scope": "runtime",
@@ -855,28 +921,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Git branch captured for the dev session",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_BUILD_ID",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Worker build ID. Agent dev uses the session ID",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -1229,28 +1273,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "`0` disables automatic Victoria managed-toolchain downloads",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_DISABLE_FRONTEND_PROXY",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "internal",
-      "category": "agent.routing",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Disables frontend proxy/upstream discovery in the legacy local proxy outside the normal scenery up path",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -1632,94 +1654,6 @@
       ]
     },
     {
-      "name": "SCENERY_LOCAL_PROXY",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "internal",
-      "category": "agent.routing",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`1` is rejected by normal scenery up; retained for legacy local proxy internals and tests",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_LOCAL_PROXY_HTTPS_PORT",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "internal",
-      "category": "agent.routing",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Overrides the legacy local proxy HTTPS port outside the normal scenery up path",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_LOCAL_PROXY_HTTP_PORT",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "internal",
-      "category": "agent.routing",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Overrides the legacy local proxy HTTP port outside the normal scenery up path",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_LOCAL_PROXY_SKIP_TRUST_INSTALL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "internal",
-      "category": "agent.routing",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`1` skips local CA trust installation for the legacy local proxy outside the normal scenery up path",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_LOGS_BACKEND",
       "match": "exact",
       "scope": "runtime",
@@ -1984,6 +1918,116 @@
       ]
     },
     {
+      "name": "SCENERY_ROUTE_MODE",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "agent.routing",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Current dev routing mode, usually path or host",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_DURABLE_ENDPOINT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Remote durable API endpoint passed by `scenery worker durable` to the generated app binary.",
+      "preferred_surface": "scenery worker durable --endpoint",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_DURABLE_TOKEN",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "secret",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Remote durable worker bearer token passed by `scenery worker durable` to the generated app binary.",
+      "preferred_surface": "scenery worker durable --token",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_DURABLE_SERVICES",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Remote durable service subscription list passed by `scenery worker durable` to the generated app binary.",
+      "preferred_surface": "scenery worker durable --service",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_DURABLE_WORKER_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Optional stable remote durable worker ID for lease ownership.",
+      "preferred_surface": "internal app process environment",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_RUNTIME_APP_ID",
       "match": "exact",
       "scope": "runtime",
@@ -2241,138 +2285,6 @@
       "owner": "scenery runtime / storage",
       "rationale": "Protected Scenery route URL for the ZeroFS operator/debug Web UI attached to the current dev session.",
       "preferred_surface": "scenery storage webui --json",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_TEMPORAL_DEPLOYMENT_NAME",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Temporal Worker Deployment name override",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_TEMPORAL_HOST_RESOURCE_REPORTING",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`0` disables Temporal Go SDK host resource reporting. Enabled by default",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_TEMPORAL_TASK_QUEUE",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Worker task queue override; `scenery worker --task-queue` sets it",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_TEMPORAL_TASK_QUEUE_PREFIX",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Overrides generated Temporal task queue prefix. Agent dev sets this to a session-scoped value",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "temporal",
-      "stability": "internal",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Per-test-runtime suffix appended to Temporal task queue prefixes so `scenery test` cannot share live dev task queues.",
-      "preferred_surface": "`scenery test`; users should not set this unless reproducing test-runtime isolation behavior.",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_TEMPORAL_VERSIONING_BEHAVIOR",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "`pinned` or `auto_upgrade`; default is `pinned`",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
       "docs": [
@@ -3016,160 +2928,6 @@
       ]
     },
     {
-      "name": "TEMPORAL_ADDRESS",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default Temporal address env. Apps can override the env name with `temporal.address_env`",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "TEMPORAL_API_KEY",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default Temporal API key env when configured",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "TEMPORAL_NAMESPACE",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected_user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Temporal namespace",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "TEMPORAL_TLS_CA_CERT_FILE",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default Temporal TLS CA file env when configured",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "TEMPORAL_TLS_CERT_FILE",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default Temporal client certificate env when configured",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "TEMPORAL_TLS_KEY_FILE",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default Temporal client key env when configured",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "TEMPORAL_TLS_SERVER_NAME",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "temporal",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default Temporal TLS server name env when configured",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "TERM",
       "match": "exact",
       "scope": "internal",
@@ -3203,6 +2961,28 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Vite-compatible frontend API route",
+      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "VITE_SCENERY_",
+      "match": "prefix",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "agent.routing",
+      "stability": "injected",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Vite-compatible mirrors of Scenery dev route metadata for managed frontends",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

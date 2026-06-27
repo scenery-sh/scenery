@@ -99,7 +99,7 @@ func App(root, name string) (*model.App, error) {
 	for _, pkg := range app.Packages {
 		pkg.Runtime = discoverRuntimeDeclarations(pkg)
 		app.Runtime = append(app.Runtime, pkg.Runtime...)
-		errs = append(errs, validateTemporalRuntimeCalls(pkg)...)
+		errs = append(errs, validateRuntimeCalls(pkg)...)
 	}
 	entityConfigs, configErrs := discoverEntityConfigs(app.Packages)
 	errs = append(errs, configErrs...)
@@ -219,7 +219,7 @@ func App(root, name string) (*model.App, error) {
 	if len(authHandlers) > 1 {
 		errs = append(errs, "only one scenery:authhandler is supported per application")
 	}
-	if !foundDirective {
+	if !foundDirective && len(app.Runtime) == 0 {
 		errs = append(errs, "no scenery directives found in application")
 	}
 	if len(authHandlers) == 1 {
@@ -576,7 +576,7 @@ func routeMethodsCollide(a, b []string) bool {
 	return false
 }
 
-var generatedEndpointReservedRoutePrefixes = []string{"/__scenery", "/api", "/sync"}
+var generatedEndpointReservedRoutePrefixes = []string{"/runtime", "/__scenery", "/api", "/sync"}
 
 func generatedEndpointReservedRoutePrefix(path string) string {
 	for _, prefix := range generatedEndpointReservedRoutePrefixes {
@@ -1751,6 +1751,7 @@ func discoverRuntimeDeclarations(pkg *model.Package) []*model.RuntimeDeclaration
 				return true
 			}
 			taskQueue, taskQueueExplicit, taskQueueResolved := runtimeDeclarationTaskQueue(pkg, call, kind, aliases)
+			serviceName, serviceExplicit, serviceResolved := runtimeDeclarationService(pkg, call, kind, aliases)
 			inputType, outputType := runtimeDeclarationTypeArgs(pkg, call)
 			decls = append(decls, &model.RuntimeDeclaration{
 				Package:           pkg,
@@ -1762,6 +1763,9 @@ func discoverRuntimeDeclarations(pkg *model.Package) []*model.RuntimeDeclaration
 				TaskQueue:         taskQueue,
 				TaskQueueExplicit: taskQueueExplicit,
 				TaskQueueResolved: taskQueueResolved,
+				ServiceName:       serviceName,
+				ServiceExplicit:   serviceExplicit,
+				ServiceResolved:   serviceResolved,
 				InputType:         inputType,
 				OutputType:        outputType,
 			})
@@ -1784,24 +1788,18 @@ func discoverRuntimeDeclarations(pkg *model.Package) []*model.RuntimeDeclaration
 }
 
 func runtimeDeclarationTaskQueue(pkg *model.Package, call *ast.CallExpr, kind model.RuntimeDeclarationKind, aliases map[string]string) (string, bool, bool) {
-	switch kind {
-	case model.RuntimeDeclarationTemporalWorkflow:
-		if len(call.Args) <= 1 {
-			return "", false, false
-		}
-		return temporalConfigTaskQueue(pkg, call.Args[1], "WorkflowConfig", aliases)
-	case model.RuntimeDeclarationTemporalActivity, model.RuntimeDeclarationTemporalExternalActivity:
-		if len(call.Args) <= 1 {
-			return "", false, false
-		}
-		return temporalConfigTaskQueue(pkg, call.Args[1], "ActivityConfig", aliases)
-	default:
-		return "", false, false
-	}
+	return "", false, false
 }
 
-func temporalConfigTaskQueue(pkg *model.Package, expr ast.Expr, typeName string, aliases map[string]string) (string, bool, bool) {
-	lit, zeroValue, ok := temporalConfigLiteral(pkg, expr, typeName, aliases)
+func runtimeDeclarationService(pkg *model.Package, call *ast.CallExpr, kind model.RuntimeDeclarationKind, aliases map[string]string) (string, bool, bool) {
+	if kind != model.RuntimeDeclarationDurableTask || len(call.Args) <= 1 {
+		return "", false, false
+	}
+	return runtimeConfigStringField(pkg, call.Args[1], "scenery.sh/durable", "TaskConfig", "Service", aliases)
+}
+
+func runtimeConfigStringField(pkg *model.Package, expr ast.Expr, importPath, typeName, fieldName string, aliases map[string]string) (string, bool, bool) {
+	lit, zeroValue, ok := runtimeConfigLiteral(pkg, expr, importPath, typeName, aliases)
 	if !ok {
 		return "", false, false
 	}
@@ -1831,7 +1829,7 @@ func temporalConfigTaskQueue(pkg *model.Package, expr ast.Expr, typeName string,
 			continue
 		}
 		key, ok := kv.Key.(*ast.Ident)
-		if !ok || key.Name != "TaskQueue" {
+		if !ok || key.Name != fieldName {
 			continue
 		}
 		value, ok := literalStringValue(pkg, kv.Value)
@@ -1843,7 +1841,7 @@ func temporalConfigTaskQueue(pkg *model.Package, expr ast.Expr, typeName string,
 	return "", false, true
 }
 
-func validateTemporalRuntimeCalls(pkg *model.Package) []string {
+func validateRuntimeCalls(pkg *model.Package) []string {
 	if pkg == nil || pkg.GoPkg == nil {
 		return nil
 	}
@@ -1866,17 +1864,14 @@ func validateTemporalRuntimeCalls(pkg *model.Package) []string {
 			if !ok {
 				return true
 			}
-			if aliases[ident.Name] != "scenery.sh/temporal" {
+			importPath := aliases[ident.Name]
+			if importPath == "" {
 				return true
 			}
-			switch sel.Sel.Name {
-			case "NewActivity", "NewExternalActivity":
-				if len(call.Args) > 1 && temporalActivityConfigHasEmptyTaskQueue(pkg, call.Args[1], aliases) {
-					errs = append(errs, sourceDiagnostic(pkg, call.Lparen, "temporal."+sel.Sel.Name+" requires temporal.ActivityConfig.TaskQueue"))
-				}
-			case "Start":
-				if len(call.Args) == 3 {
-					errs = append(errs, sourceDiagnostic(pkg, call.Lparen, "temporal.Start requires a workflow identity argument such as temporal.WorkflowID(id) or temporal.WorkflowIDPrefix(prefix)"))
+			switch importPath {
+			case "scenery.sh/durable":
+				if sel.Sel.Name == "NewTask" && len(call.Args) > 1 && durableTaskConfigHasEmptyService(pkg, call.Args[1], aliases) {
+					errs = append(errs, sourceDiagnostic(pkg, call.Lparen, "durable.NewTask requires durable.TaskConfig.Service"))
 				}
 			}
 			return true
@@ -1885,16 +1880,16 @@ func validateTemporalRuntimeCalls(pkg *model.Package) []string {
 	return errs
 }
 
-func temporalActivityConfigHasEmptyTaskQueue(pkg *model.Package, expr ast.Expr, aliases map[string]string) bool {
-	value, explicit, resolved := temporalConfigTaskQueue(pkg, expr, "ActivityConfig", aliases)
+func durableTaskConfigHasEmptyService(pkg *model.Package, expr ast.Expr, aliases map[string]string) bool {
+	value, explicit, resolved := runtimeConfigStringField(pkg, expr, "scenery.sh/durable", "TaskConfig", "Service", aliases)
 	if !resolved {
 		return false
 	}
 	return !explicit || strings.TrimSpace(value) == ""
 }
 
-func temporalConfigLiteral(pkg *model.Package, expr ast.Expr, typeName string, aliases map[string]string) (*ast.CompositeLit, bool, bool) {
-	if lit, ok := expr.(*ast.CompositeLit); ok && isTemporalConfigType(lit.Type, typeName, aliases) {
+func runtimeConfigLiteral(pkg *model.Package, expr ast.Expr, importPath, typeName string, aliases map[string]string) (*ast.CompositeLit, bool, bool) {
+	if lit, ok := expr.(*ast.CompositeLit); ok && isRuntimeConfigType(lit.Type, importPath, typeName, aliases) {
 		return lit, false, true
 	}
 	obj := objectFromExpr(pkg, expr)
@@ -1909,7 +1904,7 @@ func temporalConfigLiteral(pkg *model.Package, expr ast.Expr, typeName string, a
 		return nil, true, true
 	}
 	lit, ok := init.(*ast.CompositeLit)
-	if !ok || !isTemporalConfigType(lit.Type, typeName, aliases) {
+	if !ok || !isRuntimeConfigType(lit.Type, importPath, typeName, aliases) {
 		return nil, false, false
 	}
 	return lit, false, true
@@ -1980,7 +1975,7 @@ func objectInitializer(pkg *model.Package, obj types.Object) (ast.Expr, bool, bo
 	return nil, false, false
 }
 
-func isTemporalConfigType(expr ast.Expr, typeName string, aliases map[string]string) bool {
+func isRuntimeConfigType(expr ast.Expr, importPath, typeName string, aliases map[string]string) bool {
 	sel, ok := expr.(*ast.SelectorExpr)
 	if !ok || sel.Sel.Name != typeName {
 		return false
@@ -1989,7 +1984,7 @@ func isTemporalConfigType(expr ast.Expr, typeName string, aliases map[string]str
 	if !ok {
 		return false
 	}
-	return aliases[ident.Name] == "scenery.sh/temporal"
+	return aliases[ident.Name] == importPath
 }
 
 func literalStringValue(pkg *model.Package, expr ast.Expr) (string, bool) {
@@ -2023,8 +2018,8 @@ func runtimeImportAliases(file *ast.File) map[string]string {
 		importPath := strings.Trim(imp.Path.Value, "\"")
 		defaultAlias := ""
 		switch importPath {
-		case "scenery.sh/temporal":
-			defaultAlias = "temporal"
+		case "scenery.sh/durable":
+			defaultAlias = "durable"
 		case "scenery.sh/cron":
 			defaultAlias = "cron"
 		default:
@@ -2041,18 +2036,13 @@ func runtimeImportAliases(file *ast.File) map[string]string {
 
 func runtimeDeclarationKind(importPath, callName string) (model.RuntimeDeclarationKind, int, bool) {
 	switch importPath {
-	case "scenery.sh/temporal":
-		switch callName {
-		case "NewWorkflow":
-			return model.RuntimeDeclarationTemporalWorkflow, 0, true
-		case "NewActivity":
-			return model.RuntimeDeclarationTemporalActivity, 0, true
-		case "NewExternalActivity":
-			return model.RuntimeDeclarationTemporalExternalActivity, 0, true
-		}
 	case "scenery.sh/cron":
 		if callName == "NewJob" {
 			return model.RuntimeDeclarationCronJob, 0, true
+		}
+	case "scenery.sh/durable":
+		if callName == "NewTask" {
+			return model.RuntimeDeclarationDurableTask, 0, true
 		}
 	}
 	return "", 0, false

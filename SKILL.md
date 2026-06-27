@@ -27,6 +27,7 @@ scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
 scenery inspect wire --json
+scenery inspect durable --json
 scenery inspect storage --json
 scenery system toolchain verify --json
 scenery logs --jsonl --limit 200
@@ -36,7 +37,7 @@ scenery harness --json --write
 scenery validate quick --json --write
 ```
 
-Prefer JSON output for agent decisions. Prefer `scenery up` for local development. Use `scenery serve` for headless API execution. Use `scenery task` for configured and code tasks. Use `scenery validate` for app-owned quality gates. Use `scenery worker` for worker-only cron/Temporal execution.
+Prefer JSON output for agent decisions. Prefer `scenery up` for local development. Use `scenery serve` for headless API execution. Use `scenery task` for configured and code tasks. Use `scenery validate` for app-owned quality gates. Use `scenery worker` for worker-only durable and cron execution.
 
 Run `scenery doctor --json` before deep app debugging when local readiness is in doubt. It is read-only and reports host resources, Go version, Docker engine reachability/details, optional tools, and app-sensitive dependency hints without building or starting services.
 
@@ -48,7 +49,7 @@ Run `scenery doctor --json` before deep app debugging when local readiness is in
 - App-required Go build tags or build-time flags belong in app config as `build.go_flags`, for example `["-tags=roofmapnet_native"]`; Scenery applies them to app builds and generated-workspace tests.
 - App-owned non-runtime trees that should remain Git-tracked but stay out of `scenery up` rebuilds belong in app config `watch.ignore`, for example `["reference/"]`.
 - Go source is the app model.
-- `scenery up` starts the supervised local platform: app process, rebuild/restart loop, dashboard, API Explorer, logs, traces, metrics, managed dev services when configured, and optional frontend routing through the local agent.
+- `scenery up` starts the supervised local platform: app process, rebuild/restart loop, dashboard, API Explorer, logs, traces, metrics, managed dev services when configured, and optional frontend routing through the local agent. Default local routing is path mode: one app root/worktree gets one base URL such as `http://localhost:4001`, and API/frontends live under `/api/`, `/<frontend>/`, and `/runtime/`; use `scenery ps --json` to discover the base URL and route manifest.
 - Storage is a Scenery-owned app capability when app config declares `storage`. The app-facing `scenery.sh/storage` API, reserved runtime routes, and generated browser helpers are production-supported only with an explicit operator-provided `SCENERY_STORAGE_CONFIG` whose stores use `kind: "proxy"` and `proxy_socket`; headless `scenery serve` and standalone `scenery worker` reject missing or local-root storage config. Managed ZeroFS behind `scenery up`, storage inspect/status/Web UI, and `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json` remain beta local-dev/operator surfaces. In agent-backed dev sessions, app storage calls go through Scenery's session-local proxy to the managed ZeroFS 9P socket; apps should not inspect that socket directly. Declared managed ZeroFS is required for `scenery up`; missing or unsyncable pinned `zerofs` toolchain artifacts fail during managed-dev-service preflight with a `scenery system toolchain sync --tool zerofs` repair action and a `scenery.dev.failure.v1` evidence artifact under `.scenery/evidence/`. ZeroFS process readiness uses a bounded two-minute window and reports the last probe, output tail, config/log paths, sockets, Web UI address, PID, source, cell ID, and session-root evidence artifact on failure. Private stores are internal-only: external storage routes deny them, while app/runtime helpers and Scenery's private route table may use them. Tenant-scoped stores keep caller-visible keys unchanged, derive tenants from standard auth on external routes, and require `storage.WithTenantID(ctx, tenantID)` or standard-auth context for private/internal calls. `PutOptions.ContentType` and `PutOptions.Metadata` are returned by `Head`, `Get`, and `List`; browser/proxy routes carry metadata through `X-Scenery-Storage-Meta-*` headers. Inspect/status includes `storage.runtime` with lease ownership when an agent-managed ZeroFS substrate is attached. `scenery down` releases only the current session's ZeroFS lease and preserves shared storage-cell data; `scenery storage cleanup --json` is dry-run by default and requires `--yes` after live-lease verification. Treat ZeroFS sockets, object directories, and agent storage roots as substrate details unless intentionally debugging storage.
 - `scenery serve` starts a headless API-role server and does not start dashboard, proxy, or watch mode.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and called through generated helpers.
@@ -123,7 +124,7 @@ Struct tags:
 - `scenery.sh/auth`
 - `scenery.sh/errs`
 - `scenery.sh/middleware`
-- `scenery.sh/temporal`
+- `scenery.sh/durable` for typed task declarations, startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin, and durable inspect metadata
 - `scenery.sh/cron`
 - `scenery.sh/storage`
 - `scenery.sh/db`
@@ -170,6 +171,7 @@ scenery inspect app --json
 scenery inspect routes --json
 scenery inspect endpoints --json
 scenery inspect paths --json
+scenery inspect durable --json
 scenery inspect storage --json
 scenery logs --jsonl --limit 200
 scenery logs --source api --level error --jsonl --limit 200
@@ -182,7 +184,7 @@ scenery system toolchain list --json
 scenery system toolchain verify --json
 ```
 
-Scenery-managed tools live under `.scenery/toolchain/`, `~/.scenery/toolchain/` for machine-level edge tools, or `SCENERY_TOOLCHAIN_DIR`. Treat managed dnsmasq, Caddy, Grafana, Victoria, Temporal CLI, and ZeroFS details as substrate unless intentionally debugging them. Agents should not rely on system `PATH` binaries for those issues; use `scenery system toolchain sync --json` for app-root tools, `scenery system edge dns install` for wildcard local DNS, or `scenery system edge install` for Caddy edge. Use `scenery upgrade` to replace a prebuilt local Scenery binary with the latest verified release; it then syncs managed toolchain entries already present locally, and `--toolchain all` pulls every frozen tool/image from the upgraded manifest. Shared substrate failures appear in `scenery ps --json` under `substrates` with `last_exit`, `component_exits`, and stdout/stderr log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontend processes are restarted by `scenery up` when their dev-server process exits unexpectedly.
+Scenery-managed tools live under `.scenery/toolchain/`, `~/.scenery/toolchain/` for machine-level edge tools, or `SCENERY_TOOLCHAIN_DIR`. Treat managed dnsmasq, Caddy, Grafana, Victoria, and ZeroFS details as substrate unless intentionally debugging them. Agents should not rely on system `PATH` binaries for those issues; use `scenery system toolchain sync --json` for app-root tools, `scenery system edge dns install` for wildcard local DNS, or `scenery system edge install` for Caddy edge. Use `scenery upgrade` to replace a prebuilt local Scenery binary with the latest verified release; it then syncs managed toolchain entries already present locally, and `--toolchain all` pulls every frozen tool/image from the upgraded manifest. Shared substrate failures appear in `scenery ps --json` under `substrates` with `last_exit`, `component_exits`, and stdout/stderr log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontend processes are restarted by `scenery up` when their dev-server process exits unexpectedly.
 
 Do not introduce new scenery-owned production environment variables by default. Prefer app config, explicit CLI flags, or checked-in manifests; when an env variable is truly required, update `docs/environment.registry.json`, `docs/environment.md`, and tests together.
 
@@ -203,7 +205,7 @@ env, defaulting to `DatabaseURL`, or Scenery's managed database env and target
 the app-owned service schema rather than `public`. Generated CRUD endpoints default to `auth` for every
 action. Generated CRUD route bases default to `/<service>/<table>`
 and `scenery check` reports collisions with reserved route prefixes
-(`/__scenery`, `/api`, `/sync`) or handwritten/generated app routes.
+(`/runtime`, `/__scenery`, `/api`, `/sync`) or handwritten/generated app routes.
 Use `model.ExistingTable(schema, table)` for read-only generated pages/endpoints
 over an existing physical table; inspect models exposes source metadata, schema/seed
 generation skips that table, and generated mutations or `model.Seed(...)` rows are rejected.
@@ -267,8 +269,10 @@ scenery help <command>|all|--json
 scenery ps [--json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--json]
 scenery serve [--app-root <path>] [--env <name>] [--log-format text|json]
-scenery worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <name>]
-scenery worker temporal prune --stale [--yes] [--app-root <path>] [--json]
+scenery worker [--app-root <path>] [--env <name>]
+scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>]
+scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] --json
+scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] --json
 scenery version --json
 scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
@@ -298,7 +302,7 @@ scenery storage put <store> <key> <file> [--app-root <path>] --json
 scenery storage get <store> <key> --output <file> [--app-root <path>] --json
 scenery storage rm <store> <key> [--recursive] [--app-root <path>] --json
 scenery storage cleanup [--yes] [--app-root <path>] --json
-scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|temporal|storage|observability --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|durable|storage|observability --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]
@@ -330,8 +334,6 @@ scenery worktree create <name> [--from <branch>] [--app-root <path>] [--json]
 scenery worktree list [--app-root <path>] [--json]
 scenery worktree remove <name> [--app-root <path>] [--db] [--json]
 ```
-
-`scenery up` warns once when the current dev session's Temporal task queues contain open workflows from an older session. Use `scenery worker temporal prune --stale --json` to inspect candidates; add `--yes` only when you intentionally want Scenery to terminate those stale workflows.
 
 Self-harness Go test steps use the Go test result cache by default. Pass
 `--fresh-tests` when a fresh `-count=1` run is intentionally required.

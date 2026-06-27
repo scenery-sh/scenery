@@ -1,6 +1,6 @@
 # 0088 - SQLite Service Databases and Postgres Removal
 
-This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
+This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` current as work proceeds.
 
 ## Purpose / Big Picture
 
@@ -51,15 +51,15 @@ This change should preserve Scenery's agent-friendly guarantees: database state 
 
 * [x] 2026-06-27 - Initial ExecPlan drafted from current code survey.
 * [x] 2026-06-27 - Added this plan as `docs/plans/0088-sqlite-service-databases.md`, linked it from `docs/plans/active.md`, and indexed it in `docs/knowledge.json`.
-* [x] 2026-06-27 - Re-ran repository inventory for Postgres references before editing. Validation: `git grep -n -i ... -- .` and `go list -deps ./... | grep -E 'pgx|pq|postgres' || true`.
-* [x] 2026-06-27 - Implemented SQLite service discovery and config schema changes. Validation: `go test ./internal/app ./internal/sqlitedb` passed.
-* [x] 2026-06-27 - Implemented SQLite file resolver, connection helper, and env injection, including `SCENERY_SQLITE_DATABASES_JSON`. Validation: `go test ./internal/sqlitedb ./cmd/scenery ./db` passed.
-* [x] 2026-06-27 - Rewrote database CLI commands around SQLite service names, files, shell/apply/seed/setup/reset/drop/snapshot/diff/branch flows. Validation: `go test ./cmd/scenery` passed.
-* [x] 2026-06-27 - Rewrote database branch lifecycle around SQLite files and fixed forced current-branch delete to clear the stale worktree pin. Validation: `go run ./cmd/scenery harness self --summary --write` passed the `sqlite-branch-lifecycle` step with `leases_after: 1`.
-* [x] 2026-06-27 - Ported standard auth from pgx/Postgres to SQLite and `database/sql`. Validation: `go test ./auth ./auth/db/gen` passed through `go test ./...`.
-* [x] 2026-06-27 - Removed managed Postgres substrate, Postgres dependencies, Postgres toolchain image, public `pgxpool`, internal Postgres test helper, Atlas Postgres defaults, and the Postgres fixture. Validation: final active-surface grep and `go list -deps ./... | rg 'pgx|pq|postgres'` returned no matches.
-* [x] 2026-06-27 - Updated docs, schemas, harness expectations, knowledge indexes, environment registry, and dashboard DB explorer copy. Validation: `scenery inspect docs --json` passed with 65 documents, 0 missing, 0 review-due, 0 stale.
-* [x] 2026-06-27 - Ran final validation and recorded exact outcomes. Validation: `go test ./...`, `go test ./cmd/scenery`, `cd ui && bun run typecheck && bun run test && bun run build`, `./scripts/build-dashboard-ui-embed.sh`, final dependency/source inventories, and `go run ./cmd/scenery harness self --summary --write` passed.
+* [ ] 2026-06-27 - Re-run repository inventory for Postgres references before editing.
+* [ ] 2026-06-27 - Implement SQLite service discovery and config schema changes.
+* [ ] 2026-06-27 - Implement SQLite file resolver, connection helper, and env injection.
+* [ ] 2026-06-27 - Rewrite database CLI commands around SQLite.
+* [ ] 2026-06-27 - Rewrite database branch lifecycle around SQLite files.
+* [ ] 2026-06-27 - Port standard auth from pgx/Postgres to SQLite.
+* [ ] 2026-06-27 - Remove managed Postgres substrate, Postgres dependencies, Postgres toolchain image, and Postgres test helper.
+* [ ] 2026-06-27 - Update docs, schemas, harness expectations, and knowledge indexes.
+* [ ] 2026-06-27 - Run validation and record exact outcomes.
 
 Update this section at every meaningful stopping point. Every update must include the date, what changed, and whether validation was run.
 
@@ -72,7 +72,6 @@ Update this section at every meaningful stopping point. Every update must includ
 * Current managed Electric code is coupled to Postgres concepts such as `DatabaseURL`, replication stream IDs, and Postgres lock cleanup. For this migration, managed Electric should either be removed from active code or disabled with an explicit "not available after Postgres removal" diagnostic until a SQLite-compatible sync design exists.
 * SQLite snapshots and branch copies must not naïvely copy only the `.sqlite` file while a WAL file may contain committed data. Use a safe backup method such as SQLite backup API or `VACUUM INTO` into a temporary file, then atomic rename.
 * The final grep must distinguish active code from historical plan prose. Historical completed plans may mention Postgres; active code and current user-facing docs should not.
-* 2026-06-27 - Fresh inventory confirmed active Postgres code in `db`, `pgxpool`, `auth`, `cmd/scenery` DB/dev/branch/dashboard paths, `internal/testpostgres`, `internal/agent/types.go`, `scenery.toolchain.json`, config/docs, and generated auth sqlc. `go list -deps ./...` still includes `github.com/jackc/pgx/v5`, `github.com/lib/pq`, `scenery.sh/pgxpool`, and `scenery.sh/internal/testpostgres`.
 
 Add new surprises here with the command, test, or file that exposed them.
 
@@ -85,37 +84,31 @@ Add new surprises here with the command, test, or file that exposed them.
 * 2026-06-27 - Keep `runtime/dbtrace.go` conceptually, but remove the pgx-specific tracing wrapper. Rationale: DB traces are useful and generic; pgx instrumentation is the obsolete piece. Author: initial ExecPlan.
 * 2026-06-27 - Remove or explicitly disable managed Electric in this migration unless it is fully decoupled from Postgres in the same change. Rationale: current managed Electric is Postgres-backed; leaving it active while removing Postgres would create broken runtime paths. Author: initial ExecPlan.
 * 2026-06-27 - Standard auth must be SQLite-native before Postgres dependencies are removed. Rationale: auth currently imports pgx and generated pgx sqlc code; removing dependencies first would break compilation. Author: initial ExecPlan.
-* 2026-06-27 - Use `modernc.org/sqlite` as the SQLite driver. Rationale: `go get modernc.org/sqlite@latest` succeeded and keeps SQLite pure-Go without CGO host setup. Author: implementation.
 
 When implementation chooses exact driver, CLI grammar, schema shape, or auth storage strategy, append new decision entries with date, rationale, and author.
 
 ## Outcomes & Retrospective
 
-Outcome:
+Not yet completed.
 
-- App authors now declare managed local databases as `dev.services.<name>.kind: "sqlite"`. Each service resolves to one SQLite file and receives its configured URL env plus a service-specific path env. `DatabaseURL` remains only as the configured/default single-service app alias and is not injected when multiple SQLite services make it ambiguous.
-- Agents now inspect, snapshot, reset, branch, diff, and shell into managed service databases through SQLite-backed `scenery db ...` commands. Branch isolation is file-backed, self-harness-proven, and leaves no stale current-branch pin after forced deletion.
-- Standard auth, generated model stores, public `scenery.sh/db`, DB setup/seed flows, branch lifecycle, docs, schemas, toolchain metadata, fixtures, and dashboard DB copy now use SQLite/database/sql.
-- Removed active Postgres surfaces: managed Postgres dev substrate, Postgres DB CLI/provider files, public `pgxpool`, internal Postgres test helper, Postgres fixture app, Atlas Postgres auth generation defaults, Postgres toolchain image artifact, direct `github.com/jackc/pgx/v5` and `github.com/lib/pq` dependencies, and active `psql`/`pg_dump` command paths.
-- Intentional compatibility that remains: current historical ExecPlans and docs index history may mention the removed Postgres system; config/CLI rejection paths still reject removed old spellings with clear errors; `DatabaseURL` remains a conventional app env name only when explicitly configured or unambiguous.
+When complete, update this section with:
+
+```text
+Outcome:
+- What changed for app authors.
+- What changed for agents.
+- Which Postgres surfaces were removed.
+- Which compatibility paths, if any, intentionally remain.
 
 Validation:
-
-- `go test ./cmd/scenery ./internal/app ./internal/sqlitedb ./db ./runtime ./internal/toolchain ./internal/envpolicy ./internal/codegen` passed.
-- `go test ./cmd/scenery ./internal/envpolicy` passed after harness/env registry fixes.
-- `go test ./cmd/scenery` passed after branch delete and fixture cleanup.
-- `go test ./...` passed after all implementation and final cleanup.
-- `cd ui && bun run typecheck && bun run test && bun run build` passed; Vite emitted existing Lightning CSS unknown at-rule warnings but exited 0, with 8 UI test files and 27 tests passing.
-- `./scripts/build-dashboard-ui-embed.sh` passed; it also emitted the same Lightning CSS at-rule warnings and exited 0.
-- `scenery inspect docs --json` passed with 65 documents, 0 missing, 0 review-due, 0 stale.
-- `go list -deps ./... | rg 'pgx|pq|postgres'` returned no matches.
-- Active-surface `git grep -n -i -e postgres -e postgresql -e 'github.com/jackc/pgx' -e 'github.com/lib/pq' -e pgxpool -e psql -e pg_dump -e pg_database -e pg_class -e pg_namespace -e pg_indexes -e SCENERY_DEV_POSTGRES -e SubstratePostgres -- .` with historical/deleted path exclusions returned no matches.
-- `go run ./cmd/scenery harness self --summary --write` passed with status `pass_with_warnings`: 0 errors; warnings were existing architecture large-file warnings and slow-test timing warnings. Key passing steps included knowledge contract, inspect docs, architecture checks with no errors, contract drift checks, UI static architecture, Go tests, parallel worktree runtimes, SQLite branch lifecycle, dashboard UI typecheck/build/freshness, fixture matrix 9/9, storage fixture probe, and schema validation.
+- Exact commands run.
+- Exact pass/fail result.
+- Any skipped commands and why.
 
 Follow-up:
-
-- No migration of old local Postgres state is attempted; users with old state should delete stale state or recreate SQLite branches through the documented commands.
-- The self-harness still reports existing large-file and slow-test warnings. They are not blockers for this migration and should be handled by the existing harness/test-suite quality plans rather than expanding this database migration.
+- Known limitations.
+- Follow-up plan or issue numbers.
+```
 
 ## Context and Orientation
 

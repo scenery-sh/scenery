@@ -241,7 +241,7 @@ Start by making the oracle additive. The existing `harness self --json --write` 
 
 Each report builder should be testable without starting long-running processes. Process-heavy checks should stay in the self-harness orchestration layer and pass captured output into pure parsers.
 
-The default mode should remain useful when optional tools are absent. Missing `bun`, Temporal CLI, Grafana, or Docker should be classified as required, optional, required-for-ui, required-for-temporal-tests, or required-for-release. Optional missing tools should produce diagnostics, not fail the entire default harness unless a selected step needs them.
+The default mode should remain useful when optional tools are absent. Missing `bun`, legacy async runtime CLI, Grafana, or Docker should be classified as required, optional, required-for-ui, required-for-legacy-async-runtime-tests, or required-for-release. Optional missing tools should produce diagnostics, not fail the entire default harness unless a selected step needs them.
 
 Use data-driven rules for drift checks. Package layering, CLI contract smokes, environment variable registry entries, and known risk flags should be declared in tables, not scattered as one-off conditionals.
 
@@ -406,7 +406,7 @@ For JSON schema validation, keep dependencies minimal. First check whether the s
 
 13. Add toolchain preflight and side-effect classification.
 
-    Report Go version, selected Go env values, Bun presence, Git version, Temporal CLI presence, scenery binary path and freshness reason, disk space for cache/temp, and `SCENERY_*` env vars that affect this run. For each harness step, classify side effects such as filesystem cache, loopback network, external binary, ports, browser automation, Docker, or Temporal CLI.
+    Report Go version, selected Go env values, Bun presence, Git version, legacy async runtime CLI presence, scenery binary path and freshness reason, disk space for cache/temp, and `SCENERY_*` env vars that affect this run. For each harness step, classify side effects such as filesystem cache, loopback network, external binary, ports, browser automation, Docker, or legacy async runtime CLI.
 
 14. Add documentation freshness checks with code-symbol links.
 
@@ -426,7 +426,7 @@ For JSON schema validation, keep dependencies minimal. First check whether the s
     external-binary
     ports
     docker
-    temporal-cli
+    legacy-async-runtime-cli
     browser-automation
     ```
 

@@ -54,7 +54,7 @@ func runDBSetup(ctx context.Context, stdout io.Writer, args []string) error {
 	if strings.TrimSpace(cfg.Database.Apply.Command) == "" {
 		result.Apply.Status = "skipped"
 	} else {
-		if err := runDatabaseApplyProvider(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
+		if err := runDatabaseApplyCommand(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
 			result.Apply.Status = "failed"
 			result.Apply.Error = err.Error()
 			if opts.JSON {

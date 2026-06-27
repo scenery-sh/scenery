@@ -18,7 +18,6 @@ import (
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/schemagen"
-	"scenery.sh/internal/workers"
 )
 
 type checkOptions struct {
@@ -69,6 +68,9 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		Root:       appRoot,
 		ConfigPath: cfg.SourcePath(appRoot),
 	}
+	if diagnostics := devRouteConfigDiagnostics(cfg); len(diagnostics) > 0 {
+		return renderCheckDiagnostics(stdout, opts.JSON, appInfo, diagnostics)
+	}
 
 	model, err := parse.App(appRoot, cfg.Name)
 	if err != nil {
@@ -101,12 +103,6 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		}
 	}
 
-	if cfg.Temporal.Enabled {
-		if diagnostics := typeScriptTemporalDiagnostics(appRoot, model); len(diagnostics) > 0 {
-			return renderCheckFailure(stdout, opts.JSON, appInfo, "temporal-typescript", workers.DiagnosticsError(diagnostics))
-		}
-	}
-
 	result, err := build.Prepare(appRoot, model, cfg)
 	if err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "prepare", err)
@@ -132,6 +128,26 @@ func renderCheckGeneratedSchemaDrift(stdout io.Writer, jsonMode bool, app inspec
 			Message:         item.Message,
 			SuggestedAction: "Run `scenery generate data --dry-run --json` and update the app-owned schema file to match the generated desired schema.",
 		})
+	}
+	err := errors.New(strings.Join(messages, "\n"))
+	if !jsonMode {
+		return err
+	}
+	if err := writeCheckJSON(stdout, checkResponse{
+		SchemaVersion: "scenery.check.result.v1",
+		OK:            false,
+		App:           app,
+		Diagnostics:   diagnostics,
+	}); err != nil {
+		return err
+	}
+	return &silentCLIError{err: err}
+}
+
+func renderCheckDiagnostics(stdout io.Writer, jsonMode bool, app inspectdata.AppRef, diagnostics []checkDiagnostic) error {
+	messages := make([]string, 0, len(diagnostics))
+	for _, diag := range diagnostics {
+		messages = append(messages, diag.Message)
 	}
 	err := errors.New(strings.Join(messages, "\n"))
 	if !jsonMode {
@@ -355,8 +371,6 @@ func suggestedActionForDiagnostic(stage, message string) string {
 		return "Fix the source or scenery directive error, then rerun `scenery check --json`."
 	case stage == "prepare":
 		return "Fix the generated workspace or dependency setup issue, then rerun `scenery check --json`."
-	case stage == "temporal-typescript":
-		return "Fix the TypeScript Temporal worker declaration or matching Go external activity, then rerun `scenery check --json`."
 	default:
 		return "Fix the compile error, then rerun `scenery check --json`."
 	}

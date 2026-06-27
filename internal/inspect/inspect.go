@@ -226,7 +226,7 @@ func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResp
 	resp := AppResponse{
 		SchemaVersion: "scenery.inspect.app.v1",
 		App:           appInfo(appRoot, cfg, app),
-		Config:        cfg,
+		Config:        inspectConfig(cfg),
 		Counts: AppCounts{
 			Packages:            len(relevantAppPackageDirs(app)),
 			Middleware:          len(app.Middleware),
@@ -249,6 +249,14 @@ func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResp
 	}
 	sort.Strings(resp.Services)
 	return resp
+}
+
+func inspectConfig(cfg appcfg.Config) appcfg.Config {
+	if cfg.Database.Seed.Enabled == nil {
+		enabled := cfg.Database.Seed.IsEnabled()
+		cfg.Database.Seed.Enabled = &enabled
+	}
+	return cfg
 }
 
 func BuildServicesResponse(appRoot string, cfg appcfg.Config, app *model.App) ServicesResponse {
@@ -671,6 +679,7 @@ func ReadGeneratedApp(appRoot string) (*AppResponse, bool, error) {
 	if err != nil || !ok {
 		return nil, ok, err
 	}
+	payload.Config = inspectConfig(payload.Config)
 	if services, servicesOK, servicesErr := ReadGeneratedServices(appRoot); servicesErr != nil {
 		return nil, true, servicesErr
 	} else if servicesOK {

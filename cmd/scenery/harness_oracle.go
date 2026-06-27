@@ -405,7 +405,7 @@ func classifyHarnessChangedFile(path string) string {
 		return "cli"
 	case strings.HasPrefix(path, "internal/"):
 		return "internal"
-	case strings.HasPrefix(path, "runtime") || strings.HasPrefix(path, "auth/") || strings.HasPrefix(path, "temporal/"):
+	case strings.HasPrefix(path, "runtime") || strings.HasPrefix(path, "auth/"):
 		return "runtime"
 	case strings.HasPrefix(path, "ui/"):
 		return "ui"
@@ -465,10 +465,6 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 		if strings.HasPrefix(path, "internal/build/") {
 			docs["docs/plans/0050-test-suite-speed-hardening.md"] = true
 			risks["build-cache"] = true
-		}
-		if strings.HasPrefix(path, "internal/workers/") {
-			docs["docs/plans/0047-typescript-temporal-workers.md"] = true
-			risks["temporal-runtime"] = true
 		}
 	}
 }
@@ -768,8 +764,6 @@ func harnessOnlvImpactingPath(path string) bool {
 		"cmd/scenery/db",
 		"internal/agent",
 		"internal/localproxy",
-		"internal/workers",
-		"temporal/",
 		"docs/plans/0045-",
 		"docs/plans/0048-",
 		"docs/plans/0049-",

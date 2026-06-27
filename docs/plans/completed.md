@@ -24,6 +24,26 @@ Validation:
 
 - Passed focused package tests, `go test ./...`, generated-data dry-run, docs inspection, dashboard typecheck/test/build, and `go run ./cmd/scenery harness self --summary --write` with warning-class harness findings only.
 
+## SQLite Durable Execution Runtime Per Service
+
+- Status: completed
+- Owner: scenery runtime / durable execution
+- Completed: 2026-06-27
+- Quality: B
+- ExecPlan: [0089 SQLite Durable Execution Runtime Per Service](0089-sqlite-durable-execution-runtime.md)
+
+Shipped:
+
+- Added `scenery.sh/durable` task declarations, `durable.Start`, `durable.Schedule`, `durable.Step`, and `durable.Signal`.
+- Created one service-owned durable SQLite DB per declaring service at `.scenery/state/db/<service>.durable.sqlite`, with durable table-name invariants and no NATS dependency.
+- Added local worker leasing/execution, retries, interval schedules, step reuse, signals, job events, and job admin.
+- Added authenticated remote durable worker lease, heartbeat, complete, and fail endpoints plus `scenery worker durable` and worker-token CLI support.
+- Added `scenery inspect durable --json`, durable job/token schemas, docs, environment registry entries, and migration guidance away from legacy async runtime-backed durable work.
+
+Validation:
+
+- Passed focused durable/store/runtime/parser/cmd tests, `go test ./...`, docs inspection, `git diff --check`, and `go run ./cmd/scenery harness self --summary --write` with warning-class harness findings only.
+
 ## ZeroFS Production Readiness
 
 - Status: completed
@@ -422,25 +442,25 @@ Validation:
 Shipped:
 
 - ONLV defaults to the scenery agent path for local development.
-- ONLV declares managed Postgres/sync dev services and setup hooks, with session-routed API, dashboard, sync, Grafana, Temporal, and frontend URLs.
-- Parallel ONLV worktree validation proved isolated hidden ports, databases, sync slots, and Temporal task queues.
+- ONLV declares managed Postgres/sync dev services and setup hooks, with session-routed API, dashboard, sync, Grafana, legacy async runtime, and frontend URLs.
+- Parallel ONLV worktree validation proved isolated hidden ports, databases, sync slots, and legacy async runtime task queues.
 
 Validation:
 
 - See the ExecPlan Outcomes for ONLV harness, scenery check/inspect, live-session smoke, and parallel-session validation.
 
-## Temporal Worker Production Hardening
+## legacy async runtime Worker Production Hardening
 
 - Status: completed
 - Owner: scenery runtime / ONLV integration
 - Completed: 2026-05-26
 - Quality: B
-- ExecPlan: [0035 Temporal Worker Production Hardening](0035-temporal-worker-production-hardening.md)
+- ExecPlan: historical plan file removed with the retired async runtime source surface.
 
 Shipped:
 
-- Strict worker task-queue selection, explicit activity queues, compile-time workflow identity, typed workflow operations, local-only worker deployment promotion, cron policy controls, manifest v2 registration hashes, and production Temporal connection validation.
-- ONLV deterministic starts, parent workflows for staged flows, workflow-result waits, durable jobs log streaming, explicit Temporal config, and RabbitMQ residue removal.
+- Strict worker task-queue selection, explicit activity queues, compile-time workflow identity, typed workflow operations, local-only worker deployment promotion, cron policy controls, manifest v2 registration hashes, and production legacy async runtime connection validation.
+- ONLV deterministic starts, parent workflows for staged flows, workflow-result waits, durable jobs log streaming, explicit legacy async runtime config, and RabbitMQ residue removal.
 
 Validation:
 
@@ -717,7 +737,7 @@ Validation:
 ## Browser Worker Operational Hardening
 
 - Status: completed
-- Owner: scenery runtime / Temporal TypeScript workers
+- Owner: scenery runtime / legacy async runtime TypeScript workers
 - Completed: 2026-05-30
 - Quality: B+
 - ExecPlan: [0052 Browser Worker Operational Hardening](0052-browser-worker-operational-hardening.md)
@@ -726,7 +746,7 @@ Shipped:
 
 - Build prep skips browser runtime artifact directories: `var/browser`, `var/chrome`, and `var/playwright`.
 - Build source listing and workspace copying skip unsupported non-regular files such as Unix sockets without changing symlink behavior.
-- Generated TypeScript Temporal worker tests now lock supervisor PID monitoring through `SCENERY_DEV_SUPERVISOR_PID`.
+- Generated TypeScript legacy async runtime worker tests now lock supervisor PID monitoring through `SCENERY_DEV_SUPERVISOR_PID`.
 - Dev supervisor shutdown tests prove TypeScript worker children are interrupted, waited on, and detached from supervisor state.
 - Detached `scenery dev` children write a generated TypeScript worker registry and conservatively reap stale registry-matched workers for the current app root and generated `worker.ts` path.
 - Stale worker cleanup records a dev dashboard process event and leaves foreground `scenery worker typescript` behavior unchanged.
@@ -808,9 +828,9 @@ Shipped:
 Shipped:
 
 - Agent substrate registry for shared local dev processes.
-- Shared agent-registered VictoriaMetrics, VictoriaLogs, VictoriaTraces, Grafana, and Temporal dev server reuse across sessions.
+- Shared agent-registered VictoriaMetrics, VictoriaLogs, VictoriaTraces, Grafana, and legacy async runtime dev server reuse across sessions.
 - Grafana dashboards with a `Session` variable backed by `scenery_session_id`.
-- Session-scoped Temporal task queue/deployment/build env for app child processes.
+- Session-scoped legacy async runtime task queue/deployment/build env for app child processes.
 - Agent-routed frontend URLs for configured frontend upstreams.
 - Beta `.scenery.json` `dev.services` declarations for Postgres and sync.
 - `scenery db psql` as the current managed database shell helper.
@@ -1387,8 +1407,8 @@ Shipped:
 Shipped:
 
 - Removed the public `scenery.sh/pubsub` package, runtime hooks, dashboard/admin surfaces, schemas, and current docs.
-- Moved service-method background handler support to `scenery.sh/temporal`.
-- Migrated ONLV async jobs in `codexsvc`, `jobs`, `house`, and `maps` to native Temporal workflows and activities.
+- Moved service-method background handler support to `scenery.sh/legacy-async-runtime`.
+- Migrated ONLV async jobs in `codexsvc`, `jobs`, `house`, and `maps` to native legacy async runtime workflows and activities.
 - Validation passed for scenery; ONLV validation is blocked only by the native house `torch/torch.h` environment prerequisite.
 
 ## scenery Agent MVP
@@ -1436,4 +1456,4 @@ Shipped:
 - `scenery logs --session current|<id>`, `scenery inspect traces --session current|<id> --json`, and `scenery inspect metrics --session current|<id> --json` filter session-scoped records.
 - Victoria trace/log/metric export includes session labels.
 - Dev-mode standard auth receives session-routed local URL env vars and host-only cookie-domain defaults.
-- Dev-mode Temporal receives session-scoped task queue prefix, worker deployment name, and build ID env vars.
+- Dev-mode legacy async runtime receives session-scoped task queue prefix, worker deployment name, and build ID env vars.

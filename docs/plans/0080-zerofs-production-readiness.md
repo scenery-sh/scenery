@@ -944,7 +944,7 @@ Operational interfaces:
 
 External dependencies:
 
-* Use the existing Go standard library, existing Scenery packages, existing Temporal/auth/database dependencies, and the pinned ZeroFS toolchain artifact already recorded in `scenery.toolchain.json`.
+* Use the existing Go standard library, existing Scenery packages, existing legacy async runtime/auth/database dependencies, and the pinned ZeroFS toolchain artifact already recorded in `scenery.toolchain.json`.
 * Do not add a new storage backend, ORM, broker, filesystem mount dependency, or secret-management dependency unless this plan is updated with a concrete production gate that cannot be met otherwise.
 * `scenery.toolchain.json` pins the managed ZeroFS artifact and records its `AGPL-3.0-only` license.
 * `docs/zerofs-legal.md` is the release/legal gate for any future production recommendation.

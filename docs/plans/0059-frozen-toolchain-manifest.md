@@ -34,10 +34,10 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
 - [x] (2026-06-01 09:02Z) Add managed toolchain resolver and artifact store.
 - [x] (2026-06-01 09:02Z) Add `scenery toolchain` CLI commands.
 - [x] (2026-06-01 09:02Z) Migrate Grafana and Victoria to the managed resolver.
-- [x] (2026-06-01 09:02Z) Audit Temporal, Postgres, sync, frontend worker runtimes, and other dev services for implicit `PATH` or unpinned Docker image resolution.
+- [x] (2026-06-01 09:02Z) Audit legacy async runtime, Postgres, sync, frontend worker runtimes, and other dev services for implicit `PATH` or unpinned Docker image resolution.
 - [x] (2026-06-01 09:02Z) Add docs, schemas, environment contract updates, and knowledge index updates.
 - [x] (2026-06-01 09:02Z) Add tests and self-harness coverage.
-- [x] (2026-06-24) Promote ZeroFS into the frozen toolchain manifest and remove `SCENERY_DEV_ZEROFS_BIN`, `SCENERY_TEMPORAL_BIN`, `SCENERY_DEV_POSTGRES_BIN`, and `SCENERY_DEV_POSTGRES_INITDB` as managed-substrate binary overrides. ZeroFS and Temporal CLI now resolve through the managed toolchain store, and managed Postgres starts from the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured.
+- [x] (2026-06-24) Promote ZeroFS into the frozen toolchain manifest and remove `SCENERY_DEV_ZEROFS_BIN`, `SCENERY_LEGACY_ASYNC_RUNTIME_BIN`, `SCENERY_DEV_POSTGRES_BIN`, and `SCENERY_DEV_POSTGRES_INITDB` as managed-substrate binary overrides. ZeroFS and legacy async runtime CLI now resolve through the managed toolchain store, and managed Postgres starts from the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured.
 - [x] (2026-06-24) Add `scenery upgrade` to fetch a verified release binary, replace the local executable, and run the upgraded binary's managed toolchain sync for already-installed tools by default or the whole manifest with `--toolchain all`.
 - [ ] (YYYY-MM-DD HH:MMZ) Complete validation and update retrospective.
 ## Surprises & Discoveries
@@ -53,8 +53,8 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
   Evidence: `cmd/scenery/grafana.go` resolves explicit env override and local paths, probes versions, and can fall back to `PATH`.
 - Observation: `.scenery/` is already ignored.
   Evidence: `.gitignore` ignores `.scenery/`, so `.scenery/toolchain/` is appropriate for local downloaded state.
-- Observation: Temporal CLI release assets include platform tarballs and a checksum sidecar.
-  Evidence: `https://github.com/temporalio/cli/releases/download/v1.7.0/checksums.txt` lists `temporal_cli_1.7.0_linux_amd64.tar.gz` and `temporal_cli_1.7.0_darwin_arm64.tar.gz`.
+- Observation: legacy async runtime CLI release assets include platform tarballs and a checksum sidecar.
+  Evidence: `https://github.com/legacy-async-runtimeio/cli/releases/download/v1.7.0/checksums.txt` lists `legacy-async-runtime_cli_1.7.0_linux_amd64.tar.gz` and `legacy-async-runtime_cli_1.7.0_darwin_arm64.tar.gz`.
 - Observation: The old `internal/devtools/versions.json` pin file can be deleted instead of generated as compatibility output.
   Evidence: `internal/devtools.PinnedVersions()` now derives Grafana, plugin, and Victoria versions from the bundled `scenery.toolchain.json` manifest while preserving the old Go API.
 - Observation: Docker image refs remain tag-only in this migration step.
@@ -86,7 +86,7 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
   Rationale: The user explicitly wants Scenery to avoid system/path binaries even when available. Managed tools should resolve from explicit env override, Scenery store, or manifest-driven download.
   Date/Author: 2026-06-01 / Codex.
 - Decision: Do not expose binary-path env overrides for hidden managed dev-service substrate.
-  Rationale: ZeroFS, Temporal CLI, and managed Postgres are Scenery-owned toolchain/runtime substrate. Agents and target apps should get the frozen version from `scenery.toolchain.json` through the managed store, not configure individual binary paths. Explicit external-service URLs remain valid when the user intentionally points Scenery at infrastructure they own.
+  Rationale: ZeroFS, legacy async runtime CLI, and managed Postgres are Scenery-owned toolchain/runtime substrate. Agents and target apps should get the frozen version from `scenery.toolchain.json` through the managed store, not configure individual binary paths. Explicit external-service URLs remain valid when the user intentionally points Scenery at infrastructure they own.
   Date/Author: 2026-06-24 / Codex.
 - Decision: Treat Go modules and UI package-manager files as `source_locks`, not managed toolchain downloads.
   Rationale: `go.mod`, `go.sum`, `package.json`, and package lock files already freeze source dependency graphs. The toolchain manifest should reference and report those lock surfaces without duplicating the entire dependency graph.
@@ -95,15 +95,15 @@ Downloaded binaries, extracted tool homes, image presence metadata, and installa
   Rationale: Each Scenery release should be auditable. `scenery version --json` should prove which toolchain manifest the binary was built with.
   Date/Author: 2026-06-01 / Codex.
 - Decision: Make `scenery upgrade` run post-install toolchain sync from the upgraded binary.
-  Rationale: The release binary is the source of truth for the frozen manifest. Syncing through the upgraded executable ensures changed ZeroFS, Temporal, Postgres, and other Scenery-owned substrate versions come from the new release instead of the old binary or ambient system tools. The default limits work to tools already present locally; `--toolchain all` is the explicit full pull.
+  Rationale: The release binary is the source of truth for the frozen manifest. Syncing through the upgraded executable ensures changed ZeroFS, legacy async runtime, Postgres, and other Scenery-owned substrate versions come from the new release instead of the old binary or ambient system tools. The default limits work to tools already present locally; `--toolchain all` is the explicit full pull.
   Date/Author: 2026-06-24 / Codex.
 - Decision: Leave tag-only image refs as explicit unstable migration metadata for this change.
   Rationale: Digest-pinning every image is desirable, but strict verification already fails on tag-only refs and the manifest exposes the instability instead of hiding it.
   Date/Author: 2026-06-01 / Codex.
 ## Outcomes & Retrospective
-Not yet completed. The implementation, docs, focused tests, full `go test ./...`, `go install ./cmd/scenery`, toolchain smoke checks, isolated `temporal-cli` sync, docs inspection, and `git diff --check` have been run. `scenery harness self --json --write` still reports `ok: false` because the full Go suite exceeded the repo-wide 7s harness timing target; after fixing the `SKILL.md` capability phrase and removing duplicate real parallel-dev work from the unit test path, the remaining self-harness next action points to the existing `docs/plans/0050-test-suite-speed-hardening.md` work.
+Not yet completed. The implementation, docs, focused tests, full `go test ./...`, `go install ./cmd/scenery`, toolchain smoke checks, isolated `legacy-async-runtime-cli` sync, docs inspection, and `git diff --check` have been run. `scenery harness self --json --write` still reports `ok: false` because the full Go suite exceeded the repo-wide 7s harness timing target; after fixing the `SKILL.md` capability phrase and removing duplicate real parallel-dev work from the unit test path, the remaining self-harness next action points to the existing `docs/plans/0050-test-suite-speed-hardening.md` work.
 ## Context and Orientation
-Scenery is a Go-native service runtime and local development platform. App roots are marked by `.scenery.json`. The CLI starts local development services, generated app processes, observability sidecars, managed Postgres/sync services, Temporal workers, frontends, and dashboards.
+Scenery is a Go-native service runtime and local development platform. App roots are marked by `.scenery.json`. The CLI starts local development services, generated app processes, observability sidecars, managed Postgres/sync services, legacy async runtime workers, frontends, and dashboards.
 The relevant repository files and packages are:
 - `go.mod`
   - Go module dependency manifest.
@@ -123,8 +123,8 @@ The relevant repository files and packages are:
   - Starts and downloads VictoriaMetrics, VictoriaLogs, and VictoriaTraces for local observability.
 - `cmd/scenery/grafana.go`
   - Starts and downloads Grafana for local observability.
-- `cmd/scenery/temporal_dev.go`
-  - Starts local Temporal dev server when configured.
+- `cmd/scenery/legacy-async-runtime_dev.go`
+  - Starts local legacy async runtime dev server when configured.
 - Postgres managed-service code
   - Starts or reuses managed Postgres for dev services.
 - sync managed-service code
@@ -144,7 +144,7 @@ The relevant repository files and packages are:
 - `.gitignore`
   - Local-state policy. `.scenery/` is already ignored.
 Current behavior already pins some devtool versions, but the pinning is implementation-private and incomplete. The new toolchain contract must be root-visible, release-frozen, schema-validated, and used by runtime startup paths.
-The term **toolchain artifact** means a Scenery-managed external thing that Scenery may need to run local development or runtime support commands. Examples include Grafana, VictoriaMetrics, VictoriaLogs, VictoriaTraces, Temporal CLI, sync binaries or images, Postgres images, and plugins.
+The term **toolchain artifact** means a Scenery-managed external thing that Scenery may need to run local development or runtime support commands. Examples include Grafana, VictoriaMetrics, VictoriaLogs, VictoriaTraces, legacy async runtime CLI, sync binaries or images, Postgres images, and plugins.
 The term **source lock** means an existing dependency lock surface such as `go.sum` or a UI lock file. Source locks are listed in `scenery.toolchain.json` for inventory and release audit purposes, but their dependency graph remains owned by the native package manager.
 ## Milestones
 ### Milestone 1: Add root toolchain manifest and schema
@@ -158,7 +158,7 @@ The first manifest should cover:
 - VictoriaMetrics
 - VictoriaLogs
 - VictoriaTraces
-- Temporal CLI, if Scenery owns auto-starting it
+- legacy async runtime CLI, if Scenery owns auto-starting it
 - sync binary or Docker image, if Scenery owns starting it
 - Postgres image or binary channel, if Scenery owns starting it
 - any generated TypeScript worker runtime tooling that Scenery installs or invokes directly
@@ -412,9 +412,9 @@ Keep the existing Grafana and Victoria startup behavior where possible, but chan
     source: "downloaded"
     source: "external-service"
 Do not silently reuse a process that happens to be on the expected port unless the existing external-service reuse path verifies compatibility and the docs explain it.
-### Milestone 6: Audit Temporal, Postgres, sync, and generated worker tooling
+### Milestone 6: Audit legacy async runtime, Postgres, sync, and generated worker tooling
 Run:
-    rg 'exec\.LookPath|execLookPath|LookPath|docker|postgres|initdb|temporal|sync|bun|npm|node|tsx' cmd internal
+    rg 'exec\.LookPath|execLookPath|LookPath|docker|postgres|initdb|legacy-async-runtime|sync|bun|npm|node|tsx' cmd internal
 Classify every hit:
 1. Scenery-managed toolchain artifact.
 2. Explicit user-provided external tool.
@@ -429,7 +429,7 @@ For each Scenery-managed artifact:
 For package-manager/runtime commands such as `bun`, `npm`, `node`, or `tsx`, decide explicitly:
 - If Scenery only invokes the project’s chosen package manager, document it as a source dependency, not a Scenery-managed toolchain artifact.
 - If Scenery downloads or installs a hidden runtime, put it in the toolchain manifest.
-Temporal local dev server uses the managed `temporal-cli` toolchain artifact. Do not add `SCENERY_TEMPORAL_BIN` back as a hidden substrate override.
+legacy async runtime local dev server uses the managed `legacy-async-runtime-cli` toolchain artifact. Do not add `SCENERY_LEGACY_ASYNC_RUNTIME_BIN` back as a hidden substrate override.
 Postgres local startup uses the manifest-pinned Docker image unless an explicit admin URL or external database mode is configured. Do not add local `initdb`/`postgres` binary env overrides back as hidden substrate controls.
 sync local startup may use a local binary or Docker image. If Scenery owns startup, those binaries/images must be manifest-controlled or explicit. No implicit image tag or implicit `PATH`.
 ### Milestone 7: Add Docker image control
@@ -491,7 +491,7 @@ Update:
 Add agent guidance:
 - run `scenery toolchain list --json` to inspect required tools;
 - run `scenery toolchain sync --json` before local dev if managed tools are missing;
-- do not install global Grafana/Victoria/Temporal/Postgres/sync binaries as a hidden fix;
+- do not install global Grafana/Victoria/legacy async runtime/Postgres/sync binaries as a hidden fix;
 - prefer explicit env override or managed toolchain store.
 Update:
     SKILL.md
@@ -552,10 +552,10 @@ Add docs/harness tests:
 - ensure `PLANS.md` required sections are satisfied.
 ## Plan of Work
 Start by creating the root manifest and schema. Do not change runtime behavior in the first step. This gives tests a stable contract and allows review of naming, metadata shape, and completeness.
-Next, build `internal/toolchain` as a standalone package. It should not know about Grafana, Victoria, Temporal, Postgres, or sync specifically. It should only know how to parse a manifest, resolve a platform artifact, manage a local store, verify files, download archives, and report status.
+Next, build `internal/toolchain` as a standalone package. It should not know about Grafana, Victoria, legacy async runtime, Postgres, or sync specifically. It should only know how to parse a manifest, resolve a platform artifact, manage a local store, verify files, download archives, and report status.
 Then add `scenery toolchain` CLI commands. This gives contributors and agents an explicit inspection and sync surface before runtime commands start relying on it.
 Then migrate Grafana and Victoria. They are the safest first users because Scenery already has pinned versions and download logic for them. Replace their bespoke version and binary resolution with `internal/toolchain`, while preserving startup behavior, explicit env overrides, and structured dev events.
-Then audit Temporal, Postgres, sync, and generated worker tooling. Each implicit binary/image dependency must become manifest-managed, explicit-only, or documented as a source package-manager dependency.
+Then audit legacy async runtime, Postgres, sync, and generated worker tooling. Each implicit binary/image dependency must become manifest-managed, explicit-only, or documented as a source package-manager dependency.
 Then update docs, schemas, and knowledge index. Scenery treats machine-readable contracts and docs as part of the implementation.
 Finally, run focused tests, full tests, binary install, CLI smoke checks, and self-harness validation.
 ## Concrete Steps
@@ -607,7 +607,7 @@ Migrate Grafana:
     $EDITOR cmd/scenery/grafana.go
     $EDITOR cmd/scenery/grafana_test.go
 Audit remaining implicit resolution:
-    rg 'exec\.LookPath|execLookPath|LookPath|docker|postgres|initdb|temporal|sync|bun|npm|node|tsx' cmd internal
+    rg 'exec\.LookPath|execLookPath|LookPath|docker|postgres|initdb|legacy-async-runtime|sync|bun|npm|node|tsx' cmd internal
 Update each Scenery-owned artifact to use `internal/toolchain`.
 Update docs:
     $EDITOR docs/local-contract.md

@@ -29,7 +29,6 @@ type runURLs struct {
 	API       string
 	Dashboard string
 	Frontends map[string]string
-	Temporal  string
 	Victoria  map[string]string
 	Grafana   *devdash.GrafanaState
 }
@@ -157,9 +156,6 @@ func (c *runConsole) Banner(urls runURLs) {
 	if urls.Grafana != nil && urls.Grafana.URL != "" {
 		rows = append(rows, bannerRow{label: "Grafana:", url: urls.Grafana.URL})
 	}
-	if urls.Temporal != "" {
-		rows = append(rows, bannerRow{label: "Temporal UI:", url: urls.Temporal})
-	}
 	if c.verbose {
 		for _, item := range []bannerRow{
 			{label: "VictoriaMetrics:", url: urls.Victoria["metrics"]},
@@ -259,9 +255,6 @@ func runURLData(urls runURLs, verbose bool) map[string]any {
 		"api_url":       urls.API,
 		"dashboard_url": urls.Dashboard,
 		"frontend_urls": urls.Frontends,
-	}
-	if urls.Temporal != "" {
-		data["temporal_url"] = urls.Temporal
 	}
 	if verbose {
 		data["victoria_urls"] = urls.Victoria

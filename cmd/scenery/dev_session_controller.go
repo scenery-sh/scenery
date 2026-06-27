@@ -92,7 +92,36 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		fallback.Addr = resolveListenAddr("", 4000)
 	}
 	routeNamespace := routeNamespaceForConfig(cfg)
-	requiresPortlessEdge := configRequiresPortlessEdge(cfg)
+	routingMode, err := devRoutingMode(cfg)
+	if err != nil {
+		return prepared, err
+	}
+	requiresPortlessEdge := routingMode == localagent.RouteModeHost && configRequiresPortlessEdge(cfg)
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		return prepared, err
+	}
+	branch := discoverDevGitBranch(root)
+	sessionID := localagent.SessionID(root, branch)
+	var routeManifest localagent.RouteManifest
+	var portLease localagent.PortLease
+	if routingMode == localagent.RouteModePath {
+		portLease, err = allocateDevPortLease(defaultDevPortLeasePath(paths), devPortLeaseRequest{
+			AppRoot:       root,
+			SessionID:     sessionID,
+			BaseAppID:     cfg.AppID(),
+			Branch:        branch,
+			WorktreeLabel: firstNonEmpty(branch, filepath.Base(root)),
+			Start:         cfg.Dev.Routing.PortStart,
+			End:           cfg.Dev.Routing.PortEnd,
+			Port:          cfg.Dev.Routing.Port,
+			OwnerPID:      os.Getpid(),
+		})
+		if err != nil {
+			return prepared, err
+		}
+		routeManifest = pathRouteManifestForLease(portLease)
+	}
 	if localagent.DisabledByEnv() {
 		if requiresPortlessEdge {
 			return prepared, fmt.Errorf("proxy.route_base_domain %q requires the scenery agent and local edge; unset SCENERY_AGENT_DISABLE or remove proxy.route_base_domain", routeNamespace.BaseDomain)
@@ -140,10 +169,6 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, nil
 	}
 	if strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR")) == "" {
-		paths, err := localagent.DefaultPaths()
-		if err != nil {
-			return prepared, err
-		}
 		if strings.TrimSpace(envpolicy.Get("SCENERY_AGENT_HOME")) == "" {
 			_ = envpolicy.Set("SCENERY_AGENT_HOME", paths.Home)
 			restorers = append(restorers, func() {
@@ -179,10 +204,13 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		session, err = client.Register(ctx, localagent.RegisterRequest{
 			BaseAppID:      cfg.AppID(),
 			AppRoot:        root,
+			SessionID:      sessionID,
+			Branch:         branch,
 			Status:         "starting",
 			OwnerPID:       os.Getpid(),
 			Backends:       backends,
 			RouteNamespace: routeNamespace,
+			RouteManifest:  routeManifest,
 			ClaimOwner:     true,
 			ClaimAliases:   listen.ClaimAliases,
 		})
@@ -213,6 +241,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 				OwnerPID:       os.Getpid(),
 				Backends:       backends,
 				RouteNamespace: routeNamespace,
+				RouteManifest:  routeManifest,
 				ClaimAliases:   listen.ClaimAliases,
 			})
 			if err != nil {
@@ -231,7 +260,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	var frontendBackends map[string]localagent.Backend
 	var frontendProcesses []*managedFrontendProcess
-	if len(localProxyFrontends(cfg.Proxy.Frontends)) > 0 && !managedFrontendDisabled() {
+	if len(localProxyFrontends(cfg.Proxy.Frontends)) > 0 {
 		if err := c.runPhase("Starting frontend dev servers", func() error {
 			var err error
 			frontendBackends, frontendProcesses, err = managedFrontendBackendsForSession(ctx, root, cfg, baseEnv, session)
@@ -259,6 +288,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 			OwnerPID:       os.Getpid(),
 			Backends:       backends,
 			RouteNamespace: routeNamespace,
+			RouteManifest:  routeManifest,
 			Processes:      frontendSessionProcesses(frontendProcesses),
 			ClaimAliases:   listen.ClaimAliases,
 		})
@@ -270,6 +300,35 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 				_, _ = client.Delete(ctx, session.SessionID, false)
 				return prepared, err
 			}
+		}
+	}
+	if routingMode == localagent.RouteModePath {
+		if err := c.runPhase("Starting local path router", func() error {
+			token, err := ensureEdgeToken(paths.EdgeTokenPath)
+			if err != nil {
+				return err
+			}
+			health, err := client.Health(ctx)
+			if err != nil {
+				return err
+			}
+			cleanup, err := startLocalPathRouter(ctx, localPathRouterOptions{
+				Session:          session,
+				PortLease:        portLease,
+				EdgeToken:        token,
+				UpstreamAddr:     localagent.RouterAddrFromEnv(),
+				DashboardBackend: health.DashboardBackend,
+			})
+			if err != nil {
+				return err
+			}
+			if cleanup != nil {
+				restorers = append(restorers, cleanup)
+			}
+			return nil
+		}); err != nil {
+			_, _ = client.Delete(ctx, session.SessionID, false)
+			return prepared, err
 		}
 	}
 	prepared.Client = client

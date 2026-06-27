@@ -118,7 +118,7 @@ M5 validates and closes with a final audit.
 
 Delete the managed former-service code instead of hiding it behind flags. Add explicit fail-closed config validation for both the removed service kind and the removed service-name shorthand, with the removed token assembled in code so it does not remain in the repository text.
 
-Keep Postgres, ZeroFS, Temporal, Victoria, Grafana, storage, generated row types, generated projections, materializers, and `/sync` reservation intact.
+Keep Postgres, ZeroFS, legacy async runtime, Victoria, Grafana, storage, generated row types, generated projections, materializers, and `/sync` reservation intact.
 
 Historical completed ExecPlans may keep old service-history wording unless the final acceptance check requires all plan history to be rewritten. Current contracts, code, fixtures, tests, and generated outputs must not present the former service as supported.
 
@@ -197,6 +197,6 @@ Preserved interfaces:
 
 * Managed Postgres and Postgres branch database env selection.
 * ZeroFS/storage.
-* Temporal, Victoria, and Grafana.
+* legacy async runtime, Victoria, and Grafana.
 * Generated row types, page projection records, materializers, route/page helpers.
 * `/sync` as a reserved non-frontend path.

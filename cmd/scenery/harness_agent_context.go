@@ -343,7 +343,7 @@ func classifyHarnessAgentRisk(changedArea *harnessChangedAreaReport) []string {
 	}
 	for _, flag := range changedArea.RiskFlags {
 		switch flag {
-		case "runtime-contract", "temporal-runtime", "build-cache", "dependency-graph":
+		case "runtime-contract", "build-cache", "dependency-graph":
 			classes["runtime"] = true
 		case "cli-contract", "harness-contract":
 			classes["CLI contract"] = true

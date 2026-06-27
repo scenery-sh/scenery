@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	sceneryruntime "scenery.sh/runtime"
-	scenerytemporal "scenery.sh/temporal"
 	"sync"
 	"time"
 )
@@ -155,9 +154,6 @@ func init() {
 	sceneryruntime.RegisterServiceInitializer("service", func() error {
 		_, err := sceneryInternalGetService()
 		return err
-	})
-	scenerytemporal.RegisterServiceAccessorFor[*Service](func() (any, error) {
-		return sceneryInternalGetService()
 	})
 	sceneryruntime.RegisterEndpointFunc(AuthEcho, "service", "AuthEcho")
 	sceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{

@@ -6,11 +6,11 @@ scenery is a Go-native local runtime and toolchain for building service applicat
 
 Applications mark their root with `.scenery.json` (preferred) or `.config.json`, declare endpoints with `//scenery:` directives, and run as one local HTTP server. scenery handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.
 
-scenery is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, observability, Grafana workbench, local HTTPS routing, Temporal worker tooling, and cron UI are development-focused capabilities. Their backing services and files are substrate details unless you intentionally debug them.
+scenery is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, observability, Grafana workbench, local HTTPS routing, durable worker tooling, and cron UI are development-focused capabilities. Their backing services and files are substrate details unless you intentionally debug them.
 
 ## Why scenery?
 
-- **Go source is the app model.** Services, APIs, auth handlers, middleware, Temporal workflows and activities, cron jobs, and beta static model/page IR are discovered from Go code.
+- **Go source is the app model.** Services, APIs, auth handlers, middleware, durable tasks, cron jobs, and beta static model/page IR are discovered from Go code.
 - **One local app server.** `scenery serve` builds once and starts a headless, production-like HTTP server.
 - **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, Grafana, and optional HTTPS local domains.
 - **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
@@ -33,7 +33,7 @@ Available now:
 - secrets from environment and local `.env`
 - local logs, traces, and metrics inspection
 - local observability and Grafana capabilities
-- Temporal workflow/activity and cron local runtime support
+- durable task and cron local runtime support
 - local HTTPS edge and frontend routing with optional trust-store installation
 - dashboard and API explorer
 - configured generators, SQLC refresh, database lifecycle commands, and repo task commands
@@ -175,13 +175,20 @@ scenery console
 
 `--detach` starts the app root's agent-backed dev runtime in the background and returns after it is registered. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime; for shared storage cells, it releases only that runtime's lease and preserves shared data. Use Git worktrees when you need multiple live code copies.
 
-`scenery up` uses canonical agent-routed app URLs from the app config's proxy settings. Generated local routes default to `https://api.<route-id>.local.dev`, `https://console.<route-id>.local.dev`, and frontend routes under the same `local.dev` base. The route id is internal state, not something users select. If `proxy.route_base_domain` is explicitly configured, the local edge is required for normal browser-facing URLs: startup fails loudly when DNS, the privileged listener, Caddy, or the HTTPS probe is not ready instead of publishing internal `:9440` router URLs as app routes. Configured hosts are exposed separately as friendly aliases only when the live app root owns that free alias. Stale alias leases are reclaimed after owner verification; use `scenery up --claim-aliases` only when intentionally transferring live aliases to this app root. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
+`scenery up` defaults to path routing: one live app root gets one browser-facing base URL such as `http://localhost:4001`, and services live under paths such as `/api/`, `/web/`, `/blog/`, and `/runtime/`. `scenery ps` and `scenery ps --json` report the base URL plus service routes. `dev.routing.port`, `dev.routing.port_start`, and `dev.routing.port_end` may pin or constrain the assigned localhost port; otherwise Scenery chooses a stable free port for the app root/session. Set `dev.routing.mode` to `host` when you intentionally want legacy domain-style routes from `proxy.route_base_domain`, `proxy.api_host`, `proxy.console_host`, or frontend `host` values.
+
+In host mode, generated routes use the local edge/DNS path. If `proxy.route_base_domain` is configured, startup fails loudly when DNS, the privileged listener, Caddy, or the HTTPS probe is not ready instead of publishing internal `:9440` router URLs as app routes. Configured hosts are exposed separately as friendly aliases only when the live app root owns that free alias. Stale alias leases are reclaimed after owner verification; use `scenery up --claim-aliases` only when intentionally transferring live aliases to this app root. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
 
 Example proxy config:
 
 ```json
 {
   "name": "myapp",
+  "dev": {
+    "routing": {
+      "mode": "path"
+    }
+  },
   "proxy": {
     "workspace": "myteam",
     "route_base_domain": "local.dev",
@@ -212,12 +219,10 @@ scenery ps [--json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--db] [--state] [--all] [--json]
 scenery prune --older-than <duration> [--app-root <path>] [--json]
 scenery serve [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
-scenery worker [--task-queue <name>[,<name>]]... [--app-root <path>] [--env <name>] [--log-format text|json]
-scenery worker bindings [--app-root <path>] [--out <dir>] [--json]
-scenery worker typescript [--task-queue <name>[,<name>]]... [--runtime bun|node] [--app-root <path>] [--generate-only]
-scenery worker deployment set-current --build-id <id> [--deployment <name>] [--app-root <path>] [--json]
-scenery worker deployment ramp --build-id <id> --percentage <n> [--deployment <name>] [--app-root <path>] [--json]
-scenery worker deployment drain --build-id <id> [--deployment <name>] [--force] [--app-root <path>] [--json]
+scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
+scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>] [--log-format text|json]
+scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] --json
+scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] --json
 scenery version [--json]
 scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--images]
@@ -240,7 +245,7 @@ scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [
 scenery harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|temporal --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|durable --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]
@@ -283,7 +288,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping.
 - `scenery.sh/middleware` exposes middleware request/response types.
 - `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary, including generated CRUD action policy, existing table bindings, collection page projections, and static page filter/sort/display metadata, for inspection and generators.
-- `scenery.sh/temporal` exposes workflow/activity declarations and start helpers for the scenery-managed Temporal runtime.
+- `scenery.sh/durable` exposes typed durable task declarations, startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, authenticated durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin CLI, and `scenery inspect durable --json`.
 - `scenery.sh/cron` exposes cron job declarations.
 - `scenery.sh/db` exposes the app's shared default SQLite `*sql.DB` for services and sqlc.
 - `scenery.sh/et` exposes endpoint/service mocking helpers for tests.
@@ -324,7 +329,7 @@ scenery system toolchain verify --json
 
 `scenery upgrade` uses the upgraded binary's bundled manifest for the post-upgrade toolchain sync, so pinned versions change with the Scenery release instead of ambient system tools.
 
-Caddy edge, managed ZeroFS storage, Grafana, Victoria sidecars, and the local Temporal CLI are backing substrate for local capabilities. Caddy edge and managed ZeroFS are managed-toolchain only; when an app requires managed ZeroFS, `scenery up` preflights the pinned `zerofs` artifact before registering dev-session routes and fails with the `scenery system toolchain sync --tool zerofs` repair path if it is unavailable. ZeroFS readiness then uses a bounded two-minute startup window and includes the relevant cell, socket, Web UI, config, log, PID, output-tail context, and a `scenery.dev.failure.v1` evidence artifact path if that window expires. Preflight failures write the same structured evidence under the app root's `.scenery/evidence/`, while session-backed runtime failures write it under the session state root's `artifacts/` directory. For the other tools, use documented env overrides, the managed store, `scenery ps --json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
+Caddy edge, managed ZeroFS storage, Grafana, and Victoria sidecars are backing substrate for local capabilities. Caddy edge and managed ZeroFS are managed-toolchain only; when an app requires managed ZeroFS, `scenery up` preflights the pinned `zerofs` artifact before registering dev-session routes and fails with the `scenery system toolchain sync --tool zerofs` repair path if it is unavailable. ZeroFS readiness then uses a bounded two-minute startup window and includes the relevant cell, socket, Web UI, config, log, PID, output-tail context, and a `scenery.dev.failure.v1` evidence artifact path if that window expires. Preflight failures write the same structured evidence under the app root's `.scenery/evidence/`, while session-backed runtime failures write it under the session state root's `artifacts/` directory. For the other tools, use documented env overrides, the managed store, `scenery ps --json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
 
 ## Observability And Inspection
 
@@ -345,7 +350,7 @@ scenery ps --json
 scenery harness --json --write
 ```
 
-Grafana substrate files are generated under `.scenery/grafana/` when you need to debug them. Shared Temporal and Victoria substrate failures are exposed in `scenery ps --json` as `last_exit` / `component_exits` and emit structured dev log events with component, PID, exit code or signal, and log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontends are restarted by `scenery up` when their dev-server process exits unexpectedly. Set `SCENERY_DEV_GRAFANA=0` to disable Grafana or `SCENERY_DEV_GRAFANA=1` to require it during `scenery up` startup.
+Grafana substrate files are generated under `.scenery/grafana/` when you need to debug them. Victoria substrate failures are exposed in `scenery ps --json` as `last_exit` / `component_exits` and emit structured dev log events with component, PID, exit code or signal, and log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontends are restarted by `scenery up` when their dev-server process exits unexpectedly. Set `SCENERY_DEV_GRAFANA=0` to disable Grafana or `SCENERY_DEV_GRAFANA=1` to require it during `scenery up` startup.
 
 ## Development
 

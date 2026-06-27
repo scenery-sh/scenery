@@ -473,7 +473,7 @@ func summaryDiagnosticFile(path string) string {
 	if idx := strings.Index(path, "/cmd/"); idx >= 0 {
 		return strings.TrimPrefix(path[idx+1:], "/")
 	}
-	for _, prefix := range []string{"cmd/", "internal/", "runtime/", "auth/", "temporal/", "docs/", "ui/", "testdata/", "scripts/"} {
+	for _, prefix := range []string{"cmd/", "internal/", "runtime/", "auth/", "docs/", "ui/", "testdata/", "scripts/"} {
 		if strings.HasPrefix(path, prefix) {
 			return path
 		}
@@ -619,7 +619,7 @@ func normalizeLikelyPath(path string) string {
 	if idx := strings.Index(path, "/.scenery/"); idx >= 0 {
 		return ".scenery/" + strings.TrimPrefix(path[idx+len("/.scenery/"):], "/")
 	}
-	for _, marker := range []string{"/cmd/", "/internal/", "/runtime/", "/auth/", "/temporal/", "/docs/", "/ui/", "/testdata/", "/scripts/"} {
+	for _, marker := range []string{"/cmd/", "/internal/", "/runtime/", "/auth/", "/docs/", "/ui/", "/testdata/", "/scripts/"} {
 		if idx := strings.Index(path, marker); idx >= 0 {
 			return strings.TrimPrefix(path[idx+1:], "/")
 		}

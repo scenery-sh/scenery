@@ -22,8 +22,8 @@ After this work, `scenery harness self --json --write` must make ENV drift visib
 - 2026-06-01: `cmd/scenery/harness_drift.go` already has a first-pass environment scanner. It scans Go files for `SCENERY_` tokens, skips architecture-generated/cache dirs, classifies `_test.go` and `testdata/` as test scope, and warns when runtime variables are not documented in `docs/environment.md`, `docs/local-contract.md`, `docs/grafana.md`, or `SKILL.md`. The next step is to make this registry-backed and fail-closed for new runtime variables, not merely warning-based.
 - 2026-06-01: The same file currently records live `SCENERY_*` values in the toolchain preflight report through `sortedSceneryEnv(os.Environ())`. This is useful for local diagnostics but should be reviewed for redaction and separated from source-contract enforcement.
 - 2026-06-01: `docs/environment.md` states the desired direction already: prefer `.scenery.json` for stable app configuration and reserve env vars for local overrides, secrets, process identity, or explicit escape hatches. The harness should enforce that policy rather than relying on prose.
-- 2026-06-01: Recent hardening PRs added or documented several env surfaces around Grafana and Temporal. PRs #15 and #17 describe new Grafana environment variables and hardening, and PRs #14 and #16 describe Temporal production/runtime configuration changes. Those are exactly the areas where future work should prefer typed config or managed manifests unless an env escape hatch is deliberately approved.
-- 2026-06-01: The broader scanner initially misclassified Temporal span-kind constants such as `TEMPORAL_WORKFLOW` as process env names. The implementation now treats `TEMPORAL_*`, `VITE_*`, `SYNC_*`, and OTEL names as exact approved names unless the registry uses a deliberate prefix family.
+- 2026-06-01: Recent hardening PRs added or documented several env surfaces around Grafana and legacy async runtime. PRs #15 and #17 describe new Grafana environment variables and hardening, and PRs #14 and #16 describe legacy async runtime production/runtime configuration changes. Those are exactly the areas where future work should prefer typed config or managed manifests unless an env escape hatch is deliberately approved.
+- 2026-06-01: The broader scanner initially misclassified legacy async runtime span-kind constants such as `LEGACY_ASYNC_RUNTIME_WORKFLOW` as process env names. The implementation now treats `LEGACY_ASYNC_RUNTIME_*`, `VITE_*`, `SYNC_*`, and OTEL names as exact approved names unless the registry uses a deliberate prefix family.
 - 2026-06-01: `SCENERY_TEST_WATCH_SETTLE_DELAY_MS` and related watch timing overrides are test-named process-level escape hatches read by production dev watcher code so integration tests can shorten debounce/poll timing. They are registry-approved as `test_escape_hatch` instead of `test_only`, while pure `SCENERY_TEST_*` and `SCENERY_INTEGRATION_*` names remain disallowed in production code.
 
 ## Decision Log
@@ -78,7 +78,7 @@ Validation:
 
 Retrospective:
 
-The registry made current env sprawl visible without needing a large configuration redesign. A few scanner false positives were useful calibration points: generated/client constants and Temporal span-kind names should not become env contract entries just because they are uppercase. The small `envpolicy` boundary is intentionally boring; its value is that future agents now have a narrow place to look and a harness gate that makes new env variables exceptional.
+The registry made current env sprawl visible without needing a large configuration redesign. A few scanner false positives were useful calibration points: generated/client constants and legacy async runtime span-kind names should not become env contract entries just because they are uppercase. The small `envpolicy` boundary is intentionally boring; its value is that future agents now have a narrow place to look and a harness gate that makes new env variables exceptional.
 
 ## Context and Orientation
 
@@ -127,7 +127,7 @@ Acceptance:
 - The scanner covers at least `.go`, `.sh`, `.mjs`, `.js`, `.ts`, `.tsx`, `.md`, `.json`, `.hcl`, `.sql`, and fixture files where env names can define public contract.
 - The scan distinguishes reads, writes/injections, docs-only mentions, test-only mentions, fixture-only mentions, and generated examples when practical.
 - The initial report lists every discovered name with path references and scope.
-- Existing `SCENERY_*`, standard external names such as `DATABASE_URL`, `TEMPORAL_ADDRESS`, `OTEL_EXPORTER_*`, and app-defined auth env examples are accounted for rather than ignored because they are not prefixed with `SCENERY_`.
+- Existing `SCENERY_*`, standard external names such as `DATABASE_URL`, `LEGACY_ASYNC_RUNTIME_ADDRESS`, `OTEL_EXPORTER_*`, and app-defined auth env examples are accounted for rather than ignored because they are not prefixed with `SCENERY_`.
 
 Implementation notes:
 
@@ -209,7 +209,7 @@ High-value candidates:
 
 - Tool paths and downloads should prefer `scenery.toolchain.json`, `SCENERY_TOOLCHAIN_DIR`, and explicit per-tool override only when truly necessary.
 - Grafana/Victoria ports, reuse, versions, downloads, and public URLs should be evaluated for `.scenery.json dev.observability` or managed toolchain fields.
-- Temporal production connection settings should prefer typed app config for non-secret values and env only for secrets such as API keys and certificate paths when no better secret source exists.
+- legacy async runtime production connection settings should prefer typed app config for non-secret values and env only for secrets such as API keys and certificate paths when no better secret source exists.
 - Frontend and app URL injection should be mostly internal/injected, with explicit config for stable behavior.
 - Release-gate and harness-only controls should be test/tooling scope, not runtime docs.
 
@@ -223,8 +223,8 @@ Current audit:
 
 | Class | Decision | Notes |
 | --- | --- | --- |
-| App identity and routing injection | keep | Injected variables such as `SCENERY_APP_ID`, `SCENERY_LISTEN_ADDR`, session IDs, routed API/sync URLs, and Temporal task-queue/build metadata are process identity, not user configuration. |
-| Secrets and service URLs | keep | Secret or credential-bearing variables such as `DATABASE_URL`, `SCENERY_AUTH_JWT_SECRET`, and `TEMPORAL_API_KEY` stay env-backed and are marked secret for harness redaction. |
+| App identity and routing injection | keep | Injected variables such as `SCENERY_APP_ID`, `SCENERY_LISTEN_ADDR`, session IDs, routed API/sync URLs, and legacy async runtime task-queue/build metadata are process identity, not user configuration. |
+| Secrets and service URLs | keep | Secret or credential-bearing variables such as `DATABASE_URL`, `SCENERY_AUTH_JWT_SECRET`, and `LEGACY_ASYNC_RUNTIME_API_KEY` stay env-backed and are marked secret for harness redaction. |
 | Managed toolchain controls | keep for now | `SCENERY_TOOLCHAIN_DIR`, `SCENERY_TOOLCHAIN_DOWNLOAD`, and explicit per-tool binary/download overrides stay registered escape hatches because plan 0059 owns the typed managed-toolchain surface. |
 | Grafana/Victoria controls | keep for now | Local dev sidecar knobs remain registered `dev_escape_hatch` variables; future promotion should prefer `.scenery.json dev.observability` or managed manifests. |
 | Local proxy/frontends | compatibility/dev escape hatches | Legacy proxy variables and `SCENERY_FRONTEND_<NAME>_ADDR` remain registered for explicit manual debugging while agent routing is preferred. |
@@ -240,7 +240,7 @@ For production code, prefer removing env knobs over registering them. The regist
 
 ## Concrete Steps
 
-1. Add focused tests around the existing scanner in `cmd/scenery/harness_drift_test.go` if they do not already exist. Cover production source, test source, docs-only mentions, prefix families, and non-`SCENERY_` names such as `DATABASE_URL` and `TEMPORAL_ADDRESS`.
+1. Add focused tests around the existing scanner in `cmd/scenery/harness_drift_test.go` if they do not already exist. Cover production source, test source, docs-only mentions, prefix families, and non-`SCENERY_` names such as `DATABASE_URL` and `LEGACY_ASYNC_RUNTIME_ADDRESS`.
 2. Create the first registry file. Use a path that is easy for agents to discover from `docs/environment.md` and `docs/agent-guide.md`.
 3. Add Go types for registry loading, validation, prefix-family matching, and deterministic sorting.
 4. Extend the source scanner to collect file references and more file extensions. Keep ignore rules shared with existing architecture skip logic.

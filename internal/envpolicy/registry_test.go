@@ -59,7 +59,7 @@ func TestScanClassifiesRuntimeTestDocsAndFixtureEnv(t *testing.T) {
 	root := t.TempDir()
 	writeEnvPolicyFile(t, root, "cmd/scenery/main.go", "package main\n\nconst _ = \"SCENERY_APP_ID\"\n")
 	writeEnvPolicyFile(t, root, "cmd/scenery/main_test.go", "package main\n\nconst _ = \"SCENERY_TEST_HELPER\"\n")
-	writeEnvPolicyFile(t, root, "docs/environment.md", "`TEMPORAL_ADDRESS`\n")
+	writeEnvPolicyFile(t, root, "docs/environment.md", "`SCENERY_DOCS_ONLY`\n")
 	writeEnvPolicyFile(t, root, "testdata/apps/basic/main.go", "package main\n\nconst _ = \"DATABASE_URL\"\n")
 
 	result := Scan(ScanOptions{RepoRoot: root})
@@ -69,8 +69,8 @@ func TestScanClassifiesRuntimeTestDocsAndFixtureEnv(t *testing.T) {
 	if got := EffectiveScope(result.Variables["SCENERY_TEST_HELPER"], "SCENERY_TEST_HELPER"); got != "test" {
 		t.Fatalf("SCENERY_TEST_HELPER scope = %q", got)
 	}
-	if got := EffectiveScope(result.Variables["TEMPORAL_ADDRESS"], "TEMPORAL_ADDRESS"); got != "docs" {
-		t.Fatalf("TEMPORAL_ADDRESS scope = %q", got)
+	if got := EffectiveScope(result.Variables["SCENERY_DOCS_ONLY"], "SCENERY_DOCS_ONLY"); got != "docs" {
+		t.Fatalf("SCENERY_DOCS_ONLY scope = %q", got)
 	}
 	if got := EffectiveScope(result.Variables["DATABASE_URL"], "DATABASE_URL"); got != "fixture" {
 		t.Fatalf("DATABASE_URL scope = %q", got)

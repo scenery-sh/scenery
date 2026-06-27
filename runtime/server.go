@@ -72,6 +72,9 @@ func newServer(listenAddr string) (*http.Server, error) {
 	if storageHTTPConfigured() {
 		s.registerStorageRoutes()
 	}
+	if durableHTTPConfigured() {
+		s.registerDurableRoutes()
+	}
 	if devEndpointsEnabled() {
 		s.registerSceneryConfig()
 		s.registerPlatformStats()

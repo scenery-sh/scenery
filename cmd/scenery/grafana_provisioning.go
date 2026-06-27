@@ -169,7 +169,6 @@ func grafanaDashboardFiles(cfg grafanaConfig) map[string][]byte {
 		{name: "scenery-overview.json", model: grafanaOverviewDashboard(cfg)},
 		{name: "scenery-logs.json", model: grafanaLogsDashboard(cfg)},
 		{name: "scenery-endpoint.json", model: grafanaEndpointDashboard(cfg)},
-		{name: "scenery-temporal.json", model: grafanaTemporalDashboard(cfg)},
 	} {
 		data, err := json.MarshalIndent(dashboard.model, "", "  ")
 		if err != nil {
@@ -223,27 +222,6 @@ func grafanaEndpointDashboard(cfg grafanaConfig) map[string]any {
 			sessionVariable(requestDuration),
 			queryVariable("service", fmt.Sprintf(`label_values(%s, scenery_service)`, grafanaMetricSelector(requestDuration, `scenery_session_id=~"$session"`))),
 			queryVariable("endpoint", fmt.Sprintf(`label_values(%s, scenery_endpoint)`, grafanaMetricSelector(requestDuration, `scenery_session_id=~"$session"`, `scenery_service="$service"`))),
-		},
-	}
-	return dashboard
-}
-
-func grafanaTemporalDashboard(cfg grafanaConfig) map[string]any {
-	requestDuration := grafanaRequestDurationMetricName
-	temporalDuration := grafanaMetricSelector(requestDuration, `scenery_session_id=~"$session"`, `scenery_temporal="true"`)
-	temporalErrors := grafanaMetricSelector(requestDuration, `scenery_session_id=~"$session"`, `scenery_temporal="true"`, `scenery_is_error="true"`)
-	dashboard := baseGrafanaDashboard(grafanaTemporalUID, "scenery up temporal", []any{
-		statPanel(1, "Temporal spans", metricTarget(fmt.Sprintf("count_over_time(%s[15m])", temporalDuration)), 0, 0, 6, 4),
-		statPanel(2, "Latest duration", metricTarget(temporalDuration), 6, 0, 6, 4),
-		timeSeriesPanel(3, "Temporal duration", []any{metricTarget(temporalDuration)}, 0, 4, 12, 8),
-		timeSeriesPanel(4, "Temporal errors", []any{metricTarget(fmt.Sprintf("count_over_time(%s[5m])", temporalErrors))}, 12, 0, 12, 6),
-		traceSearchPanel(5, "Temporal traces", "$app", "scenery.temporal=true", 12, 6, 12, 8),
-		logsPanel(6, "Temporal logs", "*", 0, 12, 24, 6),
-	})
-	dashboard["templating"] = map[string]any{
-		"list": []any{
-			sessionVariable(requestDuration),
-			appVariable(requestDuration),
 		},
 	}
 	return dashboard

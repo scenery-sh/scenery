@@ -122,9 +122,6 @@ type StoredApp struct {
 	APIEncodingRef      string            `json:"api_encoding_ref,omitempty"`
 	APIEncodingHash     string            `json:"api_encoding_hash,omitempty"`
 	AppRevision         string            `json:"app_revision,omitempty"`
-
-	legacyMetadata    json.RawMessage
-	legacyAPIEncoding json.RawMessage
 }
 
 type StoredAppSession struct {
@@ -152,9 +149,6 @@ type StoredAppSession struct {
 	APIEncodingRef      string            `json:"api_encoding_ref,omitempty"`
 	APIEncodingHash     string            `json:"api_encoding_hash,omitempty"`
 	AppRevision         string            `json:"app_revision,omitempty"`
-
-	legacyMetadata    json.RawMessage
-	legacyAPIEncoding json.RawMessage
 }
 
 type StoredAppModelRef struct {
@@ -174,160 +168,6 @@ type storedDevEvent struct {
 	AppID     string    `json:"app_id"`
 	AppRoot   string    `json:"app_root,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
-}
-
-func (app *StoredApp) UnmarshalJSON(data []byte) error {
-	type storedApp StoredApp
-	var current storedApp
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*app = StoredApp(current)
-	var legacy AppRecord
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return nil
-	}
-	mergeStoredAppLegacy(app, legacy)
-	return nil
-}
-
-func (session *StoredAppSession) UnmarshalJSON(data []byte) error {
-	type storedAppSession StoredAppSession
-	var current storedAppSession
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*session = StoredAppSession(current)
-	var legacy AppRecord
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return nil
-	}
-	mergeStoredAppSessionLegacy(session, legacy)
-	return nil
-}
-
-func mergeStoredAppLegacy(app *StoredApp, legacy AppRecord) {
-	if app.ID == "" {
-		app.ID = legacy.ID
-	}
-	if app.RouteID == "" {
-		app.RouteID = legacy.RouteID
-	}
-	if app.BaseAppID == "" {
-		app.BaseAppID = legacy.BaseAppID
-	}
-	if app.RuntimeAppID == "" {
-		app.RuntimeAppID = legacy.RuntimeAppID
-	}
-	if app.SessionID == "" {
-		app.SessionID = legacy.SessionID
-	}
-	if app.Name == "" {
-		app.Name = legacy.Name
-	}
-	if app.Root == "" {
-		app.Root = legacy.Root
-	}
-	if app.ListenAddr == "" {
-		app.ListenAddr = legacy.ListenAddr
-	}
-	if len(app.Grafana) == 0 {
-		app.Grafana = copyRawMessage(legacy.Grafana)
-	}
-	if app.Routes == nil {
-		app.Routes = maps.Clone(legacy.Routes)
-	}
-	if app.Aliases == nil {
-		app.Aliases = maps.Clone(legacy.Aliases)
-	}
-	if !app.Offline {
-		app.Offline = legacy.Offline
-	}
-	if !app.Running {
-		app.Running = legacy.Running
-	}
-	if app.SessionStatus == "" {
-		app.SessionStatus = legacy.SessionStatus
-	}
-	if app.SessionStatusReason == "" {
-		app.SessionStatusReason = legacy.SessionStatusReason
-	}
-	if !app.Compiling {
-		app.Compiling = legacy.Compiling
-	}
-	if app.CompileError == "" {
-		app.CompileError = legacy.CompileError
-	}
-	if app.PID == "" {
-		app.PID = legacy.PID
-	}
-	if app.UpdatedAt.IsZero() {
-		app.UpdatedAt = legacy.UpdatedAt
-	}
-	app.legacyMetadata = copyRawMessage(legacy.Metadata)
-	app.legacyAPIEncoding = copyRawMessage(legacy.APIEncoding)
-}
-
-func mergeStoredAppSessionLegacy(session *StoredAppSession, legacy AppRecord) {
-	if session.ID == "" {
-		session.ID = legacy.ID
-	}
-	if session.RouteID == "" {
-		session.RouteID = legacy.RouteID
-	}
-	if session.BaseAppID == "" {
-		session.BaseAppID = legacy.BaseAppID
-	}
-	if session.RuntimeAppID == "" {
-		session.RuntimeAppID = legacy.RuntimeAppID
-	}
-	if session.SessionID == "" {
-		session.SessionID = legacy.SessionID
-	}
-	if session.Name == "" {
-		session.Name = legacy.Name
-	}
-	if session.Root == "" {
-		session.Root = legacy.Root
-	}
-	if session.ListenAddr == "" {
-		session.ListenAddr = legacy.ListenAddr
-	}
-	if len(session.Grafana) == 0 {
-		session.Grafana = copyRawMessage(legacy.Grafana)
-	}
-	if session.Routes == nil {
-		session.Routes = maps.Clone(legacy.Routes)
-	}
-	if session.Aliases == nil {
-		session.Aliases = maps.Clone(legacy.Aliases)
-	}
-	if !session.Offline {
-		session.Offline = legacy.Offline
-	}
-	if !session.Running {
-		session.Running = legacy.Running
-	}
-	if session.SessionStatus == "" {
-		session.SessionStatus = legacy.SessionStatus
-	}
-	if session.SessionStatusReason == "" {
-		session.SessionStatusReason = legacy.SessionStatusReason
-	}
-	if !session.Compiling {
-		session.Compiling = legacy.Compiling
-	}
-	if session.CompileError == "" {
-		session.CompileError = legacy.CompileError
-	}
-	if session.PID == "" {
-		session.PID = legacy.PID
-	}
-	if session.UpdatedAt.IsZero() {
-		session.UpdatedAt = legacy.UpdatedAt
-	}
-	session.legacyMetadata = copyRawMessage(legacy.Metadata)
-	session.legacyAPIEncoding = copyRawMessage(legacy.APIEncoding)
 }
 
 var storeLocks sync.Map
@@ -466,9 +306,6 @@ func (s *Store) loadStateWithStamp() (*storeState, storeStamp, error) {
 		return nil, storeStamp{}, err
 	}
 	normalizeStoreState(&state)
-	if err := s.migrateStoreStateAppModels(&state); err != nil {
-		return nil, storeStamp{}, err
-	}
 	pruneStoreState(&state)
 	return &state, stamp, nil
 }
@@ -508,9 +345,6 @@ func (s *Store) refreshForExternalChangeLocked() error {
 
 func (s *Store) saveState(state *storeState) error {
 	normalizeStoreState(state)
-	if err := s.migrateStoreStateAppModels(state); err != nil {
-		return err
-	}
 	pruneStoreState(state)
 	pruneStoreStateToBudget(state, softStoreFileBytes)
 	data, err := json.Marshal(state)
@@ -1053,69 +887,6 @@ func (s *Store) hydrateStoredAppSession(state *storeState, stored StoredAppSessi
 		return AppRecord{}, err
 	}
 	return normalizeAppRecord(app), nil
-}
-
-func (s *Store) migrateStoreStateAppModels(state *storeState) error {
-	if state == nil {
-		return nil
-	}
-	normalizeStoreState(state)
-	for key, app := range state.Apps {
-		refs, err := s.migrateStoredAppModel(app.ID, app.Root, app.AppRevision, app.legacyMetadata, app.legacyAPIEncoding, func(metadataRef, apiEncodingRef StoredAppModelRef) {
-			applyAppModelRefsToStoredApp(&app, appRevisionFromMetadata(app.legacyMetadata), metadataRef, apiEncodingRef)
-			app.legacyMetadata = nil
-			app.legacyAPIEncoding = nil
-			state.Apps[key] = app
-		})
-		if err != nil {
-			return err
-		}
-		for _, ref := range refs {
-			state.AppModelRefs[ref.Ref] = ref
-		}
-	}
-	for key, session := range state.AppSessions {
-		refs, err := s.migrateStoredAppModel(session.ID, session.Root, session.AppRevision, session.legacyMetadata, session.legacyAPIEncoding, func(metadataRef, apiEncodingRef StoredAppModelRef) {
-			applyAppModelRefsToStoredAppSession(&session, appRevisionFromMetadata(session.legacyMetadata), metadataRef, apiEncodingRef)
-			session.legacyMetadata = nil
-			session.legacyAPIEncoding = nil
-			if session.RouteID == "" {
-				session.RouteID = key
-			}
-			state.AppSessions[key] = session
-		})
-		if err != nil {
-			return err
-		}
-		for _, ref := range refs {
-			state.AppModelRefs[ref.Ref] = ref
-		}
-	}
-	return nil
-}
-
-func (s *Store) migrateStoredAppModel(appID, root, revision string, metadata, apiEncoding json.RawMessage, apply func(StoredAppModelRef, StoredAppModelRef)) ([]StoredAppModelRef, error) {
-	if len(metadata) == 0 && len(apiEncoding) == 0 {
-		return nil, nil
-	}
-	appRevision := firstNonEmptyString(revision, appRevisionFromMetadata(metadata))
-	metadataRef, err := s.putAppModelBlob("metadata", appID, root, appRevision, metadata)
-	if err != nil {
-		return nil, err
-	}
-	apiEncodingRef, err := s.putAppModelBlob("api-encoding", appID, root, appRevision, apiEncoding)
-	if err != nil {
-		return nil, err
-	}
-	apply(metadataRef, apiEncodingRef)
-	refs := make([]StoredAppModelRef, 0, 2)
-	if metadataRef.Ref != "" {
-		refs = append(refs, metadataRef)
-	}
-	if apiEncodingRef.Ref != "" {
-		refs = append(refs, apiEncodingRef)
-	}
-	return refs, nil
 }
 
 func (s *Store) UpsertApp(ctx context.Context, app AppRecord) error {
