@@ -36,7 +36,7 @@ Common config surfaces:
 - `watch.ignore`: app-root-relative paths ignored by `scenery up` rebuild watching, not by Git.
 - `proxy.frontends`: frontend roots for dev routing and generated web packages.
 - `storage`: Scenery-owned storage stores, access, tenant scoping, and size limits.
-- `dev.services`: managed local dev services such as Postgres and ZeroFS.
+- `dev.services`: managed local dev services such as SQLite and ZeroFS.
 - `temporal.enabled`: opt-in Temporal runtime. Declarations alone do not enable Temporal.
 - `database.apply`: explicit database setup command provider.
 - `tasks`, `validation`: app-owned task and validation profiles.

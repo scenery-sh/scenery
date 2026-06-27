@@ -8,7 +8,6 @@ Requirements:
 
 - Go 1.26+
 - Bun, only for dashboard UI or benchmark changes
-- `psql`, only for `scenery psql` work
 
 Install the CLI from the repo root:
 

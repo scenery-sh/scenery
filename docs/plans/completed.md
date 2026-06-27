@@ -1361,6 +1361,21 @@ Shipped:
 - `apps/app/scripts/check-scenery-ui-registry.mjs`, wired into `bun run typecheck`, to prevent future drift back to local raw shadcn imports.
 - ONLV app visual harness remained stable with 24/24 snapshots passing.
 
+## SQLite Service Databases and Postgres Removal
+
+- Status: completed
+- Owner: scenery runtime / database
+- Completed: 2026-06-27
+- Quality: B
+- ExecPlan: [0088 SQLite Service Databases and Postgres Removal](0088-sqlite-service-databases.md)
+
+Shipped:
+
+- Replaced built-in managed Postgres with per-service managed SQLite database files.
+- Added SQLite service resolution, env injection, DB CLI list/path/shell/snapshot/reset/drop flows, and branch lifecycle based on file copies.
+- Ported standard auth, generated model stores, self-harness branch proof, schemas, docs, toolchain manifest, and public DB helper to SQLite.
+- Removed pgx/libpq dependencies, the public `pgxpool` wrapper, internal Postgres test helper, Postgres DB CLI/provider code, Atlas Postgres defaults, and the Postgres image artifact.
+
 ## Remove Pub/Sub Package
 
 - Status: completed

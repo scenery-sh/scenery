@@ -127,19 +127,19 @@ func TestRunHarnessParallelDevStep(t *testing.T) {
 	}
 }
 
-func TestRunHarnessPostgresBranchStep(t *testing.T) {
-	prev := runHarnessPostgresBranchCheckFunc
-	t.Cleanup(func() { runHarnessPostgresBranchCheckFunc = prev })
-	runHarnessPostgresBranchCheckFunc = func(context.Context) (map[string]any, []checkDiagnostic, error) {
+func TestRunHarnessSQLiteBranchStep(t *testing.T) {
+	prev := runHarnessSQLiteBranchCheckFunc
+	t.Cleanup(func() { runHarnessSQLiteBranchCheckFunc = prev })
+	runHarnessSQLiteBranchCheckFunc = func(context.Context) (map[string]any, []checkDiagnostic, error) {
 		return map[string]any{
 			"branches":     2,
 			"leases_after": 1,
 		}, nil, nil
 	}
 
-	step := runHarnessPostgresBranchStep(context.Background(), t.TempDir())
+	step := runHarnessSQLiteBranchStep(context.Background(), t.TempDir())
 	if !step.OK {
-		t.Fatalf("Postgres branch step failed: error=%s diagnostics=%+v summary=%+v", step.Error, step.Diagnostics, step.Summary)
+		t.Fatalf("SQLite branch step failed: error=%s diagnostics=%+v summary=%+v", step.Error, step.Diagnostics, step.Summary)
 	}
 	if got, _ := step.Summary["branches"].(int); got != 2 {
 		t.Fatalf("branches summary = %v, want 2", step.Summary["branches"])

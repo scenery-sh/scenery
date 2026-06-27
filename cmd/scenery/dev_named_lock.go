@@ -99,6 +99,13 @@ func acquireDevNamedLock(root, name, kind string, order int) (func(), error) {
 	}
 }
 
+func lockDBBranchOperation(root, database string) (func(), error) {
+	database = firstNonEmpty(database, "unknown")
+	name := "branches-" + safeLockName(database) + ".operation.lock"
+	kind := "database branch operation " + database
+	return acquireDevNamedLock(root, name, kind, devLockOrderBranchOperation)
+}
+
 func checkDevLockOrder(path, kind string, order int) error {
 	devHeldLocks.Lock()
 	defer devHeldLocks.Unlock()

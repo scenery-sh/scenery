@@ -835,17 +835,19 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 		})
 		return err
 	}
-	applyStdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
-	applyStderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
-	applyErr := runDatabaseApplyProviderWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
-	applyStdout.Close()
-	applyStderr.Close()
-	if applyErr != nil {
-		source.Status = "error"
-		s.eventSink().Emit(ctx, source, "error", "database apply failed", map[string]any{
-			"error": applyErr.Error(),
-		})
-		return applyErr
+	if strings.TrimSpace(s.cfg.Database.Apply.Command) != "" {
+		applyStdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
+		applyStderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
+		applyErr := runDatabaseApplyProviderWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
+		applyStdout.Close()
+		applyStderr.Close()
+		if applyErr != nil {
+			source.Status = "error"
+			s.eventSink().Emit(ctx, source, "error", "database apply failed", map[string]any{
+				"error": applyErr.Error(),
+			})
+			return applyErr
+		}
 	}
 	seedResult, err := buildDBSeedResultWithEnv(ctx, s.root, s.cfg, dbSeedOptions{}, env, false)
 	if err != nil {
@@ -863,113 +865,53 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	return nil
 }
 
-var databaseSetupConnectionPing = pingPostgresAdmin
-
 func waitForDatabaseSetupConnection(ctx context.Context, env []string) error {
-	raw := envValueFromList(env, appDatabaseURLEnv)
-	if raw == "" {
-		raw = envValueFromList(env, "SCENERY_MANAGED_DATABASE_URL")
-	}
-	if raw == "" {
-		return nil
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
-		return nil
-	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	var lastErr error
-	for {
-		if err := databaseSetupConnectionPing(waitCtx, raw, 500*time.Millisecond); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-		select {
-		case <-waitCtx.Done():
-			if lastErr != nil {
-				return fmt.Errorf("database setup connection was not ready: %w", lastErr)
-			}
-			return waitCtx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
-	if _, svc, ok := managedPostgresDeclared(cfg); !ok || !postgresServiceUsesBranching(svc) {
-		return nil
-	}
-	if value, _ := lookupEnvValue(managedEnv, appDatabaseURLEnv); value != "" {
-		return nil
-	}
-	if value, _ := lookupEnvValue(managedEnv, "SCENERY_MANAGED_DATABASE_URL"); value != "" {
-		return []string{appDatabaseURLEnv + "=" + value}
-	}
 	return nil
 }
 
+func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
+	if len(cfg.SQLiteServices()) == 0 {
+		return nil
+	}
+	keys := sqliteEnvKeys(cfg)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if value := envValueFromList(managedEnv, key); value != "" {
+			out = append(out, key+"="+value)
+		}
+	}
+	return out
+}
+
 func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]string, error) {
-	if _, _, ok := managedPostgresDeclared(s.cfg); ok && managedPostgresUsesExternalDatabase(baseEnv) {
-		if _, err := externalPostgresDatabaseURL(baseEnv); err != nil {
+	if len(s.cfg.SQLiteServices()) > 0 {
+		env, services, err := managedSQLiteEnv(ctx, s.root, s.cfg, s.currentAgentSession())
+		if err != nil {
 			return nil, err
 		}
-		return nil, nil
-	}
-	if _, svc, ok := managedPostgresDeclared(s.cfg); ok && postgresServiceUsesBranching(svc) {
-		env, resolution, connection, err := dbBranchManagedPostgresEnv(ctx, s.root, s.cfg, s.currentAgentSession())
-		status := "running"
-		message := "database branch lease ready"
-		if err != nil {
-			status = "pending"
-			message = "database branch lease resolved"
-		}
-		provider := postgresBranchProviderName
-		s.eventSink().Emit(ctx, devdash.DevSource{ID: provider, Kind: "substrate", Name: provider, Role: "database", Status: status}, "info", message, map[string]any{
-			"branch":  resolution.Pin.Branch,
-			"source":  resolution.Source,
-			"created": resolution.Created,
-			"host":    connection.Endpoint.Host,
-			"port":    connection.Endpoint.Port,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("dev.services.postgres kind %q resolved branch %q, but branch connection is not ready: %w", svc.Kind, resolution.Pin.Branch, err)
+		for _, svc := range services {
+			s.eventSink().Emit(ctx, devdash.DevSource{ID: "sqlite:" + svc.Name, Kind: "substrate", Name: svc.Name, Role: "database", Status: "running"}, "info", "SQLite service database ready", map[string]any{
+				"service": svc.Name,
+				"path":    svc.Path,
+			})
 		}
 		return env, nil
 	}
-	env, err := managedPostgresEnv(ctx, s.cfg, s.currentAgentSession(), baseEnv, s.agent)
-	if err != nil {
-		return nil, err
-	}
-	if dbName := envValueFromList(env, "SCENERY_MANAGED_DATABASE_NAME"); dbName != "" {
-		s.eventSink().Emit(ctx, devdash.DevSource{ID: "postgres", Kind: "substrate", Name: "postgres", Role: "database", Status: "running"}, "info", "managed Postgres ready", map[string]any{
-			"database": dbName,
-		})
-	}
-	return env, nil
+	return nil, nil
 }
 
 func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string) []string {
 	if s == nil {
 		return baseEnv
 	}
-	if _, _, ok := managedPostgresDeclared(s.cfg); !ok {
-		return baseEnv
-	}
-	if managedPostgresUsesExternalDatabase(baseEnv) {
-		return envWithoutKeys(baseEnv, legacyDatabaseURLEnv)
-	}
-	keys := []string{appDatabaseURLEnv, legacyDatabaseURLEnv}
-	if _, svc, ok := managedPostgresDeclared(s.cfg); ok && postgresServiceUsesBranching(svc) {
-		if envName := dbDatabaseURLEnv(s.cfg); envName != appDatabaseURLEnv {
-			keys = append(keys, envName)
+	if services := s.cfg.SQLiteServices(); len(services) > 0 {
+		keys := []string{appDatabaseURLEnv, legacyDatabaseURLEnv, "SCENERY_SQLITE_DATABASES_JSON"}
+		for _, svc := range services {
+			keys = append(keys, svc.DatabaseURLEnv, svc.DatabasePathEnv)
 		}
+		return envWithoutKeys(baseEnv, keys...)
 	}
-	return envWithoutKeys(baseEnv, keys...)
+	return baseEnv
 }
 
 func (s *devSupervisor) sessionIdentityEnv() []string {

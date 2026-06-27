@@ -15,7 +15,6 @@ const (
 	DefaultRouteBaseDomain = "local.dev"
 
 	SubstrateGrafana  = "grafana"
-	SubstratePostgres = "postgres"
 	SubstrateTemporal = "temporal"
 	SubstrateVictoria = "victoria"
 	SubstrateZeroFS   = "zerofs"

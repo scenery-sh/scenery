@@ -5,124 +5,119 @@
 package authdb
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+	"time"
 )
 
 type SceneryAuthAuthAttempt struct {
-	ID              pgtype.UUID        `json:"id"`
-	Purpose         string             `json:"purpose"`
-	NormalizedEmail string             `json:"normalized_email"`
-	IpHash          string             `json:"ip_hash"`
-	WindowStartedAt pgtype.Timestamptz `json:"window_started_at"`
-	AttemptCount    int32              `json:"attempt_count"`
-	LastAttemptAt   pgtype.Timestamptz `json:"last_attempt_at"`
+	ID              UUID      `json:"id"`
+	Purpose         string    `json:"purpose"`
+	NormalizedEmail string    `json:"normalized_email"`
+	IpHash          string    `json:"ip_hash"`
+	WindowStartedAt time.Time `json:"window_started_at"`
+	AttemptCount    int64     `json:"attempt_count"`
+	LastAttemptAt   time.Time `json:"last_attempt_at"`
 }
 
 type SceneryAuthAuthEvent struct {
-	ID          pgtype.UUID        `json:"id"`
-	EventType   string             `json:"event_type"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	ActorUserID pgtype.UUID        `json:"actor_user_id"`
-	TenantID    pgtype.UUID        `json:"tenant_id"`
-	SessionID   pgtype.UUID        `json:"session_id"`
-	IpHash      string             `json:"ip_hash"`
-	UserAgent   string             `json:"user_agent"`
-	Metadata    []byte             `json:"metadata"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID          UUID      `json:"id"`
+	EventType   string    `json:"event_type"`
+	UserID      UUID      `json:"user_id"`
+	ActorUserID UUID      `json:"actor_user_id"`
+	TenantID    UUID      `json:"tenant_id"`
+	SessionID   UUID      `json:"session_id"`
+	IpHash      string    `json:"ip_hash"`
+	UserAgent   string    `json:"user_agent"`
+	Metadata    []byte    `json:"metadata"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
-// audit:row_changes
 type SceneryAuthAuthIdentity struct {
-	ID              pgtype.UUID        `json:"id"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	Provider        string             `json:"provider"`
-	ProviderSubject string             `json:"provider_subject"`
-	Email           string             `json:"email"`
-	NormalizedEmail string             `json:"normalized_email"`
-	PasswordHash    string             `json:"password_hash"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID              UUID      `json:"id"`
+	UserID          UUID      `json:"user_id"`
+	Provider        string    `json:"provider"`
+	ProviderSubject string    `json:"provider_subject"`
+	Email           string    `json:"email"`
+	NormalizedEmail string    `json:"normalized_email"`
+	PasswordHash    string    `json:"password_hash"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type SceneryAuthOauthState struct {
-	ID           pgtype.UUID        `json:"id"`
-	StateHash    string             `json:"state_hash"`
-	PkceVerifier string             `json:"pkce_verifier"`
-	NonceHash    string             `json:"nonce_hash"`
-	RedirectPath string             `json:"redirect_path"`
-	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
-	ConsumedAt   pgtype.Timestamptz `json:"consumed_at"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID           UUID         `json:"id"`
+	StateHash    string       `json:"state_hash"`
+	PkceVerifier string       `json:"pkce_verifier"`
+	NonceHash    string       `json:"nonce_hash"`
+	RedirectPath string       `json:"redirect_path"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	ConsumedAt   sql.NullTime `json:"consumed_at"`
+	CreatedAt    time.Time    `json:"created_at"`
 }
 
-// audit:row_changes
 type SceneryAuthOneTimeToken struct {
-	ID              pgtype.UUID        `json:"id"`
-	Purpose         string             `json:"purpose"`
-	TokenHash       string             `json:"token_hash"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	TenantID        pgtype.UUID        `json:"tenant_id"`
-	Email           string             `json:"email"`
-	NormalizedEmail string             `json:"normalized_email"`
-	Metadata        []byte             `json:"metadata"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
-	ConsumedAt      pgtype.Timestamptz `json:"consumed_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ID              UUID         `json:"id"`
+	Purpose         string       `json:"purpose"`
+	TokenHash       string       `json:"token_hash"`
+	UserID          UUID         `json:"user_id"`
+	TenantID        UUID         `json:"tenant_id"`
+	Email           string       `json:"email"`
+	NormalizedEmail string       `json:"normalized_email"`
+	Metadata        []byte       `json:"metadata"`
+	ExpiresAt       time.Time    `json:"expires_at"`
+	ConsumedAt      sql.NullTime `json:"consumed_at"`
+	CreatedAt       time.Time    `json:"created_at"`
 }
 
-// audit:row_changes
 type SceneryAuthOrganizationMembership struct {
-	ID              pgtype.UUID        `json:"id"`
-	TenantID        pgtype.UUID        `json:"tenant_id"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	Role            string             `json:"role"`
-	DisabledAt      pgtype.Timestamptz `json:"disabled_at"`
-	InvitedByUserID pgtype.UUID        `json:"invited_by_user_id"`
-	InvitedAt       pgtype.Timestamptz `json:"invited_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID              UUID         `json:"id"`
+	TenantID        UUID         `json:"tenant_id"`
+	UserID          UUID         `json:"user_id"`
+	Role            string       `json:"role"`
+	DisabledAt      sql.NullTime `json:"disabled_at"`
+	InvitedByUserID UUID         `json:"invited_by_user_id"`
+	InvitedAt       sql.NullTime `json:"invited_at"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
 }
 
-// audit:row_changes
 type SceneryAuthRefreshSession struct {
-	ID                     pgtype.UUID        `json:"id"`
-	UserID                 pgtype.UUID        `json:"user_id"`
-	TokenHash              string             `json:"token_hash"`
-	PreviousTokenHash      string             `json:"previous_token_hash"`
-	PreviousTokenExpiresAt pgtype.Timestamptz `json:"previous_token_expires_at"`
-	ActiveTenantID         pgtype.UUID        `json:"active_tenant_id"`
-	ExpiresAt              pgtype.Timestamptz `json:"expires_at"`
-	RotatedAt              pgtype.Timestamptz `json:"rotated_at"`
-	RevokedAt              pgtype.Timestamptz `json:"revoked_at"`
-	RevokedReason          string             `json:"revoked_reason"`
-	UserAgent              string             `json:"user_agent"`
-	IpHash                 string             `json:"ip_hash"`
-	ActorUserID            pgtype.UUID        `json:"actor_user_id"`
-	ImpersonationID        pgtype.UUID        `json:"impersonation_id"`
-	ImpersonationReason    string             `json:"impersonation_reason"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	ID                     UUID         `json:"id"`
+	UserID                 UUID         `json:"user_id"`
+	TokenHash              string       `json:"token_hash"`
+	PreviousTokenHash      string       `json:"previous_token_hash"`
+	PreviousTokenExpiresAt sql.NullTime `json:"previous_token_expires_at"`
+	ActiveTenantID         UUID         `json:"active_tenant_id"`
+	ExpiresAt              time.Time    `json:"expires_at"`
+	RotatedAt              sql.NullTime `json:"rotated_at"`
+	RevokedAt              sql.NullTime `json:"revoked_at"`
+	RevokedReason          string       `json:"revoked_reason"`
+	UserAgent              string       `json:"user_agent"`
+	IpHash                 string       `json:"ip_hash"`
+	ActorUserID            UUID         `json:"actor_user_id"`
+	ImpersonationID        UUID         `json:"impersonation_id"`
+	ImpersonationReason    string       `json:"impersonation_reason"`
+	CreatedAt              time.Time    `json:"created_at"`
+	UpdatedAt              time.Time    `json:"updated_at"`
 }
 
-// audit:row_changes
 type SceneryAuthTenant struct {
-	ID        pgtype.UUID        `json:"id"`
-	Name      string             `json:"name"`
-	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        UUID         `json:"id"`
+	Name      string       `json:"name"`
+	DeletedAt sql.NullTime `json:"deleted_at"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
-// audit:row_changes
 type SceneryAuthUser struct {
-	ID                     pgtype.UUID        `json:"id"`
-	DisplayName            string             `json:"display_name"`
-	AvatarUrl              string             `json:"avatar_url"`
-	PrimaryEmail           string             `json:"primary_email"`
-	NormalizedPrimaryEmail string             `json:"normalized_primary_email"`
-	EmailVerifiedAt        pgtype.Timestamptz `json:"email_verified_at"`
-	DisabledAt             pgtype.Timestamptz `json:"disabled_at"`
-	CanImpersonateUsers    bool               `json:"can_impersonate_users"`
-	CreatedAt              pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	ID                     UUID         `json:"id"`
+	DisplayName            string       `json:"display_name"`
+	AvatarUrl              string       `json:"avatar_url"`
+	PrimaryEmail           string       `json:"primary_email"`
+	NormalizedPrimaryEmail string       `json:"normalized_primary_email"`
+	EmailVerifiedAt        sql.NullTime `json:"email_verified_at"`
+	DisabledAt             sql.NullTime `json:"disabled_at"`
+	CanImpersonateUsers    bool         `json:"can_impersonate_users"`
+	CreatedAt              time.Time    `json:"created_at"`
+	UpdatedAt              time.Time    `json:"updated_at"`
 }

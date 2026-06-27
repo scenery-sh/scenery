@@ -513,9 +513,13 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 	for _, schema := range schemaPlans {
 		if schema.AtlasSource != "" {
 			inputs = append(inputs, filepath.ToSlash(schema.AtlasSource))
+			if schema.SQLCSchema != "" {
+				outputs = append(outputs, filepath.ToSlash(schema.SQLCSchema))
+			}
+			continue
 		}
 		if schema.SQLCSchema != "" {
-			outputs = append(outputs, filepath.ToSlash(schema.SQLCSchema))
+			inputs = append(inputs, filepath.ToSlash(schema.SQLCSchema))
 		}
 	}
 	record := generatorRecord{
@@ -562,7 +566,11 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 			if schema.SQLCSchema != "" {
 				keepMissing[filepath.ToSlash(schema.SQLCSchema)] = true
 			}
-			add(schema.SQLCSchema, "generated-schema", "generated-source")
+			if schema.AtlasSource != "" {
+				add(schema.SQLCSchema, "generated-schema", "generated-source")
+			} else {
+				add(schema.SQLCSchema, "schema-source", "schema")
+			}
 		}
 		for _, query := range sqlcPlan.Queries {
 			add(query, "query", "query-generation-input")
@@ -688,25 +696,17 @@ func configuredSQLCSchemaPlans(conf appcfg.SQLCGeneratorConfig) []sqlcSchemaPlan
 		out = append(out, sqlcSchemaPlan{
 			SQLCSchema:  filepath.ToSlash(schema.SQLCSchema),
 			AtlasSource: filepath.ToSlash(schema.AtlasSource),
-			AtlasDevURL: firstNonEmpty(schema.AtlasDevURL, conf.DevURL, "docker://postgres/18/dev"),
+			AtlasDevURL: firstNonEmpty(schema.AtlasDevURL, conf.DevURL),
 		})
 	}
 	return out
 }
 
 func inferSQLCSchemaPlan(appRoot string, conf appcfg.SQLCGeneratorConfig, schemaRel string) sqlcSchemaPlan {
-	plan := sqlcSchemaPlan{
+	return sqlcSchemaPlan{
 		SQLCSchema:  filepath.ToSlash(schemaRel),
-		AtlasDevURL: firstNonEmpty(conf.DevURL, "docker://postgres/18/dev"),
+		AtlasDevURL: conf.DevURL,
 	}
-	rel := filepath.ToSlash(schemaRel)
-	if strings.HasSuffix(rel, "/db/gen/schema.sql") {
-		source := strings.TrimSuffix(rel, "/gen/schema.sql") + "/schema.hcl"
-		if pathExists(filepath.Join(appRoot, filepath.FromSlash(source))) {
-			plan.AtlasSource = source
-		}
-	}
-	return plan
 }
 
 type sqlcConfigFile struct {
@@ -805,6 +805,9 @@ func runSQLCGenerator(ctx context.Context, stdout io.Writer, appRoot string, pla
 		if schema.SQLCSchema == "" || schema.AtlasSource == "" {
 			continue
 		}
+		if strings.TrimSpace(schema.AtlasDevURL) == "" {
+			return fmt.Errorf("generators.sqlc schema %s uses atlas_source but no dev_url is configured", schema.SQLCSchema)
+		}
 		sourcePath := schema.AtlasSource
 		if !filepath.IsAbs(sourcePath) {
 			sourcePath = filepath.Join(appRoot, filepath.FromSlash(sourcePath))
@@ -816,7 +819,7 @@ func runSQLCGenerator(ctx context.Context, stdout io.Writer, appRoot string, pla
 			Args: []string{
 				"schema", "inspect",
 				"--url", "file://" + filepath.ToSlash(sourcePath),
-				"--dev-url", firstNonEmpty(schema.AtlasDevURL, "docker://postgres/18/dev"),
+				"--dev-url", schema.AtlasDevURL,
 				"--format", "{{ sql . }}",
 			},
 		})

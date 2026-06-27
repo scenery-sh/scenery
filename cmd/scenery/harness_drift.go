@@ -662,7 +662,7 @@ func harnessBinaryFreshnessCoversRel(rel string) bool {
 	if strings.HasPrefix(rel, dashboardStaticDistRel+"/") && harnessBinaryInputFile(rel) {
 		return true
 	}
-	for _, prefix := range []string{"auth/", "cmd/", "cron/", "db/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "temporal/"} {
+	for _, prefix := range []string{"auth/", "cmd/", "cron/", "db/", "errs/", "internal/", "middleware/", "rlog/", "runtime/", "temporal/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {
 				if harnessBinaryInputSkipDir(part) {
@@ -848,7 +848,7 @@ func harnessStepEffects(step harnessStep) []string {
 		set["ports"] = true
 		set["agent-socket"] = true
 		set["tempdir"] = true
-	case "postgres branch lifecycle":
+	case "sqlite branch lifecycle":
 		set["external-binary"] = true
 		set["filesystem-write"] = true
 		set["tempdir"] = true

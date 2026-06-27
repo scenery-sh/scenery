@@ -169,7 +169,7 @@ The public packages at the module root are what user apps import:
 - `scenery.sh/middleware` exposes middleware types
 - `scenery.sh/model` and `scenery.sh/page` expose static compile-time vocabulary
   for model/view IR; they do not maintain a runtime registry
-- `scenery.sh/temporal`, `scenery.sh/cron`, `scenery.sh/pgxpool`, and related small
+- `scenery.sh/temporal`, `scenery.sh/cron`, `scenery.sh/db`, and related small
   packages expose local runtime integrations
 
 Architecture invariant: public packages are boundaries. Keep them small,

@@ -22,12 +22,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	_ "github.com/lib/pq"
 
 	dashboardstatic "scenery.sh/cmd/scenery/dashboard_static"
+	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/sqlitedb"
 )
 
 var dashboardUpgrader = websocket.Upgrader{
@@ -720,7 +720,7 @@ func (s *dashboardServer) queryDB(ctx context.Context, req devdash.QueryRequest)
 	if err != nil {
 		return nil, err
 	}
-	db, err := openPostgres(ctx, status.AppRoot)
+	db, err := openSQLiteDashboardDB(ctx, status.AppRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -739,7 +739,7 @@ func (s *dashboardServer) transactionDB(ctx context.Context, req devdash.Transac
 	if err != nil {
 		return nil, err
 	}
-	db, err := openPostgres(ctx, status.AppRoot)
+	db, err := openSQLiteDashboardDB(ctx, status.AppRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -769,46 +769,16 @@ func (s *dashboardServer) transactionDB(ctx context.Context, req devdash.Transac
 	return results, nil
 }
 
-func openPostgres(ctx context.Context, root string) (*sql.DB, error) {
-	dsn, _, err := discoverDatabaseURL(root)
+func openSQLiteDashboardDB(ctx context.Context, root string) (*sql.DB, error) {
+	_, cfg, err := app.DiscoverRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("postgres", dsn)
+	svc, err := sqlitedb.ResolveService(sqlitedb.ResolveRequest{AppRoot: root, Config: cfg, Mode: sqlitedb.ModeLocal}, "")
 	if err != nil {
 		return nil, err
 	}
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
-func discoverDatabaseURL(root string) (string, string, error) {
-	return discoverDatabaseURLFromEnvList(root, envpolicy.Environ())
-}
-
-func discoverDatabaseURLFromEnvList(root string, env []string) (string, string, error) {
-	for _, key := range []string{"DATABASE_URL", "DatabaseURL"} {
-		if value, _ := lookupEnvValue(env, key); strings.TrimSpace(value) != "" {
-			return value, key, nil
-		}
-	}
-	fileEnv, err := parseDotEnvFile(filepath.Join(root, ".env"))
-	if err != nil {
-		return "", "", err
-	}
-	for _, key := range []string{"DATABASE_URL", "DatabaseURL"} {
-		if value := strings.TrimSpace(fileEnv[key]); value != "" {
-			return value, ".env:" + key, nil
-		}
-	}
-	return "", "", fmt.Errorf("DATABASE_URL not found in environment or .env")
-}
-
-func parseDotEnvFile(path string) (map[string]string, error) {
-	return envfile.ParseFile(path)
+	return sqlitedb.Open(ctx, svc.Path)
 }
 
 func scanRows(rows *sql.Rows, arrayMode bool) ([]any, error) {

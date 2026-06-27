@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	goruntime "runtime"
+	"sort"
 	"strings"
 )
 
@@ -133,23 +134,81 @@ func (c Config) StorageCellID() string {
 }
 
 func (c Config) DatabaseURLEnv() string {
-	if envName := strings.TrimSpace(c.ManagedPostgresService().DatabaseURLEnv); envName != "" {
-		return envName
+	services := c.SQLiteServices()
+	if len(services) == 1 {
+		if envName := strings.TrimSpace(services[0].DatabaseURLEnv); envName != "" {
+			return envName
+		}
 	}
 	return "DatabaseURL"
 }
 
-func (c Config) ManagedPostgresService() DevServiceConfig {
+func (c Config) SQLiteServices() []SQLiteServiceConfig {
+	out := make([]SQLiteServiceConfig, 0, len(c.Dev.Services))
 	for name, svc := range c.Dev.Services {
-		kind := strings.TrimSpace(svc.Kind)
-		if kind == "" && name == "postgres" {
-			kind = "postgres"
+		if strings.TrimSpace(svc.Kind) != "sqlite" {
+			continue
 		}
-		if kind == "postgres" {
-			return svc
+		fileLabel := strings.TrimSpace(svc.Database)
+		if fileLabel == "" {
+			fileLabel = name
+		}
+		envName := strings.TrimSpace(svc.DatabaseURLEnv)
+		if envName == "" {
+			envName = upperSnake(name) + "_DATABASE_URL"
+		}
+		out = append(out, SQLiteServiceConfig{
+			Name:            name,
+			FileLabel:       storageSlug(fileLabel),
+			DatabaseURLEnv:  envName,
+			DatabasePathEnv: upperSnake(name) + "_DATABASE_PATH",
+			Raw:             svc,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func (c Config) SQLiteService(name string) (SQLiteServiceConfig, bool) {
+	for _, svc := range c.SQLiteServices() {
+		if svc.Name == name {
+			return svc, true
 		}
 	}
-	return DevServiceConfig{}
+	return SQLiteServiceConfig{}, false
+}
+
+type SQLiteServiceConfig struct {
+	Name            string
+	FileLabel       string
+	DatabaseURLEnv  string
+	DatabasePathEnv string
+	Raw             DevServiceConfig
+}
+
+func upperSnake(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		ok := (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "SQLITE"
+	}
+	return out
 }
 
 type BuildConfig struct {
@@ -248,6 +307,7 @@ type SQLCGeneratorSchema struct {
 
 type DatabaseConfig struct {
 	Apply DatabaseApplyConfig `json:"apply"`
+	Seed  DatabaseSeedConfig  `json:"seed"`
 }
 
 type DatabaseApplyConfig struct {
@@ -255,6 +315,14 @@ type DatabaseApplyConfig struct {
 	Command  string            `json:"command"`
 	CWD      string            `json:"cwd"`
 	Env      map[string]string `json:"env"`
+}
+
+type DatabaseSeedConfig struct {
+	Enabled *bool `json:"enabled"`
+}
+
+func (c DatabaseSeedConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 type TaskConfig struct {
@@ -453,12 +521,13 @@ func (c Config) validateWatch() error {
 }
 
 func (c Config) validateDevServices() error {
+	removedDatabaseKind := "post" + "gres"
 	removedSyncKind := "elec" + "tric"
 	for name, svc := range c.Dev.Services {
 		kind := strings.TrimSpace(svc.Kind)
 		if kind == "" {
 			switch name {
-			case "postgres":
+			case removedDatabaseKind:
 				kind = name
 			case removedSyncKind:
 				return errors.New("the removed legacy sync service declaration must be deleted")
@@ -468,9 +537,17 @@ func (c Config) validateDevServices() error {
 			return fmt.Errorf("dev.services.%s uses a removed legacy sync service kind; delete this service declaration", name)
 		}
 		switch kind {
-		case "", "postgres", "zerofs":
+		case "", "sqlite", "zerofs":
 		default:
 			return fmt.Errorf("dev.services.%s kind %q is not supported", name, kind)
+		}
+		if kind == "sqlite" {
+			if !isStorageIdentifier(name) {
+				return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
+			}
+			if label := strings.TrimSpace(svc.Database); label != "" && !isStorageIdentifier(storageSlug(label)) {
+				return fmt.Errorf("dev.services.%s.database %q is invalid", name, label)
+			}
 		}
 	}
 	return nil

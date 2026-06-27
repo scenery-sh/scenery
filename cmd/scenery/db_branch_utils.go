@@ -7,9 +7,16 @@ import (
 	inspectdata "scenery.sh/internal/inspect"
 )
 
-func dbPostgresService(cfg appcfg.Config) appcfg.DevServiceConfig {
-	_, svc, _ := managedPostgresDeclared(cfg)
+func dbSQLiteService(cfg appcfg.Config) appcfg.DevServiceConfig {
+	_, svc, _ := managedSQLiteDeclared(cfg)
 	return svc
+}
+
+func managedSQLiteDeclared(cfg appcfg.Config) (string, appcfg.DevServiceConfig, bool) {
+	for _, svc := range cfg.SQLiteServices() {
+		return svc.Name, svc.Raw, true
+	}
+	return "", appcfg.DevServiceConfig{}, false
 }
 
 func dbDatabaseURLEnv(cfg appcfg.Config) string {
@@ -33,12 +40,9 @@ func inspectAppRef(appRoot string, cfg appcfg.Config) inspectdata.AppRef {
 	}
 }
 
-func postgresServiceUsesBranching(svc appcfg.DevServiceConfig) bool {
-	if firstNonEmpty(strings.TrimSpace(svc.Kind), "postgres") != "postgres" {
+func sqliteServiceUsesBranching(svc appcfg.DevServiceConfig) bool {
+	if firstNonEmpty(strings.TrimSpace(svc.Kind), "sqlite") != "sqlite" {
 		return false
 	}
-	return strings.TrimSpace(svc.BranchPolicy) != "" ||
-		strings.TrimSpace(svc.BranchNameTemplate) != "" ||
-		strings.TrimSpace(svc.ParentBranch) != "" ||
-		strings.TrimSpace(svc.ParentDatabase) != ""
+	return true
 }

@@ -3,11 +3,9 @@ package auth
 import (
 	"context"
 	"net/http"
+	authdb "scenery.sh/auth/db/gen"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
-	authdb "scenery.sh/auth/db/gen"
 )
 
 type EmailVerificationConfirmParams struct {
@@ -52,7 +50,7 @@ func (s *Service) SignupEmail(ctx context.Context, params *EmailSignupParams) (*
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 
 	if err := s.checkRateLimit(ctx, q, "signup_email", normalizedEmail); err != nil {
@@ -100,15 +98,15 @@ func (s *Service) SignupEmail(ctx context.Context, params *EmailSignupParams) (*
 		return nil, err
 	}
 
-	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposeEmailVerification, user.ID, pgtype.UUID{}, displayEmail(params.Email), normalizedEmail, map[string]string{
+	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposeEmailVerification, user.ID, authdb.UUID{}, displayEmail(params.Email), normalizedEmail, map[string]string{
 		"redirect_path": safeRedirectPath(params.RedirectPath),
 	}, defaultEmailVerificationTTL)
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "signup_email", user.ID, pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, nil)
+	s.recordEvent(ctx, q, "signup_email", user.ID, authdb.UUID{}, authdb.UUID{}, authdb.UUID{}, nil)
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
@@ -136,7 +134,7 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, params *EmailVer
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 
 	oneTime, err := q.ConsumeOneTimeToken(ctx, authdb.ConsumeOneTimeTokenParams{
@@ -157,16 +155,16 @@ func (s *Service) ConfirmEmailVerification(ctx context.Context, params *EmailVer
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := s.ensureActiveTenant(ctx, q, user, pgtype.UUID{})
+	tenantID, err := s.ensureActiveTenant(ctx, q, user, authdb.UUID{})
 	if err != nil {
 		return nil, err
 	}
-	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, pgtype.UUID{}, pgtype.UUID{}, "")
+	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, authdb.UUID{}, authdb.UUID{}, "")
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "email_verified", user.ID, pgtype.UUID{}, tenantID, pgtype.UUID{}, nil)
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "email_verified", user.ID, authdb.UUID{}, tenantID, authdb.UUID{}, nil)
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -189,7 +187,7 @@ func (s *Service) ResendEmailVerification(ctx context.Context, params *EmailVeri
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.checkRateLimit(ctx, q, "email_verification_resend", normalizedEmail); err != nil {
 		return nil, err
@@ -198,18 +196,18 @@ func (s *Service) ResendEmailVerification(ctx context.Context, params *EmailVeri
 	user, err := q.GetUserByNormalizedEmail(ctx, normalizedEmail)
 	if err != nil {
 		if isNoRows(err) {
-			return &EmailVerificationResendResponse{OK: true}, tx.Commit(ctx)
+			return &EmailVerificationResendResponse{OK: true}, tx.Commit()
 		}
 		return nil, err
 	}
 	if user.EmailVerifiedAt.Valid {
-		return &EmailVerificationResendResponse{OK: true}, tx.Commit(ctx)
+		return &EmailVerificationResendResponse{OK: true}, tx.Commit()
 	}
-	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposeEmailVerification, user.ID, pgtype.UUID{}, displayEmail(params.Email), normalizedEmail, nil, defaultEmailVerificationTTL)
+	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposeEmailVerification, user.ID, authdb.UUID{}, displayEmail(params.Email), normalizedEmail, nil, defaultEmailVerificationTTL)
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	_ = sendVerificationEmail(ctx, displayEmail(params.Email), rawToken, "")
@@ -237,7 +235,7 @@ func (s *Service) LoginEmail(ctx context.Context, params *EmailLoginParams) (*Au
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.checkRateLimit(ctx, q, "login_email", normalizedEmail); err != nil {
 		return nil, err
@@ -271,16 +269,16 @@ func (s *Service) LoginEmail(ctx context.Context, params *EmailLoginParams) (*Au
 	if !user.EmailVerifiedAt.Valid {
 		return nil, failedPrecondition("email verification is required")
 	}
-	tenantID, err := s.ensureActiveTenant(ctx, q, user, pgtype.UUID{})
+	tenantID, err := s.ensureActiveTenant(ctx, q, user, authdb.UUID{})
 	if err != nil {
 		return nil, err
 	}
-	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, pgtype.UUID{}, pgtype.UUID{}, "")
+	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, authdb.UUID{}, authdb.UUID{}, "")
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "login_email", user.ID, pgtype.UUID{}, tenantID, pgtype.UUID{}, nil)
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "login_email", user.ID, authdb.UUID{}, tenantID, authdb.UUID{}, nil)
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -300,7 +298,7 @@ func (s *Service) Refresh(ctx context.Context, params *RefreshParams) (*AuthSess
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 
 	session, rawToken, err := s.rotateRefreshSession(ctx, q, rawRefreshToken)
@@ -329,12 +327,12 @@ func (s *Service) Refresh(ctx context.Context, params *RefreshParams) (*AuthSess
 		return nil, err
 	}
 	s.recordEvent(ctx, q, "refresh", user.ID, session.ActorUserID, tenantID, session.ID, nil)
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &AuthSessionResponse{
 		AuthBootstrapResponse: *bootstrap,
-		SetCookie:             refreshCookie(rawToken, session.ExpiresAt.Time),
+		SetCookie:             refreshCookie(rawToken, session.ExpiresAt),
 	}, nil
 }
 
@@ -420,7 +418,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, params *PasswordRese
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.checkRateLimit(ctx, q, "password_reset_request", normalizedEmail); err != nil {
 		return nil, err
@@ -428,15 +426,15 @@ func (s *Service) RequestPasswordReset(ctx context.Context, params *PasswordRese
 	user, err := q.GetUserByNormalizedEmail(ctx, normalizedEmail)
 	if err != nil {
 		if isNoRows(err) {
-			return &PasswordResetRequestResponse{OK: true}, tx.Commit(ctx)
+			return &PasswordResetRequestResponse{OK: true}, tx.Commit()
 		}
 		return nil, err
 	}
-	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposePasswordReset, user.ID, pgtype.UUID{}, displayEmail(params.Email), normalizedEmail, nil, defaultPasswordResetTTL)
+	rawToken, err := s.createOneTimeToken(ctx, q, tokenPurposePasswordReset, user.ID, authdb.UUID{}, displayEmail(params.Email), normalizedEmail, nil, defaultPasswordResetTTL)
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	_ = sendPasswordResetEmail(ctx, displayEmail(params.Email), rawToken)
@@ -464,7 +462,7 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, params *PasswordRese
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	oneTime, err := q.ConsumeOneTimeToken(ctx, authdb.ConsumeOneTimeTokenParams{
 		TokenHash: tokenHash(params.Token),
@@ -499,22 +497,22 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, params *PasswordRese
 	}); err != nil {
 		return nil, err
 	}
-	tenantID, err := s.ensureActiveTenant(ctx, q, user, pgtype.UUID{})
+	tenantID, err := s.ensureActiveTenant(ctx, q, user, authdb.UUID{})
 	if err != nil {
 		return nil, err
 	}
-	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, pgtype.UUID{}, pgtype.UUID{}, "")
+	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, authdb.UUID{}, authdb.UUID{}, "")
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "password_reset", user.ID, pgtype.UUID{}, tenantID, pgtype.UUID{}, nil)
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "password_reset", user.ID, authdb.UUID{}, tenantID, authdb.UUID{}, nil)
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return response, nil
 }
 
-func (s *Service) createOneTimeToken(ctx context.Context, q authdb.Querier, purpose string, userID pgtype.UUID, tenantID pgtype.UUID, email string, normalizedEmail string, metadata any, ttl time.Duration) (string, error) {
+func (s *Service) createOneTimeToken(ctx context.Context, q authdb.Querier, purpose string, userID authdb.UUID, tenantID authdb.UUID, email string, normalizedEmail string, metadata any, ttl time.Duration) (string, error) {
 	id, err := newUUID()
 	if err != nil {
 		return "", err
@@ -532,7 +530,7 @@ func (s *Service) createOneTimeToken(ctx context.Context, q authdb.Querier, purp
 		Email:           strings.TrimSpace(email),
 		NormalizedEmail: strings.TrimSpace(normalizedEmail),
 		Metadata:        jsonBytes(metadata),
-		ExpiresAt:       timestamptz(s.clock().Add(ttl)),
+		ExpiresAt:       s.clock().Add(ttl),
 	}); err != nil {
 		return "", err
 	}
@@ -552,7 +550,7 @@ func (s *Service) rotateRefreshSession(ctx context.Context, q authdb.Querier, ra
 		return authdb.SceneryAuthRefreshSession{}, "", err
 	}
 	now := s.clock()
-	if session.RevokedAt.Valid || !session.ExpiresAt.Valid || !session.ExpiresAt.Time.After(now) {
+	if session.RevokedAt.Valid || !session.ExpiresAt.After(now) {
 		return authdb.SceneryAuthRefreshSession{}, "", unauthenticated("refresh session is expired")
 	}
 
@@ -577,7 +575,7 @@ func (s *Service) rotateRefreshSession(ctx context.Context, q authdb.Querier, ra
 	rotated, err := q.RotateRefreshSession(ctx, authdb.RotateRefreshSessionParams{
 		ID:        session.ID,
 		TokenHash: tokenHash(nextRawToken),
-		Column3:   int64(refreshTokenReplayGrace / time.Millisecond),
+		GraceMs:   int64(refreshTokenReplayGrace / time.Millisecond),
 	})
 	if err != nil {
 		return authdb.SceneryAuthRefreshSession{}, "", err

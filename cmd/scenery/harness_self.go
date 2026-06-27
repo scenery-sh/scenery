@@ -110,7 +110,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		resp.Steps = append(resp.Steps,
 			goTestStep,
 			runHarnessParallelDevStep(ctx, repoRoot),
-			runHarnessPostgresBranchStep(ctx, repoRoot),
+			runHarnessSQLiteBranchStep(ctx, repoRoot),
 		)
 		resp.Steps = append(resp.Steps,
 			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
@@ -545,7 +545,6 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 		"errs",
 		"internal",
 		"middleware",
-		"pgxpool",
 		"rlog",
 		"runtime",
 		"temporal",

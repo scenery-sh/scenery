@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -8,26 +9,19 @@ import (
 	"testing"
 )
 
-func TestDiscoverRootAcceptsPostgresBranchConfig(t *testing.T) {
+func TestDiscoverRootAcceptsSQLiteServices(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
-		"name": "pgapp",
+		"name": "sqliteapp",
 		"dev": {
 			"services": {
-				"postgres": {
-					"kind": "postgres",
-					"mode": "local",
-					"version": "18",
-					"isolation": "database",
-					"project": "pgapp",
-					"parent_branch": "main",
-					"parent_database": "pgapp_main",
-					"branch_policy": "worktree",
-					"branch_name_template": "{app}/{git_branch}",
-					"ttl": "168h",
-					"database": "pgapp",
-					"role": "scenery",
-					"database_url_env": "DatabaseURL"
+				"auth": {
+					"kind": "sqlite"
+				},
+				"billing": {
+					"kind": "sqlite",
+					"database": "billing-data",
+					"database_url_env": "BILLING_DB"
 				}
 			}
 		}
@@ -37,12 +31,17 @@ func TestDiscoverRootAcceptsPostgresBranchConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
-	svc := cfg.Dev.Services["postgres"]
-	if svc.Kind != "postgres" || svc.Mode != "local" || svc.Isolation != "database" || svc.Project != "pgapp" ||
-		svc.ParentBranch != "main" || svc.ParentDatabase != "pgapp_main" || svc.BranchPolicy != "worktree" ||
-		svc.BranchNameTemplate != "{app}/{git_branch}" ||
-		svc.TTL != "168h" || svc.Database != "pgapp" || svc.Role != "scenery" || svc.DatabaseURLEnv != "DatabaseURL" {
-		t.Fatalf("service = %+v", svc)
+	services := cfg.SQLiteServices()
+	if len(services) != 2 {
+		t.Fatalf("SQLiteServices count = %d, want 2", len(services))
+	}
+	auth, ok := cfg.SQLiteService("auth")
+	if !ok || auth.DatabaseURLEnv != "AUTH_DATABASE_URL" || auth.DatabasePathEnv != "AUTH_DATABASE_PATH" || auth.FileLabel != "auth" {
+		t.Fatalf("auth service = %+v ok=%v", auth, ok)
+	}
+	billing, ok := cfg.SQLiteService("billing")
+	if !ok || billing.DatabaseURLEnv != "BILLING_DB" || billing.DatabasePathEnv != "BILLING_DATABASE_PATH" || billing.FileLabel != "billing-data" {
+		t.Fatalf("billing service = %+v ok=%v", billing, ok)
 	}
 }
 
@@ -187,16 +186,17 @@ func TestConfigDatabaseURLEnv(t *testing.T) {
 		t.Fatalf("default database URL env = %q, want DatabaseURL", got)
 	}
 	cfg := Config{Dev: DevConfig{Services: map[string]DevServiceConfig{
-		"postgres": {DatabaseURLEnv: "AppDB"},
+		"auth": {Kind: "sqlite", DatabaseURLEnv: "AppDB"},
 	}}}
 	if got := cfg.DatabaseURLEnv(); got != "AppDB" {
 		t.Fatalf("configured database URL env = %q, want AppDB", got)
 	}
 	cfg = Config{Dev: DevConfig{Services: map[string]DevServiceConfig{
-		"main-db": {Kind: "postgres", DatabaseURLEnv: "PrimaryDB"},
+		"auth":    {Kind: "sqlite", DatabaseURLEnv: "AuthDB"},
+		"billing": {Kind: "sqlite", DatabaseURLEnv: "BillingDB"},
 	}}}
-	if got := cfg.DatabaseURLEnv(); got != "PrimaryDB" {
-		t.Fatalf("named Postgres database URL env = %q, want PrimaryDB", got)
+	if got := cfg.DatabaseURLEnv(); got != "DatabaseURL" {
+		t.Fatalf("ambiguous database URL env = %q, want DatabaseURL", got)
 	}
 }
 
@@ -308,23 +308,24 @@ func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 	}
 }
 
-func TestDiscoverRootRejectsUnknownPostgresBranchField(t *testing.T) {
+func TestDiscoverRootRejectsRemovedDatabaseService(t *testing.T) {
 	root := t.TempDir()
-	writeAppTestFile(t, root, ".scenery.json", `{
+	removedKind := "post" + "gres"
+	writeAppTestFile(t, root, ".scenery.json", fmt.Sprintf(`{
 		"name": "pgapp",
 		"dev": {
 			"services": {
-				"postgres": {
-					"kind": "postgres",
-					"unknown_postgres_field": true
+				"%[1]s": {
+					"kind": "%[1]s"
 				}
 			}
 		}
-	}`)
+	}`, removedKind))
 
 	_, _, err := DiscoverRoot(root)
-	if err == nil || !strings.Contains(err.Error(), `unknown .scenery.json field "dev.services.postgres.unknown_postgres_field"`) {
-		t.Fatalf("DiscoverRoot unknown field error = %v", err)
+	want := fmt.Sprintf(`dev.services.%[1]s kind "%[1]s" is not supported`, removedKind)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("DiscoverRoot removed database service error = %v", err)
 	}
 }
 

@@ -161,7 +161,7 @@ scenery worker [--task-queue <name>[,<name>...]]... [--app-root <path>] [--env <
 scenery build [--app-root <path>] [-o <path>]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
-scenery db psql|apply|seed|setup|reset|drop|snapshot [--app-root <path>]
+scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot [--app-root <path>]
 ```
 
 `scenery up` is the preferred local loop for agents because it runs the app root's one live dev runtime and exposes safe capabilities: dashboard, logs, traces, metrics, routed local URLs, and managed dev services. Use a Git worktree for another live code copy. `scenery serve` is for headless API execution and must not be expected to expose dev/admin endpoints, dashboard, proxy, or watch behavior. `scenery task` is for configured tasks and app-local code tasks.
@@ -260,7 +260,7 @@ When editing source that changes the public app model, confirm the docs and test
 - `//scenery:authhandler`
 - request tags: `json`, `header`, `query`, `qs`, `cookie`
 - response tag: `scenery:"httpstatus"`
-- public packages: `scenery`, `auth`, `errs`, `middleware`, `temporal`, `cron`, `db`, `pgxpool`, `et`
+- public packages: `scenery`, `auth`, `errs`, `middleware`, `temporal`, `cron`, `db`, `et`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
 - worker, Temporal, cron, middleware, and generated TypeScript client behavior when touched

@@ -19,6 +19,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/sqlitedb"
 	"scenery.sh/internal/workers"
 	sceneryruntime "scenery.sh/runtime"
 )
@@ -41,54 +42,30 @@ func TestAppChildEnvLeavesColorUnsetWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestAppDatabaseAuthorityEnvRemovesLegacyDatabaseURLForManagedPostgres(t *testing.T) {
+func TestAppDatabaseAuthorityEnvRemovesStaleDatabaseURLsForSQLite(t *testing.T) {
 	t.Parallel()
 
 	s := &devSupervisor{
 		cfg: app.Config{
 			Name: "demo",
 			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-				"postgres": {Kind: "postgres"},
+				"main": {Kind: "sqlite"},
 			}},
 		},
 	}
 	env := s.appDatabaseAuthorityEnv([]string{
-		legacyDatabaseURLEnv + "=postgres://localhost/poison",
-		appDatabaseURLEnv + "=postgres://localhost/user",
+		legacyDatabaseURLEnv + "=sqlite:///poison.sqlite",
+		appDatabaseURLEnv + "=sqlite:///user.sqlite",
 		"OTHER=1",
 	})
-	if containsString(env, legacyDatabaseURLEnv+"=postgres://localhost/poison") {
+	if containsString(env, legacyDatabaseURLEnv+"=sqlite:///poison.sqlite") {
 		t.Fatalf("app database env leaked %s: %v", legacyDatabaseURLEnv, env)
 	}
-	if containsString(env, appDatabaseURLEnv+"=postgres://localhost/user") {
+	if containsString(env, appDatabaseURLEnv+"=sqlite:///user.sqlite") {
 		t.Fatalf("app database env leaked stale %s: %v", appDatabaseURLEnv, env)
 	}
 	if !containsString(env, "OTHER=1") {
 		t.Fatalf("app database env removed unrelated values: %v", env)
-	}
-}
-
-func TestAppDatabaseAuthorityEnvKeepsOnlyDatabaseURLForExternalPostgres(t *testing.T) {
-	t.Parallel()
-
-	s := &devSupervisor{
-		cfg: app.Config{
-			Name: "demo",
-			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-				"postgres": {Kind: "postgres"},
-			}},
-		},
-	}
-	env := s.appDatabaseAuthorityEnv([]string{
-		devPostgresExternalEnv + "=1",
-		legacyDatabaseURLEnv + "=postgres://localhost/external",
-		appDatabaseURLEnv + "=postgres://localhost/external",
-	})
-	if containsString(env, legacyDatabaseURLEnv+"=postgres://localhost/external") {
-		t.Fatalf("external app database env leaked %s: %v", legacyDatabaseURLEnv, env)
-	}
-	if !containsString(env, appDatabaseURLEnv+"=postgres://localhost/external") {
-		t.Fatalf("external app database env removed %s: %v", appDatabaseURLEnv, env)
 	}
 }
 
@@ -557,43 +534,11 @@ func TestDevDatabaseSetupRetriesAfterApplyFailure(t *testing.T) {
 	}
 }
 
-func TestWaitForDatabaseSetupConnectionRetriesTransientPostgresStartup(t *testing.T) {
-	prevPing := databaseSetupConnectionPing
-	defer func() { databaseSetupConnectionPing = prevPing }()
-	attempts := 0
-	databaseSetupConnectionPing = func(context.Context, string, time.Duration) error {
-		attempts++
-		if attempts < 3 {
-			return errors.New("the database system is not yet accepting connections")
-		}
-		return nil
-	}
-
-	err := waitForDatabaseSetupConnection(context.Background(), []string{
-		appDatabaseURLEnv + "=postgres://scenery:postgres@127.0.0.1:55432/app?sslmode=disable",
-	})
-	if err != nil {
-		t.Fatalf("waitForDatabaseSetupConnection returned error: %v", err)
-	}
-	if attempts != 3 {
-		t.Fatalf("ping attempts = %d, want 3", attempts)
-	}
-}
-
-func TestDevSetupUsesManagedDatabaseURLWithoutLegacyDatabaseURL(t *testing.T) {
+func TestDevSetupUsesManagedSQLiteDatabaseURLWithoutLegacyDatabaseURL(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv(legacyDatabaseURLEnv, "postgres://localhost/poison")
-	t.Setenv(appDatabaseURLEnv, "postgres://localhost/stale")
-	t.Setenv(devPostgresAdminURLEnv, "postgres://localhost/postgres")
-
-	prevEnsure := ensureManagedPostgresDatabaseFn
-	defer func() { ensureManagedPostgresDatabaseFn = prevEnsure }()
-	ensureManagedPostgresDatabaseFn = func(_ context.Context, adminURL, dbName string) error {
-		if adminURL != "postgres://localhost/postgres" || dbName != "demo_session" {
-			t.Fatalf("ensure managed postgres got adminURL=%q dbName=%q", adminURL, dbName)
-		}
-		return nil
-	}
+	t.Setenv(legacyDatabaseURLEnv, "sqlite:///poison.sqlite")
+	t.Setenv(appDatabaseURLEnv, "sqlite:///stale.sqlite")
+	wantURL := sqlitedb.URLForPath(filepath.Join(root, ".scenery", "sessions", "session", "sqlite", "main.sqlite"))
 
 	s := &devSupervisor{
 		root: root,
@@ -601,10 +546,10 @@ func TestDevSetupUsesManagedDatabaseURLWithoutLegacyDatabaseURL(t *testing.T) {
 			Name: "demo",
 			Dev: app.DevConfig{
 				Services: map[string]app.DevServiceConfig{
-					"postgres": {Kind: "postgres"},
+					"main": {Kind: "sqlite"},
 				},
 				Setup: []string{
-					`test "$DatabaseURL" = "postgres://localhost/demo_session" && test -z "$DATABASE_URL" && test "$SCENERY_MANAGED_DATABASE_NAME" = "demo_session"`,
+					`test "$DatabaseURL" = "` + wantURL + `" && test -z "$DATABASE_URL"`,
 				},
 			},
 		},
@@ -619,9 +564,8 @@ func TestDevSetupUsesManagedDatabaseURLWithoutLegacyDatabaseURL(t *testing.T) {
 	}
 }
 
-func TestManagedAppEnvUsesReadyPostgresBranchLease(t *testing.T) {
+func TestManagedAppEnvUsesSessionSQLiteService(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	t.Setenv(devPostgresAdminURLEnv, "postgres://scenery:secret@127.0.0.1:55435/postgres?sslmode=disable")
 	root := t.TempDir()
 	s := &devSupervisor{
 		root: root,
@@ -629,15 +573,7 @@ func TestManagedAppEnvUsesReadyPostgresBranchLease(t *testing.T) {
 			Name: "demo",
 			ID:   "demo",
 			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-				"postgres": {
-					Kind:               "postgres",
-					Mode:               "local",
-					Isolation:          "database",
-					Project:            "demo",
-					ParentDatabase:     "demo_main",
-					BranchPolicy:       "session",
-					BranchNameTemplate: "{app}/{session}",
-				},
+				"main": {Kind: "sqlite"},
 			}},
 		},
 		status: devdash.AppRecord{ID: "demo"},
@@ -646,35 +582,16 @@ func TestManagedAppEnvUsesReadyPostgresBranchLease(t *testing.T) {
 			BaseAppID: "demo",
 		},
 	}
-	env, err := s.managedAppEnv(context.Background(), []string{"A=1"})
-	if err == nil || !strings.Contains(err.Error(), "branch connection is not ready") {
-		t.Fatalf("managedAppEnv env=%v err=%v", env, err)
-	}
-	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(root))
-	if err != nil || !ok {
-		t.Fatalf("read pin ok=%v err=%v", ok, err)
-	}
-	if pin.Branch != "demo/review-a" || pin.SessionID != "review-a" {
-		t.Fatalf("pin = %+v", pin)
-	}
-	if err := upsertPostgresBranchLease(pin, &dbBranchEndpoint{
-		Host:     "127.0.0.1",
-		Port:     55435,
-		Database: pin.Database,
-		Role:     "scenery",
-		SSLMode:  "disable",
-		Source:   "postgres",
-	}, "ready"); err != nil {
-		t.Fatalf("upsert ready lease: %v", err)
-	}
-	env, err = s.managedAppEnv(context.Background(), []string{"A=1", appDatabaseURLEnv + "=postgres://localhost/stale", legacyDatabaseURLEnv + "=postgres://localhost/poison"})
+	env, err := s.managedAppEnv(context.Background(), []string{"A=1", appDatabaseURLEnv + "=sqlite:///stale.sqlite", legacyDatabaseURLEnv + "=sqlite:///poison.sqlite"})
 	if err != nil {
 		t.Fatalf("managedAppEnv ready: %v", err)
 	}
+	wantPath := filepath.Join(root, ".scenery", "sessions", "review-a", "sqlite", "main.sqlite")
+	wantURL := sqlitedb.URLForPath(wantPath)
 	for _, want := range []string{
-		appDatabaseURLEnv + "=postgres://scenery:secret@127.0.0.1:55435/demo_demo_review_a?sslmode=disable",
-		"SCENERY_MANAGED_DATABASE_URL=postgres://scenery:secret@127.0.0.1:55435/demo_demo_review_a?sslmode=disable",
-		"SCENERY_MANAGED_DATABASE_NAME=demo_demo_review_a",
+		"MAIN_DATABASE_URL=" + wantURL,
+		"MAIN_DATABASE_PATH=" + wantPath,
+		appDatabaseURLEnv + "=" + wantURL,
 	} {
 		if !containsString(env, want) {
 			t.Fatalf("managed env missing %q: %+v", want, env)
@@ -682,9 +599,8 @@ func TestManagedAppEnvUsesReadyPostgresBranchLease(t *testing.T) {
 	}
 }
 
-func TestManagedAppEnvUsesConfiguredPostgresBranchDatabaseURLEnv(t *testing.T) {
+func TestManagedAppEnvUsesConfiguredSQLiteDatabaseURLEnv(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	t.Setenv(devPostgresAdminURLEnv, "postgres://scenery:secret@127.0.0.1:55435/postgres?sslmode=disable")
 	root := t.TempDir()
 	s := &devSupervisor{
 		root: root,
@@ -692,14 +608,7 @@ func TestManagedAppEnvUsesConfiguredPostgresBranchDatabaseURLEnv(t *testing.T) {
 			Name: "demo",
 			ID:   "demo",
 			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-				"postgres": {
-					Kind:           "postgres",
-					Mode:           "local",
-					Isolation:      "database",
-					Project:        "demo",
-					ParentDatabase: "demo_main",
-					DatabaseURLEnv: "APP_DATABASE_URL",
-				},
+				"main": {Kind: "sqlite", DatabaseURLEnv: "APP_DATABASE_URL"},
 			}},
 		},
 		status: devdash.AppRecord{ID: "demo"},
@@ -709,42 +618,26 @@ func TestManagedAppEnvUsesConfiguredPostgresBranchDatabaseURLEnv(t *testing.T) {
 			Branch:    "feature-a",
 		},
 	}
-	_, err := s.managedAppEnv(context.Background(), nil)
-	if err == nil {
-		t.Fatal("managedAppEnv should require a ready Postgres branch lease")
-	}
-	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(root))
-	if err != nil || !ok {
-		t.Fatalf("read pin ok=%v err=%v", ok, err)
-	}
-	if err := upsertPostgresBranchLease(pin, &dbBranchEndpoint{
-		Host:     "127.0.0.1",
-		Port:     55435,
-		Database: pin.Database,
-		Role:     "scenery",
-		SSLMode:  "disable",
-		Source:   "postgres",
-	}, "ready"); err != nil {
-		t.Fatalf("upsert ready lease: %v", err)
-	}
 	env, err := s.managedAppEnv(context.Background(), []string{
-		"APP_DATABASE_URL=postgres://localhost/stale",
-		appDatabaseURLEnv + "=postgres://localhost/stale-default",
-		legacyDatabaseURLEnv + "=postgres://localhost/poison",
+		"APP_DATABASE_URL=sqlite:///stale.sqlite",
+		appDatabaseURLEnv + "=sqlite:///default-stale.sqlite",
+		legacyDatabaseURLEnv + "=sqlite:///poison.sqlite",
 	})
 	if err != nil {
 		t.Fatalf("managedAppEnv ready: %v", err)
 	}
-	if !containsString(env, "APP_DATABASE_URL=postgres://scenery:secret@127.0.0.1:55435/demo_demo_feature_a?sslmode=disable") {
+	wantPath := filepath.Join(root, ".scenery", "sessions", "review-a", "sqlite", "main.sqlite")
+	wantURL := sqlitedb.URLForPath(wantPath)
+	if !containsString(env, "APP_DATABASE_URL="+wantURL) {
 		t.Fatalf("managed env missing configured database URL env: %+v", env)
 	}
-	if containsString(env, appDatabaseURLEnv+"=postgres://scenery:secret@127.0.0.1:55435/demo_demo_feature_a?sslmode=disable") || containsString(env, legacyDatabaseURLEnv+"=postgres://localhost/poison") {
+	if containsString(env, appDatabaseURLEnv+"="+wantURL) || containsString(env, legacyDatabaseURLEnv+"=sqlite:///poison.sqlite") {
 		t.Fatalf("managed env leaked unconfigured database URL env: %+v", env)
 	}
 	appBaseEnv := s.appDatabaseAuthorityEnv([]string{
-		"APP_DATABASE_URL=postgres://localhost/stale",
-		appDatabaseURLEnv + "=postgres://localhost/stale-default",
-		legacyDatabaseURLEnv + "=postgres://localhost/poison",
+		"APP_DATABASE_URL=sqlite:///stale.sqlite",
+		appDatabaseURLEnv + "=sqlite:///default-stale.sqlite",
+		legacyDatabaseURLEnv + "=sqlite:///poison.sqlite",
 	})
 	for _, key := range []string{"APP_DATABASE_URL=", appDatabaseURLEnv + "=", legacyDatabaseURLEnv + "="} {
 		if envValueFromList(appBaseEnv, strings.TrimSuffix(key, "=")) != "" {
@@ -752,38 +645,8 @@ func TestManagedAppEnvUsesConfiguredPostgresBranchDatabaseURLEnv(t *testing.T) {
 		}
 	}
 	setupEnv := managedDatabaseSetupEnv(s.cfg, env)
-	if !containsString(setupEnv, appDatabaseURLEnv+"=postgres://scenery:secret@127.0.0.1:55435/demo_demo_feature_a?sslmode=disable") {
+	if !containsString(setupEnv, "APP_DATABASE_URL="+wantURL) {
 		t.Fatalf("setup env missing canonical database URL: %+v", setupEnv)
-	}
-}
-
-func TestManagedAppEnvSkipsBranchingWhenExternalPostgresIsConfigured(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	s := &devSupervisor{
-		root: root,
-		cfg: app.Config{
-			Name: "demo",
-			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-				"postgres": {Kind: "postgres", Mode: "local", Isolation: "database", Project: "demo"},
-			}},
-		},
-		status:       devdash.AppRecord{ID: "demo"},
-		agentSession: &localagent.Session{SessionID: "review-a", BaseAppID: "demo"},
-	}
-	env, err := s.managedAppEnv(context.Background(), []string{
-		devPostgresExternalEnv + "=1",
-		appDatabaseURLEnv + "=postgres://localhost/external",
-	})
-	if err != nil {
-		t.Fatalf("managedAppEnv external: %v", err)
-	}
-	if len(env) != 0 {
-		t.Fatalf("managedAppEnv external env = %+v", env)
-	}
-	if _, ok, err := readWorktreeDBPin(worktreeDBPinPath(root)); err != nil || ok {
-		t.Fatalf("external mode wrote branch pin ok=%v err=%v", ok, err)
 	}
 }
 
@@ -860,7 +723,7 @@ func TestTypeScriptWorkerEnvUsesTemporalAndSessionOverrides(t *testing.T) {
 		cfg: app.Config{
 			Name: "demo",
 			Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-				"postgres": {Kind: "postgres"},
+				"main": {Kind: "sqlite"},
 			}},
 			Temporal: app.TemporalConfig{
 				Enabled: true,
@@ -881,12 +744,12 @@ func TestTypeScriptWorkerEnvUsesTemporalAndSessionOverrides(t *testing.T) {
 		[]string{
 			"TEMPORAL_ADDRESS=old:7233",
 			"SCENERY_BUILD_ID=old-build",
-			legacyDatabaseURLEnv + "=postgres://localhost/poison",
-			appDatabaseURLEnv + "=postgres://localhost/stale",
+			legacyDatabaseURLEnv + "=sqlite:///poison.sqlite",
+			appDatabaseURLEnv + "=sqlite:///stale.sqlite",
 		},
 		[]string{
-			appDatabaseURLEnv + "=postgres://localhost/managed",
-			"SCENERY_MANAGED_DATABASE_NAME=demo_session",
+			appDatabaseURLEnv + "=sqlite:///tmp/managed.sqlite",
+			"MAIN_DATABASE_URL=sqlite:///tmp/managed.sqlite",
 		},
 	)
 	for _, want := range []string{
@@ -900,8 +763,8 @@ func TestTypeScriptWorkerEnvUsesTemporalAndSessionOverrides(t *testing.T) {
 		"SCENERY_TEMPORAL_DEPLOYMENT_NAME=scenery-demo-feature-a-123abc",
 		"SCENERY_BUILD_ID=feature-a-123abc",
 		"SCENERY_SESSION_ID=feature-a-123abc",
-		appDatabaseURLEnv + "=postgres://localhost/managed",
-		"SCENERY_MANAGED_DATABASE_NAME=demo_session",
+		appDatabaseURLEnv + "=sqlite:///tmp/managed.sqlite",
+		"MAIN_DATABASE_URL=sqlite:///tmp/managed.sqlite",
 	} {
 		if !containsString(env, want) {
 			t.Fatalf("typeScriptWorkerEnv() = %v, missing %q", env, want)

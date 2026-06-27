@@ -397,17 +397,16 @@ go test ./cron ./internal/parse ./internal/codegen
 
 Common failure: relying on wall-clock behavior in unit tests. Keep cron tests deterministic.
 
-## pgxpool Tracing
+## SQLite DB Helper
 
-Use `scenery.sh/pgxpool` when you want PostgreSQL operations to appear in scenery local traces.
-
-For the default app database, prefer `scenery.sh/db` so services share one traced pool selected by `dev.services.postgres.database_url_env`:
+For the default app database, prefer `scenery.sh/db` so services share one `*sql.DB` selected by the managed SQLite service's `database_url_env`:
 
 ```go
 package api
 
 import (
 	"context"
+	"database/sql"
 
 	"example.com/app/db/queries"
 	scenerydb "scenery.sh/db"
@@ -415,18 +414,19 @@ import (
 
 type Service struct {
 	q *queries.Queries
+	db *sql.DB
 }
 
 func initService(ctx context.Context) (*Service, error) {
-	pool, err := scenerydb.Get(ctx)
+	db, err := scenerydb.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &Service{q: queries.New(pool)}, nil
+	return &Service{q: queries.New(db), db: db}, nil
 }
 ```
 
-`scenery.sh/db` is intentionally scoped to the configured default Postgres database. Use `scenery.sh/pgxpool` directly for explicit secondary databases.
+`scenery.sh/db` is intentionally scoped to the configured default managed SQLite database.
 
 Validate:
 
@@ -570,7 +570,8 @@ The DB lifecycle split is:
 scenery db apply
 scenery db seed
 scenery db setup
-scenery db postgres status --json
+scenery db list --json
+scenery db shell
 scenery db branch status --json
 scenery db branch checkout feature/my-branch --json
 scenery db branch list --json
@@ -585,11 +586,11 @@ During `scenery up`, the supervisor runs this DB setup lifecycle before starting
 
 `SERVICE/db/seed.sql` is data, not Atlas schema input and not SQLC input. The first seed implementation fails closed when a previously-applied seed changes or destructive seed SQL is detected, rather than offering force or reseed escape hatches.
 
-For managed branch configs, app config can declare `dev.services.postgres.kind: "postgres"` with `mode: "local"` and `isolation: "database"`. `scenery db postgres start --json` prepares the shared local Postgres dev cell, `scenery db postgres status --json` inspects it, and `scenery db branch checkout <name> --json` writes `.scenery/worktree-db.json`, ensures the parent template database exists, creates or reuses the branch database through template database cloning, and records redacted endpoint metadata. `scenery db branch list --json` reads Scenery-owned local leases from `branches.json`, and `scenery db branch status --json` can report missing, expired, protected, or ready local leases. A ready lease may expose redacted endpoint metadata so `scenery up`, `scenery db psql`, DB setup, and sync can synthesize a process-local `DatabaseURL`. Missing, expired, protected, or endpoint-less leases fail explicitly. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes the lease, `expire` updates local registry metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, `scenery down --state` removes the local worktree pin, and `scenery worktree create <name> --json` creates a Git worktree, writes the target pin, and runs branch-provider ensure. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` when that live proof is intentionally out of scope.
+For managed branch configs, app config declares `dev.services.<name>.kind: "sqlite"`. `scenery db branch checkout <name> --json` writes `.scenery/worktree-db.json`, ensures the parent database file exists, creates or reuses the branch database file, and records redacted endpoint metadata. `scenery db branch list --json` reads Scenery-owned local leases from `branches.json`, and `scenery db branch status --json` can report missing, expired, protected, or ready local leases. A ready lease may expose redacted endpoint metadata so `scenery up`, `scenery db shell`, DB setup, and sync can synthesize process-local database env values. Missing, expired, protected, or endpoint-less leases fail explicitly. `reset` recopies from the parent, `delete` drops the branch database and removes the lease, `expire` updates local registry metadata, `prune` removes expired non-current branch databases, `scenery down --state` removes the local worktree pin, and `scenery worktree create <name> --json` creates a Git worktree, writes the target pin, and runs branch-provider ensure. The default `scenery harness self --json --write` path includes the live SQLite branch lifecycle proof; use `--quick` when that live proof is intentionally out of scope.
 
 ## sync Txid Observation
 
-For sync-backed writes, call generated TypeScript `WithMeta` methods so the response headers and parsed `txid` are available. Treat the API mutation and sync observation as separate phases: once the HTTP response is successful and contains `X-Txid`, the mutation committed; a later `awaitTxId` timeout or sync/Postgres error is a sync observation failure. Wrap the app's observer with generated `observeAPIResponseTxid(response, observer, context)` to get `SyncObservationError` diagnostics that include txid, app/session, API URL, sync URL or stream context, and the observer error.
+For sync-backed writes, call generated TypeScript `WithMeta` methods so the response headers and parsed `txid` are available. Treat the API mutation and sync observation as separate phases: once the HTTP response is successful and contains `X-Txid`, the mutation committed; a later `awaitTxId` timeout or sync error is a sync observation failure. Wrap the app's observer with generated `observeAPIResponseTxid(response, observer, context)` to get `SyncObservationError` diagnostics that include txid, app/session, API URL, sync URL or stream context, and the observer error.
 
 ## Agent Routes And Frontends
 
@@ -645,7 +646,7 @@ scenery metrics list --json --since 1h
 scenery metrics query --json --since 15m --step 5s --promql 'scenery_request_duration_seconds'
 ```
 
-`scenery inspect models --json` and `scenery inspect views --json` expose the beta static IR from `//scenery:model`, `scenery.sh/model`, `//scenery:page`, and `scenery.sh/page`. Model records include source ownership metadata; `model.Table("tasks")` means a generated Scenery-owned table in the service schema, while `model.ExistingTable("legacy", "customers")` binds to an existing physical table, skips generated schema/seed ownership, and allows generated list/get only. View records include each collection page's projection as model/view IR: source row type, projection record type, projected fields, static column display hints, static filters, and static sorts. Use them to check parser-visible model/page shape. `scenery generate data --dry-run --json` writes desired Atlas HCL to `.scenery/gen/db/<service>/schema.hcl`, seed SQL to `.scenery/gen/db/<service>/seed.sql`, and beta frontend model/view packages to `.scenery/gen/web/<frontend>/` when collection pages and configured frontends exist. Generated model DB artifacts use the app-owned `<service>` schema, so seed SQL, generated CRUD SQL, and sync shape metadata target the same schema-qualified table instead of `public`; existing-table entities use their explicit schema-qualified table for read-only code and sync shape metadata without emitting generated DB ownership artifacts. Those frontend packages include typed storage rows, page projection records in `projections.ts`, sync shape definitions, collection descriptors with static filter/sort/display metadata, runtime adapter factories, default page components, route factories, and `registerGeneratedRoutes`; app code still owns the production router, sync client, TanStack DB instance, and layout-kit implementation. Mount a generated read-only page by declaring the entity/page in Go, running `scenery generate data --dry-run --json`, pointing a frontend alias such as `@scenery/generated` at `.scenery/gen/web/<frontend>/index.ts`, importing the generated page or route from that alias, mounting it, and running the host typecheck/render or build command. `scenery db diff --generated --json` compares generated desired schema with the app-owned `SERVICE/db/schema.hcl`; `scenery check --json` reports `model-schema` diagnostics when generated-source schemas drift. Model CRUD actions declared with `model.Generate` appear in `scenery inspect endpoints --json` with `"generated": true`; generated CRUD endpoints default to `auth`, generated CRUD route bases default to `/<service>/<table>`, and generated routes fail check on reserved prefixes (`/__scenery`, `/api`, `/sync`) or handwritten/generated route collisions. Generated list endpoints default to `limit=100`, accept `limit` up to 500 plus non-negative `offset`, and reject invalid values before querying. Generated create/patch payloads accept both response field names such as `CreatedAt` and DB-column JSON names such as `created_at`, so `time.Time` fields round-trip RFC3339 timestamps or fail decode with a field-scoped error. Generated CRUD stores share one package-level pgx pool for the configured app database URL env, defaulting to `DatabaseURL`, or Scenery's managed database env. Tenant-shaped generated CRUD is scoped to the active standard-auth tenant, with tenant fields limited to `string`, named string types, or `github.com/google/uuid.UUID`.
+`scenery inspect models --json` and `scenery inspect views --json` expose the beta static IR from `//scenery:model`, `scenery.sh/model`, `//scenery:page`, and `scenery.sh/page`. Model records include source ownership metadata; `model.Table("tasks")` means a generated Scenery-owned table in the service schema, while `model.ExistingTable("legacy", "customers")` binds to an existing physical table, skips generated schema/seed ownership, and allows generated list/get only. View records include each collection page's projection as model/view IR: source row type, projection record type, projected fields, static column display hints, static filters, and static sorts. Use them to check parser-visible model/page shape. `scenery generate data --dry-run --json` writes desired Atlas HCL to `.scenery/gen/db/<service>/schema.hcl`, seed SQL to `.scenery/gen/db/<service>/seed.sql`, and beta frontend model/view packages to `.scenery/gen/web/<frontend>/` when collection pages and configured frontends exist. Generated model DB artifacts use the app-owned `<service>` schema, so seed SQL, generated CRUD SQL, and sync shape metadata target the same schema-qualified table instead of `public`; existing-table entities use their explicit schema-qualified table for read-only code and sync shape metadata without emitting generated DB ownership artifacts. Those frontend packages include typed storage rows, page projection records in `projections.ts`, sync shape definitions, collection descriptors with static filter/sort/display metadata, runtime adapter factories, default page components, route factories, and `registerGeneratedRoutes`; app code still owns the production router, sync client, TanStack DB instance, and layout-kit implementation. Mount a generated read-only page by declaring the entity/page in Go, running `scenery generate data --dry-run --json`, pointing a frontend alias such as `@scenery/generated` at `.scenery/gen/web/<frontend>/index.ts`, importing the generated page or route from that alias, mounting it, and running the host typecheck/render or build command. `scenery db diff --generated --json` compares generated desired schema with the app-owned `SERVICE/db/schema.hcl`; `scenery check --json` reports `model-schema` diagnostics when generated-source schemas drift. Model CRUD actions declared with `model.Generate` appear in `scenery inspect endpoints --json` with `"generated": true`; generated CRUD endpoints default to `auth`, generated CRUD route bases default to `/<service>/<table>`, and generated routes fail check on reserved prefixes (`/__scenery`, `/api`, `/sync`) or handwritten/generated route collisions. Generated list endpoints default to `limit=100`, accept `limit` up to 500 plus non-negative `offset`, and reject invalid values before querying. Generated create/patch payloads accept both response field names such as `CreatedAt` and DB-column JSON names such as `created_at`, so `time.Time` fields round-trip RFC3339 timestamps or fail decode with a field-scoped error. Generated CRUD stores share one package-level `database/sql` connection for the configured app database URL env, defaulting to `DatabaseURL`, or Scenery's managed database env. Tenant-shaped generated CRUD is scoped to the active standard-auth tenant, with tenant fields limited to `string`, named string types, or `github.com/google/uuid.UUID`.
 
 For generated paths:
 

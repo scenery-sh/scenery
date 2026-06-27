@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 )
 
@@ -58,7 +60,7 @@ func dbLeaseMatchesBranchForDelete(lease dbBranchLease, current worktreeDBPin, b
 }
 
 func isSceneryOwnedDBPin(pin worktreeDBPin) bool {
-	return pin.Provider == postgresBranchProviderName && pin.CreatedBy == "scenery"
+	return pin.Provider == sqliteBranchProviderName && pin.CreatedBy == "scenery"
 }
 
 func isSceneryOwnedDBLease(lease dbBranchLease) bool {
@@ -99,7 +101,7 @@ func registryPins(registry dbBranchRegistry, cfg appcfg.Config) []worktreeDBPin 
 func registryListLeases(ctx context.Context, registry dbBranchRegistry, cfg appcfg.Config) []dbBranchListLease {
 	project := branchProjectForConfig(cfg)
 	leases := make([]dbBranchListLease, 0, len(registry.Leases))
-	provider := postgresBranchProvider{cfg: cfg}
+	provider := sqliteBranchProvider{cfg: cfg}
 	for _, lease := range registry.Leases {
 		if !isSceneryOwnedDBLease(lease) {
 			continue
@@ -113,11 +115,11 @@ func registryListLeases(ctx context.Context, registry dbBranchRegistry, cfg appc
 }
 
 func readBranchRegistryForConfig(appcfg.Config) (dbBranchRegistry, string, error) {
-	return readPostgresBranchRegistryForDefaultRoot()
+	return readSQLiteBranchRegistryForDefaultRoot()
 }
 
 func branchProjectForConfig(cfg appcfg.Config) string {
-	if _, svc, ok := managedPostgresDeclared(cfg); ok {
+	if _, svc, ok := managedSQLiteDeclared(cfg); ok {
 		if project := sanitizeDBIdentifier(svc.Project); project != "" {
 			return project
 		}
@@ -125,7 +127,7 @@ func branchProjectForConfig(cfg appcfg.Config) string {
 	return sanitizeDBIdentifier(firstNonEmpty(cfg.AppID(), "app"))
 }
 
-func dbBranchListLeaseFromRegistryLease(ctx context.Context, provider postgresBranchProvider, lease dbBranchLease) dbBranchListLease {
+func dbBranchListLeaseFromRegistryLease(ctx context.Context, provider sqliteBranchProvider, lease dbBranchLease) dbBranchListLease {
 	backend := provider.InspectBranch(ctx, lease.Pin)
 	return dbBranchListLease{
 		Pin:       lease.Pin,
@@ -152,19 +154,106 @@ func resolveBranchCommandTarget(appRoot string, cfg appcfg.Config, opts dbBranch
 	return worktreeDBPin{}, fmt.Errorf("no db branch target supplied and no worktree database branch pin exists")
 }
 
-func expireDBBranchLease(pin worktreeDBPin, expiresAt time.Time) error {
-	return expirePostgresBranchLease(pin, expiresAt)
+func sqliteBranchRegistryRoot() (string, error) {
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(paths.AgentDir, "sqlite"), nil
 }
 
-func expirePostgresBranchLease(pin worktreeDBPin, expiresAt time.Time) error {
-	root, err := postgresSubstrateRoot()
+func readSQLiteBranchRegistryForDefaultRoot() (dbBranchRegistry, string, error) {
+	root, err := sqliteBranchRegistryRoot()
+	if err != nil {
+		return dbBranchRegistry{}, "", err
+	}
+	path := dbBranchRegistryPath(root)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return dbBranchRegistry{SchemaVersion: dbBranchRegistrySchemaVersion, Provider: sqliteBranchProviderName}, path, nil
+	}
+	if err != nil {
+		return dbBranchRegistry{}, path, err
+	}
+	registry, err := decodeBranchRegistry(path, data)
+	return registry, path, err
+}
+
+func mutateSQLiteBranchRegistry(root string, mutate func(*dbBranchRegistry) error) error {
+	path := dbBranchRegistryPath(root)
+	registry, _, err := readSQLiteBranchRegistryForDefaultRoot()
+	if err != nil {
+		return err
+	}
+	registry.SchemaVersion = dbBranchRegistrySchemaVersion
+	registry.Provider = sqliteBranchProviderName
+	if err := mutate(&registry); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	return writeBranchRegistryFile(path, registry)
+}
+
+func upsertSQLiteBranchLease(pin worktreeDBPin, endpoint *dbBranchEndpoint, status string) error {
+	root, err := sqliteBranchRegistryRoot()
+	if err != nil {
+		return err
+	}
+	return mutateSQLiteBranchRegistry(root, func(registry *dbBranchRegistry) error {
+		now := time.Now().UTC().Format(time.RFC3339)
+		for i := range registry.Leases {
+			if sameDBBranchLease(registry.Leases[i].Pin, pin) {
+				registry.Leases[i].Pin = pin
+				registry.Leases[i].Endpoint = endpoint
+				registry.Leases[i].Status = status
+				registry.Leases[i].UpdatedAt = now
+				registry.UpdatedAt = now
+				return nil
+			}
+		}
+		registry.Leases = append(registry.Leases, dbBranchLease{
+			Pin:       pin,
+			Status:    status,
+			Endpoint:  endpoint,
+			CreatedAt: now,
+			UpdatedAt: now,
+			ExpiresAt: dbBranchLeaseExpiresAt(time.Now().UTC(), pin.TTL),
+		})
+		registry.UpdatedAt = now
+		return nil
+	})
+}
+
+func deleteSQLiteBranchLease(pin worktreeDBPin) error {
+	root, err := sqliteBranchRegistryRoot()
+	if err != nil {
+		return err
+	}
+	return mutateSQLiteBranchRegistry(root, func(registry *dbBranchRegistry) error {
+		kept := registry.Leases[:0]
+		for _, lease := range registry.Leases {
+			if sameDBBranchLease(lease.Pin, pin) || sameDBBranch(lease.Pin, pin) {
+				continue
+			}
+			kept = append(kept, lease)
+		}
+		registry.Leases = kept
+		registry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		return nil
+	})
+}
+
+func expireDBBranchLease(pin worktreeDBPin, expiresAt time.Time) error {
+	root, err := sqliteBranchRegistryRoot()
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(pin.Project) == "" || strings.TrimSpace(pin.Branch) == "" {
-		return fmt.Errorf("db branch expire requires a resolved Postgres project and branch")
+		return fmt.Errorf("db branch expire requires a resolved sqlite project and branch")
 	}
-	return mutatePostgresBranchRegistry(root, func(registry *dbBranchRegistry) error {
+	return mutateSQLiteBranchRegistry(root, func(registry *dbBranchRegistry) error {
 		nowText := time.Now().UTC().Format(time.RFC3339)
 		var found bool
 		for i := range registry.Leases {
@@ -179,7 +268,7 @@ func expirePostgresBranchLease(pin worktreeDBPin, expiresAt time.Time) error {
 			found = true
 		}
 		if !found {
-			return fmt.Errorf("no Scenery-owned local Postgres branch lease found for %q in project %q", pin.Branch, pin.Project)
+			return fmt.Errorf("no Scenery-owned local sqlite branch lease found for %q in project %q", pin.Branch, pin.Project)
 		}
 		registry.UpdatedAt = nowText
 		return nil
@@ -187,27 +276,18 @@ func expirePostgresBranchLease(pin worktreeDBPin, expiresAt time.Time) error {
 }
 
 func pruneExpiredDBBranchLeases(cfg appcfg.Config, project, currentBranchID string, olderThan time.Duration) (int, error) {
-	root, err := postgresSubstrateRoot()
+	root, err := sqliteBranchRegistryRoot()
 	if err != nil {
 		return 0, err
 	}
-	adminURL := ""
-	if value, err := (postgresBranchProvider{cfg: cfg}).adminURL(context.Background()); err == nil {
-		adminURL = value
-	}
 	now := time.Now().UTC()
 	var pruned int
-	err = mutatePostgresBranchRegistry(root, func(registry *dbBranchRegistry) error {
+	err = mutateSQLiteBranchRegistry(root, func(registry *dbBranchRegistry) error {
 		kept := make([]dbBranchLease, 0, len(registry.Leases))
 		for _, lease := range registry.Leases {
 			if !isSceneryOwnedDBLease(lease) || lease.Pin.Project != project || lease.Pin.BranchID == currentBranchID || !shouldPruneDBLease(lease, now, olderThan) {
 				kept = append(kept, lease)
 				continue
-			}
-			if adminURL != "" && lease.Status == "ready" && strings.TrimSpace(lease.Pin.Database) != "" {
-				if err := dropManagedPostgresDatabase(context.Background(), adminURL, lease.Pin.Database); err != nil {
-					return err
-				}
 			}
 			pruned++
 		}
@@ -240,12 +320,12 @@ func removeCurrentDBBranchLease(appRoot string, cfg appcfg.Config) (string, bool
 	if !isSceneryOwnedDBPin(pin) {
 		return "", false, nil
 	}
-	root, err := postgresSubstrateRoot()
+	root, err := sqliteBranchRegistryRoot()
 	if err != nil {
 		return "", false, err
 	}
 	removed := false
-	if err := mutatePostgresBranchRegistry(root, func(registry *dbBranchRegistry) error {
+	if err := mutateSQLiteBranchRegistry(root, func(registry *dbBranchRegistry) error {
 		kept := registry.Leases[:0]
 		for _, lease := range registry.Leases {
 			if sameDBBranchLease(lease.Pin, pin) {

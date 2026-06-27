@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -13,12 +14,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/sqlitedb"
 )
 
 type dbSeedOptions struct {
@@ -74,11 +74,15 @@ type databaseSeedStore interface {
 }
 
 var openDatabaseSeedStore = func(ctx context.Context, databaseURL string) (databaseSeedStore, error) {
-	conn, err := pgx.Connect(ctx, databaseURL)
+	path, err := sqlitedb.ParseURL(databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	return &pgxDatabaseSeedStore{conn: conn}, nil
+	db, err := sqlitedb.Open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return &sqliteDatabaseSeedStore{db: db}, nil
 }
 
 func dbSeedCommand(args []string) error {
@@ -259,6 +263,9 @@ func emptyDBSeedResult(appRoot string, cfg appcfg.Config, opts dbSeedOptions) db
 }
 
 func discoverDBSeedPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan, error) {
+	if !cfg.Database.Seed.IsEnabled() {
+		return nil, nil
+	}
 	if err := ensureGeneratedDataArtifacts(appRoot, cfg); err != nil {
 		return nil, err
 	}
@@ -577,34 +584,33 @@ func renderDBSeedText(stdout io.Writer, result dbSeedResult) {
 	)
 }
 
-type pgxDatabaseSeedStore struct {
-	conn *pgx.Conn
+type sqliteDatabaseSeedStore struct {
+	db *sql.DB
 }
 
-func (s *pgxDatabaseSeedStore) Close(ctx context.Context) error {
-	if s == nil || s.conn == nil {
+func (s *sqliteDatabaseSeedStore) Close(context.Context) error {
+	if s == nil || s.db == nil {
 		return nil
 	}
-	return s.conn.Close(ctx)
+	return s.db.Close()
 }
 
-func (s *pgxDatabaseSeedStore) EnsureLedger(ctx context.Context) error {
-	_, err := s.conn.Exec(ctx, `
-create schema if not exists scenery_internal;
-create table if not exists scenery_internal.seed_runs (
+func (s *sqliteDatabaseSeedStore) EnsureLedger(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+create table if not exists scenery_internal_seed_runs (
   app_id text not null,
   path text not null,
   sha256 text not null,
-  applied_at timestamptz not null default now(),
+  applied_at datetime not null default current_timestamp,
   primary key (app_id, path)
 )`)
 	return err
 }
 
-func (s *pgxDatabaseSeedStore) LookupSeed(ctx context.Context, appID, path string) (string, bool, error) {
+func (s *sqliteDatabaseSeedStore) LookupSeed(ctx context.Context, appID, path string) (string, bool, error) {
 	var hash string
-	err := s.conn.QueryRow(ctx, `select sha256 from scenery_internal.seed_runs where app_id = $1 and path = $2`, appID, path).Scan(&hash)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err := s.db.QueryRowContext(ctx, `select sha256 from scenery_internal_seed_runs where app_id = ? and path = ?`, appID, path).Scan(&hash)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
 	if err != nil {
@@ -613,21 +619,21 @@ func (s *pgxDatabaseSeedStore) LookupSeed(ctx context.Context, appID, path strin
 	return hash, true, nil
 }
 
-func (s *pgxDatabaseSeedStore) ApplySeed(ctx context.Context, appID, path, hash, sql string) error {
-	tx, err := s.conn.Begin(ctx)
+func (s *sqliteDatabaseSeedStore) ApplySeed(ctx context.Context, appID, path, hash, script string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
-	if strings.TrimSpace(sql) != "" {
-		if _, err := tx.Exec(ctx, sql); err != nil {
+	if strings.TrimSpace(script) != "" {
+		if _, err := tx.ExecContext(ctx, script); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.Exec(ctx, `insert into scenery_internal.seed_runs (app_id, path, sha256) values ($1, $2, $3)`, appID, path, hash); err != nil {
+	if _, err := tx.ExecContext(ctx, `insert into scenery_internal_seed_runs (app_id, path, sha256) values (?, ?, ?)`, appID, path, hash); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return tx.Commit()
 }

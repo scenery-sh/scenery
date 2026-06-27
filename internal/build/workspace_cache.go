@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/format"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -260,13 +258,6 @@ func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceF
 	next := make(map[string][]byte, len(gen.Rewritten)+len(gen.Generated))
 	for rel, data := range gen.Rewritten {
 		rel = filepath.ToSlash(rel)
-		if filepath.Ext(rel) == ".go" {
-			var err error
-			data, err = rewriteSceneryImports(filepath.Join(appRoot, rel), data)
-			if err != nil {
-				return nil, err
-			}
-		}
 		next[rel] = data
 	}
 	for rel, data := range gen.Generated {
@@ -304,54 +295,4 @@ func sortedKeys(set map[string]struct{}) []string {
 	}
 	sort.Strings(paths)
 	return paths
-}
-
-func rewriteSceneryImports(path string, src []byte) ([]byte, error) {
-	text := string(src)
-	needsPGXPoolRewrite := strings.Contains(text, "github.com/jackc/pgx/v5/pgxpool")
-	if !needsPGXPoolRewrite {
-		return src, nil
-	}
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
-	if err != nil {
-		return nil, err
-	}
-
-	changed := false
-	if rewriteImportPath(file, "github.com/jackc/pgx/v5/pgxpool", "scenery.sh/pgxpool", "") {
-		changed = true
-	}
-
-	if !changed {
-		return src, nil
-	}
-
-	out, err := format.Source(renderAST(fset, file))
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func rewriteImportPath(file *ast.File, oldPath, newPath, alias string) bool {
-	changed := false
-	for _, imp := range file.Imports {
-		if strings.Trim(imp.Path.Value, "\"") != oldPath {
-			continue
-		}
-		imp.Path.Value = fmt.Sprintf("%q", newPath)
-		if alias != "" && imp.Name == nil {
-			imp.Name = ast.NewIdent(alias)
-		}
-		changed = true
-	}
-	return changed
-}
-
-func renderAST(fset *token.FileSet, file *ast.File) []byte {
-	var buf strings.Builder
-	_ = format.Node(&buf, fset, file)
-	return []byte(buf.String())
 }

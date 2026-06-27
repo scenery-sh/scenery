@@ -881,7 +881,6 @@ func generatorFingerprintPaths() []string {
 		"internal/wire",
 		"internal/wiremodel",
 		"middleware",
-		"pgxpool",
 		"rlog",
 		"runtime",
 		"temporal",
@@ -1301,12 +1300,6 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if filepath.Ext(src) == ".go" {
-		data, err = rewriteSceneryImports(src, data)
-		if err != nil {
-			return err
-		}
-	}
 	return os.WriteFile(dst, data, 0o644)
 }
 
@@ -1318,9 +1311,6 @@ func sourceFileData(path, rel string) ([]byte, error) {
 	switch rel {
 	case "go.mod":
 		return patchGoModData(data, app.RepoRoot())
-	}
-	if filepath.Ext(rel) == ".go" {
-		return rewriteSceneryImports(path, data)
 	}
 	return data, nil
 }

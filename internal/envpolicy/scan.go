@@ -134,9 +134,6 @@ func fileScope(rel string) string {
 	if strings.HasPrefix(rel, "docs/") || rel == "README.md" || rel == "AGENTS.md" || rel == "SKILL.md" || rel == "PLANS.md" || rel == "PLAN.md" {
 		return "docs"
 	}
-	if strings.HasPrefix(rel, "internal/testpostgres/") {
-		return "test"
-	}
 	if strings.HasSuffix(rel, "_test.go") || strings.Contains(rel, "_test.") {
 		return "test"
 	}

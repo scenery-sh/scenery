@@ -76,7 +76,7 @@ Generated page code should stay read-only and layout-kit-backed. If there is alr
 
 ## Validation and Acceptance
 
-Run from `/Users/petrbrazdil/Repos/pulse`:
+Run from `/Users/petrbrazdil/Repos/scenery`:
 
 - `go test ./internal/parse ./internal/webgen ./internal/inspect ./internal/codegen ./internal/schemagen ./cmd/scenery`
 - `go test ./...`

@@ -47,7 +47,6 @@ Stable v0 API details live in [docs/local-contract.md](docs/local-contract.md). 
 
 - Go 1.26+
 - Bun, only when working on the dashboard UI or the benchmark fixture
-- `psql`, only when using `scenery db psql`
 
 Run `scenery doctor --json` after install when you want a read-only readiness report for the host, Go toolchain, disk/memory resources, Docker engine reachability, and optional local-development dependencies.
 
@@ -249,7 +248,9 @@ scenery traces clear --json [--app-root <path>]
 scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [-f|--follow] [--jsonl|--json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
-scenery db psql [--app-root <path>] [psql args...]
+scenery db list [--app-root <path>] [--json]
+scenery db path [--app-root <path>] [--service <name>]
+scenery db shell [--app-root <path>] [--service <name>] [sqlite args...]
 scenery db apply [--app-root <path>] [--json]
 scenery db seed [--app-root <path>] [--dry-run] [--json]
 scenery db setup [--app-root <path>] [--json]
@@ -264,14 +265,13 @@ scenery db branch restore --at <timestamp-or-lsn> [--app-root <path>] [--yes]
 scenery db branch diff <branch> [--app-root <path>] [--json]
 scenery db branch expire [<name>] --after <duration> [--app-root <path>] [--json]
 scenery db branch prune [--older-than <duration>] [--app-root <path>] [--json]
-scenery db postgres install|start|status|logs|stop|restart|uninstall [--json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [--json]
 scenery worktree list [--app-root <path>] [--json]
 scenery worktree remove <name> [--app-root <path>] [--db] [--json]
 ```
 
-For managed Postgres branches, `scenery db snapshot create|restore` uses host
-`pg_dump` and `psql` against the ready branch database.
+For managed SQLite branches, `scenery db snapshot create|restore` copies SQL files
+through Scenery's SQLite helper without host database tools.
 
 See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
 
@@ -285,8 +285,7 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary, including generated CRUD action policy, existing table bindings, collection page projections, and static page filter/sort/display metadata, for inspection and generators.
 - `scenery.sh/temporal` exposes workflow/activity declarations and start helpers for the scenery-managed Temporal runtime.
 - `scenery.sh/cron` exposes cron job declarations.
-- `scenery.sh/db` exposes the app's shared default Postgres pool for services and sqlc.
-- `scenery.sh/pgxpool` wraps `pgxpool` with scenery DB tracing.
+- `scenery.sh/db` exposes the app's shared default SQLite `*sql.DB` for services and sqlc.
 - `scenery.sh/et` exposes endpoint/service mocking helpers for tests.
 
 ## TypeScript Client Generation
@@ -307,11 +306,11 @@ The DB lifecycle split uses `scenery db apply` for schema/app database mutation,
 
 `scenery up` runs the setup lifecycle before app startup when DB setup inputs exist, using the same managed `DatabaseURL` that the app receives. Rebuilds skip setup until the apply config or seed file hashes change.
 
-`scenery db postgres install|start|status|logs|stop|restart|uninstall --json` manages the shared local Postgres dev cell. `scenery db branch status --json` inspects the worktree branch pin at `.scenery/worktree-db.json`, and `scenery db branch list --json` lists Scenery-owned local branch leases in `branches.json` under `~/.scenery/agent/postgres/` or the `SCENERY_AGENT_HOME` equivalent. Branch status and list distinguish missing, expired, protected parent, and ready local leases. Ready leases may include redacted endpoint metadata but never raw connection URLs, and protected parent leases do not expose endpoint or app-runtime connection metadata.
+`scenery db branch status --json` inspects the worktree branch pin at `.scenery/worktree-db.json`, and `scenery db branch list --json` lists Scenery-owned local SQLite branch leases in `branches.json` under `~/.scenery/agent/sqlite/` or the `SCENERY_AGENT_HOME` equivalent. Branch status and list distinguish missing, expired, protected parent, and ready local leases. Ready leases expose redacted SQLite file metadata rather than raw connection URLs.
 
-Postgres branch creation is implemented for `dev.services.postgres.kind: "postgres"`, `mode: "local"`, and `isolation: "database"` using template database cloning. `scenery db branch checkout <name> --json` writes the local pin, ensures the parent template database exists, clones or reuses the branch database from that template, and records a ready endpoint. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes the lease, `expire` updates lease metadata, and `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable. `scenery worktree create <name> --json` creates a Git worktree and writes the target Postgres branch pin, rolling the worktree back if pin creation or branch ensure fails. `scenery up`, `scenery db psql`, DB setup, and sync consume ready branch endpoints.
+SQLite branch creation is implemented for `dev.services.<name>.kind: "sqlite"` by copying the parent database file into branch-local state. `scenery db branch checkout <name> --json` writes the local pin, ensures the parent database exists, creates or reuses the branch database file, and records a ready endpoint. `reset` recopies from the parent, `delete` removes the branch file and lease, `expire` updates lease metadata, and `prune` removes expired non-current branch files. `scenery worktree create <name> --json` creates a Git worktree and writes the target SQLite branch pin, rolling the worktree back if pin creation or branch ensure fails. `scenery up`, `scenery db shell`, DB setup, and sync consume ready branch endpoints.
 
-The default self-harness includes the live Postgres branch lifecycle proof.
+The default self-harness includes the live SQLite branch lifecycle proof.
 
 ## Managed Toolchain
 

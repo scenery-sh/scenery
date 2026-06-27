@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scenery.sh/schemas/scenery.db.branch.registry.v2.schema.json",
-  "title": "scenery Postgres branch lease registry",
+  "title": "scenery SQLite branch lease registry",
   "type": "object",
   "required": ["schema_version", "provider", "leases"],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "const": "scenery.db.branch.registry.v2" },
-    "provider": { "const": "postgres" },
+    "provider": { "const": "sqlite" },
     "updated_at": { "type": "string" },
     "leases": {
       "type": "array",
@@ -34,7 +34,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": { "const": "scenery.db.branch.v1" },
-        "provider": { "const": "postgres" },
+        "provider": { "const": "sqlite" },
         "project": { "type": "string", "minLength": 1 },
         "parent_branch": { "type": "string", "minLength": 1 },
         "branch": { "type": "string", "minLength": 1 },

@@ -66,45 +66,6 @@ func TestCopyTreeSkipsHiddenDirsAndBrokenSymlinks(t *testing.T) {
 	}
 }
 
-func TestCopyTreeRewritesPGXPoolImport(t *testing.T) {
-	t.Parallel()
-
-	src := t.TempDir()
-	dst := t.TempDir()
-
-	path := filepath.Join(src, "svc", "db.go")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	const input = `package svc
-
-import "github.com/jackc/pgx/v5/pgxpool"
-
-func Open(conn string) (*pgxpool.Pool, error) {
-	return pgxpool.New(nil, conn)
-}
-`
-	if err := os.WriteFile(path, []byte(input), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := copyTree(src, dst); err != nil {
-		t.Fatalf("copyTree returned error: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(dst, "svc", "db.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	if strings.Contains(got, `"github.com/jackc/pgx/v5/pgxpool"`) {
-		t.Fatalf("expected pgxpool import to be rewritten, got:\n%s", got)
-	}
-	if !strings.Contains(got, `"scenery.sh/pgxpool"`) {
-		t.Fatalf("expected scenery.sh/pgxpool import to be present, got:\n%s", got)
-	}
-}
-
 func TestSeedSceneryGoSumMergesWorkspaceAndRepoSums(t *testing.T) {
 	t.Parallel()
 

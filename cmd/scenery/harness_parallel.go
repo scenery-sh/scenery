@@ -15,6 +15,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/sqlitedb"
 	sceneryruntime "scenery.sh/runtime"
 )
 
@@ -127,19 +128,11 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	}
 	defer restoreB()
 
-	ensuredDBs := map[string]bool{}
-	prevEnsure := ensureManagedPostgresDatabaseFn
-	ensureManagedPostgresDatabaseFn = func(_ context.Context, _ string, dbName string) error {
-		ensuredDBs[dbName] = true
-		return nil
-	}
-	defer func() { ensureManagedPostgresDatabaseFn = prevEnsure }()
-	baseEnv := []string{devPostgresAdminURLEnv + "=postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable"}
-	pgEnvA, err := managedPostgresEnv(ctx, cfgA, sessionA, baseEnv, client)
+	sqliteEnvA, servicesA, err := managedSQLiteEnv(ctx, rootA, cfgA, sessionA)
 	if err != nil {
 		return nil, nil, err
 	}
-	pgEnvB, err := managedPostgresEnv(ctx, cfgB, sessionB, baseEnv, client)
+	sqliteEnvB, servicesB, err := managedSQLiteEnv(ctx, rootB, cfgB, sessionB)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -180,10 +173,10 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 
-	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, pgEnvA, pgEnvB, ensuredDBs, supervisorA.sessionTemporalEnv(), supervisorB.sessionTemporalEnv())
+	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, sqliteEnvA, sqliteEnvB, servicesA, servicesB, supervisorA.sessionTemporalEnv(), supervisorB.sessionTemporalEnv())
 	summary := map[string]any{
 		"sessions":        2,
-		"databases":       len(ensuredDBs),
+		"databases":       len(servicesA) + len(servicesB),
 		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
 		"frontend_routes": []string{sessionA.Routes["web"], sessionB.Routes["web"]},
 		"temporal_queues": []string{envValueFromList(supervisorA.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv), envValueFromList(supervisorB.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv)},
@@ -211,7 +204,7 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 		},
 		Dev: app.DevConfig{
 			Services: map[string]app.DevServiceConfig{
-				"postgres": {Kind: "postgres"},
+				"main": {Kind: "sqlite"},
 			},
 		},
 		Temporal: app.TemporalConfig{Enabled: true},
@@ -268,7 +261,7 @@ func writeHarnessParallelObservability(ctx context.Context, store *devdash.Store
 	return nil
 }
 
-func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, pgEnvA, pgEnvB []string, ensuredDBs map[string]bool, temporalEnvA, temporalEnvB []string) []checkDiagnostic {
+func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, sqliteEnvA, sqliteEnvB []string, servicesA, servicesB []sqlitedb.Service, temporalEnvA, temporalEnvB []string) []checkDiagnostic {
 	var diagnostics []checkDiagnostic
 	check := func(ok bool, message string) {
 		if ok {
@@ -290,8 +283,8 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(routeContainsSession(sessionA.Routes["web"], sessionA.SessionID) && routeContainsSession(sessionB.Routes["web"], sessionB.SessionID) && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
 	check(routeContainsSession(sessionA.Routes[localagent.RouteGrafana], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteGrafana], sessionB.SessionID), "Grafana routes must be session-scoped")
 	check(routeContainsSession(sessionA.Routes[localagent.RouteTemporal], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteTemporal], sessionB.SessionID), "Temporal routes must be session-scoped")
-	check(envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME"), "managed Postgres database names must be distinct")
-	check(len(ensuredDBs) == 2, "managed Postgres must ensure two session databases")
+	check(len(servicesA) == 1 && len(servicesB) == 1 && servicesA[0].Path != "" && servicesB[0].Path != "" && servicesA[0].Path != servicesB[0].Path, "managed SQLite database files must be distinct")
+	check(envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL"), "managed SQLite database URLs must be distinct")
 	check(envValueFromList(temporalEnvA, sceneryruntime.DefaultTemporalTaskQueueEnv) != "" && envValueFromList(temporalEnvA, sceneryruntime.DefaultTemporalTaskQueueEnv) != envValueFromList(temporalEnvB, sceneryruntime.DefaultTemporalTaskQueueEnv), "Temporal task queue prefixes must be distinct")
 	if victoria := (&agentDashboardController{store: store, agent: server}).dashboardVictoria(); victoria == nil || victoria.Endpoint("traces") == "" {
 		check(false, "agent dashboard must read shared Victoria substrate")

@@ -92,7 +92,7 @@ If Tasks requires relationships, computed fields, joins, custom renderers, or mu
 
 ## Validation and Acceptance
 
-Required validation from `/Users/petrbrazdil/Repos/pulse`:
+Required validation from `/Users/petrbrazdil/Repos/scenery`:
 
 - `python3 -m json.tool docs/knowledge.json >/tmp/knowledge.json.check`
 - `python3 -m json.tool docs/schemas/scenery.inspect.views.v1.schema.json >/tmp/views-schema.json.check`
@@ -103,7 +103,7 @@ Required validation from `/Users/petrbrazdil/Repos/pulse`:
 - `env SCENERY_AGENT_HOME=$(mktemp -d) go run ./cmd/scenery inspect views --app-root testdata/apps/model-dsl --json`
 - `env SCENERY_AGENT_HOME=$(mktemp -d) go run ./cmd/scenery generate data --app-root testdata/apps/model-dsl --dry-run --json`
 
-Required fixture frontend validation from `/Users/petrbrazdil/Repos/pulse/testdata/apps/model-dsl/web`:
+Required fixture frontend validation from `/Users/petrbrazdil/Repos/scenery/testdata/apps/model-dsl/web`:
 
 - `npm run typecheck`
 - `npm run build`

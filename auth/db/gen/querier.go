@@ -6,14 +6,12 @@ package authdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	ConsumeOAuthState(ctx context.Context, stateHash string) (SceneryAuthOauthState, error)
 	ConsumeOneTimeToken(ctx context.Context, arg ConsumeOneTimeTokenParams) (SceneryAuthOneTimeToken, error)
-	CountActiveOwners(ctx context.Context, tenantID pgtype.UUID) (int32, error)
+	CountActiveOwners(ctx context.Context, tenantID UUID) (int64, error)
 	CreateAuthEvent(ctx context.Context, arg CreateAuthEventParams) error
 	CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (SceneryAuthAuthIdentity, error)
 	CreateOAuthState(ctx context.Context, arg CreateOAuthStateParams) (SceneryAuthOauthState, error)
@@ -26,18 +24,18 @@ type Querier interface {
 	GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (SceneryAuthOrganizationMembership, error)
 	GetAuthIdentityByProviderSubject(ctx context.Context, arg GetAuthIdentityByProviderSubjectParams) (SceneryAuthAuthIdentity, error)
 	GetEmailIdentityForLogin(ctx context.Context, providerSubject string) (SceneryAuthAuthIdentity, error)
-	GetRefreshSessionByID(ctx context.Context, id pgtype.UUID) (SceneryAuthRefreshSession, error)
-	GetTenantByID(ctx context.Context, id pgtype.UUID) (SceneryAuthTenant, error)
-	GetUserByID(ctx context.Context, id pgtype.UUID) (SceneryAuthUser, error)
+	GetRefreshSessionByID(ctx context.Context, id UUID) (SceneryAuthRefreshSession, error)
+	GetTenantByID(ctx context.Context, id UUID) (SceneryAuthTenant, error)
+	GetUserByID(ctx context.Context, id UUID) (SceneryAuthUser, error)
 	GetUserByNormalizedEmail(ctx context.Context, normalizedPrimaryEmail string) (SceneryAuthUser, error)
-	ListTenantMembers(ctx context.Context, tenantID pgtype.UUID) ([]ListTenantMembersRow, error)
-	ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error)
-	MarkUserEmailVerified(ctx context.Context, id pgtype.UUID) (SceneryAuthUser, error)
+	ListTenantMembers(ctx context.Context, tenantID UUID) ([]ListTenantMembersRow, error)
+	ListUserMemberships(ctx context.Context, userID UUID) ([]ListUserMembershipsRow, error)
+	MarkUserEmailVerified(ctx context.Context, id UUID) (SceneryAuthUser, error)
 	RevokeRefreshSession(ctx context.Context, arg RevokeRefreshSessionParams) error
 	RevokeUserRefreshSessions(ctx context.Context, arg RevokeUserRefreshSessionsParams) error
 	RotateRefreshSession(ctx context.Context, arg RotateRefreshSessionParams) (SceneryAuthRefreshSession, error)
 	SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSessionTenantParams) (SceneryAuthRefreshSession, error)
-	SoftDeleteTenant(ctx context.Context, id pgtype.UUID) (SceneryAuthTenant, error)
+	SoftDeleteTenant(ctx context.Context, id UUID) (SceneryAuthTenant, error)
 	UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIdentityPasswordHashParams) (SceneryAuthAuthIdentity, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (SceneryAuthOrganizationMembership, error)
 	UpdateTenantName(ctx context.Context, arg UpdateTenantNameParams) (SceneryAuthTenant, error)

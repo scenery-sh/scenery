@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/sqlitedb"
 )
 
 func TestParseGenerateArgs(t *testing.T) {
@@ -29,7 +30,7 @@ func TestParseGenerateArgs(t *testing.T) {
 	}
 }
 
-func TestBuildSQLCGeneratorPlanInfersAtlasSource(t *testing.T) {
+func TestBuildSQLCGeneratorPlanUsesSQLCSchemaInput(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -48,12 +49,11 @@ func TestBuildSQLCGeneratorPlanInfersAtlasSource(t *testing.T) {
 	if len(plan.Schemas) != 1 {
 		t.Fatalf("schemas = %+v", plan.Schemas)
 	}
-	if plan.Schemas[0].SQLCSchema != "auth/db/gen/schema.sql" || plan.Schemas[0].AtlasSource != "auth/db/schema.hcl" {
+	if plan.Schemas[0].SQLCSchema != "auth/db/gen/schema.sql" || plan.Schemas[0].AtlasSource != "" {
 		t.Fatalf("schema plan = %+v", plan.Schemas[0])
 	}
-	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/schema.hcl")
+	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/gen/schema.sql")
 	assertStringSliceContains(t, plan.Record.Inputs, "auth/db/queries.sql")
-	assertStringSliceContains(t, plan.Record.Outputs, "auth/db/gen/schema.sql")
 	assertStringSliceContains(t, plan.Record.Outputs, "auth/db/gen")
 }
 
@@ -110,10 +110,8 @@ func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
 		ran = append(ran, req)
 		return nil
 	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
-		if req.Program != "atlas" {
-			t.Fatalf("output command program = %q", req.Program)
-		}
-		return []byte("create schema scenery_auth;\n"), nil
+		t.Fatalf("unexpected output command: %+v", req)
+		return nil, nil
 	})
 	defer restore()
 
@@ -175,9 +173,13 @@ select 1;
 func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
-	plan, ok, err := buildSQLCGeneratorPlan(root, appcfg.Config{Name: "demo"})
-	if err != nil || !ok {
-		t.Fatalf("buildSQLCGeneratorPlan ok=%v err=%v", ok, err)
+	plan := &sqlcGeneratorPlan{
+		ConfigPath: "sqlc.yaml",
+		Schemas: []sqlcSchemaPlan{{
+			SQLCSchema:  "auth/db/gen/schema.sql",
+			AtlasSource: "auth/db/schema.hcl",
+			AtlasDevURL: "sqlite://dev",
+		}},
 	}
 
 	var ran []lifecycleExecRequest
@@ -340,6 +342,26 @@ func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
 	}
 	if len(store.applied) != 0 {
 		t.Fatalf("dry run applied seeds: %+v", store.applied)
+	}
+}
+
+func TestDBSeedDisabledDiscoversNoSeeds(t *testing.T) {
+	root := writeSeedCommandFixture(t)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp","database":{"seed":{"enabled":false}}}`)
+	store := newFakeSeedStore()
+	restore := stubSeedStore(t, store)
+	defer restore()
+
+	var out bytes.Buffer
+	if err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+		t.Fatalf("runDBSeed returned error: %v", err)
+	}
+	var payload dbSeedResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	}
+	if payload.Summary.Planned != 0 || len(payload.Seeds) != 0 || len(store.applied) != 0 {
+		t.Fatalf("payload = %+v applied = %+v", payload, store.applied)
 	}
 }
 
@@ -544,23 +566,41 @@ func TestDBSetupRunsApplyThenSeed(t *testing.T) {
 	}
 }
 
-func TestDBSetupApplyUsesManagedPostgresBranchDatabaseURL(t *testing.T) {
+func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
+	root := writeSeedCommandFixture(t)
+	store := newFakeSeedStore()
+	restoreSeed := stubSeedStore(t, store)
+	defer restoreSeed()
+	restoreExec := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
+		t.Fatal("database apply should not run without database.apply.command")
+		return nil
+	}, nil)
+	defer restoreExec()
+
+	var out bytes.Buffer
+	if err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
+	}
+	var payload dbSetupResult
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	}
+	if payload.Apply.Status != "skipped" || payload.Seed.Summary.Applied != 1 {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestDBSetupApplyUsesManagedSQLiteDatabaseURL(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	t.Setenv(devPostgresAdminURLEnv, "postgres://scenery:secret@127.0.0.1:55432/postgres?sslmode=disable")
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".env", "DatabaseURL=postgres://stale:stale@127.0.0.1:5433/postgres\nDATABASE_URL=postgres://legacy/poison\n")
+	writeTestAppFile(t, root, ".env", "DatabaseURL=sqlite:///stale.sqlite\nDATABASE_URL=sqlite:///legacy-poison.sqlite\n")
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "managedsetup",
   "dev": {
     "services": {
-      "postgres": {
-        "kind": "postgres",
-        "mode": "local",
-        "isolation": "database",
-        "project": "managedsetup",
-        "parent_database": "managedsetup_main",
-        "branch_policy": "manual",
-        "database": "managedsetup"
+      "main": {
+        "kind": "sqlite",
+        "database": "managedsetup.sqlite"
       }
     }
   },
@@ -571,24 +611,6 @@ func TestDBSetupApplyUsesManagedPostgresBranchDatabaseURL(t *testing.T) {
     }
   }
 }`)
-	pin := worktreeDBPin{
-		SchemaVersion: dbBranchPinSchemaVersion,
-		Provider:      postgresBranchProviderName,
-		Project:       "managedsetup",
-		ParentBranch:  "main",
-		Branch:        "feature",
-		BranchID:      "br-local-feature",
-		Database:      "managedsetup_feature",
-		Role:          "scenery",
-		CreatedBy:     "scenery",
-	}
-	if err := writeWorktreeDBPin(root, pin); err != nil {
-		t.Fatalf("writeWorktreeDBPin: %v", err)
-	}
-	endpoint := dbBranchEndpoint{Host: "127.0.0.1", Port: 55432, Database: pin.Database, Role: "scenery", SSLMode: "disable", Source: "postgres"}
-	if err := upsertPostgresBranchLease(pin, &endpoint, "ready"); err != nil {
-		t.Fatalf("upsertPostgresBranchLease: %v", err)
-	}
 	var applyEnv []string
 	restoreExec := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		applyEnv = req.Env
@@ -599,11 +621,11 @@ func TestDBSetupApplyUsesManagedPostgresBranchDatabaseURL(t *testing.T) {
 	if err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
 		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
 	}
-	wantURL := "postgres://scenery:secret@127.0.0.1:55432/managedsetup_feature?sslmode=disable"
-	if !containsEnv(applyEnv, appDatabaseURLEnv+"="+wantURL) || !containsEnv(applyEnv, "SCENERY_MANAGED_DATABASE_URL="+wantURL) || !containsEnv(applyEnv, "SCENERY_MANAGED_DATABASE_NAME=managedsetup_feature") {
+	wantURL := sqlitedb.URLForPath(filepath.Join(root, ".scenery", "sqlite", "local", "managedsetup.sqlite"))
+	if !containsEnv(applyEnv, appDatabaseURLEnv+"="+wantURL) || !containsEnv(applyEnv, "MAIN_DATABASE_URL="+wantURL) {
 		t.Fatalf("apply env missing managed database values: %+v", applyEnv)
 	}
-	if containsEnv(applyEnv, legacyDatabaseURLEnv+"=postgres://legacy/poison") {
+	if containsEnv(applyEnv, legacyDatabaseURLEnv+"=sqlite:///legacy-poison.sqlite") {
 		t.Fatalf("apply env leaked stale %s: %+v", legacyDatabaseURLEnv, applyEnv)
 	}
 }
@@ -729,7 +751,7 @@ func writeSQLCFixture(t *testing.T, root string) {
 	t.Helper()
 	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
 sql:
-  - engine: "postgresql"
+  - engine: "sqlite"
     schema:
       - "auth/db/gen/schema.sql"
     queries:
@@ -739,6 +761,10 @@ sql:
         out: "auth/db/gen"
 `)
 	writeTestAppFile(t, root, "auth/db/schema.hcl", `schema "scenery_auth" {}`)
+	writeTestAppFile(t, root, "auth/db/gen/schema.sql", `create table scenery_auth_ping (
+  id text primary key not null
+);
+`)
 	writeTestAppFile(t, root, "auth/db/queries.sql", `-- name: Ping :one
 select 1;
 `)
@@ -747,8 +773,8 @@ select 1;
 func writeSeedCommandFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp"}`)
-	writeTestAppFile(t, root, ".env", "DATABASE_URL=postgres://localhost/seedapp\n")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp","dev":{"services":{"main":{"kind":"sqlite"}}}}`)
+	writeTestAppFile(t, root, ".env", "DATABASE_URL=sqlite:///poison.sqlite\n")
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 `)
 	return root
@@ -759,6 +785,11 @@ func writeSetupCommandFixture(t *testing.T) string {
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "seedapp",
+  "dev": {
+    "services": {
+      "main": { "kind": "sqlite" }
+    }
+  },
   "database": {
     "apply": {
       "provider": "exec",

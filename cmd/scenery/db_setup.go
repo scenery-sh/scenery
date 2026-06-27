@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	inspectdata "scenery.sh/internal/inspect"
 )
@@ -50,19 +51,23 @@ func runDBSetup(ctx context.Context, stdout io.Writer, args []string) error {
 		},
 	}
 
-	if err := runDatabaseApplyProvider(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
-		result.Apply.Status = "failed"
-		result.Apply.Error = err.Error()
-		if opts.JSON {
-			if writeErr := writeInspectJSON(stdout, result); writeErr != nil {
-				return writeErr
+	if strings.TrimSpace(cfg.Database.Apply.Command) == "" {
+		result.Apply.Status = "skipped"
+	} else {
+		if err := runDatabaseApplyProvider(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
+			result.Apply.Status = "failed"
+			result.Apply.Error = err.Error()
+			if opts.JSON {
+				if writeErr := writeInspectJSON(stdout, result); writeErr != nil {
+					return writeErr
+				}
+			} else {
+				renderDBSetupText(stdout, result)
 			}
-		} else {
-			renderDBSetupText(stdout, result)
+			return err
 		}
-		return err
+		result.Apply.Status = "applied"
 	}
-	result.Apply.Status = "applied"
 
 	seedResult, seedErr := buildDBSeedResult(ctx, appRoot, cfg, dbSeedOptions{})
 	result.Seed = seedResult

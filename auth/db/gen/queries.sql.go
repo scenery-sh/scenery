@@ -7,21 +7,21 @@ package authdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"database/sql"
+	"time"
 )
 
 const consumeOAuthState = `-- name: ConsumeOAuthState :one
-UPDATE scenery_auth.oauth_states
-SET consumed_at = now()
-WHERE state_hash = $1
+UPDATE scenery_auth_oauth_states
+SET consumed_at = CURRENT_TIMESTAMP
+WHERE state_hash = ?
   AND consumed_at IS NULL
-  AND expires_at > now()
+  AND expires_at > CURRENT_TIMESTAMP
 RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at
 `
 
 func (q *Queries) ConsumeOAuthState(ctx context.Context, stateHash string) (SceneryAuthOauthState, error) {
-	row := q.db.QueryRow(ctx, consumeOAuthState, stateHash)
+	row := q.db.QueryRowContext(ctx, consumeOAuthState, stateHash)
 	var i SceneryAuthOauthState
 	err := row.Scan(
 		&i.ID,
@@ -37,12 +37,12 @@ func (q *Queries) ConsumeOAuthState(ctx context.Context, stateHash string) (Scen
 }
 
 const consumeOneTimeToken = `-- name: ConsumeOneTimeToken :one
-UPDATE scenery_auth.one_time_tokens
-SET consumed_at = now()
-WHERE token_hash = $1
-  AND purpose = $2
+UPDATE scenery_auth_one_time_tokens
+SET consumed_at = CURRENT_TIMESTAMP
+WHERE token_hash = ?
+  AND purpose = ?
   AND consumed_at IS NULL
-  AND expires_at > now()
+  AND expires_at > CURRENT_TIMESTAMP
 RETURNING id, purpose, token_hash, user_id, tenant_id, email, normalized_email, metadata, expires_at, consumed_at, created_at
 `
 
@@ -52,7 +52,7 @@ type ConsumeOneTimeTokenParams struct {
 }
 
 func (q *Queries) ConsumeOneTimeToken(ctx context.Context, arg ConsumeOneTimeTokenParams) (SceneryAuthOneTimeToken, error) {
-	row := q.db.QueryRow(ctx, consumeOneTimeToken, arg.TokenHash, arg.Purpose)
+	row := q.db.QueryRowContext(ctx, consumeOneTimeToken, arg.TokenHash, arg.Purpose)
 	var i SceneryAuthOneTimeToken
 	err := row.Scan(
 		&i.ID,
@@ -71,22 +71,22 @@ func (q *Queries) ConsumeOneTimeToken(ctx context.Context, arg ConsumeOneTimeTok
 }
 
 const countActiveOwners = `-- name: CountActiveOwners :one
-SELECT count(*)::int
-FROM scenery_auth.organization_memberships
-WHERE tenant_id = $1
+SELECT count(*)
+FROM scenery_auth_organization_memberships
+WHERE tenant_id = ?
   AND role = 'owner'
   AND disabled_at IS NULL
 `
 
-func (q *Queries) CountActiveOwners(ctx context.Context, tenantID pgtype.UUID) (int32, error) {
-	row := q.db.QueryRow(ctx, countActiveOwners, tenantID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
+func (q *Queries) CountActiveOwners(ctx context.Context, tenantID UUID) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countActiveOwners, tenantID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createAuthEvent = `-- name: CreateAuthEvent :exec
-INSERT INTO scenery_auth.auth_events (
+INSERT INTO scenery_auth_auth_events (
   id,
   event_type,
   user_id,
@@ -97,23 +97,23 @@ INSERT INTO scenery_auth.auth_events (
   user_agent,
   metadata
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateAuthEventParams struct {
-	ID          pgtype.UUID `json:"id"`
-	EventType   string      `json:"event_type"`
-	UserID      pgtype.UUID `json:"user_id"`
-	ActorUserID pgtype.UUID `json:"actor_user_id"`
-	TenantID    pgtype.UUID `json:"tenant_id"`
-	SessionID   pgtype.UUID `json:"session_id"`
-	IpHash      string      `json:"ip_hash"`
-	UserAgent   string      `json:"user_agent"`
-	Metadata    []byte      `json:"metadata"`
+	ID          UUID   `json:"id"`
+	EventType   string `json:"event_type"`
+	UserID      UUID   `json:"user_id"`
+	ActorUserID UUID   `json:"actor_user_id"`
+	TenantID    UUID   `json:"tenant_id"`
+	SessionID   UUID   `json:"session_id"`
+	IpHash      string `json:"ip_hash"`
+	UserAgent   string `json:"user_agent"`
+	Metadata    []byte `json:"metadata"`
 }
 
 func (q *Queries) CreateAuthEvent(ctx context.Context, arg CreateAuthEventParams) error {
-	_, err := q.db.Exec(ctx, createAuthEvent,
+	_, err := q.db.ExecContext(ctx, createAuthEvent,
 		arg.ID,
 		arg.EventType,
 		arg.UserID,
@@ -128,7 +128,7 @@ func (q *Queries) CreateAuthEvent(ctx context.Context, arg CreateAuthEventParams
 }
 
 const createAuthIdentity = `-- name: CreateAuthIdentity :one
-INSERT INTO scenery_auth.auth_identities (
+INSERT INTO scenery_auth_auth_identities (
   id,
   user_id,
   provider,
@@ -137,22 +137,22 @@ INSERT INTO scenery_auth.auth_identities (
   normalized_email,
   password_hash
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 `
 
 type CreateAuthIdentityParams struct {
-	ID              pgtype.UUID `json:"id"`
-	UserID          pgtype.UUID `json:"user_id"`
-	Provider        string      `json:"provider"`
-	ProviderSubject string      `json:"provider_subject"`
-	Email           string      `json:"email"`
-	NormalizedEmail string      `json:"normalized_email"`
-	PasswordHash    string      `json:"password_hash"`
+	ID              UUID   `json:"id"`
+	UserID          UUID   `json:"user_id"`
+	Provider        string `json:"provider"`
+	ProviderSubject string `json:"provider_subject"`
+	Email           string `json:"email"`
+	NormalizedEmail string `json:"normalized_email"`
+	PasswordHash    string `json:"password_hash"`
 }
 
 func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (SceneryAuthAuthIdentity, error) {
-	row := q.db.QueryRow(ctx, createAuthIdentity,
+	row := q.db.QueryRowContext(ctx, createAuthIdentity,
 		arg.ID,
 		arg.UserID,
 		arg.Provider,
@@ -177,7 +177,7 @@ func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentity
 }
 
 const createOAuthState = `-- name: CreateOAuthState :one
-INSERT INTO scenery_auth.oauth_states (
+INSERT INTO scenery_auth_oauth_states (
   id,
   state_hash,
   pkce_verifier,
@@ -185,21 +185,21 @@ INSERT INTO scenery_auth.oauth_states (
   redirect_path,
   expires_at
 )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at
 `
 
 type CreateOAuthStateParams struct {
-	ID           pgtype.UUID        `json:"id"`
-	StateHash    string             `json:"state_hash"`
-	PkceVerifier string             `json:"pkce_verifier"`
-	NonceHash    string             `json:"nonce_hash"`
-	RedirectPath string             `json:"redirect_path"`
-	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+	ID           UUID      `json:"id"`
+	StateHash    string    `json:"state_hash"`
+	PkceVerifier string    `json:"pkce_verifier"`
+	NonceHash    string    `json:"nonce_hash"`
+	RedirectPath string    `json:"redirect_path"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
 func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStateParams) (SceneryAuthOauthState, error) {
-	row := q.db.QueryRow(ctx, createOAuthState,
+	row := q.db.QueryRowContext(ctx, createOAuthState,
 		arg.ID,
 		arg.StateHash,
 		arg.PkceVerifier,
@@ -222,7 +222,7 @@ func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStatePara
 }
 
 const createOneTimeToken = `-- name: CreateOneTimeToken :one
-INSERT INTO scenery_auth.one_time_tokens (
+INSERT INTO scenery_auth_one_time_tokens (
   id,
   purpose,
   token_hash,
@@ -233,24 +233,24 @@ INSERT INTO scenery_auth.one_time_tokens (
   metadata,
   expires_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, purpose, token_hash, user_id, tenant_id, email, normalized_email, metadata, expires_at, consumed_at, created_at
 `
 
 type CreateOneTimeTokenParams struct {
-	ID              pgtype.UUID        `json:"id"`
-	Purpose         string             `json:"purpose"`
-	TokenHash       string             `json:"token_hash"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	TenantID        pgtype.UUID        `json:"tenant_id"`
-	Email           string             `json:"email"`
-	NormalizedEmail string             `json:"normalized_email"`
-	Metadata        []byte             `json:"metadata"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	ID              UUID      `json:"id"`
+	Purpose         string    `json:"purpose"`
+	TokenHash       string    `json:"token_hash"`
+	UserID          UUID      `json:"user_id"`
+	TenantID        UUID      `json:"tenant_id"`
+	Email           string    `json:"email"`
+	NormalizedEmail string    `json:"normalized_email"`
+	Metadata        []byte    `json:"metadata"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }
 
 func (q *Queries) CreateOneTimeToken(ctx context.Context, arg CreateOneTimeTokenParams) (SceneryAuthOneTimeToken, error) {
-	row := q.db.QueryRow(ctx, createOneTimeToken,
+	row := q.db.QueryRowContext(ctx, createOneTimeToken,
 		arg.ID,
 		arg.Purpose,
 		arg.TokenHash,
@@ -279,7 +279,7 @@ func (q *Queries) CreateOneTimeToken(ctx context.Context, arg CreateOneTimeToken
 }
 
 const createOrganizationMembership = `-- name: CreateOrganizationMembership :one
-INSERT INTO scenery_auth.organization_memberships (
+INSERT INTO scenery_auth_organization_memberships (
   id,
   tenant_id,
   user_id,
@@ -287,24 +287,24 @@ INSERT INTO scenery_auth.organization_memberships (
   invited_by_user_id,
   invited_at
 )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (user_id, tenant_id) WHERE disabled_at IS NULL
 DO UPDATE SET role = EXCLUDED.role,
-              updated_at = now()
+              updated_at = CURRENT_TIMESTAMP
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
 `
 
 type CreateOrganizationMembershipParams struct {
-	ID              pgtype.UUID        `json:"id"`
-	TenantID        pgtype.UUID        `json:"tenant_id"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	Role            string             `json:"role"`
-	InvitedByUserID pgtype.UUID        `json:"invited_by_user_id"`
-	InvitedAt       pgtype.Timestamptz `json:"invited_at"`
+	ID              UUID         `json:"id"`
+	TenantID        UUID         `json:"tenant_id"`
+	UserID          UUID         `json:"user_id"`
+	Role            string       `json:"role"`
+	InvitedByUserID UUID         `json:"invited_by_user_id"`
+	InvitedAt       sql.NullTime `json:"invited_at"`
 }
 
 func (q *Queries) CreateOrganizationMembership(ctx context.Context, arg CreateOrganizationMembershipParams) (SceneryAuthOrganizationMembership, error) {
-	row := q.db.QueryRow(ctx, createOrganizationMembership,
+	row := q.db.QueryRowContext(ctx, createOrganizationMembership,
 		arg.ID,
 		arg.TenantID,
 		arg.UserID,
@@ -328,7 +328,7 @@ func (q *Queries) CreateOrganizationMembership(ctx context.Context, arg CreateOr
 }
 
 const createRefreshSession = `-- name: CreateRefreshSession :one
-INSERT INTO scenery_auth.refresh_sessions (
+INSERT INTO scenery_auth_refresh_sessions (
   id,
   user_id,
   token_hash,
@@ -340,25 +340,25 @@ INSERT INTO scenery_auth.refresh_sessions (
   impersonation_id,
   impersonation_reason
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
 `
 
 type CreateRefreshSessionParams struct {
-	ID                  pgtype.UUID        `json:"id"`
-	UserID              pgtype.UUID        `json:"user_id"`
-	TokenHash           string             `json:"token_hash"`
-	ActiveTenantID      pgtype.UUID        `json:"active_tenant_id"`
-	ExpiresAt           pgtype.Timestamptz `json:"expires_at"`
-	UserAgent           string             `json:"user_agent"`
-	IpHash              string             `json:"ip_hash"`
-	ActorUserID         pgtype.UUID        `json:"actor_user_id"`
-	ImpersonationID     pgtype.UUID        `json:"impersonation_id"`
-	ImpersonationReason string             `json:"impersonation_reason"`
+	ID                  UUID      `json:"id"`
+	UserID              UUID      `json:"user_id"`
+	TokenHash           string    `json:"token_hash"`
+	ActiveTenantID      UUID      `json:"active_tenant_id"`
+	ExpiresAt           time.Time `json:"expires_at"`
+	UserAgent           string    `json:"user_agent"`
+	IpHash              string    `json:"ip_hash"`
+	ActorUserID         UUID      `json:"actor_user_id"`
+	ImpersonationID     UUID      `json:"impersonation_id"`
+	ImpersonationReason string    `json:"impersonation_reason"`
 }
 
 func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSessionParams) (SceneryAuthRefreshSession, error) {
-	row := q.db.QueryRow(ctx, createRefreshSession,
+	row := q.db.QueryRowContext(ctx, createRefreshSession,
 		arg.ID,
 		arg.UserID,
 		arg.TokenHash,
@@ -394,18 +394,18 @@ func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSes
 }
 
 const createTenant = `-- name: CreateTenant :one
-INSERT INTO scenery_auth.tenants (id, name)
-VALUES ($1, $2)
+INSERT INTO scenery_auth_tenants (id, name)
+VALUES (?, ?)
 RETURNING id, name, deleted_at, created_at, updated_at
 `
 
 type CreateTenantParams struct {
-	ID   pgtype.UUID `json:"id"`
-	Name string      `json:"name"`
+	ID   UUID   `json:"id"`
+	Name string `json:"name"`
 }
 
 func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (SceneryAuthTenant, error) {
-	row := q.db.QueryRow(ctx, createTenant, arg.ID, arg.Name)
+	row := q.db.QueryRowContext(ctx, createTenant, arg.ID, arg.Name)
 	var i SceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
@@ -418,7 +418,7 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Sce
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO scenery_auth.users (
+INSERT INTO scenery_auth_users (
   id,
   display_name,
   avatar_url,
@@ -426,21 +426,21 @@ INSERT INTO scenery_auth.users (
   normalized_primary_email,
   email_verified_at
 )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	ID                     pgtype.UUID        `json:"id"`
-	DisplayName            string             `json:"display_name"`
-	AvatarUrl              string             `json:"avatar_url"`
-	PrimaryEmail           string             `json:"primary_email"`
-	NormalizedPrimaryEmail string             `json:"normalized_primary_email"`
-	EmailVerifiedAt        pgtype.Timestamptz `json:"email_verified_at"`
+	ID                     UUID         `json:"id"`
+	DisplayName            string       `json:"display_name"`
+	AvatarUrl              string       `json:"avatar_url"`
+	PrimaryEmail           string       `json:"primary_email"`
+	NormalizedPrimaryEmail string       `json:"normalized_primary_email"`
+	EmailVerifiedAt        sql.NullTime `json:"email_verified_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (SceneryAuthUser, error) {
-	row := q.db.QueryRow(ctx, createUser,
+	row := q.db.QueryRowContext(ctx, createUser,
 		arg.ID,
 		arg.DisplayName,
 		arg.AvatarUrl,
@@ -465,21 +465,21 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (Scenery
 }
 
 const disableMembership = `-- name: DisableMembership :one
-UPDATE scenery_auth.organization_memberships
-SET disabled_at = COALESCE(disabled_at, now()),
-    updated_at = now()
-WHERE tenant_id = $1
-  AND user_id = $2
+UPDATE scenery_auth_organization_memberships
+SET disabled_at = COALESCE(disabled_at, CURRENT_TIMESTAMP),
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = ?
+  AND user_id = ?
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
 `
 
 type DisableMembershipParams struct {
-	TenantID pgtype.UUID `json:"tenant_id"`
-	UserID   pgtype.UUID `json:"user_id"`
+	TenantID UUID `json:"tenant_id"`
+	UserID   UUID `json:"user_id"`
 }
 
 func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipParams) (SceneryAuthOrganizationMembership, error) {
-	row := q.db.QueryRow(ctx, disableMembership, arg.TenantID, arg.UserID)
+	row := q.db.QueryRowContext(ctx, disableMembership, arg.TenantID, arg.UserID)
 	var i SceneryAuthOrganizationMembership
 	err := row.Scan(
 		&i.ID,
@@ -497,19 +497,19 @@ func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipPa
 
 const getActiveMembership = `-- name: GetActiveMembership :one
 SELECT id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
-FROM scenery_auth.organization_memberships
-WHERE user_id = $1
-  AND tenant_id = $2
+FROM scenery_auth_organization_memberships
+WHERE user_id = ?
+  AND tenant_id = ?
   AND disabled_at IS NULL
 `
 
 type GetActiveMembershipParams struct {
-	UserID   pgtype.UUID `json:"user_id"`
-	TenantID pgtype.UUID `json:"tenant_id"`
+	UserID   UUID `json:"user_id"`
+	TenantID UUID `json:"tenant_id"`
 }
 
 func (q *Queries) GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (SceneryAuthOrganizationMembership, error) {
-	row := q.db.QueryRow(ctx, getActiveMembership, arg.UserID, arg.TenantID)
+	row := q.db.QueryRowContext(ctx, getActiveMembership, arg.UserID, arg.TenantID)
 	var i SceneryAuthOrganizationMembership
 	err := row.Scan(
 		&i.ID,
@@ -527,9 +527,9 @@ func (q *Queries) GetActiveMembership(ctx context.Context, arg GetActiveMembersh
 
 const getAuthIdentityByProviderSubject = `-- name: GetAuthIdentityByProviderSubject :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
-FROM scenery_auth.auth_identities
-WHERE provider = $1
-  AND provider_subject = $2
+FROM scenery_auth_auth_identities
+WHERE provider = ?
+  AND provider_subject = ?
 `
 
 type GetAuthIdentityByProviderSubjectParams struct {
@@ -538,7 +538,7 @@ type GetAuthIdentityByProviderSubjectParams struct {
 }
 
 func (q *Queries) GetAuthIdentityByProviderSubject(ctx context.Context, arg GetAuthIdentityByProviderSubjectParams) (SceneryAuthAuthIdentity, error) {
-	row := q.db.QueryRow(ctx, getAuthIdentityByProviderSubject, arg.Provider, arg.ProviderSubject)
+	row := q.db.QueryRowContext(ctx, getAuthIdentityByProviderSubject, arg.Provider, arg.ProviderSubject)
 	var i SceneryAuthAuthIdentity
 	err := row.Scan(
 		&i.ID,
@@ -556,13 +556,13 @@ func (q *Queries) GetAuthIdentityByProviderSubject(ctx context.Context, arg GetA
 
 const getEmailIdentityForLogin = `-- name: GetEmailIdentityForLogin :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
-FROM scenery_auth.auth_identities
+FROM scenery_auth_auth_identities
 WHERE provider = 'email'
-  AND provider_subject = $1
+  AND provider_subject = ?
 `
 
 func (q *Queries) GetEmailIdentityForLogin(ctx context.Context, providerSubject string) (SceneryAuthAuthIdentity, error) {
-	row := q.db.QueryRow(ctx, getEmailIdentityForLogin, providerSubject)
+	row := q.db.QueryRowContext(ctx, getEmailIdentityForLogin, providerSubject)
 	var i SceneryAuthAuthIdentity
 	err := row.Scan(
 		&i.ID,
@@ -580,12 +580,12 @@ func (q *Queries) GetEmailIdentityForLogin(ctx context.Context, providerSubject 
 
 const getRefreshSessionByID = `-- name: GetRefreshSessionByID :one
 SELECT id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
-FROM scenery_auth.refresh_sessions
-WHERE id = $1
+FROM scenery_auth_refresh_sessions
+WHERE id = ?
 `
 
-func (q *Queries) GetRefreshSessionByID(ctx context.Context, id pgtype.UUID) (SceneryAuthRefreshSession, error) {
-	row := q.db.QueryRow(ctx, getRefreshSessionByID, id)
+func (q *Queries) GetRefreshSessionByID(ctx context.Context, id UUID) (SceneryAuthRefreshSession, error) {
+	row := q.db.QueryRowContext(ctx, getRefreshSessionByID, id)
 	var i SceneryAuthRefreshSession
 	err := row.Scan(
 		&i.ID,
@@ -611,12 +611,12 @@ func (q *Queries) GetRefreshSessionByID(ctx context.Context, id pgtype.UUID) (Sc
 
 const getTenantByID = `-- name: GetTenantByID :one
 SELECT id, name, deleted_at, created_at, updated_at
-FROM scenery_auth.tenants
-WHERE id = $1
+FROM scenery_auth_tenants
+WHERE id = ?
 `
 
-func (q *Queries) GetTenantByID(ctx context.Context, id pgtype.UUID) (SceneryAuthTenant, error) {
-	row := q.db.QueryRow(ctx, getTenantByID, id)
+func (q *Queries) GetTenantByID(ctx context.Context, id UUID) (SceneryAuthTenant, error) {
+	row := q.db.QueryRowContext(ctx, getTenantByID, id)
 	var i SceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
@@ -630,12 +630,12 @@ func (q *Queries) GetTenantByID(ctx context.Context, id pgtype.UUID) (SceneryAut
 
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
-FROM scenery_auth.users
-WHERE id = $1
+FROM scenery_auth_users
+WHERE id = ?
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (SceneryAuthUser, error) {
-	row := q.db.QueryRow(ctx, getUserByID, id)
+func (q *Queries) GetUserByID(ctx context.Context, id UUID) (SceneryAuthUser, error) {
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
 	var i SceneryAuthUser
 	err := row.Scan(
 		&i.ID,
@@ -654,12 +654,12 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (SceneryAuthU
 
 const getUserByNormalizedEmail = `-- name: GetUserByNormalizedEmail :one
 SELECT id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
-FROM scenery_auth.users
-WHERE normalized_primary_email = $1
+FROM scenery_auth_users
+WHERE normalized_primary_email = ?
 `
 
 func (q *Queries) GetUserByNormalizedEmail(ctx context.Context, normalizedPrimaryEmail string) (SceneryAuthUser, error) {
-	row := q.db.QueryRow(ctx, getUserByNormalizedEmail, normalizedPrimaryEmail)
+	row := q.db.QueryRowContext(ctx, getUserByNormalizedEmail, normalizedPrimaryEmail)
 	var i SceneryAuthUser
 	err := row.Scan(
 		&i.ID,
@@ -691,30 +691,30 @@ SELECT
   u.primary_email,
   u.avatar_url,
   u.disabled_at AS user_disabled_at
-FROM scenery_auth.organization_memberships AS m
-JOIN scenery_auth.users AS u ON u.id = m.user_id
-WHERE m.tenant_id = $1
+FROM scenery_auth_organization_memberships AS m
+JOIN scenery_auth_users AS u ON u.id = m.user_id
+WHERE m.tenant_id = ?
 ORDER BY lower(u.display_name), lower(u.primary_email), m.created_at
 `
 
 type ListTenantMembersRow struct {
-	ID              pgtype.UUID        `json:"id"`
-	TenantID        pgtype.UUID        `json:"tenant_id"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	Role            string             `json:"role"`
-	DisabledAt      pgtype.Timestamptz `json:"disabled_at"`
-	InvitedByUserID pgtype.UUID        `json:"invited_by_user_id"`
-	InvitedAt       pgtype.Timestamptz `json:"invited_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	DisplayName     string             `json:"display_name"`
-	PrimaryEmail    string             `json:"primary_email"`
-	AvatarUrl       string             `json:"avatar_url"`
-	UserDisabledAt  pgtype.Timestamptz `json:"user_disabled_at"`
+	ID              UUID         `json:"id"`
+	TenantID        UUID         `json:"tenant_id"`
+	UserID          UUID         `json:"user_id"`
+	Role            string       `json:"role"`
+	DisabledAt      sql.NullTime `json:"disabled_at"`
+	InvitedByUserID UUID         `json:"invited_by_user_id"`
+	InvitedAt       sql.NullTime `json:"invited_at"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
+	DisplayName     string       `json:"display_name"`
+	PrimaryEmail    string       `json:"primary_email"`
+	AvatarUrl       string       `json:"avatar_url"`
+	UserDisabledAt  sql.NullTime `json:"user_disabled_at"`
 }
 
-func (q *Queries) ListTenantMembers(ctx context.Context, tenantID pgtype.UUID) ([]ListTenantMembersRow, error) {
-	rows, err := q.db.Query(ctx, listTenantMembers, tenantID)
+func (q *Queries) ListTenantMembers(ctx context.Context, tenantID UUID) ([]ListTenantMembersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTenantMembers, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -741,6 +741,9 @@ func (q *Queries) ListTenantMembers(ctx context.Context, tenantID pgtype.UUID) (
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -760,30 +763,30 @@ SELECT
   m.updated_at,
   t.name AS tenant_name,
   t.deleted_at AS tenant_deleted_at
-FROM scenery_auth.organization_memberships AS m
-JOIN scenery_auth.tenants AS t ON t.id = m.tenant_id
-WHERE m.user_id = $1
+FROM scenery_auth_organization_memberships AS m
+JOIN scenery_auth_tenants AS t ON t.id = m.tenant_id
+WHERE m.user_id = ?
   AND m.disabled_at IS NULL
   AND t.deleted_at IS NULL
 ORDER BY lower(t.name), t.name, m.tenant_id
 `
 
 type ListUserMembershipsRow struct {
-	ID              pgtype.UUID        `json:"id"`
-	TenantID        pgtype.UUID        `json:"tenant_id"`
-	UserID          pgtype.UUID        `json:"user_id"`
-	Role            string             `json:"role"`
-	DisabledAt      pgtype.Timestamptz `json:"disabled_at"`
-	InvitedByUserID pgtype.UUID        `json:"invited_by_user_id"`
-	InvitedAt       pgtype.Timestamptz `json:"invited_at"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	TenantName      string             `json:"tenant_name"`
-	TenantDeletedAt pgtype.Timestamptz `json:"tenant_deleted_at"`
+	ID              UUID         `json:"id"`
+	TenantID        UUID         `json:"tenant_id"`
+	UserID          UUID         `json:"user_id"`
+	Role            string       `json:"role"`
+	DisabledAt      sql.NullTime `json:"disabled_at"`
+	InvitedByUserID UUID         `json:"invited_by_user_id"`
+	InvitedAt       sql.NullTime `json:"invited_at"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
+	TenantName      string       `json:"tenant_name"`
+	TenantDeletedAt sql.NullTime `json:"tenant_deleted_at"`
 }
 
-func (q *Queries) ListUserMemberships(ctx context.Context, userID pgtype.UUID) ([]ListUserMembershipsRow, error) {
-	rows, err := q.db.Query(ctx, listUserMemberships, userID)
+func (q *Queries) ListUserMemberships(ctx context.Context, userID UUID) ([]ListUserMembershipsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUserMemberships, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -808,6 +811,9 @@ func (q *Queries) ListUserMemberships(ctx context.Context, userID pgtype.UUID) (
 		}
 		items = append(items, i)
 	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -815,15 +821,15 @@ func (q *Queries) ListUserMemberships(ctx context.Context, userID pgtype.UUID) (
 }
 
 const markUserEmailVerified = `-- name: MarkUserEmailVerified :one
-UPDATE scenery_auth.users
-SET email_verified_at = COALESCE(email_verified_at, now()),
-    updated_at = now()
-WHERE id = $1
+UPDATE scenery_auth_users
+SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
 `
 
-func (q *Queries) MarkUserEmailVerified(ctx context.Context, id pgtype.UUID) (SceneryAuthUser, error) {
-	row := q.db.QueryRow(ctx, markUserEmailVerified, id)
+func (q *Queries) MarkUserEmailVerified(ctx context.Context, id UUID) (SceneryAuthUser, error) {
+	row := q.db.QueryRowContext(ctx, markUserEmailVerified, id)
 	var i SceneryAuthUser
 	err := row.Scan(
 		&i.ID,
@@ -841,61 +847,61 @@ func (q *Queries) MarkUserEmailVerified(ctx context.Context, id pgtype.UUID) (Sc
 }
 
 const revokeRefreshSession = `-- name: RevokeRefreshSession :exec
-UPDATE scenery_auth.refresh_sessions
-SET revoked_at = COALESCE(revoked_at, now()),
-    revoked_reason = $2,
-    updated_at = now()
-WHERE id = $1
+UPDATE scenery_auth_refresh_sessions
+SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP),
+    revoked_reason = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
 `
 
 type RevokeRefreshSessionParams struct {
-	ID            pgtype.UUID `json:"id"`
-	RevokedReason string      `json:"revoked_reason"`
+	RevokedReason string `json:"revoked_reason"`
+	ID            UUID   `json:"id"`
 }
 
 func (q *Queries) RevokeRefreshSession(ctx context.Context, arg RevokeRefreshSessionParams) error {
-	_, err := q.db.Exec(ctx, revokeRefreshSession, arg.ID, arg.RevokedReason)
+	_, err := q.db.ExecContext(ctx, revokeRefreshSession, arg.RevokedReason, arg.ID)
 	return err
 }
 
 const revokeUserRefreshSessions = `-- name: RevokeUserRefreshSessions :exec
-UPDATE scenery_auth.refresh_sessions
-SET revoked_at = COALESCE(revoked_at, now()),
-    revoked_reason = $2,
-    updated_at = now()
-WHERE user_id = $1
+UPDATE scenery_auth_refresh_sessions
+SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP),
+    revoked_reason = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE user_id = ?
   AND revoked_at IS NULL
 `
 
 type RevokeUserRefreshSessionsParams struct {
-	UserID        pgtype.UUID `json:"user_id"`
-	RevokedReason string      `json:"revoked_reason"`
+	RevokedReason string `json:"revoked_reason"`
+	UserID        UUID   `json:"user_id"`
 }
 
 func (q *Queries) RevokeUserRefreshSessions(ctx context.Context, arg RevokeUserRefreshSessionsParams) error {
-	_, err := q.db.Exec(ctx, revokeUserRefreshSessions, arg.UserID, arg.RevokedReason)
+	_, err := q.db.ExecContext(ctx, revokeUserRefreshSessions, arg.RevokedReason, arg.UserID)
 	return err
 }
 
 const rotateRefreshSession = `-- name: RotateRefreshSession :one
-UPDATE scenery_auth.refresh_sessions
+UPDATE scenery_auth_refresh_sessions
 SET previous_token_hash = token_hash,
-    previous_token_expires_at = now() + ($3::bigint * interval '1 millisecond'),
-    token_hash = $2,
-    rotated_at = now(),
-    updated_at = now()
-WHERE id = $1
+    previous_token_expires_at = datetime(CURRENT_TIMESTAMP, '+' || (?2 / 1000) || ' seconds'),
+    token_hash = ?3,
+    rotated_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
 `
 
 type RotateRefreshSessionParams struct {
-	ID        pgtype.UUID `json:"id"`
+	GraceMs   interface{} `json:"grace_ms"`
 	TokenHash string      `json:"token_hash"`
-	Column3   int64       `json:"column_3"`
+	ID        UUID        `json:"id"`
 }
 
 func (q *Queries) RotateRefreshSession(ctx context.Context, arg RotateRefreshSessionParams) (SceneryAuthRefreshSession, error) {
-	row := q.db.QueryRow(ctx, rotateRefreshSession, arg.ID, arg.TokenHash, arg.Column3)
+	row := q.db.QueryRowContext(ctx, rotateRefreshSession, arg.GraceMs, arg.TokenHash, arg.ID)
 	var i SceneryAuthRefreshSession
 	err := row.Scan(
 		&i.ID,
@@ -920,21 +926,21 @@ func (q *Queries) RotateRefreshSession(ctx context.Context, arg RotateRefreshSes
 }
 
 const setRefreshSessionTenant = `-- name: SetRefreshSessionTenant :one
-UPDATE scenery_auth.refresh_sessions
-SET active_tenant_id = $2,
-    updated_at = now()
-WHERE id = $1
+UPDATE scenery_auth_refresh_sessions
+SET active_tenant_id = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
   AND revoked_at IS NULL
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
 `
 
 type SetRefreshSessionTenantParams struct {
-	ID             pgtype.UUID `json:"id"`
-	ActiveTenantID pgtype.UUID `json:"active_tenant_id"`
+	ActiveTenantID UUID `json:"active_tenant_id"`
+	ID             UUID `json:"id"`
 }
 
 func (q *Queries) SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSessionTenantParams) (SceneryAuthRefreshSession, error) {
-	row := q.db.QueryRow(ctx, setRefreshSessionTenant, arg.ID, arg.ActiveTenantID)
+	row := q.db.QueryRowContext(ctx, setRefreshSessionTenant, arg.ActiveTenantID, arg.ID)
 	var i SceneryAuthRefreshSession
 	err := row.Scan(
 		&i.ID,
@@ -959,15 +965,15 @@ func (q *Queries) SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSes
 }
 
 const softDeleteTenant = `-- name: SoftDeleteTenant :one
-UPDATE scenery_auth.tenants
-SET deleted_at = COALESCE(deleted_at, now()),
-    updated_at = now()
-WHERE id = $1
+UPDATE scenery_auth_tenants
+SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
 RETURNING id, name, deleted_at, created_at, updated_at
 `
 
-func (q *Queries) SoftDeleteTenant(ctx context.Context, id pgtype.UUID) (SceneryAuthTenant, error) {
-	row := q.db.QueryRow(ctx, softDeleteTenant, id)
+func (q *Queries) SoftDeleteTenant(ctx context.Context, id UUID) (SceneryAuthTenant, error) {
+	row := q.db.QueryRowContext(ctx, softDeleteTenant, id)
 	var i SceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
@@ -980,20 +986,20 @@ func (q *Queries) SoftDeleteTenant(ctx context.Context, id pgtype.UUID) (Scenery
 }
 
 const updateIdentityPasswordHash = `-- name: UpdateIdentityPasswordHash :one
-UPDATE scenery_auth.auth_identities
-SET password_hash = $2,
-    updated_at = now()
-WHERE id = $1
+UPDATE scenery_auth_auth_identities
+SET password_hash = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
 RETURNING id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 `
 
 type UpdateIdentityPasswordHashParams struct {
-	ID           pgtype.UUID `json:"id"`
-	PasswordHash string      `json:"password_hash"`
+	PasswordHash string `json:"password_hash"`
+	ID           UUID   `json:"id"`
 }
 
 func (q *Queries) UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIdentityPasswordHashParams) (SceneryAuthAuthIdentity, error) {
-	row := q.db.QueryRow(ctx, updateIdentityPasswordHash, arg.ID, arg.PasswordHash)
+	row := q.db.QueryRowContext(ctx, updateIdentityPasswordHash, arg.PasswordHash, arg.ID)
 	var i SceneryAuthAuthIdentity
 	err := row.Scan(
 		&i.ID,
@@ -1010,23 +1016,23 @@ func (q *Queries) UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIden
 }
 
 const updateMembershipRole = `-- name: UpdateMembershipRole :one
-UPDATE scenery_auth.organization_memberships
-SET role = $3,
-    updated_at = now()
-WHERE tenant_id = $1
-  AND user_id = $2
+UPDATE scenery_auth_organization_memberships
+SET role = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = ?
+  AND user_id = ?
   AND disabled_at IS NULL
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
 `
 
 type UpdateMembershipRoleParams struct {
-	TenantID pgtype.UUID `json:"tenant_id"`
-	UserID   pgtype.UUID `json:"user_id"`
-	Role     string      `json:"role"`
+	Role     string `json:"role"`
+	TenantID UUID   `json:"tenant_id"`
+	UserID   UUID   `json:"user_id"`
 }
 
 func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (SceneryAuthOrganizationMembership, error) {
-	row := q.db.QueryRow(ctx, updateMembershipRole, arg.TenantID, arg.UserID, arg.Role)
+	row := q.db.QueryRowContext(ctx, updateMembershipRole, arg.Role, arg.TenantID, arg.UserID)
 	var i SceneryAuthOrganizationMembership
 	err := row.Scan(
 		&i.ID,
@@ -1043,21 +1049,21 @@ func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembership
 }
 
 const updateTenantName = `-- name: UpdateTenantName :one
-UPDATE scenery_auth.tenants
-SET name = $2,
-    updated_at = now()
-WHERE id = $1
+UPDATE scenery_auth_tenants
+SET name = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
   AND deleted_at IS NULL
 RETURNING id, name, deleted_at, created_at, updated_at
 `
 
 type UpdateTenantNameParams struct {
-	ID   pgtype.UUID `json:"id"`
-	Name string      `json:"name"`
+	Name string `json:"name"`
+	ID   UUID   `json:"id"`
 }
 
 func (q *Queries) UpdateTenantName(ctx context.Context, arg UpdateTenantNameParams) (SceneryAuthTenant, error) {
-	row := q.db.QueryRow(ctx, updateTenantName, arg.ID, arg.Name)
+	row := q.db.QueryRowContext(ctx, updateTenantName, arg.Name, arg.ID)
 	var i SceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
@@ -1070,22 +1076,22 @@ func (q *Queries) UpdateTenantName(ctx context.Context, arg UpdateTenantNamePara
 }
 
 const updateUserProfileFromProvider = `-- name: UpdateUserProfileFromProvider :one
-UPDATE scenery_auth.users
-SET display_name = CASE WHEN $2::text <> '' THEN $2 ELSE display_name END,
-    avatar_url = CASE WHEN $3::text <> '' THEN $3 ELSE avatar_url END,
-    updated_at = now()
-WHERE id = $1
+UPDATE scenery_auth_users
+SET display_name = CASE WHEN ?2 <> '' THEN ?2 ELSE display_name END,
+    avatar_url = CASE WHEN ?3 <> '' THEN ?3 ELSE avatar_url END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
 `
 
 type UpdateUserProfileFromProviderParams struct {
-	ID      pgtype.UUID `json:"id"`
-	Column2 string      `json:"column_2"`
-	Column3 string      `json:"column_3"`
+	DisplayName interface{} `json:"display_name"`
+	AvatarUrl   interface{} `json:"avatar_url"`
+	ID          UUID        `json:"id"`
 }
 
 func (q *Queries) UpdateUserProfileFromProvider(ctx context.Context, arg UpdateUserProfileFromProviderParams) (SceneryAuthUser, error) {
-	row := q.db.QueryRow(ctx, updateUserProfileFromProvider, arg.ID, arg.Column2, arg.Column3)
+	row := q.db.QueryRowContext(ctx, updateUserProfileFromProvider, arg.DisplayName, arg.AvatarUrl, arg.ID)
 	var i SceneryAuthUser
 	err := row.Scan(
 		&i.ID,
@@ -1103,30 +1109,30 @@ func (q *Queries) UpdateUserProfileFromProvider(ctx context.Context, arg UpdateU
 }
 
 const upsertAuthAttempt = `-- name: UpsertAuthAttempt :one
-INSERT INTO scenery_auth.auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)
-VALUES ($1, $2, $3, $4, 1)
+INSERT INTO scenery_auth_auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)
+VALUES (?, ?, ?, ?, 1)
 ON CONFLICT (purpose, normalized_email, ip_hash)
 DO UPDATE SET attempt_count = CASE
-                WHEN scenery_auth.auth_attempts.window_started_at < now() - interval '15 minutes' THEN 1
-                ELSE scenery_auth.auth_attempts.attempt_count + 1
+                WHEN scenery_auth_auth_attempts.window_started_at < datetime(CURRENT_TIMESTAMP, '-15 minutes') THEN 1
+                ELSE scenery_auth_auth_attempts.attempt_count + 1
               END,
               window_started_at = CASE
-                WHEN scenery_auth.auth_attempts.window_started_at < now() - interval '15 minutes' THEN now()
-                ELSE scenery_auth.auth_attempts.window_started_at
+                WHEN scenery_auth_auth_attempts.window_started_at < datetime(CURRENT_TIMESTAMP, '-15 minutes') THEN CURRENT_TIMESTAMP
+                ELSE scenery_auth_auth_attempts.window_started_at
               END,
-              last_attempt_at = now()
+              last_attempt_at = CURRENT_TIMESTAMP
 RETURNING id, purpose, normalized_email, ip_hash, window_started_at, attempt_count, last_attempt_at
 `
 
 type UpsertAuthAttemptParams struct {
-	ID              pgtype.UUID `json:"id"`
-	Purpose         string      `json:"purpose"`
-	NormalizedEmail string      `json:"normalized_email"`
-	IpHash          string      `json:"ip_hash"`
+	ID              UUID   `json:"id"`
+	Purpose         string `json:"purpose"`
+	NormalizedEmail string `json:"normalized_email"`
+	IpHash          string `json:"ip_hash"`
 }
 
 func (q *Queries) UpsertAuthAttempt(ctx context.Context, arg UpsertAuthAttemptParams) (SceneryAuthAuthAttempt, error) {
-	row := q.db.QueryRow(ctx, upsertAuthAttempt,
+	row := q.db.QueryRowContext(ctx, upsertAuthAttempt,
 		arg.ID,
 		arg.Purpose,
 		arg.NormalizedEmail,

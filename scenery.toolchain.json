@@ -200,19 +200,6 @@
       ]
     },
     {
-      "name": "postgres",
-      "kind": "image",
-      "version": "18",
-      "images": [
-        {
-          "ref": "postgres:18",
-          "optional": true,
-          "usage": "dev.services.postgres",
-          "stability": "unstable"
-        }
-      ]
-    },
-    {
       "name": "zerofs",
       "kind": "binary",
       "version": "1.2.5",

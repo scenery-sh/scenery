@@ -22,9 +22,9 @@ func resolveDBBranchConnection(ctx context.Context, appRoot string, cfg appcfg.C
 		return worktreeDBPin{}, dbBranchConnectionInfo{}, err
 	}
 	if !ok {
-		return worktreeDBPin{}, dbBranchConnectionInfo{}, fmt.Errorf("dev.services.postgres has no worktree branch pin; run `scenery db branch checkout <name>` or `scenery up` first")
+		return worktreeDBPin{}, dbBranchConnectionInfo{}, fmt.Errorf("dev.services.sqlite has no worktree branch pin; run `scenery db branch checkout <name>` or `scenery up` first")
 	}
-	connection, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, pin)
+	connection, err := (sqliteBranchProvider{cfg: cfg}).Connection(ctx, pin)
 	if err != nil {
 		return pin, dbBranchConnectionInfo{}, err
 	}
@@ -43,19 +43,19 @@ func resolveDBBranchDatabaseURL(ctx context.Context, appRoot string, cfg appcfg.
 	if err != nil {
 		return "", err
 	}
-	connection, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, resolution.Pin)
+	connection, err := (sqliteBranchProvider{cfg: cfg}).Connection(ctx, resolution.Pin)
 	if err != nil {
 		return "", err
 	}
 	return connection.DatabaseURL, nil
 }
 
-func dbBranchManagedPostgresEnv(ctx context.Context, appRoot string, cfg appcfg.Config, session *localagent.Session) ([]string, dbBranchResolution, dbBranchConnectionInfo, error) {
+func dbBranchManagedSQLiteEnv(ctx context.Context, appRoot string, cfg appcfg.Config, session *localagent.Session) ([]string, dbBranchResolution, dbBranchConnectionInfo, error) {
 	resolution, err := ensureReadyDBBranchPinForSession(ctx, appRoot, cfg, session)
 	if err != nil {
 		return nil, dbBranchResolution{}, dbBranchConnectionInfo{}, err
 	}
-	connection, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, resolution.Pin)
+	connection, err := (sqliteBranchProvider{cfg: cfg}).Connection(ctx, resolution.Pin)
 	if err != nil {
 		return nil, resolution, dbBranchConnectionInfo{}, err
 	}
@@ -123,11 +123,11 @@ func writeWorktreeDBPin(appRoot string, pin worktreeDBPin) error {
 }
 
 func validateDBBranchLeaseWritable(pin worktreeDBPin) error {
-	return validatePostgresBranchLeaseWritable(pin)
+	return validateSQLiteBranchLeaseWritable(pin)
 }
 
 func upsertDBBranchLease(pin worktreeDBPin) error {
-	return upsertPostgresBranchLease(pin, nil, "pending")
+	return upsertSQLiteBranchLease(pin, nil, "pending")
 }
 
 func buildWorktreeDBPin(appRoot string, cfg appcfg.Config, branch string) (worktreeDBPin, error) {
@@ -135,16 +135,10 @@ func buildWorktreeDBPin(appRoot string, cfg appcfg.Config, branch string) (workt
 }
 
 func buildWorktreeDBPinForSession(appRoot string, cfg appcfg.Config, session *localagent.Session, branch string) (worktreeDBPin, error) {
-	svc := dbPostgresService(cfg)
-	kind := firstNonEmpty(strings.TrimSpace(svc.Kind), "postgres")
-	if kind != "postgres" {
-		return worktreeDBPin{}, fmt.Errorf("dev.services.postgres kind must be %q for db branch checkout", "postgres")
-	}
-	if mode := firstNonEmpty(strings.TrimSpace(svc.Mode), postgresDefaultMode); mode != postgresDefaultMode {
-		return worktreeDBPin{}, fmt.Errorf("dev.services.postgres mode %q is not supported for Postgres branches; use %q", mode, postgresDefaultMode)
-	}
-	if isolation := firstNonEmpty(strings.TrimSpace(svc.Isolation), devPostgresDefaultIsolation); isolation != devPostgresDefaultIsolation {
-		return worktreeDBPin{}, fmt.Errorf("dev.services.postgres isolation %q is not supported for Postgres branches; use %q", isolation, devPostgresDefaultIsolation)
+	svc := dbSQLiteService(cfg)
+	kind := firstNonEmpty(strings.TrimSpace(svc.Kind), "sqlite")
+	if kind != "sqlite" {
+		return worktreeDBPin{}, fmt.Errorf("dev.services.sqlite kind must be %q for db branch checkout", "sqlite")
 	}
 	project := branchProjectForConfig(cfg)
 	branch = normalizeDBBranchName(branch)
@@ -156,8 +150,8 @@ func buildWorktreeDBPinForSession(appRoot string, cfg appcfg.Config, session *lo
 	if session != nil {
 		sessionID = strings.TrimSpace(session.SessionID)
 	}
-	provider := postgresBranchProviderName
-	database := managedPostgresBranchDatabaseName(project, branch)
+	provider := sqliteBranchProviderName
+	database := sanitizeDBIdentifier(project + "_" + strings.ReplaceAll(branch, "/", "_"))
 	role := sanitizeDBIdentifier(firstNonEmpty(svc.Role, dbBranchDefaultRole))
 	return worktreeDBPin{
 		SchemaVersion: dbBranchPinSchemaVersion,
@@ -177,11 +171,11 @@ func buildWorktreeDBPinForSession(appRoot string, cfg appcfg.Config, session *lo
 
 func ensureDBBranchPinForSession(ctx context.Context, appRoot string, cfg appcfg.Config, session *localagent.Session) (dbBranchResolution, error) {
 	pinPath := worktreeDBPinPath(appRoot)
-	provider := postgresBranchProvider{cfg: cfg}
+	provider := sqliteBranchProvider{cfg: cfg}
 	if existing, ok, err := readWorktreeDBPin(pinPath); err != nil {
 		return dbBranchResolution{}, err
 	} else if ok {
-		if firstNonEmpty(strings.TrimSpace(dbPostgresService(cfg).BranchPolicy), dbBranchDefaultPolicy) == "session" {
+		if firstNonEmpty(strings.TrimSpace(dbSQLiteService(cfg).BranchPolicy), dbBranchDefaultPolicy) == "session" {
 			branch, source, err := deriveDBBranchName(appRoot, cfg, session)
 			if err != nil {
 				return dbBranchResolution{}, err
@@ -230,11 +224,11 @@ func ensureDBBranchPinForSession(ctx context.Context, appRoot string, cfg appcfg
 }
 
 func deriveDBBranchName(appRoot string, cfg appcfg.Config, session *localagent.Session) (string, string, error) {
-	svc := dbPostgresService(cfg)
+	svc := dbSQLiteService(cfg)
 	policy := firstNonEmpty(strings.TrimSpace(svc.BranchPolicy), dbBranchDefaultPolicy)
 	switch policy {
 	case "manual":
-		return "", "", fmt.Errorf("dev.services.postgres branch_policy %q requires `scenery db branch checkout <name>` before `scenery up`", policy)
+		return "", "", fmt.Errorf("dev.services.sqlite branch_policy %q requires `scenery db branch checkout <name>` before `scenery up`", policy)
 	case "worktree", "":
 		template := firstNonEmpty(strings.TrimSpace(svc.BranchNameTemplate), dbBranchDefaultNameTemplate)
 		return renderDBBranchTemplate(template, appRoot, cfg, session), "worktree", nil
@@ -245,7 +239,7 @@ func deriveDBBranchName(appRoot string, cfg appcfg.Config, session *localagent.S
 		}
 		return renderDBBranchTemplate(template, appRoot, cfg, session), "session", nil
 	default:
-		return "", "", fmt.Errorf("dev.services.postgres branch_policy %q is not supported; use manual, worktree, or session", policy)
+		return "", "", fmt.Errorf("dev.services.sqlite branch_policy %q is not supported; use manual, worktree, or session", policy)
 	}
 }
 

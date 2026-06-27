@@ -135,7 +135,7 @@ func TestRunToolchainUnknownToolFailsClosed(t *testing.T) {
 func TestRunToolchainStrictImagesRejectsTagOnlyRefs(t *testing.T) {
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", t.TempDir())
 	var out bytes.Buffer
-	err := runToolchain(t.Context(), &out, []string{"verify", "--json", "--tool", "postgres", "--images", "--strict"})
+	err := runToolchain(t.Context(), &out, []string{"verify", "--json", "--tool", "victoria-metrics", "--images", "--strict"})
 	if err == nil {
 		t.Fatal("expected strict tag-only image verification to fail")
 	}

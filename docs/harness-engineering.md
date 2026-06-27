@@ -53,9 +53,8 @@ For dashboard route or UI behavior changes, also run:
 scenery harness ui --json --write
 ```
 
-For managed Postgres branch-provider changes, the default self-harness runs the
-live Postgres branch proof when the host has Docker or local Postgres tooling
-plus `psql`:
+For managed SQLite branch-provider changes, the default self-harness runs the
+live SQLite branch proof:
 
 ```text
 scenery harness self --json --write
@@ -185,7 +184,7 @@ The self harness validates the local scenery development loop:
 - `scenery inspect docs --json`
 - docs review-due and stale summaries from `scenery inspect docs --json`
 - architecture checks for dependency policy, package boundaries, generated-file hygiene, and oversized source files
-- parallel dev-session safety plus managed Postgres dev-cell start/stop,
+- parallel dev-session safety plus managed SQLite branch lifecycle,
   branch pin/lease lifecycle safety, branch isolation, reset, restore, diff,
   delete, and prune coverage outside `--quick`
 - dashboard UI typecheck and build

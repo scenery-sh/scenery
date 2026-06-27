@@ -83,7 +83,8 @@
     "database": {
       "type": "object",
       "properties": {
-        "apply": { "$ref": "#/$defs/databaseApply" }
+        "apply": { "$ref": "#/$defs/databaseApply" },
+        "seed": { "$ref": "#/$defs/databaseSeed" }
       },
       "additionalProperties": false
     },
@@ -190,20 +191,20 @@
     "devService": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "enum": ["postgres", "zerofs"] },
-        "mode": { "type": "string", "enum": ["", "local"], "description": "Managed provider mode. Postgres branch services use local mode; inspect output may include an empty value for services where mode is not used." },
-        "version": { "type": "string", "description": "Requested local service version, currently used by managed Postgres metadata." },
-        "isolation": { "type": "string", "enum": ["", "database", "schema", "container"], "description": "Requested isolation mode. Managed Postgres implements database isolation; inspect output may include an empty value for services where isolation is not used." },
-        "project": { "type": "string", "description": "Postgres branch project label for local development." },
+        "kind": { "type": "string", "enum": ["sqlite", "zerofs"] },
+        "mode": { "type": "string", "enum": ["", "local"], "description": "Managed provider mode for services that need a local process." },
+        "version": { "type": "string", "description": "Requested local service version for services that use one." },
+        "isolation": { "type": "string", "enum": ["", "database", "schema", "container"], "description": "Requested isolation mode for services that use one." },
+        "project": { "type": "string", "description": "Managed service project label for local development." },
         "parent_branch": { "type": "string", "description": "Protected parent branch name for managed database branching." },
-        "parent_database": { "type": "string", "description": "Protected parent template database for Postgres branch databases." },
-        "branch_policy": { "type": "string", "enum": ["", "manual", "worktree", "session"], "description": "How Scenery derives or requires a managed database branch; inspect output may include an empty value for services where branch policy is not used." },
+        "parent_database": { "type": "string", "description": "Protected parent database label for managed database branching." },
+        "branch_policy": { "type": "string", "enum": ["", "manual", "worktree", "session"], "description": "How Scenery derives or requires a managed database branch." },
         "branch_name_template": { "type": "string", "description": "Template for derived managed database branch names. Supported placeholders are {app}, {git_branch}, {worktree}, and {session}." },
         "ttl": { "type": "string", "description": "Branch lease TTL as a Go duration." },
-        "role": { "type": "string", "description": "Database role used for branch connections." },
-        "database_url_env": { "type": "string", "description": "App env var receiving the managed database URL. Defaults to DatabaseURL." },
+        "role": { "type": "string", "description": "Database role label for service metadata." },
+        "database_url_env": { "type": "string", "description": "App env var receiving the SQLite service URL. Defaults to upper-snake service name plus _DATABASE_URL." },
         "image": { "type": "string", "description": "Optional container image for services that support explicit container startup." },
-        "database": { "type": "string", "description": "Named database service dependency for a managed service." },
+        "database": { "type": "string", "description": "SQLite file label for sqlite services." },
         "route": { "type": "string", "description": "Agent route label for a managed session backend." },
         "env": {
           "type": ["object", "null"],
@@ -286,6 +287,16 @@
         "env": {
           "type": ["object", "null"],
           "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "databaseSeed": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether scenery discovers and applies SERVICE/db/seed.sql and generated seed files. Defaults to true."
         }
       },
       "additionalProperties": false

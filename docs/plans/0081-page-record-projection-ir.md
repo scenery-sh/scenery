@@ -75,7 +75,7 @@ Keep the slice internal and generated. Do not add new public DSL or app config. 
 
 ## Validation and Acceptance
 
-Run from `/Users/petrbrazdil/Repos/pulse`:
+Run from `/Users/petrbrazdil/Repos/scenery`:
 
 - `go test ./internal/parse ./internal/webgen ./internal/inspect ./internal/codegen ./internal/schemagen ./cmd/scenery`
 - `go run ./cmd/scenery inspect views --app-root testdata/apps/model-dsl --json`
@@ -92,7 +92,7 @@ The generated web and inspect caches under `.scenery/gen` are disposable. Delete
 
 Oracle was used as a second opinion through ChatGPT Pro in Chrome. It confirmed repository visibility for `scenery-sh/scenery` at `main fac84f55` and recommended this narrow projection seam.
 
-The requested roadmap context lives in `/Users/petrbrazdil/Repos/onlv/NEXT.md`. That file calls for a three-layer entity/projection/view IR where the page-facing record is a projection, not the entity. `/Users/petrbrazdil/Repos/pulse/NEXT.md` is absent, but that was not the governing context.
+The requested roadmap context lives in `/Users/petrbrazdil/Repos/onlv/NEXT.md`. That file calls for a three-layer entity/projection/view IR where the page-facing record is a projection, not the entity. `/Users/petrbrazdil/Repos/scenery/NEXT.md` is absent, but that was not the governing context.
 
 ## Interfaces and Dependencies
 

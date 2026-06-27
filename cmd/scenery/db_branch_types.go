@@ -15,7 +15,7 @@ const (
 	dbBranchDefaultPolicy         = "worktree"
 	dbBranchDefaultNameTemplate   = "{app}/{git_branch}"
 	dbBranchDefaultTTL            = "168h"
-	dbBranchDefaultDatabase       = "postgres"
+	dbBranchDefaultDatabase       = "sqlite"
 	dbBranchDefaultRole           = "scenery"
 )
 
@@ -84,7 +84,7 @@ type dbBranchStatusResult struct {
 	PinPath        string             `json:"pin_path"`
 	Pin            *worktreeDBPin     `json:"pin,omitempty"`
 	DatabaseURLEnv string             `json:"database_url_env"`
-	PSQLCommand    string             `json:"psql_command"`
+	ShellCommand   string             `json:"shell_command"`
 	ResetCommand   string             `json:"reset_command"`
 	Message        string             `json:"message,omitempty"`
 }

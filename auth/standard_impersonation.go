@@ -2,10 +2,8 @@ package auth
 
 import (
 	"context"
-	"strings"
-
-	"github.com/jackc/pgx/v5/pgtype"
 	authdb "scenery.sh/auth/db/gen"
+	"strings"
 )
 
 type StartImpersonationParams struct {
@@ -47,7 +45,7 @@ func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersona
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	actor, err := q.GetUserByID(ctx, actorUserID)
 	if err != nil {
@@ -75,8 +73,8 @@ func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersona
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "impersonation_started", target.ID, actor.ID, tenantID, pgtype.UUID{}, map[string]string{"reason": reason})
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "impersonation_started", target.ID, actor.ID, tenantID, authdb.UUID{}, map[string]string{"reason": reason})
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -104,7 +102,7 @@ func (s *Service) StopImpersonation(ctx context.Context, params *RefreshParams) 
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if currentSessionID.Valid {
 		_ = q.RevokeRefreshSession(ctx, authdb.RevokeRefreshSessionParams{
@@ -116,16 +114,16 @@ func (s *Service) StopImpersonation(ctx context.Context, params *RefreshParams) 
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := s.ensureActiveTenant(ctx, q, actor, pgtype.UUID{})
+	tenantID, err := s.ensureActiveTenant(ctx, q, actor, authdb.UUID{})
 	if err != nil {
 		return nil, err
 	}
-	response, err := s.createAuthSessionResponse(ctx, q, actor, tenantID, defaultRefreshSessionTTL, pgtype.UUID{}, pgtype.UUID{}, "")
+	response, err := s.createAuthSessionResponse(ctx, q, actor, tenantID, defaultRefreshSessionTTL, authdb.UUID{}, authdb.UUID{}, "")
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "impersonation_stopped", actor.ID, pgtype.UUID{}, tenantID, currentSessionID, nil)
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "impersonation_stopped", actor.ID, authdb.UUID{}, tenantID, currentSessionID, nil)
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return response, nil

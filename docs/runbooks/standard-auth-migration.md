@@ -17,22 +17,22 @@ Use this runbook before enabling this config for a production database that alre
 }
 ```
 
-Fresh local/dev databases do not need this. They can let scenery bootstrap the `scenery_auth` schema and then create users normally.
+Fresh local/dev databases do not need this. They can let scenery bootstrap the standard-auth tables and then create users normally.
 
 ## Target Schema
 
-scenery standard auth owns the `scenery_auth` PostgreSQL schema:
+scenery standard auth owns managed SQLite tables with the `scenery_auth_` prefix:
 
 ```text
-scenery_auth.tenants
-scenery_auth.users
-scenery_auth.auth_identities
-scenery_auth.organization_memberships
-scenery_auth.refresh_sessions
-scenery_auth.one_time_tokens
-scenery_auth.oauth_states
-scenery_auth.auth_attempts
-scenery_auth.auth_events
+scenery_auth_tenants
+scenery_auth_users
+scenery_auth_auth_identities
+scenery_auth_organization_memberships
+scenery_auth_refresh_sessions
+scenery_auth_one_time_tokens
+scenery_auth_oauth_states
+scenery_auth_auth_attempts
+scenery_auth_auth_events
 ```
 
 Preserve:
@@ -60,7 +60,7 @@ Usually do not preserve:
 5. Bootstrap the target schema on a copy of production first:
 
    ```sh
-   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f auth/db/gen/schema.sql
+   sqlite3 "$SQLITE_DATABASE_PATH" < auth/db/gen/schema.sql
    ```
 
 6. Confirm the target schema exists:

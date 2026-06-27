@@ -87,7 +87,7 @@ export function DatabasePage() {
             ))}
           </select>
         </div>
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">Postgres</div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">SQLite</div>
       </div>
 
       <div className="flex flex-1 w-full h-[calc(100vh-var(--header-height)-60px)]">
@@ -96,7 +96,7 @@ export function DatabasePage() {
             <div>
               <div className="text-sm font-medium">{selectedDB.name}</div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Local Postgres connection discovered from env.
+                Local SQLite connection discovered from env.
               </p>
             </div>
 

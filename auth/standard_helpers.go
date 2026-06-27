@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,12 +13,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	scenery "scenery.sh"
+	authdb "scenery.sh/auth/db/gen"
 )
 
-func parseUUID(value string) (pgtype.UUID, error) {
-	var id pgtype.UUID
+func parseUUID(value string) (authdb.UUID, error) {
+	var id authdb.UUID
 	if err := id.Scan(strings.TrimSpace(value)); err != nil {
 		return id, fmt.Errorf("invalid uuid")
 	}
@@ -27,19 +28,19 @@ func parseUUID(value string) (pgtype.UUID, error) {
 	return id, nil
 }
 
-func newUUID() (pgtype.UUID, error) {
+func newUUID() (authdb.UUID, error) {
 	return parseUUID(uuid.NewString())
 }
 
-func nullableUUID(value string) (pgtype.UUID, error) {
+func nullableUUID(value string) (authdb.UUID, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return pgtype.UUID{}, nil
+		return authdb.UUID{}, nil
 	}
 	return parseUUID(value)
 }
 
-func uuidString(id pgtype.UUID) string {
+func uuidString(id authdb.UUID) string {
 	if !id.Valid {
 		return ""
 	}
@@ -50,8 +51,8 @@ func uuidString(id pgtype.UUID) string {
 	return value.String()
 }
 
-func timestamptz(value time.Time) pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: value, Valid: !value.IsZero()}
+func timestamptz(value time.Time) sql.NullTime {
+	return sql.NullTime{Time: value, Valid: !value.IsZero()}
 }
 
 func normalizeEmail(value string) (string, error) {

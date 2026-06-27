@@ -98,7 +98,7 @@ curl http://127.0.0.1:4000/hello/world
 //scenery:authhandler
 ```
 
-Standard auth can be enabled from app config without app-local wrapper endpoints. Its tenant tables are framework-owned in PostgreSQL schema `scenery_auth` including `scenery_auth.tenants`; app-local `tenants` services or tables are product-domain concerns only.
+Standard auth can be enabled from app config without app-local wrapper endpoints. Its tenant tables are framework-owned managed SQLite tables with the `scenery_auth_` prefix; app-local `tenants` services or tables are product-domain concerns only.
 
 Typed endpoint shape:
 
@@ -127,7 +127,6 @@ Struct tags:
 - `scenery.sh/cron`
 - `scenery.sh/storage`
 - `scenery.sh/db`
-- `scenery.sh/pgxpool`
 - `scenery.sh/et`
 
 ## Local Development
@@ -145,7 +144,7 @@ scenery down
 
 Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, then `scenery system edge trust` when a browser needs trusted wildcard local HTTPS on `127.0.0.1:443`. The DNS command owns wildcard `local.dev` resolution through managed dnsmasq; the privileged helper owns only the default HTTPS loopback listener and forwards raw TCP to user-owned Caddy on an unprivileged loopback port. Do not run Caddy, the agent router, or `scenery system edge install` as root. `scenery system edge` uses managed dnsmasq and Caddy from the toolchain. `scenery system edge trust` uses a temporary admin-only Caddy process and does not require the port-443 edge to already be running.
 
-For managed Postgres, app processes, setup commands, DB setup, and workers receive the configured app database URL env (`DatabaseURL` by default) as the app database authority. Scenery does not inject `DATABASE_URL` into those app-facing environments; treat `SCENERY_MANAGED_DATABASE_URL` as tooling/debug metadata. The shared Postgres substrate records only physical-server metadata; the runtime database URL/name is a runtime env lease, not a global substrate key. To use an explicit external DB with declared managed Postgres, set `SCENERY_DEV_POSTGRES_EXTERNAL=1` and provide the configured app database URL env; `DATABASE_URL` is ignored.
+For managed SQLite, app processes, setup commands, DB setup, and workers receive the configured app database URL env (`DatabaseURL` when a single SQLite service uses that env, otherwise the service-specific env such as `MAIN_DATABASE_URL`) as the app database authority. Scenery also injects the matching `*_DATABASE_PATH` env for each managed SQLite service. Treat `SCENERY_MANAGED_DATABASE_URL` as tooling/debug metadata and do not depend on `DATABASE_URL` unless the app config explicitly chooses that env name.
 
 For sync-backed frontend writes, generated TypeScript `WithMeta` methods include parsed `txid` metadata. Use `observeAPIResponseTxid` around the app's sync/TanStack observer so a post-commit sync timeout is reported as `SyncObservationError` instead of an API mutation failure.
 
@@ -235,7 +234,7 @@ Generated model CRUD endpoints default to auth-only. If a generated entity has a
 Generated list endpoints are bounded: default `limit=100`, maximum `limit=500`, and non-negative `offset`.
 Generated create/patch payloads accept response field names such as `CreatedAt` as well as DB-column JSON names such as `created_at`; `time.Time` values should be RFC3339 JSON timestamps and malformed values fail decoding.
 
-For managed Postgres branch work, use `scenery db postgres status --json` to inspect the shared local Postgres dev cell, `scenery db postgres start --json`/`stop --json` to manage it, `scenery db branch status --json` to inspect `.scenery/worktree-db.json`, and `scenery db branch list --json` to inspect Scenery-owned local branch leases in `branches.json` under the agent Postgres state root. The provider supports `dev.services.postgres.kind: "postgres"`, `mode: "local"`, and `isolation: "database"` through template database cloning. `checkout` creates or reuses a branch database from the protected parent template database and records a ready endpoint without persisting raw connection URLs. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes its lease, `expire` updates lease metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, and `restore` currently maps to template reset. `scenery up`, `scenery db psql`, DB setup, and sync consume ready branch endpoints and fail explicitly when the lease is missing, expired, protected, or endpoint-less. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` for the smaller self-harness mode.
+For managed SQLite branch work, use `scenery db branch status --json` to inspect `.scenery/worktree-db.json`, and `scenery db branch list --json` to inspect Scenery-owned local branch leases in `branches.json` under the agent SQLite state root. The provider supports `dev.services.<name>.kind: "sqlite"` by copying the parent database file into branch-local state. `checkout` creates or reuses a branch database file from the protected parent, `reset` recopies from the parent, `delete` removes the branch database and lease, `expire` updates lease metadata, `prune` removes expired non-current branch files, and `restore` maps to reset. `scenery up`, `scenery db shell`, DB setup, and sync consume ready branch endpoints and fail explicitly when the lease is missing, expired, protected, or endpoint-less. The default `scenery harness self --json --write` path includes the live SQLite branch lifecycle proof; use `--quick` for the smaller self-harness mode.
 
 ## Tasks
 
@@ -312,7 +311,9 @@ scenery traces clear --json [--app-root <path>]
 scenery logs [--app-root <path>] [--limit <n>] [--jsonl|--json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
-scenery db psql [--app-root <path>] [psql args...]
+scenery db list [--app-root <path>] [--json]
+scenery db path [--app-root <path>] [--service <name>]
+scenery db shell [--app-root <path>] [--service <name>] [sqlite args...]
 scenery db apply [--app-root <path>] [--json]
 scenery db seed [--app-root <path>] [--dry-run] [--json]
 scenery db setup [--app-root <path>] [--json]
@@ -325,7 +326,6 @@ scenery db branch restore --at <timestamp-or-lsn> [--app-root <path>] [--yes]
 scenery db branch diff <branch> [--app-root <path>] [--json]
 scenery db branch expire [<name>] --after <duration> [--app-root <path>] [--json]
 scenery db branch prune [--older-than <duration>] [--app-root <path>] [--json]
-scenery db postgres install|start|status|logs|stop|restart|uninstall [--json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [--json]
 scenery worktree list [--app-root <path>] [--json]
 scenery worktree remove <name> [--app-root <path>] [--db] [--json]

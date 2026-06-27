@@ -52,7 +52,7 @@ func (p fakeDoctorResourceProbe) Disk(_ context.Context, path string) (doctorDis
 func fakeDoctorDeps(t *testing.T) doctorProbeDeps {
 	t.Helper()
 	agentHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(agentHome, "agent", "postgres"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(agentHome, "agent", "sqlite"), 0o755); err != nil {
 		t.Fatalf("mkdir fake agent home: %v", err)
 	}
 	tools := map[string]string{
@@ -154,7 +154,7 @@ func TestRunSceneryDoctorDiscoversAppSensitiveChecks(t *testing.T) {
 			}},
 			Temporal: appcfg.TemporalConfig{Enabled: true, TypeScript: appcfg.TemporalTypeScript{Enabled: true}},
 			Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-				"postgres": {Kind: "postgres", Image: "postgres:18"},
+				"main": {Kind: "sqlite", Database: "main"},
 			}},
 			Generators: appcfg.GeneratorsConfig{SQLC: appcfg.SQLCGeneratorConfig{
 				Schemas: []appcfg.SQLCGeneratorSchema{{AtlasSource: "db/schema.hcl", SQLCSchema: "db/schema.sql"}},
@@ -329,14 +329,14 @@ func TestRunSceneryDoctorWarnsWhenManagedZeroFSToolchainMissingAndDownloadsDisab
 	}
 }
 
-func TestDoctorReportsSceneryAndPostgresStorageSizes(t *testing.T) {
+func TestDoctorReportsSceneryAndSQLiteStorageSizes(t *testing.T) {
 	t.Parallel()
 
 	deps := fakeDoctorDeps(t)
 	agentHome := t.TempDir()
 	deps.AgentHome = func() (string, error) { return agentHome, nil }
-	writeTestAppFile(t, agentHome, "agent/postgres/branches.json", strings.Repeat("p", 2048))
-	writeTestAppFile(t, agentHome, "agent/postgres/cell.json", strings.Repeat("m", 1024))
+	writeTestAppFile(t, agentHome, "agent/sqlite/branches.json", strings.Repeat("p", 2048))
+	writeTestAppFile(t, agentHome, "agent/sqlite/cell.json", strings.Repeat("m", 1024))
 	writeTestAppFile(t, agentHome, "agent/agent.log", strings.Repeat("l", 512))
 
 	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
@@ -344,13 +344,13 @@ func TestDoctorReportsSceneryAndPostgresStorageSizes(t *testing.T) {
 	if home.Status != doctorStatusOK || home.Observed["size_bytes"] == nil || !strings.Contains(home.Message, agentHome) {
 		t.Fatalf("storage.scenery_home check = %+v", home)
 	}
-	postgres := doctorCheckByID(resp.Checks, "storage.postgres_database")
-	if postgres.Status != doctorStatusOK || postgres.Observed["size_bytes"] != uint64(3072) || !strings.Contains(postgres.Message, filepath.Join(agentHome, "agent", "postgres")) {
-		t.Fatalf("storage.postgres_database check = %+v", postgres)
+	sqlite := doctorCheckByID(resp.Checks, "storage.sqlite_database")
+	if sqlite.Status != doctorStatusOK || sqlite.Observed["size_bytes"] != uint64(3072) || !strings.Contains(sqlite.Message, filepath.Join(agentHome, "agent", "sqlite")) {
+		t.Fatalf("storage.sqlite_database check = %+v", sqlite)
 	}
 }
 
-func TestDoctorSkipsMissingPostgresStorageSize(t *testing.T) {
+func TestDoctorSkipsMissingSQLiteStorageSize(t *testing.T) {
 	t.Parallel()
 
 	deps := fakeDoctorDeps(t)
@@ -358,9 +358,9 @@ func TestDoctorSkipsMissingPostgresStorageSize(t *testing.T) {
 	deps.AgentHome = func() (string, error) { return agentHome, nil }
 
 	resp := buildDoctorResponse(context.Background(), doctorOptions{}, deps)
-	postgres := doctorCheckByID(resp.Checks, "storage.postgres_database")
-	if postgres.Status != doctorStatusSkipped || !strings.Contains(postgres.Message, "not present") {
-		t.Fatalf("storage.postgres_database check = %+v", postgres)
+	sqlite := doctorCheckByID(resp.Checks, "storage.sqlite_database")
+	if sqlite.Status != doctorStatusSkipped || !strings.Contains(sqlite.Message, "not present") {
+		t.Fatalf("storage.sqlite_database check = %+v", sqlite)
 	}
 }
 

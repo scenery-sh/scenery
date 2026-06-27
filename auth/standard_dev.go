@@ -2,13 +2,11 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	scenery "scenery.sh"
+	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/errs"
 )
 
@@ -76,7 +74,7 @@ func resolveDevBootstrapEmailDefault(ctx context.Context, email string, preferre
 	}
 	user, err := svc.query.GetUserByNormalizedEmail(ctx, normalizedEmail)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if isNoRows(err) {
 			return "", "", errs.B().Code(errs.NotFound).Msg("default user email not found").Err()
 		}
 		return "", "", err
@@ -85,7 +83,7 @@ func resolveDevBootstrapEmailDefault(ctx context.Context, email string, preferre
 		return "", "", permissionDenied("default user is disabled")
 	}
 
-	var preferredTenant pgtype.UUID
+	var preferredTenant authdb.UUID
 	if strings.TrimSpace(preferredTenantID) != "" {
 		preferredTenant, err = parseUUID(preferredTenantID)
 		if err != nil {

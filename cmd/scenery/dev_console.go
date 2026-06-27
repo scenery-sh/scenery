@@ -747,7 +747,7 @@ func devConsoleSourceRank(id string) int {
 		return 21
 	case "temporal":
 		return 30
-	case "postgres":
+	case "sqlite":
 		return 40
 	case "grafana":
 		return 50

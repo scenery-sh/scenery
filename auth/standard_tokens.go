@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	authdb "scenery.sh/auth/db/gen"
 )
 
 func newRandomToken(byteLen int) (string, error) {
@@ -26,7 +26,7 @@ func tokenHash(token string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-func newRefreshToken(sessionID pgtype.UUID) (string, error) {
+func newRefreshToken(sessionID authdb.UUID) (string, error) {
 	id := uuidString(sessionID)
 	if id == "" {
 		return "", fmt.Errorf("session id is required")
@@ -38,10 +38,10 @@ func newRefreshToken(sessionID pgtype.UUID) (string, error) {
 	return id + "." + secret, nil
 }
 
-func parseRefreshToken(token string) (pgtype.UUID, error) {
+func parseRefreshToken(token string) (authdb.UUID, error) {
 	sessionID, _, ok := strings.Cut(strings.TrimSpace(token), ".")
 	if !ok || strings.TrimSpace(sessionID) == "" {
-		return pgtype.UUID{}, fmt.Errorf("invalid refresh token")
+		return authdb.UUID{}, fmt.Errorf("invalid refresh token")
 	}
 	return parseUUID(sessionID)
 }

@@ -2,27 +2,22 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"scenery.sh/pgxpool"
+	"scenery.sh/internal/sqlitedb"
 )
 
-func TestGetUsesDefaultDatabaseURLEnv(t *testing.T) {
+func TestGetUsesSQLiteServiceEnv(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres"}`)
+	root := writeAppConfig(t, `"auth": {"kind": "sqlite", "database_url_env": "AUTH_DB"}`)
 	t.Setenv(appRootEnv, root)
-	t.Setenv(defaultDatabaseURLEnv, testDSN("defaultdb"))
-
-	var gotDatabase string
-	realNew := newPoolWithConfig
-	newPoolWithConfig = func(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
-		gotDatabase = cfg.ConnConfig.Database
-		return realNew(ctx, cfg)
-	}
+	path := filepath.Join(root, "auth.sqlite")
+	t.Setenv("AUTH_DB", sqlitedb.URLForPath(path))
 
 	pool, err := Get(context.Background())
 	if err != nil {
@@ -31,99 +26,58 @@ func TestGetUsesDefaultDatabaseURLEnv(t *testing.T) {
 	if pool == nil {
 		t.Fatal("Get returned nil pool")
 	}
-	if gotDatabase != "defaultdb" {
-		t.Fatalf("database = %q, want defaultdb", gotDatabase)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("sqlite file was not created: %v", err)
 	}
 }
 
-func TestGetUsesCustomDatabaseURLEnv(t *testing.T) {
+func TestGetRequiresServiceWhenAmbiguous(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres", "database_url_env": "APP_DATABASE_URL"}`)
-	t.Setenv(appRootEnv, root)
-	t.Setenv("APP_DATABASE_URL", testDSN("customdb"))
-
-	var gotDatabase string
-	realNew := newPoolWithConfig
-	newPoolWithConfig = func(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
-		gotDatabase = cfg.ConnConfig.Database
-		return realNew(ctx, cfg)
-	}
-
-	if _, err := Get(context.Background()); err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	if gotDatabase != "customdb" {
-		t.Fatalf("database = %q, want customdb", gotDatabase)
-	}
-}
-
-func TestGetUsesManagedDatabaseFallback(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres", "database_url_env": "APP_DATABASE_URL"}`)
-	t.Setenv(appRootEnv, root)
-	t.Setenv(managedDatabaseURLEnv, testDSN("manageddb"))
-
-	var gotDatabase string
-	realNew := newPoolWithConfig
-	newPoolWithConfig = func(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
-		gotDatabase = cfg.ConnConfig.Database
-		return realNew(ctx, cfg)
-	}
-
-	if _, err := Get(context.Background()); err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	if gotDatabase != "manageddb" {
-		t.Fatalf("database = %q, want manageddb", gotDatabase)
-	}
-}
-
-func TestGetRequiresPostgresConfig(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, ``)
-	t.Setenv(appRootEnv, root)
-	t.Setenv(defaultDatabaseURLEnv, testDSN("unused"))
-
-	_, err := Get(context.Background())
-	if err == nil {
-		t.Fatal("Get returned nil error")
-	}
-	if !strings.Contains(err.Error(), "dev.services.postgres is not configured") {
-		t.Fatalf("error = %q, want missing postgres config", err)
-	}
-}
-
-func TestGetReportsMissingDatabaseURLWithoutRawDSN(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres"}`)
+	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}, "billing": {"kind": "sqlite"}`)
 	t.Setenv(appRootEnv, root)
 
 	_, err := Get(context.Background())
-	if err == nil {
-		t.Fatal("Get returned nil error")
+	if err == nil || !strings.Contains(err.Error(), "sqlite service name is required") {
+		t.Fatalf("Get error = %v", err)
 	}
-	msg := err.Error()
-	if !strings.Contains(msg, defaultDatabaseURLEnv) {
-		t.Fatalf("error = %q, want env name", msg)
+}
+
+func TestGetUsesNamedService(t *testing.T) {
+	resetDBForTest(t)
+	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}, "billing": {"kind": "sqlite", "database_url_env": "BILLING_DB"}`)
+	t.Setenv(appRootEnv, root)
+	path := filepath.Join(root, "billing.sqlite")
+	t.Setenv("BILLING_DB", sqlitedb.URLForPath(path))
+
+	if _, err := Get(context.Background(), "billing"); err != nil {
+		t.Fatalf("Get named service returned error: %v", err)
 	}
-	if strings.Contains(msg, "postgres://") {
-		t.Fatalf("error leaked DSN: %q", msg)
+}
+
+func TestGetReportsMissingDatabaseURL(t *testing.T) {
+	resetDBForTest(t)
+	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
+	t.Setenv(appRootEnv, root)
+
+	_, err := Get(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "AUTH_DATABASE_URL") {
+		t.Fatalf("Get error = %v", err)
 	}
 }
 
 func TestGetReportsInvalidDatabaseURLWithoutRawDSN(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres"}`)
+	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
 	t.Setenv(appRootEnv, root)
-	raw := "postgres://user:secret@%zz"
-	t.Setenv(defaultDatabaseURLEnv, raw)
+	raw := "mysql://user:secret@localhost/db"
+	t.Setenv("AUTH_DATABASE_URL", raw)
 
 	_, err := Get(context.Background())
 	if err == nil {
 		t.Fatal("Get returned nil error")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "invalid database URL") {
+	if !strings.Contains(msg, "invalid SQLite database URL") {
 		t.Fatalf("error = %q, want invalid URL", msg)
 	}
 	if strings.Contains(msg, raw) || strings.Contains(msg, "secret") {
@@ -133,9 +87,9 @@ func TestGetReportsInvalidDatabaseURLWithoutRawDSN(t *testing.T) {
 
 func TestGetReusesPoolAcrossCalls(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres"}`)
+	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
 	t.Setenv(appRootEnv, root)
-	t.Setenv(defaultDatabaseURLEnv, testDSN("reusedb"))
+	t.Setenv("AUTH_DATABASE_URL", sqlitedb.URLForPath(filepath.Join(root, "auth.sqlite")))
 
 	first, err := Get(context.Background())
 	if err != nil {
@@ -150,48 +104,9 @@ func TestGetReusesPoolAcrossCalls(t *testing.T) {
 	}
 }
 
-func TestGetUsesTracedPoolConfig(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres"}`)
-	t.Setenv(appRootEnv, root)
-	t.Setenv(defaultDatabaseURLEnv, testDSN("tracedb"))
-
-	realNew := newPoolWithConfig
-	newPoolWithConfig = func(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
-		if cfg.ConnConfig.Tracer == nil {
-			t.Fatal("pool config tracer is nil")
-		}
-		return realNew(ctx, cfg)
-	}
-
-	if _, err := Get(context.Background()); err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-}
-
-func TestGetRedactsPoolCreationError(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres"}`)
-	t.Setenv(appRootEnv, root)
-	dsn := "postgres://user:secret@localhost/redacteddb?sslmode=disable"
-	t.Setenv(defaultDatabaseURLEnv, dsn)
-	newPoolWithConfig = func(context.Context, *pgxpool.Config) (*pgxpool.Pool, error) {
-		return nil, fmt.Errorf("dial %s with password secret failed", dsn)
-	}
-
-	_, err := Get(context.Background())
-	if err == nil {
-		t.Fatal("Get returned nil error")
-	}
-	msg := err.Error()
-	if strings.Contains(msg, dsn) || strings.Contains(msg, "secret") {
-		t.Fatalf("error leaked DSN: %q", msg)
-	}
-}
-
 func TestMustGetPanicsOnError(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"postgres": {"kind": "postgres"}`)
+	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
 	t.Setenv(appRootEnv, root)
 
 	defer func() {
@@ -204,34 +119,23 @@ func TestMustGetPanicsOnError(t *testing.T) {
 
 func resetDBForTest(t *testing.T) {
 	t.Helper()
-	defaultPoolMu.Lock()
-	if defaultPool != nil {
-		defaultPool.Close()
+	poolsMu.Lock()
+	for _, pool := range pools {
+		_ = pool.Close()
 	}
-	defaultPool = nil
-	defaultPoolDSN = ""
-	defaultPoolMu.Unlock()
+	pools = map[string]*sql.DB{}
+	poolsMu.Unlock()
 
 	oldLoadDotEnv := loadDotEnv
-	oldDiscoverRoot := discoverRoot
-	oldGetEnv := getEnv
-	oldParseConfig := parseConfig
-	oldNewPoolWithConfig := newPoolWithConfig
-
 	loadDotEnv = func() error { return nil }
 	t.Cleanup(func() {
-		defaultPoolMu.Lock()
-		if defaultPool != nil {
-			defaultPool.Close()
+		poolsMu.Lock()
+		for _, pool := range pools {
+			_ = pool.Close()
 		}
-		defaultPool = nil
-		defaultPoolDSN = ""
-		defaultPoolMu.Unlock()
+		pools = map[string]*sql.DB{}
+		poolsMu.Unlock()
 		loadDotEnv = oldLoadDotEnv
-		discoverRoot = oldDiscoverRoot
-		getEnv = oldGetEnv
-		parseConfig = oldParseConfig
-		newPoolWithConfig = oldNewPoolWithConfig
 	})
 }
 
@@ -250,8 +154,4 @@ func writeAppConfig(t *testing.T, services string) string {
 		t.Fatalf("write config: %v", err)
 	}
 	return root
-}
-
-func testDSN(database string) string {
-	return "postgres://user:pass@localhost/" + database + "?sslmode=disable"
 }

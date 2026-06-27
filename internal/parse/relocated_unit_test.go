@@ -2,7 +2,6 @@ package parse_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"log"
 	"log/slog"
@@ -14,8 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-	stdpgxpool "github.com/jackc/pgx/v5/pgxpool"
 	"scenery.sh/errs"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/clientgen"
@@ -29,7 +26,6 @@ import (
 	"scenery.sh/internal/termstyle"
 	"scenery.sh/internal/wire"
 	"scenery.sh/internal/wiremodel"
-	scenerypgxpool "scenery.sh/pgxpool"
 	"scenery.sh/rlog"
 )
 
@@ -155,10 +151,9 @@ func TestAppDiscoverRootAcceptsDevServicesConfig(t *testing.T) {
   "dev": {
     "setup": ["./scripts/db-safe-apply.sh"],
     "services": {
-      "postgres": {
-        "kind": "postgres",
-        "version": "18",
-        "isolation": "database"
+      "main": {
+        "kind": "sqlite",
+        "database": "main.sqlite"
       }
     }
   }
@@ -171,12 +166,12 @@ func TestAppDiscoverRootAcceptsDevServicesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
-	postgres := cfg.Dev.Services["postgres"]
+	sqlite := cfg.Dev.Services["main"]
 	if len(cfg.Dev.Setup) != 1 || cfg.Dev.Setup[0] != "./scripts/db-safe-apply.sh" {
 		t.Fatalf("dev setup = %+v", cfg.Dev.Setup)
 	}
-	if postgres.Kind != "postgres" || postgres.Version != "18" || postgres.Isolation != "database" {
-		t.Fatalf("postgres service = %+v", postgres)
+	if sqlite.Kind != "sqlite" || sqlite.Database != "main.sqlite" {
+		t.Fatalf("sqlite service = %+v", sqlite)
 	}
 }
 
@@ -291,7 +286,7 @@ func TestAppDiscoverRootKeepsStringMapsOpen(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	data := `{"name":"app","tasks":{"harness":{"env":{"EXTRA":"value"}}},"dev":{"services":{"postgres":{"kind":"postgres","env":{"POSTGRES_LOG":"true"}}}}}`
+	data := `{"name":"app","tasks":{"harness":{"env":{"EXTRA":"value"}}},"dev":{"services":{"main":{"kind":"sqlite","env":{"SQLITE_LOG":"true"}}}}}`
 	if err := os.WriteFile(filepath.Join(dir, ".scenery.json"), []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -303,8 +298,8 @@ func TestAppDiscoverRootKeepsStringMapsOpen(t *testing.T) {
 	if cfg.Tasks["harness"].Env["EXTRA"] != "value" {
 		t.Fatalf("task env = %+v", cfg.Tasks["harness"].Env)
 	}
-	if cfg.Dev.Services["postgres"].Env["POSTGRES_LOG"] != "true" {
-		t.Fatalf("service env = %+v", cfg.Dev.Services["postgres"].Env)
+	if cfg.Dev.Services["main"].Env["SQLITE_LOG"] != "true" {
+		t.Fatalf("service env = %+v", cfg.Dev.Services["main"].Env)
 	}
 }
 
@@ -633,69 +628,6 @@ func TestErrsHTTPErrorRedactsSensitiveMeta(t *testing.T) {
 	}
 }
 
-func TestPGXPoolParseConfigInjectsSceneryTracer(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := scenerypgxpool.ParseConfig("postgres://scenery:scenery@localhost/scenery?sslmode=disable")
-	if err != nil {
-		t.Fatalf("ParseConfig returned error: %v", err)
-	}
-	if cfg.ConnConfig.Tracer == nil {
-		t.Fatal("expected scenery query tracer")
-	}
-}
-
-func TestPGXPoolInstrumentConfigIsIdempotent(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := scenerypgxpool.ParseConfig("postgres://scenery:scenery@localhost/scenery?sslmode=disable")
-	if err != nil {
-		t.Fatalf("ParseConfig returned error: %v", err)
-	}
-	first := cfg.ConnConfig.Tracer
-	pool, err := scenerypgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	pool.Close()
-	if cfg.ConnConfig.Tracer != first {
-		t.Fatalf("NewWithConfig wrapped tracer twice: first=%T second=%T", first, cfg.ConnConfig.Tracer)
-	}
-}
-
-func TestPGXPoolQueryTracerDelegatesToBaseTracer(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := stdpgxpool.ParseConfig("postgres://scenery:scenery@localhost/scenery?sslmode=disable")
-	if err != nil {
-		t.Fatalf("standard ParseConfig returned error: %v", err)
-	}
-	base := &fakeQueryTracer{}
-	cfg.ConnConfig.Tracer = base
-	pool, err := scenerypgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("NewWithConfig returned error: %v", err)
-	}
-	pool.Close()
-
-	tracer := cfg.ConnConfig.Tracer
-	ctx := tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{
-		SQL:  "SELECT 1",
-		Args: []any{1},
-	})
-	if got := ctx.Value(fakeTracerKey("start")); got != "ok" {
-		t.Fatalf("start context value = %#v, want %q", got, "ok")
-	}
-
-	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
-	if base.starts != 1 {
-		t.Fatalf("base starts = %d, want 1", base.starts)
-	}
-	if base.ends != 1 {
-		t.Fatalf("base ends = %d, want 1", base.ends)
-	}
-}
-
 func TestRedactValueRedactsScenerySensitiveFields(t *testing.T) {
 	t.Parallel()
 
@@ -928,20 +860,4 @@ func TestWireResponseFrameRoundTrip(t *testing.T) {
 
 func containsEnv(env []string, want string) bool {
 	return slices.Contains(env, want)
-}
-
-type fakeTracerKey string
-
-type fakeQueryTracer struct {
-	starts int
-	ends   int
-}
-
-func (f *fakeQueryTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	f.starts++
-	return context.WithValue(ctx, fakeTracerKey("start"), "ok")
-}
-
-func (f *fakeQueryTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
-	f.ends++
 }

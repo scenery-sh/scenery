@@ -2,11 +2,10 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
-	"strings"
-
-	"github.com/jackc/pgx/v5/pgtype"
 	authdb "scenery.sh/auth/db/gen"
+	"strings"
 )
 
 type ListOrganizationsResponse struct {
@@ -109,7 +108,7 @@ func (s *Service) CreateOrganization(ctx context.Context, params *CreateOrganiza
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	user, err := q.GetUserByID(ctx, userID)
 	if err != nil {
@@ -149,8 +148,8 @@ func (s *Service) CreateOrganization(ctx context.Context, params *CreateOrganiza
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "organization_created", user.ID, pgtype.UUID{}, tenant.ID, session.ID, nil)
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "organization_created", user.ID, authdb.UUID{}, tenant.ID, session.ID, nil)
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return bootstrap, nil
@@ -181,7 +180,7 @@ func (s *Service) SwitchOrganization(ctx context.Context, params *SwitchOrganiza
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if _, err := q.GetActiveMembership(ctx, authdb.GetActiveMembershipParams{UserID: userID, TenantID: tenantID}); err != nil {
 		if isNoRows(err) {
@@ -202,7 +201,7 @@ func (s *Service) SwitchOrganization(ctx context.Context, params *SwitchOrganiza
 		return nil, err
 	}
 	s.recordEvent(ctx, q, "organization_switched", user.ID, session.ActorUserID, tenantID, session.ID, nil)
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return bootstrap, nil
@@ -233,7 +232,7 @@ func (s *Service) UpdateOrganization(ctx context.Context, tenantID string, param
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.requireOwner(ctx, q, userID, tenantUUID); err != nil {
 		return nil, err
@@ -254,7 +253,7 @@ func (s *Service) UpdateOrganization(ctx context.Context, tenantID string, param
 		return nil, err
 	}
 	s.recordEvent(ctx, q, "organization_updated", user.ID, session.ActorUserID, tenantUUID, session.ID, nil)
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return bootstrap, nil
@@ -282,7 +281,7 @@ func (s *Service) DeleteOrganization(ctx context.Context, tenantID string) (*Aut
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.requireOwner(ctx, q, userID, tenantUUID); err != nil {
 		return nil, err
@@ -294,7 +293,7 @@ func (s *Service) DeleteOrganization(ctx context.Context, tenantID string) (*Aut
 	if err != nil {
 		return nil, err
 	}
-	nextTenant, err := s.ensureActiveTenant(ctx, q, user, pgtype.UUID{})
+	nextTenant, err := s.ensureActiveTenant(ctx, q, user, authdb.UUID{})
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +306,7 @@ func (s *Service) DeleteOrganization(ctx context.Context, tenantID string) (*Aut
 		return nil, err
 	}
 	s.recordEvent(ctx, q, "organization_deleted", user.ID, session.ActorUserID, tenantUUID, session.ID, nil)
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return bootstrap, nil
@@ -389,7 +388,7 @@ func (s *Service) InviteOrganizationMember(ctx context.Context, tenantID string,
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.requireOwner(ctx, q, userID, tenantUUID); err != nil {
 		return nil, err
@@ -398,8 +397,8 @@ func (s *Service) InviteOrganizationMember(ctx context.Context, tenantID string,
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "invite_created", userID, pgtype.UUID{}, tenantUUID, pgtype.UUID{}, map[string]string{"email": normalizedEmail, "role": role})
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "invite_created", userID, authdb.UUID{}, tenantUUID, authdb.UUID{}, map[string]string{"email": normalizedEmail, "role": role})
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	_ = sendInviteEmail(ctx, displayEmail(params.Email), rawToken)
@@ -430,7 +429,7 @@ func (s *Service) AcceptInvite(ctx context.Context, params *AcceptInviteParams) 
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	user, err := q.GetUserByID(ctx, userID)
 	if err != nil {
@@ -473,7 +472,7 @@ func (s *Service) AcceptInvite(ctx context.Context, params *AcceptInviteParams) 
 		UserID:          user.ID,
 		Role:            role,
 		InvitedByUserID: oneTime.UserID,
-		InvitedAt:       timestamptz(s.clock()),
+		InvitedAt:       sql.NullTime{Time: s.clock(), Valid: true},
 	}); err != nil {
 		return nil, err
 	}
@@ -486,7 +485,7 @@ func (s *Service) AcceptInvite(ctx context.Context, params *AcceptInviteParams) 
 		return nil, err
 	}
 	s.recordEvent(ctx, q, "invite_accepted", user.ID, session.ActorUserID, oneTime.TenantID, session.ID, nil)
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return bootstrap, nil
@@ -508,7 +507,7 @@ func (s *Service) UpdateOrganizationMemberRole(ctx context.Context, tenantID str
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.requireOwner(ctx, q, actorUserID, tenantUUID); err != nil {
 		return nil, err
@@ -525,7 +524,7 @@ func (s *Service) UpdateOrganizationMemberRole(ctx context.Context, tenantID str
 	if _, err := q.UpdateMembershipRole(ctx, authdb.UpdateMembershipRoleParams{TenantID: tenantUUID, UserID: targetUserID, Role: params.Role}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.ListOrganizationMembers(ctx, tenantID)
@@ -547,7 +546,7 @@ func (s *Service) DisableOrganizationMember(ctx context.Context, tenantID string
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 	if err := s.requireOwner(ctx, q, actorUserID, tenantUUID); err != nil {
 		return nil, err
@@ -564,13 +563,13 @@ func (s *Service) DisableOrganizationMember(ctx context.Context, tenantID string
 	if _, err := q.DisableMembership(ctx, authdb.DisableMembershipParams{TenantID: tenantUUID, UserID: targetUserID}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.ListOrganizationMembers(ctx, tenantID)
 }
 
-func (s *Service) requireOwner(ctx context.Context, q authdb.Querier, userID pgtype.UUID, tenantID pgtype.UUID) error {
+func (s *Service) requireOwner(ctx context.Context, q authdb.Querier, userID authdb.UUID, tenantID authdb.UUID) error {
 	membership, err := q.GetActiveMembership(ctx, authdb.GetActiveMembershipParams{UserID: userID, TenantID: tenantID})
 	if err != nil {
 		if isNoRows(err) {
@@ -584,7 +583,7 @@ func (s *Service) requireOwner(ctx context.Context, q authdb.Querier, userID pgt
 	return nil
 }
 
-func (s *Service) ensureCanRemoveOwner(ctx context.Context, q authdb.Querier, tenantID pgtype.UUID) error {
+func (s *Service) ensureCanRemoveOwner(ctx context.Context, q authdb.Querier, tenantID authdb.UUID) error {
 	ownerCount, err := q.CountActiveOwners(ctx, tenantID)
 	if err != nil {
 		return err
@@ -595,7 +594,7 @@ func (s *Service) ensureCanRemoveOwner(ctx context.Context, q authdb.Querier, te
 	return nil
 }
 
-func (s *Service) sessionForAuthData(ctx context.Context, q authdb.Querier, authData *AuthData, tenantID pgtype.UUID) (authdb.SceneryAuthRefreshSession, error) {
+func (s *Service) sessionForAuthData(ctx context.Context, q authdb.Querier, authData *AuthData, tenantID authdb.UUID) (authdb.SceneryAuthRefreshSession, error) {
 	session := authdb.SceneryAuthRefreshSession{}
 	if authData == nil || strings.TrimSpace(authData.SessionID) == "" {
 		session.ID, _ = newUUID()
@@ -620,22 +619,22 @@ func (s *Service) sessionForAuthData(ctx context.Context, q authdb.Querier, auth
 	return session, nil
 }
 
-func (s *Service) memberMutationIDs(tenantID string, targetUserID string) (pgtype.UUID, pgtype.UUID, pgtype.UUID, error) {
+func (s *Service) memberMutationIDs(tenantID string, targetUserID string) (authdb.UUID, authdb.UUID, authdb.UUID, error) {
 	authData, err := currentAuthData()
 	if err != nil {
-		return pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, err
+		return authdb.UUID{}, authdb.UUID{}, authdb.UUID{}, err
 	}
 	tenantUUID, err := parseUUID(tenantID)
 	if err != nil {
-		return pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, invalidArgument("tenant_id is invalid")
+		return authdb.UUID{}, authdb.UUID{}, authdb.UUID{}, invalidArgument("tenant_id is invalid")
 	}
 	targetUUID, err := parseUUID(targetUserID)
 	if err != nil {
-		return pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, invalidArgument("user_id is invalid")
+		return authdb.UUID{}, authdb.UUID{}, authdb.UUID{}, invalidArgument("user_id is invalid")
 	}
 	actorUUID, err := parseUUID(string(authData.UserID))
 	if err != nil {
-		return pgtype.UUID{}, pgtype.UUID{}, pgtype.UUID{}, unauthenticated("invalid user id")
+		return authdb.UUID{}, authdb.UUID{}, authdb.UUID{}, unauthenticated("invalid user id")
 	}
 	return tenantUUID, targetUUID, actorUUID, nil
 }

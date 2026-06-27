@@ -213,17 +213,16 @@ func (c *runConsole) SetupOutput(line, stream string) {
 	case strings.HasPrefix(line, "==>"):
 		c.printSetupDetail(normalized, "")
 	case !c.verbose && isSetupNoiseLine(line):
-		// SQL chatter (psql NOTICEs, command tags) stays out of the run
-		// output; warnings, errors, and unrecognized lines still print below.
+		// SQL chatter stays out of the run output; warnings, errors, and
+		// unrecognized lines still print below.
 	default:
 		c.printf(c.out, "    %s\n", c.palette.Dim(line))
 	}
 }
 
 // isSetupNoiseLine reports informational SQL runner chatter that drowns the
-// run output: psql NOTICE/INFO lines and bare command tags such as
-// "CREATE INDEX" or "COMMENT". Warnings, errors, and anything unrecognized
-// are not noise.
+// run output: NOTICE/INFO lines and bare command tags such as "CREATE INDEX"
+// or "COMMENT". Warnings, errors, and anything unrecognized are not noise.
 func isSetupNoiseLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
@@ -231,10 +230,6 @@ func isSetupNoiseLine(line string) bool {
 	}
 	if strings.HasPrefix(trimmed, "NOTICE:") || strings.HasPrefix(trimmed, "INFO:") {
 		return true
-	}
-	if strings.HasPrefix(trimmed, "psql:") {
-		rest := trimmed[len("psql:"):]
-		return strings.Contains(rest, ": NOTICE:") || strings.Contains(rest, ": INFO:")
 	}
 	for _, field := range strings.Fields(trimmed) {
 		for _, r := range field {

@@ -2,8 +2,8 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"embed"
-	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -11,10 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/internal/envpolicy"
-	scenerypgxpool "scenery.sh/pgxpool"
+	"scenery.sh/internal/sqlitedb"
 	"scenery.sh/runtime"
 )
 
@@ -185,7 +184,12 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 			standardAuthState.err = fmt.Errorf("standard auth database URL is not configured (%s)", cfg.DatabaseURLEnv)
 			return
 		}
-		pool, err := scenerypgxpool.New(ctx, databaseURL)
+		path, err := sqlitedb.ParseURL(databaseURL)
+		if err != nil {
+			standardAuthState.err = fmt.Errorf("standard auth database URL must be sqlite:///absolute/path")
+			return
+		}
+		pool, err := sqlitedb.Open(ctx, path)
 		if err != nil {
 			standardAuthState.err = fmt.Errorf("connect standard auth database: %w", err)
 			return
@@ -327,31 +331,20 @@ func pathParamsFromPath(path string) []runtime.ParamSpec {
 	return params
 }
 
-func bootstrapStandardAuthSchema(ctx context.Context, pool interface {
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-}) error {
+func bootstrapStandardAuthSchema(ctx context.Context, pool *sql.DB) error {
 	data, err := standardAuthSchema.ReadFile("db/gen/schema.sql")
 	if err != nil {
 		return fmt.Errorf("read standard auth schema: %w", err)
 	}
 	sql := string(data)
-	replacements := []struct {
-		old string
-		new string
-	}{
-		{`CREATE SCHEMA "scenery_auth";`, `CREATE SCHEMA IF NOT EXISTS "scenery_auth";`},
-		{`CREATE TABLE "scenery_auth".`, `CREATE TABLE IF NOT EXISTS "scenery_auth".`},
-		{`CREATE UNIQUE INDEX "`, `CREATE UNIQUE INDEX IF NOT EXISTS "`},
-		{`CREATE INDEX "`, `CREATE INDEX IF NOT EXISTS "`},
-	}
-	for _, replacement := range replacements {
-		sql = strings.ReplaceAll(sql, replacement.old, replacement.new)
-	}
+	sql = strings.ReplaceAll(sql, "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+	sql = strings.ReplaceAll(sql, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
+	sql = strings.ReplaceAll(sql, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
 	for _, statement := range splitSQLStatements(sql) {
 		if strings.TrimSpace(statement) == "" || strings.HasPrefix(strings.TrimSpace(statement), "--") {
 			continue
 		}
-		if _, err := pool.Exec(ctx, statement); err != nil {
+		if _, err := pool.ExecContext(ctx, statement); err != nil {
 			return clarifyStandardAuthTenantError(fmt.Errorf("bootstrap standard auth schema: %w", err))
 		}
 	}
@@ -362,50 +355,11 @@ func clarifyStandardAuthTenantError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
-		if isStandardAuthTenantReference(pgErr) {
-			return fmt.Errorf("%w (standard auth owns framework tenant state in PostgreSQL schema scenery_auth, including scenery_auth.tenants; this is standard auth state, not an app-local tenants service)", err)
-		}
-		if isAppDomainTenantReference(pgErr) {
-			return fmt.Errorf("%w (this references an app-domain tenants relation; standard auth tenant state lives in scenery_auth.tenants and does not require an app-local tenants service)", err)
-		}
-	}
 	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "scenery_auth.tenants") || strings.Contains(message, `"scenery_auth"."tenants"`) {
-		return fmt.Errorf("%w (standard auth owns framework tenant state in PostgreSQL schema scenery_auth, including scenery_auth.tenants; this is standard auth state, not an app-local tenants service)", err)
+	if strings.Contains(message, "scenery_auth_tenants") {
+		return fmt.Errorf("%w (standard auth owns framework tenant state in SQLite table scenery_auth_tenants; this is standard auth state, not an app-local tenants service)", err)
 	}
 	return err
-}
-
-func isStandardAuthTenantReference(pgErr *pgconn.PgError) bool {
-	if pgErr == nil {
-		return false
-	}
-	schema := strings.TrimSpace(pgErr.SchemaName)
-	table := strings.TrimSpace(pgErr.TableName)
-	message := strings.ToLower(pgErr.Message)
-	if !strings.EqualFold(table, "tenants") && !strings.Contains(message, "tenants") {
-		return false
-	}
-	return strings.EqualFold(schema, "scenery_auth") ||
-		strings.Contains(message, "scenery_auth.tenants") ||
-		strings.Contains(message, `"scenery_auth"."tenants"`) ||
-		(strings.EqualFold(table, "tenants") && strings.Contains(message, "scenery_auth"))
-}
-
-func isAppDomainTenantReference(pgErr *pgconn.PgError) bool {
-	if pgErr == nil {
-		return false
-	}
-	schema := strings.TrimSpace(pgErr.SchemaName)
-	table := strings.TrimSpace(pgErr.TableName)
-	message := strings.ToLower(pgErr.Message)
-	if strings.EqualFold(schema, "scenery_auth") || strings.Contains(message, "scenery_auth") {
-		return false
-	}
-	return strings.EqualFold(table, "tenants") ||
-		strings.Contains(message, `relation "tenants"`) ||
-		strings.Contains(message, "relation tenants")
 }
 
 func splitSQLStatements(sql string) []string {

@@ -10,17 +10,19 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"scenery.sh/internal/sqlitedb"
 )
 
-var runHarnessPostgresBranchCheckFunc = runHarnessPostgresBranchCheck
+var runHarnessSQLiteBranchCheckFunc = runHarnessSQLiteBranchCheck
 
-func runHarnessPostgresBranchStep(ctx context.Context, repoRoot string) harnessStep {
+func runHarnessSQLiteBranchStep(ctx context.Context, repoRoot string) harnessStep {
 	started := time.Now()
 	step := harnessStep{
-		Name:    "postgres branch lifecycle",
-		Command: []string{"scenery", "harness", "self", "internal:postgres-branch-lifecycle", repoRoot},
+		Name:    "sqlite branch lifecycle",
+		Command: []string{"scenery", "harness", "self", "internal:sqlite-branch-lifecycle", repoRoot},
 	}
-	summary, diagnostics, err := runHarnessPostgresBranchCheckFunc(ctx)
+	summary, diagnostics, err := runHarnessSQLiteBranchCheckFunc(ctx)
 	step.DurationMS = time.Since(started).Milliseconds()
 	step.Summary = summary
 	step.Diagnostics = diagnostics
@@ -32,7 +34,7 @@ func runHarnessPostgresBranchStep(ctx context.Context, repoRoot string) harnessS
 				Stage:           step.Name,
 				Severity:        "error",
 				Message:         step.Error,
-				SuggestedAction: "Fix the managed Postgres branch lifecycle, then rerun `scenery harness self --json --write`.",
+				SuggestedAction: "Fix the managed SQLite branch lifecycle, then rerun `scenery harness self --json --write`.",
 			}}
 		}
 		return step
@@ -41,10 +43,10 @@ func runHarnessPostgresBranchStep(ctx context.Context, repoRoot string) harnessS
 	return step
 }
 
-func runHarnessPostgresBranchCheck(parent context.Context) (map[string]any, []checkDiagnostic, error) {
+func runHarnessSQLiteBranchCheck(parent context.Context) (map[string]any, []checkDiagnostic, error) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
-	agentHome := filepath.Join(os.TempDir(), "scenery-harness-postgres-branch-"+harnessRandomLabel())
+	agentHome := filepath.Join(os.TempDir(), "scenery-harness-sqlite-branch-"+harnessRandomLabel())
 	appRoot := filepath.Join(agentHome, "app")
 	defer os.RemoveAll(agentHome)
 	restoreEnv := patchEnv(map[string]*string{
@@ -65,15 +67,12 @@ func runHarnessPostgresBranchCheck(parent context.Context) (map[string]any, []ch
   "id": "branch-harness",
   "dev": {
     "services": {
-      "postgres": {
-        "kind": "postgres",
+      "main": {
+        "kind": "sqlite",
         "mode": "local",
-        "version": "18",
-        "isolation": "database",
         "project": "branch-harness",
-        "parent_database": "branch_harness_main",
         "branch_policy": "manual",
-        "database": "branch_harness"
+        "database": "branch_harness.sqlite"
       }
     }
   }
@@ -81,20 +80,17 @@ func runHarnessPostgresBranchCheck(parent context.Context) (map[string]any, []ch
 	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(config), 0o644); err != nil {
 		return nil, nil, err
 	}
-	if err := runDBPostgresCommand(ctx, ioDiscardWriter{}, []string{"start", "--app-root", appRoot, "--json"}); err != nil {
-		return nil, nil, err
-	}
 	if err := runDBBranchCommand(ctx, ioDiscardWriter{}, []string{"checkout", "feature/a", "--app-root", appRoot, "--json"}); err != nil {
 		return nil, nil, err
 	}
-	statusA, err := harnessPostgresBranchStatus(ctx, appRoot)
+	statusA, err := harnessSQLiteBranchStatus(ctx, appRoot)
 	if err != nil {
 		return nil, nil, err
 	}
 	if err := runDBBranchCommand(ctx, ioDiscardWriter{}, []string{"checkout", "feature/b", "--app-root", appRoot, "--json"}); err != nil {
 		return nil, nil, err
 	}
-	statusB, err := harnessPostgresBranchStatus(ctx, appRoot)
+	statusB, err := harnessSQLiteBranchStatus(ctx, appRoot)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -103,13 +99,13 @@ func runHarnessPostgresBranchCheck(parent context.Context) (map[string]any, []ch
 		if ok {
 			return
 		}
-		diagnostics = append(diagnostics, checkDiagnostic{Stage: "postgres branch lifecycle", Severity: "error", Message: message})
+		diagnostics = append(diagnostics, checkDiagnostic{Stage: "sqlite branch lifecycle", Severity: "error", Message: message})
 	}
 	check(statusA.BackendStatus == "ready", "branch feature/a must become ready")
 	check(statusB.BackendStatus == "ready", "branch feature/b must become ready")
 	check(statusA.Connection != nil && statusB.Connection != nil, "ready branches must expose endpoint metadata")
 	if statusA.Connection != nil && statusB.Connection != nil {
-		check(statusA.Connection.Database != statusB.Connection.Database, "parallel Postgres branches must use distinct databases")
+		check(statusA.Connection.Database != statusB.Connection.Database, "parallel SQLite branches must use distinct databases")
 	}
 	if statusA.Pin != nil && statusB.Pin != nil {
 		if err := harnessInsertBranchMarker(ctx, appRoot, *statusA.Pin, "feature_a"); err != nil {
@@ -156,7 +152,7 @@ func runHarnessPostgresBranchCheck(parent context.Context) (map[string]any, []ch
 		summary["database_b"] = statusB.Connection.Database
 	}
 	if hasErrorDiagnostics(diagnostics) {
-		return summary, diagnostics, fmt.Errorf("Postgres branch lifecycle check failed")
+		return summary, diagnostics, fmt.Errorf("SQLite branch lifecycle check failed")
 	}
 	return summary, diagnostics, nil
 }
@@ -165,7 +161,7 @@ type ioDiscardWriter struct{}
 
 func (ioDiscardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
-func harnessPostgresBranchStatus(ctx context.Context, appRoot string) (dbBranchStatusResult, error) {
+func harnessSQLiteBranchStatus(ctx context.Context, appRoot string) (dbBranchStatusResult, error) {
 	var out bytes.Buffer
 	if err := runDBBranchCommand(ctx, &out, []string{"status", "--app-root", appRoot, "--json"}); err != nil {
 		return dbBranchStatusResult{}, err
@@ -182,7 +178,7 @@ func harnessInsertBranchMarker(ctx context.Context, appRoot string, pin worktree
 		if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS scenery_branch_marker(value text primary key)`); err != nil {
 			return err
 		}
-		_, err := db.ExecContext(ctx, `INSERT INTO scenery_branch_marker(value) VALUES ($1) ON CONFLICT DO NOTHING`, marker)
+		_, err := db.ExecContext(ctx, `INSERT INTO scenery_branch_marker(value) VALUES (?) ON CONFLICT DO NOTHING`, marker)
 		return err
 	})
 }
@@ -203,11 +199,15 @@ func harnessWithBranchDB(ctx context.Context, appRoot string, pin worktreeDBPin,
 	if err != nil {
 		return err
 	}
-	conn, err := (postgresBranchProvider{cfg: cfg}).Connection(ctx, pin)
+	conn, err := (sqliteBranchProvider{cfg: cfg}).Connection(ctx, pin)
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open("postgres", conn.DatabaseURL)
+	sqlitePath, err := sqlitedb.ParseURL(conn.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	db, err := sqlitedb.Open(ctx, sqlitePath)
 	if err != nil {
 		return err
 	}

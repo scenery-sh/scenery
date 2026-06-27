@@ -3,13 +3,13 @@
   "$id": "https://scenery.sh/schemas/scenery.db.branch.status.v1.schema.json",
   "title": "scenery db branch status",
   "type": "object",
-  "required": ["schema_version", "ok", "app", "provider", "status", "pin_path", "database_url_env", "psql_command", "reset_command"],
+  "required": ["schema_version", "ok", "app", "provider", "status", "pin_path", "database_url_env", "shell_command", "reset_command"],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "const": "scenery.db.branch.status.v1" },
     "ok": { "type": "boolean" },
     "app": { "type": "object" },
-    "provider": { "const": "postgres" },
+    "provider": { "const": "sqlite" },
     "status": { "type": "string", "enum": ["unpinned", "pinned"] },
     "backend_status": { "type": "string", "enum": ["none", "pending", "ready", "missing", "expired", "protected", "unknown"] },
     "backend_message": { "type": "string" },
@@ -17,7 +17,7 @@
     "pin_path": { "type": "string" },
     "pin": { "$ref": "#/$defs/pin" },
     "database_url_env": { "type": "string" },
-    "psql_command": { "type": "string" },
+    "shell_command": { "type": "string" },
     "reset_command": { "type": "string" },
     "message": { "type": "string" }
   },
@@ -28,7 +28,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": { "const": "scenery.db.branch.v1" },
-        "provider": { "const": "postgres" },
+        "provider": { "const": "sqlite" },
         "project": { "type": "string", "minLength": 1 },
         "parent_branch": { "type": "string", "minLength": 1 },
         "branch": { "type": "string", "minLength": 1 },

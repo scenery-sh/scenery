@@ -2,78 +2,80 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/pgxpool"
+	"scenery.sh/internal/sqlitedb"
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const (
-	defaultDatabaseURLEnv = "DatabaseURL"
-	managedDatabaseURLEnv = "SCENERY_MANAGED_DATABASE_URL"
-	appRootEnv            = "SCENERY_APP_ROOT"
-)
+const appRootEnv = "SCENERY_APP_ROOT"
 
 var (
-	defaultPoolMu  sync.Mutex
-	defaultPool    *pgxpool.Pool
-	defaultPoolDSN string
+	poolsMu sync.Mutex
+	pools   = map[string]*sql.DB{}
 
-	loadDotEnv        = sceneryruntime.LoadDotEnvIntoEnv
-	discoverRoot      = app.DiscoverRoot
-	getEnv            = envpolicy.Get
-	parseConfig       = pgxpool.ParseConfig
-	newPoolWithConfig = pgxpool.NewWithConfig
+	loadDotEnv   = sceneryruntime.LoadDotEnvIntoEnv
+	discoverRoot = app.DiscoverRoot
+	getEnv       = envpolicy.Get
 )
 
-// Get returns the app process's shared pool for the default Scenery Postgres database.
-func Get(ctx context.Context) (*pgxpool.Pool, error) {
+func Get(ctx context.Context, service ...string) (*sql.DB, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	dsn, source, err := resolveDefaultDatabaseURL()
+	dsn, source, err := resolveDatabaseURL(service...)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := parseConfig(dsn)
+	path, err := sqlitedb.ParseURL(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("scenery db: invalid database URL in %s", source)
+		return nil, fmt.Errorf("scenery db: invalid SQLite database URL in %s", source)
 	}
 
-	defaultPoolMu.Lock()
-	defer defaultPoolMu.Unlock()
-	if defaultPool != nil && defaultPoolDSN == dsn {
-		return defaultPool, nil
+	poolsMu.Lock()
+	defer poolsMu.Unlock()
+	if pool := pools[dsn]; pool != nil {
+		return pool, nil
 	}
-	pool, err := newPoolWithConfig(ctx, cfg)
+	pool, err := sqlitedb.Open(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("scenery db: create pool for %s: %s", source, redactPoolError(err, dsn))
+		return nil, fmt.Errorf("scenery db: open SQLite database from %s: %w", source, err)
 	}
-	if defaultPool != nil {
-		defaultPool.Close()
-	}
-	defaultPool = pool
-	defaultPoolDSN = dsn
-	return defaultPool, nil
+	pools[dsn] = pool
+	return pool, nil
 }
 
-// MustGet returns the shared default database pool or panics when it cannot be created.
-func MustGet(ctx context.Context) *pgxpool.Pool {
-	pool, err := Get(ctx)
+func MustGet(ctx context.Context, service ...string) *sql.DB {
+	pool, err := Get(ctx, service...)
 	if err != nil {
 		panic(err)
 	}
 	return pool
 }
 
-func resolveDefaultDatabaseURL() (dsn string, source string, err error) {
+func Close(service ...string) error {
+	dsn, _, err := resolveDatabaseURL(service...)
+	if err != nil {
+		return err
+	}
+	poolsMu.Lock()
+	defer poolsMu.Unlock()
+	pool := pools[dsn]
+	delete(pools, dsn)
+	if pool == nil {
+		return nil
+	}
+	return pool.Close()
+}
+
+func resolveDatabaseURL(service ...string) (dsn string, source string, err error) {
 	if err := loadDotEnv(); err != nil {
 		return "", "", fmt.Errorf("scenery db: load .env: %w", err)
 	}
@@ -81,17 +83,30 @@ func resolveDefaultDatabaseURL() (dsn string, source string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	envName := strings.TrimSpace(cfg.DatabaseURLEnv())
-	if envName == "" {
-		envName = defaultDatabaseURLEnv
+	name := ""
+	if len(service) > 0 {
+		name = strings.TrimSpace(service[0])
 	}
-	if dsn := strings.TrimSpace(getEnv(envName)); dsn != "" {
-		return dsn, envName, nil
+	var svc app.SQLiteServiceConfig
+	if name == "" {
+		services := cfg.SQLiteServices()
+		if len(services) != 1 {
+			return "", "", fmt.Errorf("scenery db: sqlite service name is required when %d services are configured", len(services))
+		}
+		svc = services[0]
+	} else {
+		var ok bool
+		svc, ok = cfg.SQLiteService(name)
+		if !ok {
+			return "", "", fmt.Errorf("scenery db: sqlite service %q is not configured", name)
+		}
 	}
-	if dsn := strings.TrimSpace(getEnv(managedDatabaseURLEnv)); dsn != "" {
-		return dsn, managedDatabaseURLEnv, nil
+	for _, envName := range []string{svc.DatabaseURLEnv, "DatabaseURL"} {
+		if dsn := strings.TrimSpace(getEnv(envName)); dsn != "" {
+			return dsn, envName, nil
+		}
 	}
-	return "", "", fmt.Errorf("scenery db: database URL is not configured; set %s or run under `scenery up` with managed Postgres", envName)
+	return "", "", fmt.Errorf("scenery db: database URL is not configured; set %s or run under `scenery up`", svc.DatabaseURLEnv)
 }
 
 func discoverAppConfig() (app.Config, error) {
@@ -110,36 +125,8 @@ func discoverAppConfig() (app.Config, error) {
 		}
 		return app.Config{}, fmt.Errorf("scenery db: read app config: %w", err)
 	}
-	if !hasManagedPostgres(cfg) {
-		return app.Config{}, fmt.Errorf("scenery db: dev.services.postgres is not configured")
+	if len(cfg.SQLiteServices()) == 0 {
+		return app.Config{}, fmt.Errorf("scenery db: no sqlite dev.services are configured")
 	}
 	return cfg, nil
-}
-
-func hasManagedPostgres(cfg app.Config) bool {
-	for name, svc := range cfg.Dev.Services {
-		kind := strings.TrimSpace(svc.Kind)
-		if kind == "" && name == "postgres" {
-			kind = "postgres"
-		}
-		if kind == "postgres" {
-			return true
-		}
-	}
-	return false
-}
-
-func redactPoolError(err error, dsn string) string {
-	msg := err.Error()
-	if dsn != "" {
-		msg = strings.ReplaceAll(msg, dsn, "<redacted>")
-	}
-	u, parseErr := url.Parse(dsn)
-	if parseErr != nil || u.User == nil {
-		return msg
-	}
-	if password, ok := u.User.Password(); ok && password != "" {
-		msg = strings.ReplaceAll(msg, password, "<redacted>")
-	}
-	return msg
 }

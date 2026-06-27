@@ -12,7 +12,7 @@ import (
 
 func TestPopulateSecretsFromDotEnv(t *testing.T) {
 	dir := t.TempDir()
-	writeRuntimeFile(t, dir, ".env", "JWTSecret=top-secret\nDatabaseURL=\"postgres://localhost/db\"\n")
+	writeRuntimeFile(t, dir, ".env", "JWTSecret=top-secret\nDatabaseURL=\"sqlite:///tmp/app.sqlite\"\n")
 
 	prevDir, restoreDir := chdirRuntimeTest(t, dir)
 	defer restoreDir(prevDir)
@@ -28,8 +28,8 @@ func TestPopulateSecretsFromDotEnv(t *testing.T) {
 	if secrets.JWTSecret != "top-secret" {
 		t.Fatalf("JWTSecret = %q, want %q", secrets.JWTSecret, "top-secret")
 	}
-	if secrets.DatabaseURL != "postgres://localhost/db" {
-		t.Fatalf("DatabaseURL = %q, want %q", secrets.DatabaseURL, "postgres://localhost/db")
+	if secrets.DatabaseURL != "sqlite:///tmp/app.sqlite" {
+		t.Fatalf("DatabaseURL = %q, want %q", secrets.DatabaseURL, "sqlite:///tmp/app.sqlite")
 	}
 }
 

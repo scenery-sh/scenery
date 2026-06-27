@@ -2,22 +2,19 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/errs"
 )
 
 // Service owns standard auth, sessions, organizations, invites, and impersonation.
 type Service struct {
-	db    *pgxpool.Pool
+	db    *sql.DB
 	query *authdb.Queries
 	now   func() time.Time
 }
@@ -119,12 +116,12 @@ func alreadyExists(message string) error {
 }
 
 func isNoRows(err error) bool {
-	return errors.Is(err, pgx.ErrNoRows)
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 func isUniqueViolation(err error) bool {
-	pgErr, ok := errors.AsType[*pgconn.PgError](err)
-	return ok && pgErr.Code == "23505"
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "constraint failed") || strings.Contains(msg, "unique constraint")
 }
 
 func (s *Service) clock() time.Time {
@@ -134,8 +131,8 @@ func (s *Service) clock() time.Time {
 	return time.Now()
 }
 
-func (s *Service) beginTx(ctx context.Context) (pgx.Tx, *authdb.Queries, error) {
-	tx, err := s.db.Begin(ctx)
+func (s *Service) beginTx(ctx context.Context) (*sql.Tx, *authdb.Queries, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -161,7 +158,7 @@ func mapOrganization(row authdb.ListUserMembershipsRow) OrganizationSession {
 	}
 }
 
-func (s *Service) buildBootstrap(ctx context.Context, q authdb.Querier, user authdb.SceneryAuthUser, tenantID pgtype.UUID, session authdb.SceneryAuthRefreshSession) (*AuthBootstrapResponse, error) {
+func (s *Service) buildBootstrap(ctx context.Context, q authdb.Querier, user authdb.SceneryAuthUser, tenantID authdb.UUID, session authdb.SceneryAuthRefreshSession) (*AuthBootstrapResponse, error) {
 	memberships, err := q.ListUserMemberships(ctx, user.ID)
 	if err != nil {
 		return nil, err
@@ -207,17 +204,17 @@ func (s *Service) buildBootstrap(ctx context.Context, q authdb.Querier, user aut
 	}, nil
 }
 
-func (s *Service) ensureActiveTenant(ctx context.Context, q authdb.Querier, user authdb.SceneryAuthUser, preferred pgtype.UUID) (pgtype.UUID, error) {
+func (s *Service) ensureActiveTenant(ctx context.Context, q authdb.Querier, user authdb.SceneryAuthUser, preferred authdb.UUID) (authdb.UUID, error) {
 	if !user.EmailVerifiedAt.Valid {
-		return pgtype.UUID{}, failedPrecondition("email verification is required")
+		return authdb.UUID{}, failedPrecondition("email verification is required")
 	}
 	if user.DisabledAt.Valid {
-		return pgtype.UUID{}, permissionDenied("user is disabled")
+		return authdb.UUID{}, permissionDenied("user is disabled")
 	}
 
 	memberships, err := q.ListUserMemberships(ctx, user.ID)
 	if err != nil {
-		return pgtype.UUID{}, err
+		return authdb.UUID{}, err
 	}
 	for _, membership := range memberships {
 		if preferred.Valid && uuidString(membership.TenantID) == uuidString(preferred) {
@@ -230,18 +227,18 @@ func (s *Service) ensureActiveTenant(ctx context.Context, q authdb.Querier, user
 
 	tenantID, err := newUUID()
 	if err != nil {
-		return pgtype.UUID{}, err
+		return authdb.UUID{}, err
 	}
 	tenant, err := q.CreateTenant(ctx, authdb.CreateTenantParams{
 		ID:   tenantID,
 		Name: defaultWorkspaceName(user.DisplayName),
 	})
 	if err != nil {
-		return pgtype.UUID{}, err
+		return authdb.UUID{}, err
 	}
 	membershipID, err := newUUID()
 	if err != nil {
-		return pgtype.UUID{}, err
+		return authdb.UUID{}, err
 	}
 	if _, err := q.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{
 		ID:       membershipID,
@@ -249,12 +246,12 @@ func (s *Service) ensureActiveTenant(ctx context.Context, q authdb.Querier, user
 		UserID:   user.ID,
 		Role:     roleOwner,
 	}); err != nil {
-		return pgtype.UUID{}, err
+		return authdb.UUID{}, err
 	}
 	return tenant.ID, nil
 }
 
-func (s *Service) createRefreshSession(ctx context.Context, q authdb.Querier, userID pgtype.UUID, tenantID pgtype.UUID, ttl time.Duration, actorUserID pgtype.UUID, impersonationID pgtype.UUID, reason string) (authdb.SceneryAuthRefreshSession, string, error) {
+func (s *Service) createRefreshSession(ctx context.Context, q authdb.Querier, userID authdb.UUID, tenantID authdb.UUID, ttl time.Duration, actorUserID authdb.UUID, impersonationID authdb.UUID, reason string) (authdb.SceneryAuthRefreshSession, string, error) {
 	sessionID, err := newUUID()
 	if err != nil {
 		return authdb.SceneryAuthRefreshSession{}, "", err
@@ -268,7 +265,7 @@ func (s *Service) createRefreshSession(ctx context.Context, q authdb.Querier, us
 		UserID:              userID,
 		TokenHash:           tokenHash(rawToken),
 		ActiveTenantID:      tenantID,
-		ExpiresAt:           timestamptz(s.clock().Add(ttl)),
+		ExpiresAt:           s.clock().Add(ttl),
 		UserAgent:           requestUserAgent(),
 		IpHash:              requestIPHash(),
 		ActorUserID:         actorUserID,
@@ -281,7 +278,7 @@ func (s *Service) createRefreshSession(ctx context.Context, q authdb.Querier, us
 	return session, rawToken, nil
 }
 
-func (s *Service) createAuthSessionResponse(ctx context.Context, q authdb.Querier, user authdb.SceneryAuthUser, tenantID pgtype.UUID, ttl time.Duration, actorUserID pgtype.UUID, impersonationID pgtype.UUID, reason string) (*AuthSessionResponse, error) {
+func (s *Service) createAuthSessionResponse(ctx context.Context, q authdb.Querier, user authdb.SceneryAuthUser, tenantID authdb.UUID, ttl time.Duration, actorUserID authdb.UUID, impersonationID authdb.UUID, reason string) (*AuthSessionResponse, error) {
 	session, rawToken, err := s.createRefreshSession(ctx, q, user.ID, tenantID, ttl, actorUserID, impersonationID, reason)
 	if err != nil {
 		return nil, err
@@ -292,7 +289,7 @@ func (s *Service) createAuthSessionResponse(ctx context.Context, q authdb.Querie
 	}
 	return &AuthSessionResponse{
 		AuthBootstrapResponse: *bootstrap,
-		SetCookie:             refreshCookie(rawToken, session.ExpiresAt.Time),
+		SetCookie:             refreshCookie(rawToken, session.ExpiresAt),
 	}, nil
 }
 
@@ -349,7 +346,7 @@ func isHTTPSURL(value string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "https://")
 }
 
-func (s *Service) recordEvent(ctx context.Context, q authdb.Querier, eventType string, userID pgtype.UUID, actorUserID pgtype.UUID, tenantID pgtype.UUID, sessionID pgtype.UUID, metadata any) {
+func (s *Service) recordEvent(ctx context.Context, q authdb.Querier, eventType string, userID authdb.UUID, actorUserID authdb.UUID, tenantID authdb.UUID, sessionID authdb.UUID, metadata any) {
 	id, err := newUUID()
 	if err != nil {
 		return

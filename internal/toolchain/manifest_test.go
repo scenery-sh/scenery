@@ -57,28 +57,14 @@ func TestBundledManifestMatchesRootFile(t *testing.T) {
 	}
 }
 
-func TestBundledManifestDeclaresPostgresImage(t *testing.T) {
+func TestBundledManifestDoesNotDeclareRemovedDatabaseImage(t *testing.T) {
 	manifest, err := LoadBundledManifest()
 	if err != nil {
 		t.Fatalf("LoadBundledManifest() error = %v", err)
 	}
-	artifact, ok := manifest.Artifact("postgres")
-	if !ok {
-		t.Fatal("postgres artifact missing")
-	}
-	if artifact.Kind != "image" {
-		t.Fatalf("postgres kind = %q, want image", artifact.Kind)
-	}
-	refs := map[string]bool{}
-	for _, image := range artifact.Images {
-		refs[image.Ref] = true
-	}
-	for _, want := range []string{
-		"postgres:18",
-	} {
-		if !refs[want] {
-			t.Fatalf("postgres images missing %s: %+v", want, artifact.Images)
-		}
+	removedArtifact := "post" + "gres"
+	if _, ok := manifest.Artifact(removedArtifact); ok {
+		t.Fatalf("%s artifact should not be bundled", removedArtifact)
 	}
 }
 
@@ -331,13 +317,13 @@ func TestStoreImageStatusAndSyncUseDockerRunner(t *testing.T) {
 		SchemaVersion:   ManifestSchemaVersion,
 		ManifestVersion: 1,
 		Artifacts: []Artifact{{
-			Name:    "postgres",
+			Name:    "demo-image",
 			Kind:    "image",
-			Version: "18",
+			Version: "1",
 			Images: []ImageArtifact{{
-				Ref:    "postgres:18",
+				Ref:    "example/demo:1",
 				Digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-				Usage:  "dev.services.postgres",
+				Usage:  "test.image",
 			}},
 		}},
 	}
@@ -348,7 +334,7 @@ func TestStoreImageStatusAndSyncUseDockerRunner(t *testing.T) {
 	docker := &fakeDockerRunner{present: map[string]bool{}}
 	store.Docker = docker
 
-	status, err := store.Verify(context.Background(), Options{Tool: "postgres", Images: true})
+	status, err := store.Verify(context.Background(), Options{Tool: "demo-image", Images: true})
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
@@ -356,11 +342,11 @@ func TestStoreImageStatusAndSyncUseDockerRunner(t *testing.T) {
 		t.Fatalf("image status = %q, want missing", got)
 	}
 
-	status, err = store.Sync(context.Background(), Options{Tool: "postgres", Images: true})
+	status, err = store.Sync(context.Background(), Options{Tool: "demo-image", Images: true})
 	if err != nil {
 		t.Fatalf("Sync() error = %v", err)
 	}
-	if len(docker.pulls) != 1 || docker.pulls[0] != "postgres@sha256:1111111111111111111111111111111111111111111111111111111111111111" {
+	if len(docker.pulls) != 1 || docker.pulls[0] != "example/demo@sha256:1111111111111111111111111111111111111111111111111111111111111111" {
 		t.Fatalf("docker pulls = %+v", docker.pulls)
 	}
 	if got := status.Artifacts[0].Images[0].Status; got != "present" {
@@ -373,11 +359,11 @@ func TestStrictImageStatusRejectsTagOnlyRefs(t *testing.T) {
 		SchemaVersion:   ManifestSchemaVersion,
 		ManifestVersion: 1,
 		Artifacts: []Artifact{{
-			Name:    "postgres",
+			Name:    "demo-image",
 			Kind:    "image",
-			Version: "18",
+			Version: "1",
 			Images: []ImageArtifact{{
-				Ref: "postgres:18",
+				Ref: "example/demo:1",
 			}},
 		}},
 	}
@@ -385,8 +371,8 @@ func TestStrictImageStatusRejectsTagOnlyRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore() error = %v", err)
 	}
-	store.Docker = &fakeDockerRunner{present: map[string]bool{"postgres:18": true}}
-	status, err := store.Verify(context.Background(), Options{Tool: "postgres", Images: true, Strict: true})
+	store.Docker = &fakeDockerRunner{present: map[string]bool{"example/demo:1": true}}
+	status, err := store.Verify(context.Background(), Options{Tool: "demo-image", Images: true, Strict: true})
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}

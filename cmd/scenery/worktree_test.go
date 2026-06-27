@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	appcfg "scenery.sh/internal/app"
 )
@@ -38,7 +38,7 @@ func TestParseWorktreeArgs(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateListAndRemoveWithPostgresBranchPin(t *testing.T) {
+func TestWorktreeCreateListAndRemoveWithSQLiteBranchPin(t *testing.T) {
 	useFakeWorktreeBranchEnsure(t)
 	agentHome := t.TempDir()
 	t.Setenv("SCENERY_AGENT_HOME", agentHome)
@@ -50,13 +50,11 @@ func TestWorktreeCreateListAndRemoveWithPostgresBranchPin(t *testing.T) {
 		"name": "demo",
 		"dev": {
 			"services": {
-				"postgres": {
-					"kind": "postgres",
-					"mode": "local",
-					"isolation": "database",
+				"main": {
+					"kind": "sqlite",
 					"project": "demo",
-					"parent_database": "demo_main",
-					"branch_name_template": "{app}/{git_branch}"
+					"branch_name_template": "{app}/{git_branch}",
+					"database": "demo.sqlite"
 				}
 			}
 		}
@@ -150,42 +148,27 @@ func TestWorktreeCreateListAndRemoveWithPostgresBranchPin(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateRollsBackWhenPostgresBranchPinWriteFails(t *testing.T) {
-	useFakeWorktreeBranchEnsure(t)
+func TestWorktreeCreateRollsBackWhenSQLiteBranchEnsureFails(t *testing.T) {
+	prev := ensureDBBranchForWorktreeCreateFn
+	ensureDBBranchForWorktreeCreateFn = func(context.Context, appcfg.Config, worktreeDBPin) (dbBranchBackendStatus, error) {
+		return dbBranchBackendStatus{}, errors.New("branch ensure failed")
+	}
+	t.Cleanup(func() { ensureDBBranchForWorktreeCreateFn = prev })
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","project":"demo","parent_database":"demo_main","branch_name_template":"{app}/{git_branch}"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{"kind":"sqlite","mode":"local","project":"demo","branch_name_template":"{app}/{git_branch}","database":"demo.sqlite"}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
 	runGitForTest(t, root, "add", ".scenery.json")
 	runGitForTest(t, root, "commit", "-m", "initial")
 
-	foreignPin := worktreeDBPin{SchemaVersion: dbBranchPinSchemaVersion, Provider: postgresBranchProviderName, Project: "demo", ParentBranch: dbBranchDefaultParentBranch, Branch: "demo/collision", BranchID: dbLocalBranchID("demo", "demo/collision"), Database: "demo_collision", Role: "scenery", CreatedBy: "external"}
-	foreignPin.CreatedBy = "external"
-	registryRoot, err := postgresSubstrateRoot()
-	if err != nil {
-		t.Fatalf("postgresSubstrateRoot: %v", err)
-	}
-	if err := writePostgresBranchRegistry(registryRoot, dbBranchRegistry{
-		SchemaVersion: dbBranchRegistrySchemaVersion,
-		Provider:      postgresBranchProviderName,
-		Leases: []dbBranchLease{{
-			Pin:       foreignPin,
-			Status:    "pending",
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-		}},
-	}); err != nil {
-		t.Fatalf("write registry: %v", err)
-	}
-
 	target := defaultWorktreePath(root, "collision")
-	err = runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"create", "collision", "--from", "main", "--app-root", root, "--json"})
-	if err == nil || !strings.Contains(err.Error(), "refusing to reuse foreign local Postgres branch lease") {
+	err := runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"create", "collision", "--from", "main", "--app-root", root, "--json"})
+	if err == nil || !strings.Contains(err.Error(), "branch ensure failed") {
 		t.Fatalf("create error = %v", err)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
@@ -202,13 +185,13 @@ func TestWorktreeCreateRollsBackWhenPostgresBranchPinWriteFails(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateSkipsPostgresBranchPinForManualBranchPolicy(t *testing.T) {
+func TestWorktreeCreateSkipsSQLiteBranchPinForManualBranchPolicy(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","project":"demo","branch_policy":"manual"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{"kind":"sqlite","project":"demo","branch_policy":"manual","database":"demo.sqlite"}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
@@ -238,7 +221,7 @@ func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFails(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"postgres":{"kind":"postgres","mode":"local","isolation":"database","project":"demo","parent_database":"demo_main","branch_name_template":"{app}/{git_branch}"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{"kind":"sqlite","project":"demo","branch_name_template":"{app}/{git_branch}","database":"demo.sqlite"}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")

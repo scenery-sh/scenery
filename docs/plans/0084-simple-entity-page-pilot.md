@@ -86,7 +86,7 @@ When integration friction appears, fix only small contract bugs exposed by the p
 
 ## Validation and Acceptance
 
-Run Scenery-side validation from `/Users/petrbrazdil/Repos/pulse`:
+Run Scenery-side validation from `/Users/petrbrazdil/Repos/scenery`:
 
 - `go test ./internal/parse ./internal/webgen ./internal/inspect ./internal/codegen ./internal/schemagen ./cmd/scenery`
 - `go test ./...`

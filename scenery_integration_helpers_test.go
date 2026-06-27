@@ -200,7 +200,6 @@ func latestIntegrationSourceModTime(repo string) (time.Time, bool, error) {
 		"errs",
 		"internal",
 		"middleware",
-		"pgxpool",
 		"rlog",
 		"runtime",
 		"temporal",
@@ -386,7 +385,7 @@ func integrationSourceFingerprintFile(rel, path string) bool {
 		base := filepath.Base(path)
 		return base != "" && base != ".DS_Store"
 	}
-	for _, prefix := range []string{"auth/", "cron/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "temporal/"} {
+	for _, prefix := range []string{"auth/", "cron/", "errs/", "internal/", "middleware/", "rlog/", "runtime/", "temporal/"} {
 		if strings.HasPrefix(rel, prefix) {
 			return integrationBinaryInputFile(path)
 		}
@@ -407,7 +406,7 @@ func integrationBinaryInputFile(path string) bool {
 
 func integrationBinaryInputSkipDirName(name string) bool {
 	switch name {
-	case ".git", ".scenery", "coverage", "dist", "node_modules", "testpostgres":
+	case ".git", ".scenery", "coverage", "dist", "node_modules":
 		return true
 	default:
 		return false

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	authdb "scenery.sh/auth/db/gen"
 )
 
@@ -61,7 +61,7 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 		PkceVerifier: verifier,
 		NonceHash:    tokenHash(nonce),
 		RedirectPath: safeRedirectPath(req.URL.Query().Get("redirect_path")),
-		ExpiresAt:    timestamptz(svc.clock().Add(defaultOAuthStateTTL)),
+		ExpiresAt:    svc.clock().Add(defaultOAuthStateTTL),
 	})
 	if err != nil {
 		http.Error(w, "failed to store oauth state", http.StatusInternalServerError)
@@ -293,7 +293,7 @@ func (s *Service) finishGoogleSignIn(ctx context.Context, claims *googleIDClaims
 		return nil, err
 	}
 	defer func() {
-		_ = tx.Rollback(ctx)
+		_ = tx.Rollback()
 	}()
 
 	var user authdb.SceneryAuthUser
@@ -307,9 +307,9 @@ func (s *Service) finishGoogleSignIn(ctx context.Context, claims *googleIDClaims
 			return nil, err
 		}
 		user, err = q.UpdateUserProfileFromProvider(ctx, authdb.UpdateUserProfileFromProviderParams{
-			ID:      user.ID,
-			Column2: strings.TrimSpace(claims.Name),
-			Column3: strings.TrimSpace(claims.Picture),
+			ID:          user.ID,
+			DisplayName: strings.TrimSpace(claims.Name),
+			AvatarUrl:   strings.TrimSpace(claims.Picture),
 		})
 		if err != nil {
 			return nil, err
@@ -330,7 +330,7 @@ func (s *Service) finishGoogleSignIn(ctx context.Context, claims *googleIDClaims
 				AvatarUrl:              strings.TrimSpace(claims.Picture),
 				PrimaryEmail:           strings.TrimSpace(claims.Email),
 				NormalizedPrimaryEmail: normalizedEmail,
-				EmailVerifiedAt:        timestamptz(s.clock()),
+				EmailVerifiedAt:        sql.NullTime{Time: s.clock(), Valid: true},
 			})
 			if err != nil {
 				return nil, err
@@ -356,16 +356,16 @@ func (s *Service) finishGoogleSignIn(ctx context.Context, claims *googleIDClaims
 		return nil, err
 	}
 
-	tenantID, err := s.ensureActiveTenant(ctx, q, user, pgtype.UUID{})
+	tenantID, err := s.ensureActiveTenant(ctx, q, user, authdb.UUID{})
 	if err != nil {
 		return nil, err
 	}
-	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, pgtype.UUID{}, pgtype.UUID{}, "")
+	response, err := s.createAuthSessionResponse(ctx, q, user, tenantID, defaultRefreshSessionTTL, authdb.UUID{}, authdb.UUID{}, "")
 	if err != nil {
 		return nil, err
 	}
-	s.recordEvent(ctx, q, "login_google", user.ID, pgtype.UUID{}, tenantID, pgtype.UUID{}, nil)
-	if err := tx.Commit(ctx); err != nil {
+	s.recordEvent(ctx, q, "login_google", user.ID, authdb.UUID{}, tenantID, authdb.UUID{}, nil)
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return response, nil

@@ -62,7 +62,7 @@ type worktreeRemoveResult struct {
 }
 
 var ensureDBBranchForWorktreeCreateFn = func(ctx context.Context, cfg appcfg.Config, pin worktreeDBPin) (dbBranchBackendStatus, error) {
-	return (postgresBranchProvider{cfg: cfg}).EnsureBranch(ctx, pin)
+	return (sqliteBranchProvider{cfg: cfg}).EnsureBranch(ctx, pin)
 }
 
 func worktreeCommand(args []string) error {
@@ -143,7 +143,7 @@ func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	target := defaultWorktreePath(appRoot, name)
 	autoPin := false
 	pinTemplate := ""
-	if _, svc, ok := managedPostgresDeclared(cfg); ok && postgresServiceUsesBranching(svc) {
+	if _, svc, ok := managedSQLiteDeclared(cfg); ok && sqliteServiceUsesBranching(svc) {
 		policy := firstNonEmpty(strings.TrimSpace(svc.BranchPolicy), dbBranchDefaultPolicy)
 		if policy != "manual" {
 			autoPin = true
@@ -190,9 +190,9 @@ func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptio
 			return err
 		}
 		result.DBPin = &pin
-		result.Message = "Git worktree created and local database branch pin written. Postgres branch provider ensure ran; connection becomes usable when backend_status is ready."
+		result.Message = "Git worktree created and local database branch pin written. SQLite branch provider ensure ran; connection becomes usable when backend_status is ready."
 		if backendStatus.Status == "ready" {
-			result.Message = "Git worktree created and local database branch pin written. Backend Postgres branch is ready."
+			result.Message = "Git worktree created and local database branch pin written. Backend SQLite branch is ready."
 		}
 	} else {
 		result.Message = "Git worktree created."
@@ -283,7 +283,7 @@ func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	if opts.DB {
 		result.DBPinRemoved = dbPinPresent
 	}
-	result.Message = "Git worktree removed. Backend Postgres branch deletion is not implemented yet."
+	result.Message = "Git worktree removed. Backend SQLite branch deletion is not implemented yet."
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}

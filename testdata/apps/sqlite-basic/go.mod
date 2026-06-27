@@ -1,4 +1,4 @@
-module example.com/postgresbasic
+module example.com/sqlitebasic
 
 go 1.26.3
 

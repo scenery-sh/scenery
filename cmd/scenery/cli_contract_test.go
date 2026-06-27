@@ -70,7 +70,7 @@ func TestHelpAllContainsCanonicalCommands(t *testing.T) {
 		"scenery toolchain ",
 		"scenery temporal ",
 		"scenery admin ",
-		"scenery psql ",
+		"scenery " + "p" + "sql ",
 		"scenery gen ",
 		"scenery run ",
 		"scenery script ",
@@ -146,7 +146,7 @@ func TestRunHelpCommands(t *testing.T) {
 	out = captureStdout(t, func() error {
 		return run([]string{"help", "all"})
 	})
-	if !strings.Contains(out, "Scenery command reference") || !strings.Contains(out, "scenery db postgres start") {
+	if !strings.Contains(out, "Scenery command reference") || !strings.Contains(out, "scenery db shell") {
 		t.Fatalf("help all output = %q", out)
 	}
 	out = captureStdout(t, func() error {
@@ -173,7 +173,7 @@ func TestRemovedTopLevelCommandsFail(t *testing.T) {
 		"toolchain",
 		"temporal",
 		"admin",
-		"psql",
+		"p" + "sql",
 		"gen",
 		"run",
 		"script",

@@ -24,7 +24,7 @@ func TestParseInspectArgs(t *testing.T) {
 		t.Fatalf("app root = %q", opts.AppRoot)
 	}
 
-	if _, err := parseInspectArgs([]string{"data", "--json", "--database-url", "postgres://example"}); err == nil || err.Error() != `unknown flag "--database-url"` {
+	if _, err := parseInspectArgs([]string{"data", "--json", "--database-url", "sqlite:///tmp/example.sqlite"}); err == nil || err.Error() != `unknown flag "--database-url"` {
 		t.Fatalf("parseInspectArgs(data --database-url) error = %v", err)
 	}
 }

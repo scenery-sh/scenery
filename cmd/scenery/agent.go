@@ -19,7 +19,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 )
 
 type agentOptions struct {
@@ -902,7 +901,7 @@ func dropSessionManagedDatabase(ctx context.Context, client *localagent.Client, 
 	if err != nil {
 		return "", err
 	}
-	if appConfigUsesBranchingPostgres(cfg) {
+	if appConfigUsesBranchingSQLite(cfg) {
 		branch, removed, err := removeDBBranchLeaseForSession(appRoot, session)
 		if err != nil {
 			return "", err
@@ -912,27 +911,14 @@ func dropSessionManagedDatabase(ctx context.Context, client *localagent.Client, 
 		}
 		return fmt.Sprintf("removed local database branch lease %s for this dev runtime", branch), nil
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
+	if strings.TrimSpace(session.SessionID) == "" {
+		return "", fmt.Errorf("session id is required to drop managed sqlite databases")
+	}
+	dir := filepath.Join(appRoot, ".scenery", "sessions", session.SessionID, "sqlite")
+	if err := os.RemoveAll(dir); err != nil {
 		return "", err
 	}
-	if client != nil {
-		baseEnv, err = envWithManagedPostgresAdminURL(ctx, cfg, baseEnv, client)
-		if err != nil {
-			return "", err
-		}
-	}
-	plan, err := resolveManagedPostgresPlan(cfg, &session, baseEnv)
-	if err != nil {
-		return "", err
-	}
-	if plan == nil {
-		return "", fmt.Errorf("dev.services.postgres is not configured")
-	}
-	if err := dropManagedPostgresDatabase(ctx, plan.AdminURL, plan.DatabaseName); err != nil {
-		return "", err
-	}
-	return "dropped scenery managed database for this dev runtime", nil
+	return "removed managed sqlite databases for this dev runtime", nil
 }
 
 func removeDBWorktreeDBPinForSession(appRoot string, session localagent.Session) (bool, error) {
@@ -946,7 +932,7 @@ func removeDBWorktreeDBPinForSession(appRoot string, session localagent.Session)
 		}
 		return false, err
 	}
-	if !appConfigUsesBranchingPostgres(cfg) {
+	if !appConfigUsesBranchingSQLite(cfg) {
 		return false, nil
 	}
 	path := worktreeDBPinPath(appRoot)
@@ -962,7 +948,7 @@ func removeDBWorktreeDBPinForSession(appRoot string, session localagent.Session)
 			if pin.SessionID != sessionID {
 				return false, nil
 			}
-		} else if firstNonEmpty(strings.TrimSpace(dbPostgresService(cfg).BranchPolicy), dbBranchDefaultPolicy) == "session" {
+		} else if firstNonEmpty(strings.TrimSpace(dbSQLiteService(cfg).BranchPolicy), dbBranchDefaultPolicy) == "session" {
 			branch, _, err := deriveDBBranchName(appRoot, cfg, &session)
 			if err != nil {
 				return false, err
@@ -996,7 +982,7 @@ func removeDBBranchLeaseForSession(appRoot string, session localagent.Session) (
 		}
 		return "", false, err
 	}
-	if !appConfigUsesBranchingPostgres(cfg) {
+	if !appConfigUsesBranchingSQLite(cfg) {
 		return "", false, nil
 	}
 	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(appRoot))
@@ -1014,9 +1000,9 @@ func removeDBBranchLeaseForSession(appRoot string, session localagent.Session) (
 	return branch, true, nil
 }
 
-func appConfigUsesBranchingPostgres(cfg app.Config) bool {
-	_, svc, ok := managedPostgresDeclared(cfg)
-	return ok && postgresServiceUsesBranching(svc)
+func appConfigUsesBranchingSQLite(cfg app.Config) bool {
+	_, svc, ok := managedSQLiteDeclared(cfg)
+	return ok && sqliteServiceUsesBranching(svc)
 }
 
 func resolveStatusAppRoot(value string) (string, error) {

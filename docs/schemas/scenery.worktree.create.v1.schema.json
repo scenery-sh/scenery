@@ -18,7 +18,7 @@
       "required": ["schema_version", "provider", "project", "parent_branch", "branch", "branch_id", "database", "role", "created_by"],
       "properties": {
         "schema_version": { "const": "scenery.db.branch.v1" },
-        "provider": { "const": "postgres" },
+        "provider": { "const": "sqlite" },
         "project": { "type": "string" },
         "parent_branch": { "type": "string" },
         "branch": { "type": "string" },

@@ -67,14 +67,14 @@ func TestDevNamedLockRejectsSubstrateAcquireWhileRegistryHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	substrateUnlock, err := lockManagedSubstrateRoot(root, "postgres")
+	substrateUnlock, err := lockManagedSubstrateRoot(root, "sqlite")
 	if err == nil {
 		substrateUnlock()
 		t.Fatal("substrate lock succeeded while registry lock was held")
 	}
 	if !strings.Contains(err.Error(), "lock ordering violation") ||
 		!strings.Contains(err.Error(), "database branch registry") ||
-		!strings.Contains(err.Error(), "shared substrate postgres") {
+		!strings.Contains(err.Error(), "shared substrate sqlite") {
 		t.Fatalf("ordering error = %v", err)
 	}
 }
@@ -88,7 +88,7 @@ func TestDevNamedLockRejectsBranchOperationAcquireWhileRegistryHeld(t *testing.T
 		t.Fatal(err)
 	}
 	defer unlock()
-	operationUnlock, err := lockPostgresBranchOperation(root, "demo")
+	operationUnlock, err := lockDBBranchOperation(root, "demo")
 	if err == nil {
 		operationUnlock()
 		t.Fatal("branch operation lock succeeded while registry lock was held")

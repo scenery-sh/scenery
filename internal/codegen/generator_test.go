@@ -121,15 +121,15 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 		"generated Task list offset must be non-negative",
 		`sceneryauth "scenery.sh/auth"`,
 		`func sceneryModelTaskTenantID() (string, error)`,
-		`os.Getenv("DatabaseURL")`,
-		`generated model store requires DatabaseURL`,
-		`insert into \"tasks\".\"tasks\"`,
-		`where \"tenant_id\" = $1 order by \"id\" limit $2 offset $3`,
-		`where \"id\" = $1 and \"tenant_id\" = $2`,
+		`scenerydb "scenery.sh/db"`,
+		`return scenerydb.Get(ctx)`,
+		`insert into \"tasks\"`,
+		`where \"tenant_id\" = ? order by \"id\" limit ? offset ?`,
+		`where \"id\" = ? and \"tenant_id\" = ?`,
 		`func sceneryModelTaskTenantValue(tenantID string) (string, error)`,
 		`return string(tenantID), nil`,
 		`row.TenantID = tenantValue`,
-		`update \"tasks\".\"tasks\" set %s where \"id\" = $%d and \"tenant_id\" = $%d returning`,
+		`update \"tasks\" set %s where \"id\" = ? and \"tenant_id\" = ? returning`,
 		`PayloadType:           sceneryruntime.TypeOf[TaskListQuery]()`,
 		`"CreateTask"`,
 		`Access:                sceneryruntime.Auth`,
@@ -162,7 +162,7 @@ func TestGenerateModelCRUDBackend(t *testing.T) {
 	}
 }
 
-func TestGenerateModelCRUDBackendUsesConfiguredDatabaseURLEnv(t *testing.T) {
+func TestGenerateModelCRUDBackendUsesSceneryDBHelper(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(repoRoot(t), "testdata", "apps", "model-dsl")
@@ -172,10 +172,7 @@ func TestGenerateModelCRUDBackendUsesConfiguredDatabaseURLEnv(t *testing.T) {
 	}
 	out, err := codegen.GenerateWithConfig(app, appcfg.Config{
 		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"postgres": {
-				Kind:           "postgres",
-				DatabaseURLEnv: "AppDB",
-			},
+			"main": {Kind: "sqlite", DatabaseURLEnv: "AppDB"},
 		}},
 	})
 	if err != nil {
@@ -183,16 +180,15 @@ func TestGenerateModelCRUDBackendUsesConfiguredDatabaseURLEnv(t *testing.T) {
 	}
 	got := string(out.Generated["tasks/scenery.gen.go"])
 	for _, want := range []string{
-		`os.Getenv("AppDB")`,
-		`os.Getenv("SCENERY_MANAGED_DATABASE_URL")`,
-		`generated model store requires AppDB`,
+		`func sceneryModelStorePool(ctx context.Context) (*sql.DB, error)`,
+		`return scenerydb.Get(ctx)`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated CRUD backend missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, `os.Getenv("DatabaseURL")`) || strings.Contains(got, `generated Task store requires DatabaseURL`) {
-		t.Fatalf("generated CRUD backend still hardcodes DatabaseURL:\n%s", got)
+	if strings.Contains(got, `os.Getenv(`) {
+		t.Fatalf("generated CRUD backend still contains old database plumbing:\n%s", got)
 	}
 }
 
@@ -237,11 +233,11 @@ var _ = model.Entity[Category](model.Table("categories"), model.Generate(model.A
 	for _, want := range []string{
 		"type CategoryListQuery struct",
 		"type ProductListQuery struct",
-		`func sceneryModelStorePool(ctx context.Context) (*pgxpool.Pool, error)`,
+		`func sceneryModelStorePool(ctx context.Context) (*sql.DB, error)`,
 		`func sceneryModelListCategory(ctx context.Context, query CategoryListQuery) ([]Category, error)`,
 		`func sceneryModelListProduct(ctx context.Context, query ProductListQuery) ([]Product, error)`,
-		`pool.Query(ctx, "select \"id\", \"name\" from \"catalog\".\"categories\" order by \"id\" limit $1 offset $2", limit, offset)`,
-		`pool.Query(ctx, "select \"id\", \"name\" from \"catalog\".\"products\" order by \"id\" limit $1 offset $2", limit, offset)`,
+		`pool.QueryContext(ctx, "select \"id\", \"name\" from \"categories\" order by \"id\" limit ? offset ?", limit, offset)`,
+		`pool.QueryContext(ctx, "select \"id\", \"name\" from \"products\" order by \"id\" limit ? offset ?", limit, offset)`,
 		`sceneryModelListCategory(ctx, payload.(CategoryListQuery))`,
 		`sceneryModelListProduct(ctx, payload.(ProductListQuery))`,
 	} {
@@ -249,8 +245,8 @@ var _ = model.Entity[Category](model.Table("categories"), model.Generate(model.A
 			t.Fatalf("generated shared-pool backend missing %q:\n%s", want, got)
 		}
 	}
-	if gotCount := strings.Count(got, "var sceneryModelStoreDB"); gotCount != 1 {
-		t.Fatalf("shared pool state count = %d, want 1:\n%s", gotCount, got)
+	if gotCount := strings.Count(got, "var sceneryModelStoreDB"); gotCount != 0 {
+		t.Fatalf("shared pool state count = %d, want 0:\n%s", gotCount, got)
 	}
 	if gotCount := strings.Count(got, "func sceneryModelStorePool"); gotCount != 1 {
 		t.Fatalf("shared pool func count = %d, want 1:\n%s", gotCount, got)
@@ -299,10 +295,10 @@ var _ = model.Entity[Task](model.Generate(model.ActionCreate))
 		`tenantUUID, err := uuid.Parse(tenantID)`,
 		`return zero, errs.B().Code(errs.InvalidArgument).Msg("generated Task store requires valid tenant_id UUID").Cause(err).Err()`,
 		`row.TenantID = tenantValue`,
-		`pool.Query(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\".\"tasks\" where \"tenant_i_d\" = $1 order by \"i_d\" limit $2 offset $3", tenantValue, limit, offset)`,
-		`pool.QueryRow(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\".\"tasks\" where \"i_d\" = $1 and \"tenant_i_d\" = $2", id, tenantValue)`,
+		`pool.QueryContext(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\" where \"tenant_i_d\" = ? order by \"i_d\" limit ? offset ?", tenantValue, limit, offset)`,
+		`pool.QueryRowContext(ctx, "select \"i_d\", \"tenant_i_d\", \"title\" from \"tasks\" where \"i_d\" = ? and \"tenant_i_d\" = ?", id, tenantValue)`,
 		`args = append(args, id, tenantValue)`,
-		`pool.Exec(ctx, "delete from \"tasks\".\"tasks\" where \"i_d\" = $1 and \"tenant_i_d\" = $2", id, tenantValue)`,
+		`pool.ExecContext(ctx, "delete from \"tasks\" where \"i_d\" = ? and \"tenant_i_d\" = ?", id, tenantValue)`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated UUID tenant backend missing %q:\n%s", want, got)
