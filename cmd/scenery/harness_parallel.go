@@ -276,8 +276,8 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends[localagent.RouteAPI].Network == "unix" && sessionB.Backends[localagent.RouteAPI].Network == "unix", "default API backends must use Unix sockets")
 	check(sessionA.Backends[localagent.RouteAPI].Addr != sessionB.Backends[localagent.RouteAPI].Addr, "API backends must be distinct")
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
-	check(routeContainsSession(sessionA.Routes["web"], sessionA.SessionID) && routeContainsSession(sessionB.Routes["web"], sessionB.SessionID) && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
-	check(routeContainsSession(sessionA.Routes[localagent.RouteGrafana], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteGrafana], sessionB.SessionID), "Grafana routes must be session-scoped")
+	check(routeIsSessionScoped(sessionA, "web") && routeIsSessionScoped(sessionB, "web") && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
+	check(routeIsSessionScoped(sessionA, localagent.RouteGrafana) && routeIsSessionScoped(sessionB, localagent.RouteGrafana), "Grafana routes must be session-scoped")
 	check(envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME"), "managed Postgres database names must be distinct")
 	check(len(ensuredDBs) == 2, "managed Postgres must ensure two session databases")
 	if victoria := (&agentDashboardController{store: store, agent: server}).dashboardVictoria(); victoria == nil || victoria.Endpoint("traces") == "" {
@@ -295,6 +295,24 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 		check(false, "sibling session must remain after deleting the first session")
 	}
 	return diagnostics
+}
+
+func routeIsSessionScoped(session *localagent.Session, route string) bool {
+	if session == nil {
+		return false
+	}
+	value := strings.TrimSpace(session.Routes[route])
+	if value == "" {
+		return false
+	}
+	if session.RouteManifest.Mode == localagent.RouteModePath {
+		baseURL := strings.TrimRight(strings.TrimSpace(session.RouteManifest.BaseURL), "/")
+		if baseURL == "" || !strings.HasPrefix(value, baseURL+"/") {
+			return false
+		}
+		return session.RouteManifest.PortLease != nil && session.RouteManifest.PortLease.SessionID == session.SessionID
+	}
+	return routeContainsSession(value, session.SessionID)
 }
 
 func routeContainsSession(route, sessionID string) bool {

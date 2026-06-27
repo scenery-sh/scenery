@@ -315,16 +315,17 @@ func (s *devSupervisor) registerManagedZeroFSSessionBackend(ctx context.Context,
 	backends := copyManagedBackends(agentSession.Backends)
 	backends[plan.Route] = backend
 	session, err := s.agent.Register(ctx, localagent.RegisterRequest{
-		BaseAppID:   s.activeAppID(),
-		AppRoot:     s.root,
-		SessionID:   agentSession.SessionID,
-		Branch:      agentSession.Branch,
-		Status:      firstNonEmpty(agentSession.Status, "starting"),
-		OwnerPID:    os.Getpid(),
-		AppPID:      agentSession.AppPID,
-		Processes:   s.sessionProcessesFor(agentSession, agentSession.AppPID),
-		Backends:    backends,
-		ReportToken: s.reportToken,
+		BaseAppID:     s.activeAppID(),
+		AppRoot:       s.root,
+		SessionID:     agentSession.SessionID,
+		Branch:        agentSession.Branch,
+		Status:        firstNonEmpty(agentSession.Status, "starting"),
+		OwnerPID:      os.Getpid(),
+		AppPID:        agentSession.AppPID,
+		Processes:     s.sessionProcessesFor(agentSession, agentSession.AppPID),
+		Backends:      backends,
+		RouteManifest: agentSession.RouteManifest,
+		ReportToken:   s.reportToken,
 	})
 	if err != nil {
 		return localagent.Session{}, err

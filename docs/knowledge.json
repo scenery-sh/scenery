@@ -869,6 +869,26 @@
       ]
     },
     {
+      "path": "docs/plans/0090-local-path-routing.md",
+      "title": "Local Path Routing and Per-Runtime Dev Ports",
+      "owner": "scenery runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-27",
+      "review_after": "2026-07-27",
+      "summary": "Active ExecPlan for making localhost path routing with one automatic port per dev runtime the default local routing mode, keeping Caddy as the managed listener, making dnsmasq/domain routing optional, and exposing route manifests for agents.",
+      "tags": [
+        "plans",
+        "execplans",
+        "routing",
+        "agent",
+        "caddy",
+        "dev-runtime",
+        "agents"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",

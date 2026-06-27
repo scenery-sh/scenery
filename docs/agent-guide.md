@@ -213,7 +213,7 @@ implicit public read or public mutation surface.
 Generated CRUD route bases are service-scoped as `/<service>/<table>` so `model.Table(...)`
 remains a database-table decision rather than a public route shortcut, and generated
 routes fail `scenery check` when they collide with reserved route prefixes
-(`/__scenery`, `/api`, `/sync`) or handwritten/generated routes.
+(`/runtime`, `/__scenery`, `/api`, `/sync`) or handwritten/generated routes.
 Use `model.ExistingTable(schema, table)` when an entity reads an existing physical
 table: inspect models exposes `source.kind`, `source.schema`, `source.table`,
 and `source.qualified_table`; generated schema/seed output skips that entity;
@@ -235,11 +235,11 @@ Use non-JSON output only for human inspection.
 
 ## Runtime Command Choice
 
-- Use `scenery up` to run the app root's one live dev runtime and expose capabilities for local development, debugging, agents, dashboard, logs, traces, metrics, managed dev services, and frontend routing. Paths ignored by `.gitignore` or app config `watch.ignore` are outside the watcher/rebuild surface; `watch.ignore` is Scenery-only and does not affect Git tracking. Use a Git worktree for another live code copy.
+- Use `scenery up` to run the app root's one live dev runtime and expose capabilities for local development, debugging, agents, dashboard, logs, traces, metrics, managed dev services, and frontend routing. Default local dev routing is path mode: discover the runtime base URL from `scenery ps --json` or the session route manifest, then use `/api/`, frontend paths, and `/runtime/` under that base URL. Paths ignored by `.gitignore` or app config `watch.ignore` are outside the watcher/rebuild surface; `watch.ignore` is Scenery-only and does not affect Git tracking. Use a Git worktree for another live code copy.
 - During a watcher rebuild restart, the runtime drains in-flight streaming raw responses (SSE/long-poll) by canceling their request contexts so they end with a clean terminator, and the agent router answers requests for a restarting backend with `503` plus `Retry-After: 1` instead of `502`; clients should treat that as a brief retryable window.
 - Managed Vite/Astro frontend dev servers are runtime children; if one exits unexpectedly, the dev supervisor restarts it on a new hidden loopback port and updates the agent route backend.
 - Use `scenery up --detach` when the local agent should keep that dev runtime running in the background.
-- Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when the browser needs trusted wildcard local HTTPS on `127.0.0.1:443`; dnsmasq owns wildcard local DNS, the privileged helper owns that port, forwards raw TCP to user-owned Caddy, and the edge syncs managed dnsmasq/Caddy as needed. If an app explicitly configures `proxy.route_base_domain`, `scenery up` requires that edge path and fails loudly with DNS, privileged listener, Caddy, and router diagnostics instead of publishing internal `:9440` router URLs as user-facing session routes.
+- Use `dev.routing.mode = "host"` plus `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when the browser needs trusted wildcard local HTTPS on `127.0.0.1:443`; dnsmasq owns wildcard local DNS, the privileged helper owns that port, forwards raw TCP to user-owned Caddy, and the edge syncs managed dnsmasq/Caddy as needed. In host mode, an app that configures `proxy.route_base_domain` requires that edge path and fails loudly with DNS, privileged listener, Caddy, and router diagnostics instead of publishing internal `:9440` router URLs as user-facing session routes.
 - Use `scenery logs --follow` to follow the current app root's detached or agent-backed runtime.
 - Use `scenery down` to stop the current app root's dev runtime; add `--db`, `--state`, or `--all` only when destructive cleanup is intended.
 - Use `scenery serve` for headless API-role execution. Do not expect dashboard, proxy, watch mode, or dev/admin endpoints.

@@ -933,7 +933,53 @@ func (s *devSupervisor) sessionIdentityEnv() []string {
 		"SCENERY_APP_ROOT_HASH=" + appRootHash(session.AppRoot),
 		"SCENERY_BRANCH=" + strings.TrimSpace(session.Branch),
 		"SCENERY_WORKTREE=" + appWorktreeName(session.AppRoot),
+		"SCENERY_ROUTE_MODE=" + string(firstRouteMode(session)),
+		"SCENERY_BASE_URL=" + strings.TrimSpace(session.RouteManifest.BaseURL),
+		"SCENERY_API_URL=" + strings.TrimSpace(session.Routes[localagent.RouteAPI]),
+		"SCENERY_API_BASE_PATH=" + routeBasePath(session, localagent.RouteAPI),
+		"SCENERY_PUBLIC_APP_URL=" + publicAppURLForSession(session),
 	}
+}
+
+func firstRouteMode(session *localagent.Session) localagent.RouteMode {
+	if session == nil {
+		return localagent.RouteModeHost
+	}
+	if session.RouteManifest.Mode != "" {
+		return session.RouteManifest.Mode
+	}
+	return localagent.RouteModeHost
+}
+
+func routeBasePath(session *localagent.Session, name string) string {
+	if session == nil || session.RouteManifest.Routes == nil {
+		return ""
+	}
+	record, ok := session.RouteManifest.Routes[name]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(record.Path)
+}
+
+func publicAppURLForSession(session *localagent.Session) string {
+	if session == nil {
+		return ""
+	}
+	names := make([]string, 0, len(session.RouteManifest.Routes))
+	for name, record := range session.RouteManifest.Routes {
+		if name == localagent.RouteAPI || name == localagent.RouteDashboard || name == localagent.RouteGrafana || name == "root" {
+			continue
+		}
+		if strings.TrimSpace(record.URL) != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	if len(names) > 0 {
+		return strings.TrimSpace(session.RouteManifest.Routes[names[0]].URL)
+	}
+	return strings.TrimSpace(firstNonEmpty(session.RouteManifest.BaseURL, session.Routes[localagent.RouteAPI]))
 }
 
 func appRootHash(root string) string {
@@ -1557,15 +1603,16 @@ func (s *devSupervisor) registerAgentSessionBackend(ctx context.Context, route s
 	backends := copyManagedBackends(session.Backends)
 	backends[route] = backend
 	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
-		BaseAppID:   s.activeAppID(),
-		AppRoot:     s.root,
-		SessionID:   session.SessionID,
-		Branch:      session.Branch,
-		Status:      firstNonEmpty(session.Status, "starting"),
-		OwnerPID:    os.Getpid(),
-		AppPID:      session.AppPID,
-		Backends:    backends,
-		ReportToken: s.reportToken,
+		BaseAppID:     s.activeAppID(),
+		AppRoot:       s.root,
+		SessionID:     session.SessionID,
+		Branch:        session.Branch,
+		Status:        firstNonEmpty(session.Status, "starting"),
+		OwnerPID:      os.Getpid(),
+		AppPID:        session.AppPID,
+		Backends:      backends,
+		RouteManifest: session.RouteManifest,
+		ReportToken:   s.reportToken,
 	})
 	if err != nil {
 		slog.Warn("failed to register scenery agent session backend", "route", route, "err", err)
@@ -2041,16 +2088,17 @@ func (s *devSupervisor) updateAgentSession(ctx context.Context, status, appPID s
 		return
 	}
 	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
-		BaseAppID:   s.activeAppID(),
-		AppRoot:     s.root,
-		SessionID:   session.SessionID,
-		Branch:      session.Branch,
-		Status:      status,
-		OwnerPID:    os.Getpid(),
-		AppPID:      appPID,
-		Processes:   s.sessionProcessesFor(session, appPID),
-		Backends:    session.Backends,
-		ReportToken: s.reportToken,
+		BaseAppID:     s.activeAppID(),
+		AppRoot:       s.root,
+		SessionID:     session.SessionID,
+		Branch:        session.Branch,
+		Status:        status,
+		OwnerPID:      os.Getpid(),
+		AppPID:        appPID,
+		Processes:     s.sessionProcessesFor(session, appPID),
+		Backends:      session.Backends,
+		RouteManifest: session.RouteManifest,
+		ReportToken:   s.reportToken,
 	})
 	if err != nil {
 		slog.Warn("failed to update scenery agent session", "err", err)

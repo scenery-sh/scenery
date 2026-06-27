@@ -49,6 +49,8 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_APP_ROOT_HASH` | injected | Stable hash of the app root path. |
 | `SCENERY_BRANCH` | injected | Git branch captured for the dev session. |
 | `SCENERY_WORKTREE` | injected | Worktree directory name captured for the dev session. |
+| `SCENERY_ROUTE_MODE` | injected | Dev routing mode for the current session, usually `path` or `host`. |
+| `SCENERY_BASE_URL` | injected | Browser-facing base URL for the current dev runtime. In default path mode this is `http://localhost:<port>`. |
 | `SCENERY_DEV_SUPERVISOR` | injected | Marks a child process launched by `scenery up`. |
 | `SCENERY_DEV_SUPERVISOR_PID` | injected | Parent dev supervisor PID. |
 | `SCENERY_PARENT_MONITOR` | injected/user input | Enables runtime parent monitoring. |
@@ -73,7 +75,12 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_MANAGED_DATABASE_URL` | injected | Managed per-session Postgres URL exposed for tooling/debugging. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
 | `SCENERY_API_BASE_URL` | injected | scenery-prefixed API route exposed to app/frontends. |
+| `SCENERY_API_URL` | injected | Canonical API route URL exposed to app/frontends. |
+| `SCENERY_API_BASE_PATH` | injected | API path prefix for path-mode routing, normally `/api/`. |
 | `VITE_API_BASE_URL` | injected | Vite-compatible frontend API route. |
+| `SCENERY_FRONTEND_BASE_PATH` | injected | Managed frontend path prefix for the current frontend in path mode. |
+| `SCENERY_FRONTEND_PUBLIC_URL` | injected | Browser-facing URL for the current managed frontend. |
+| `VITE_SCENERY_*` | injected | Vite-compatible mirrors of Scenery dev route metadata for managed frontends. |
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
 | `SCENERY_AUTH_COOKIE_DOMAIN` | injected | Auth cookie domain; empty in default local agent dev. |
 

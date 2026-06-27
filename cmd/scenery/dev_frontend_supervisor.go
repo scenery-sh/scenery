@@ -200,6 +200,7 @@ func (s *devSupervisor) updateManagedFrontendSession(ctx context.Context, name s
 		Processes:      processes,
 		Backends:       backends,
 		RouteNamespace: session.RouteNamespace,
+		RouteManifest:  session.RouteManifest,
 		ReportToken:    s.reportToken,
 	})
 	if err != nil {

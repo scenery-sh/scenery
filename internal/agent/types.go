@@ -4,6 +4,7 @@ import "time"
 
 const (
 	SessionSchemaVersion   = "scenery.dev.session.v1"
+	RouteManifestVersion   = "scenery.route_manifest.v1"
 	SubstrateSchemaVersion = "scenery.dev.substrate.v1"
 	StateSchemaVersion     = "scenery.agent.state.v1"
 
@@ -11,12 +12,21 @@ const (
 	RouteDashboard = "dashboard"
 	RouteGrafana   = "grafana"
 
+	PathModeRuntimePrefix = "/runtime"
+
 	DefaultRouteBaseDomain = "local.dev"
 
 	SubstrateGrafana  = "grafana"
 	SubstratePostgres = "postgres"
 	SubstrateVictoria = "victoria"
 	SubstrateZeroFS   = "zerofs"
+)
+
+type RouteMode string
+
+const (
+	RouteModeHost RouteMode = "host"
+	RouteModePath RouteMode = "path"
 )
 
 type Backend struct {
@@ -49,6 +59,7 @@ type Session struct {
 	Owner          Owner                 `json:"owner"`
 	AppPID         string                `json:"app_pid,omitempty"`
 	Processes      map[string]Process    `json:"processes,omitempty"`
+	RouteManifest  RouteManifest         `json:"route_manifest,omitempty"`
 	Routes         map[string]string     `json:"routes"`
 	Aliases        map[string]string     `json:"aliases,omitempty"`
 	AliasConflicts map[string]AliasLease `json:"alias_conflicts,omitempty"`
@@ -75,6 +86,7 @@ type RegisterRequest struct {
 	Processes      map[string]Process `json:"processes,omitempty"`
 	Backends       map[string]Backend `json:"backends,omitempty"`
 	RouteNamespace RouteNamespace     `json:"route_namespace"`
+	RouteManifest  RouteManifest      `json:"route_manifest,omitempty"`
 	ReportToken    string             `json:"report_token,omitempty"`
 	ClaimOwner     bool               `json:"claim_owner,omitempty"`
 	ClaimAliases   bool               `json:"claim_aliases,omitempty"`
@@ -84,6 +96,40 @@ type RouteNamespace struct {
 	Workspace  string            `json:"workspace,omitempty"`
 	BaseDomain string            `json:"base_domain,omitempty"`
 	Hosts      map[string]string `json:"hosts,omitempty"`
+}
+
+type RouteManifest struct {
+	SchemaVersion string                 `json:"schema_version,omitempty"`
+	Mode          RouteMode              `json:"mode,omitempty"`
+	BaseURL       string                 `json:"base_url,omitempty"`
+	Root          string                 `json:"root,omitempty"`
+	Worktree      string                 `json:"worktree,omitempty"`
+	Routes        map[string]RouteRecord `json:"routes,omitempty"`
+	PortLease     *PortLease             `json:"port_lease,omitempty"`
+}
+
+type RouteRecord struct {
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	URL         string `json:"url"`
+	Path        string `json:"path,omitempty"`
+	StripPrefix string `json:"strip_prefix,omitempty"`
+	Backend     string `json:"backend,omitempty"`
+}
+
+type PortLease struct {
+	SchemaVersion string    `json:"schema_version,omitempty"`
+	AppRoot       string    `json:"app_root"`
+	SessionID     string    `json:"session_id"`
+	BaseAppID     string    `json:"base_app_id,omitempty"`
+	Branch        string    `json:"branch,omitempty"`
+	WorktreeLabel string    `json:"worktree_label,omitempty"`
+	Port          int       `json:"port"`
+	URL           string    `json:"url"`
+	OwnerPID      int       `json:"owner_pid,omitempty"`
+	Owner         Owner     `json:"owner"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type AliasLease struct {

@@ -68,6 +68,9 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		Root:       appRoot,
 		ConfigPath: cfg.SourcePath(appRoot),
 	}
+	if diagnostics := devRouteConfigDiagnostics(cfg); len(diagnostics) > 0 {
+		return renderCheckDiagnostics(stdout, opts.JSON, appInfo, diagnostics)
+	}
 
 	model, err := parse.App(appRoot, cfg.Name)
 	if err != nil {
@@ -125,6 +128,26 @@ func renderCheckGeneratedSchemaDrift(stdout io.Writer, jsonMode bool, app inspec
 			Message:         item.Message,
 			SuggestedAction: "Run `scenery generate data --dry-run --json` and update the app-owned schema file to match the generated desired schema.",
 		})
+	}
+	err := errors.New(strings.Join(messages, "\n"))
+	if !jsonMode {
+		return err
+	}
+	if err := writeCheckJSON(stdout, checkResponse{
+		SchemaVersion: "scenery.check.result.v1",
+		OK:            false,
+		App:           app,
+		Diagnostics:   diagnostics,
+	}); err != nil {
+		return err
+	}
+	return &silentCLIError{err: err}
+}
+
+func renderCheckDiagnostics(stdout io.Writer, jsonMode bool, app inspectdata.AppRef, diagnostics []checkDiagnostic) error {
+	messages := make([]string, 0, len(diagnostics))
+	for _, diag := range diagnostics {
+		messages = append(messages, diag.Message)
 	}
 	err := errors.New(strings.Join(messages, "\n"))
 	if !jsonMode {

@@ -1,6 +1,6 @@
 # 0088 - SQLite Service Databases and Postgres Removal
 
-This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
+This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` current as work proceeds.
 
 ## Purpose / Big Picture
 

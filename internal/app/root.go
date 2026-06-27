@@ -176,6 +176,14 @@ type FrontendConfig struct {
 type DevConfig struct {
 	Services map[string]DevServiceConfig `json:"services"`
 	Setup    []string                    `json:"setup"`
+	Routing  DevRoutingConfig            `json:"routing"`
+}
+
+type DevRoutingConfig struct {
+	Mode      string `json:"mode"`
+	Port      int    `json:"port"`
+	PortStart int    `json:"port_start"`
+	PortEnd   int    `json:"port_end"`
 }
 
 type DevServiceConfig struct {
