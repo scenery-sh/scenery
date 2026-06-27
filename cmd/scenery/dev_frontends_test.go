@@ -20,14 +20,14 @@ func TestManagedFrontendCommandUsesViteLocalBin(t *testing.T) {
 	root := t.TempDir()
 	writeFrontendPackage(t, root, `{"scripts":{"dev":"vite"}}`)
 	bin := writeFrontendBin(t, root, "vite")
-	cmd, args, err := managedFrontendCommand(root, "49231", "")
+	cmd, args, err := managedFrontendCommand(root, "49231", "", "/web")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cmd != bin {
 		t.Fatalf("command = %q, want %q", cmd, bin)
 	}
-	wantArgs := []string{"--host", "127.0.0.1", "--port", "49231"}
+	wantArgs := []string{"--host", "127.0.0.1", "--port", "49231", "--base", "/web/"}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", args, wantArgs)
 	}
@@ -39,7 +39,7 @@ func TestManagedFrontendCommandUsesAstroLocalBin(t *testing.T) {
 	root := t.TempDir()
 	writeFrontendPackage(t, root, `{"scripts":{"dev":"astro dev"}}`)
 	bin := writeFrontendBin(t, root, "astro")
-	cmd, args, err := managedFrontendCommand(root, "49232", "blog.main-test.local.dev")
+	cmd, args, err := managedFrontendCommand(root, "49232", "blog.main-test.local.dev", "/blog")
 	if err != nil {
 		t.Fatal(err)
 	}

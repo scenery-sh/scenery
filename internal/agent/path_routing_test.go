@@ -37,11 +37,63 @@ func TestPathRouteManifestForSession(t *testing.T) {
 	if got, want := session.Routes[RouteAPI], "http://localhost:4001/api/"; got != want {
 		t.Fatalf("api route = %q, want %q", got, want)
 	}
+	if got, want := session.Routes[RouteDashboard], "http://localhost:4001/consolenext/"; got != want {
+		t.Fatalf("dashboard route = %q, want %q", got, want)
+	}
 	if got, want := session.RouteManifest.Routes["ui"].StripPrefix, "/ui"; got != want {
 		t.Fatalf("ui strip prefix = %q, want %q", got, want)
 	}
 	if got, want := session.RouteManifest.Routes["root"].Kind, "scenery-console"; got != want {
 		t.Fatalf("root kind = %q, want %q", got, want)
+	}
+}
+
+func TestPathProxyOptionsPreserveFrontendPrefix(t *testing.T) {
+	t.Parallel()
+
+	session := Session{RouteManifest: RouteManifest{BaseURL: "http://localhost:4747"}}
+	frontend := pathProxyOptions(session, RouteRecord{
+		Name:        "storage",
+		Kind:        "frontend",
+		Path:        "/storage/",
+		StripPrefix: "/storage",
+	})
+	if frontend.stripPrefix != "" {
+		t.Fatalf("frontend stripPrefix = %q, want empty", frontend.stripPrefix)
+	}
+	api := pathProxyOptions(session, RouteRecord{
+		Name:        "api",
+		Kind:        "api",
+		Path:        "/api/",
+		StripPrefix: "/api",
+	})
+	if api.stripPrefix != "/api" {
+		t.Fatalf("api stripPrefix = %q, want /api", api.stripPrefix)
+	}
+}
+
+func TestShouldRedirectPathPrefixPreservesTrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	record := RouteRecord{Path: "/storage/"}
+	req := httptest.NewRequest(http.MethodGet, "http://localhost/storage/", nil)
+	if shouldRedirectPathPrefix(req, record) {
+		t.Fatal("already-slashed route path should not redirect")
+	}
+	req = httptest.NewRequest(http.MethodGet, "http://localhost/storage", nil)
+	if !shouldRedirectPathPrefix(req, record) {
+		t.Fatal("unslashed route path should redirect")
+	}
+}
+
+func TestRewriteHTMLRootRefs(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`<script src="/assets/app.js"></script><a href="/storage/">Storage</a><img src="/favicon.svg">`)
+	got := string(rewriteHTMLRootRefs(body, "/storage"))
+	want := `<script src="/storage/assets/app.js"></script><a href="/storage/">Storage</a><img src="/storage/favicon.svg">`
+	if got != want {
+		t.Fatalf("rewrite = %q, want %q", got, want)
 	}
 }
 
@@ -163,7 +215,7 @@ func TestServerPathModeRoutesByTrustedSessionHeader(t *testing.T) {
 	if status != http.StatusOK || body != "frontend shell" {
 		t.Fatalf("ui deep link status=%d body=%q", status, body)
 	}
-	if strings.Join(frontendHits, ",") != "/settings,/" {
+	if strings.Join(frontendHits, ",") != "/ui/settings,/" {
 		t.Fatalf("frontend hits = %q", strings.Join(frontendHits, ","))
 	}
 	status, body, _ = request(http.MethodGet, PathModeRuntimePrefix+"/config", "", true)
