@@ -13,6 +13,7 @@ scenery harness self --summary
 
 - [Repo Agent Instructions](../AGENTS.md): mandatory repo-local operating rules for agents changing scenery itself.
 - [Installable Skill](../SKILL.md): concise portable skill for agents using scenery in target apps.
+- [DSL Reference](../DSL.md): human-readable map of app config, directives, tags, model/page, Temporal, and cron DSL surfaces.
 - [Agent Guide](agent-guide.md): agent workflows, generated artifacts, and client-app integration guidance.
 
 ## Core Contracts

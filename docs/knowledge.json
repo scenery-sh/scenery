@@ -89,6 +89,26 @@
       ]
     },
     {
+      "path": "DSL.md",
+      "title": "scenery DSL Reference",
+      "owner": "scenery maintainers",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-27",
+      "review_after": "2026-07-27",
+      "summary": "Human-readable reference for the current Scenery DSL surface: app config, //scenery directives, request/response/model tags, static model/page IR, generated data/web output, Temporal declarations, cron jobs, and inspect commands.",
+      "tags": [
+        "docs",
+        "dsl",
+        "apps",
+        "models",
+        "views",
+        "temporal",
+        "cron"
+      ]
+    },
+    {
       "path": "docs/agent-guide.md",
       "title": "scenery Agent Guide",
       "owner": "scenery maintainers",
