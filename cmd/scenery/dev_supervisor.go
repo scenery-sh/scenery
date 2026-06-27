@@ -1526,7 +1526,7 @@ func (s *devSupervisor) dashboardRootForApp(ctx context.Context, appID string) (
 	return status.AppRoot, nil
 }
 
-func (s *devSupervisor) dashboardVictoria() dashboardVictoria {
+func (s *devSupervisor) dashboardVictoria() *victoriaStack {
 	if s == nil {
 		return nil
 	}
@@ -1728,7 +1728,7 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 	routes := s.statusDashboardRoutesLocked(app.SessionID)
 	aliases := s.statusDashboardAliasesLocked(app.SessionID)
 	var session *localagent.Session
-	var victoria dashboardVictoria
+	var victoria *victoriaStack
 	if s.agentSession != nil {
 		copy := *s.agentSession
 		session = &copy

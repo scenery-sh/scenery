@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func (defaultDoctorResourceProbe) Memory(context.Context) (doctorMemoryInfo, error) {
+func defaultDoctorMemory(context.Context) (doctorMemoryInfo, error) {
 	var info unix.Sysinfo_t
 	if err := unix.Sysinfo(&info); err != nil {
 		return doctorMemoryInfo{}, err

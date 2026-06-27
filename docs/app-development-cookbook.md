@@ -55,7 +55,8 @@ Validate:
 
 ```sh
 scenery check --json
-scenery serve
+scenery build -o ./hello-app
+SCENERY_LISTEN_ADDR=127.0.0.1:4000 ./hello-app
 curl http://127.0.0.1:4000/hello/world
 ```
 
@@ -123,10 +124,10 @@ Declare Scenery-owned storage in app config:
 }
 ```
 
-The app-facing storage API is production-supported when headless `scenery serve`
-or standalone `scenery worker` receives an explicit operator-provided
+The app-facing storage API is production-supported when generated app binaries
+or standalone `scenery worker` receive an explicit operator-provided
 `SCENERY_STORAGE_CONFIG` whose stores use `kind: "proxy"` and `proxy_socket`.
-Managed ZeroFS remains the beta local-dev path behind `scenery up`; headless
+Managed ZeroFS remains the beta local-dev path behind `scenery up`; production
 runtimes reject missing or local-root storage config instead of silently creating
 local storage.
 
@@ -217,7 +218,8 @@ Validate:
 
 ```sh
 scenery check --json
-scenery serve
+scenery build -o ./auth-app
+SCENERY_LISTEN_ADDR=127.0.0.1:4000 ./auth-app
 curl -X POST http://127.0.0.1:4000/users/dev-bootstrap
 ```
 

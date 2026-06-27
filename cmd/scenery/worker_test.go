@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,14 +13,9 @@ import (
 func TestWorkerDurableTokenCreate(t *testing.T) {
 	t.Parallel()
 
-	root := persistentTestAppRoot(t, "worker-durable-token")
-	preparePersistentTestApp(t, root, map[string]string{
-		".scenery.json": `{"name":"durabletoken","id":"durable-token-id"}`,
-		"go.mod":        "module example.com/durabletoken\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + repoRootForTest(t) + "\n",
-	})
-	if err := os.RemoveAll(filepath.Join(root, ".scenery", "state")); err != nil {
-		t.Fatalf("remove old durable state: %v", err)
-	}
+	root := t.TempDir()
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"durabletoken","id":"durable-token-id"}`)
+	writeTestAppFile(t, root, "go.mod", "module example.com/durabletoken\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRootForTest(t)+"\n")
 
 	var out bytes.Buffer
 	err := durableWorkerCommand([]string{"token", "create", "--app-root", root, "--service", "maps", "--name", "maps remote", "--id", "tok-test", "--json"}, &out)

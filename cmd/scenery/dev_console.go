@@ -91,14 +91,9 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	if err != nil {
 		return err
 	}
-	store, err := openDevdashStore()
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	backend, err := selectDevEventBackend(ctx, store, opts)
-	if err != nil {
-		return err
+	backend := resolveLogsVictoriaStackFunc(ctx, true)
+	if backend == nil {
+		return fmt.Errorf("VictoriaLogs is unavailable")
 	}
 
 	restoreTerminal := func() {}
@@ -210,7 +205,7 @@ type devConsoleState struct {
 	sources   []devConsoleSource
 }
 
-func (s *devConsoleState) refresh(ctx context.Context, backend devEventBackend) error {
+func (s *devConsoleState) refresh(ctx context.Context, backend *victoriaStack) error {
 	query := logsDevEventQuery(s.opts, s.appID, s.sessionID)
 	query.Limit = maxInt(s.opts.Limit, devConsoleDefaultEvents)
 	if s.selected != "" && s.selected != "all" {
@@ -239,7 +234,7 @@ func (s *devConsoleState) refresh(ctx context.Context, backend devEventBackend) 
 	return nil
 }
 
-func (s *devConsoleState) refreshIfChanged(ctx context.Context, backend devEventBackend) (bool, error) {
+func (s *devConsoleState) refreshIfChanged(ctx context.Context, backend *victoriaStack) (bool, error) {
 	before := s.signature()
 	if err := s.refresh(ctx, backend); err != nil {
 		return false, err

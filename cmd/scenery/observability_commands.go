@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+type adminOptions struct {
+	AppRoot string
+	JSON    bool
+}
+
 func tracesCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: scenery traces list|clear [--json] [--app-root <path>]")
@@ -100,28 +105,35 @@ func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error 
 	if stack := defaultVictoriaQueryStack(); stack != nil {
 		stack.MarkCleared(appID, time.Now().UTC())
 	}
-	resp := adminResponse{
+	resp := struct {
+		SchemaVersion string `json:"schema_version"`
+		OK            bool   `json:"ok"`
+		Command       string `json:"command"`
+		App           struct {
+			Name string `json:"name"`
+			Root string `json:"root"`
+		} `json:"app"`
+		Data map[string]any `json:"data,omitempty"`
+	}{
 		SchemaVersion: "scenery.traces.clear.v1",
 		OK:            true,
 		Command:       "scenery traces clear",
-		App: adminAppRef{
-			Name: cfg.Name,
-			Root: appRoot,
-		},
 		Data: map[string]any{
 			"app_id":  appID,
 			"cleared": "traces",
 		},
 	}
+	resp.App.Name = cfg.Name
+	resp.App.Root = appRoot
 	if opts.JSON {
-		return writeAdminJSON(stdout, resp)
+		return writeInspectJSON(stdout, resp)
 	}
 	_, err = fmt.Fprintf(stdout, "cleared traces for %s\n", appID)
 	return err
 }
 
 func parseTracesClearArgs(args []string) (adminOptions, error) {
-	opts := adminOptions{Domain: "traces", Action: "clear"}
+	opts := adminOptions{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--json":

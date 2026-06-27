@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func (defaultDoctorResourceProbe) Disk(_ context.Context, path string) (doctorDiskInfo, error) {
+func defaultDoctorDisk(_ context.Context, path string) (doctorDiskInfo, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return doctorDiskInfo{}, err

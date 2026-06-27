@@ -430,7 +430,7 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 	if harnessDevEventBackendPath(path) {
 		docs["docs/plans/0056-dev-event-backend-cutover-and-parity.md"] = true
 		risks["victoria-dev-event-read-path"] = true
-		commands["scenery logs --backend victoria --limit 500 --jsonl"] = true
+		commands["scenery logs --limit 500 --jsonl"] = true
 	}
 	switch category {
 	case "cli":

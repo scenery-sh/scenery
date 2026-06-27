@@ -339,7 +339,7 @@ func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testi
 	if err == nil {
 		t.Fatal("appProcessEnv succeeded without explicit storage runtime config")
 	}
-	if !strings.Contains(err.Error(), "headless runtimes require explicit "+storageconfig.RuntimeConfigEnv) ||
+	if !strings.Contains(err.Error(), "non-dev runtimes require explicit "+storageconfig.RuntimeConfigEnv) ||
 		!strings.Contains(err.Error(), "scenery up") {
 		t.Fatalf("error = %v", err)
 	}
@@ -366,7 +366,7 @@ func TestAppProcessEnvAcceptsExplicitStorageRuntimeConfig(t *testing.T) {
 		t.Fatalf("env missing explicit runtime config: %v", env)
 	}
 	if strings.Contains(joined, `"kind":"local"`) {
-		t.Fatalf("headless env synthesized local storage config: %v", env)
+		t.Fatalf("runtime env synthesized local storage config: %v", env)
 	}
 }
 

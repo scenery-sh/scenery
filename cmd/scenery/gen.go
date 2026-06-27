@@ -4,19 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/clientgen"
 	"scenery.sh/internal/parse"
 )
-
-type genClientOptions struct {
-	AppRoot string
-	Target  string
-	Lang    string
-	Output  string
-}
 
 func discoverConfiguredApp(appRootOpt string) (string, app.Config, error) {
 	start, err := resolveAppRoot(appRootOpt)
@@ -56,47 +48,4 @@ func writeTypeScriptClient(appRoot string, cfg app.Config, target, outputPath st
 		return "", err
 	}
 	return outputPath, nil
-}
-
-func parseGenClientArgs(args []string) (genClientOptions, error) {
-	var opts genClientOptions
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--app-root":
-			i++
-			if i >= len(args) {
-				return genClientOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case strings.HasPrefix(arg, "--app-root="):
-			opts.AppRoot = strings.TrimPrefix(arg, "--app-root=")
-		case arg == "--lang":
-			i++
-			if i >= len(args) {
-				return genClientOptions{}, fmt.Errorf("missing value for --lang")
-			}
-			opts.Lang = args[i]
-		case strings.HasPrefix(arg, "--lang="):
-			opts.Lang = strings.TrimPrefix(arg, "--lang=")
-		case arg == "--output" || arg == "-o":
-			i++
-			if i >= len(args) {
-				return genClientOptions{}, fmt.Errorf("missing value for %s", arg)
-			}
-			opts.Output = args[i]
-		case strings.HasPrefix(arg, "--output="):
-			opts.Output = strings.TrimPrefix(arg, "--output=")
-		case strings.HasPrefix(arg, "-o="):
-			opts.Output = strings.TrimPrefix(arg, "-o=")
-		case strings.HasPrefix(arg, "-"):
-			return genClientOptions{}, fmt.Errorf("unknown flag %q", arg)
-		default:
-			if opts.Target != "" {
-				return genClientOptions{}, fmt.Errorf("unexpected argument %q", arg)
-			}
-			opts.Target = arg
-		}
-	}
-	return opts, nil
 }
