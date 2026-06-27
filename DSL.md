@@ -36,7 +36,7 @@ Common config surfaces:
 - `watch.ignore`: app-root-relative paths ignored by `scenery up` rebuild watching, not by Git.
 - `proxy.frontends`: frontend roots for dev routing and generated web packages.
 - `storage`: Scenery-owned storage stores, access, tenant scoping, and size limits.
-- `dev.services`: managed local dev services such as Postgres, Electric, and ZeroFS.
+- `dev.services`: managed local dev services such as Postgres and ZeroFS.
 - `temporal.enabled`: opt-in Temporal runtime. Declarations alone do not enable Temporal.
 - `database.apply`: explicit database setup command provider.
 - `tasks`, `validation`: app-owned task and validation profiles.
@@ -214,7 +214,7 @@ Existing table rules:
 - allow generated list/get only
 - reject generated create/update/delete
 - reject `model.Seed`
-- still generate source rows, Electric shape metadata, projections, collections, pages, and routes
+- still generate source rows, source metadata, projections, collections, pages, and routes
 - do not generate Atlas HCL or seed SQL for that table
 
 ## Static Page DSL
@@ -271,7 +271,7 @@ Sort directions:
 - `page.Asc`
 - `page.Desc`
 
-Generated pages use source rows for storage/Electric input and materialize page records for rendering.
+Generated pages use source rows for storage input and materialize page records for rendering.
 
 ## Generated Model And Page Output
 
@@ -295,7 +295,7 @@ Generated data writes disposable files under:
 Generated web packages export:
 
 - row, create, and patch types
-- Electric shape definitions with `schema`, `table`, and `qualifiedTable`
+- entity source definitions with `schema`, `table`, and `qualifiedTable`
 - page projection records and materializers
 - collection descriptors with static filters/sorts/display metadata
 - runtime adapter factories
@@ -392,4 +392,3 @@ scenery inspect generators --json
 ```
 
 Generated `.scenery/gen/*` files are cache/output, not the API.
-

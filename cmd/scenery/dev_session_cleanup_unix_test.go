@@ -38,7 +38,7 @@ func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
 		AppRoot:   root,
 		OwnerPID:  os.Getpid(),
 		Processes: map[string]localagent.Process{
-			"electric": {PID: stale.Process.Pid, Owner: localagent.CaptureOwner(stale.Process.Pid, "test")},
+			"worker": {PID: stale.Process.Pid, Owner: localagent.CaptureOwner(stale.Process.Pid, "test")},
 		},
 	}
 	unrelated := localagent.Session{
@@ -46,7 +46,7 @@ func TestCleanupSupersededDevSessionsStopsSameSessionChildren(t *testing.T) {
 		AppRoot:   root,
 		OwnerPID:  os.Getpid(),
 		Processes: map[string]localagent.Process{
-			"electric": {PID: other.Process.Pid, Owner: localagent.CaptureOwner(other.Process.Pid, "test")},
+			"worker": {PID: other.Process.Pid, Owner: localagent.CaptureOwner(other.Process.Pid, "test")},
 		},
 	}
 

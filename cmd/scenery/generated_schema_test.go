@@ -71,9 +71,9 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 	}
 	for name, data := range map[string]string{
 		"models.ts":      "export interface TaskRow",
-		"shapes.ts":      "export const taskShape",
+		"shapes.ts":      "export const taskSource",
 		"projections.ts": "export interface TaskListRecord",
-		"collections.ts": "export interface TanStackDBCollectionDefinition",
+		"collections.ts": "export interface CollectionDefinition",
 		"routes.tsx":     "registerGeneratedRoutes",
 		"runtime.ts":     "export function createTaskListRuntime",
 		"index.ts":       "export * from \"./routes\"",
@@ -89,7 +89,7 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 		!strings.Contains(first["projections.ts"], "export function materializeTaskList(row: TaskRow): TaskListRecord") ||
 		!strings.Contains(first["projections.ts"], `due_at: row["due_at"]`) ||
 		!strings.Contains(first["projections.ts"], `created_at: row["created_at"]`) ||
-		!strings.Contains(first["collections.ts"], "TanStackDBCollectionDefinition<TaskListRecord, TaskRow>") ||
+		!strings.Contains(first["collections.ts"], "CollectionDefinition<TaskListRecord, TaskRow>") ||
 		!strings.Contains(first["collections.ts"], `display: "badge"`) ||
 		!strings.Contains(first["collections.ts"], `{ field: "status", op: "neq", value: "done" }`) ||
 		!strings.Contains(first["collections.ts"], `{ field: "due_at", direction: "asc" }`) ||

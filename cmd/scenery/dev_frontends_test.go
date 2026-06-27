@@ -76,7 +76,6 @@ func TestFrontendDevEnvIncludesSessionRoutes(t *testing.T) {
 		SessionID: "main-abc123",
 		Routes: map[string]string{
 			localagent.RouteAPI: "http://api.main-abc123.local.dev:9440/",
-			"electric":          "http://electric.main-abc123.local.dev:9440/",
 			"web":               "http://web.main-abc123.local.dev:9440/",
 		},
 	}, "web")
@@ -88,8 +87,6 @@ func TestFrontendDevEnvIncludesSessionRoutes(t *testing.T) {
 		"SCENERY_SESSION_ID=main-abc123",
 		"SCENERY_API_BASE_URL=http://api.main-abc123.local.dev:9440/",
 		"VITE_API_BASE_URL=http://api.main-abc123.local.dev:9440/",
-		"SCENERY_ELECTRIC_URL=http://electric.main-abc123.local.dev:9440/",
-		"VITE_ELECTRIC_URL=http://electric.main-abc123.local.dev:9440/",
 		"__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=web.main-abc123.local.dev",
 	} {
 		if !containsString(env, want) {

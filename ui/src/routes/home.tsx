@@ -13,7 +13,6 @@ const SERVICE_ORDER = [
   "dashboard",
   "grafana",
   "temporal",
-  "electric",
 ];
 
 export function HomePage() {
@@ -128,9 +127,6 @@ function serviceKind(name: string): string {
   }
   if (key === "grafana" || key === "temporal") {
     return "Observability";
-  }
-  if (key === "electric") {
-    return "Sync";
   }
   return "Frontend";
 }

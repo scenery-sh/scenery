@@ -23,7 +23,7 @@ After this work, `scenery harness self --json --write` must make ENV drift visib
 - 2026-06-01: The same file currently records live `SCENERY_*` values in the toolchain preflight report through `sortedSceneryEnv(os.Environ())`. This is useful for local diagnostics but should be reviewed for redaction and separated from source-contract enforcement.
 - 2026-06-01: `docs/environment.md` states the desired direction already: prefer `.scenery.json` for stable app configuration and reserve env vars for local overrides, secrets, process identity, or explicit escape hatches. The harness should enforce that policy rather than relying on prose.
 - 2026-06-01: Recent hardening PRs added or documented several env surfaces around Grafana and Temporal. PRs #15 and #17 describe new Grafana environment variables and hardening, and PRs #14 and #16 describe Temporal production/runtime configuration changes. Those are exactly the areas where future work should prefer typed config or managed manifests unless an env escape hatch is deliberately approved.
-- 2026-06-01: The broader scanner initially misclassified Temporal span-kind constants such as `TEMPORAL_WORKFLOW` as process env names. The implementation now treats `TEMPORAL_*`, `VITE_*`, `ELECTRIC_*`, and OTEL names as exact approved names unless the registry uses a deliberate prefix family.
+- 2026-06-01: The broader scanner initially misclassified Temporal span-kind constants such as `TEMPORAL_WORKFLOW` as process env names. The implementation now treats `TEMPORAL_*`, `VITE_*`, `SYNC_*`, and OTEL names as exact approved names unless the registry uses a deliberate prefix family.
 - 2026-06-01: `SCENERY_TEST_WATCH_SETTLE_DELAY_MS` and related watch timing overrides are test-named process-level escape hatches read by production dev watcher code so integration tests can shorten debounce/poll timing. They are registry-approved as `test_escape_hatch` instead of `test_only`, while pure `SCENERY_TEST_*` and `SCENERY_INTEGRATION_*` names remain disallowed in production code.
 
 ## Decision Log
@@ -223,7 +223,7 @@ Current audit:
 
 | Class | Decision | Notes |
 | --- | --- | --- |
-| App identity and routing injection | keep | Injected variables such as `SCENERY_APP_ID`, `SCENERY_LISTEN_ADDR`, session IDs, routed API/Electric URLs, and Temporal task-queue/build metadata are process identity, not user configuration. |
+| App identity and routing injection | keep | Injected variables such as `SCENERY_APP_ID`, `SCENERY_LISTEN_ADDR`, session IDs, routed API/sync URLs, and Temporal task-queue/build metadata are process identity, not user configuration. |
 | Secrets and service URLs | keep | Secret or credential-bearing variables such as `DATABASE_URL`, `SCENERY_AUTH_JWT_SECRET`, and `TEMPORAL_API_KEY` stay env-backed and are marked secret for harness redaction. |
 | Managed toolchain controls | keep for now | `SCENERY_TOOLCHAIN_DIR`, `SCENERY_TOOLCHAIN_DOWNLOAD`, and explicit per-tool binary/download overrides stay registered escape hatches because plan 0059 owns the typed managed-toolchain surface. |
 | Grafana/Victoria controls | keep for now | Local dev sidecar knobs remain registered `dev_escape_hatch` variables; future promotion should prefer `.scenery.json dev.observability` or managed manifests. |

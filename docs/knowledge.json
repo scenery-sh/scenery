@@ -424,7 +424,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Completed ExecPlan that made the real neon-selfhost branch driver a built-in Scenery CLI capability that auto-records, auto-resolves, owns tenant/timeline/compute lifecycle, implements branch mutations and schema diff, and proves branch/Electric isolation.",
+      "summary": "Completed ExecPlan that made the real neon-selfhost branch driver a built-in Scenery CLI capability that auto-records, auto-resolves, owns tenant/timeline/compute lifecycle, implements branch mutations and schema diff, and proves branch/sync isolation.",
       "tags": [
         "plans",
         "execplans",
@@ -603,14 +603,14 @@
       "freshness": "current",
       "last_reviewed": "2026-06-10",
       "review_after": "2026-07-10",
-      "summary": "Completed ExecPlan that removed Neon as a Scenery substrate while preserving worktree/session database branching, managed DatabaseURL injection, DB lifecycle, Electric, auth, and harness behavior on PostgreSQL 18.",
+      "summary": "Completed ExecPlan that removed Neon as a Scenery substrate while preserving worktree/session database branching, managed DatabaseURL injection, DB lifecycle, sync, auth, and harness behavior on PostgreSQL 18.",
       "tags": [
         "plans",
         "execplans",
         "database",
         "postgres",
         "branching",
-        "electric",
+        "sync",
         "agents"
       ]
     },
@@ -667,7 +667,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Completed ExecPlan that split generated collection page records from storage/Electric rows with internal projection IR, inspect views projection output, generated projections.ts, and computed-column diagnostics.",
+      "summary": "Completed ExecPlan that split generated collection page records from storage/sync rows with internal projection IR, inspect views projection output, generated projections.ts, and computed-column diagnostics.",
       "tags": [
         "plans",
         "execplans",
@@ -682,15 +682,15 @@
       ]
     },
     {
-      "path": "docs/plans/0082-electric-page-projection-materializers.md",
-      "title": "Electric Page Projection Materializers",
+      "path": "docs/plans/0082-sync-page-projection-materializers.md",
+      "title": "sync Page Projection Materializers",
       "owner": "scenery app model / generators",
       "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Completed ExecPlan proving generated Electric-backed frontend code realizes page-record projection IR with raw source rows, generated page records, and client-side materializers.",
+      "summary": "Completed ExecPlan proving generated sync-backed frontend code realizes page-record projection IR with raw source rows, generated page records, and client-side materializers.",
       "tags": [
         "plans",
         "execplans",
@@ -698,7 +698,7 @@
         "views",
         "generators",
         "projections",
-        "electric",
+        "sync",
         "agents"
       ],
       "schema_refs": [
@@ -805,6 +805,25 @@
       ]
     },
     {
+      "path": "docs/plans/0087-remove-former-realtime-service-and-reserve-entity-stream.md",
+      "title": "Remove Former Realtime Service and Reserve Entity Stream",
+      "owner": "scenery runtime / generated web",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-06-27",
+      "review_after": "2026-07-27",
+      "summary": "Completed ExecPlan that deleted the former managed realtime service from runtime startup, config, generated web contracts, docs, UI, fixtures, and environment policy while preserving /sync as a reserved future entity stream path.",
+      "tags": [
+        "plans",
+        "execplans",
+        "dev-services",
+        "generated-web",
+        "frontend",
+        "agents"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",
@@ -869,7 +888,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-07",
-      "summary": "Completed ExecPlan for a Scenery-owned local Neon dev cell, branch-isolated managed Postgres provider, worktree/session branch pins, agent-safe worktree workflows, and default harness proof of branch/Electric isolation.",
+      "summary": "Completed ExecPlan for a Scenery-owned local Neon dev cell, branch-isolated managed Postgres provider, worktree/session branch pins, agent-safe worktree workflows, and default harness proof of branch/sync isolation.",
       "tags": [
         "plans",
         "execplans",
@@ -905,7 +924,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Completed ExecPlan for making ONLV consume the agent-native local development model by default through scenery-owned dev runtimes, routes, Postgres, Electric, and docs.",
+      "summary": "Completed ExecPlan for making ONLV consume the agent-native local development model by default through scenery-owned dev runtimes, routes, Postgres, sync, and docs.",
       "tags": [
         "plans",
         "execplans",

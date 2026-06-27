@@ -1,12 +1,12 @@
-# Agent Managed Postgres and Electric
+# Agent Managed Postgres and sync
 
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
 ## Purpose / Big Picture
 
-agent-native local-dev removes fixed per-worktree Postgres and Electric ports by moving database-adjacent dev services behind the local scenery agent. ExecPlan 0040 added the `dev.services` config surface and shared substrate registry; this plan implements the managed database lifecycle behind that contract.
+agent-native local-dev removes fixed per-worktree Postgres and sync ports by moving database-adjacent dev services behind the local scenery agent. ExecPlan 0040 added the `dev.services` config surface and shared substrate registry; this plan implements the managed database lifecycle behind that contract.
 
-After this work, `scenery dev` can create or reuse an agent-owned local Postgres substrate, allocate an isolated database per agent session, expose the effective `DatabaseURL` to the app process, route Electric through the agent as a hidden per-session backend, and provide `scenery db reset`, `scenery db psql`, and snapshot commands that operate on the current session.
+After this work, `scenery dev` can create or reuse an agent-owned local Postgres substrate, allocate an isolated database per agent session, expose the effective `DatabaseURL` to the app process, route sync through the agent as a hidden per-session backend, and provide `scenery db reset`, `scenery db psql`, and snapshot commands that operate on the current session.
 
 ## Progress
 
@@ -18,9 +18,9 @@ After this work, `scenery dev` can create or reuse an agent-owned local Postgres
 * [x] 2026-05-27: Change declared managed Postgres to override local app DB env by default, with `SCENERY_DEV_POSTGRES_EXTERNAL=1` as the explicit external-database escape hatch.
 * [x] 2026-05-27: Implement `scenery db reset` for the current managed session database in the explicit admin URL path.
 * [x] 2026-05-27: Implement snapshot create/restore commands for the current managed session database using `pg_dump` and `psql`.
-* [x] 2026-05-27: Register Electric as a hidden per-session backend and route it through the agent when `SCENERY_DEV_ELECTRIC_UPSTREAM` is provided.
-* [x] 2026-05-27: Implement Electric process/container startup for `dev.services.electric`.
-* [x] 2026-05-27: Make managed Electric use a deterministic session-scoped replication stream id so parallel sessions sharing one Postgres cluster do not collide on Electric replication slots.
+* [x] 2026-05-27: Register sync as a hidden per-session backend and route it through the agent when `SCENERY_DEV_SYNC_UPSTREAM` is provided.
+* [x] 2026-05-27: Implement sync process/container startup for `dev.services.sync`.
+* [x] 2026-05-27: Make managed sync use a deterministic session-scoped replication stream id so parallel sessions sharing one Postgres cluster do not collide on sync replication slots.
 * [x] 2026-05-27: Update docs, schemas, harness checks, and validation artifacts.
 
 ## Surprises & Discoveries
@@ -31,7 +31,7 @@ Record implementation findings here with commands, test output, or file referenc
 
 * 2026-05-27: The least surprising first managed Postgres path is reuse of an explicit admin URL. This avoids silently depending on Docker/Homebrew/system Postgres and still gives agent-native local-dev its key per-session database semantics for environments that provide a local cluster.
 
-* 2026-05-27: Electric can be routed through the agent without owning its process yet by registering an explicit `SCENERY_DEV_ELECTRIC_UPSTREAM`. This matches the hidden-port direction while leaving container/process startup for the next slice.
+* 2026-05-27: sync can be routed through the agent without owning its process yet by registering an explicit `SCENERY_DEV_SYNC_UPSTREAM`. This matches the hidden-port direction while leaving container/process startup for the next slice.
 
 * 2026-05-27: Snapshot create/restore can be implemented without a new dependency by shelling out to `pg_dump` and `psql`, matching the existing `scenery psql` helper's dependency posture.
 
@@ -39,12 +39,12 @@ Record implementation findings here with commands, test output, or file referenc
 
 * 2026-05-27: Local managed Postgres can run without Docker by using `initdb` and `postgres` from PATH or explicit binary env vars. The cluster binds through a private Unix socket under the agent directory, so there is no stable public Postgres port.
 
-* 2026-05-27: Electric needs either an explicit upstream, a local binary, or an explicitly configured Docker image. The app receives only the routed `ELECTRIC_URL`; service-specific `dev.services.electric.env` values stay on the Electric process/container.
+* 2026-05-27: sync needs either an explicit upstream, a local binary, or an explicitly configured Docker image. The app receives only the routed `SYNC_URL`; service-specific `dev.services.sync.env` values stay on the sync process/container.
 
 * 2026-05-27: ONLV requested Postgres 18 while the local `postgres` binary was 14. The managed substrate now uses Docker for the requested major version when Docker is available, records the actual source/version, and falls back to the local binary only when Docker is unavailable.
 
-* 2026-05-27: The Postgres 18 Docker image rejects a direct mount at `/var/lib/postgresql/data`; mounting the parent `/var/lib/postgresql` matches the image's versioned data-directory convention. Electric also requires managed Postgres to start with `wal_level=logical`, `max_wal_senders`, and `max_replication_slots`.
-* 2026-05-27: Electric's default replication stream id creates the cluster-wide slot `electric_slot_default`. Two scenery sessions sharing one managed Postgres cluster therefore collide even when they use different databases. Setting `ELECTRIC_REPLICATION_STREAM_ID` from the scenery session id gives each session its own Electric publication and slot names.
+* 2026-05-27: The Postgres 18 Docker image rejects a direct mount at `/var/lib/postgresql/data`; mounting the parent `/var/lib/postgresql` matches the image's versioned data-directory convention. sync also requires managed Postgres to start with `wal_level=logical`, `max_wal_senders`, and `max_replication_slots`.
+* 2026-05-27: sync's default replication stream id creates the cluster-wide slot `sync_slot_default`. Two scenery sessions sharing one managed Postgres cluster therefore collide even when they use different databases. Setting `SYNC_REPLICATION_STREAM_ID` from the scenery session id gives each session its own sync publication and slot names.
 
 ## Decision Log
 
@@ -64,9 +64,9 @@ Record implementation findings here with commands, test output, or file referenc
   Rationale: `dev.services.postgres.version` should mean the requested version when the host can provide it. This keeps ONLV on Postgres 18 while preserving the local-binary fallback for machines without Docker.
   Date/Author: 2026-05-27 / Codex
 
-* Decision: Start Electric only from explicit local sources.
-  Rationale: Automatically pulling an arbitrary Electric image would be surprising. `SCENERY_DEV_ELECTRIC_UPSTREAM`, `SCENERY_DEV_ELECTRIC_BIN`, or an explicit `dev.services.electric.image` keeps startup behavior visible.
-* Decision: Default managed Electric's replication stream id to a sanitized scenery session identifier.
+* Decision: Start sync only from explicit local sources.
+  Rationale: Automatically pulling an arbitrary sync image would be surprising. `SCENERY_DEV_SYNC_UPSTREAM`, `SCENERY_DEV_SYNC_BIN`, or an explicit `dev.services.sync.image` keeps startup behavior visible.
+* Decision: Default managed sync's replication stream id to a sanitized scenery session identifier.
   Rationale: Postgres replication slot names are cluster-wide, while agent-native local-dev intentionally shares one local Postgres substrate across sessions. Session-scoped stream ids preserve parallel worktree isolation without requiring separate Postgres containers.
   Date/Author: 2026-05-27 / Codex
 
@@ -79,14 +79,14 @@ Shipped outcome:
 * `dev.services.postgres` now creates or reuses a deterministic per-session database through an explicit admin URL, a reusable agent substrate, or local `initdb`/`postgres` binaries under the agent state directory.
 * Managed Postgres uses database isolation, registers substrate metadata, overrides stale app DB URLs by default, and exposes session DB URLs through `DatabaseURL` to app processes and `scenery db ...` commands. Explicit external DBs are still possible with `SCENERY_DEV_POSTGRES_EXTERNAL=1`.
 * `scenery db reset` and `scenery db snapshot create|restore` target only the current managed session database.
-* `dev.services.electric` now routes through the agent from an explicit upstream, a local binary, or an explicitly configured Docker image, while keeping service env separate from app env.
-* Docker-backed managed Postgres uses the requested major version when the local binary does not match, starts with logical replication settings for Electric, and mounts Postgres 18 data at the parent Docker image data root.
+* `dev.services.sync` now routes through the agent from an explicit upstream, a local binary, or an explicitly configured Docker image, while keeping service env separate from app env.
+* Docker-backed managed Postgres uses the requested major version when the local binary does not match, starts with logical replication settings for sync, and mounts Postgres 18 data at the parent Docker image data root.
 * `docs/local-contract.md` and `docs/schemas/scenery.config.v1.schema.json` describe the current managed-service contract.
 
 Validation:
 
 ```sh
-go test -run 'Test(ManagedPostgres|PostgresDatabase|LocalPostgres|ResolveLocalPostgres|ManagedElectric|StartManagedElectric|PrepareDevAgentSession|ParseDB|DBCommand)' ./cmd/scenery
+go test -run 'Test(ManagedPostgres|PostgresDatabase|LocalPostgres|ResolveLocalPostgres|Managedsync|StartManagedsync|PrepareDevAgentSession|ParseDB|DBCommand)' ./cmd/scenery
 go test ./cmd/scenery ./internal/agent ./internal/app
 go test ./...
 python3 -m json.tool docs/schemas/scenery.config.v1.schema.json >/dev/null
@@ -129,7 +129,7 @@ Milestone 2 implements an agent substrate for local Postgres with per-session da
 
 Milestone 3 adds `scenery db reset`, psql alignment, and snapshot/export/import commands.
 
-Milestone 4 adds Electric as a hidden per-session backend routed by the agent.
+Milestone 4 adds sync as a hidden per-session backend routed by the agent.
 
 Milestone 5 updates docs, schemas, self-harness checks, and practical integration coverage.
 
@@ -139,13 +139,13 @@ Start with explicit contracts and fake-backed unit tests. Prefer existing local 
 
 ## Concrete Steps
 
-1. Add helpers that resolve `dev.services.postgres` and `dev.services.electric` into effective runtime plans.
+1. Add helpers that resolve `dev.services.postgres` and `dev.services.sync` into effective runtime plans.
 2. Extend the agent substrate registry with Postgres cluster metadata and per-session database records.
 3. Add a Postgres manager that can reuse an explicit/admin URL, reuse an existing local substrate, or start a local substrate when the required binary/runtime is available.
 4. Create deterministic per-session database names from base app ID and session ID.
 5. Inject `DatabaseURL` into app child env for managed-session databases unless `SCENERY_DEV_POSTGRES_EXTERNAL=1` is set.
 6. Implement `scenery db reset` and snapshot/export/import commands against the resolved session database.
-7. Register Electric as a session backend with agent routes and effective env injection.
+7. Register sync as a session backend with agent routes and effective env injection.
 8. Add focused tests for config resolution, session DB naming, command dispatch, substrate persistence, and env precedence.
 
 ## Validation and Acceptance
@@ -163,11 +163,11 @@ git diff --check
 Observable behavior:
 
 * Two worktrees using managed Postgres do not share a database by default.
-* `scenery dev` does not require fixed Postgres or Electric host ports.
+* `scenery dev` does not require fixed Postgres or sync host ports.
 * App child env receives a session-scoped `DatabaseURL` when managed Postgres is enabled.
 * `scenery db psql` connects to the current session database.
 * `scenery db reset` resets only the current session database.
-* Electric is reachable through an agent-routed session URL without claiming a stable global host port.
+* sync is reachable through an agent-routed session URL without claiming a stable global host port.
 
 ## Idempotence and Recovery
 
@@ -184,7 +184,7 @@ internal/agent/*
 internal/app/root.go
 docs/schemas/scenery.config.v1.schema.json
 docs/local-contract.md
-docs/plans/0041-agent-managed-postgres-and-electric.md
+docs/plans/0041-agent-managed-postgres-and-sync.md
 ```
 
 ## Interfaces and Dependencies
@@ -200,17 +200,17 @@ The intended app config surface starts from the beta `dev.services` shape added 
         "version": "18",
         "isolation": "database"
       },
-      "electric": {
-        "kind": "electric",
+      "sync": {
+        "kind": "sync",
         "database": "postgres",
-        "route": "electric"
+        "route": "sync"
       }
     }
   }
 }
 ```
 
-Implementation must keep external dependencies optional for ordinary CLI use. Tests should use fakes for lifecycle decisions and only use real Postgres/Electric processes in opt-in or already-established integration-test paths.
+Implementation must keep external dependencies optional for ordinary CLI use. Tests should use fakes for lifecycle decisions and only use real Postgres/sync processes in opt-in or already-established integration-test paths.
 
 Current local substrate interface:
 
@@ -218,10 +218,10 @@ Current local substrate interface:
 SCENERY_DEV_POSTGRES_ADMIN_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
 SCENERY_DEV_POSTGRES_INITDB=/opt/homebrew/opt/postgresql@18/bin/initdb
 SCENERY_DEV_POSTGRES_BIN=/opt/homebrew/opt/postgresql@18/bin/postgres
-SCENERY_DEV_ELECTRIC_UPSTREAM=http://127.0.0.1:3000
-SCENERY_DEV_ELECTRIC_BIN=/usr/local/bin/electric
+SCENERY_DEV_SYNC_UPSTREAM=http://127.0.0.1:3000
+SCENERY_DEV_SYNC_BIN=/usr/local/bin/sync
 ```
 
 When `dev.services.postgres` is declared, `scenery dev` creates/reuses a session database named from the base app ID plus session ID and injects `DatabaseURL` for the app child even if local env files contain older DB URLs. The admin cluster comes from `SCENERY_DEV_POSTGRES_ADMIN_URL`, an already registered agent substrate, Docker for the requested version when available, or local `initdb`/`postgres` binaries under the agent state directory. Set `SCENERY_DEV_POSTGRES_EXTERNAL=1` with `DatabaseURL` to keep an explicit external DB URL.
 
-When `dev.services.electric` is declared, `scenery dev` registers `SCENERY_DEV_ELECTRIC_UPSTREAM` directly or starts a hidden Electric process from `SCENERY_DEV_ELECTRIC_BIN` or a configured `dev.services.electric.image` through Docker. The app receives `ELECTRIC_URL` with the agent-routed session URL; Electric service env values stay on the Electric process/container.
+When `dev.services.sync` is declared, `scenery dev` registers `SCENERY_DEV_SYNC_UPSTREAM` directly or starts a hidden sync process from `SCENERY_DEV_SYNC_BIN` or a configured `dev.services.sync.image` through Docker. The app receives `SYNC_URL` with the agent-routed session URL; sync service env values stay on the sync process/container.

@@ -988,7 +988,6 @@ func TestFrontendURLsFromAgentRoutes(t *testing.T) {
 		localagent.RouteGrafana:   "http://grafana.session.demo.localhost",
 		"web":                     "http://web.session.demo.localhost",
 		"blog":                    "http://blog.session.demo.localhost",
-		"electric":                "http://electric.session.demo.localhost",
 		localagent.RouteTemporal:  "http://temporal.session.demo.localhost",
 	}, map[string]app.FrontendConfig{"web": {}, "blog": {}})
 	if len(urls) != 2 {

@@ -39,7 +39,7 @@ The first slice is intentionally read-only. Existing table entities may generate
 
 ## Outcomes & Retrospective
 
-Completed 2026-06-26. `model.ExistingTable("legacy", "customers")` now marks an entity as bound to an existing physical table, exposes source ownership in inspect models JSON, skips generated DB ownership artifacts, rejects generated mutations and seed rows, and keeps generated list/get plus frontend projections/pages working against the explicit `legacy.customers` table. The new existing-table fixture proves a handwritten app-owned schema source, read-only generated Customer endpoints, Electric shape metadata, page projection records, generated collections/routes, and host frontend render behavior.
+Completed 2026-06-26. `model.ExistingTable("legacy", "customers")` now marks an entity as bound to an existing physical table, exposes source ownership in inspect models JSON, skips generated DB ownership artifacts, rejects generated mutations and seed rows, and keeps generated list/get plus frontend projections/pages working against the explicit `legacy.customers` table. The new existing-table fixture proves a handwritten app-owned schema source, read-only generated Customer endpoints, sync shape metadata, page projection records, generated collections/routes, and host frontend render behavior.
 
 Validation passed: JSON/schema/diff checks, focused Go packages, full `go test ./...`, docs inspection, existing-table inspect models/views, generated data dry-run, fixture web typecheck/build/render, and `scenery harness self --summary --write`. Self-harness passed with warning-class existing parser size and slow-test timing findings only.
 
@@ -53,7 +53,7 @@ Relevant files:
 - `internal/inspect/inspect.go` and `docs/schemas/scenery.inspect.models.v1.schema.json` define `scenery inspect models --json`.
 - `internal/schemagen/schema.go` and `internal/schemagen/seed.go` generate disposable DB artifacts.
 - `internal/codegen/generator.go` writes generated list/get backend stores.
-- `internal/webgen/webgen.go` writes Electric shape metadata and page packages.
+- `internal/webgen/webgen.go` writes sync shape metadata and page packages.
 - `testdata/apps/existing-table-dsl` is the focused fixture for this plan.
 
 ## Milestones
@@ -64,7 +64,7 @@ M2 exposes the source binding through inspect JSON and schema.
 
 M3 prevents generated schema and seed artifacts from claiming existing-source entities.
 
-M4 keeps generated read-only endpoints, Electric shape metadata, projections, collections, pages, routes, and barrel exports working over the explicit schema-qualified table.
+M4 keeps generated read-only endpoints, sync shape metadata, projections, collections, pages, routes, and barrel exports working over the explicit schema-qualified table.
 
 M5 adds a focused existing-table fixture and validation proof.
 
@@ -89,7 +89,7 @@ M5 adds a focused existing-table fixture and validation proof.
 4. Reject generated create/update/delete and `model.Seed(...)` rows for existing-source entities.
 5. Expose model source metadata through inspect JSON and schema.
 6. Skip existing-source entities in generated Atlas HCL and generated seed SQL.
-7. Reuse qualified table helpers in generated read endpoints and web/Electric metadata.
+7. Reuse qualified table helpers in generated read endpoints and web/sync metadata.
 8. Add `testdata/apps/existing-table-dsl` and focused parser/command tests.
 9. Update docs, knowledge index, and completed plan index.
 
@@ -118,7 +118,7 @@ Acceptance evidence:
 - Public DSL can declare `model.ExistingTable("legacy", "customers")`.
 - `scenery inspect models --json` exposes `source.kind=existing`, `source.schema=legacy`, `source.table=customers`, and `source.qualified_table=legacy.customers`.
 - Generated schema/seed artifacts do not claim ownership of the existing table.
-- Generated Electric shape metadata and frontend source rows use the explicit schema-qualified table.
+- Generated sync shape metadata and frontend source rows use the explicit schema-qualified table.
 - Generated page projection and materializer work unchanged over the existing table source row.
 - Generated create/update/delete actions are rejected for existing tables with clear diagnostics.
 - Existing generated-table behavior remains backward-compatible.
@@ -129,7 +129,7 @@ Acceptance evidence:
 - Automatic Go model generation from a database.
 - Automatic migrations from existing tables into Scenery-owned tables.
 - Generated create/update/delete over existing tables.
-- Relationships, joins, computed projection fields, nullable/type inference from live schema, index/constraint ownership, multi-database routing, or production Electric publication management.
+- Relationships, joins, computed projection fields, nullable/type inference from live schema, index/constraint ownership, multi-database routing, or production sync publication management.
 
 ## Idempotence and Recovery
 
@@ -149,4 +149,4 @@ If frontend validation lacks dependencies, run `npm install --no-audit --no-fund
 - Internal entity IR records source ownership as generated or existing.
 - `scenery inspect models --json` includes model `source` metadata.
 - Generated DB schema/seed output depends on source ownership and skips existing-source entities.
-- Generated read-only backend and web/Electric output depend on `EntityDatabaseSchema` and `EntityQualifiedTable` so generated and existing-source entities share the same table lookup path.
+- Generated read-only backend and web/sync output depend on `EntityDatabaseSchema` and `EntityQualifiedTable` so generated and existing-source entities share the same table lookup path.

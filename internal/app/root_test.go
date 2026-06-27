@@ -164,6 +164,22 @@ func TestDiscoverRootReportsAliasUnknownFieldsAsConfigJSON(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootRejectsRemovedSyncDevService(t *testing.T) {
+	removed := "elec" + "tric"
+	for _, cfg := range []string{
+		`{"name":"app","dev":{"services":{"sync":{"kind":"` + removed + `"}}}}`,
+		`{"name":"app","dev":{"services":{"` + removed + `":{}}}}`,
+	} {
+		root := t.TempDir()
+		writeAppTestFile(t, root, ".scenery.json", cfg)
+
+		_, _, err := DiscoverRoot(root)
+		if err == nil || !strings.Contains(err.Error(), "removed legacy sync service") {
+			t.Fatalf("DiscoverRoot error = %v", err)
+		}
+	}
+}
+
 func TestConfigDatabaseURLEnv(t *testing.T) {
 	t.Parallel()
 

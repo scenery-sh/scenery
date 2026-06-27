@@ -11,7 +11,7 @@ import (
 )
 
 func TestRunSceneryInspectStorage(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{

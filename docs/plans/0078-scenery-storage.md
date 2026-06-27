@@ -111,7 +111,7 @@ docs/environment.registry.json             machine-readable env registry
 docs/schemas/scenery.config.v1.schema.json app config schema
 internal/app/root.go                       app.Config and DevServiceConfig definitions
 internal/agent/types.go                    session/backend/substrate JSON records
-cmd/scenery/dev_services.go                managed Postgres/Electric lifecycle pattern
+cmd/scenery/dev_services.go                managed Postgres/sync lifecycle pattern
 cmd/scenery/dev_services_test.go           managed service plan/env tests
 cmd/scenery/inspect.go                     inspect command family
 cmd/scenery/help.go                        CLI help JSON registry
@@ -122,7 +122,7 @@ Existing managed-dev-service behavior to follow:
 
 - `dev.services` is a beta local-development config surface.
 - Unsupported service kinds fail closed instead of silently falling back.
-- Managed Postgres and Electric are resolved from `internal/app.DevServiceConfig`, started by `scenery up`, registered with the agent session, and exposed to the app through Scenery-owned env.
+- Managed Postgres and sync are resolved from `internal/app.DevServiceConfig`, started by `scenery up`, registered with the agent session, and exposed to the app through Scenery-owned env.
 - Public contract changes must update docs, JSON schemas, tests, and harness expectations together.
 
 New terms for this plan:
@@ -289,7 +289,7 @@ The storage proxy may initially live inside the generated app runtime if it can 
 
 If no pure-Go 9P2000.L client can cover the required operations cleanly, implement the first ZeroFS backend as a Scenery-owned helper binary behind an internal HTTP or Unix-socket RPC protocol. The helper can carry the ZeroFS FFI dependency while the app-facing `scenery.sh/storage` package remains pure Go. This preserves the 9P-only ZeroFS transport while isolating native dependency risk.
 
-Managed ZeroFS lifecycle follows the `dev_services.go` Electric pattern, but with a shared storage-cell owner instead of a session-local owner:
+Managed ZeroFS lifecycle follows the `dev_services.go` sync pattern, but with a shared storage-cell owner instead of a session-local owner:
 
 - Detect `dev.services.<name>.kind == "zerofs"`.
 - Resolve a `managedZeroFSPlan` and a stable `storageCellID`.

@@ -159,15 +159,6 @@ func TestAppDiscoverRootAcceptsDevServicesConfig(t *testing.T) {
         "kind": "postgres",
         "version": "18",
         "isolation": "database"
-      },
-      "electric": {
-        "kind": "electric",
-        "image": "electricsql/electric:canary",
-        "database": "postgres",
-        "route": "electric",
-        "env": {
-          "ELECTRIC_INSECURE": "true"
-        }
       }
     }
   }
@@ -186,13 +177,6 @@ func TestAppDiscoverRootAcceptsDevServicesConfig(t *testing.T) {
 	}
 	if postgres.Kind != "postgres" || postgres.Version != "18" || postgres.Isolation != "database" {
 		t.Fatalf("postgres service = %+v", postgres)
-	}
-	electric := cfg.Dev.Services["electric"]
-	if electric.Kind != "electric" || electric.Database != "postgres" || electric.Route != "electric" {
-		t.Fatalf("electric service = %+v", electric)
-	}
-	if electric.Env["ELECTRIC_INSECURE"] != "true" {
-		t.Fatalf("electric env = %+v", electric.Env)
 	}
 }
 
@@ -307,7 +291,7 @@ func TestAppDiscoverRootKeepsStringMapsOpen(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	data := `{"name":"app","tasks":{"harness":{"env":{"EXTRA":"value"}}},"dev":{"services":{"electric":{"kind":"electric","env":{"ELECTRIC_INSECURE":"true"}}}}}`
+	data := `{"name":"app","tasks":{"harness":{"env":{"EXTRA":"value"}}},"dev":{"services":{"postgres":{"kind":"postgres","env":{"POSTGRES_LOG":"true"}}}}}`
 	if err := os.WriteFile(filepath.Join(dir, ".scenery.json"), []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -319,8 +303,8 @@ func TestAppDiscoverRootKeepsStringMapsOpen(t *testing.T) {
 	if cfg.Tasks["harness"].Env["EXTRA"] != "value" {
 		t.Fatalf("task env = %+v", cfg.Tasks["harness"].Env)
 	}
-	if cfg.Dev.Services["electric"].Env["ELECTRIC_INSECURE"] != "true" {
-		t.Fatalf("service env = %+v", cfg.Dev.Services["electric"].Env)
+	if cfg.Dev.Services["postgres"].Env["POSTGRES_LOG"] != "true" {
+		t.Fatalf("service env = %+v", cfg.Dev.Services["postgres"].Env)
 	}
 }
 

@@ -6,7 +6,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 `scenery dev --detach`, `scenery attach`, and `scenery logs --jsonl` already provide the right lifecycle shape for local development sessions. The missing foundation is a structured event plane that identifies where output came from and what it means.
 
-Today the local log store is centered on raw process output: app id, session id, pid, stream, output, and time. That is enough to follow stdout and stderr, but it is not enough for a reliable local console that separates the API app, TypeScript Temporal worker, Temporal server, managed Postgres/Electric, frontends, Grafana, build phases, and supervisor events without fragile pid or text heuristics.
+Today the local log store is centered on raw process output: app id, session id, pid, stream, output, and time. That is enough to follow stdout and stderr, but it is not enough for a reliable local console that separates the API app, TypeScript Temporal worker, Temporal server, managed Postgres/sync, frontends, Grafana, build phases, and supervisor events without fragile pid or text heuristics.
 
 After this work, `scenery dev` emits normalized, versioned dev events. The SQLite store persists raw output plus parsed fields and source identity. Plain terminal following, JSONL output, dashboard views, agent consumers, and a terminal UI consume the same event stream:
 
@@ -39,7 +39,7 @@ In CI, non-TTY output, dumb terminals, or redirected output, interactive mode fa
 
 - [x] 2026-05-31: Created this ExecPlan from the structured logging and TUI design request and linked it from `docs/plans/active.md`.
 - [x] 2026-05-31: Implemented structured source identity, `dev_sources`/`dev_events` storage, best-effort parsing, and the `scenery.dev.event.v1` schema.
-- [x] 2026-05-31: Routed app, TypeScript worker, managed frontend, build, supervisor, Postgres, Electric, Temporal, Victoria, and Grafana state/output into structured dev events while preserving legacy process output.
+- [x] 2026-05-31: Routed app, TypeScript worker, managed frontend, build, supervisor, Postgres, sync, Temporal, Victoria, and Grafana state/output into structured dev events while preserving legacy process output.
 - [x] 2026-05-31: Added `scenery logs` and `scenery attach` filters for source, kind, level, grep, and since; JSONL now emits `scenery.dev.event.v1`.
 - [x] 2026-05-31: Added `scenery attach --tui`, `scenery console`, non-TTY fallback, source summaries, event expansion, errors-only mode, and grouped recent errors.
 - [x] 2026-05-31: Added `scenery status --watch`, docs, schemas, and focused tests for storage, filters, fallback, and console rendering.
@@ -69,7 +69,7 @@ In CI, non-TTY output, dumb terminals, or redirected output, interactive mode fa
   Date/Author: 2026-05-31 / Codex
 
 - Decision: Persist raw output forever and treat parsing as best-effort.
-  Rationale: scenery controls some logs, but Temporal, Electric, Grafana, Bun/Node workers, Vite/Astro frontends, and future sidecars will not all use one logger. Consumers need structured fields when available and exact raw text when parsing fails.
+  Rationale: scenery controls some logs, but Temporal, sync, Grafana, Bun/Node workers, Vite/Astro frontends, and future sidecars will not all use one logger. Consumers need structured fields when available and exact raw text when parsing fails.
   Date/Author: 2026-05-31 / Codex
 
 - Decision: Keep the first TUI observing-only.
@@ -146,7 +146,7 @@ worker:go
 worker:typescript
 temporal
 postgres
-electric
+sync
 frontend:web
 grafana
 victoria:metrics
@@ -211,7 +211,7 @@ type ManagedProcessSpec struct {
 }
 ```
 
-The app process, TypeScript worker, frontends, managed Electric, managed Postgres, Temporal, Victoria, Grafana, setup/build phases, and supervisor notices should all write source-aware events. Shared or external substrates should still write state events even when scenery does not own their stdout.
+The app process, TypeScript worker, frontends, managed sync, managed Postgres, Temporal, Victoria, Grafana, setup/build phases, and supervisor notices should all write source-aware events. Shared or external substrates should still write state events even when scenery does not own their stdout.
 
 Milestone 3: Non-TUI filters.
 
@@ -238,11 +238,11 @@ The first view has three regions:
 
 ```text
 scenery dev session: billing-dev / feature-x-839a
-[all] [api] [worker:go] [worker:typescript] [temporal] [postgres] [electric] [frontend:web] [grafana] [build]
+[all] [api] [worker:go] [worker:typescript] [temporal] [postgres] [sync] [frontend:web] [grafana] [build]
 api                 running   pid 12345   21 req/s    2 errors   last log 1s ago
 worker:typescript   running   pid 12351   polling     0 errors   last log 4s ago
 temporal            running   shared      ui ready                last log 12s ago
-electric            starting  pid 12360   waiting on pg           last log 0s ago
+sync            starting  pid 12360   waiting on pg           last log 0s ago
 ---------------- logs: worker:typescript ----------------
 12:44:01.223 INFO  registered activity     activity=SendEmail queue=scenery.billing.abc
 12:44:04.719 ERROR activity failed          activity=SyncUser attempt=2 error="..."
@@ -390,7 +390,7 @@ scenery console --source worker:typescript
 scenery status --watch --json
 ```
 
-The UI should expose why a source exists when that is known. Examples: "generated TypeScript Temporal activity worker", "managed Electric sync service from dev.services.electric", "shared Temporal dev server", or "frontend route from proxy.frontends.web".
+The UI should expose why a source exists when that is known. Examples: "generated TypeScript Temporal activity worker", "managed sync sync service from dev.services.sync", "shared Temporal dev server", or "frontend route from proxy.frontends.web".
 
 ## Interfaces and Dependencies
 

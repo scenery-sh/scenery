@@ -190,7 +190,7 @@
     "devService": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "enum": ["postgres", "electric", "zerofs"] },
+        "kind": { "type": "string", "enum": ["postgres", "zerofs"] },
         "mode": { "type": "string", "enum": ["", "local"], "description": "Managed provider mode. Postgres branch services use local mode; inspect output may include an empty value for services where mode is not used." },
         "version": { "type": "string", "description": "Requested local service version, currently used by managed Postgres metadata." },
         "isolation": { "type": "string", "enum": ["", "database", "schema", "container"], "description": "Requested isolation mode. Managed Postgres implements database isolation; inspect output may include an empty value for services where isolation is not used." },
@@ -202,8 +202,8 @@
         "ttl": { "type": "string", "description": "Branch lease TTL as a Go duration." },
         "role": { "type": "string", "description": "Database role used for branch connections." },
         "database_url_env": { "type": "string", "description": "App env var receiving the managed database URL. Defaults to DatabaseURL." },
-        "image": { "type": "string", "description": "Optional container image for services that support explicit container startup, such as Electric." },
-        "database": { "type": "string", "description": "Named database service dependency for a managed service, such as Electric using postgres." },
+        "image": { "type": "string", "description": "Optional container image for services that support explicit container startup." },
+        "database": { "type": "string", "description": "Named database service dependency for a managed service." },
         "route": { "type": "string", "description": "Agent route label for a managed session backend." },
         "env": {
           "type": ["object", "null"],

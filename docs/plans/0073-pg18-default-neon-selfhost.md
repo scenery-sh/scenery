@@ -15,7 +15,7 @@ way they do today, but the default self-hosted Neon database should be
 PostgreSQL 18 instead of PostgreSQL 16. The app-facing surface must stay the
 same: app authors still configure Neon through the existing `.scenery.json`
 shape, use the same `scenery up`, `scenery db neon ...`, `scenery db branch ...`,
-`scenery db psql`, worktree, Electric, and harness commands, and receive the
+`scenery db psql`, worktree, sync, and harness commands, and receive the
 same JSON schemas except for additive version/image metadata where needed.
 
 The implementation work is internal plumbing. Scenery must move the local Neon
@@ -28,7 +28,7 @@ protocols, timeline metadata, Postgres distribution layout, and Neon extension
 code are version-coupled.
 
 The end state is boring by design: a normal Scenery app starts, applies DB setup,
-Electric runs, agents inspect status, and app SQL can use native PostgreSQL 18
+sync runs, agents inspect status, and app SQL can use native PostgreSQL 18
 behavior such as `uuidv7()` without changing Scenery's public workflow.
 
 ## Progress
@@ -128,7 +128,7 @@ If stale state blocks startup, fail with precise reset instructions such as
 and `scenery db neon start --json`. It is acceptable for the implementation and
 tests to assume a clean selfhost state after explicit teardown.
 
-Milestone 5 proves runtime parity with a real app. A normal Scenery app should start with the PG18 selfhost Neon provider, create or reuse a branch, run setup/apply/seed as it does today, expose a SQL-ready endpoint, and allow `select current_setting('server_version_num'), uuidv7() is not null;` through `scenery db psql` or an equivalent harness query. Electric behavior must still work for a Neon-backed app that uses it.
+Milestone 5 proves runtime parity with a real app. A normal Scenery app should start with the PG18 selfhost Neon provider, create or reuse a branch, run setup/apply/seed as it does today, expose a SQL-ready endpoint, and allow `select current_setting('server_version_num'), uuidv7() is not null;` through `scenery db psql` or an equivalent harness query. sync behavior must still work for a Neon-backed app that uses it.
 
 Milestone 6 updates docs, schemas, and generated metadata. The documentation should describe PG18 as the default without adding new user steps. Machine-readable manifests and generated files should remain deterministic. The active plan should be updated with outcomes and any remaining debt.
 
@@ -274,7 +274,7 @@ The final selfhost proof must include:
 - `server_version_num` starting with `18`,
 - `uuidv7()` available without app schema workarounds,
 - app DB setup applying through the existing command path, and
-- Electric still starting for an app that uses the Neon-backed database.
+- sync still starting for an app that uses the Neon-backed database.
 
 Before completion, run:
 
@@ -342,7 +342,7 @@ Public Scenery interfaces that should remain stable:
 - `.scenery.json` `dev.services.postgres.kind: "neon"` and related branch/project config,
 - `scenery db neon install|start|stop|restart|status --json`,
 - `scenery db branch checkout|status|list|reset|restore|delete|diff --json`,
-- `scenery up`, `scenery db psql`, DB setup, Electric startup, and worktree branch pins,
+- `scenery up`, `scenery db psql`, DB setup, sync startup, and worktree branch pins,
 - existing JSON schemas, with only additive metadata allowed unless this plan is amended.
 
 External dependencies:

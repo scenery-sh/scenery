@@ -369,13 +369,6 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 			"VITE_API_BASE_URL="+apiURL,
 		)
 	}
-	if electricURL := strings.TrimSpace(session.Routes["electric"]); electricURL != "" {
-		env = append(env,
-			"ELECTRIC_URL="+electricURL,
-			"SCENERY_ELECTRIC_URL="+electricURL,
-			"VITE_ELECTRIC_URL="+electricURL,
-		)
-	}
 	if allowedHost := managedFrontendAllowedHost(session, frontendName); allowedHost != "" {
 		env = append(env, "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="+allowedHost)
 	}

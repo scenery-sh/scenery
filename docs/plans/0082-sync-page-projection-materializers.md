@@ -1,12 +1,12 @@
-# Electric Page Projection Materializers
+# sync Page Projection Materializers
 
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
 ## Purpose / Big Picture
 
-`docs/plans/0081-page-record-projection-ir.md` split collection views into three concepts: the source row synced by Electric, the page-facing projection record, and the view that consumes that record. This plan makes that boundary operational for the Electric-backed generated web happy path.
+`docs/plans/0081-page-record-projection-ir.md` split collection views into three concepts: the source row synced by sync, the page-facing projection record, and the view that consumes that record. This plan makes that boundary operational for the sync-backed generated web happy path.
 
-For each generated collection view, the hidden frontend package should keep Electric and TanStack DB source collections raw and table-shaped, then expose page records through a generated client-side materializer based on `ViewProjection`. Generated runtime, route, and page code should consume those page records instead of treating storage rows as view records.
+For each generated collection view, the hidden frontend package should keep sync and TanStack DB source collections raw and table-shaped, then expose page records through a generated client-side materializer based on `ViewProjection`. Generated runtime, route, and page code should consume those page records instead of treating storage rows as view records.
 
 Keep this narrow. This is not the Tasks stress test, not computed projections, not server-side read endpoints, and not a new model syntax.
 
@@ -24,8 +24,8 @@ Keep this narrow. This is not the Tasks stress test, not computed projections, n
 
 ## Decision Log
 
-- Decision: Limit 0082 to Electric-backed generated web collections.
-  Rationale: Raw Electric rows plus client-side projection materializers are the smallest operational proof of the 0081 IR boundary.
+- Decision: Limit 0082 to sync-backed generated web collections.
+  Rationale: Raw sync rows plus client-side projection materializers are the smallest operational proof of the 0081 IR boundary.
   Date/Author: 2026-06-26 / Codex.
 
 - Decision: Continue rejecting computed projection fields.
@@ -38,7 +38,7 @@ Keep this narrow. This is not the Tasks stress test, not computed projections, n
 
 ## Outcomes & Retrospective
 
-Completed 2026-06-26. The Electric-backed generated web package now has tested proof of the operational projection boundary: `TaskRow` remains the raw Electric/source row, `TaskListRecord` is the page-facing record, `projections.ts` materializes from source rows to page records, collections and runtime keep `TaskRow`/`TaskListRecord` distinct, and generated routes pass materialized page records to layout-kit. Computed projection fields remain rejected.
+Completed 2026-06-26. The sync-backed generated web package now has tested proof of the operational projection boundary: `TaskRow` remains the raw sync/source row, `TaskListRecord` is the page-facing record, `projections.ts` materializes from source rows to page records, collections and runtime keep `TaskRow`/`TaskListRecord` distinct, and generated routes pass materialized page records to layout-kit. Computed projection fields remain rejected.
 
 ## Context and Orientation
 
@@ -59,13 +59,13 @@ M1 audits the current generated frontend output and records exactly what is alre
 
 M2 makes generated materializers use `ViewProjection.Fields` as the only row-to-record mapping source.
 
-M3 keeps Electric/TanStack source rows raw while generated collection/runtime/page code exposes page-facing projection records.
+M3 keeps sync/TanStack source rows raw while generated collection/runtime/page code exposes page-facing projection records.
 
 M4 adds fixture proof and temporary generated-web validation so TypeScript consumers see the intended boundary.
 
 ## Plan of Work
 
-Work inside the existing generated web package. Do not add public DSL, new dependencies, new config, or new runtime services. The generator should produce the raw/source row type used by Electric, the page record projection type, and a generated materializer from source row to page record. Collection/runtime/page templates should flow through that materializer before handing rows to layout-kit.
+Work inside the existing generated web package. Do not add public DSL, new dependencies, new config, or new runtime services. The generator should produce the raw/source row type used by sync, the page record projection type, and a generated materializer from source row to page record. Collection/runtime/page templates should flow through that materializer before handing rows to layout-kit.
 
 The exact function names can follow current generator conventions, but the invariant must be visible in generated output: `TaskRow` remains the raw source row, `TaskListRecord` is the page record, and generated consumers use `TaskListRecord`.
 
@@ -96,7 +96,7 @@ Also keep the temporary generated-web proof for `testdata/apps/model-dsl/web` wh
 
 Call this plan complete when the model DSL fixture proves:
 
-- `TaskRow` is the raw Electric/source row type,
+- `TaskRow` is the raw sync/source row type,
 - `TaskListRecord` is the page-facing projection record type,
 - a generated materializer maps `TaskRow` to `TaskListRecord`,
 - generated runtime/page/slot consumers use `TaskListRecord`,
@@ -110,13 +110,13 @@ If temporary frontend dependencies are installed for proof, remove generated dep
 
 ## Artifacts and Notes
 
-The source prompt for this plan recommended keeping 0082 narrow: realize the 0081 projection IR for the Electric-backed happy path only. The next likely plan after this is a simple generated entity page pilot, then a Tasks stress test.
+The source prompt for this plan recommended keeping 0082 narrow: realize the 0081 projection IR for the sync-backed happy path only. The next likely plan after this is a simple generated entity page pilot, then a Tasks stress test.
 
 ## Interfaces and Dependencies
 
 This plan affects beta generated frontend contracts:
 
-- raw Electric shape/source row types remain storage-table shaped,
+- raw sync shape/source row types remain storage-table shaped,
 - page projection records are generated from `ViewProjection`,
 - generated materializers copy supported source fields into page records,
 - generated collection/runtime/page code consumes page records,

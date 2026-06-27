@@ -11,7 +11,6 @@ import type { CollectionPageRoute } from "@scenery/layout-kit"
 
 export function generatedRouteSummary(rows: readonly TaskRow[]) {
   const runtime = createGeneratedRuntime({
-    electric: { baseURL: "http://example.test" },
     rows: { taskList: rows },
   })
   const records = runtime.collections.taskList.materialize()

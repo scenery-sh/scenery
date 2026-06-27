@@ -11,7 +11,6 @@ import type { CollectionPageRoute } from "@scenery/layout-kit"
 
 export function generatedRouteSummary(rows: readonly CustomerRow[]) {
   const runtime = createGeneratedRuntime({
-    electric: { baseURL: "http://example.test" },
     rows: { customerList: rows },
   })
   const records = runtime.collections.customerList.materialize()

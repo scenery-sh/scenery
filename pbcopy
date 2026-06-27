@@ -74,12 +74,12 @@
     0.00  pass     scenery.sh/cmd/scenery                         TestLooksLikeSceneryDashboardProcess/scenery_app_binary_is_not_dashboard
     0.00  pass     scenery.sh/cmd/scenery                         TestLooksLikeSceneryDashboardProcess/scenery_dev_process
     0.00  pass     scenery.sh/cmd/scenery                         TestLooksLikeSceneryDashboardProcess/scenery_serve_is_headless
-    0.00  pass     scenery.sh/cmd/scenery                         TestManagedElectricBackendsAndEnv
-    0.00  pass     scenery.sh/cmd/scenery                         TestManagedElectricContainerEnvUsesInternalPort
-    0.00  pass     scenery.sh/cmd/scenery                         TestManagedElectricDatabaseURLPrefersManagedPostgres
-    0.00  pass     scenery.sh/cmd/scenery                         TestManagedElectricProcessEnvAllowsConfiguredReplicationStreamID
-    0.00  pass     scenery.sh/cmd/scenery                         TestManagedElectricProcessEnvExpandsDatabaseURL
-    0.00  pass     scenery.sh/cmd/scenery                         TestManagedElectricReplicationStreamIDUsesSessionIdentifier
+    0.00  pass     scenery.sh/cmd/scenery                         TestManagedsyncBackendsAndEnv
+    0.00  pass     scenery.sh/cmd/scenery                         TestManagedsyncContainerEnvUsesInternalPort
+    0.00  pass     scenery.sh/cmd/scenery                         TestManagedsyncDatabaseURLPrefersManagedPostgres
+    0.00  pass     scenery.sh/cmd/scenery                         TestManagedsyncProcessEnvAllowsConfiguredReplicationStreamID
+    0.00  pass     scenery.sh/cmd/scenery                         TestManagedsyncProcessEnvExpandsDatabaseURL
+    0.00  pass     scenery.sh/cmd/scenery                         TestManagedsyncReplicationStreamIDUsesSessionIdentifier
     0.00  pass     scenery.sh/cmd/scenery                         TestManagedPostgresDatabaseNameFitsPostgresIdentifierLimit
     0.00  pass     scenery.sh/cmd/scenery                         TestManagedPostgresEnvAllowsExplicitExternalDatabaseOptOut
     0.00  pass     scenery.sh/cmd/scenery                         TestManagedPostgresEnvOverridesExplicitDatabaseURL
@@ -173,7 +173,7 @@
     0.00  pass     scenery.sh/cmd/scenery                         TestStartGrafanaRequiredMissingBinaryFails
     0.00  pass     scenery.sh/cmd/scenery                         TestStartGrafanaReusesVerifiedExternalGrafana
     0.00  pass     scenery.sh/cmd/scenery                         TestStartGrafanaTreatsNonGrafanaHealthAsOccupied
-    0.00  pass     scenery.sh/cmd/scenery                         TestStartManagedElectricServiceRequiresLaunchSource
+    0.00  pass     scenery.sh/cmd/scenery                         TestStartManagedsyncServiceRequiresLaunchSource
     0.00  pass     scenery.sh/cmd/scenery                         TestStartVictoriaComponentReusesOccupiedPort
     0.00  pass     scenery.sh/cmd/scenery                         TestStatusAndDownCommandsUseAgent
     0.00  pass     scenery.sh/cmd/scenery                         TestStripANSI
@@ -455,7 +455,7 @@
     0.01  pass     scenery.sh/internal/parse                     TestDevtoolsPinnedVersionsRejectsMissingValues
     0.01  pass     scenery.sh/internal/toolchain                 TestStrictImageStatusRejectsTagOnlyRefs
     0.01  pass     scenery.sh/runtime                            TestPopulateSecretsFailsForMissingProductionSecrets
-    0.02  pass     scenery.sh/cmd/scenery                         TestManagedElectricDatabaseURLAllowsExternalPostgresOptOut
+    0.02  pass     scenery.sh/cmd/scenery                         TestManagedsyncDatabaseURLAllowsExternalPostgresOptOut
     0.02  pass     scenery.sh/cmd/scenery                         TestManagedPostgresSnapshotPathSanitizesName
     0.02  pass     scenery.sh/cmd/scenery                         TestPruneCommandPrunesOldSessionState
     0.02  pass     scenery.sh/cmd/scenery                         TestRunSceneryInspectExcludesUnrelatedPackages

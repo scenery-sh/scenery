@@ -309,14 +309,8 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 	agentDone := startTestAgentServer(t, ctx)
 
 	root := t.TempDir()
-	t.Setenv(devElectricUpstreamEnv, "http://127.0.0.1:3001")
 	client, session, backend, restore, err := prepareDevAgentSession(ctx, root, app.Config{
 		Name: "demo",
-		Dev: app.DevConfig{
-			Services: map[string]app.DevServiceConfig{
-				"electric": {Kind: "electric", Route: "electric"},
-			},
-		},
 		Proxy: app.ProxyConfig{
 			Frontends: map[string]app.FrontendConfig{
 				"web": {Host: "web.demo.localhost", Upstream: "127.0.0.1:5173", AllowSharedUpstream: true},
@@ -378,13 +372,6 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 	}
 	if route := session.Routes["web"]; !strings.Contains(route, "web."+session.SessionID+".demo.localhost") {
 		t.Fatalf("session frontend route = %q", route)
-	}
-	electric := session.Backends["electric"]
-	if electric.Network != "tcp" || electric.Addr != "127.0.0.1:3001" {
-		t.Fatalf("session electric backend = %+v", electric)
-	}
-	if route := session.Routes["electric"]; !strings.Contains(route, "electric."+session.SessionID+"."+localagent.DefaultRouteBaseDomain) {
-		t.Fatalf("session electric route = %q", route)
 	}
 
 	cancel()

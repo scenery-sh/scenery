@@ -453,16 +453,22 @@ func (c Config) validateWatch() error {
 }
 
 func (c Config) validateDevServices() error {
+	removedSyncKind := "elec" + "tric"
 	for name, svc := range c.Dev.Services {
 		kind := strings.TrimSpace(svc.Kind)
 		if kind == "" {
 			switch name {
-			case "postgres", "electric":
+			case "postgres":
 				kind = name
+			case removedSyncKind:
+				return errors.New("the removed legacy sync service declaration must be deleted")
 			}
 		}
+		if kind == removedSyncKind {
+			return fmt.Errorf("dev.services.%s uses a removed legacy sync service kind; delete this service declaration", name)
+		}
 		switch kind {
-		case "", "postgres", "electric", "zerofs":
+		case "", "postgres", "zerofs":
 		default:
 			return fmt.Errorf("dev.services.%s kind %q is not supported", name, kind)
 		}

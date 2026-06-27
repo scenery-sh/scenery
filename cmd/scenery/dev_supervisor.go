@@ -59,7 +59,6 @@ type devSupervisor struct {
 	temporal     *temporalDevServer
 	victoria     *victoriaStack
 	grafana      *grafanaComponent
-	electric     *managedElectricService
 	zeroFS       *managedZeroFSService
 	storageProxy *managedStorageProxy
 	reportToken  string
@@ -169,7 +168,6 @@ func (s *devSupervisor) Close() error {
 		victoria := s.victoria
 		grafana := s.grafana
 		temporal := s.temporal
-		electric := s.electric
 		zeroFS := s.zeroFS
 		if s.shouldDetachManagedZeroFS(context.Background(), zeroFS) {
 			zeroFS = nil
@@ -198,11 +196,6 @@ func (s *devSupervisor) Close() error {
 		}
 		if temporal != nil {
 			if err := temporal.Interrupt(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if electric != nil {
-			if err := electric.Interrupt(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -340,11 +333,6 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	}
 	if err := s.console.Phase("Starting storage proxy", func() error {
 		return s.ensureManagedStorageProxy(ctx)
-	}); err != nil {
-		return err
-	}
-	if err := s.console.Phase("Starting Electric sync service", func() error {
-		return s.ensureManagedElectric(ctx)
 	}); err != nil {
 		return err
 	}
@@ -611,11 +599,6 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		return nil, err
 	}
 	env = append(env, storageEnv...)
-	electricEnv, err := managedElectricEnv(s.cfg, agentSession, env)
-	if err != nil {
-		return nil, err
-	}
-	env = append(env, electricEnv...)
 	if s.proxy != nil {
 		env = append(env, "SCENERY_PUBLIC_BASE_URL="+s.proxy.Routes().APIURL)
 	} else if agentSession != nil && agentSession.Routes[localagent.RouteAPI] != "" {
@@ -1519,15 +1502,6 @@ func (s *devSupervisor) storeAgentSession(session *localagent.Session) {
 	s.setSessionIdentity(session)
 }
 
-func (s *devSupervisor) currentElectric() *managedElectricService {
-	if s == nil {
-		return nil
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.electric
-}
-
 func (s *devSupervisor) currentZeroFS() *managedZeroFSService {
 	if s == nil {
 		return nil
@@ -2312,11 +2286,6 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 	if worker := s.currentTypeScriptWorker(); worker != nil {
 		if pid := atoiPID(worker.pid); pid > 0 {
 			processes["worker-typescript"] = localagent.Process{PID: pid}
-		}
-	}
-	if electric := s.currentElectric(); electric != nil {
-		if pid := electric.PID(); pid > 0 {
-			processes["electric"] = localagent.Process{PID: pid}
 		}
 	}
 	if zeroFS := s.currentZeroFS(); zeroFS != nil {

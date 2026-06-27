@@ -602,8 +602,8 @@ export interface SyncObservationContext {
     appRoot?: string
     sessionID?: string
     apiURL?: string
-    electricURL?: string
-    electricStreamID?: string
+    syncURL?: string
+    syncStreamID?: string
     source?: string
     timeoutMs?: number
     details?: Record<string, unknown>
@@ -619,8 +619,8 @@ export interface SyncObservationDiagnostic {
     app_root?: string
     session_id?: string
     api_url?: string
-    electric_url?: string
-    electric_stream_id?: string
+    sync_url?: string
+    sync_stream_id?: string
     source?: string
     timeout_ms?: number
     details?: Record<string, unknown>
@@ -744,7 +744,7 @@ function inferSyncObservationContext(apiURL?: string): SyncObservationContext {
     const match = /^https?:\/\/api\.([^.]+)\.[^/:]+(?:\.[^/:]+)*(?::\d+)?(?:\/|$)/.exec(apiURL)
     if (match) {
         context.sessionID = match[1]
-        context.electricURL = apiURL.replace("://api.", "://electric.").replace(/\/[^/]*$/, "/")
+        context.syncURL = apiURL.replace("://api.", "://sync.").replace(/\/[^/]*$/, "/")
     }
     return context
 }
@@ -759,8 +759,8 @@ function buildSyncObservationDiagnostic(txid: Txid | null, context?: SyncObserva
     if (context?.appRoot) diagnostic.app_root = context.appRoot
     if (context?.sessionID) diagnostic.session_id = context.sessionID
     if (context?.apiURL) diagnostic.api_url = context.apiURL
-    if (context?.electricURL) diagnostic.electric_url = context.electricURL
-    if (context?.electricStreamID) diagnostic.electric_stream_id = context.electricStreamID
+    if (context?.syncURL) diagnostic.sync_url = context.syncURL
+    if (context?.syncStreamID) diagnostic.sync_stream_id = context.syncStreamID
     if (context?.source) diagnostic.source = context.source
     if (context?.timeoutMs !== undefined) diagnostic.timeout_ms = context.timeoutMs
     if (context?.details) diagnostic.details = context.details
@@ -787,8 +787,8 @@ function formatSyncObservationMessage(diagnostic: SyncObservationDiagnostic): st
     const details = [
         diagnostic.app ? "app=" + diagnostic.app : "",
         diagnostic.session_id ? "session=" + diagnostic.session_id : "",
-        diagnostic.electric_url ? "electric=" + diagnostic.electric_url : "",
-        diagnostic.electric_stream_id ? "stream=" + diagnostic.electric_stream_id : "",
+        diagnostic.sync_url ? "sync=" + diagnostic.sync_url : "",
+        diagnostic.sync_stream_id ? "stream=" + diagnostic.sync_stream_id : "",
     ].filter((part) => part !== "")
     if (details.length > 0) {
         parts.push(details.join(" "))

@@ -241,34 +241,28 @@ func renderShapes(entities map[string]*model.Entity) string {
 		}
 		fmt.Fprintf(&b, "import type { %s } from \"./models\"\n\n", strings.Join(imports, ", "))
 	}
-	b.WriteString("export interface ElectricShapeDefinition<Row> {\n")
+	b.WriteString("export interface EntitySourceDefinition<Row> {\n")
 	b.WriteString("  schema: string\n")
 	b.WriteString("  table: string\n")
 	b.WriteString("  qualifiedTable: string\n")
 	b.WriteString("  primaryKey: keyof Row & string\n")
 	b.WriteString("  columns: readonly (keyof Row & string)[]\n")
-	b.WriteString("  url: (baseURL: string) => string\n")
-	b.WriteString("}\n\n")
-	b.WriteString("function shapeURL(baseURL: string, table: string): string {\n")
-	b.WriteString("  const base = baseURL.replace(/\\/+$/, \"\")\n")
-	b.WriteString("  return `${base}/v1/shape?table=${encodeURIComponent(table)}`\n")
 	b.WriteString("}\n\n")
 	for _, name := range names {
 		entity := entities[name]
 		qualifiedTable := model.EntityQualifiedTable(entity)
-		fmt.Fprintf(&b, "export const %sShape = {\n", lowerFirst(entity.Name))
+		fmt.Fprintf(&b, "export const %sSource = {\n", lowerFirst(entity.Name))
 		fmt.Fprintf(&b, "  schema: %s,\n", strconv.Quote(model.EntityDatabaseSchema(entity)))
 		fmt.Fprintf(&b, "  table: %s,\n", strconv.Quote(entity.Table))
 		fmt.Fprintf(&b, "  qualifiedTable: %s,\n", strconv.Quote(qualifiedTable))
 		fmt.Fprintf(&b, "  primaryKey: %s,\n", strconv.Quote(idColumn(entity)))
 		fmt.Fprintf(&b, "  columns: [%s],\n", quotedList(fieldColumns(storedFields(entity))))
-		fmt.Fprintf(&b, "  url: (baseURL: string) => shapeURL(baseURL, %s),\n", strconv.Quote(qualifiedTable))
-		fmt.Fprintf(&b, "} as const satisfies ElectricShapeDefinition<%sRow>\n\n", entity.Name)
+		fmt.Fprintf(&b, "} as const satisfies EntitySourceDefinition<%sRow>\n\n", entity.Name)
 	}
-	b.WriteString("export const electricShapes = {\n")
+	b.WriteString("export const entitySources = {\n")
 	for _, name := range names {
 		entity := entities[name]
-		fmt.Fprintf(&b, "  %s: %sShape,\n", lowerFirst(entity.Name), lowerFirst(entity.Name))
+		fmt.Fprintf(&b, "  %s: %sSource,\n", lowerFirst(entity.Name), lowerFirst(entity.Name))
 	}
 	b.WriteString("} as const\n")
 	return b.String()
@@ -345,15 +339,15 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 	if len(importedMaterializers) > 0 {
 		fmt.Fprintf(&b, "import { %s } from \"./projections\"\n", strings.Join(sortedKeys(importedMaterializers), ", "))
 	}
-	b.WriteString("import type { ElectricShapeDefinition } from \"./shapes\"\n")
-	shapeNames := map[string]bool{}
+	b.WriteString("import type { EntitySourceDefinition } from \"./shapes\"\n")
+	sourceNames := map[string]bool{}
 	for _, view := range views {
 		if entity := entities[view.Entity]; entity != nil {
-			shapeNames[lowerFirst(entity.Name)+"Shape"] = true
+			sourceNames[lowerFirst(entity.Name)+"Source"] = true
 		}
 	}
-	if len(shapeNames) > 0 {
-		fmt.Fprintf(&b, "import { %s } from \"./shapes\"\n", strings.Join(sortedKeys(shapeNames), ", "))
+	if len(sourceNames) > 0 {
+		fmt.Fprintf(&b, "import { %s } from \"./shapes\"\n", strings.Join(sortedKeys(sourceNames), ", "))
 	}
 	b.WriteString("\n")
 	b.WriteString("export interface CollectionColumn<Row> {\n")
@@ -371,17 +365,17 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 	b.WriteString("  field: string\n")
 	b.WriteString("  direction: \"asc\" | \"desc\"\n")
 	b.WriteString("}\n\n")
-	b.WriteString("export interface TanStackDBCollectionDefinition<Record, ShapeRow> {\n")
+	b.WriteString("export interface CollectionDefinition<Record, SourceRow> {\n")
 	b.WriteString("  id: string\n")
 	b.WriteString("  entity: string\n")
 	b.WriteString("  route: string\n")
 	b.WriteString("  title: string\n")
-	b.WriteString("  shape: ElectricShapeDefinition<ShapeRow>\n")
+	b.WriteString("  source: EntitySourceDefinition<SourceRow>\n")
 	b.WriteString("  columns: readonly CollectionColumn<Record>[]\n")
 	b.WriteString("  filters: readonly CollectionFilter[]\n")
 	b.WriteString("  sorts: readonly CollectionSort[]\n")
 	b.WriteString("  getKey: (row: Record) => string\n")
-	b.WriteString("  materialize: (rows: Iterable<ShapeRow>) => Record[]\n")
+	b.WriteString("  materialize: (rows: Iterable<SourceRow>) => Record[]\n")
 	b.WriteString("}\n\n")
 	if viewsHaveQueries(views) {
 		b.WriteString("function compareCollectionValues(a: any, b: any, direction: \"asc\" | \"desc\"): number {\n")
@@ -400,7 +394,7 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 			continue
 		}
 		rowType := view.Projection.RecordName
-		shapeRowType := entity.Name + "Row"
+		sourceRowType := entity.Name + "Row"
 		displayByField := viewDisplayByField(view)
 		fmt.Fprintf(&b, "export const %sColumns = [\n", lowerFirst(view.Name))
 		for _, column := range view.Columns {
@@ -429,7 +423,7 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 			fmt.Fprintf(&b, "  { field: %s, direction: %s },\n", strconv.Quote(sort.Column), strconv.Quote(sort.Direction))
 		}
 		b.WriteString("] as const satisfies readonly CollectionSort[]\n\n")
-		fmt.Fprintf(&b, "function materialize%sCollection(rows: Iterable<%s>): %s[] {\n", view.Name, shapeRowType, rowType)
+		fmt.Fprintf(&b, "function materialize%sCollection(rows: Iterable<%s>): %s[] {\n", view.Name, sourceRowType, rowType)
 		if len(view.Filters) == 0 && len(view.Sorts) == 0 {
 			fmt.Fprintf(&b, "  return materialize%sRows(rows)\n", view.Name)
 		} else {
@@ -459,13 +453,13 @@ func renderCollections(entities map[string]*model.Entity, views []*model.View) s
 		fmt.Fprintf(&b, "  entity: %s,\n", strconv.Quote(entity.Name))
 		fmt.Fprintf(&b, "  route: %s,\n", strconv.Quote(view.Route))
 		fmt.Fprintf(&b, "  title: %s,\n", strconv.Quote(view.Title))
-		fmt.Fprintf(&b, "  shape: %sShape,\n", lowerFirst(entity.Name))
+		fmt.Fprintf(&b, "  source: %sSource,\n", lowerFirst(entity.Name))
 		fmt.Fprintf(&b, "  columns: %sColumns,\n", lowerFirst(view.Name))
 		fmt.Fprintf(&b, "  filters: %sFilters,\n", lowerFirst(view.Name))
 		fmt.Fprintf(&b, "  sorts: %sSorts,\n", lowerFirst(view.Name))
 		fmt.Fprintf(&b, "  getKey: (row: %s) => String(row[%s]),\n", rowType, strconv.Quote(idColumn(entity)))
 		fmt.Fprintf(&b, "  materialize: materialize%sCollection,\n", view.Name)
-		fmt.Fprintf(&b, "} as const satisfies TanStackDBCollectionDefinition<%s, %s>\n\n", rowType, shapeRowType)
+		fmt.Fprintf(&b, "} as const satisfies CollectionDefinition<%s, %s>\n\n", rowType, sourceRowType)
 	}
 	b.WriteString("export const collections = [\n")
 	for _, view := range views {
@@ -499,19 +493,15 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 	if len(importedCollections) > 0 {
 		fmt.Fprintf(&b, "import { %s } from \"./collections\"\n", strings.Join(sortedKeys(importedCollections), ", "))
 	}
-	b.WriteString("import type { TanStackDBCollectionDefinition } from \"./collections\"\n\n")
+	b.WriteString("import type { CollectionDefinition } from \"./collections\"\n\n")
 	b.WriteString("export type RuntimeRows<Row> = Iterable<Row> | readonly Row[] | (() => Iterable<Row> | readonly Row[])\n\n")
-	b.WriteString("export interface ElectricRuntimeConfig {\n")
-	b.WriteString("  baseURL: string\n")
-	b.WriteString("}\n\n")
-	b.WriteString("export interface CollectionRuntime<Record, ShapeRow> {\n")
+	b.WriteString("export interface CollectionRuntime<Record, SourceRow> {\n")
 	b.WriteString("  id: string\n")
 	b.WriteString("  entity: string\n")
 	b.WriteString("  route: string\n")
 	b.WriteString("  title: string\n")
-	b.WriteString("  shapeURL: string\n")
-	b.WriteString("  definition: TanStackDBCollectionDefinition<Record, ShapeRow>\n")
-	b.WriteString("  rows: () => readonly ShapeRow[]\n")
+	b.WriteString("  definition: CollectionDefinition<Record, SourceRow>\n")
+	b.WriteString("  rows: () => readonly SourceRow[]\n")
 	b.WriteString("  materialize: () => Record[]\n")
 	b.WriteString("}\n\n")
 	b.WriteString("export interface GeneratedRuntimeRowSources {\n")
@@ -522,7 +512,6 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 	}
 	b.WriteString("}\n\n")
 	b.WriteString("export interface GeneratedRuntimeOptions {\n")
-	b.WriteString("  electric: ElectricRuntimeConfig\n")
 	b.WriteString("  rows?: GeneratedRuntimeRowSources\n")
 	b.WriteString("}\n\n")
 	for _, view := range views {
@@ -542,7 +531,7 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 		if entity == nil {
 			continue
 		}
-		fmt.Fprintf(&b, "export function create%sRuntime(options: GeneratedRuntimeOptions): %sRuntime {\n", view.Name, view.Name)
+		fmt.Fprintf(&b, "export function create%sRuntime(options: GeneratedRuntimeOptions = {}): %sRuntime {\n", view.Name, view.Name)
 		fmt.Fprintf(&b, "  const definition = %sCollection\n", lowerFirst(view.Name))
 		fmt.Fprintf(&b, "  const rows = () => resolveRows(options.rows?.%s)\n", lowerFirst(view.Name))
 		b.WriteString("  return {\n")
@@ -550,7 +539,6 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 		b.WriteString("    entity: definition.entity,\n")
 		b.WriteString("    route: definition.route,\n")
 		b.WriteString("    title: definition.title,\n")
-		b.WriteString("    shapeURL: definition.shape.url(options.electric.baseURL),\n")
 		b.WriteString("    definition,\n")
 		b.WriteString("    rows,\n")
 		b.WriteString("    materialize: () => definition.materialize(rows()),\n")
@@ -566,7 +554,7 @@ func renderRuntime(entities map[string]*model.Entity, views []*model.View) strin
 	}
 	b.WriteString("  }\n")
 	b.WriteString("}\n\n")
-	b.WriteString("export function createGeneratedRuntime(options: GeneratedRuntimeOptions): GeneratedRuntime {\n")
+	b.WriteString("export function createGeneratedRuntime(options: GeneratedRuntimeOptions = {}): GeneratedRuntime {\n")
 	b.WriteString("  return {\n")
 	b.WriteString("    collections: {\n")
 	for _, view := range views {

@@ -41,9 +41,9 @@ func TestTypeScriptClientIncludesTxidSyncObservationDiagnostics(t *testing.T) {
 		`export async function observeAPIResponseTxid<T>(response: APIResponse<T>, observer: TxidObserver, context?: SyncObservationContext): Promise<APIResponse<T>>`,
 		`sync observation failed after committed API mutation`,
 		`api_url?: string`,
-		`electric_url?: string`,
-		`electric_stream_id?: string`,
-		`context.electricURL = apiURL.replace("://api.", "://electric.")`,
+		`sync_url?: string`,
+		`sync_stream_id?: string`,
+		`context.syncURL = apiURL.replace("://api.", "://sync.")`,
 		`txid: txidFromHeaders(response.headers)`,
 	} {
 		if !strings.Contains(got, want) {

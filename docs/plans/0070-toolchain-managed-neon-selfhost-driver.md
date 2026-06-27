@@ -35,7 +35,7 @@ scenery up
 
 `scenery up` should create or reuse a real self-hosted Neon branch, start a
 branch compute endpoint, run DB lifecycle work against that branch, start
-Electric against the same branch, and keep the parent branch protected.
+sync against the same branch, and keep the parent branch protected.
 
 This plan is a follow-on to `docs/plans/0065-scenery-managed-neon-dev-cell.md`.
 Plan 0065 established the local contract, branch pins, lease registry, generated
@@ -65,16 +65,16 @@ local Neon cell.
 - [x] 2026-06-09: Validated the SQL-ready branch endpoint slice with focused `internal/neonselfhost` and `cmd/scenery` tests, `jq empty` on changed JSON/schema files, `git diff --check`, `go test ./...`, and `scenery harness self --summary --write`. Self-harness passed with warnings only for the existing review-due UI doc, large-file warnings, and slow-test timing warnings.
 - [x] 2026-06-09: Made the generated storage-cell topology boot against real Docker Neon images by generating `pageserver_config/identity.toml`, aligning pageserver config with upstream emergency-mode Docker Compose settings, and replacing the compute template's `nc` dependency with Bash TCP probing.
 - [x] 2026-06-09: Completed the real branch compute readiness loop. `worktree create` now runs the existing branch-provider ensure boundary for auto-pinned Neon worktrees; the managed selfhost driver starts fresh branch compute containers, verifies Postgres with non-interactive credentials, creates the requested database, and returns ready endpoint metadata with a password-bearing managed `DatabaseURL` while keeping public endpoint metadata redacted.
-- [x] 2026-06-09: Added real Neon self-harness coverage and promoted it into the default non-quick self-harness path. The harness now proves managed driver installation, generated storage-cell startup, two ready worktree branches, branch data isolation, managed `scenery db psql`, managed app env, Electric DB URL resolution, reset, restore, schema diff, delete, and cleanup of driver-owned compute containers.
+- [x] 2026-06-09: Added real Neon self-harness coverage and promoted it into the default non-quick self-harness path. The harness now proves managed driver installation, generated storage-cell startup, two ready worktree branches, branch data isolation, managed `scenery db psql`, managed app env, sync DB URL resolution, reset, restore, schema diff, delete, and cleanup of driver-owned compute containers.
 - [x] 2026-06-09: Promoted driver reset/restore from backend metadata placeholders to pageserver timeline mutations. Reset removes the old compute endpoint, creates a replacement timeline from the parent branch timeline, and restarts compute on the persisted port when possible; restore accepts LSN refs directly or resolves RFC3339 timestamps through pageserver before creating the replacement timeline.
 - [x] 2026-06-09: Closed the reset/restore validation loop with focused `internal/neonselfhost` and `cmd/scenery` tests, `go test ./...`, `jq empty` on changed JSON/schema files, `git diff --check`, and `scenery harness self --json --write`. The real harness passed with warnings only for the existing review-due UI doc, large-file warnings, and slow-test timing warnings.
 - [x] 2026-06-09: Folded the driver into the main `scenery` CLI as `scenery internal neon-selfhost-driver`, removed the source-built `neon-selfhost-driver` toolchain artifact and standalone `cmd/scenery-neon-selfhost-driver`, and updated `scenery db neon install --json` to record `cell.json.driver.kind: "builtin"` while preserving explicit external-driver and legacy `cell.json.driver.path` support.
 - [x] 2026-06-09: Added the `neon-selfhost` umbrella image artifact to the toolchain manifest so `scenery system toolchain sync --tool neon-selfhost --images --json` selects the storage-cell, compute-node, MinIO, and MinIO client images. Unknown `--tool` selectors now fail closed instead of returning an empty successful status.
 - [x] 2026-06-09: Made branch compute container identities collision-safe across projects by deriving new names from sanitized project plus public branch ID suffix, while labeling fresh compute containers with `scenery.project`, `scenery.branch_id`, and `scenery.branch`.
-- [x] 2026-06-09: Updated `README.md`, `SKILL.md`, `docs/agent-guide.md`, and `docs/local-contract.md` to mark real selfhost branch compute creation and default harness coverage as implemented while keeping Electric slot lifecycle hardening and release-grade driver distribution as experimental.
+- [x] 2026-06-09: Updated `README.md`, `SKILL.md`, `docs/agent-guide.md`, and `docs/local-contract.md` to mark real selfhost branch compute creation and default harness coverage as implemented while keeping sync slot lifecycle hardening and release-grade driver distribution as experimental.
 - [x] 2026-06-09: Added advisory file locking for concurrent local Neon mutation paths. The built-in driver now holds `<neon-root>/backend.lock` across backend read/port allocation/mutation/write/compute startup, and Scenery lease registry mutations hold `<neon-root>/branches.lock`.
 - [x] 2026-06-09: Removed the public `--with-neon-selfhost` self-harness flag. Default, race, and release self-harness modes now run the Docker-backed Neon lifecycle proof; `--quick` remains the smaller non-Docker loop.
-- [x] 2026-06-09: Closed the remaining Electric isolation proof in the real Neon self-harness. The harness now checks that parallel branch worktrees resolve distinct Neon branch `DatabaseURL`s and distinct managed Electric replication stream IDs, replication slot names, and Postgres application names.
+- [x] 2026-06-09: Closed the remaining sync isolation proof in the real Neon self-harness. The harness now checks that parallel branch worktrees resolve distinct Neon branch `DatabaseURL`s and distinct managed sync replication stream IDs, replication slot names, and Postgres application names.
 
 ## Surprises & Discoveries
 
@@ -83,13 +83,13 @@ local Neon cell.
 - 2026-06-09: `cmd/scenery/db_neon.go` and the surrounding Neon command files are already large enough that this feature should add `internal/neonselfhost/` and small CLI integration files instead of continuing to grow the existing command file.
 - 2026-06-09: The `neon-selfhost-driver` must return a successful `pending` JSON result for `ensure` until real tenant/timeline/compute lifecycle lands. Otherwise, simply enabling the skeleton driver would turn branch checkout from the existing pending-backend behavior into a hard failure.
 - 2026-06-09: Upstream Neon's Docker example still includes a static compute wrapper, but Scenery's branch-isolation contract needs Compose to own only the shared storage cell. The generated compute template files are now driver inputs rather than a started Compose service.
-- 2026-06-09: A recorded reachable branch compute is enough for the driver to prove and return a ready endpoint, which gives `scenery up`, `db psql`, DB lifecycle, and Electric the same redacted endpoint contract before the driver can create computes itself.
+- 2026-06-09: A recorded reachable branch compute is enough for the driver to prove and return a ready endpoint, which gives `scenery up`, `db psql`, DB lifecycle, and sync the same redacted endpoint contract before the driver can create computes itself.
 - 2026-06-09: The pageserver OpenAPI states that `POST /v1/tenant/{tenant_id}/timeline` can recreate the same timeline successfully when parameters match, and that callers should retry timeline creation until success for durability. The driver now uses that idempotent shape for parent and branch timeline bootstrap.
 - 2026-06-09: TCP readiness is too weak for app-session consumption because an open port can precede SQL readiness or target database creation. The managed driver now treats `psql` verification and database creation as the ready boundary.
 - 2026-06-09: The Neon pageserver container requires both `pageserver.toml` and `identity.toml`; without the identity file it exits before the HTTP API is usable. The generated pageserver config also needs the upstream Docker Compose emergency-mode fields when no storage controller is present.
 - 2026-06-09: Branch compute containers are driver-owned and live outside Compose, so `scenery db neon uninstall --destroy-data` must remove remaining Scenery-labeled Neon containers after Compose teardown. Otherwise stale compute containers can be reused across generated cell roots with old mounted scripts.
 - 2026-06-09: The compute image used by upstream Docker Compose does not include `nc`, so generated compute startup scripts must avoid depending on netcat. Bash `/dev/tcp` probing is sufficient because the script already runs under Bash.
-- 2026-06-09: Ready selfhost endpoints require a password-bearing DSN for non-interactive `psql` and Electric consumption. Scenery keeps public endpoint metadata redacted, but synthesizes `postgres://cloud_admin:***@...` in managed `DatabaseURL` values for the `neon-selfhost-driver` source.
+- 2026-06-09: Ready selfhost endpoints require a password-bearing DSN for non-interactive `psql` and sync consumption. Scenery keeps public endpoint metadata redacted, but synthesizes `postgres://cloud_admin:***@...` in managed `DatabaseURL` values for the `neon-selfhost-driver` source.
 - 2026-06-09: Reset/restore need to distinguish the durable Scenery parent branch from the pageserver ancestor used for a specific restore. Restore may branch from the previous branch timeline at an LSN/timestamp, but later reset should still target the configured parent branch timeline.
 - 2026-06-09: A source-built driver artifact is not enough for prebuilt CLI users because `go build ./cmd/scenery-neon-selfhost-driver` only works inside the Scenery source checkout. Folding the driver into `scenery` keeps the branch-driver contract without requiring a second release artifact.
 - 2026-06-09: The toolchain manifest needs an image umbrella separate from the built-in branch driver. `neon-selfhost` selects the Docker images, while `scenery internal neon-selfhost-driver` is the executable driver surface.
@@ -137,15 +137,15 @@ non-Docker path.
 Start with these files and surfaces:
 
 - `docs/plans/0065-scenery-managed-neon-dev-cell.md` for the current Neon contract, implemented local branch lease behavior, and remaining branch-provider gaps.
-- `docs/local-contract.md` for CLI grammar, JSON schemas, generated state paths, driver env vars, and current Neon/Electric behavior.
-- `README.md`, `docs/agent-guide.md`, `SKILL.md`, and `docs/local-contract.md` for the current done-vs-experimental status of built-in selfhost branch creation, opt-in harness coverage, Electric slot lifecycle hardening, and driver distribution.
+- `docs/local-contract.md` for CLI grammar, JSON schemas, generated state paths, driver env vars, and current Neon/sync behavior.
+- `README.md`, `docs/agent-guide.md`, `SKILL.md`, and `docs/local-contract.md` for the current done-vs-experimental status of built-in selfhost branch creation, opt-in harness coverage, sync slot lifecycle hardening, and driver distribution.
 - `docs/environment.md` and `docs/environment.registry.json` for the approved env-var registry.
 - `scenery.toolchain.json`, `internal/toolchain/`, and `cmd/scenery/toolchain.go` for managed binary/image artifacts.
 - `cmd/scenery/db_neon.go` for generated dev-cell install/start/status/logs/stop/restart/uninstall.
 - `cmd/scenery/db_neon_driver.go` for the current executable driver contract.
 - `cmd/scenery/db_neon_provider.go` for provider delegation, ready lease consumption, parent protection, and no-driver placeholder errors.
 - `cmd/scenery/db_branch.go`, `cmd/scenery/db_neon_state.go`, `cmd/scenery/db_neon_restore_points.go`, and `cmd/scenery/worktree.go` for branch pin, lease, restore-point, and worktree behavior.
-- `cmd/scenery/dev_services.go`, `cmd/scenery/db_setup.go`, `cmd/scenery/db_seed.go`, `cmd/scenery/psql.go`, and Electric startup code for runtime consumption of ready branch endpoints.
+- `cmd/scenery/dev_services.go`, `cmd/scenery/db_setup.go`, `cmd/scenery/db_seed.go`, `cmd/scenery/psql.go`, and sync startup code for runtime consumption of ready branch endpoints.
 - `cmd/scenery/harness_neon.go` for the existing fake-driver self-harness coverage.
 
 Current behavior to preserve:
@@ -185,10 +185,10 @@ driver implementation state.
 1. Built-In Driver Contract: expose `neon-selfhost-driver` through `scenery internal neon-selfhost-driver`, define capabilities/status schemas, and keep the existing branch-driver result shape compatible.
 2. Real Dev-Cell Topology: generate a working local Neon storage cell with MinIO, bucket init, storage broker, pageserver, three safekeepers, and no static app compute as the branch substrate.
 3. Tenant and Parent Bootstrap: driver `ensure` can create or reuse tenant/main timeline state and a protected parent compute endpoint for admin/bootstrap checks.
-4. Branch Ensure and Runtime Consumption: driver `ensure` creates branch timelines and compute endpoints, returns ready endpoint metadata, and lets `scenery up`, DB lifecycle, `db psql`, and Electric consume non-parent ready branches.
+4. Branch Ensure and Runtime Consumption: driver `ensure` creates branch timelines and compute endpoints, returns ready endpoint metadata, and lets `scenery up`, DB lifecycle, `db psql`, and sync consume non-parent ready branches.
 5. Branch Mutations: driver implements reset, delete, restore, and schema diff behind the existing Scenery guards.
 6. Status and Debugging: `scenery db neon status --json` reports driver installation, capabilities, backend counts, and actionable degraded states without leaking raw connection URLs.
-7. Harness Promotion: default, race, and release self-harness modes prove real Docker Neon branch isolation and Electric stream/slot isolation; `--quick` keeps fake-driver coverage for the smaller non-Docker loop.
+7. Harness Promotion: default, race, and release self-harness modes prove real Docker Neon branch isolation and sync stream/slot isolation; `--quick` keeps fake-driver coverage for the smaller non-Docker loop.
 
 ## Plan of Work
 
@@ -291,7 +291,7 @@ installed and healthy. It should report driver status, capabilities, path,
 version, tenant ID, branch count, compute count, component health, and next
 action. Default self-harness runs the real Docker Neon lifecycle proof, while
 `--quick` keeps the fake-driver path fast. Cover two worktrees, two branches,
-managed Electric branch URL resolution, distinct Electric stream/slot identity,
+managed sync branch URL resolution, distinct sync stream/slot identity,
 isolated writes, and safe cleanup.
 
 ## Concrete Steps
@@ -357,8 +357,8 @@ The implementation is accepted when:
 - A fresh machine can install/start the Neon dev cell through Scenery commands without manually setting `SCENERY_DEV_NEON_SELFHOST_DRIVER`.
 - `scenery db neon status --json` reports the managed driver, capabilities, backend counts, component health, and clear next actions.
 - `scenery db branch checkout <branch> --json` returns a ready non-parent lease with endpoint metadata after the dev cell is ready.
-- `scenery up`, DB apply/seed/setup, `scenery db psql`, and Electric consume the branch endpoint and refuse protected parent branches.
-- Two worktrees can run against separate Neon branches without database or Electric slot/publication collision.
+- `scenery up`, DB apply/seed/setup, `scenery db psql`, and sync consume the branch endpoint and refuse protected parent branches.
+- Two worktrees can run against separate Neon branches without database or sync slot/publication collision.
 - Reset, restore, delete, and schema diff work behind existing destructive guards.
 - Default self-harness remains deterministic with the real Neon proof enabled; `--quick` remains available for the smaller non-Docker loop.
 

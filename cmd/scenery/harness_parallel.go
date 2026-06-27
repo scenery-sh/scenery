@@ -98,16 +98,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 	defer closeFrontendB()
-	electricA, closeElectricA, err := reserveHarnessAddr()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer closeElectricA()
-	electricB, closeElectricB, err := reserveHarnessAddr()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer closeElectricB()
 	grafanaAddr, closeGrafana, err := reserveHarnessAddr()
 	if err != nil {
 		return nil, nil, err
@@ -126,12 +116,12 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	cfgA := harnessParallelConfig(frontendA)
 	cfgB := harnessParallelConfig(frontendB)
 
-	sessionA, restoreA, err := prepareHarnessParallelSession(ctx, rootA, cfgA, electricA)
+	sessionA, restoreA, err := prepareHarnessParallelSession(ctx, rootA, cfgA)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer restoreA()
-	sessionB, restoreB, err := prepareHarnessParallelSession(ctx, rootB, cfgB, electricB)
+	sessionB, restoreB, err := prepareHarnessParallelSession(ctx, rootB, cfgB)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -196,7 +186,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		"databases":       len(ensuredDBs),
 		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
 		"frontend_routes": []string{sessionA.Routes["web"], sessionB.Routes["web"]},
-		"electric_routes": []string{sessionA.Routes["electric"], sessionB.Routes["electric"]},
 		"temporal_queues": []string{envValueFromList(supervisorA.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv), envValueFromList(supervisorB.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv)},
 		"diagnostics":     len(diagnostics),
 	}
@@ -223,30 +212,20 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 		Dev: app.DevConfig{
 			Services: map[string]app.DevServiceConfig{
 				"postgres": {Kind: "postgres"},
-				"electric": {Kind: "electric", Route: "electric"},
 			},
 		},
 		Temporal: app.TemporalConfig{Enabled: true},
 	}
 }
 
-func prepareHarnessParallelSession(ctx context.Context, root string, cfg app.Config, electricAddr string) (*localagent.Session, func(), error) {
+func prepareHarnessParallelSession(ctx context.Context, root string, cfg app.Config) (*localagent.Session, func(), error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, func() {}, err
 	}
 	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"parallel","id":"parallel-app"}`), 0o644); err != nil {
 		return nil, func() {}, err
 	}
-	prevElectric, hadElectric := envpolicy.Lookup(devElectricUpstreamEnv)
-	if err := envpolicy.Set(devElectricUpstreamEnv, "http://"+electricAddr); err != nil {
-		return nil, func() {}, err
-	}
 	client, session, _, restore, err := prepareDevAgentSession(ctx, root, cfg, devListenRequest{}, nil)
-	if hadElectric {
-		_ = envpolicy.Set(devElectricUpstreamEnv, prevElectric)
-	} else {
-		_ = envpolicy.Unset(devElectricUpstreamEnv)
-	}
 	if err != nil {
 		restore()
 		return nil, func() {}, err
@@ -309,7 +288,6 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends[localagent.RouteAPI].Addr != sessionB.Backends[localagent.RouteAPI].Addr, "API backends must be distinct")
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
 	check(routeContainsSession(sessionA.Routes["web"], sessionA.SessionID) && routeContainsSession(sessionB.Routes["web"], sessionB.SessionID) && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
-	check(routeContainsSession(sessionA.Routes["electric"], sessionA.SessionID) && routeContainsSession(sessionB.Routes["electric"], sessionB.SessionID) && sessionA.Routes["electric"] != sessionB.Routes["electric"], "Electric routes must be session-scoped")
 	check(routeContainsSession(sessionA.Routes[localagent.RouteGrafana], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteGrafana], sessionB.SessionID), "Grafana routes must be session-scoped")
 	check(routeContainsSession(sessionA.Routes[localagent.RouteTemporal], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteTemporal], sessionB.SessionID), "Temporal routes must be session-scoped")
 	check(envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME"), "managed Postgres database names must be distinct")

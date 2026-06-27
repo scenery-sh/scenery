@@ -189,7 +189,7 @@ app-specific, stays in ONLV:
   job-specific cards
   viewer/canvas-specific HUDs
   business-specific copy or data loaders
-  Electric/TanStack DB data wiring
+  sync/TanStack DB data wiring
 ```
 
 Non-goals:

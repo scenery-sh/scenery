@@ -18,7 +18,7 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 	t.Setenv(envAgentHome, t.TempDir())
 
 	release := make(chan struct{})
-	electric := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	stream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
@@ -26,12 +26,12 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
-		<-release // hold the stream open like a live Electric shape
+		<-release // hold the stream open like a live sync feed
 		_, _ = io.WriteString(w, "data: second\n\n")
 	}))
-	defer electric.Close()
+	defer stream.Close()
 	defer close(release)
-	electricAddr := strings.TrimPrefix(electric.URL, "http://")
+	streamAddr := strings.TrimPrefix(stream.URL, "http://")
 
 	paths, err := DefaultPaths()
 	if err != nil {
@@ -58,13 +58,13 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 		AppRoot:   t.TempDir(),
 		Branch:    "main",
 		Backends: map[string]Backend{
-			"electric": {Network: "tcp", Addr: electricAddr},
+			"sync": {Network: "tcp", Addr: streamAddr},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := testRouteHost(t, session.Routes["electric"])
+	host := testRouteHost(t, session.Routes["sync"])
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/v1/shape?live=true", nil)
 	if err != nil {

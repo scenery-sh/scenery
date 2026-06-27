@@ -211,7 +211,7 @@ func isBackendUnavailableError(err error) bool {
 
 func isFrontendSessionBackend(kind string) bool {
 	switch kind {
-	case "", RouteAPI, RouteDashboard, RouteGrafana, RouteTemporal, "electric", "removed-agent-transport", "sync":
+	case "", RouteAPI, RouteDashboard, RouteGrafana, RouteTemporal, "removed-agent-transport", "sync":
 		return false
 	default:
 		return true

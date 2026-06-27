@@ -150,110 +150,6 @@
       ]
     },
     {
-      "name": "ELECTRIC_INSECURE",
-      "match": "exact",
-      "scope": "internal",
-      "direction": "internal",
-      "category": "dev.services.electric",
-      "stability": "internal",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Electric container setting injected for local managed Electric processes.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": []
-    },
-    {
-      "name": "ELECTRIC_PORT",
-      "match": "exact",
-      "scope": "internal",
-      "direction": "internal",
-      "category": "dev.services.electric",
-      "stability": "internal",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Electric container port injected into managed Electric processes.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": []
-    },
-    {
-      "name": "ELECTRIC_REPLICATION_STREAM_ID",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "dev.services",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Electric replication stream ID. scenery sets a deterministic session-scoped default",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "ELECTRIC_URL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "app.services.auth",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Public Electric route for app/frontends",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "ELECTRIC_USAGE_REPORTING",
-      "match": "exact",
-      "scope": "internal",
-      "direction": "internal",
-      "category": "dev.services.electric",
-      "stability": "internal",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Electric container setting injected for local managed Electric processes.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": []
-    },
-    {
       "name": "GF_",
       "match": "prefix",
       "scope": "internal",
@@ -1099,50 +995,6 @@
       ]
     },
     {
-      "name": "SCENERY_DEV_ELECTRIC_BIN",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "dev.services",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Explicit local Electric binary path; scenery does not search `PATH` for it",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_DEV_ELECTRIC_UPSTREAM",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "dev.services",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Explicit Electric upstream; scenery registers it as the session Electric backend",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_DEV_ENDPOINTS",
       "match": "exact",
       "scope": "runtime",
@@ -1443,28 +1295,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Disables frontend proxy/upstream discovery in the legacy local proxy outside the normal scenery up path",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_ELECTRIC_URL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "app.services.auth",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "scenery-prefixed Electric route",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -3395,28 +3225,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Vite-compatible frontend API route",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "VITE_ELECTRIC_URL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "app.services.auth",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Vite-compatible frontend Electric route",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

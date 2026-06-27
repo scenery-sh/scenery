@@ -6,7 +6,7 @@ This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`,
 ## Purpose / Big Picture
 
 Scenery already owns local development substrates such as the HTTPS edge,
-Grafana, Victoria, Temporal, managed Postgres, and Electric. This plan extends
+Grafana, Victoria, Temporal, managed Postgres, and sync. This plan extends
 that model to a local/self-hosted Neon development cell: a shared branchable
 Postgres substrate that Scenery installs, starts, inspects, and wires into app
 sessions without asking users or agents to maintain Neon Docker Compose files or
@@ -70,7 +70,7 @@ explicitly in the local contract in the same implementation step.
 - [x] 2026-06-08: Added the first branch-provider boundary. `scenery db branch status --json` now reports `backend_status` separately from local pin status, with Scenery-created local pins marked `pending`; checkout/reset/delete route through a provider interface so future backend mutations do not blur local lease files with real Neon branches.
 - [x] 2026-06-08: Validated the branch-provider boundary with `jq empty`, focused branch/provider tests, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test -count=1 ./cmd/scenery`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
 - [x] 2026-06-08: Implement a branch provider and worktree/session branch lease manager.
-- [x] 2026-06-08: Integrate Neon branch leases with `scenery up`, DB apply/seed/setup, `scenery db psql`, and Electric.
+- [x] 2026-06-08: Integrate Neon branch leases with `scenery up`, DB apply/seed/setup, `scenery db psql`, and sync.
 - [x] 2026-06-08: Added `scenery worktree create|list|remove` for the first worktree workflow slice. `create` runs `git worktree add -b`, writes the target worktree's local Neon branch pin when the app declares Neon, and emits `scenery.worktree.create.v1`; `list` emits `scenery.worktree.list.v1`; `remove --db` removes the local branch pin before `git worktree remove` and emits `scenery.worktree.remove.v1`. Backend Neon branch creation/deletion remains pending.
 - [x] 2026-06-08: Validated the app-session and worktree slices with `jq empty`, `go test ./cmd/scenery -run 'TestWorktree|TestParseWorktree'`, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
 - [x] 2026-06-08: Implemented the local Neon branch lease registry slice. `branches.json` under the agent Neon substrate records Scenery-owned pending leases; checkout/session/worktree pin writes upsert it; existing pins heal into it; `db branch list` reads it; `expire --after` and `prune --older-than` update/prune local metadata only. Backend branch mutation remains pending.
@@ -79,9 +79,9 @@ explicitly in the local contract in the same implementation step.
 - [x] 2026-06-08: Validated the provider-inspection slice with `jq empty`, focused branch status tests, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
 - [x] 2026-06-08: Wired local Neon lease cleanup into `scenery down`. For Neon configs, `down --db` removes only the current non-parent local branch lease from `branches.json`, and `down --state` removes only the app root's `.scenery/worktree-db.json` pin in addition to ordinary session state cleanup.
 - [x] 2026-06-08: Validated the local down-cleanup slice with `jq empty`, focused cleanup tests, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
-- [x] 2026-06-08: Added a self-harness local Neon lifecycle step. It creates two Neon-enabled Git worktrees in a temp repo, checks distinct local branch pins and leases, exercises expire/prune, verifies local `down --db` and `down --state` cleanup helpers, and asserts reset/delete destructive guards. This covers local branch state safety only; real backend DB lifecycle and Electric slot isolation still require the branch provider.
+- [x] 2026-06-08: Added a self-harness local Neon lifecycle step. It creates two Neon-enabled Git worktrees in a temp repo, checks distinct local branch pins and leases, exercises expire/prune, verifies local `down --db` and `down --state` cleanup helpers, and asserts reset/delete destructive guards. This covers local branch state safety only; real backend DB lifecycle and sync slot isolation still require the branch provider.
 - [x] 2026-06-08: Validated the local Neon harness slice with focused harness/branch/worktree tests, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
-- [x] 2026-06-08: Implemented ready-lease endpoint consumption without claiming branch creation. Self-hosted branch inspection now treats a local lease as ready only when endpoint metadata exists, `scenery db branch status --json` emits that redacted endpoint as `connection`, and `scenery up`, DB setup, `scenery db psql`, and Electric synthesize process-local `DatabaseURL` values from the ready endpoint while failing explicitly for pending, missing, expired, or endpoint-less leases.
+- [x] 2026-06-08: Implemented ready-lease endpoint consumption without claiming branch creation. Self-hosted branch inspection now treats a local lease as ready only when endpoint metadata exists, `scenery db branch status --json` emits that redacted endpoint as `connection`, and `scenery up`, DB setup, `scenery db psql`, and sync synthesize process-local `DatabaseURL` values from the ready endpoint while failing explicitly for pending, missing, expired, or endpoint-less leases.
 - [x] 2026-06-08: Validated the ready-lease endpoint consumption slice with `jq empty`, focused ready-lease tests, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
 - [x] 2026-06-08: Added the `scenery db branch restore --at <timestamp-or-lsn> --yes` and `scenery db branch diff <branch>` command guards. They now validate required arguments, local pin presence, destructive restore confirmation, and parent-branch protection before returning explicit provider-not-implemented errors.
 - [x] 2026-06-08: Implemented bounded `scenery db neon restart`. It restarts existing Scenery-owned Neon containers visible to Docker, updates `cell.json`, and reports post-restart status, while still failing explicitly when no generated containers exist instead of trying to start the dev cell.
@@ -104,7 +104,7 @@ explicitly in the local contract in the same implementation step.
 - [x] 2026-06-08: Validated branch-provider prerequisite status with focused checkout/session/status tests, `go test -count=1 ./cmd/scenery`, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `jq empty`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
 - [x] 2026-06-08: Added generated dev-cell prerequisite preflight for self-hosted branch mutations. `reset`, `restore`, and `diff` now report a missing local Neon dev-cell before returning the generic backend mutation/diff placeholder, while earlier parent/current/destructive guards still win first.
 - [x] 2026-06-08: Validated the mutation prerequisite slice with focused reset/restore/diff tests, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `jq empty`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
-- [x] 2026-06-08: Protected ready parent-branch leases from runtime consumption. Branch status now reports `backend_status: "protected"` without connection metadata for ready parent leases, and the shared connection resolver refuses to synthesize app-session, `db psql`, DB setup, or Electric `DatabaseURL` values for the parent branch.
+- [x] 2026-06-08: Protected ready parent-branch leases from runtime consumption. Branch status now reports `backend_status: "protected"` without connection metadata for ready parent leases, and the shared connection resolver refuses to synthesize app-session, `db psql`, DB setup, or sync `DatabaseURL` values for the parent branch.
 - [x] 2026-06-08: Validated the protected-parent slice with focused branch-status and database URL resolver tests, `go test -count=1 ./cmd/scenery`, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `jq empty`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`.
 - [x] 2026-06-08: Made `scenery db branch list --json` provider-normalize lease status before serialization, so protected parent leases report `status: "protected"` and suppress endpoint metadata just like branch status output.
 - [x] 2026-06-08: Validated the provider-normalized branch-list slice with focused branch-list/status/expire/prune tests, `go test -count=1 ./cmd/scenery`, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `jq empty`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`. One self-harness run hit transient Go-test failures in `TestSceneryDevDashboardNotificationsAndRoutes` and `TestDBNeonStatusProbesDockerHealth`; direct reruns and a serial self-harness rerun passed.
@@ -112,13 +112,13 @@ explicitly in the local contract in the same implementation step.
 - [x] 2026-06-08: Validated the local lease ownership slice with focused foreign-lease checkout/list/prune tests, `go test -count=1 ./cmd/scenery`, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go test -count=1 -json ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install -x ./cmd/scenery`, `jq empty`, `scenery inspect docs --json`, `scenery system toolchain verify --json --images`, `git diff --check`, and `scenery harness self --json --write`. Two earlier self-harness runs hit the same transient Go-test failures in `TestSceneryDevDashboardNotificationsAndRoutes` and `TestDBNeonStatusProbesDockerHealth`; direct focused reruns, the exact `go test -count=1 -json ./...` command, and the final self-harness rerun passed.
 - [x] 2026-06-08: Added a local-postgres-branch development fallback driver boundary. When `SCENERY_DEV_LOCAL_POSTGRES_BRANCH_DRIVER` points at an absolute executable, checkout/session ensure invokes the driver with branch identity arguments and records a ready lease from returned endpoint JSON; ready reset, restore, and delete delegate to the same driver. Without the driver, the provider keeps the existing pending/local-only behavior and explicit mutation placeholders.
 - [x] 2026-06-08: Validated the local-postgres-branch driver boundary with focused fake-driver branch tests, `jq empty`, `scenery inspect docs --json`, `git diff --check`, `go test -count=1 ./cmd/scenery`, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install ./cmd/scenery`, `scenery system toolchain verify --json --images`, and `scenery harness self --json --write`. An initial self-harness run failed because `cmd/scenery/db_neon.go` exceeded the hard line-count limit after the driver slice; the driver adapter was split into `cmd/scenery/db_neon_driver.go`, the unused pending provider shim was removed, and the rerun passed.
-- [x] 2026-06-08: Hardened self-harness coverage for the local-postgres-branch driver path. The Neon lifecycle step now installs a fake `SCENERY_DEV_LOCAL_POSTGRES_BRANCH_DRIVER`, verifies ready `backend_status` and redacted endpoint metadata, checks managed Neon `DatabaseURL` env injection, checks Electric resolves the same ready branch URL, and verifies ready branch deletion delegates to the driver.
+- [x] 2026-06-08: Hardened self-harness coverage for the local-postgres-branch driver path. The Neon lifecycle step now installs a fake `SCENERY_DEV_LOCAL_POSTGRES_BRANCH_DRIVER`, verifies ready `backend_status` and redacted endpoint metadata, checks managed Neon `DatabaseURL` env injection, checks sync resolves the same ready branch URL, and verifies ready branch deletion delegates to the driver.
 - [x] 2026-06-08: Validated the harness fake-driver coverage with focused Neon harness tests, `git diff --check`, `jq empty`, `scenery inspect docs --json`, `go test ./cmd/scenery ./internal/app ./internal/toolchain`, `go test ./...`, `go build -o <tmp>/scenery ./cmd/scenery`, `go install ./cmd/scenery`, `scenery system toolchain verify --json --images`, and `scenery harness self --json --write`.
 - [x] 2026-06-08: Ported the PR 94 local-postgres-branch driver follow-on slice. Local-postgres-branch driver-backed checkout now creates restore-point metadata, reset/restore append restore-point records, `restore --json` emits `scenery.db.branch.restore.v1`, local-postgres-branch driver-backed `diff --json` emits `scenery.db.branch.diff.v1`, and `testdata/apps/neon-basic` covers a loadable Neon fixture app. JSON schemas and the local contract now include branch restore/diff and restore-point persistence.
 - [x] 2026-06-08: Split the branch executable boundary into truthful backend names. `SCENERY_DEV_NEON_SELFHOST_DRIVER` now selects the actual `neon-selfhost` branch driver and is preferred when configured; `SCENERY_DEV_LOCAL_POSTGRES_BRANCH_DRIVER` remains the local Postgres-shaped development fallback; tests use explicitly named fake drivers.
 - [x] 2026-06-08: Addressed cleanup-safety review feedback. Neon uninstall now falls back to removing Scenery-labeled containers when `cell.json` is corrupt or Compose is missing and keeps local state if teardown fails; branch prune is scoped to the current Neon project; Neon `down --db` removes the selected session lease when session metadata exists; `worktree create` rolls back Git worktrees if Neon pin creation fails; and `worktree remove --db` verifies the target is a registered Git worktree before deleting local `.scenery` state.
-- [x] 2026-06-09: Follow-on plan `docs/plans/0070-toolchain-managed-neon-selfhost-driver.md` absorbed the real-provider milestone. The built-in `neon-selfhost-driver` can now bootstrap pageserver tenant/timeline metadata and start or reuse branch compute containers from generated templates, while real Docker-backed readiness and Electric isolation proof remain tracked in plan 0070.
-- [x] 2026-06-09: Hardened default self-harness coverage for real branch-local DB lifecycle and Electric isolation. The Docker-backed Neon proof now checks ready branch worktrees, isolated branch writes, reset, restore, schema diff, delete, managed app env, managed Electric branch URL resolution, and distinct Electric replication stream IDs, slot names, and Postgres application names across branch worktrees.
+- [x] 2026-06-09: Follow-on plan `docs/plans/0070-toolchain-managed-neon-selfhost-driver.md` absorbed the real-provider milestone. The built-in `neon-selfhost-driver` can now bootstrap pageserver tenant/timeline metadata and start or reuse branch compute containers from generated templates, while real Docker-backed readiness and sync isolation proof remain tracked in plan 0070.
+- [x] 2026-06-09: Hardened default self-harness coverage for real branch-local DB lifecycle and sync isolation. The Docker-backed Neon proof now checks ready branch worktrees, isolated branch writes, reset, restore, schema diff, delete, managed app env, managed sync branch URL resolution, and distinct sync replication stream IDs, slot names, and Postgres application names across branch worktrees.
 
 ## Surprises & Discoveries
 
@@ -170,7 +170,7 @@ Completed on 2026-06-09.
 
 The local Neon dev-cell surface now has the end-to-end shape described by this
 plan: config, generated cell state, branch pins and leases, worktree commands,
-ready branch endpoint consumption by app sessions and Electric, parent/foreign
+ready branch endpoint consumption by app sessions and sync, parent/foreign
 lease safety, branch lifecycle mutations, and default self-harness coverage.
 Follow-on plans 0070, 0071, and 0072 completed the built-in driver, bind-mounted
 storage, and project-tenant mapping slices that absorbed this plan's remaining
@@ -182,11 +182,11 @@ Start with these files and commands:
 
 - `AGENTS.md` for repo-local rules and validation expectations.
 - `PLANS.md` for ExecPlan structure.
-- `docs/local-contract.md` for current CLI grammar, JSON contracts, toolchain rules, managed Postgres/Electric behavior, and current `scenery up` session semantics.
+- `docs/local-contract.md` for current CLI grammar, JSON contracts, toolchain rules, managed Postgres/sync behavior, and current `scenery up` session semantics.
 - `docs/schemas/scenery.config.v1.schema.json` for `.scenery.json` validation.
 - `docs/schemas/scenery.toolchain.v1.schema.json` and `scenery.toolchain.json` for managed image/tool entries.
 - `docs/agent-guide.md` and `SKILL.md` for agent-facing app-session behavior.
-- `docs/plans/0041-agent-managed-postgres-and-electric.md` for current managed Postgres/Electric lifecycle, env injection, and substrate/session split.
+- `docs/plans/0041-agent-managed-postgres-and-sync.md` for current managed Postgres/sync lifecycle, env injection, and substrate/session split.
 - `docs/plans/0063-db-lifecycle-split.md` for DB apply, seed, and setup ordering.
 - `cmd/scenery/dev_services.go`, `cmd/scenery/dev_substrate_manager.go`, `cmd/scenery/dev_supervisor.go`, `cmd/scenery/db_setup.go`, `cmd/scenery/db_seed.go`, and `cmd/scenery/psql.go` for current managed DB startup and CLI command plumbing.
 - `scenery inspect docs --json` before implementation to catch review-due docs and drift.
@@ -205,7 +205,7 @@ Current Scenery constraints:
 - `scenery serve` is headless API runtime and must not be expected to expose the dev cell, dashboard, proxy, or watch behavior.
 - Managed Postgres currently defaults to version `18` and `isolation: "database"`; other isolation modes are rejected until implemented.
 - Managed Postgres currently injects `DatabaseURL`, `SCENERY_MANAGED_DATABASE_URL`, and `SCENERY_MANAGED_DATABASE_NAME` into managed app/setup/worker environments.
-- Managed Electric receives routed `ELECTRIC_URL`/`SCENERY_ELECTRIC_URL` and must not collide across parallel sessions.
+- Managed sync receives routed `SYNC_URL`/`SCENERY_SYNC_URL` and must not collide across parallel sessions.
 - Toolchain entries live in `scenery.toolchain.json`; optional unstable image refs are allowed outside strict verification while digest pinning is still being migrated.
 
 ## Milestones
@@ -213,7 +213,7 @@ Current Scenery constraints:
 1. Contract First: `.scenery.json`, state files, CLI grammar, JSON schemas, docs, and toolchain manifest entries describe Neon dev-cell behavior before runtime code depends on it.
 2. Neon Dev Cell Substrate: Scenery can install, start, inspect, log, restart, and uninstall a shared local Neon dev cell without exposing raw upstream Compose as a user-maintained workflow.
 3. Branch Provider: Scenery can create, checkout, reset, restore, delete, expire, inspect, and prune Neon branches through a provider interface with worktree/session/manual branch policies.
-4. App Session Integration: `scenery up` resolves the right branch lease, injects managed database env values, runs DB apply/seed/setup against that branch, starts Electric against that branch, and starts the app session.
+4. App Session Integration: `scenery up` resolves the right branch lease, injects managed database env values, runs DB apply/seed/setup against that branch, starts sync against that branch, and starts the app session.
 5. Worktree Workflow: `scenery worktree create/list/remove` couples Git worktrees with Scenery-owned branch pins and safe cleanup.
 6. Harness Hardening: fixture apps and self-harness cases prove parallel agents do not collide and destructive branch actions are gated.
 
@@ -240,8 +240,8 @@ shape to accept Neon as a managed Postgres provider:
         "role": "cloud_admin",
         "database_url_env": "DatabaseURL"
       },
-      "electric": {
-        "kind": "electric"
+      "sync": {
+        "kind": "sync"
       }
     }
   }
@@ -337,7 +337,7 @@ branch in this order:
 6. app id fallback.
 
 When the branch is ready, run the existing DB lifecycle against it: apply first,
-then seed, then `dev.setup`, then app/worker/frontend/Electric startup. Preserve
+then seed, then `dev.setup`, then app/worker/frontend/sync startup. Preserve
 current env precedence and redaction behavior.
 
 ## Concrete Steps
@@ -363,11 +363,11 @@ current env precedence and redaction behavior.
 19. Gate destructive operations: protect parent branch, refuse deleting the current branch without force/confirmation, and require `--yes` for non-interactive destructive commands.
 20. Integrate branch resolution with `scenery up` before DB apply/seed/setup and app child startup.
 21. Preserve managed env injection: app/setup/worker receive `DatabaseURL`, `SCENERY_MANAGED_DATABASE_URL`, and `SCENERY_MANAGED_DATABASE_NAME`; do not make `.env` or `DATABASE_URL` authoritative.
-22. Attach Electric to the current branch and ensure replication stream/slot naming stays session- or branch-scoped.
+22. Attach sync to the current branch and ensure replication stream/slot naming stays session- or branch-scoped.
 23. Implement `scenery worktree create <name>`, `scenery worktree list --json`, and `scenery worktree remove <name> [--db]`.
 24. Make `worktree create` run `git worktree add`, derive/create the Neon branch, write the worktree-local DB pin, and print the next command.
-25. Add fixture apps: `testdata/apps/neon-basic`, `testdata/apps/neon-electric`, `testdata/apps/neon-worktrees`, and `testdata/apps/neon-agent-parallel`, or a smaller equivalent fixture set if tests share helpers without losing coverage.
-26. Add harness cases for two simultaneous worktrees, same parent with different branches, branch-local `db apply`, branch-local seed fingerprinting, reset-to-parent, current-branch delete refusal, Scenery-owned prune behavior, Electric slot isolation, `scenery down` not stopping the shared cell, `scenery down --db` removing only the current branch lease, and `scenery down --state` removing local branch pins.
+25. Add fixture apps: `testdata/apps/neon-basic`, `testdata/apps/neon-sync`, `testdata/apps/neon-worktrees`, and `testdata/apps/neon-agent-parallel`, or a smaller equivalent fixture set if tests share helpers without losing coverage.
+26. Add harness cases for two simultaneous worktrees, same parent with different branches, branch-local `db apply`, branch-local seed fingerprinting, reset-to-parent, current-branch delete refusal, Scenery-owned prune behavior, sync slot isolation, `scenery down` not stopping the shared cell, `scenery down --db` removing only the current branch lease, and `scenery down --state` removing local branch pins.
 27. Update `docs/agent-guide.md`, `SKILL.md`, `README.md`, `docs/app-development-cookbook.md`, `docs/environment.md`, and `docs/environment.registry.json` only after behavior works and the smoke tests pass.
 28. Update `docs/knowledge.json` if new schemas/docs/plans need to be discoverable before generated indexing exists.
 29. Run the validation commands and record outcomes, failures, or skipped commands in this plan.
@@ -384,7 +384,7 @@ Acceptance criteria:
 - `scenery db branch status --json` reports current branch lease, parent, provider, DB env name, reset command, and redacted connection state.
 - `scenery db psql` connects to the current worktree/session branch.
 - `scenery up` creates or reuses the right branch according to the branch policy, runs apply/seed/setup against that branch, starts the app, and injects the existing managed database env names.
-- Electric attaches to the current branch and parallel sessions do not collide on replication slots or streams.
+- sync attaches to the current branch and parallel sessions do not collide on replication slots or streams.
 - `scenery worktree create pricing-agent` creates a Git worktree, creates or reuses the matching DB branch, writes the worktree-local branch pin, and prints the next command.
 - `scenery db branch reset` resets only the current non-parent branch to its parent and cannot mutate the parent by default.
 - `scenery db branch delete` refuses the current branch unless explicitly forced and refuses parent branch deletion.
@@ -450,7 +450,7 @@ Destructive recovery rules:
 - Refuse current-branch deletion unless forced and documented.
 - Keep branch connection URLs out of `.env`, global substrate records, logs, and
   non-redacted JSON.
-- If Electric startup fails after the DB branch is ready, leave the branch lease
+- If sync startup fails after the DB branch is ready, leave the branch lease
   for inspection and make `scenery down --db` or branch delete perform cleanup.
 
 ## Artifacts and Notes
@@ -531,4 +531,4 @@ Runtime dependencies:
 - Docker or Podman for the initial image-backed dev cell unless implementation chooses a different self-hosting path.
 - Neon images and compute-node images declared in `scenery.toolchain.json`.
 - Optional MinIO image if object storage is part of the first cell topology.
-- Existing Scenery managed toolchain, substrate registry, app-session supervisor, DB lifecycle, and Electric process/container support.
+- Existing Scenery managed toolchain, substrate registry, app-session supervisor, DB lifecycle, and sync process/container support.

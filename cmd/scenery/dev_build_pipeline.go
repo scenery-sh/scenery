@@ -111,9 +111,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		s.cfg = effectiveDevConfigForModel(s.cfg, appModel)
 	}
 	s.cfg = effectiveDevConfigForTypeScriptWorker(s.cfg, tsModel)
-	if err := s.ensureManagedElectric(ctx); err != nil {
-		return nil, devBuildError(metadata, apiEncoding, err)
-	}
 	if err := s.ensureTemporalDevServer(ctx); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}

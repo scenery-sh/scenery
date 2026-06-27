@@ -56,7 +56,7 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 	if strings.Contains(files[".scenery/gen/web/web/collections.ts"], `source: "ID"`) {
 		t.Fatalf("collection columns should follow declared page columns, not implicit projection fields:\n%s", files[".scenery/gen/web/web/collections.ts"])
 	}
-	if !strings.Contains(files[".scenery/gen/web/web/collections.ts"], `} as const satisfies TanStackDBCollectionDefinition<TaskListRecord, TaskRow>`) {
+	if !strings.Contains(files[".scenery/gen/web/web/collections.ts"], `} as const satisfies CollectionDefinition<TaskListRecord, TaskRow>`) {
 		t.Fatalf("collection should keep source rows separate from page records:\n%s", files[".scenery/gen/web/web/collections.ts"])
 	}
 	if !strings.Contains(files[".scenery/gen/web/web/collections.ts"], `display: "badge"`) ||
@@ -75,8 +75,16 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 	}
 	if !strings.Contains(files[".scenery/gen/web/web/shapes.ts"], `schema: "tasks"`) ||
 		!strings.Contains(files[".scenery/gen/web/web/shapes.ts"], `qualifiedTable: "tasks.tasks"`) ||
-		!strings.Contains(files[".scenery/gen/web/web/shapes.ts"], `shapeURL(baseURL, "tasks.tasks")`) {
-		t.Fatalf("shapes missing schema-qualified Electric target:\n%s", files[".scenery/gen/web/web/shapes.ts"])
+		!strings.Contains(files[".scenery/gen/web/web/shapes.ts"], `export const entitySources`) {
+		t.Fatalf("shapes missing schema-qualified source metadata:\n%s", files[".scenery/gen/web/web/shapes.ts"])
+	}
+	removedUpper := "Elec" + "tric"
+	removedLower := "elec" + "tric"
+	for path, contents := range files {
+		if strings.Contains(contents, removedUpper) || strings.Contains(contents, removedLower) ||
+			strings.Contains(contents, `shapeURL`) || strings.Contains(contents, `options.`+removedLower) {
+			t.Fatalf("generated file %s contains removed sync vocabulary:\n%s", path, contents)
+		}
 	}
 	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `export function registerGeneratedRoutes`) {
 		t.Fatalf("routes missing registration helper:\n%s", files[".scenery/gen/web/web/routes.tsx"])

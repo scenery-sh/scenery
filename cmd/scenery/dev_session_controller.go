@@ -161,13 +161,6 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, err
 	}
 	existingSessions, _ := client.List(ctx, root)
-	electricBackends, err := managedElectricBackends(cfg, baseEnv)
-	if err != nil {
-		return prepared, err
-	}
-	for name, backend := range electricBackends {
-		backends[name] = backend
-	}
 	if listen.Addr != "" {
 		backends[localagent.RouteAPI] = localagent.Backend{Network: "tcp", Addr: listen.Addr}
 	}

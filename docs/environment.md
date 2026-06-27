@@ -72,9 +72,6 @@ These are injected by scenery into generated app processes. App code may read th
 | `VITE_API_BASE_URL` | injected | Vite-compatible frontend API route. |
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
 | `SCENERY_AUTH_COOKIE_DOMAIN` | injected | Auth cookie domain; empty in default local agent dev. |
-| `ELECTRIC_URL` | injected | Public Electric route for app/frontends. |
-| `SCENERY_ELECTRIC_URL` | injected | scenery-prefixed Electric route. |
-| `VITE_ELECTRIC_URL` | injected | Vite-compatible frontend Electric route. |
 
 App-defined auth env names such as `JWTSecret`, `GoogleOAuthClientID`, `GoogleOAuthClientSecret`, `AuthCookieDomain`, `PublicAppURL`, `APIBaseURL`, and `AuthEmailFrom` come from `.scenery.json` and are target-app inputs, not fixed scenery global names.
 
@@ -93,15 +90,12 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | --- | --- | --- |
 | `SCENERY_DEV_POSTGRES_ADMIN_URL` | user input | Explicit admin Postgres URL for the managed dev database planner. |
 | `SCENERY_DEV_POSTGRES_EXTERNAL` | user input | `1` keeps an explicit external `DatabaseURL` instead of creating a managed session database. External mode requires `DatabaseURL`; `DATABASE_URL` is ignored as the app database authority. |
-| `SCENERY_DEV_ELECTRIC_UPSTREAM` | user input | Explicit Electric upstream; scenery registers it as the session Electric backend. |
-| `SCENERY_DEV_ELECTRIC_BIN` | user input | Explicit local Electric binary path; scenery does not search `PATH` for it. |
 | `SCENERY_STORAGE_CONFIG` | injected/user input | App-facing storage capability config consumed by `scenery.sh/storage`. Dev sessions inject it; headless runtimes require an explicit operator-provided proxy config. It contains configured store names and Scenery-owned backend metadata such as a proxy socket, not raw object-store credentials. |
 | `SCENERY_STORAGE_CELL_ID` | injected | Stable shared storage cell ID for the app's configured storage capability. |
 | `SCENERY_STORAGE_CELL_ROOT` | injected | Scenery-owned shared storage-cell root used to expand managed ZeroFS service env. App code should use `scenery.sh/storage` instead of this substrate path. |
 | `SCENERY_STORAGE_ZEROFS_CONFIG` | injected | Path to the Scenery-written `0600` ZeroFS TOML for the managed ZeroFS process. Substrate/debug metadata only. |
 | `SCENERY_ZEROFS_WEBUI_ADDR` | injected | Private loopback ZeroFS Web UI listener address for the managed ZeroFS process. Substrate/debug metadata only. |
 | `SCENERY_ZEROFS_WEBUI_URL` | injected | Protected Scenery route URL for the ZeroFS operator/debug Web UI when a storage route is attached to the current dev session. |
-| `ELECTRIC_REPLICATION_STREAM_ID` | user input/injected | Electric replication stream ID. scenery sets a deterministic session-scoped default. |
 
 ## Temporal
 

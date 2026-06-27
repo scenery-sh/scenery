@@ -10,7 +10,7 @@ The immediate user-facing problem is that several legacy/manual paths can still 
 
 ## Progress
 
-- [x] 2026-05-27: Confirmed ONLV already defaults to `scenery dev --app-root` and declares managed Postgres/Electric/frontends.
+- [x] 2026-05-27: Confirmed ONLV already defaults to `scenery dev --app-root` and declares managed Postgres/sync/frontends.
 - [x] 2026-05-27: Removed silent managed frontend fallback unless `SCENERY_FRONTEND_<NAME>_ADDR` or `allow_shared_upstream: true` is explicit.
 - [x] 2026-05-27: Decoupled `SCENERY_DEV_CACHE_DIR` from local agent home.
 - [x] 2026-05-27: Preserved public host/proto/port context through the agent router.
@@ -25,7 +25,7 @@ The immediate user-facing problem is that several legacy/manual paths can still 
 - [x] 2026-05-27: Persisted current-session selection by app root so `current` follows the latest registered session instead of incidental list ordering.
 - [x] 2026-05-27: Added visible warnings for legacy proxy and manual TCP listen/port escape hatches.
 - [x] 2026-05-27: Wired the agent dashboard to the shared Victoria substrate for Victoria-backed trace reads.
-- [x] 2026-05-27: Added a self-harness parallel dev-session check covering distinct sessions, Unix API backends, managed DB names, task queues, frontend/Electric/Grafana/Temporal routes, logs, traces, Victoria substrate reads, and sibling session deletion.
+- [x] 2026-05-27: Added a self-harness parallel dev-session check covering distinct sessions, Unix API backends, managed DB names, task queues, frontend/sync/Grafana/Temporal routes, logs, traces, Victoria substrate reads, and sibling session deletion.
 
 ## Surprises & Discoveries
 

@@ -37,7 +37,7 @@ func TestShardedCmdSceneryRegexesCoverNameBucketsOnce(t *testing.T) {
 		"TestAgentRouterTLSFlags",
 		"TestEnsureTypeScriptWorkerDependenciesRunsBunInstallAndWritesMarker",
 		"TestFindSceneryRepoRoot",
-		"TestManagedElectricBackendsAndEnv",
+		"TestManagedFrontendBackendsRequiresExplicitSharedUpstream",
 		"TestSceneryTestRunsGoTestInGeneratedWorkspace",
 		"TestPrepareDevAgentSessionDefaultsToUnixBackend",
 		"TestRunSceneryCheckJSONSuccess",

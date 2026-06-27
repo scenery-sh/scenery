@@ -147,7 +147,7 @@ Use `scenery system edge dns install`, `scenery system edge privileged install`,
 
 For managed Postgres, app processes, setup commands, DB setup, and workers receive the configured app database URL env (`DatabaseURL` by default) as the app database authority. Scenery does not inject `DATABASE_URL` into those app-facing environments; treat `SCENERY_MANAGED_DATABASE_URL` as tooling/debug metadata. The shared Postgres substrate records only physical-server metadata; the runtime database URL/name is a runtime env lease, not a global substrate key. To use an explicit external DB with declared managed Postgres, set `SCENERY_DEV_POSTGRES_EXTERNAL=1` and provide the configured app database URL env; `DATABASE_URL` is ignored.
 
-For Electric-backed frontend writes, generated TypeScript `WithMeta` methods include parsed `txid` metadata. Use `observeAPIResponseTxid` around the app's Electric/TanStack observer so a post-commit sync timeout is reported as `SyncObservationError` instead of an API mutation failure.
+For sync-backed frontend writes, generated TypeScript `WithMeta` methods include parsed `txid` metadata. Use `observeAPIResponseTxid` around the app's sync/TanStack observer so a post-commit sync timeout is reported as `SyncObservationError` instead of an API mutation failure.
 
 ## UI Work
 
@@ -214,8 +214,8 @@ multi-schema HCL.
 `scenery generate data --dry-run --json`
  also writes beta generated frontend packages under `.scenery/gen/web/<frontend>/`
  for configured frontends with static collection pages, including runtime adapter
-factories, page projection records in `projections.ts`, static page filter/sort/display metadata, default page components, and route registration helpers for app-owned Electric/TanStack/layout-kit wiring;
-generated Electric shape metadata uses the same schema-qualified table as the DB artifacts.
+factories, page projection records in `projections.ts`, static page filter/sort/display metadata, default page components, and route registration helpers for app-owned sync/TanStack/layout-kit wiring;
+generated sync shape metadata uses the same schema-qualified table as the DB artifacts.
 
 To mount a generated page, declare the entity/page in Go, run `scenery generate data --dry-run --json`, point a frontend alias such as `@scenery/generated` at `.scenery/gen/web/<frontend>/index.ts`, import the generated page or route from that alias, mount it, and run the host typecheck/render or build command.
 
@@ -235,7 +235,7 @@ Generated model CRUD endpoints default to auth-only. If a generated entity has a
 Generated list endpoints are bounded: default `limit=100`, maximum `limit=500`, and non-negative `offset`.
 Generated create/patch payloads accept response field names such as `CreatedAt` as well as DB-column JSON names such as `created_at`; `time.Time` values should be RFC3339 JSON timestamps and malformed values fail decoding.
 
-For managed Postgres branch work, use `scenery db postgres status --json` to inspect the shared local Postgres dev cell, `scenery db postgres start --json`/`stop --json` to manage it, `scenery db branch status --json` to inspect `.scenery/worktree-db.json`, and `scenery db branch list --json` to inspect Scenery-owned local branch leases in `branches.json` under the agent Postgres state root. The provider supports `dev.services.postgres.kind: "postgres"`, `mode: "local"`, and `isolation: "database"` through template database cloning. `checkout` creates or reuses a branch database from the protected parent template database and records a ready endpoint without persisting raw connection URLs. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes its lease, `expire` updates lease metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, and `restore` currently maps to template reset. `scenery up`, `scenery db psql`, DB setup, and Electric consume ready branch endpoints and fail explicitly when the lease is missing, expired, protected, or endpoint-less. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` for the smaller self-harness mode.
+For managed Postgres branch work, use `scenery db postgres status --json` to inspect the shared local Postgres dev cell, `scenery db postgres start --json`/`stop --json` to manage it, `scenery db branch status --json` to inspect `.scenery/worktree-db.json`, and `scenery db branch list --json` to inspect Scenery-owned local branch leases in `branches.json` under the agent Postgres state root. The provider supports `dev.services.postgres.kind: "postgres"`, `mode: "local"`, and `isolation: "database"` through template database cloning. `checkout` creates or reuses a branch database from the protected parent template database and records a ready endpoint without persisting raw connection URLs. `reset` recreates the branch from the parent template, `delete` drops the branch database and removes its lease, `expire` updates lease metadata, `prune` removes expired non-current branch databases when the Postgres admin substrate is reachable, and `restore` currently maps to template reset. `scenery up`, `scenery db psql`, DB setup, and sync consume ready branch endpoints and fail explicitly when the lease is missing, expired, protected, or endpoint-less. The default `scenery harness self --json --write` path includes the live Postgres branch lifecycle proof; use `--quick` for the smaller self-harness mode.
 
 ## Tasks
 
