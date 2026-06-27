@@ -127,7 +127,7 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_LEGACY_ASYNC_RUNTIME_HOST_RESOURCE_REPORTING` | user input | `0` disables legacy async runtime Go SDK host resource reporting. Enabled by default. |
 | `SCENERY_BUILD_ID` | injected/user input | Worker build ID. Agent dev uses the session ID. |
 
-## Observability, Victoria, And Grafana
+## Observability And Victoria
 
 | Variable | Direction | Description |
 | --- | --- | --- |
@@ -153,19 +153,6 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_VICTORIA_METRICS_ENDPOINT` | injected | VictoriaMetrics OTLP endpoint. |
 | `SCENERY_VICTORIA_LOGS_ENDPOINT` | injected | VictoriaLogs OTLP endpoint. |
 | `SCENERY_VICTORIA_TRACES_ENDPOINT` | injected | VictoriaTraces OTLP endpoint. |
-| `SCENERY_DEV_GRAFANA` | user input | `auto`, `1`, or `0`. Default `auto` starts Grafana when possible. |
-| `SCENERY_DEV_GRAFANA_DOWNLOAD` | user input | `0` disables automatic Grafana managed-toolchain downloads. |
-| `SCENERY_GRAFANA_BIN` | user input | Explicit Grafana binary path. |
-| `SCENERY_GRAFANA_VERSION` | user input | Overrides the pinned Grafana version. |
-| `SCENERY_GRAFANA_PORT` | user input | Preferred Grafana loopback port. |
-| `SCENERY_GRAFANA_DIR` | user input | Overrides Grafana runtime state root. Managed binaries still live under `.scenery/toolchain/` or `SCENERY_TOOLCHAIN_DIR`. |
-| `SCENERY_GRAFANA_HOME` | user input | Overrides Grafana home for an explicit binary or custom download path. |
-| `SCENERY_GRAFANA_PUBLIC_URL` | user input | Overrides advertised Grafana browser URL. |
-| `SCENERY_GRAFANA_REUSE_EXTERNAL` | user input | `1` allows reusing an externally managed Grafana. |
-| `SCENERY_GRAFANA_PRESERVE_GF_ENV` | user input | `1` allows ambient `GF_*` variables through to Grafana. |
-| `SCENERY_GRAFANA_DOWNLOAD_URL` | user input | Custom Grafana archive URL. |
-| `SCENERY_GRAFANA_DOWNLOAD_SHA256` | user input | Checksum for a custom Grafana download. |
-| `SCENERY_GRAFANA_PLUGINS_PREINSTALL_SYNC` | user input | Comma-separated Grafana plugin install list. |
 
 scenery also injects standard OpenTelemetry endpoint variables when Victoria sidecars are active:
 
@@ -174,13 +161,6 @@ scenery also injects standard OpenTelemetry endpoint variables when Victoria sid
 | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | injected | Metrics OTLP endpoint, usually VictoriaMetrics. |
 | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | injected | Logs OTLP endpoint, usually VictoriaLogs. |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | injected | Traces OTLP endpoint, usually VictoriaTraces. |
-| `GF_SERVER_HTTP_ADDR` | injected | Grafana child loopback bind address. |
-| `GF_SERVER_HTTP_PORT` | injected | Grafana child loopback bind port. |
-| `GF_SERVER_ROOT_URL` | injected | Grafana public root URL. |
-| `GF_PATHS_DATA` | injected | Grafana data directory. |
-| `GF_PATHS_LOGS` | injected | Grafana logs directory. |
-| `GF_PATHS_PLUGINS` | injected | Grafana plugins directory. |
-| `GF_PATHS_PROVISIONING` | injected | Grafana provisioning directory. |
 
 ## Tooling, Tests, And Release Gates
 

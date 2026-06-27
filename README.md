@@ -6,13 +6,13 @@ scenery is a Go-native local runtime and toolchain for building service applicat
 
 Applications mark their root with `.scenery.json` (preferred) or `.config.json`, declare endpoints with `//scenery:` directives, and run as one local HTTP server. scenery handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.
 
-scenery is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, observability, Grafana workbench, local HTTPS routing, legacy async runtime worker tooling, and cron UI are development-focused capabilities. Their backing services and files are substrate details unless you intentionally debug them.
+scenery is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, native observability, local HTTPS routing, legacy async runtime worker tooling, and cron UI are development-focused capabilities. Their backing services and files are substrate details unless you intentionally debug them.
 
 ## Why scenery?
 
 - **Go source is the app model.** Services, APIs, auth handlers, middleware, legacy async runtime workflows and activities, cron jobs, and beta static model/page IR are discovered from Go code.
 - **One local app server.** `scenery serve` builds once and starts a headless, production-like HTTP server.
-- **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, Grafana, and optional HTTPS local domains.
+- **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, and optional HTTPS local domains.
 - **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
 - **Inspectable by tools and agents.** `scenery inspect`, `scenery check`, `scenery logs`, `scenery harness`, and `scenery validate` expose machine-readable JSON contracts.
@@ -32,7 +32,7 @@ Available now:
 - private/internal endpoint calls
 - secrets from environment and local `.env`
 - local logs, traces, and metrics inspection
-- local observability and Grafana capabilities
+- native local observability
 - legacy async runtime workflow/activity and cron local runtime support
 - local HTTPS edge and frontend routing with optional trust-store installation
 - dashboard and API explorer
@@ -336,11 +336,11 @@ scenery system toolchain verify --json
 
 `scenery upgrade` uses the upgraded binary's bundled manifest for the post-upgrade toolchain sync, so pinned versions change with the Scenery release instead of ambient system tools.
 
-Caddy edge, managed ZeroFS storage, Grafana, Victoria sidecars, and the local legacy async runtime CLI are backing substrate for local capabilities. Caddy edge and managed ZeroFS are managed-toolchain only; when an app requires managed ZeroFS, `scenery up` preflights the pinned `zerofs` artifact before registering dev-session routes and fails with the `scenery system toolchain sync --tool zerofs` repair path if it is unavailable. ZeroFS readiness then uses a bounded two-minute startup window and includes the relevant cell, socket, Web UI, config, log, PID, output-tail context, and a `scenery.dev.failure.v1` evidence artifact path if that window expires. Preflight failures write the same structured evidence under the app root's `.scenery/evidence/`, while session-backed runtime failures write it under the session state root's `artifacts/` directory. For the other tools, use documented env overrides, the managed store, `scenery ps --json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
+Caddy edge, managed ZeroFS storage, Victoria sidecars, and the local legacy async runtime CLI are backing substrate for local capabilities. Caddy edge and managed ZeroFS are managed-toolchain only; when an app requires managed ZeroFS, `scenery up` preflights the pinned `zerofs` artifact before registering dev-session routes and fails with the `scenery system toolchain sync --tool zerofs` repair path if it is unavailable. ZeroFS readiness then uses a bounded two-minute startup window and includes the relevant cell, socket, Web UI, config, log, PID, output-tail context, and a `scenery.dev.failure.v1` evidence artifact path if that window expires. Preflight failures write the same structured evidence under the app root's `.scenery/evidence/`, while session-backed runtime failures write it under the session state root's `artifacts/` directory. For the other tools, use documented env overrides, the managed store, `scenery ps --json` substrate records, and the recorded stdout/stderr log paths when intentionally debugging them. They do not silently fall back to system `PATH` binaries.
 
 ## Observability And Inspection
 
-scenery exposes local development logs, traces, metrics, and Grafana through app-session capabilities. The current backing substrate can run VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana for richer local inspection.
+scenery exposes local development logs, traces, and metrics through app-session capabilities. The current backing substrate can run VictoriaMetrics, VictoriaLogs, and VictoriaTraces for local inspection.
 
 Useful commands:
 
@@ -357,7 +357,7 @@ scenery ps --json
 scenery harness --json --write
 ```
 
-Grafana substrate files are generated under `.scenery/grafana/` when you need to debug them. Shared legacy async runtime and Victoria substrate failures are exposed in `scenery ps --json` as `last_exit` / `component_exits` and emit structured dev log events with component, PID, exit code or signal, and log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontends are restarted by `scenery up` when their dev-server process exits unexpectedly. Set `SCENERY_DEV_GRAFANA=0` to disable Grafana or `SCENERY_DEV_GRAFANA=1` to require it during `scenery up` startup.
+Shared legacy async runtime and Victoria substrate failures are exposed in `scenery ps --json` as `last_exit` / `component_exits` and emit structured dev log events with component, PID, exit code or signal, and log paths. Dead registered runtime children such as managed frontend processes appear as session `degraded` status with `status_reason`; managed Vite/Astro frontends are restarted by `scenery up` when their dev-server process exits unexpectedly.
 
 ## Development
 

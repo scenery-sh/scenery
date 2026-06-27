@@ -106,7 +106,6 @@ type StoredApp struct {
 	Name                string            `json:"name,omitempty"`
 	Root                string            `json:"root,omitempty"`
 	ListenAddr          string            `json:"listen_addr,omitempty"`
-	Grafana             json.RawMessage   `json:"grafana,omitempty"`
 	Routes              map[string]string `json:"routes,omitempty"`
 	Aliases             map[string]string `json:"aliases,omitempty"`
 	Offline             bool              `json:"offline,omitempty"`
@@ -136,7 +135,6 @@ type StoredAppSession struct {
 	Name                string            `json:"name,omitempty"`
 	Root                string            `json:"root,omitempty"`
 	ListenAddr          string            `json:"listen_addr,omitempty"`
-	Grafana             json.RawMessage   `json:"grafana,omitempty"`
 	Routes              map[string]string `json:"routes,omitempty"`
 	Aliases             map[string]string `json:"aliases,omitempty"`
 	Offline             bool              `json:"offline,omitempty"`
@@ -231,9 +229,6 @@ func mergeStoredAppLegacy(app *StoredApp, legacy AppRecord) {
 	if app.ListenAddr == "" {
 		app.ListenAddr = legacy.ListenAddr
 	}
-	if len(app.Grafana) == 0 {
-		app.Grafana = copyRawMessage(legacy.Grafana)
-	}
 	if app.Routes == nil {
 		app.Routes = maps.Clone(legacy.Routes)
 	}
@@ -292,9 +287,6 @@ func mergeStoredAppSessionLegacy(session *StoredAppSession, legacy AppRecord) {
 	}
 	if session.ListenAddr == "" {
 		session.ListenAddr = legacy.ListenAddr
-	}
-	if len(session.Grafana) == 0 {
-		session.Grafana = copyRawMessage(legacy.Grafana)
 	}
 	if session.Routes == nil {
 		session.Routes = maps.Clone(legacy.Routes)
@@ -848,9 +840,6 @@ func normalizeAppRecord(app AppRecord) AppRecord {
 	if len(app.APIEncoding) == 0 {
 		app.APIEncoding = json.RawMessage(`{}`)
 	}
-	if len(app.Grafana) == 0 {
-		app.Grafana = json.RawMessage(`{}`)
-	}
 	return app
 }
 
@@ -888,7 +877,6 @@ func storedAppFromAppRecord(app AppRecord) StoredApp {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             compactRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -912,7 +900,6 @@ func storedAppSessionFromAppRecord(app AppRecord) StoredAppSession {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             compactRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -936,7 +923,6 @@ func storedAppSessionFromApp(app StoredApp) StoredAppSession {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             copyRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -965,7 +951,6 @@ func (app StoredApp) toAppRecord() AppRecord {
 		Name:                app.Name,
 		Root:                app.Root,
 		ListenAddr:          app.ListenAddr,
-		Grafana:             copyRawMessage(app.Grafana),
 		Routes:              maps.Clone(app.Routes),
 		Aliases:             maps.Clone(app.Aliases),
 		Offline:             app.Offline,
@@ -989,7 +974,6 @@ func (session StoredAppSession) toAppRecord() AppRecord {
 		Name:                session.Name,
 		Root:                session.Root,
 		ListenAddr:          session.ListenAddr,
-		Grafana:             copyRawMessage(session.Grafana),
 		Routes:              maps.Clone(session.Routes),
 		Aliases:             maps.Clone(session.Aliases),
 		Offline:             session.Offline,

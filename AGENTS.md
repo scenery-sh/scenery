@@ -77,7 +77,7 @@ Use a multi-context domain docs layout with root `CONTEXT-MAP.md` plus per-conte
 
 ## Current Mental Model
 
-scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Grafana, Victoria, legacy async runtime dev server, local proxying, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
+scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Victoria, legacy async runtime dev server, local proxying, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
 - App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
 - Go source is the app model: services, endpoints, auth handlers, middleware, legacy async runtime declarations, cron jobs, and generated clients are discovered from code.
@@ -98,7 +98,7 @@ Do not revive deprecated non-scenery APIs, legacy directive spellings, or compat
 - Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
 - Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
-- Do not commit machine-local state or generated cache output from `.scenery/`, Grafana, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
+- Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 
 ## Before Making Changes
 

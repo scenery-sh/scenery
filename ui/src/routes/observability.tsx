@@ -1,13 +1,17 @@
+import { Link } from "@tanstack/react-router";
 import { useDashboard } from "../lib/dashboard-context";
-import type { GrafanaDashboard } from "../lib/types";
-import { cn } from "../lib/utils";
+import type { ObservabilityBackendState } from "../lib/types";
+import { cn, processOutputText } from "../lib/utils";
 
 export function ObservabilityPage() {
-  const { status } = useDashboard();
-  const grafana = status?.grafana;
-  const grafanaAvailable = grafana?.available === true;
-  const datasourceEntries = Object.entries(grafana?.datasources ?? {});
-  const dashboards = grafanaAvailable ? (grafana?.dashboards ?? []) : [];
+  const { appId, outputs, status, traces } = useDashboard();
+  const observability = status?.observability;
+  const backends = [
+    { label: "Metrics", state: observability?.metrics },
+    { label: "Logs", state: observability?.logs },
+    { label: "Traces", state: observability?.traces },
+  ];
+  const statusText = overallStatus(backends);
 
   return (
     <div data-scenery-ui="ObservabilityRoute" className="max-h-[calc(100vh-var(--header-height))] overflow-auto">
@@ -16,87 +20,81 @@ export function ObservabilityPage() {
           <div>
             <h1 className="text-lg font-medium">Observability</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Local Victoria sidecars and Grafana workbench status for this dev session.
+              Native Scenery metrics, logs, and traces from the local Victoria backends.
             </p>
           </div>
 
           <section
-            data-scenery-ui="GrafanaStatusCard"
-            data-scenery-state={grafanaAvailable ? "available" : "unavailable"}
-            className="rounded-md border border-border p-6"
+            data-scenery-ui="ObservabilityBackends"
+            data-scenery-state={statusText}
+            className="grid gap-4 lg:grid-cols-3"
           >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-base font-medium">Grafana</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {grafana?.message || grafanaStatusCopy(grafana?.status)}
-                </p>
-              </div>
-              <StatusPill status={grafana?.status || "unavailable"} />
-            </div>
-
-            <div className="mt-6 grid gap-4 md:grid-cols-3">
-              <InfoCell label="URL" value={grafana?.url || "not available"} />
-              <InfoCell label="Config" value={grafana?.config_path || "not generated"} />
-              <InfoCell label="Dashboards" value={grafana?.dashboards_path || "not generated"} />
-            </div>
-
-            <div className="mt-6 flex flex-wrap gap-2">
-              <GrafanaLink href={grafanaAvailable ? grafana?.url : undefined} label="Open Grafana" primary />
-              <GrafanaLink href={grafanaAvailable ? grafana?.overview_url : undefined} label="Overview" />
-              <GrafanaLink href={grafanaAvailable ? grafana?.logs_url : undefined} label="Logs" />
-              <GrafanaLink href={grafanaAvailable ? grafana?.endpoint_url : undefined} label="Endpoint Debugger" />
-            </div>
+            {backends.map((backend) => (
+              <BackendCard key={backend.label} label={backend.label} state={backend.state} />
+            ))}
           </section>
 
-          <section
-            data-scenery-ui="WorkerStatusCard"
-            data-scenery-state="intentional-empty"
-            className="rounded-md border border-border p-6"
-          >
+          <section className="rounded-md border border-border p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h2 className="text-base font-medium">Workers</h2>
+                <h2 className="text-base font-medium">Session Scope</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  No dedicated worker status is reported for this dev session.
+                  {observability?.message || "Queries are scoped to this local development session."}
                 </p>
               </div>
-              <StatusPill status="not reported" />
+              <StatusPill status={statusText} />
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <InfoCell label="Backend" value={observability?.backend || "victoria"} />
+              <InfoCell label="App" value={observability?.scope?.app_id || status?.appID || "local"} />
+              <InfoCell label="Session" value={observability?.scope?.session_id || status?.sessionID || "n/a"} />
+              <InfoCell label="Branch" value={observability?.scope?.branch || "n/a"} />
             </div>
           </section>
 
           <section className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-md border border-border p-6">
-              <h2 className="text-base font-medium">Datasources</h2>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <h2 className="text-base font-medium">Recent Traces</h2>
+                <LinkButton to="/$appId/envs/local/traces" params={{ appId }} label="Open traces" />
+              </div>
               <div className="mt-4 divide-y divide-border">
-                {datasourceEntries.length === 0 ? (
-                  <p className="py-3 text-sm text-muted-foreground">
-                    No Grafana datasources are provisioned for this session.
-                  </p>
+                {traces.length === 0 ? (
+                  <p className="py-3 text-sm text-muted-foreground">No local traces recorded yet.</p>
                 ) : (
-                  datasourceEntries.map(([name, uid]) => (
-                    <div key={name} className="flex items-center justify-between gap-4 py-3 text-sm">
-                      <div>
-                        <div className="font-medium capitalize">{name}</div>
-                        <code className="text-xs text-muted-foreground">{uid}</code>
+                  traces.slice(0, 8).map((trace) => (
+                    <Link
+                      key={`${trace.trace_id}-${trace.span_id}`}
+                      to="/$appId/envs/local/traces/$traceId"
+                      params={{ appId, traceId: trace.trace_id }}
+                      className="block py-3 text-sm transition-colors hover:text-foreground"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="truncate font-medium">
+                          {trace.service_name || "unknown"}.{trace.endpoint_name || trace.type}
+                        </span>
+                        <span className={trace.is_error ? "text-red-500" : "text-muted-foreground"}>
+                          {trace.is_error ? "error" : "ok"}
+                        </span>
                       </div>
-                      <StatusPill status={grafana?.datasource_status?.[name] || grafana?.status || "unknown"} />
-                    </div>
+                      <code className="mt-1 block truncate text-xs text-muted-foreground">{trace.trace_id}</code>
+                    </Link>
                   ))
                 )}
               </div>
             </div>
 
             <div className="rounded-md border border-border p-6">
-              <h2 className="text-base font-medium">Dashboards</h2>
-              <div className="mt-4 divide-y divide-border">
-                {dashboards.length === 0 ? (
-                  <p className="py-3 text-sm text-muted-foreground">
-                    No Grafana dashboards are available.
-                  </p>
+              <h2 className="text-base font-medium">Recent Output</h2>
+              <div className="mt-4 max-h-72 space-y-2 overflow-auto">
+                {outputs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No process output recorded yet.</p>
                 ) : (
-                  dashboards.map((dashboard) => (
-                    <DashboardRow key={dashboard.uid} dashboard={dashboard} />
+                  outputs.slice(-12).map((item) => (
+                    <div key={`${item.created_at}-${item.pid}-${item.stream}`} className="text-xs">
+                      <span className="text-muted-foreground">{item.stream}</span>{" "}
+                      <span className="font-mono">{processOutputText(item)}</span>
+                    </div>
                   ))
                 )}
               </div>
@@ -108,31 +106,42 @@ export function ObservabilityPage() {
   );
 }
 
-function DashboardRow({ dashboard }: { dashboard: GrafanaDashboard }) {
-  if (!dashboard.url) {
-    return (
-      <div className="flex items-center justify-between gap-4 py-3 text-sm text-muted-foreground">
-        <div>
-          <div className="font-medium">{dashboard.title}</div>
-          <code className="text-xs">{dashboard.uid}</code>
-        </div>
-        <span className="text-xs">Unavailable</span>
-      </div>
-    );
-  }
+function BackendCard({ label, state }: { label: string; state?: ObservabilityBackendState }) {
+  const status = state?.status || "unavailable";
   return (
-    <a
-      href={dashboard.url}
-      target="_blank"
-      rel="noreferrer"
-      className="flex items-center justify-between gap-4 py-3 text-sm transition-colors hover:text-foreground"
-    >
-      <div>
-        <div className="font-medium">{dashboard.title}</div>
-        <code className="text-xs text-muted-foreground">{dashboard.uid}</code>
+    <section data-scenery-ui="ObservabilityBackendCard" className="rounded-md border border-border p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-base font-medium">{label}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{state?.message || state?.dialect || "Victoria backend"}</p>
+        </div>
+        <StatusPill status={status} />
       </div>
-      <span className="text-xs text-muted-foreground">Open</span>
-    </a>
+      <div className="mt-4 space-y-3">
+        <InfoCell label="URL" value={state?.url || "not available"} />
+        <InfoCell label="Query" value={state?.query_path || "n/a"} />
+      </div>
+    </section>
+  );
+}
+
+function LinkButton({
+  to,
+  params,
+  label,
+}: {
+  to: "/$appId/envs/local/traces" | "/$appId/requests" | "/$appId/cron";
+  params: { appId: string };
+  label: string;
+}) {
+  return (
+    <Link
+      to={to}
+      params={params}
+      className="rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    >
+      {label}
+    </Link>
   );
 }
 
@@ -147,50 +156,17 @@ function InfoCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-function GrafanaLink({
-  href,
-  label,
-  primary = false,
-}: {
-  href?: string;
-  label: string;
-  primary?: boolean;
-}) {
-  const disabled = !href;
-  return (
-    <a
-      href={href || "#"}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(event) => {
-        if (disabled) {
-          event.preventDefault();
-        }
-      }}
-      className={cn(
-        "rounded-md border px-3 py-2 text-sm transition-colors",
-        primary
-          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-          : "border-border hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        disabled && "pointer-events-none opacity-50",
-      )}
-    >
-      {label}
-    </a>
-  );
-}
-
 function StatusPill({ status }: { status: string }) {
   const normalized = status.toLowerCase();
   return (
     <span
       className={cn(
         "rounded-full border px-2.5 py-1 text-xs font-medium capitalize",
-        normalized === "ready" || normalized === "external"
+        normalized === "ready"
           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-          : normalized === "starting"
+          : normalized === "starting" || normalized === "degraded"
             ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-            : normalized === "disabled" || normalized === "not reported"
+            : normalized === "disabled"
               ? "border-border bg-muted text-muted-foreground"
               : "border-red-500/30 bg-red-500/10 text-red-300",
       )}
@@ -200,19 +176,12 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function grafanaStatusCopy(status?: string): string {
-  switch (status) {
-    case "ready":
-      return "Grafana is ready with scenery datasources and dashboards.";
-    case "external":
-      return "A verified external Grafana instance has scenery datasources and dashboards.";
-    case "starting":
-      return "Grafana is starting.";
-    case "disabled":
-      return "Grafana is disabled for this dev session.";
-    case "degraded":
-      return "Grafana is partially available. Check the dev process output for details.";
-    default:
-      return "Grafana status is not available yet.";
+function overallStatus(backends: Array<{ state?: ObservabilityBackendState }>): string {
+  if (backends.every((backend) => backend.state?.status === "ready")) {
+    return "ready";
   }
+  if (backends.some((backend) => backend.state?.status === "ready")) {
+    return "degraded";
+  }
+  return "unavailable";
 }

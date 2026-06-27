@@ -24,7 +24,6 @@ func devRouteConfigDiagnostics(cfg app.Config) []checkDiagnostic {
 		"api":       "the API route",
 		"dashboard": "the dev dashboard route",
 		"console":   "the dev console route",
-		"grafana":   "the Grafana route",
 		"root":      "the local route index",
 		"runtime":   "the local runtime route prefix",
 		"sync":      "the realtime sync route",

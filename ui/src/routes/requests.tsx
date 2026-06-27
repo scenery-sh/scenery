@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createStoredRequest,
@@ -17,7 +18,6 @@ import {
   reconcileTabsWithEndpoints,
   type RequestTab,
 } from "../lib/api-explorer";
-import { requestTracesURL } from "../lib/grafana";
 import {
   cn,
   formatDurationNanos,
@@ -225,7 +225,6 @@ export function RequestsPage() {
   const myRequests = items.filter((item) => !item.shared);
   const sharedRequests = items.filter((item) => item.shared);
   const activeTab = tabs.find((tab) => tab.id === activeTabID) || null;
-  const requestTraceURL = requestTracesURL(status?.grafana);
   const activeEndpoint = useMemo(() => {
     if (!activeTab) {
       return null;
@@ -595,7 +594,7 @@ export function RequestsPage() {
                       <ResponsePanel
                         response={activeTab.response}
                         traceDuration={activeTrace ? formatDurationNanos(activeTrace.duration_nanos) : ""}
-                        traceURL={requestTraceURL}
+                        traceURL={activeTab.response.trace_id ? traceHref(appId, activeTab.response.trace_id) : ""}
                       />
                     ) : null}
 
@@ -612,14 +611,18 @@ export function RequestsPage() {
         <div className="overflow-y-auto overflow-x-hidden" style={{ height: "calc(100vh - var(--header-height))" }}>
           <section className="px-4 py-4">
             <div>
-              <p className="text-sm font-medium">Grafana</p>
+              <p className="text-sm font-medium">Traces</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Request traces now live in Grafana for this dev session.
+                Recent request traces are available in the Scenery console.
               </p>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <GrafanaPanelLink href={requestTraceURL} label="Request traces" primary />
-            </div>
+            <Link
+              to="/$appId/envs/local/traces"
+              params={{ appId }}
+              className="mt-4 inline-flex rounded-md border border-primary bg-primary px-3 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Open traces
+            </Link>
 
             {activeTab?.response?.trace_id ? (
               <div className="mt-6 rounded-md border border-border bg-background/30 p-4">
@@ -627,19 +630,15 @@ export function RequestsPage() {
                 <div className="mt-2 break-all font-mono text-xs">{activeTab.response.trace_id}</div>
                 <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
                   <span>{activeTrace ? formatDurationNanos(activeTrace.duration_nanos) : "duration pending"}</span>
-                  {requestTraceURL ? (
-                    <a href={requestTraceURL} target="_blank" rel="noreferrer" className="underline">
-                      Open in Grafana
-                    </a>
-                  ) : null}
+                  <Link
+                    to="/$appId/envs/local/traces/$traceId"
+                    params={{ appId, traceId: activeTab.response.trace_id }}
+                    className="underline"
+                  >
+                    View trace
+                  </Link>
                 </div>
               </div>
-            ) : null}
-
-            {!status?.grafana?.available ? (
-              <p className="mt-6 text-sm text-muted-foreground">
-                Grafana is {status?.grafana?.status || "unavailable"}.
-              </p>
             ) : null}
           </section>
         </div>
@@ -692,35 +691,6 @@ export function RequestsPage() {
   }
 }
 
-function GrafanaPanelLink({
-  href,
-  label,
-  primary = false,
-}: {
-  href: string;
-  label: string;
-  primary?: boolean;
-}) {
-  const disabled = !href;
-  return (
-    <a
-      href={href || "#"}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(event) => {
-        if (disabled) {
-          event.preventDefault();
-        }
-      }}
-      className={cn(
-        "rounded-md border px-3 py-2 text-sm transition-colors",
-        primary
-          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-          : "border-border hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        disabled && "pointer-events-none opacity-50",
-      )}
-    >
-      {label}
-    </a>
-  );
+function traceHref(appId: string, traceId: string): string {
+  return `/${encodeURIComponent(appId)}/envs/local/traces/${encodeURIComponent(traceId)}`;
 }
