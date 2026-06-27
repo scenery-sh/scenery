@@ -743,8 +743,6 @@ func devConsoleSourceRank(id string) int {
 		return 10
 	case "postgres":
 		return 40
-	case "grafana":
-		return 50
 	case "build":
 		return 80
 	case "supervisor":

@@ -175,7 +175,6 @@ func looksLikeEnvName(token string) bool {
 	}
 	for _, prefix := range []string{
 		"SCENERY_",
-		"GF_",
 	} {
 		if strings.HasPrefix(token, prefix) && token != prefix {
 			return true

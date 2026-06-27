@@ -18,38 +18,14 @@
   ],
   "artifacts": [
     {
-      "name": "grafana",
-      "kind": "binary",
-      "version": "13.0.2",
-      "license": "AGPL-3.0-only",
-      "default_binary": "grafana",
-      "binaries": ["grafana", "grafana-server"],
-      "platforms": {
-        "linux/amd64": {
-          "archive": "tar.gz",
-          "url": "https://dl.grafana.com/oss/release/grafana-13.0.2.linux-amd64.tar.gz",
-          "sha256": "6720d8b0b48d92e2b33b7bf30b38480c12964ccd87285e5e754aa554165edf2d",
-          "extract": "bin/grafana",
-          "home": true,
-          "strip_components": 1
-        },
-        "darwin/arm64": {
-          "archive": "tar.gz",
-          "url": "https://dl.grafana.com/oss/release/grafana-13.0.2.darwin-arm64.tar.gz",
-          "sha256": "fb4729934fd8e3a348312c4cec5ff2143f4c4c22670be63c272d3277c6d774ea",
-          "extract": "bin/grafana",
-          "home": true,
-          "strip_components": 1
-        }
-      }
-    },
-    {
       "name": "caddy",
       "kind": "binary",
       "version": "2.11.4",
       "license": "Apache-2.0",
       "default_binary": "caddy",
-      "binaries": ["caddy"],
+      "binaries": [
+        "caddy"
+      ],
       "platforms": {
         "linux/amd64": {
           "archive": "tar.gz",
@@ -71,7 +47,9 @@
       "version": "2.93",
       "license": "GPL-2.0-only OR GPL-3.0-only",
       "default_binary": "dnsmasq",
-      "binaries": ["dnsmasq"],
+      "binaries": [
+        "dnsmasq"
+      ],
       "platforms": {
         "linux/amd64": {
           "archive": "tar.gz",
@@ -98,24 +76,15 @@
       }
     },
     {
-      "name": "victoriametrics-metrics-datasource",
-      "kind": "plugin",
-      "version": "0.25.0",
-      "license": "Apache-2.0"
-    },
-    {
-      "name": "victoriametrics-logs-datasource",
-      "kind": "plugin",
-      "version": "0.28.0",
-      "license": "Apache-2.0"
-    },
-    {
       "name": "victoria-metrics",
       "kind": "binary",
       "version": "v1.145.0",
       "license": "Apache-2.0",
       "default_binary": "victoria-metrics-prod",
-      "binaries": ["victoria-metrics-prod", "victoria-metrics"],
+      "binaries": [
+        "victoria-metrics-prod",
+        "victoria-metrics"
+      ],
       "platforms": {
         "linux/amd64": {
           "archive": "tar.gz",
@@ -145,7 +114,10 @@
       "version": "v1.50.0",
       "license": "Apache-2.0",
       "default_binary": "victoria-logs-prod",
-      "binaries": ["victoria-logs-prod", "victoria-logs"],
+      "binaries": [
+        "victoria-logs-prod",
+        "victoria-logs"
+      ],
       "platforms": {
         "linux/amd64": {
           "archive": "tar.gz",
@@ -175,7 +147,10 @@
       "version": "v0.9.2",
       "license": "Apache-2.0",
       "default_binary": "victoria-traces-prod",
-      "binaries": ["victoria-traces-prod", "victoria-traces"],
+      "binaries": [
+        "victoria-traces-prod",
+        "victoria-traces"
+      ],
       "platforms": {
         "linux/amd64": {
           "archive": "tar.gz",
@@ -218,7 +193,9 @@
       "version": "1.2.5",
       "license": "AGPL-3.0-only",
       "default_binary": "zerofs",
-      "binaries": ["zerofs"],
+      "binaries": [
+        "zerofs"
+      ],
       "platforms": {
         "linux/amd64": {
           "archive": "tar.gz",

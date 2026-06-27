@@ -486,7 +486,7 @@ func buildHarnessUIRoutes(appURL string) []harnessUIRouteSpec {
 			Path:    joinDashboardPath(appURL, "observability"),
 			Markers: []string{`[data-scenery-ui="AppShell"]`},
 			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "worker status card visible", Selector: `[data-scenery-ui="WorkerStatusCard"]`, Required: true},
+				{Name: "native backend status visible", Selector: `[data-scenery-ui="ObservabilityBackends"]`, Required: true},
 			},
 		},
 	}
