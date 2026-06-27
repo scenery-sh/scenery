@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -147,5 +148,62 @@ func TestDashboardProcessOutputListRPC(t *testing.T) {
 	}
 	if string(items[0].Output) != "first" || string(items[1].Output) != "second" {
 		t.Fatalf("unexpected output order: %+v", items)
+	}
+}
+
+func TestDashboardLogsListRPCUsesVictoriaLogs(t *testing.T) {
+	t.Parallel()
+
+	logsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/select/logsql/query" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		query := r.Form.Get("query")
+		for _, want := range []string{
+			`scenery_app_id="app-test"`,
+			`scenery_session_id="session-a"`,
+			`scenery_dev_schema="scenery.dev.event.v1"`,
+		} {
+			if !strings.Contains(query, want) {
+				t.Fatalf("query %q does not contain %q", query, want)
+			}
+		}
+		_, _ = io.WriteString(w, `{"_msg":"INFO ready","created_at":"2026-05-31T12:44:01.223Z","scenery_dev_schema":"scenery.dev.event.v1","scenery_app_id":"app-test","scenery_session_id":"session-a","id":"42","source_id":"api","source_kind":"app","source_name":"api","source_stream":"stdout","level":"info","fields_json":"{}","raw":"INFO ready","parse_format":"raw","parse_ok":"false"}`+"\n")
+	}))
+	defer logsServer.Close()
+
+	server := newTestDashboardServer(t)
+	server.supervisor.victoria = &victoriaStack{components: []*victoriaComponent{{spec: victoriaComponentSpec{Name: "logs"}, baseURL: logsServer.URL}}}
+	if err := server.supervisor.store.UpsertApp(context.Background(), devdash.AppRecord{
+		ID:        "app-test",
+		BaseAppID: "app-test",
+		SessionID: "session-a",
+		Name:      "app-test",
+		Root:      "/tmp/app-test",
+		Running:   true,
+	}); err != nil {
+		t.Fatalf("upsert app: %v", err)
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"app_id": "app-test",
+		"limit":  10,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	result, err := server.dispatchRPC(context.Background(), "logs/list", raw)
+	if err != nil {
+		t.Fatalf("dispatchRPC: %v", err)
+	}
+	items, ok := result.([]dashboardLogEvent)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	if len(items) != 1 || items[0].ID != 42 || items[0].Source.ID != "api" || items[0].Message != "INFO ready" || items[0].Time == "" {
+		t.Fatalf("unexpected log events: %+v", items)
 	}
 }

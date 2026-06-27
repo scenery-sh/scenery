@@ -54,8 +54,7 @@ Child `AGENTS.md` files:
 
 ### Child Agent Index
 
-- No child `AGENTS.md` files are currently indexed in this repo.
-- When adding one, list its path here and describe what it owns.
+- `apps/console/AGENTS.md` owns the standalone Vite/React console app, shadcn component inventory, and frontend validation commands.
 
 ## Agent skills
 
