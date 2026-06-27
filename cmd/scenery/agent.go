@@ -373,9 +373,9 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 		return err
 	}
 	sessions = markInconsistentStatusSessions(sessions)
+	substrates, _ := statusSubstrates(ctx, client)
 	if opts.JSON {
 		health, _ := client.Health(ctx)
-		substrates, _ := client.ListSubstrates(ctx)
 		enc := json.NewEncoder(stdout)
 		if !opts.Watch {
 			enc.SetIndent("", "  ")
@@ -387,12 +387,27 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 			"substrates":     substrates,
 		})
 	}
-	substrates, _ := client.ListSubstrates(ctx)
 	writeStatusTable(stdout, sessions, substrates)
 	if opts.Watch {
 		fmt.Fprintln(stdout, "---")
 	}
 	return nil
+}
+
+func statusSubstrates(ctx context.Context, client *localagent.Client) ([]localagent.Substrate, error) {
+	substrates, err := client.ListSubstrates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := substrates[:0]
+	for _, substrate := range substrates {
+		if localagent.VerifyOwner(substrate.Owner) != nil {
+			_, _ = client.DeleteSubstrate(ctx, substrate.Kind)
+			continue
+		}
+		out = append(out, substrate)
+	}
+	return out, nil
 }
 
 func markInconsistentStatusSessions(sessions []localagent.Session) []localagent.Session {
