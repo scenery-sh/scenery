@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0088 SQLite Service Databases and Postgres Removal](0088-sqlite-service-databases.md)
+  - Status: active
+  - Owner: scenery runtime / database
+  - Created: 2026-06-27
+  - Focus: replace built-in managed Postgres with per-service SQLite database files, including config, runtime env injection, DB CLI, branch lifecycle, standard auth, docs, schemas, and dependency cleanup.
 - [0079 Victoria Shared Substrate Visibility](0079-victoria-shared-substrate-visibility.md)
   - Status: active
   - Owner: scenery runtime / agent DX
