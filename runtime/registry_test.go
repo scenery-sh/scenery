@@ -163,6 +163,7 @@ func replaceGlobalRegistryForTest() func() {
 		endpoints:           make(map[string]*Endpoint),
 		middlewares:         make(map[string]*Middleware),
 		cronJobs:            make(map[string]*CronJob),
+		durableTasks:        make(map[string]*DurableTask),
 		serviceInitializers: make(map[string]func() error),
 		serviceInitOrder:    make(map[string]int),
 		serviceShutdowns:    make(map[string]serviceShutdown),

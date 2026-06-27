@@ -140,7 +140,6 @@ type doctorAppFeatures struct {
 	SQLCConfigured       bool
 	AtlasRelevant        bool
 	FrontendConfigured   bool
-	TypeScriptTemporal   bool
 	TypeScriptTasks      bool
 	DockerRelevant       bool
 	DatabaseApplyCommand bool
@@ -623,7 +622,6 @@ func doctorFeatures(cfg appcfg.Config, app *doctorAppInfo) doctorAppFeatures {
 	}
 	features := doctorAppFeatures{}
 	features.FrontendConfigured = len(cfg.Proxy.Frontends) > 0
-	features.TypeScriptTemporal = cfg.Temporal.Enabled && cfg.Temporal.TypeScript.Enabled
 	features.SQLCConfigured = sqlcGeneratorConfigured(cfg.Generators.SQLC)
 	features.AtlasRelevant = sqlcUsesAtlas(cfg.Generators.SQLC)
 	features.DatabaseApplyCommand = strings.TrimSpace(cfg.Database.Apply.Command) != ""
@@ -814,9 +812,6 @@ func bunMissingMessage(features doctorAppFeatures, appFound bool) string {
 	var uses []string
 	if features.FrontendConfigured {
 		uses = append(uses, "managed frontends")
-	}
-	if features.TypeScriptTemporal {
-		uses = append(uses, "TypeScript Temporal workers")
 	}
 	if features.TypeScriptTasks {
 		uses = append(uses, "TypeScript code tasks")

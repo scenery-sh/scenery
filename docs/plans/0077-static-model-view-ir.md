@@ -31,7 +31,7 @@ This plan introduces the static model/view intermediate representation (IR). A `
 
 ## Surprises & Discoveries
 
-- 2026-06-12: The existing `runtimeImportAliases` helper intentionally only tracks runtime packages such as `temporal` and `cron`; the model/page parser needs its own generic import alias map so aliases like `model` and `page` are visible.
+- 2026-06-12: The existing `runtimeImportAliases` helper intentionally only tracks runtime packages such as `legacy-async-runtime` and `cron`; the model/page parser needs its own generic import alias map so aliases like `model` and `page` are visible.
 - 2026-06-12: `go/types` can attach a constant value to an expression that references a mutable string variable initialized from a literal. The model/page static evaluator therefore checks identifier objects and rejects non-`types.Const` identifiers before accepting a string value.
 - 2026-06-12: `scenery check` can reuse a compiled build before parsing. M2 schema drift is not a compiled-binary property, so the check path now parses and validates model-schema drift before returning cached success. `SERVICE/db/schema.hcl` is also a watched input so cache fingerprints change when app-owned schema changes.
 - 2026-06-12: Generated model endpoints cannot reuse the handwritten endpoint wrapper path directly because that path assumes an AST `FuncDecl` to rename and wrap. M3 foundation therefore registers generated runtime endpoints from generated source while carrying separate generated endpoint IR for inspect output.

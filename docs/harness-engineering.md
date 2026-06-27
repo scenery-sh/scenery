@@ -90,7 +90,7 @@ checks durable `data-scenery-ui` markers, and writes screenshots, DOM snapshots,
 console, and network artifacts under `.scenery/harness/ui/`. The route journeys
 prove behavior such as API Explorer endpoint/form rendering, service metadata,
 trace empty/table/detail states, database availability or intentional empty
-states, cron status, and temporal/worker status cards.
+states, cron status, and legacy-async-runtime/worker status cards.
 
 `scenery inspect harness --json` reads the latest app, self, and UI harness
 outputs from `.scenery/harness/` and returns their artifacts plus normalized

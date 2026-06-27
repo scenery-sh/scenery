@@ -25,7 +25,7 @@ The immediate user-facing problem is that several legacy/manual paths can still 
 - [x] 2026-05-27: Persisted current-session selection by app root so `current` follows the latest registered session instead of incidental list ordering.
 - [x] 2026-05-27: Added visible warnings for legacy proxy and manual TCP listen/port escape hatches.
 - [x] 2026-05-27: Wired the agent dashboard to the shared Victoria substrate for Victoria-backed trace reads.
-- [x] 2026-05-27: Added a self-harness parallel dev-session check covering distinct sessions, Unix API backends, managed DB names, task queues, frontend/sync/Grafana/Temporal routes, logs, traces, Victoria substrate reads, and sibling session deletion.
+- [x] 2026-05-27: Added a self-harness parallel dev-session check covering distinct sessions, Unix API backends, managed DB names, task queues, frontend/sync/Grafana/legacy async runtime routes, logs, traces, Victoria substrate reads, and sibling session deletion.
 
 ## Surprises & Discoveries
 
@@ -56,7 +56,7 @@ Relevant files:
 - `internal/agent/types.go` defines session and substrate registry JSON types.
 - `internal/agent/registry.go` writes sessions and substrates to `<agent-dir>/sessions.json`.
 - `internal/agent/server.go` deletes sessions and currently interrupts `OwnerPID` directly.
-- `cmd/scenery/dev_services.go`, `cmd/scenery/grafana.go`, `cmd/scenery/victoria.go`, and `cmd/scenery/temporal_dev.go` register shared substrates.
+- `cmd/scenery/dev_services.go`, `cmd/scenery/grafana.go`, `cmd/scenery/victoria.go`, and `cmd/scenery/legacy-async-runtime_dev.go` register shared substrates.
 - `cmd/scenery/dev_supervisor.go` and `cmd/scenery/watch.go` register sessions and child backends.
 - `cmd/scenery/agent.go`, `cmd/scenery/db.go`, and related command files own user-facing cleanup surfaces.
 

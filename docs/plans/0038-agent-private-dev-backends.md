@@ -8,7 +8,7 @@ the agent-native local-dev ExecPlan series says worktrees should not bind stable
 
 After this work, the default `scenery dev` path starts the app on a session-private backend, preferably a Unix domain socket under `.scenery/sessions/<session_id>/run/api.sock`, registers that backend with the agent, and prints the agent route as the public API URL. Explicit `--listen`, `--port`, `--proxy`, and `--trust` flags remain available for compatibility and debugging, but they are no longer the default public surface.
 
-This plan intentionally does not move Grafana, Victoria, Temporal, Postgres, sync, or frontend process ownership. Those are covered by later agent-native local-dev plans.
+This plan intentionally does not move Grafana, Victoria, legacy async runtime, Postgres, sync, or frontend process ownership. Those are covered by later agent-native local-dev plans.
 
 ## Progress
 

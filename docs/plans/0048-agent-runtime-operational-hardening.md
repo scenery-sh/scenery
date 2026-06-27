@@ -39,7 +39,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - 2026-05-27: Agent home is decoupled from `SCENERY_DEV_CACHE_DIR`, but `cmd/scenery/devdash_store.go` still checks `SCENERY_DEV_CACHE_DIR` before the active agent. `cmd/scenery/watch.go` only forces the agent dashboard store when `SCENERY_DEV_CACHE_DIR` is empty, so a globally exported old cache dir can still split logs/traces/dashboard state. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/agent.go` implements `scenery prune --older-than` without `--db`, `--state`, or `--all`. The current command deletes stale runtime records and state roots, but it does not drop managed runtime Postgres databases or prune `session.<id>` substrate metadata. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-28: The stale-session cleanup command is now `scenery prune` with no compatibility alias. The obsolete spelling is intentionally removed.
-- 2026-05-27: `internal/agent/server.go` verifies substrate owners before signaling, but `Server.Close()` still walks registered substrates and interrupts verified component PIDs. An ordinary `scenery agent restart` can therefore disrupt live shared Postgres, sync, Temporal, Victoria, or Grafana substrates used by running app runtimes. Source review on 2026-05-28 confirmed this is still open.
+- 2026-05-27: `internal/agent/server.go` verifies substrate owners before signaling, but `Server.Close()` still walks registered substrates and interrupts verified component PIDs. An ordinary `scenery agent restart` can therefore disrupt live shared Postgres, sync, legacy async runtime, Victoria, or Grafana substrates used by running app runtimes. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/main.go` still lets `scenery dev --proxy` enable the legacy local proxy path after printing a warning. The underlying `internal/localproxy` defaults remain machine-global ports `80` and `443`, so warning-only behavior is still a footgun for parallel worktrees. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/dev_supervisor.go` runs all `dev.setup` commands inside every `RebuildAndRestart` after compile and before app start. This is fine for fast idempotent scripts but will become expensive once setup includes migrations, seed data, imports, or codegen. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/harness_parallel.go` contains a self-harness parallel session check. Earlier versions of this plan proposed a high-signal ONLV client-app smoke, but Scenery release validation should not create or mutate ONLV worktrees; app-specific validation belongs in the client app.
@@ -111,7 +111,7 @@ Terms used in this plan:
 
 - Agent mode means the default local-dev path where `scenery dev` ensures the local scenery agent, registers an app-root runtime, and routes public URLs through the agent router.
 - Dev dashboard store means the SQLite-backed local dashboard/log/trace store opened by `openDevdashStore()`.
-- Substrate means an agent-managed shared dependency such as Postgres, sync, Temporal, Victoria, or Grafana.
+- Substrate means an agent-managed shared dependency such as Postgres, sync, legacy async runtime, Victoria, or Grafana.
 - Managed runtime database means the per-runtime Postgres database recorded in substrate metadata as `session.<id>`.
 - Legacy local proxy means the older local HTTPS proxy enabled through `--proxy`, `--trust`, or `SCENERY_LOCAL_PROXY`, with machine-global HTTP/HTTPS ports.
 
@@ -174,7 +174,7 @@ Finally add setup policies and keep parallel runtime proof in the Scenery repo. 
 7. Parallel runtime validation:
    - Keep this coverage inside `scenery harness self --json --write` and Scenery-owned fixture apps.
    - Do not create or mutate ONLV worktrees from the Scenery repo.
-   - Make Scenery-owned parallel checks fail if fixed global ports, shared managed databases, shared Temporal task queues, mixed logs/traces, or cross-session teardown leaks appear.
+   - Make Scenery-owned parallel checks fail if fixed global ports, shared managed databases, shared legacy async runtime task queues, mixed logs/traces, or cross-session teardown leaks appear.
 
 ## Validation and Acceptance
 
@@ -232,7 +232,7 @@ Setup policy acceptance:
 
 Parallel runtime acceptance:
 
-- Scenery-owned parallel validation proves separate internal `session_id` values, separate `runtime_app_id` values, isolated API backends, runtime-scoped routes, different managed DB names, different Temporal task queues, runtime-scoped logs/traces, and no teardown bleed.
+- Scenery-owned parallel validation proves separate internal `session_id` values, separate `runtime_app_id` values, isolated API backends, runtime-scoped routes, different managed DB names, different legacy async runtime task queues, runtime-scoped logs/traces, and no teardown bleed.
 - The validation fails if any fixed global port or shared DB/task queue leaks back into the default path.
 - Release-gate failures must distinguish Scenery-owned invariant regressions from external substrate readiness. When the failed condition is host/client substrate readiness, the failure output must point at structured evidence instead of relying on terminal scrollback or implying that the release artifact is intrinsically unsafe.
 

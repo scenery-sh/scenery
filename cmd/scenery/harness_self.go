@@ -548,7 +548,6 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 		"pgxpool",
 		"rlog",
 		"runtime",
-		"temporal",
 	}
 	var latest time.Time
 	found := false
@@ -698,7 +697,6 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.inspect.observability.v1.schema.json",
 		"docs/schemas/scenery.inspect.metrics.v1.schema.json",
 		"docs/schemas/scenery.inspect.paths.v1.schema.json",
-		"docs/schemas/scenery.inspect.temporal.v1.schema.json",
 		"docs/schemas/scenery.inspect.validation.v1.schema.json",
 		"docs/schemas/scenery.inspect.routes.v1.schema.json",
 		"docs/schemas/scenery.inspect.services.v1.schema.json",

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.durable.jobs.v1.schema.json",
+  "title": "scenery.durable.jobs.v1",
+  "type": "object",
+  "required": ["schema_version", "service", "db_path"],
+  "properties": {
+    "schema_version": { "const": "scenery.durable.jobs.v1" },
+    "service": { "type": "string" },
+    "db_path": { "type": "string" },
+    "action": { "enum": ["list", "inspect", "cancel", "retry"] },
+    "ok": { "type": "boolean" },
+    "jobs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/job" }
+    },
+    "job": { "$ref": "#/$defs/job" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "job": {
+      "type": "object",
+      "required": ["id", "task_name", "state", "attempt", "max_attempts", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string" },
+        "task_name": { "type": "string" },
+        "state": { "type": "string" },
+        "dedupe_key": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "max_attempts": { "type": "integer", "minimum": 0 },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "completed_at": { "type": "string" },
+        "error_codec": { "type": "string" },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": ["seq", "event_type", "payload_codec", "created_at"],
+      "properties": {
+        "seq": { "type": "integer", "minimum": 0 },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "event_type": { "type": "string" },
+        "payload_codec": { "type": "string" },
+        "created_at": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

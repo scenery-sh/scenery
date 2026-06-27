@@ -38,7 +38,6 @@ func visibleDashboardRoutesFromProxy(routes localproxy.Routes, appID string) map
 	}
 	add(localagent.RouteAPI, routes.APIURL)
 	add(localagent.RouteDashboard, localproxy.ConsoleAppURL(routes, appID))
-	add(localagent.RouteTemporal, routes.TemporalURL)
 	add(localagent.RouteGrafana, routes.GrafanaURL)
 	for name, frontend := range routes.Frontends {
 		add(name, frontend.URL)

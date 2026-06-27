@@ -15,7 +15,6 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
-	sceneryruntime "scenery.sh/runtime"
 )
 
 var runHarnessParallelDevCheckFunc = runHarnessParallelDevCheck
@@ -103,12 +102,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 	defer closeGrafana()
-	temporalAddr, closeTemporal, err := reserveHarnessAddr()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer closeTemporal()
-
 	root := filepath.Join(os.TempDir(), "scenery-harness-apps-"+harnessRandomLabel())
 	rootA := filepath.Join(root, "worktree-a")
 	rootB := filepath.Join(root, "worktree-b")
@@ -148,8 +141,6 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	supervisorB := &devSupervisor{root: rootB, cfg: cfgB, agent: client, agentSession: sessionB}
 	supervisorA.registerAgentSessionBackend(ctx, localagent.RouteGrafana, localagent.Backend{Network: "tcp", Addr: grafanaAddr})
 	supervisorB.registerAgentSessionBackend(ctx, localagent.RouteGrafana, localagent.Backend{Network: "tcp", Addr: grafanaAddr})
-	supervisorA.registerAgentSessionBackend(ctx, localagent.RouteTemporal, localagent.Backend{Network: "tcp", Addr: temporalAddr})
-	supervisorB.registerAgentSessionBackend(ctx, localagent.RouteTemporal, localagent.Backend{Network: "tcp", Addr: temporalAddr})
 	sessionA = supervisorA.agentSession
 	sessionB = supervisorB.agentSession
 
@@ -180,13 +171,12 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 
-	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, pgEnvA, pgEnvB, ensuredDBs, supervisorA.sessionTemporalEnv(), supervisorB.sessionTemporalEnv())
+	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, pgEnvA, pgEnvB, ensuredDBs)
 	summary := map[string]any{
 		"sessions":        2,
 		"databases":       len(ensuredDBs),
 		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
 		"frontend_routes": []string{sessionA.Routes["web"], sessionB.Routes["web"]},
-		"temporal_queues": []string{envValueFromList(supervisorA.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv), envValueFromList(supervisorB.sessionTemporalEnv(), sceneryruntime.DefaultTemporalTaskQueueEnv)},
 		"diagnostics":     len(diagnostics),
 	}
 	if hasErrorDiagnostics(diagnostics) {
@@ -214,7 +204,6 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 				"postgres": {Kind: "postgres"},
 			},
 		},
-		Temporal: app.TemporalConfig{Enabled: true},
 	}
 }
 
@@ -268,7 +257,7 @@ func writeHarnessParallelObservability(ctx context.Context, store *devdash.Store
 	return nil
 }
 
-func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, pgEnvA, pgEnvB []string, ensuredDBs map[string]bool, temporalEnvA, temporalEnvB []string) []checkDiagnostic {
+func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, pgEnvA, pgEnvB []string, ensuredDBs map[string]bool) []checkDiagnostic {
 	var diagnostics []checkDiagnostic
 	check := func(ok bool, message string) {
 		if ok {
@@ -289,10 +278,8 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
 	check(routeContainsSession(sessionA.Routes["web"], sessionA.SessionID) && routeContainsSession(sessionB.Routes["web"], sessionB.SessionID) && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
 	check(routeContainsSession(sessionA.Routes[localagent.RouteGrafana], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteGrafana], sessionB.SessionID), "Grafana routes must be session-scoped")
-	check(routeContainsSession(sessionA.Routes[localagent.RouteTemporal], sessionA.SessionID) && routeContainsSession(sessionB.Routes[localagent.RouteTemporal], sessionB.SessionID), "Temporal routes must be session-scoped")
 	check(envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME") != "" && envValueFromList(pgEnvA, "SCENERY_MANAGED_DATABASE_NAME") != envValueFromList(pgEnvB, "SCENERY_MANAGED_DATABASE_NAME"), "managed Postgres database names must be distinct")
 	check(len(ensuredDBs) == 2, "managed Postgres must ensure two session databases")
-	check(envValueFromList(temporalEnvA, sceneryruntime.DefaultTemporalTaskQueueEnv) != "" && envValueFromList(temporalEnvA, sceneryruntime.DefaultTemporalTaskQueueEnv) != envValueFromList(temporalEnvB, sceneryruntime.DefaultTemporalTaskQueueEnv), "Temporal task queue prefixes must be distinct")
 	if victoria := (&agentDashboardController{store: store, agent: server}).dashboardVictoria(); victoria == nil || victoria.Endpoint("traces") == "" {
 		check(false, "agent dashboard must read shared Victoria substrate")
 	}

@@ -867,7 +867,7 @@
       "match": "exact",
       "scope": "runtime",
       "direction": "injected_user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -2006,6 +2006,94 @@
       ]
     },
     {
+      "name": "SCENERY_DURABLE_ENDPOINT",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Remote durable API endpoint passed by `scenery worker durable` to the generated app binary.",
+      "preferred_surface": "scenery worker durable --endpoint",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_DURABLE_TOKEN",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "secret",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Remote durable worker bearer token passed by `scenery worker durable` to the generated app binary.",
+      "preferred_surface": "scenery worker durable --token",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_DURABLE_SERVICES",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Remote durable service subscription list passed by `scenery worker durable` to the generated app binary.",
+      "preferred_surface": "scenery worker durable --service",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_DURABLE_WORKER_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "durable.worker",
+      "stability": "beta",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Optional stable remote durable worker ID for lease ownership.",
+      "preferred_surface": "internal app process environment",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "SCENERY_RUNTIME_APP_ID",
       "match": "exact",
       "scope": "runtime",
@@ -2270,11 +2358,11 @@
       ]
     },
     {
-      "name": "SCENERY_TEMPORAL_DEPLOYMENT_NAME",
+      "name": "SCENERY_LEGACY_ASYNC_RUNTIME_DEPLOYMENT_NAME",
       "match": "exact",
       "scope": "runtime",
       "direction": "injected_user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -2283,7 +2371,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Temporal Worker Deployment name override",
+      "rationale": "legacy async runtime Worker Deployment name override",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -2292,11 +2380,11 @@
       ]
     },
     {
-      "name": "SCENERY_TEMPORAL_HOST_RESOURCE_REPORTING",
+      "name": "SCENERY_LEGACY_ASYNC_RUNTIME_HOST_RESOURCE_REPORTING",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -2305,7 +2393,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "`0` disables Temporal Go SDK host resource reporting. Enabled by default",
+      "rationale": "`0` disables legacy async runtime Go SDK host resource reporting. Enabled by default",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -2314,11 +2402,11 @@
       ]
     },
     {
-      "name": "SCENERY_TEMPORAL_TASK_QUEUE",
+      "name": "SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE",
       "match": "exact",
       "scope": "runtime",
       "direction": "injected_user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -2336,11 +2424,11 @@
       ]
     },
     {
-      "name": "SCENERY_TEMPORAL_TASK_QUEUE_PREFIX",
+      "name": "SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_PREFIX",
       "match": "exact",
       "scope": "runtime",
       "direction": "injected_user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -2349,7 +2437,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Overrides generated Temporal task queue prefix. Agent dev sets this to a session-scoped value",
+      "rationale": "Overrides generated legacy async runtime task queue prefix. Agent dev sets this to a session-scoped value",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -2358,11 +2446,11 @@
       ]
     },
     {
-      "name": "SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX",
+      "name": "SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_TEST_SUFFIX",
       "match": "exact",
       "scope": "runtime",
       "direction": "injected_user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "internal",
       "secret": false,
       "allowed_in": [
@@ -2371,7 +2459,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Per-test-runtime suffix appended to Temporal task queue prefixes so `scenery test` cannot share live dev task queues.",
+      "rationale": "Per-test-runtime suffix appended to legacy async runtime task queue prefixes so `scenery test` cannot share live dev task queues.",
       "preferred_surface": "`scenery test`; users should not set this unless reproducing test-runtime isolation behavior.",
       "replacement": "",
       "sunset": "",
@@ -2380,11 +2468,11 @@
       ]
     },
     {
-      "name": "SCENERY_TEMPORAL_VERSIONING_BEHAVIOR",
+      "name": "SCENERY_LEGACY_ASYNC_RUNTIME_VERSIONING_BEHAVIOR",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -3038,11 +3126,11 @@
       ]
     },
     {
-      "name": "TEMPORAL_ADDRESS",
+      "name": "LEGACY_ASYNC_RUNTIME_ADDRESS",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input_injected",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -3051,7 +3139,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Temporal address env. Apps can override the env name with `temporal.address_env`",
+      "rationale": "Default legacy async runtime address env. Apps can override the env name with `legacy-async-runtime.address_env`",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -3060,11 +3148,11 @@
       ]
     },
     {
-      "name": "TEMPORAL_API_KEY",
+      "name": "LEGACY_ASYNC_RUNTIME_API_KEY",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": true,
       "allowed_in": [
@@ -3073,7 +3161,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Temporal API key env when configured",
+      "rationale": "Default legacy async runtime API key env when configured",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -3082,11 +3170,11 @@
       ]
     },
     {
-      "name": "TEMPORAL_NAMESPACE",
+      "name": "LEGACY_ASYNC_RUNTIME_NAMESPACE",
       "match": "exact",
       "scope": "runtime",
       "direction": "injected_user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -3095,7 +3183,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Temporal namespace",
+      "rationale": "legacy async runtime namespace",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -3104,11 +3192,11 @@
       ]
     },
     {
-      "name": "TEMPORAL_TLS_CA_CERT_FILE",
+      "name": "LEGACY_ASYNC_RUNTIME_TLS_CA_CERT_FILE",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -3117,7 +3205,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Temporal TLS CA file env when configured",
+      "rationale": "Default legacy async runtime TLS CA file env when configured",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -3126,11 +3214,11 @@
       ]
     },
     {
-      "name": "TEMPORAL_TLS_CERT_FILE",
+      "name": "LEGACY_ASYNC_RUNTIME_TLS_CERT_FILE",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -3139,7 +3227,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Temporal client certificate env when configured",
+      "rationale": "Default legacy async runtime client certificate env when configured",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -3148,11 +3236,11 @@
       ]
     },
     {
-      "name": "TEMPORAL_TLS_KEY_FILE",
+      "name": "LEGACY_ASYNC_RUNTIME_TLS_KEY_FILE",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -3161,7 +3249,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Temporal client key env when configured",
+      "rationale": "Default legacy async runtime client key env when configured",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -3170,11 +3258,11 @@
       ]
     },
     {
-      "name": "TEMPORAL_TLS_SERVER_NAME",
+      "name": "LEGACY_ASYNC_RUNTIME_TLS_SERVER_NAME",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
-      "category": "temporal",
+      "category": "legacy-async-runtime",
       "stability": "stable",
       "secret": false,
       "allowed_in": [
@@ -3183,7 +3271,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Temporal TLS server name env when configured",
+      "rationale": "Default legacy async runtime TLS server name env when configured",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

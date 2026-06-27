@@ -21,7 +21,7 @@
         "route_base_domain": { "type": "string" },
         "api_host": { "type": "string" },
         "console_host": { "type": "string" },
-        "temporal_host": { "type": "string" },
+        "legacy-async-runtime_host": { "type": "string" },
         "grafana_host": { "type": "string" },
         "frontends": {
           "type": ["object", "null"],
@@ -127,7 +127,7 @@
       },
       "additionalProperties": false
     },
-    "temporal": {
+    "legacy-async-runtime": {
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
@@ -137,9 +137,9 @@
         "task_queue_prefix": { "type": "string" },
         "payload_codec": { "type": "string" },
         "api_key_env": { "type": "string" },
-        "tls": { "$ref": "#/$defs/temporalTLS" },
-        "local": { "$ref": "#/$defs/temporalLocal" },
-        "typescript": { "$ref": "#/$defs/temporalTypeScript" }
+        "tls": { "$ref": "#/$defs/legacy-async-runtimeTLS" },
+        "local": { "$ref": "#/$defs/legacy-async-runtimeLocal" },
+        "typescript": { "$ref": "#/$defs/legacy-async-runtimeTypeScript" }
       },
       "additionalProperties": false
     }
@@ -349,7 +349,7 @@
       },
       "additionalProperties": false
     },
-    "temporalLocal": {
+    "legacy-async-runtimeLocal": {
       "type": "object",
       "properties": {
         "auto_start": { "type": "boolean" },
@@ -357,7 +357,7 @@
       },
       "additionalProperties": false
     },
-    "temporalTLS": {
+    "legacy-async-runtimeTLS": {
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
@@ -368,7 +368,7 @@
       },
       "additionalProperties": false
     },
-    "temporalTypeScript": {
+    "legacy-async-runtimeTypeScript": {
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },

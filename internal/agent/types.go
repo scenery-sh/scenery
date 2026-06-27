@@ -10,13 +10,11 @@ const (
 	RouteAPI       = "api"
 	RouteDashboard = "dashboard"
 	RouteGrafana   = "grafana"
-	RouteTemporal  = "temporal"
 
 	DefaultRouteBaseDomain = "local.dev"
 
 	SubstrateGrafana  = "grafana"
 	SubstratePostgres = "postgres"
-	SubstrateTemporal = "temporal"
 	SubstrateVictoria = "victoria"
 	SubstrateZeroFS   = "zerofs"
 )

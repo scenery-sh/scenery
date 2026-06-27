@@ -24,7 +24,6 @@ type proxyRoute struct {
 func proxyRoutes(cfg Config) (routeTable, error) {
 	apiHost := resolvedHost(cfg.APIHost, cfg.Workspace, "api")
 	consoleHost := resolvedHost(cfg.ConsoleHost, cfg.Workspace, "console")
-	temporalHost := resolvedHost(cfg.TemporalHost, cfg.Workspace, "temporal")
 	grafanaHost := resolvedHost(cfg.GrafanaHost, cfg.Workspace, "grafana")
 
 	var routes routeTable
@@ -44,11 +43,6 @@ func proxyRoutes(cfg Config) (routeTable, error) {
 	}
 	if cfg.DashboardUpstream != "" {
 		if err := appendRoute(consoleHost, cfg.DashboardUpstream, false, ""); err != nil {
-			return nil, err
-		}
-	}
-	if cfg.TemporalUpstream != "" {
-		if err := appendRoute(temporalHost, cfg.TemporalUpstream, false, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -157,9 +151,6 @@ func routeSubjects(cfg Config) []string {
 	add(resolvedHost(cfg.APIHost, cfg.Workspace, "api"))
 	if cfg.DashboardUpstream != "" {
 		add(resolvedHost(cfg.ConsoleHost, cfg.Workspace, "console"))
-	}
-	if cfg.TemporalUpstream != "" {
-		add(resolvedHost(cfg.TemporalHost, cfg.Workspace, "temporal"))
 	}
 	if cfg.GrafanaUpstream != "" {
 		add(resolvedHost(cfg.GrafanaHost, cfg.Workspace, "grafana"))

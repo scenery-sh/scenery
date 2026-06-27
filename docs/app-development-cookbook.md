@@ -352,13 +352,13 @@ standard, ok := auth.CurrentAuthData()
 
 Common failure: relying on globals outside request handling. Pass context or actor values explicitly to lower layers.
 
-## Temporal Workflow Or Activity
+## legacy async runtime Workflow Or Activity
 
-Use `scenery.sh/temporal` for beta workflow and activity declarations. Packages that call `temporal.NewWorkflow` or `temporal.NewActivity` are imported by generated main so worker processes can register them. Set `temporal.enabled: true` in app config to opt in; Temporal remains off when the field is omitted, even if declarations or TypeScript worker settings are present. Use `scenery up` for local combined API/worker execution, and use `scenery worker` for worker-only processes. Set `ActivityConfig.MaxConcurrency` when a dedicated task queue should cap concurrent activity executions for resource-heavy work, and pass `temporal.WithHeartbeatTimeout(...)` when a workflow activity needs a heartbeat timeout.
+Use `scenery.sh/legacy-async-runtime` for beta workflow and activity declarations. Packages that call `legacy-async-runtime.NewWorkflow` or `legacy-async-runtime.NewActivity` are imported by generated main so worker processes can register them. Set `legacy-async-runtime.enabled: true` in app config to opt in; legacy async runtime remains off when the field is omitted, even if declarations or TypeScript worker settings are present. Use `scenery up` for local combined API/worker execution, and use `scenery worker` for worker-only processes. Set `ActivityConfig.MaxConcurrency` when a dedicated task queue should cap concurrent activity executions for resource-heavy work, and pass `legacy-async-runtime.WithHeartbeatTimeout(...)` when a workflow activity needs a heartbeat timeout.
 
 ## Cron Job
 
-Use `scenery.sh/cron` and see `testdata/apps/cron`. When Temporal is enabled, cron jobs run through Temporal Schedules. Set `OverlapPolicy`, `CatchupWindow`, `PauseOnFailure`, `ActivityStartToClose`, and `ActivityRetryPolicy` on `cron.JobConfig` when missed-run, overlap, timeout, or retry behavior must be explicit.
+Use `scenery.sh/cron` and see `testdata/apps/cron`. When legacy async runtime is enabled, cron jobs run through legacy async runtime Schedules. Set `OverlapPolicy`, `CatchupWindow`, `PauseOnFailure`, `ActivityStartToClose`, and `ActivityRetryPolicy` on `cron.JobConfig` when missed-run, overlap, timeout, or retry behavior must be explicit.
 
 ```go
 package jobs

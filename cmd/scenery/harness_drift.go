@@ -131,7 +131,6 @@ var (
 		{name: "git", scope: "required", required: true, args: []string{"version"}},
 		{name: "scenery", scope: "required", required: true, args: []string{"version", "--json"}},
 		{name: "bun", scope: "required-for-ui", args: []string{"--version"}},
-		{name: "temporal", scope: "required-for-temporal-tests", args: []string{"--version"}},
 		{name: "docker", scope: "optional", args: []string{"--version"}},
 	}
 	harnessProbeTool = probeHarnessTool
@@ -662,7 +661,7 @@ func harnessBinaryFreshnessCoversRel(rel string) bool {
 	if strings.HasPrefix(rel, dashboardStaticDistRel+"/") && harnessBinaryInputFile(rel) {
 		return true
 	}
-	for _, prefix := range []string{"auth/", "cmd/", "cron/", "db/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/", "temporal/"} {
+	for _, prefix := range []string{"auth/", "cmd/", "cron/", "db/", "errs/", "internal/", "middleware/", "pgxpool/", "rlog/", "runtime/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {
 				if harnessBinaryInputSkipDir(part) {

@@ -4,13 +4,13 @@ This ExecPlan is a living document. Update `Progress`, `Surprises & Discoveries`
 
 ## Purpose / Big Picture
 
-Scenery should be resilient when an app runs browser-backed TypeScript Temporal workers. The immediate motivating case is an ONLV ChatGPT browser worker, but this plan is deliberately scoped to scenery itself: source/build preparation must ignore browser runtime artifacts, and `scenery dev` must confidently supervise and clean up generated TypeScript worker processes.
+Scenery should be resilient when an app runs browser-backed TypeScript legacy async runtime workers. The immediate motivating case is an ONLV ChatGPT browser worker, but this plan is deliberately scoped to scenery itself: source/build preparation must ignore browser runtime artifacts, and `scenery dev` must confidently supervise and clean up generated TypeScript worker processes.
 
 The visible end state for scenery is:
 
 - Browser runtime directories such as `var/browser`, `var/chrome`, and `var/playwright` cannot break generated app build prep when they contain sockets, FIFOs, lock files, or browser profile files.
 - Hidden app-local artifact roots such as `.scenery/artifacts/...` remain ignored by build/source walking.
-- Dev-started TypeScript Temporal workers are covered by tests for supervisor PID monitoring.
+- Dev-started TypeScript legacy async runtime workers are covered by tests for supervisor PID monitoring.
 - Detached dev-session cleanup can reap stale generated `worker.ts` processes for the current app root without touching unrelated Bun or foreground `scenery worker typescript` processes.
 
 The ONLV app endpoint, ChatGPT automation, Playwright dependency, smoke script, and DevBootstrap docs are out of scope for this scenery ExecPlan.
@@ -29,7 +29,7 @@ The ONLV app endpoint, ChatGPT automation, Playwright dependency, smoke script, 
 ## Surprises & Discoveries
 
 - 2026-05-30: The bug note names ONLV files such as `agents/chatgpt_login.ts` and `agents/chatgpt_browser.worker.ts`, but those are app-level deliverables and are not part of this scenery plan.
-- 2026-05-30: The relevant scenery substrate risks are independent of ChatGPT selectors: browser profile files can create non-regular filesystem entries during build prep, and stale generated TypeScript workers can keep polling old Temporal queues after detached dev sessions move on.
+- 2026-05-30: The relevant scenery substrate risks are independent of ChatGPT selectors: browser profile files can create non-regular filesystem entries during build prep, and stale generated TypeScript workers can keep polling old legacy async runtime queues after detached dev sessions move on.
 - 2026-05-30: The generated TypeScript worker already contained supervisor PID monitoring; the missing piece was regression coverage for the actual generated mechanics.
 - 2026-05-30: Detached stale-worker cleanup cannot reliably inspect another process's environment portably, so the implementation uses a generated-dir registry written only by detached dev-supervised TypeScript workers. The reaper still verifies the registry against the current app root and generated `worker.ts` path before checking the process command and signaling.
 
@@ -42,7 +42,7 @@ The ONLV app endpoint, ChatGPT automation, Playwright dependency, smoke script, 
   Rationale: The foreground worker CLI intentionally owns its process directly. Stale-worker cleanup should target only dev-supervised or detached-dev-generated TypeScript workers with clear app-root ownership signals.
   Date/Author: 2026-05-30 / Codex.
 - Decision: Use a detached-dev worker registry instead of broad Bun/process scanning.
-  Rationale: A registry under `.scenery/generated/temporal/typescript/dev-worker.json` lets scenery match the stale worker to the current app root and generated `worker.ts` path without killing arbitrary foreground workers or unrelated Bun processes.
+  Rationale: A registry under `.scenery/generated/legacy-async-runtime/typescript/dev-worker.json` lets scenery match the stale worker to the current app root and generated `worker.ts` path without killing arbitrary foreground workers or unrelated Bun processes.
   Date/Author: 2026-05-30 / Codex.
 - Decision: Signal stale TypeScript workers by process group where supported.
   Rationale: The generated worker may have a runtime process tree. Reusing the existing process-group lifecycle behavior makes detached stale cleanup consistent with normal supervisor shutdown.
@@ -58,14 +58,14 @@ Validation passed with the default harness writing `.scenery/harness/self-latest
 
 The source/build preparation code lives in `internal/build/build.go`. It discovers app source files, copies them into generated build workspaces, computes fingerprints, and skips generated or irrelevant directories. Existing hidden-directory behavior already keeps `.scenery/...` out of app source walking, but browser runtime directories outside hidden paths can still contain sockets or other non-regular files.
 
-The TypeScript Temporal worker generation and dev supervision code is split across:
+The TypeScript legacy async runtime worker generation and dev supervision code is split across:
 
-- `internal/workers/typescript.go`, which generates TypeScript worker runtime files under `.scenery/generated/temporal/typescript/`.
+- `internal/workers/typescript.go`, which generates TypeScript worker runtime files under `.scenery/generated/legacy-async-runtime/typescript/`.
 - `cmd/scenery/dev_typescript.go`, which generates and starts TypeScript workers during `scenery dev`.
 - `cmd/scenery/dev_supervisor.go`, which owns dev process lifecycle and shutdown behavior.
 - `cmd/scenery/worker.go`, which owns the standalone `scenery worker typescript` foreground command and should not be swept into dev-session cleanup.
 
-The generated TypeScript worker already has the right architectural shape: scenery owns the registry, worker entrypoint, Temporal environment, and worker process startup. This plan adds defensive filesystem hygiene and lifecycle confidence around that runtime.
+The generated TypeScript worker already has the right architectural shape: scenery owns the registry, worker entrypoint, legacy async runtime environment, and worker process startup. This plan adds defensive filesystem hygiene and lifecycle confidence around that runtime.
 
 ## Milestones
 
@@ -122,7 +122,7 @@ Finally, implement dev-supervisor process cleanup. Keep the matching rules conse
 
 - Process must be marked as dev-supervised, for example by environment such as `SCENERY_DEV_SUPERVISOR=1`.
 - Process must belong to the current app root, for example `SCENERY_APP_ROOT=<current app root>`.
-- Command line must include `.scenery/generated/temporal/typescript/worker.ts`.
+- Command line must include `.scenery/generated/legacy-async-runtime/typescript/worker.ts`.
 
 When a stale process matches, send SIGTERM, wait for a short grace period, and use SIGKILL only if the process survives. Record the cleanup event in the dev dashboard store so the action is visible in logs/traces/status surfaces. Do not scan or kill arbitrary Bun processes.
 
@@ -219,7 +219,7 @@ ps -axo pid,ppid,command | rg 'bun .*worker.ts|scenery dev' | rg -v rg
 Scenery interfaces in scope:
 
 - Build/source walker behavior in `internal/build`.
-- Generated TypeScript Temporal worker runtime under `.scenery/generated/temporal/typescript/`.
+- Generated TypeScript legacy async runtime worker runtime under `.scenery/generated/legacy-async-runtime/typescript/`.
 - Dev supervisor TypeScript worker startup and shutdown behavior.
 - Dev dashboard store/logging used for observable cleanup events.
 

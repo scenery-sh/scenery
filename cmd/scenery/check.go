@@ -18,7 +18,6 @@ import (
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/schemagen"
-	"scenery.sh/internal/workers"
 )
 
 type checkOptions struct {
@@ -98,12 +97,6 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 				appInfo.ModulePath = cachedApp.ModulePath
 			}
 			return renderCheckSuccess(stdout, opts.JSON, appInfo)
-		}
-	}
-
-	if cfg.Temporal.Enabled {
-		if diagnostics := typeScriptTemporalDiagnostics(appRoot, model); len(diagnostics) > 0 {
-			return renderCheckFailure(stdout, opts.JSON, appInfo, "temporal-typescript", workers.DiagnosticsError(diagnostics))
 		}
 	}
 
@@ -355,8 +348,6 @@ func suggestedActionForDiagnostic(stage, message string) string {
 		return "Fix the source or scenery directive error, then rerun `scenery check --json`."
 	case stage == "prepare":
 		return "Fix the generated workspace or dependency setup issue, then rerun `scenery check --json`."
-	case stage == "temporal-typescript":
-		return "Fix the TypeScript Temporal worker declaration or matching Go external activity, then rerun `scenery check --json`."
 	default:
 		return "Fix the compile error, then rerun `scenery check --json`."
 	}

@@ -17,7 +17,7 @@ import {
   reconcileTabsWithEndpoints,
   type RequestTab,
 } from "../lib/api-explorer";
-import { requestTracesURL, temporalTracesURL } from "../lib/grafana";
+import { requestTracesURL } from "../lib/grafana";
 import {
   cn,
   formatDurationNanos,
@@ -226,7 +226,6 @@ export function RequestsPage() {
   const sharedRequests = items.filter((item) => item.shared);
   const activeTab = tabs.find((tab) => tab.id === activeTabID) || null;
   const requestTraceURL = requestTracesURL(status?.grafana);
-  const temporalTraceURL = temporalTracesURL(status?.grafana);
   const activeEndpoint = useMemo(() => {
     if (!activeTab) {
       return null;
@@ -615,12 +614,11 @@ export function RequestsPage() {
             <div>
               <p className="text-sm font-medium">Grafana</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Request and Temporal traces now live in Grafana for this dev session.
+                Request traces now live in Grafana for this dev session.
               </p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <GrafanaPanelLink href={requestTraceURL} label="Request traces" primary />
-              <GrafanaPanelLink href={temporalTraceURL} label="Temporal traces" />
             </div>
 
             {activeTab?.response?.trace_id ? (

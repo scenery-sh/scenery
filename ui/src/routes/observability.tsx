@@ -21,8 +21,8 @@ export function ObservabilityPage() {
           </div>
 
           <section
-            data-scenery-ui="TemporalStatusCard"
-            data-scenery-state={grafana?.temporal_url ? "available" : "unavailable"}
+            data-scenery-ui="GrafanaStatusCard"
+            data-scenery-state={grafanaAvailable ? "available" : "unavailable"}
             className="rounded-md border border-border p-6"
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -46,7 +46,6 @@ export function ObservabilityPage() {
               <GrafanaLink href={grafanaAvailable ? grafana?.overview_url : undefined} label="Overview" />
               <GrafanaLink href={grafanaAvailable ? grafana?.logs_url : undefined} label="Logs" />
               <GrafanaLink href={grafanaAvailable ? grafana?.endpoint_url : undefined} label="Endpoint Debugger" />
-              <GrafanaLink href={grafanaAvailable ? grafana?.temporal_url : undefined} label="Temporal" />
             </div>
           </section>
 

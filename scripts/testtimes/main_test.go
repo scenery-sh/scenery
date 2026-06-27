@@ -42,7 +42,6 @@ func TestShardedCmdSceneryRegexesCoverNameBucketsOnce(t *testing.T) {
 		"TestPrepareDevAgentSessionDefaultsToUnixBackend",
 		"TestRunSceneryCheckJSONSuccess",
 		"TestStatusAndDownCommandsUseAgent",
-		"TestTypeScriptWorkerEnvUsesTemporalAndSessionOverrides",
 		"TestVictoriaEnabledDefaultsToTrue",
 		"TestWriteDetachedDevResultJSON",
 		"Test1SyntheticFutureName",

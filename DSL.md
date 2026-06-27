@@ -5,7 +5,7 @@ Scenery apps are ordinary Go modules plus a small set of declarations. The DSL i
 - `.scenery.json` app config
 - `//scenery:*` Go directives
 - struct tags on request, response, and model fields
-- small Go builder packages such as `scenery.sh/model`, `scenery.sh/page`, `scenery.sh/temporal`, and `scenery.sh/cron`
+- small Go builder packages such as `scenery.sh/model`, `scenery.sh/page`, `scenery.sh/legacy-async-runtime`, `scenery.sh/durable`, and `scenery.sh/cron`
 
 Use `docs/local-contract.md` for the exact machine contract. This file is the human map.
 
@@ -37,7 +37,7 @@ Common config surfaces:
 - `proxy.frontends`: frontend roots for dev routing and generated web packages.
 - `storage`: Scenery-owned storage stores, access, tenant scoping, and size limits.
 - `dev.services`: managed local dev services such as Postgres and ZeroFS.
-- `temporal.enabled`: opt-in Temporal runtime. Declarations alone do not enable Temporal.
+- `legacy-async-runtime.enabled`: opt-in legacy async runtime runtime. Declarations alone do not enable legacy async runtime.
 - `database.apply`: explicit database setup command provider.
 - `tasks`, `validation`: app-owned task and validation profiles.
 
@@ -304,22 +304,22 @@ Generated web packages export:
 
 Apps consume generated frontend code through an app-owned alias such as `@scenery/generated`.
 
-## Temporal DSL
+## legacy async runtime DSL
 
-Use `scenery.sh/temporal` for typed workflow and activity declarations. Set `temporal.enabled: true` in app config to run Temporal.
+Use `scenery.sh/legacy-async-runtime` for typed workflow and activity declarations. Set `legacy-async-runtime.enabled: true` in app config to run legacy async runtime.
 
 ```go
-var capturePayment = temporal.NewActivity[CaptureInput, CaptureOutput](
+var capturePayment = legacy-async-runtime.NewActivity[CaptureInput, CaptureOutput](
 	"orders.Capture/v1",
-	temporal.ActivityConfig{TaskQueue: "orders.activities.go"},
+	legacy-async-runtime.ActivityConfig{TaskQueue: "orders.activities.go"},
 	capturePaymentFunc,
 )
 
-var fulfillOrder = temporal.NewWorkflow[FulfillInput, FulfillOutput](
+var fulfillOrder = legacy-async-runtime.NewWorkflow[FulfillInput, FulfillOutput](
 	"orders.Fulfill/v1",
-	temporal.WorkflowConfig{},
-	func(ctx temporal.WorkflowContext, in FulfillInput) (FulfillOutput, error) {
-		future := temporal.ExecuteActivity(ctx, capturePayment, CaptureInput{OrderID: in.OrderID})
+	legacy-async-runtime.WorkflowConfig{},
+	func(ctx legacy-async-runtime.WorkflowContext, in FulfillInput) (FulfillOutput, error) {
+		future := legacy-async-runtime.ExecuteActivity(ctx, capturePayment, CaptureInput{OrderID: in.OrderID})
 		return future.Get(ctx)
 	},
 )
@@ -327,21 +327,56 @@ var fulfillOrder = temporal.NewWorkflow[FulfillInput, FulfillOutput](
 
 Main pieces:
 
-- `temporal.NewWorkflow[I, O](name, cfg, handler)`
-- `temporal.NewActivity[I, O](name, cfg, handler, opts...)`
-- `temporal.NewExternalActivity[I, O](name, cfg, opts...)`
-- `temporal.ExecuteActivity(ctx, activity, input)`
-- `temporal.Start(ctx, workflow, input, temporal.WorkflowID(id), opts...)`
-- `temporal.Start(ctx, workflow, input, temporal.WorkflowIDPrefix(prefix), opts...)`
-- `temporal.GetWorkflow[O](ctx, workflowID, runID)`
-- `temporal.MethodActivity` and `RegisterServiceAccessorFor` for service-backed activities
+- `legacy-async-runtime.NewWorkflow[I, O](name, cfg, handler)`
+- `legacy-async-runtime.NewActivity[I, O](name, cfg, handler, opts...)`
+- `legacy-async-runtime.NewExternalActivity[I, O](name, cfg, opts...)`
+- `legacy-async-runtime.ExecuteActivity(ctx, activity, input)`
+- `legacy-async-runtime.Start(ctx, workflow, input, legacy-async-runtime.WorkflowID(id), opts...)`
+- `legacy-async-runtime.Start(ctx, workflow, input, legacy-async-runtime.WorkflowIDPrefix(prefix), opts...)`
+- `legacy-async-runtime.GetWorkflow[O](ctx, workflowID, runID)`
+- `legacy-async-runtime.MethodActivity` and `RegisterServiceAccessorFor` for service-backed activities
 
 Useful config and options:
 
 - workflow task queue and timeouts
 - activity task queue, start-to-close timeout, max concurrency, retry policy
-- heartbeat timeout through `temporal.WithHeartbeatTimeout`
+- heartbeat timeout through `legacy-async-runtime.WithHeartbeatTimeout`
 - start memo, search attributes, timeouts, pinned build ID, conflict/reuse policies
+
+## Durable DSL
+
+Use `scenery.sh/durable` for typed durable task declarations, enqueue, schedules, local execution, signals, and step results. Scenery discovers `durable.NewTask` calls, imports their packages into generated main, reconciles declarations into service durable SQLite databases at runtime startup, `durable.Start` writes queued jobs, and `all`/`worker` roles execute registered Go handlers locally with retry scheduling from the task config. `durable.Schedule` records an interval schedule that the API/all runtime materializes into queued jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results; outside a durable job context it just runs the function. `durable.Signal` appends a JSON signal row and event for a durable run. `scenery inspect durable --json` reports declarations, services, DB paths, and whether the durable DB currently exists. The runtime exposes authenticated durable worker HTTP endpoints for lease, heartbeat, complete, and fail with hashed worker tokens and lease-ID fencing.
+
+```go
+var detectRoof = durable.NewTask[DetectInput, DetectOutput](
+	"roof.detect.v1",
+	durable.TaskConfig{
+		Service:     "maps",
+		MaxAttempts: 3,
+		Retry: durable.RetryPolicy{
+			InitialInterval: 5 * time.Second,
+			BackoffFactor:  2,
+			MaxInterval:    2 * time.Minute,
+		},
+	},
+	detectRoofFunc,
+)
+```
+
+```go
+run, err := durable.Start(ctx, detectRoof, input, durable.StartOptions{DedupeKey: "roof:" + input.ID})
+```
+
+```go
+result, err := durable.Step(ctx, "fetch-imagery", func(ctx context.Context) (Imagery, error) {
+	return fetchImagery(ctx, input.TileID)
+})
+err = durable.Signal(ctx, run, "operator-approved", Approval{By: userID})
+err = durable.Schedule(ctx, detectRoof, DetectInput{TileID: "north"}, durable.ScheduleOptions{
+	ID:    "detect-north",
+	Every: 15 * time.Minute,
+})
+```
 
 ## Cron DSL
 
@@ -387,7 +422,8 @@ scenery inspect routes --json
 scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
-scenery inspect temporal --json
+scenery inspect legacy-async-runtime --json
+scenery inspect durable --json
 scenery inspect generators --json
 ```
 

@@ -3,14 +3,14 @@
   "$id": "https://scenery.sh/schemas/scenery.worker.manifest.v2.schema.json",
   "title": "scenery.worker.manifest.v2",
   "type": "object",
-  "required": ["schema_version", "app", "language", "build_id", "payload_codec", "temporal", "task_queues", "activities"],
+  "required": ["schema_version", "app", "language", "build_id", "payload_codec", "legacy-async-runtime", "task_queues", "activities"],
   "properties": {
     "schema_version": { "const": "scenery.worker.manifest.v2" },
     "app": { "type": "string", "minLength": 1 },
     "language": { "type": "string", "minLength": 1 },
     "build_id": { "type": "string", "minLength": 1 },
     "payload_codec": { "const": "scenery-json-v1" },
-    "temporal": {
+    "legacy-async-runtime": {
       "type": "object",
       "required": ["namespace"],
       "properties": {

@@ -8,14 +8,12 @@ import (
 	"scenery.sh/internal/devmeta"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
-	"scenery.sh/internal/workers"
 )
 
 type devRuntimePlan struct {
 	Result      *build.Result
 	Metadata    json.RawMessage
 	APIEncoding json.RawMessage
-	TypeScript  *workers.TypeScriptWorkerResult
 	Initial     bool
 }
 
@@ -56,8 +54,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		metadata    json.RawMessage
 		apiEncoding json.RawMessage
 		result      *build.Result
-		tsModel     workers.TypeScriptWorkerModel
-		tsWorker    *workers.TypeScriptWorkerResult
 		cached      *build.CachedGraph
 		err         error
 	)
@@ -71,7 +67,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			metadata = append(json.RawMessage(nil), cached.Metadata...)
 			apiEncoding = append(json.RawMessage(nil), cached.APIEncoding...)
 			result = cached.Result
-			if !s.cfg.Temporal.Enabled && len(metadata) > 0 && len(apiEncoding) > 0 {
+			if len(metadata) > 0 && len(apiEncoding) > 0 {
 				return nil
 			}
 		}
@@ -94,24 +90,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		return nil, devBuildError(nil, nil, err)
 	}
 	if err := validateLocalSecretsFiles(s.root); err != nil {
-		return nil, devBuildError(metadata, apiEncoding, err)
-	}
-	if s.cfg.Temporal.Enabled {
-		if err := s.console.Phase("Validating TypeScript Temporal workers", func() error {
-			tsModel = workers.DiscoverTypeScriptActivities(s.root)
-			if diagnostics := workers.ValidateTypeScriptContracts(tsModel, temporalExternalActivityDeclarations(s.root, appModel), nativeGoTemporalDeclarations(s.root, appModel)); len(diagnostics) > 0 {
-				return workers.DiagnosticsError(diagnostics)
-			}
-			return nil
-		}); err != nil {
-			return nil, devBuildError(metadata, apiEncoding, err)
-		}
-	}
-	if appModel != nil {
-		s.cfg = effectiveDevConfigForModel(s.cfg, appModel)
-	}
-	s.cfg = effectiveDevConfigForTypeScriptWorker(s.cfg, tsModel)
-	if err := s.ensureTemporalDevServer(ctx); err != nil {
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
@@ -178,35 +156,10 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			return nil, devBuildError(metadata, apiEncoding, err)
 		}
 	}
-	if typeScriptWorkerAutoStartEnabled(s.cfg, tsModel) {
-		if err := s.console.Phase("Generating TypeScript Temporal worker", func() error {
-			generated, generateErr := s.generateTypeScriptTemporalWorker()
-			if generateErr != nil {
-				return generateErr
-			}
-			tsWorker = generated
-			return nil
-		}); err != nil {
-			return nil, devBuildError(metadata, apiEncoding, err)
-		}
-		if err := s.console.Phase("Installing app TypeScript dependencies", func() error {
-			_, installErr := ensureTypeScriptWorkerAppDependencies(ctx, s.root, tsWorker.OutputDir)
-			return installErr
-		}); err != nil {
-			return nil, devBuildError(metadata, apiEncoding, err)
-		}
-		if err := s.console.Phase("Installing TypeScript worker dependencies", func() error {
-			_, installErr := ensureTypeScriptWorkerDependencies(ctx, tsWorker.OutputDir)
-			return installErr
-		}); err != nil {
-			return nil, devBuildError(metadata, apiEncoding, err)
-		}
-	}
 	return &devRuntimePlan{
 		Result:      result,
 		Metadata:    metadata,
 		APIEncoding: apiEncoding,
-		TypeScript:  tsWorker,
 		Initial:     initial,
 	}, nil
 }

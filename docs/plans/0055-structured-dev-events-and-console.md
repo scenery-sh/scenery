@@ -6,7 +6,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 `scenery dev --detach`, `scenery attach`, and `scenery logs --jsonl` already provide the right lifecycle shape for local development sessions. The missing foundation is a structured event plane that identifies where output came from and what it means.
 
-Today the local log store is centered on raw process output: app id, session id, pid, stream, output, and time. That is enough to follow stdout and stderr, but it is not enough for a reliable local console that separates the API app, TypeScript Temporal worker, Temporal server, managed Postgres/sync, frontends, Grafana, build phases, and supervisor events without fragile pid or text heuristics.
+Today the local log store is centered on raw process output: app id, session id, pid, stream, output, and time. That is enough to follow stdout and stderr, but it is not enough for a reliable local console that separates the API app, TypeScript legacy async runtime worker, legacy async runtime server, managed Postgres/sync, frontends, Grafana, build phases, and supervisor events without fragile pid or text heuristics.
 
 After this work, `scenery dev` emits normalized, versioned dev events. The SQLite store persists raw output plus parsed fields and source identity. Plain terminal following, JSONL output, dashboard views, agent consumers, and a terminal UI consume the same event stream:
 
@@ -39,7 +39,7 @@ In CI, non-TTY output, dumb terminals, or redirected output, interactive mode fa
 
 - [x] 2026-05-31: Created this ExecPlan from the structured logging and TUI design request and linked it from `docs/plans/active.md`.
 - [x] 2026-05-31: Implemented structured source identity, `dev_sources`/`dev_events` storage, best-effort parsing, and the `scenery.dev.event.v1` schema.
-- [x] 2026-05-31: Routed app, TypeScript worker, managed frontend, build, supervisor, Postgres, sync, Temporal, Victoria, and Grafana state/output into structured dev events while preserving legacy process output.
+- [x] 2026-05-31: Routed app, TypeScript worker, managed frontend, build, supervisor, Postgres, sync, legacy async runtime, Victoria, and Grafana state/output into structured dev events while preserving legacy process output.
 - [x] 2026-05-31: Added `scenery logs` and `scenery attach` filters for source, kind, level, grep, and since; JSONL now emits `scenery.dev.event.v1`.
 - [x] 2026-05-31: Added `scenery attach --tui`, `scenery console`, non-TTY fallback, source summaries, event expansion, errors-only mode, and grouped recent errors.
 - [x] 2026-05-31: Added `scenery status --watch`, docs, schemas, and focused tests for storage, filters, fallback, and console rendering.
@@ -53,7 +53,7 @@ In CI, non-TTY output, dumb terminals, or redirected output, interactive mode fa
 - 2026-05-31: `cmd/scenery/dev_supervisor.go` already centralizes app and TypeScript worker output through `captureProcessOutput`, which strips ANSI, writes the store row, notifies the dashboard, and emits `process.output` console events.
 - 2026-05-31: Managed frontend processes currently write stdout/stderr to per-session log files in `cmd/scenery/dev_frontends.go` instead of the devdash store. The new managed process helper must cover them explicitly.
 - 2026-05-31: The repository architecture check already forbids `github.com/charmbracelet/lipgloss` and points terminal styling at `internal/termstyle`. A Bubble Tea/Lip Gloss TUI would require a deliberate dependency decision and harness rule update, not a casual import.
-- 2026-05-31: Temporal, Victoria, and Grafana are started by helpers that do not know the app/session store context. The implementation records source-aware readiness/status events for them from `devSupervisor`, while direct stdout capture stays with app, TypeScript worker, and managed frontends in this pass.
+- 2026-05-31: legacy async runtime, Victoria, and Grafana are started by helpers that do not know the app/session store context. The implementation records source-aware readiness/status events for them from `devSupervisor`, while direct stdout capture stays with app, TypeScript worker, and managed frontends in this pass.
 - 2026-05-31: `scenery harness self --json --write` is functionally green for this change except the existing timing gate. The latest written snapshot reports only the `go tests` step as failed: full suite 9.049s over the 7.000s target, with several packages over the 2.000s package budget.
 - 2026-06-01: VictoriaLogs' `/select/logsql/query` returns JSON Lines and accepts `limit`, `start`, and `end` form/query args. The `/insert/jsonline` API lets scenery choose stable field names instead of depending on OTLP attribute flattening.
 - 2026-06-01: VictoriaLogs dropped dev records when RFC3339 timestamps were sent through `_time_field`. Keeping exact event time as a normal `created_at` field and letting Victoria assign ingest time made the records reliably queryable while preserving JSONL parity.
@@ -69,7 +69,7 @@ In CI, non-TTY output, dumb terminals, or redirected output, interactive mode fa
   Date/Author: 2026-05-31 / Codex
 
 - Decision: Persist raw output forever and treat parsing as best-effort.
-  Rationale: scenery controls some logs, but Temporal, sync, Grafana, Bun/Node workers, Vite/Astro frontends, and future sidecars will not all use one logger. Consumers need structured fields when available and exact raw text when parsing fails.
+  Rationale: scenery controls some logs, but legacy async runtime, sync, Grafana, Bun/Node workers, Vite/Astro frontends, and future sidecars will not all use one logger. Consumers need structured fields when available and exact raw text when parsing fails.
   Date/Author: 2026-05-31 / Codex
 
 - Decision: Keep the first TUI observing-only.
@@ -144,7 +144,7 @@ Target source examples:
 api
 worker:go
 worker:typescript
-temporal
+legacy-async-runtime
 postgres
 sync
 frontend:web
@@ -172,7 +172,7 @@ Target event shape:
     "id": "worker:typescript",
     "kind": "worker",
     "name": "typescript",
-    "role": "temporal-activity-worker",
+    "role": "legacy-async-runtime-activity-worker",
     "pid": "12351",
     "stream": "stdout",
     "restart_id": "1"
@@ -211,7 +211,7 @@ type ManagedProcessSpec struct {
 }
 ```
 
-The app process, TypeScript worker, frontends, managed sync, managed Postgres, Temporal, Victoria, Grafana, setup/build phases, and supervisor notices should all write source-aware events. Shared or external substrates should still write state events even when scenery does not own their stdout.
+The app process, TypeScript worker, frontends, managed sync, managed Postgres, legacy async runtime, Victoria, Grafana, setup/build phases, and supervisor notices should all write source-aware events. Shared or external substrates should still write state events even when scenery does not own their stdout.
 
 Milestone 3: Non-TUI filters.
 
@@ -238,10 +238,10 @@ The first view has three regions:
 
 ```text
 scenery dev session: billing-dev / feature-x-839a
-[all] [api] [worker:go] [worker:typescript] [temporal] [postgres] [sync] [frontend:web] [grafana] [build]
+[all] [api] [worker:go] [worker:typescript] [legacy-async-runtime] [postgres] [sync] [frontend:web] [grafana] [build]
 api                 running   pid 12345   21 req/s    2 errors   last log 1s ago
 worker:typescript   running   pid 12351   polling     0 errors   last log 4s ago
-temporal            running   shared      ui ready                last log 12s ago
+legacy-async-runtime            running   shared      ui ready                last log 12s ago
 sync            starting  pid 12360   waiting on pg           last log 0s ago
 ---------------- logs: worker:typescript ----------------
 12:44:01.223 INFO  registered activity     activity=SendEmail queue=scenery.billing.abc
@@ -266,7 +266,7 @@ Do not add restart or kill commands in the first version.
 
 Milestone 5: Parsers and derived intelligence.
 
-Add best-effort parsers for common log formats and source summaries. At minimum support JSON objects with `level` and `msg`/`message`, Go `slog` text, scenery console JSON events, Temporal-ish activity lines, Vite/Astro/Bun dev server output, and generic fallback. Then add derived summaries: last error per source, error count by source, restart count, last successful/failed build, slow/error traces, and failed Temporal activities.
+Add best-effort parsers for common log formats and source summaries. At minimum support JSON objects with `level` and `msg`/`message`, Go `slog` text, scenery console JSON events, legacy async runtime-ish activity lines, Vite/Astro/Bun dev server output, and generic fallback. Then add derived summaries: last error per source, error count by source, restart count, last successful/failed build, slow/error traces, and failed legacy async runtime activities.
 
 ## Plan of Work
 
@@ -307,7 +307,7 @@ Focused validation should cover:
 
 - Store migration from an empty DB and a DB with existing `process_output` rows.
 - `DevEvent` insert/list/follow behavior with session/source/kind/level/since/grep filters.
-- Parser behavior for JSON logs, slog text, Temporal-ish lines, Vite/Bun frontend output, and raw fallback.
+- Parser behavior for JSON logs, slog text, legacy async runtime-ish lines, Vite/Bun frontend output, and raw fallback.
 - Source-aware capture preserving raw bytes, stripping ANSI for stored raw text, and retaining stdout/stderr stream.
 - Managed frontend output entering the structured event store instead of only a side log file.
 - `scenery logs` and `scenery attach` filters.
@@ -390,7 +390,7 @@ scenery console --source worker:typescript
 scenery status --watch --json
 ```
 
-The UI should expose why a source exists when that is known. Examples: "generated TypeScript Temporal activity worker", "managed sync sync service from dev.services.sync", "shared Temporal dev server", or "frontend route from proxy.frontends.web".
+The UI should expose why a source exists when that is known. Examples: "generated TypeScript legacy async runtime activity worker", "managed sync sync service from dev.services.sync", "shared legacy async runtime dev server", or "frontend route from proxy.frontends.web".
 
 ## Interfaces and Dependencies
 
