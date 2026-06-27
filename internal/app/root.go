@@ -255,10 +255,9 @@ type DatabaseConfig struct {
 }
 
 type DatabaseApplyConfig struct {
-	Provider string            `json:"provider"`
-	Command  string            `json:"command"`
-	CWD      string            `json:"cwd"`
-	Env      map[string]string `json:"env"`
+	Command string            `json:"command"`
+	CWD     string            `json:"cwd"`
+	Env     map[string]string `json:"env"`
 }
 
 type TaskConfig struct {

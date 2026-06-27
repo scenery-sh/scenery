@@ -89,7 +89,7 @@ func parseServeArgs(args []string) (serveOptions, error) {
 			default:
 				return serveOptions{}, fmt.Errorf("invalid --log-format %q", args[i])
 			}
-		case "--verbose", "-v", "--json", "--dashboard", "--watch", "--proxy":
+		case "--verbose", "-v", "--json", "--dashboard", "--watch":
 			return serveOptions{}, fmt.Errorf("%s is a development flag; use `scenery up`", args[i])
 		default:
 			return serveOptions{}, fmt.Errorf("unknown flag %q", args[i])
@@ -324,7 +324,6 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 	overrides := []string{
 		"SCENERY_APP_ID=" + cfg.AppID(),
 		"SCENERY_APP_ROOT=" + root,
-		"SCENERY_LOCAL_PROXY=0",
 		"SCENERY_LOG_FORMAT=" + logFormat,
 		"SCENERY_PARENT_MONITOR=1",
 		fmt.Sprintf("SCENERY_PARENT_MONITOR_PID=%d", os.Getpid()),

@@ -53,7 +53,7 @@ var rootHelpGroups = []helpRootGroup{
 	}},
 	{Name: "Build and runtime", Entries: []helpRootEntry{
 		{Command: "serve", Summary: "Run the API server once"},
-		{Command: "worker", Summary: "Run workers and manage worker deployments"},
+		{Command: "worker", Summary: "Run app workers"},
 		{Command: "build", Summary: "Build the deployable binary"},
 		{Command: "check", Summary: "Check the app model"},
 		{Command: "test", Summary: "Run Go tests"},

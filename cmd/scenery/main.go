@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/stdlog"
@@ -112,9 +111,6 @@ func upCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if devProxyEnabledByEnv() {
-		return legacyDevProxyError("SCENERY_LOCAL_PROXY")
-	}
 	restore := configureDevProcessEnv(opts)
 	defer restore()
 	warnDevEscapeHatches(opts)
@@ -135,7 +131,6 @@ type devOptions struct {
 	AppRoot      string
 	Detach       bool
 	ClaimAliases bool
-	Trust        bool
 }
 
 type devListenRequest struct {
@@ -172,10 +167,6 @@ func parseDevArgs(args []string) (devOptions, error) {
 			opts.Verbose = true
 		case "--json":
 			opts.JSON = true
-		case "--proxy":
-			return devOptions{}, legacyDevProxyError("--proxy")
-		case "--trust":
-			return devOptions{}, fmt.Errorf("--trust moved to `scenery system trust`")
 		case "--detach":
 			opts.Detach = true
 		case "--app-root":
@@ -195,10 +186,6 @@ func parseDevArgs(args []string) (devOptions, error) {
 		}
 	}
 	return opts, nil
-}
-
-func legacyDevProxyError(source string) error {
-	return fmt.Errorf("%s no longer enables the legacy local proxy in `scenery up`; use the default agent-routed app URLs, or run `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, then `scenery system edge trust` to prepare trusted local HTTPS", source)
 }
 
 func resolveDevListenRequest(opts devOptions) devListenRequest {
@@ -225,15 +212,6 @@ func warnDevEscapeHatches(opts devOptions) {
 	}
 	if opts.ListenSet || opts.PortSet {
 		fmt.Fprintln(cliStderr, "scenery: warning: --listen/--port force a manual TCP app backend; this is a debugging escape hatch and can be less parallel-safe than the default agent Unix-socket backend")
-	}
-}
-
-func devProxyEnabledByEnv() bool {
-	switch strings.ToLower(strings.TrimSpace(envpolicy.Get("SCENERY_LOCAL_PROXY"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
 	}
 }
 

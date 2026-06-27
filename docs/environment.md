@@ -18,12 +18,7 @@ Process environment wins over values loaded from `.env` and `.env.local`. `scene
 | `SCENERY_DEV_CACHE_DIR` | user input | Overrides build/dashboard cache root. This does not change agent home. |
 | `SCENERY_DEV_DASHBOARD_ADDR` | internal/user input | Overrides the dashboard backend address used by dev sessions. Normally allocated automatically. |
 | `SCENERY_DEV_DASHBOARD_UI_DIR` | user input | Overrides the built dashboard UI directory used by the dashboard backend. |
-| `SCENERY_LOCAL_PROXY` | legacy/internal | `1` is rejected by normal `scenery up`; the legacy local proxy variable remains only for internal proxy code and tests. |
-| `SCENERY_LOCAL_PROXY_SKIP_TRUST_INSTALL` | legacy/internal | Legacy local proxy trust-install control; normal `scenery up` uses the agent trust path instead. |
-| `SCENERY_LOCAL_PROXY_HTTP_PORT` | legacy/internal | Legacy local proxy HTTP port override, not used by normal `scenery up`. |
-| `SCENERY_LOCAL_PROXY_HTTPS_PORT` | legacy/internal | Legacy local proxy HTTPS port override, not used by normal `scenery up`. |
 | `SCENERY_FRONTEND_<NAME>_ADDR` | user input | Manual frontend upstream override, for example `SCENERY_FRONTEND_PULSE_ADDR=127.0.0.1:4321`. |
-| `SCENERY_DISABLE_FRONTEND_PROXY` | legacy/internal | Disables frontend proxy/upstream discovery in the legacy local proxy; normal `scenery up` uses agent-routed frontend sessions. |
 
 ## App Child Identity
 
@@ -107,25 +102,6 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_STORAGE_ZEROFS_CONFIG` | injected | Path to the Scenery-written `0600` ZeroFS TOML for the managed ZeroFS process. Substrate/debug metadata only. |
 | `SCENERY_ZEROFS_WEBUI_ADDR` | injected | Private loopback ZeroFS Web UI listener address for the managed ZeroFS process. Substrate/debug metadata only. |
 | `SCENERY_ZEROFS_WEBUI_URL` | injected | Protected Scenery route URL for the ZeroFS operator/debug Web UI when a storage route is attached to the current dev session. |
-
-## legacy async runtime
-
-| Variable | Direction | Description |
-| --- | --- | --- |
-| `LEGACY_ASYNC_RUNTIME_ADDRESS` | user input/injected | Default legacy async runtime address env. Apps can override the env name with `legacy-async-runtime.address_env`. |
-| `LEGACY_ASYNC_RUNTIME_NAMESPACE` | injected/user input | legacy async runtime namespace. |
-| `LEGACY_ASYNC_RUNTIME_API_KEY` | user input | Default legacy async runtime API key env when configured. |
-| `LEGACY_ASYNC_RUNTIME_TLS_SERVER_NAME` | user input | Default legacy async runtime TLS server name env when configured. |
-| `LEGACY_ASYNC_RUNTIME_TLS_CA_CERT_FILE` | user input | Default legacy async runtime TLS CA file env when configured. |
-| `LEGACY_ASYNC_RUNTIME_TLS_CERT_FILE` | user input | Default legacy async runtime client certificate env when configured. |
-| `LEGACY_ASYNC_RUNTIME_TLS_KEY_FILE` | user input | Default legacy async runtime client key env when configured. |
-| `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_PREFIX` | injected/user input | Overrides generated legacy async runtime task queue prefix. Agent dev sets this to a session-scoped value. |
-| `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_TEST_SUFFIX` | injected/user input | Test-runtime suffix appended to the legacy async runtime task queue prefix so `scenery test` workers cannot share live dev queues. |
-| `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE` | injected/user input | Worker task queue override; `scenery worker --task-queue` sets it. |
-| `SCENERY_LEGACY_ASYNC_RUNTIME_DEPLOYMENT_NAME` | injected/user input | legacy async runtime Worker Deployment name override. |
-| `SCENERY_LEGACY_ASYNC_RUNTIME_VERSIONING_BEHAVIOR` | user input | `pinned` or `auto_upgrade`; default is `pinned`. |
-| `SCENERY_LEGACY_ASYNC_RUNTIME_HOST_RESOURCE_REPORTING` | user input | `0` disables legacy async runtime Go SDK host resource reporting. Enabled by default. |
-| `SCENERY_BUILD_ID` | injected/user input | Worker build ID. Agent dev uses the session ID. |
 
 ## Observability, Victoria, And Grafana
 

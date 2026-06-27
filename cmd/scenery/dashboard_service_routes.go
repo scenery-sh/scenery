@@ -2,9 +2,6 @@ package main
 
 import (
 	"strings"
-
-	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/localproxy"
 )
 
 func visibleDashboardRoutesFromAgent(routes map[string]string) map[string]string {
@@ -19,28 +16,6 @@ func visibleDashboardRoutesFromAgent(routes map[string]string) map[string]string
 			continue
 		}
 		visible[name] = rawURL
-	}
-	if len(visible) == 0 {
-		return nil
-	}
-	return visible
-}
-
-func visibleDashboardRoutesFromProxy(routes localproxy.Routes, appID string) map[string]string {
-	visible := map[string]string{}
-	add := func(name, rawURL string) {
-		name = strings.TrimSpace(name)
-		rawURL = strings.TrimSpace(rawURL)
-		if name == "" || rawURL == "" || hiddenDashboardRoute(name) {
-			return
-		}
-		visible[name] = rawURL
-	}
-	add(localagent.RouteAPI, routes.APIURL)
-	add(localagent.RouteDashboard, localproxy.ConsoleAppURL(routes, appID))
-	add(localagent.RouteGrafana, routes.GrafanaURL)
-	for name, frontend := range routes.Frontends {
-		add(name, frontend.URL)
 	}
 	if len(visible) == 0 {
 		return nil

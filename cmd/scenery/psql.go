@@ -65,14 +65,14 @@ func runDBApply(ctx context.Context, stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := runDatabaseApplyProvider(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
+	if err := runDatabaseApplyCommand(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
 		return err
 	}
 	result := buildDBApplyResult(appRoot, cfg)
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "scenery: database apply complete using %s provider\n", result.Apply.Provider)
+	fmt.Fprintln(stdout, "scenery: database apply complete")
 	return nil
 }
 
@@ -86,7 +86,7 @@ func dbSyncCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	if err := runDatabaseApplyProvider(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
+	if err := runDatabaseApplyCommand(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
 		return err
 	}
 	if sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg); err != nil {
@@ -110,14 +110,12 @@ type dbApplyResult struct {
 }
 
 type dbApplyRecord struct {
-	Provider string `json:"provider"`
-	Command  string `json:"command,omitempty"`
-	CWD      string `json:"cwd,omitempty"`
-	Status   string `json:"status"`
+	Command string `json:"command,omitempty"`
+	CWD     string `json:"cwd,omitempty"`
+	Status  string `json:"status"`
 }
 
 func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
-	provider := firstNonEmpty(cfg.Database.Apply.Provider, "exec")
 	return dbApplyResult{
 		SchemaVersion: "scenery.db.apply.result.v1",
 		App: inspectdata.AppRef{
@@ -127,15 +125,14 @@ func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
 			ConfigPath: cfg.SourcePath(appRoot),
 		},
 		Apply: dbApplyRecord{
-			Provider: provider,
-			Command:  cfg.Database.Apply.Command,
-			CWD:      cfg.Database.Apply.CWD,
-			Status:   "applied",
+			Command: cfg.Database.Apply.Command,
+			CWD:     cfg.Database.Apply.CWD,
+			Status:  "applied",
 		},
 	}
 }
 
-func runDatabaseApplyProvider(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig) error {
+func runDatabaseApplyCommand(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig) error {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
@@ -144,21 +141,17 @@ func runDatabaseApplyProvider(ctx context.Context, appRoot string, cfg appcfg.Co
 	if err != nil {
 		return err
 	}
-	return runDatabaseApplyProviderWithEnv(ctx, appRoot, apply, env)
+	return runDatabaseApplyCommandWithEnv(ctx, appRoot, apply, env)
 }
 
-func runDatabaseApplyProviderWithEnv(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string) error {
-	return runDatabaseApplyProviderWithEnvIO(ctx, appRoot, apply, env, os.Stdout, os.Stderr)
+func runDatabaseApplyCommandWithEnv(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string) error {
+	return runDatabaseApplyCommandWithEnvIO(ctx, appRoot, apply, env, os.Stdout, os.Stderr)
 }
 
-func runDatabaseApplyProviderWithEnvIO(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer) error {
+func runDatabaseApplyCommandWithEnvIO(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer) error {
 	command := strings.TrimSpace(apply.Command)
 	if command == "" {
 		return fmt.Errorf("database.apply is not configured")
-	}
-	provider := firstNonEmpty(apply.Provider, "exec")
-	if provider != "exec" {
-		return fmt.Errorf("unsupported database apply provider %q", apply.Provider)
 	}
 	program, args := shellInvocation(command)
 	return runLifecycleExec(ctx, lifecycleExecRequest{

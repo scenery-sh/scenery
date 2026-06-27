@@ -297,7 +297,6 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 		"SCENERY_AGENT_DISABLE=1",
 		"SCENERY_DEV_VICTORIA=0",
 		"SCENERY_DEV_VICTORIA_DOWNLOAD=0",
-		"SCENERY_LOCAL_PROXY=0",
 	)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

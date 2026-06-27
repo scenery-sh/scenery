@@ -170,7 +170,7 @@ func parseWorkerArgs(args []string) (workerOptions, error) {
 			default:
 				return workerOptions{}, fmt.Errorf("invalid --log-format %q", args[i])
 			}
-		case "--port", "-p", "--listen", "--verbose", "-v", "--json", "--dashboard", "--watch", "--proxy":
+		case "--port", "-p", "--listen", "--verbose", "-v", "--json", "--dashboard", "--watch":
 			return workerOptions{}, fmt.Errorf("%s is not supported by `scenery worker`", args[i])
 		default:
 			return workerOptions{}, fmt.Errorf("unknown flag %q", args[i])

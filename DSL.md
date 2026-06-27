@@ -5,7 +5,7 @@ Scenery apps are ordinary Go modules plus a small set of declarations. The DSL i
 - `.scenery.json` app config
 - `//scenery:*` Go directives
 - struct tags on request, response, and model fields
-- small Go builder packages such as `scenery.sh/model`, `scenery.sh/page`, `scenery.sh/legacy-async-runtime`, `scenery.sh/durable`, and `scenery.sh/cron`
+- small Go builder packages such as `scenery.sh/model`, `scenery.sh/page`, `scenery.sh/durable`, and `scenery.sh/cron`
 
 Use `docs/local-contract.md` for the exact machine contract. This file is the human map.
 
@@ -37,8 +37,7 @@ Common config surfaces:
 - `proxy.frontends`: frontend roots for dev routing and generated web packages.
 - `storage`: Scenery-owned storage stores, access, tenant scoping, and size limits.
 - `dev.services`: managed local dev services such as Postgres and ZeroFS.
-- `legacy-async-runtime.enabled`: opt-in legacy async runtime runtime. Declarations alone do not enable legacy async runtime.
-- `database.apply`: explicit database setup command provider.
+- `database.apply`: explicit database setup command.
 - `tasks`, `validation`: app-owned task and validation profiles.
 
 ## API Directives
@@ -304,45 +303,6 @@ Generated web packages export:
 
 Apps consume generated frontend code through an app-owned alias such as `@scenery/generated`.
 
-## legacy async runtime DSL
-
-Use `scenery.sh/legacy-async-runtime` for typed workflow and activity declarations. Set `legacy-async-runtime.enabled: true` in app config to run legacy async runtime.
-
-```go
-var capturePayment = legacy-async-runtime.NewActivity[CaptureInput, CaptureOutput](
-	"orders.Capture/v1",
-	legacy-async-runtime.ActivityConfig{TaskQueue: "orders.activities.go"},
-	capturePaymentFunc,
-)
-
-var fulfillOrder = legacy-async-runtime.NewWorkflow[FulfillInput, FulfillOutput](
-	"orders.Fulfill/v1",
-	legacy-async-runtime.WorkflowConfig{},
-	func(ctx legacy-async-runtime.WorkflowContext, in FulfillInput) (FulfillOutput, error) {
-		future := legacy-async-runtime.ExecuteActivity(ctx, capturePayment, CaptureInput{OrderID: in.OrderID})
-		return future.Get(ctx)
-	},
-)
-```
-
-Main pieces:
-
-- `legacy-async-runtime.NewWorkflow[I, O](name, cfg, handler)`
-- `legacy-async-runtime.NewActivity[I, O](name, cfg, handler, opts...)`
-- `legacy-async-runtime.NewExternalActivity[I, O](name, cfg, opts...)`
-- `legacy-async-runtime.ExecuteActivity(ctx, activity, input)`
-- `legacy-async-runtime.Start(ctx, workflow, input, legacy-async-runtime.WorkflowID(id), opts...)`
-- `legacy-async-runtime.Start(ctx, workflow, input, legacy-async-runtime.WorkflowIDPrefix(prefix), opts...)`
-- `legacy-async-runtime.GetWorkflow[O](ctx, workflowID, runID)`
-- `legacy-async-runtime.MethodActivity` and `RegisterServiceAccessorFor` for service-backed activities
-
-Useful config and options:
-
-- workflow task queue and timeouts
-- activity task queue, start-to-close timeout, max concurrency, retry policy
-- heartbeat timeout through `legacy-async-runtime.WithHeartbeatTimeout`
-- start memo, search attributes, timeouts, pinned build ID, conflict/reuse policies
-
 ## Durable DSL
 
 Use `scenery.sh/durable` for typed durable task declarations, enqueue, schedules, local execution, signals, and step results. Scenery discovers `durable.NewTask` calls, imports their packages into generated main, reconciles declarations into service durable SQLite databases at runtime startup, `durable.Start` writes queued jobs, and `all`/`worker` roles execute registered Go handlers locally with retry scheduling from the task config. `durable.Schedule` records an interval schedule that the API/all runtime materializes into queued jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results; outside a durable job context it just runs the function. `durable.Signal` appends a JSON signal row and event for a durable run. `scenery inspect durable --json` reports declarations, services, DB paths, and whether the durable DB currently exists. The runtime exposes authenticated durable worker HTTP endpoints for lease, heartbeat, complete, and fail with hashed worker tokens and lease-ID fencing.
@@ -389,7 +349,6 @@ var _ = cron.NewJob("nightly-sync", cron.JobConfig{
 	OverlapPolicy:        cron.OverlapSkip,
 	CatchupWindow:        10 * time.Minute,
 	PauseOnFailure:       true,
-	ActivityStartToClose: 15 * time.Minute,
 })
 
 func syncNightly(ctx context.Context) error {
@@ -406,8 +365,6 @@ Job config:
 - `OverlapPolicy`
 - `CatchupWindow`
 - `PauseOnFailure`
-- `ActivityStartToClose`
-- `ActivityRetryPolicy`
 
 Overlap policies include `skip`, `buffer_one`, `buffer_all`, `cancel_other`, `terminate_other`, and `allow_all`.
 
@@ -422,7 +379,6 @@ scenery inspect routes --json
 scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
-scenery inspect legacy-async-runtime --json
 scenery inspect durable --json
 scenery inspect generators --json
 ```

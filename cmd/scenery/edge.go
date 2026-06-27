@@ -39,10 +39,6 @@ const (
 	edgeHelperPlistPath  = "/Library/LaunchDaemons/dev.scenery.edge-helper.plist"
 	edgeHelperSupportDir = "/Library/Application Support/Scenery/edge-helper"
 	edgeHelperLogPath    = "/Library/Application Support/Scenery/edge-helper/edge-helper.log"
-
-	legacyOnlavaEdgeHelperLabel      = "dev.onlava.edge-helper"
-	legacyOnlavaEdgeHelperBinaryPath = "/usr/local/libexec/onlava-edge-helper"
-	legacyOnlavaEdgeHelperPlistPath  = "/Library/LaunchDaemons/dev.onlava.edge-helper.plist"
 )
 
 // caddyStartupSettle is how long a freshly started Caddy edge process must
@@ -1775,7 +1771,6 @@ func edgePrivilegedHelperInstall(opts edgeHelperOptions) error {
 	if err := copyRootHelperBinary(exe, edgeHelperBinaryPath); err != nil {
 		return err
 	}
-	stopLegacyOnlavaEdgeHelper()
 	if err := stopStaleRootCaddyEdge(opts.OwnerHome, 2*time.Second); err != nil {
 		return err
 	}
@@ -1794,12 +1789,6 @@ func edgePrivilegedHelperInstall(opts edgeHelperOptions) error {
 		return fmt.Errorf("launchctl kickstart: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-func stopLegacyOnlavaEdgeHelper() {
-	_ = exec.Command("launchctl", "bootout", "system/"+legacyOnlavaEdgeHelperLabel).Run()
-	_ = os.Remove(legacyOnlavaEdgeHelperPlistPath)
-	_ = os.Remove(legacyOnlavaEdgeHelperBinaryPath)
 }
 
 func edgePrivilegedHelperUninstall() error {

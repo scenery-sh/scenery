@@ -214,7 +214,6 @@ func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
   "name": "demo",
   "database": {
     "apply": {
-      "provider": "exec",
       "command": "./scripts/db-safe-apply.sh",
       "cwd": "scripts",
       "env": { "MIGRATION_MODE": "safe" }
@@ -261,7 +260,6 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
   "name": "demo",
   "database": {
     "apply": {
-      "provider": "exec",
       "command": "./scripts/db-safe-apply.sh",
       "cwd": "scripts",
       "env": { "MIGRATION_MODE": "safe" }
@@ -304,7 +302,7 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.db.apply.result.v1" || payload.Apply.Provider != "exec" || payload.Apply.Status != "applied" {
+	if payload.SchemaVersion != "scenery.db.apply.result.v1" || payload.Apply.Status != "applied" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
@@ -566,7 +564,6 @@ func TestDBSetupApplyUsesManagedPostgresBranchDatabaseURL(t *testing.T) {
   },
   "database": {
     "apply": {
-      "provider": "exec",
       "command": "true"
     }
   }
@@ -761,7 +758,6 @@ func writeSetupCommandFixture(t *testing.T) string {
   "name": "seedapp",
   "database": {
     "apply": {
-      "provider": "exec",
       "command": "true"
     }
   }

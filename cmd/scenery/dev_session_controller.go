@@ -260,7 +260,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	var frontendBackends map[string]localagent.Backend
 	var frontendProcesses []*managedFrontendProcess
-	if len(localProxyFrontends(cfg.Proxy.Frontends)) > 0 && !managedFrontendDisabled() {
+	if len(localProxyFrontends(cfg.Proxy.Frontends)) > 0 {
 		if err := c.runPhase("Starting frontend dev servers", func() error {
 			var err error
 			frontendBackends, frontendProcesses, err = managedFrontendBackendsForSession(ctx, root, cfg, baseEnv, session)

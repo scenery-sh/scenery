@@ -281,14 +281,6 @@ func validateCronOverlapPolicy(policy string) error {
 	}
 }
 
-func cronRetryPolicyIsZero(policy CronRetryPolicy) bool {
-	return policy.InitialInterval == 0 &&
-		policy.BackoffCoefficient == 0 &&
-		policy.MaximumInterval == 0 &&
-		policy.MaximumAttempts == 0 &&
-		len(policy.NonRetryableErrorTypes) == 0
-}
-
 func validateCronJob(job *CronJob) error {
 	if job == nil {
 		return fmt.Errorf("runtime: cron job cannot be nil")
@@ -314,12 +306,6 @@ func validateCronJob(job *CronJob) error {
 	if job.CatchupWindow < 0 {
 		return fmt.Errorf("runtime: cron job %s CatchupWindow cannot be negative", job.ID)
 	}
-	if job.ActivityStartToClose < 0 {
-		return fmt.Errorf("runtime: cron job %s ActivityStartToClose cannot be negative", job.ID)
-	}
-	if err := validateCronRetryPolicy(job.ID, job.ActivityRetryPolicy); err != nil {
-		return err
-	}
 	if hasEvery {
 		if job.Every%time.Second != 0 {
 			return fmt.Errorf("runtime: cron job %s Every must be a whole number of seconds", job.ID)
@@ -336,25 +322,6 @@ func validateCronJob(job *CronJob) error {
 		return fmt.Errorf("runtime: cron job %s: %w", job.ID, err)
 	}
 	job.plan = plan
-	return nil
-}
-
-func validateCronRetryPolicy(jobID string, policy CronRetryPolicy) error {
-	if cronRetryPolicyIsZero(policy) {
-		return nil
-	}
-	if policy.InitialInterval <= 0 {
-		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.InitialInterval must be positive", jobID)
-	}
-	if policy.BackoffCoefficient < 0 {
-		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.BackoffCoefficient cannot be negative", jobID)
-	}
-	if policy.MaximumInterval < 0 {
-		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.MaximumInterval cannot be negative", jobID)
-	}
-	if policy.MaximumAttempts < 0 {
-		return fmt.Errorf("runtime: cron job %s ActivityRetryPolicy.MaximumAttempts cannot be negative", jobID)
-	}
 	return nil
 }
 

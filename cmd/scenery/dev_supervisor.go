@@ -52,7 +52,6 @@ type devSupervisor struct {
 	store        *devdash.Store
 	storeWriter  dashboardControlPlaneWriter
 	dashboard    *dashboardServer
-	proxy        *localproxy.Proxy
 	victoria     *victoriaStack
 	grafana      *grafanaComponent
 	zeroFS       *managedZeroFSService
@@ -92,7 +91,7 @@ func newDevSupervisor(ctx context.Context, root string, cfg app.Config, backend 
 		store       *devdash.Store
 		storeWriter dashboardControlPlaneWriter
 	)
-	if agent != nil && agentSession != nil && !localproxy.Enabled() {
+	if agent != nil && agentSession != nil {
 		storeWriter, err = newDashboardControlPlaneClient(ctx, agent, *agentSession, token)
 		if err != nil {
 			cancel()
@@ -194,9 +193,6 @@ func (s *devSupervisor) Close() error {
 		if s.dashboard != nil {
 			closers = append(closers, closer{name: "dashboard", fn: s.dashboard.Close})
 		}
-		if s.proxy != nil {
-			closers = append(closers, closer{name: "proxy", fn: s.proxy.Close})
-		}
 		if s.storageProxy != nil {
 			closers = append(closers, closer{name: "storage-proxy", fn: s.storageProxy.Close})
 		}
@@ -292,7 +288,7 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 	if err := s.persistStatus(ctx); err != nil {
 		return err
 	}
-	if s.agent == nil || localproxy.Enabled() {
+	if s.agent == nil {
 		if err := s.dashboard.Start(ctx); err != nil {
 			return err
 		}
@@ -330,9 +326,6 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 		return s.startGrafana(s.ctx)
 	}); err != nil {
 		return err
-	}
-	if err := s.startLocalProxy(); err != nil {
-		slog.Warn("local HTTPS proxy unavailable", "err", err)
 	}
 	return nil
 }
@@ -524,7 +517,6 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		"SCENERY_DEV_SUPERVISOR=1",
 		"SCENERY_DEV_ENDPOINTS=1",
 		fmt.Sprintf("SCENERY_DEV_SUPERVISOR_PID=%d", os.Getpid()),
-		"SCENERY_LOCAL_PROXY=0",
 		"SCENERY_DEV_REPORT_URL="+s.devReportURL(),
 		"SCENERY_DEV_REPORT_TOKEN="+s.reportToken,
 	)
@@ -540,9 +532,7 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		return nil, err
 	}
 	env = append(env, storageEnv...)
-	if s.proxy != nil {
-		env = append(env, "SCENERY_PUBLIC_BASE_URL="+s.proxy.Routes().APIURL)
-	} else if agentSession != nil && agentSession.Routes[localagent.RouteAPI] != "" {
+	if agentSession != nil && agentSession.Routes[localagent.RouteAPI] != "" {
 		env = append(env, "SCENERY_PUBLIC_BASE_URL="+agentSession.Routes[localagent.RouteAPI])
 	}
 	env = append(env, s.sessionAuthEnv()...)
@@ -778,7 +768,7 @@ func (s *devSupervisor) runDevDatabaseSetup(ctx context.Context, setup devDataba
 	}
 	applyStdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
 	applyStderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
-	applyErr := runDatabaseApplyProviderWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
+	applyErr := runDatabaseApplyCommandWithEnvIO(ctx, s.root, s.cfg.Database.Apply, env, applyStdout, applyStderr)
 	applyStdout.Close()
 	applyStderr.Close()
 	if applyErr != nil {
@@ -1490,9 +1480,6 @@ func (s *devSupervisor) announceRebuild(paths []string) {
 }
 
 func (s *devSupervisor) apiURL() string {
-	if s.proxy != nil && s.proxy.Routes().APIURL != "" {
-		return s.proxy.Routes().APIURL
-	}
 	if session := s.currentAgentSession(); session != nil && session.Routes[localagent.RouteAPI] != "" {
 		return session.Routes[localagent.RouteAPI]
 	}
@@ -1500,9 +1487,6 @@ func (s *devSupervisor) apiURL() string {
 }
 
 func (s *devSupervisor) dashboardURL() string {
-	if s.proxy != nil && s.proxy.Routes().ConsoleURL != "" {
-		return localproxy.ConsoleAppURL(s.proxy.Routes(), s.activeAppID())
-	}
 	if session := s.currentAgentSession(); session != nil && session.Routes[localagent.RouteDashboard] != "" {
 		return session.Routes[localagent.RouteDashboard]
 	}
@@ -1517,9 +1501,6 @@ func (s *devSupervisor) grafanaUpstream() string {
 }
 
 func (s *devSupervisor) frontendURLs() map[string]string {
-	if s.proxy != nil {
-		return frontendURLs(s.proxy.Routes())
-	}
 	if session := s.currentAgentSession(); session != nil {
 		return frontendURLsFromAgentRoutes(session.Routes, s.cfg.Proxy.Frontends)
 	}
@@ -1557,7 +1538,7 @@ func (s *devSupervisor) startGrafana(ctx context.Context) error {
 	if s.agent != nil {
 		grafana, err = s.startAgentGrafana(ctx)
 	} else {
-		grafana, err = startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
+		grafana, err = startGrafanaForDev(ctx, s.root, s.victoria, "", s.console)
 	}
 	if grafana != nil {
 		s.grafana = grafana
@@ -1632,12 +1613,12 @@ func backendFromHTTPURL(raw string) localagent.Backend {
 
 func (s *devSupervisor) startAgentGrafana(ctx context.Context) (*grafanaComponent, error) {
 	if s == nil || s.agent == nil {
-		return startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
+		return startGrafanaForDev(ctx, s.root, s.victoria, "", s.console)
 	}
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
 		warnGrafana(s.console, "agent Grafana state path unavailable: %v", err)
-		return startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
+		return startGrafanaForDev(ctx, s.root, s.victoria, "", s.console)
 	}
 	adapter := grafanaSubstrateAdapter{victoria: s.victoria, console: s.console}
 	handle, _, err := s.substrateManager().Ensure(ctx, filepath.Join(paths.AgentDir, "grafana"), adapter)
@@ -1656,29 +1637,6 @@ func (s *devSupervisor) startAgentGrafana(ctx context.Context) (*grafanaComponen
 		})
 	}
 	return grafana, err
-}
-
-func (s *devSupervisor) plannedGrafanaPublicURL() string {
-	if s == nil || !localproxy.Enabled() {
-		return ""
-	}
-	workspace := s.cfg.Proxy.Workspace
-	if workspace == "" {
-		workspace = localproxy.DiscoverWorkspace(s.root, s.activeAppID())
-	}
-	proxyCfg := localproxy.BuildConfig(localproxy.Config{
-		Workspace:         workspace,
-		APIHost:           s.cfg.Proxy.APIHost,
-		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
-		GrafanaHost:       s.cfg.Proxy.GrafanaHost,
-		APIUpstream:       s.addr,
-		DashboardUpstream: devdash.ListenAddr(),
-		GrafanaUpstream:   fmt.Sprintf("%s:%d", grafanaDefaultHost, grafanaDefaultPort),
-	})
-	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
-		return ""
-	}
-	return localproxy.PreviewRoutes(proxyCfg).GrafanaURL
 }
 
 func (s *devSupervisor) activeAppID() string {
@@ -1755,46 +1713,6 @@ func (s *devSupervisor) setAppIdentity(cfg app.Config) {
 	s.status.UpdatedAt = time.Now().UTC()
 }
 
-func (s *devSupervisor) startLocalProxy() error {
-	if !localproxy.Enabled() {
-		return nil
-	}
-	workspace := s.cfg.Proxy.Workspace
-	if workspace == "" {
-		workspace = localproxy.DiscoverWorkspace(s.root, s.activeAppID())
-	}
-	proxyCfg := localproxy.BuildConfig(localproxy.Config{
-		Workspace:         workspace,
-		APIHost:           s.cfg.Proxy.APIHost,
-		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
-		GrafanaHost:       s.cfg.Proxy.GrafanaHost,
-		APIUpstream:       s.addr,
-		DashboardUpstream: devdash.ListenAddr(),
-		GrafanaUpstream:   s.grafanaUpstream(),
-		Frontends:         localproxy.ResolveFrontends(s.root, localProxyFrontends(s.cfg.Proxy.Frontends)),
-		Verbose:           s.console != nil && s.console.verbose,
-	})
-	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
-		return nil
-	}
-	proxy, err := localproxy.Start(proxyCfg)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.proxy = proxy
-	s.mu.Unlock()
-	if s.grafana != nil && proxy.Routes().GrafanaURL != "" {
-		state := grafanaStateWithBaseURL(s.grafana.State(), proxy.Routes().GrafanaURL)
-		s.setGrafanaState(state)
-		s.dashboard.notify(&devdash.Notification{
-			Method: "grafana/status",
-			Params: state,
-		})
-	}
-	return nil
-}
-
 func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.FrontendConfig {
 	names := make([]string, 0, len(frontends))
 	for name := range frontends {
@@ -1813,22 +1731,6 @@ func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.F
 		})
 	}
 	return resolved
-}
-
-func frontendURLs(routes localproxy.Routes) map[string]string {
-	if len(routes.Frontends) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(routes.Frontends))
-	for name := range routes.Frontends {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	urls := make(map[string]string, len(names))
-	for _, name := range names {
-		urls[name] = routes.Frontends[name].URL
-	}
-	return urls
 }
 
 func frontendURLsFromAgentRoutes(routes map[string]string, frontends map[string]app.FrontendConfig) map[string]string {
@@ -2049,11 +1951,6 @@ func (s *devSupervisor) statusDashboardRoutesLocked(sessionID string) map[string
 			if routes := visibleDashboardRoutesFromAgent(s.agentSession.Routes); len(routes) > 0 {
 				return routes
 			}
-		}
-	}
-	if s.proxy != nil {
-		if routes := visibleDashboardRoutesFromProxy(s.proxy.Routes(), s.activeAppIDLocked()); len(routes) > 0 {
-			return routes
 		}
 	}
 	return nil

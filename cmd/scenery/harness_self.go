@@ -720,8 +720,6 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.db.branch.registry.v2.schema.json",
 		"docs/schemas/scenery.run.event.v1.schema.json",
 		"docs/schemas/scenery.version.v1.schema.json",
-		"docs/schemas/scenery.worker.manifest.v1.schema.json",
-		"docs/schemas/scenery.worker.manifest.v2.schema.json",
 		"docs/schemas/scenery.wire.capabilities.v1.schema.json",
 	}
 	return harnessKnowledge{

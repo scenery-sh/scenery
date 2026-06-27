@@ -16,7 +16,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/localproxy"
 )
 
@@ -44,7 +43,7 @@ type managedFrontendStartResult struct {
 
 func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
 	frontends := localProxyFrontends(cfg.Proxy.Frontends)
-	if len(frontends) == 0 || managedFrontendDisabled() {
+	if len(frontends) == 0 {
 		return nil, nil, nil
 	}
 	sort.Slice(frontends, func(i, j int) bool {
@@ -520,13 +519,4 @@ func (p *managedFrontendProcess) Stop() error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func managedFrontendDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(envpolicy.Get("SCENERY_DISABLE_FRONTEND_PROXY"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }

@@ -97,14 +97,13 @@
       "freshness": "current",
       "last_reviewed": "2026-06-27",
       "review_after": "2026-07-27",
-      "summary": "Human-readable reference for the current Scenery DSL surface: app config, //scenery directives, request/response/model tags, static model/page IR, generated data/web output, legacy async runtime declarations, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, durable inspect metadata, cron jobs, and inspect commands.",
+      "summary": "Human-readable reference for the current Scenery DSL surface: app config, //scenery directives, request/response/model tags, static model/page IR, generated data/web output, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, durable inspect metadata, cron jobs, and inspect commands.",
       "tags": [
         "docs",
         "dsl",
         "apps",
         "models",
         "views",
-        "legacy-async-runtime",
         "durable",
         "cron"
       ]
@@ -354,7 +353,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-08",
       "review_after": "2026-07-01",
-      "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, legacy async runtime workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, durable workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -856,14 +855,13 @@
       "freshness": "current",
       "last_reviewed": "2026-06-27",
       "review_after": "2026-07-27",
-      "summary": "Completed ExecPlan that added per-service SQLite durable databases, local and remote durable workers, authenticated long-poll leasing, retries, schedules, steps, signals, job admin, inspection, schemas, docs, and legacy async runtime migration guidance without NATS.",
+      "summary": "Completed ExecPlan that added per-service SQLite durable databases, local and remote durable workers, authenticated long-poll leasing, retries, schedules, steps, signals, job admin, inspection, schemas, docs, and migration guidance without NATS.",
       "tags": [
         "plans",
         "execplans",
         "durable-execution",
         "sqlite",
         "workers",
-        "legacy-async-runtime",
         "runtime",
         "agents"
       ]
