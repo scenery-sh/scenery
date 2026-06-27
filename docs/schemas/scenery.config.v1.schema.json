@@ -62,6 +62,17 @@
         "setup": {
           "type": ["array", "null"],
           "items": { "type": "string" }
+        },
+        "routing": {
+          "type": "object",
+          "description": "Browser-facing local dev routing. The default mode is path, which assigns one stable localhost port per app root.",
+          "properties": {
+            "mode": { "type": "string", "enum": ["", "path", "host"] },
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "port_start": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "port_end": { "type": "integer", "minimum": 0, "maximum": 65535 }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

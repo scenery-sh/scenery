@@ -176,13 +176,20 @@ scenery console
 
 `--detach` starts the app root's agent-backed dev runtime in the background and returns after it is registered. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime; for shared storage cells, it releases only that runtime's lease and preserves shared data. Use Git worktrees when you need multiple live code copies.
 
-`scenery up` uses canonical agent-routed app URLs from the app config's proxy settings. Generated local routes default to `https://api.<route-id>.local.dev`, `https://console.<route-id>.local.dev`, and frontend routes under the same `local.dev` base. The route id is internal state, not something users select. If `proxy.route_base_domain` is explicitly configured, the local edge is required for normal browser-facing URLs: startup fails loudly when DNS, the privileged listener, Caddy, or the HTTPS probe is not ready instead of publishing internal `:9440` router URLs as app routes. Configured hosts are exposed separately as friendly aliases only when the live app root owns that free alias. Stale alias leases are reclaimed after owner verification; use `scenery up --claim-aliases` only when intentionally transferring live aliases to this app root. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
+`scenery up` defaults to path routing: one live app root gets one browser-facing base URL such as `http://localhost:4001`, and services live under paths such as `/api/`, `/web/`, `/blog/`, and `/runtime/`. `scenery ps` and `scenery ps --json` report the base URL plus service routes. `dev.routing.port`, `dev.routing.port_start`, and `dev.routing.port_end` may pin or constrain the assigned localhost port; otherwise Scenery chooses a stable free port for the app root/session. Set `dev.routing.mode` to `host` when you intentionally want legacy domain-style routes from `proxy.route_base_domain`, `proxy.api_host`, `proxy.console_host`, or frontend `host` values.
+
+In host mode, generated routes use the local edge/DNS path. If `proxy.route_base_domain` is configured, startup fails loudly when DNS, the privileged listener, Caddy, or the HTTPS probe is not ready instead of publishing internal `:9440` router URLs as app routes. Configured hosts are exposed separately as friendly aliases only when the live app root owns that free alias. Stale alias leases are reclaimed after owner verification; use `scenery up --claim-aliases` only when intentionally transferring live aliases to this app root. Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when you want trusted wildcard local HTTPS routes on the default HTTPS port; edge syncs managed dnsmasq and Caddy when needed and keeps Caddy user-owned.
 
 Example proxy config:
 
 ```json
 {
   "name": "myapp",
+  "dev": {
+    "routing": {
+      "mode": "path"
+    }
+  },
   "proxy": {
     "workspace": "myteam",
     "route_base_domain": "local.dev",

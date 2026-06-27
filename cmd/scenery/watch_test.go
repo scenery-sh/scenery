@@ -360,8 +360,14 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 	if _, ok := session.Backends[localagent.RouteDashboard]; ok {
 		t.Fatalf("session dashboard backend should not be visible when the agent dashboard is active: %+v", session.Backends)
 	}
-	if route := session.Routes[localagent.RouteDashboard]; !strings.Contains(route, "console."+session.SessionID+"."+localagent.DefaultRouteBaseDomain) || strings.Contains(route, "/s/"+session.SessionID) {
-		t.Fatalf("session dashboard route = %q", route)
+	if session.RouteManifest.Mode != localagent.RouteModePath {
+		t.Fatalf("route mode = %q, want path", session.RouteManifest.Mode)
+	}
+	if !strings.HasPrefix(session.RouteManifest.BaseURL, "http://localhost:") {
+		t.Fatalf("route base URL = %q, want localhost lease", session.RouteManifest.BaseURL)
+	}
+	if route := session.Routes[localagent.RouteDashboard]; !strings.HasPrefix(route, session.RouteManifest.BaseURL+"/console/") {
+		t.Fatalf("session dashboard route = %q, want console path under %q", route, session.RouteManifest.BaseURL)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".scenery", "sessions", session.SessionID, "manifest.json")); err != nil {
 		t.Fatalf("session manifest missing: %v", err)
@@ -370,7 +376,7 @@ func TestPrepareDevAgentSessionDefaultsToUnixBackend(t *testing.T) {
 	if web.Network != "tcp" || web.Addr != "127.0.0.1:5173" {
 		t.Fatalf("session frontend backend = %+v", web)
 	}
-	if route := session.Routes["web"]; !strings.Contains(route, "web."+session.SessionID+".demo.localhost") {
+	if route := session.Routes["web"]; !strings.HasPrefix(route, session.RouteManifest.BaseURL+"/web/") {
 		t.Fatalf("session frontend route = %q", route)
 	}
 
@@ -502,8 +508,11 @@ func TestPrepareDevAgentSessionConfiguredRouteBaseDomainPublishesPortlessEdgeRou
 	defer restoreHooks()
 
 	_, session, _, restore, err := prepareDevAgentSession(ctx, t.TempDir(), app.Config{
-		Name:  "demo",
-		Proxy: app.ProxyConfig{RouteBaseDomain: "onlv.dev"},
+		Name: "demo",
+		Dev:  app.DevConfig{Routing: app.DevRoutingConfig{Mode: "host"}},
+		Proxy: app.ProxyConfig{
+			RouteBaseDomain: "onlv.dev",
+		},
 	}, devListenRequest{}, nil)
 	defer restore()
 	if err != nil {
@@ -545,8 +554,11 @@ func TestPrepareDevAgentSessionConfiguredRouteBaseDomainFailsLoudWhenEdgeStopped
 
 	root := t.TempDir()
 	_, session, _, restore, err := prepareDevAgentSession(ctx, root, app.Config{
-		Name:  "demo",
-		Proxy: app.ProxyConfig{RouteBaseDomain: "onlv.dev"},
+		Name: "demo",
+		Dev:  app.DevConfig{Routing: app.DevRoutingConfig{Mode: "host"}},
+		Proxy: app.ProxyConfig{
+			RouteBaseDomain: "onlv.dev",
+		},
 	}, devListenRequest{}, nil)
 	defer restore()
 	if err == nil {
@@ -608,9 +620,12 @@ func TestPrepareDevAgentSessionWithoutConfiguredRouteBaseDomainAllowsDirectRoute
 	if err != nil {
 		t.Fatalf("prepareDevAgentSession: %v", err)
 	}
+	if session.RouteManifest.Mode != localagent.RouteModePath {
+		t.Fatalf("route mode = %q, want path", session.RouteManifest.Mode)
+	}
 	route := session.Routes[localagent.RouteDashboard]
-	if !strings.Contains(route, "."+localagent.DefaultRouteBaseDomain+":") {
-		t.Fatalf("dashboard route = %q, want direct router URL with explicit port", route)
+	if !strings.HasPrefix(route, session.RouteManifest.BaseURL+"/console/") {
+		t.Fatalf("dashboard route = %q, want path route under %q", route, session.RouteManifest.BaseURL)
 	}
 
 	cancel()

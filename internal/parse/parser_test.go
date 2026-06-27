@@ -734,6 +734,19 @@ var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList
 			want: `generated model endpoint GET /api/tasks for entity Task table tasks uses reserved route prefix /api`,
 		},
 		{
+			name: "generated runtime reserved route prefix",
+			body: `package runtime
+
+import "scenery.sh/model"
+
+//scenery:model
+type Task struct { ID string }
+
+var _ = model.Entity[Task](model.Table("tasks"), model.Generate(model.ActionList))
+`,
+			want: `generated model endpoint GET /runtime/tasks for entity Task table tasks uses reserved route prefix /runtime`,
+		},
+		{
 			name: "generated static route collides with declared parameter route",
 			body: `package sync
 

@@ -243,11 +243,11 @@ func TestStatusAndDownCommandsUseAgent(t *testing.T) {
 	output = commandOutput(t, func(stdout io.Writer) error {
 		return statusCommandWithClient(client, stdout, []string{"--app-root", appRoot})
 	})
-	if !strings.Contains(output, "APP ROOT") || !strings.Contains(output, "STATUS") || !strings.Contains(output, "CONSOLE") {
+	if !strings.Contains(output, "APP") || !strings.Contains(output, "WORKTREE") || !strings.Contains(output, "URL") || !strings.Contains(output, "SERVICES") {
 		t.Fatalf("human status output missing table header:\n%s", output)
 	}
-	if strings.Contains(output, "SESSION") || !strings.Contains(output, appRoot) || !strings.Contains(output, consoleURL) || strings.Contains(output, "http://api.") {
-		t.Fatalf("human status output should show app root entries and console route:\n%s", output)
+	if strings.Contains(output, "SESSION") || !strings.Contains(output, "demo") || !strings.Contains(output, consoleURL) || !strings.Contains(output, "api=http://api.") {
+		t.Fatalf("human status output should show app, URL, and services:\n%s", output)
 	}
 	if !strings.Contains(output, "Shared substrates:") || !strings.Contains(output, "victoria") || !strings.Contains(output, "metrics=456") || !strings.Contains(output, "http://127.0.0.1:8428") {
 		t.Fatalf("human status output missing shared substrate details:\n%s", output)

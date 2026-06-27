@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0090 Local Path Routing and Per-Runtime Dev Ports](0090-local-path-routing.md)
+  - Status: active
+  - Owner: scenery runtime / agent DX
+  - Created: 2026-06-27
+  - Focus: make localhost path routing with one automatic port per dev runtime the default local routing mode, keep Caddy, and make dnsmasq/domain routing optional.
 - [0088 SQLite Service Databases and Postgres Removal](0088-sqlite-service-databases.md)
   - Status: active
   - Owner: scenery runtime / database

@@ -812,7 +812,7 @@ func TestSceneryDevDashboardNotificationsAndRoutes(t *testing.T) {
 	t.Parallel()
 
 	repo := repoRoot(t)
-	appDir, apiPath, _ := prepareMutableDevRouteApp(t, repo, "devdashboard", "devdashboard", `{"name":"basicapp","proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","frontends":{"web":{"host":"web.acme.localhost"}}}}`)
+	appDir, apiPath, _ := prepareMutableDevRouteApp(t, repo, "devdashboard", "devdashboard", `{"name":"basicapp","dev":{"routing":{"mode":"host"}},"proxy":{"workspace":"ignored","api_host":"api.acme.localhost","console_host":"console.acme.localhost","frontends":{"web":{"host":"web.acme.localhost"}}}}`)
 
 	port := freePort(t)
 	addr := "127.0.0.1:" + port
