@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -21,61 +18,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/devdash"
 )
-
-func writeTestAppFileIfChanged(t *testing.T, root, rel, contents string) {
-	t.Helper()
-	path := filepath.Join(root, rel)
-	if current, err := os.ReadFile(path); err == nil && string(current) == contents {
-		return
-	}
-	writeTestAppFile(t, root, rel, contents)
-}
-
-func persistentTestAppRoot(t *testing.T, name string) string {
-	t.Helper()
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.Join(cacheDir, "scenery", "cmd-scenery-tests", name)
-}
-
-func preparePersistentTestApp(t *testing.T, root string, files map[string]string) {
-	t.Helper()
-	fingerprint := testAppFingerprint(files)
-	marker := filepath.Join(root, ".scenery-test-fingerprint")
-	data, err := os.ReadFile(marker)
-	if err != nil || strings.TrimSpace(string(data)) != fingerprint {
-		if err := os.RemoveAll(root); err != nil {
-			t.Fatal(err)
-		}
-	}
-	paths := make([]string, 0, len(files))
-	for rel := range files {
-		paths = append(paths, rel)
-	}
-	sort.Strings(paths)
-	for _, rel := range paths {
-		writeTestAppFileIfChanged(t, root, rel, files[rel])
-	}
-	writeTestAppFileIfChanged(t, root, ".scenery-test-fingerprint", fingerprint+"\n")
-}
-
-func testAppFingerprint(files map[string]string) string {
-	paths := make([]string, 0, len(files))
-	for rel := range files {
-		paths = append(paths, filepath.ToSlash(rel))
-	}
-	sort.Strings(paths)
-	h := sha256.New()
-	for _, rel := range paths {
-		_, _ = h.Write([]byte(rel))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(files[rel]))
-		_, _ = h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
 
 func writeTestAppFile(t *testing.T, root, rel, contents string) {
 	t.Helper()

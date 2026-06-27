@@ -8,7 +8,7 @@ import (
 	"scenery.sh/internal/devdash"
 )
 
-func observabilityStateFromVictoria(victoria dashboardVictoria, appID, sessionID, appRoot string, session *localagent.Session) *devdash.ObservabilityState {
+func observabilityStateFromVictoria(victoria *victoriaStack, appID, sessionID, appRoot string, session *localagent.Session) *devdash.ObservabilityState {
 	state := &devdash.ObservabilityState{
 		Enabled: true,
 		Backend: "victoria",

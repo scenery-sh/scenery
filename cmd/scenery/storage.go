@@ -419,17 +419,17 @@ func storageCapabilityEnv(cfg appcfg.Config, session *localagent.Session, baseEn
 	return result, nil
 }
 
-func headlessStorageCapabilityEnv(cfg appcfg.Config, baseEnv []string) ([]string, error) {
+func runtimeStorageCapabilityEnv(cfg appcfg.Config, baseEnv []string) ([]string, error) {
 	if len(cfg.Storage.Stores) == 0 {
 		return nil, nil
 	}
 	if raw, ok := storageRuntimeConfigValue(baseEnv); ok {
-		if err := validateHeadlessStorageRuntimeConfig(raw); err != nil {
+		if err := validateRuntimeStorageConfig(raw); err != nil {
 			return nil, err
 		}
 		return nil, nil
 	}
-	return nil, fmt.Errorf("storage is configured, but headless runtimes require explicit %s; run `scenery up` for managed dev ZeroFS or set %s to an operator-provided storage runtime config", storageconfig.RuntimeConfigEnv, storageconfig.RuntimeConfigEnv)
+	return nil, fmt.Errorf("storage is configured, but non-dev runtimes require explicit %s; run `scenery up` for managed dev ZeroFS or set %s to an operator-provided storage runtime config", storageconfig.RuntimeConfigEnv, storageconfig.RuntimeConfigEnv)
 }
 
 func storageRuntimeConfigValue(env []string) (string, bool) {
@@ -442,20 +442,20 @@ func storageRuntimeConfigValue(env []string) (string, bool) {
 	return "", false
 }
 
-func validateHeadlessStorageRuntimeConfig(raw string) error {
+func validateRuntimeStorageConfig(raw string) error {
 	cfg, ok, err := storageconfig.LoadRuntimeConfigValue(raw)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("%s must define at least one store for headless storage runtimes", storageconfig.RuntimeConfigEnv)
+		return fmt.Errorf("%s must define at least one store for runtime storage", storageconfig.RuntimeConfigEnv)
 	}
 	for name, store := range cfg.Stores {
 		if strings.TrimSpace(store.Kind) != "proxy" {
-			return fmt.Errorf("headless storage store %q must use kind \"proxy\"; managed ZeroFS and local roots are dev-only", name)
+			return fmt.Errorf("runtime storage store %q must use kind \"proxy\"; managed ZeroFS and local roots are dev-only", name)
 		}
 		if strings.TrimSpace(store.ProxySocket) == "" {
-			return fmt.Errorf("headless storage store %q must set proxy_socket", name)
+			return fmt.Errorf("runtime storage store %q must set proxy_socket", name)
 		}
 	}
 	return nil

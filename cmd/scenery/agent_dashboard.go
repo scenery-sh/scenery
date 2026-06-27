@@ -159,7 +159,7 @@ func (c *agentDashboardController) dashboardRootForApp(ctx context.Context, appI
 	return status.AppRoot, nil
 }
 
-func (c *agentDashboardController) dashboardVictoria() dashboardVictoria {
+func (c *agentDashboardController) dashboardVictoria() *victoriaStack {
 	if c == nil || c.agent == nil {
 		return nil
 	}

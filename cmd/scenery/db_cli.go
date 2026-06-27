@@ -78,28 +78,6 @@ func runDBApply(ctx context.Context, stdout io.Writer, args []string) error {
 	return nil
 }
 
-func dbSyncCommand(args []string) error {
-	opts, err := parseDBResetArgs(args)
-	if err != nil {
-		return err
-	}
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	if err := runDatabaseApplyCommand(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
-		return err
-	}
-	if sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg); err != nil {
-		return err
-	} else if ok {
-		return runSQLCGenerator(ctx, os.Stdout, appRoot, sqlcPlan, false)
-	}
-	fmt.Fprintln(os.Stdout, "scenery: database sync complete; no sqlc generator configured")
-	return nil
-}
-
 type dbApplyOptions struct {
 	AppRoot string
 	JSON    bool

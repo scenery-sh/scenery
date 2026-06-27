@@ -56,13 +56,13 @@ parser-derived decisions downstream when the model can represent them once.
 
 This is the CLI entrypoint and orchestration layer. `main`, `run`, and the
 command-specific functions parse flags and connect internal packages into user
-commands such as `up`, `serve`, `worker`, `build`, `check`, `inspect`,
+commands such as `up`, `worker`, `build`, `check`, `inspect`,
 `harness`, `logs`, `console`, `db`, `task`, and `generate`.
 
-`scenery serve` is the headless app execution path. `scenery up` starts the local
-app session around that runtime: dashboard, agent routing, live rebuild behavior,
-logs, traces, metrics, managed dev services, optional frontend routing, and
-process supervision.
+`scenery up` starts the local app session: dashboard, agent routing, live rebuild
+behavior, logs, traces, metrics, managed dev services, optional frontend routing,
+and process supervision. `scenery build` produces the deployable app binary, and
+`scenery worker` starts worker-only runtime execution.
 
 Architecture invariant: non-CLI packages must not import `cmd/scenery`. Shared
 logic belongs in `internal/` or a public package, depending on whether user apps
@@ -206,8 +206,8 @@ surface local logs, traces, and metrics. The dashboard server and UI embedding
 are orchestrated from `cmd/scenery`.
 
 Architecture invariant: development services should be optional around the app
-runtime. They can improve local ergonomics, but `scenery serve` must remain a
-headless execution path.
+runtime. They can improve local ergonomics, but generated app binaries and
+worker execution must stay usable without the local dashboard or agent routing.
 
 ### `ui`
 
@@ -230,8 +230,8 @@ Architecture invariant: substantial implementation plans live under
 
 ### `testdata`
 
-`testdata` contains fixture apps and golden generated files. It is the acceptance
-corpus for parser, codegen, runtime, and CLI behavior.
+`testdata` contains fixture apps. It is the acceptance corpus for parser,
+codegen, runtime, and CLI behavior.
 
 Architecture invariant: fixture apps should speak scenery syntax directly. Use
 Historical reference material only as a corpus when porting behavior into

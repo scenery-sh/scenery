@@ -98,19 +98,15 @@ type doctorCheck struct {
 }
 
 type doctorProbeDeps struct {
-	LookPath      func(file string) (string, error)
-	RunCommand    func(ctx context.Context, name string, args ...string) ([]byte, error)
-	ResourceProbe doctorResourceProbe
-	Getwd         func() (string, error)
-	CacheRoot     func() (string, error)
-	AgentHome     func() (string, error)
-	DiscoverApp   func(start string) (doctorAppInfo, appcfg.Config, bool, error)
-}
-
-type doctorResourceProbe interface {
-	Runtime() doctorRuntimeInfo
-	Memory(ctx context.Context) (doctorMemoryInfo, error)
-	Disk(ctx context.Context, path string) (doctorDiskInfo, error)
+	LookPath        func(file string) (string, error)
+	RunCommand      func(ctx context.Context, name string, args ...string) ([]byte, error)
+	ResourceRuntime func() doctorRuntimeInfo
+	ResourceMemory  func(ctx context.Context) (doctorMemoryInfo, error)
+	ResourceDisk    func(ctx context.Context, path string) (doctorDiskInfo, error)
+	Getwd           func() (string, error)
+	CacheRoot       func() (string, error)
+	AgentHome       func() (string, error)
+	DiscoverApp     func(start string) (doctorAppInfo, appcfg.Config, bool, error)
 }
 
 type doctorRuntimeInfo struct {
@@ -200,11 +196,13 @@ func parseDoctorArgs(args []string) (doctorOptions, error) {
 
 func defaultDoctorProbeDeps() doctorProbeDeps {
 	return doctorProbeDeps{
-		LookPath:      exec.LookPath,
-		RunCommand:    doctorRunCommand,
-		ResourceProbe: defaultDoctorResourceProbe{},
-		Getwd:         os.Getwd,
-		CacheRoot:     build.CacheRoot,
+		LookPath:        exec.LookPath,
+		RunCommand:      doctorRunCommand,
+		ResourceRuntime: defaultDoctorRuntime,
+		ResourceMemory:  defaultDoctorMemory,
+		ResourceDisk:    defaultDoctorDisk,
+		Getwd:           os.Getwd,
+		CacheRoot:       build.CacheRoot,
 		AgentHome: func() (string, error) {
 			paths, err := localagent.DefaultPaths()
 			if err != nil {
@@ -246,14 +244,14 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 		Scenery:       buildVersionResponse(),
 	}
 
-	runtimeInfo := deps.ResourceProbe.Runtime()
+	runtimeInfo := deps.ResourceRuntime()
 	resp.Environment.GOOS = runtimeInfo.GOOS
 	resp.Environment.GOARCH = runtimeInfo.GOARCH
 	resp.Environment.NumCPU = runtimeInfo.NumCPU
 
 	resp.Checks = append(resp.Checks, doctorRuntimeCheck(runtimeInfo))
 	resp.Checks = append(resp.Checks, doctorCPUCheck(runtimeInfo.NumCPU))
-	if memory, err := deps.ResourceProbe.Memory(ctx); err != nil {
+	if memory, err := deps.ResourceMemory(ctx); err != nil {
 		resp.Checks = append(resp.Checks, doctorCheck{
 			ID:              "resource.memory",
 			Category:        "resource",
@@ -323,7 +321,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 
 	diskPaths := doctorDiskPaths(opts, resp.App, deps)
 	for _, path := range diskPaths {
-		resp.Checks = append(resp.Checks, doctorDiskCheck(ctx, deps.ResourceProbe, path, &resp.Environment)...)
+		resp.Checks = append(resp.Checks, doctorDiskCheck(ctx, deps.ResourceDisk, path, &resp.Environment)...)
 	}
 	resp.Checks = append(resp.Checks, doctorStorageSizeChecks(ctx, deps)...)
 
@@ -345,8 +343,14 @@ func fillDoctorProbeDeps(deps doctorProbeDeps) doctorProbeDeps {
 	if deps.RunCommand == nil {
 		deps.RunCommand = defaults.RunCommand
 	}
-	if deps.ResourceProbe == nil {
-		deps.ResourceProbe = defaults.ResourceProbe
+	if deps.ResourceRuntime == nil {
+		deps.ResourceRuntime = defaults.ResourceRuntime
+	}
+	if deps.ResourceMemory == nil {
+		deps.ResourceMemory = defaults.ResourceMemory
+	}
+	if deps.ResourceDisk == nil {
+		deps.ResourceDisk = defaults.ResourceDisk
 	}
 	if deps.Getwd == nil {
 		deps.Getwd = defaults.Getwd
@@ -474,8 +478,8 @@ func doctorDiskPaths(opts doctorOptions, app *doctorAppInfo, deps doctorProbeDep
 	return out
 }
 
-func doctorDiskCheck(ctx context.Context, probe doctorResourceProbe, path doctorPathReport, env *doctorEnvironment) []doctorCheck {
-	disk, err := probe.Disk(ctx, path.Path)
+func doctorDiskCheck(ctx context.Context, diskFunc func(context.Context, string) (doctorDiskInfo, error), path doctorPathReport, env *doctorEnvironment) []doctorCheck {
+	disk, err := diskFunc(ctx, path.Path)
 	if err != nil {
 		return []doctorCheck{{
 			ID:              "resource.disk." + path.Kind,
@@ -1130,9 +1134,7 @@ func humanBytes(n uint64) string {
 	return fmt.Sprintf("%d B", n)
 }
 
-type defaultDoctorResourceProbe struct{}
-
-func (defaultDoctorResourceProbe) Runtime() doctorRuntimeInfo {
+func defaultDoctorRuntime() doctorRuntimeInfo {
 	return doctorRuntimeInfo{
 		GOOS:   runtime.GOOS,
 		GOARCH: runtime.GOARCH,

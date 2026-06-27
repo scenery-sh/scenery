@@ -97,13 +97,19 @@ start_app() {
   local app_root="$1"
   local addr="$2"
   local log="$3"
-  local cache
+  local ready_path="${4:-/service.CallPrivate}"
+  local cache binary
   cache="$(mktemp -d)"
   cleanup_items+=("rm -rf '$cache'")
-  SCENERY_DEV_CACHE_DIR="$cache" "$SCENERY_BIN" serve --app-root "$app_root" --listen "$addr" >"$log" 2>&1 &
+  binary="$cache/app"
+  SCENERY_DEV_CACHE_DIR="$cache" "$SCENERY_BIN" build --app-root "$app_root" -o "$binary" >>"$log" 2>&1
+  (
+    cd "$app_root"
+    SCENERY_APP_ROOT="$app_root" SCENERY_LISTEN_ADDR="$addr" SCENERY_LOG_FORMAT=text "$binary"
+  ) >>"$log" 2>&1 &
   local pid=$!
   cleanup_items+=("kill -INT $pid >/dev/null 2>&1 || true; wait $pid >/dev/null 2>&1 || true")
-  wait_for_http "http://$addr/service.CallPrivate"
+  wait_for_http "http://$addr$ready_path"
   printf '%s' "$pid"
 }
 
@@ -193,7 +199,7 @@ fixture_smoke() {
   port="$(free_port)"
   addr="127.0.0.1:$port"
   log="$LOG_DIR/fixture-smoke-app.log"
-  start_app "$app" "$addr" "$log" >/dev/null
+  start_app "$app" "$addr" "$log" "/secrets" >/dev/null
   run curl -fsS -H 'X-Echo: hdr' "http://$addr/echo/release?title=Gate" -d '{"body":"ok"}'
   run curl -fsS "http://$addr/service.CallPrivate"
 }
@@ -226,15 +232,17 @@ router_safety() {
 }
 
 secrets_gate() {
-  local tmp app port addr log output
+  local tmp app port addr log output binary
   tmp="$(mktemp -d)"
   cleanup_items+=("rm -rf '$tmp'")
   copy_fixture secrets "$tmp"
   app="$tmp/secrets"
   rm -f "$app/.env"
-  if output="$("$SCENERY_BIN" serve --app-root "$app" --listen "127.0.0.1:$(free_port)" --env production 2>&1)"; then
+  binary="$tmp/secrets-app"
+  "$SCENERY_BIN" build --app-root "$app" -o "$binary" >/dev/null
+  if output="$(cd "$app" && SCENERY_APP_ROOT="$app" SCENERY_RUNTIME_ENV=production SCENERY_LISTEN_ADDR="127.0.0.1:$(free_port)" "$binary" 2>&1)"; then
     printf '%s\n' "$output"
-    die "production run succeeded with missing declared secrets"
+    die "production app succeeded with missing declared secrets"
   fi
   grep -q "missing required secrets for production" <<<"$output" || {
     printf '%s\n' "$output"
@@ -246,9 +254,7 @@ secrets_gate() {
   port="$(free_port)"
   addr="127.0.0.1:$port"
   log="$LOG_DIR/secrets-smoke-app.log"
-  SCENERY_DEV_CACHE_DIR="$tmp/cache" "$SCENERY_BIN" serve --app-root "$app" --listen "$addr" >"$log" 2>&1 &
-  local pid=$!
-  cleanup_items+=("kill -INT $pid >/dev/null 2>&1 || true; wait $pid >/dev/null 2>&1 || true")
+  start_app "$app" "$addr" "$log" >/dev/null
   wait_for_http "http://$addr/secrets"
   output="$(curl -fsS "http://$addr/secrets")"
   grep -q "service-secret" <<<"$output" || die "service secret was not populated"

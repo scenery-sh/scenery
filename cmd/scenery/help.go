@@ -52,7 +52,6 @@ var rootHelpGroups = []helpRootGroup{
 		{Command: "prune", Summary: "Remove old stopped dev state"},
 	}},
 	{Name: "Build and runtime", Entries: []helpRootEntry{
-		{Command: "serve", Summary: "Run the API server once"},
 		{Command: "worker", Summary: "Run app workers"},
 		{Command: "build", Summary: "Build the deployable binary"},
 		{Command: "check", Summary: "Check the app model"},
@@ -149,7 +148,6 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery storage rm",
 	}},
 	{Name: "Runtime", Commands: []string{
-		"scenery serve",
 		"scenery worker",
 		"scenery worker durable",
 		"scenery worker durable jobs",
@@ -244,8 +242,8 @@ var helpCommands = []helpCommandEntry{
 		Command:   "console",
 		Group:     "Local dev",
 		Summary:   "Open the source-aware dev console.",
-		Usage:     []string{"scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria]"},
-		Flags:     []string{"--app-root <path>", "--source <id>", "--kind <kind>", "--level <level>", "--grep <text>", "--since <duration>", "--backend auto|victoria"},
+		Usage:     []string{"scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]"},
+		Flags:     []string{"--app-root <path>", "--source <id>", "--kind <kind>", "--level <level>", "--grep <text>", "--since <duration>"},
 		Stability: "stable",
 	},
 	{
@@ -350,14 +348,6 @@ var helpCommands = []helpCommandEntry{
 		Flags:       []string{"--app-root <path>", "--base <ref>", "--json", "--write", "--dry-run"},
 		JSON:        true,
 		Stability:   "stable",
-	},
-	{
-		Command:   "serve",
-		Group:     "Runtime",
-		Summary:   "Run the API server once.",
-		Usage:     []string{"scenery serve [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]"},
-		Flags:     []string{"--port <n>", "--listen <addr>", "--app-root <path>", "--env <name>", "--log-format text|json"},
-		Stability: "stable",
 	},
 	{
 		Command: "worker",

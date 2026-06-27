@@ -11,7 +11,7 @@ scenery is used in production. The stable v0 surface is intentionally small and 
 ## Why scenery?
 
 - **Go source is the app model.** Services, APIs, auth handlers, middleware, durable tasks, cron jobs, and beta static model/page IR are discovered from Go code.
-- **One local app server.** `scenery serve` builds once and starts a headless, production-like HTTP server.
+- **One local dev runtime.** `scenery up` starts the supervised app process, dashboard, observability, and optional frontend routing.
 - **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, and optional HTTPS local domains.
 - **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
@@ -23,7 +23,7 @@ scenery is used in production. The stable v0 surface is intentionally small and 
 Available now:
 
 - `.scenery.json` root discovery, with `.config.json` accepted as an alias
-- `scenery up`, `scenery serve`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
+- `scenery up`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
 - typed and raw HTTP endpoints
 - public, auth, and private endpoints
 - auth handlers and request auth helpers
@@ -142,7 +142,8 @@ Run it:
 
 ```sh
 scenery check --json
-scenery serve
+scenery build -o ./hello-app
+SCENERY_LISTEN_ADDR=127.0.0.1:4000 ./hello-app
 ```
 
 Call it:
@@ -209,8 +210,8 @@ Example proxy config:
 
 ```text
 scenery up [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [-v|--verbose] [--json] [--detach]
-scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [--jsonl|--json]
-scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria]
+scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--jsonl|--json]
+scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 scenery system edge install|trust|status|restart|uninstall|dns|privileged [--json]
@@ -218,7 +219,6 @@ scenery help <command>|all|--json
 scenery ps [--json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--db] [--state] [--all] [--json]
 scenery prune --older-than <duration> [--app-root <path>] [--json]
-scenery serve [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] --json
@@ -250,7 +250,7 @@ scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]
 scenery traces clear --json [--app-root <path>]
-scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [-f|--follow] [--jsonl|--json]
+scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-f|--follow] [--jsonl|--json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 scenery db list [--app-root <path>] [--json]
@@ -301,7 +301,7 @@ scenery inspect wire --json
 scenery generate client --lang typescript --output ./src/scenery-client.ts
 ```
 
-The generated client understands the app's route model and local wire capabilities. The benchmark fixture in [benchmarks/json-wire](benchmarks/json-wire) compares JSON, wire JSON, binary wire, and automatic wire modes.
+The generated client understands the app's route model and local wire capabilities.
 
 `WithMeta` methods also expose parsed `txid` metadata from `X-Txid`/`X-TXID`. sync-backed write flows can use `observeAPIResponseTxid` to report later sync observation failures as sync/substrate failures after a committed mutation, rather than as API mutation failures.
 
@@ -374,12 +374,6 @@ scenery harness self --json --write
 
 Self-harness Go test steps use the Go test result cache by default; add
 `--fresh-tests` when you need a fresh `-count=1` run.
-
-Run the JSON/wire benchmark:
-
-```sh
-benchmarks/json-wire/run.sh
-```
 
 ## Contributing
 

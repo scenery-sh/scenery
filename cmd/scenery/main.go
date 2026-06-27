@@ -10,11 +10,14 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/stdlog"
 )
 
-var cliStderr io.Writer = os.Stderr
+var (
+	cliStderr          io.Writer = os.Stderr
+	runWithWatchFunc             = runWithWatch
+	runDetachedDevFunc           = runDetachedDev
+)
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -44,8 +47,6 @@ func run(args []string) error {
 		return statusCommand(args[1:])
 	case "console":
 		return consoleCommand(args[1:])
-	case "serve":
-		return serveCommand(args[1:])
 	case "down":
 		return downCommand(args[1:])
 	case "prune":
@@ -111,8 +112,6 @@ func upCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	restore := configureDevProcessEnv(opts)
-	defer restore()
 	warnDevEscapeHatches(opts)
 	if opts.Detach && !detachedDevChildMode() {
 		return runDetachedDevFunc(args, opts)
@@ -202,41 +201,12 @@ func resolveDevListenRequest(opts devOptions) devListenRequest {
 	}
 }
 
-func configureDevProcessEnv(opts devOptions) func() {
-	return applyTemporaryEnv(nil)
-}
-
 func warnDevEscapeHatches(opts devOptions) {
 	if opts.JSON {
 		return
 	}
 	if opts.ListenSet || opts.PortSet {
 		fmt.Fprintln(cliStderr, "scenery: warning: --listen/--port force a manual TCP app backend; this is a debugging escape hatch and can be less parallel-safe than the default agent Unix-socket backend")
-	}
-}
-
-func applyTemporaryEnv(values map[string]string) func() {
-	if len(values) == 0 {
-		return func() {}
-	}
-	type previousValue struct {
-		value string
-		ok    bool
-	}
-	previous := make(map[string]previousValue, len(values))
-	for key, value := range values {
-		old, ok := envpolicy.Lookup(key)
-		previous[key] = previousValue{value: old, ok: ok}
-		_ = envpolicy.Set(key, value)
-	}
-	return func() {
-		for key, old := range previous {
-			if old.ok {
-				_ = envpolicy.Set(key, old.value)
-			} else {
-				_ = envpolicy.Unset(key)
-			}
-		}
 	}
 }
 

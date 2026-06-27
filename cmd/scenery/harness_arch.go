@@ -451,7 +451,7 @@ func architectureSkipDir(rel string) bool {
 		return false
 	}
 	for _, part := range strings.Split(rel, "/") {
-		if part == ".scenery" {
+		if part == ".scenery" || part == "node_modules" {
 			return true
 		}
 	}

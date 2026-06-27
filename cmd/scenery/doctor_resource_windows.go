@@ -28,7 +28,7 @@ type doctorWindowsMemoryStatusEx struct {
 	AvailExtendedVirtual uint64
 }
 
-func (defaultDoctorResourceProbe) Disk(_ context.Context, path string) (doctorDiskInfo, error) {
+func defaultDoctorDisk(_ context.Context, path string) (doctorDiskInfo, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return doctorDiskInfo{}, err
@@ -44,7 +44,7 @@ func (defaultDoctorResourceProbe) Disk(_ context.Context, path string) (doctorDi
 	return doctorDiskInfo{Path: abs, FreeBytes: free, TotalBytes: total}, nil
 }
 
-func (defaultDoctorResourceProbe) Memory(context.Context) (doctorMemoryInfo, error) {
+func defaultDoctorMemory(context.Context) (doctorMemoryInfo, error) {
 	var status doctorWindowsMemoryStatusEx
 	status.Length = uint32(unsafe.Sizeof(status))
 	r1, _, err := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&status)))

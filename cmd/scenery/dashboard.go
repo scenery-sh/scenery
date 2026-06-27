@@ -47,16 +47,6 @@ type dashboardServer struct {
 	traces  *dashboardTraceEventBuffer
 }
 
-type dashboardVictoria interface {
-	TraceEventsFor(context.Context, string, string, string) ([]map[string]any, error)
-	QueryTraceSummaries(context.Context, devdash.TraceQuery) ([]*devdash.TraceSummary, error)
-	GetTraceSummaries(context.Context, string, string) ([]*devdash.TraceSummary, error)
-	ListDevEvents(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error)
-	MarkCleared(string, time.Time)
-	URLs() map[string]string
-	Endpoint(string) string
-}
-
 type dashboardController interface {
 	dashboardActiveAppID() string
 	dashboardCurrentSessionID() string
@@ -65,7 +55,7 @@ type dashboardController interface {
 	dashboardStore() *devdash.Store
 	dashboardAuthorizeReport(*http.Request, devdash.ReportEnvelope) dashboardReportAuth
 	dashboardRootForApp(context.Context, string) (string, error)
-	dashboardVictoria() dashboardVictoria
+	dashboardVictoria() *victoriaStack
 }
 
 type dashboardReportAuth struct {
@@ -122,7 +112,7 @@ func (s *dashboardServer) dashboardRootForApp(ctx context.Context, appID string)
 	return s.controller.dashboardRootForApp(ctx, appID)
 }
 
-func (s *dashboardServer) dashboardVictoria() dashboardVictoria {
+func (s *dashboardServer) dashboardVictoria() *victoriaStack {
 	if s == nil || s.controller == nil {
 		return nil
 	}

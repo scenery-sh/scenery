@@ -10,7 +10,7 @@ import (
 func TestRunSceneryInspectOutputsModelDSLJSON(t *testing.T) {
 	t.Parallel()
 
-	root := writeModelDSLAppFixture(t, modelDSLExpectedSchemaHCL)
+	root := writeModelDSLAppFixture(t, modelDSLSchemaHCL(t))
 	inspectArgs := func(subject string) []string {
 		return []string{subject, "--json", "--app-root", root}
 	}

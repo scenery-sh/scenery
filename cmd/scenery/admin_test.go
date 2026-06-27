@@ -14,7 +14,7 @@ func TestParseTracesClearArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseTracesClearArgs returned error: %v", err)
 	}
-	if opts.Domain != "traces" || opts.Action != "clear" || !opts.JSON || opts.AppRoot != "/tmp/app" {
+	if !opts.JSON || opts.AppRoot != "/tmp/app" {
 		t.Fatalf("opts = %+v", opts)
 	}
 }

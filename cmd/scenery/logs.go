@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +14,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 )
 
 type logsOptions struct {
@@ -29,14 +29,7 @@ type logsOptions struct {
 	Grep     string
 	Since    time.Duration
 	SinceRaw string
-	TUI      bool
-	Backend  string
 }
-
-const (
-	logsBackendAuto     = "auto"
-	logsBackendVictoria = "victoria"
-)
 
 type logsEvent struct {
 	SchemaVersion string `json:"schema_version"`
@@ -70,36 +63,12 @@ func logsCommand(args []string) error {
 
 var runSceneryLogsFunc = runSceneryLogs
 
-func attachCommand(args []string) error {
-	opts, err := parseLogsArgs(args)
-	if err != nil {
-		return err
-	}
-	if opts.TUI {
-		return runSceneryConsoleOrFallback(context.Background(), os.Stdin, os.Stdout, opts)
-	}
-	logArgs, err := attachLogArgs(args)
-	if err != nil {
-		return err
-	}
-	return runSceneryLogsFunc(context.Background(), os.Stdout, logArgs)
-}
-
 func consoleCommand(args []string) error {
 	opts, err := parseLogsArgs(args)
 	if err != nil {
 		return err
 	}
-	opts.TUI = true
 	return runSceneryConsoleOrFallback(context.Background(), os.Stdin, os.Stdout, opts)
-}
-
-func attachLogArgs(args []string) ([]string, error) {
-	opts, err := parseLogsArgs(args)
-	if err != nil {
-		return nil, err
-	}
-	return logArgsFromOptions(opts, true), nil
 }
 
 func logArgsFromOptions(opts logsOptions, follow bool) []string {
@@ -130,9 +99,6 @@ func logArgsFromOptions(opts logsOptions, follow bool) []string {
 	}
 	if opts.SinceRaw != "" {
 		out = append(out, "--since", opts.SinceRaw)
-	}
-	if opts.Backend != "" && opts.Backend != logsBackendAuto {
-		out = append(out, "--backend", opts.Backend)
 	}
 	return out
 }
@@ -165,7 +131,7 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 
 	record, sessionRecord, err := devdashAppRecordForRuntime(ctx, store, appID, sessionID, appRoot)
 	if err != nil {
-		return fmt.Errorf("no local logs found for %q; run `scenery up` or `scenery serve` first", appID)
+		return fmt.Errorf("no local logs found for %q; run `scenery up` first", appID)
 	}
 	if sessionID == "" && sessionRecord {
 		sessionID = strings.TrimSpace(record.SessionID)
@@ -175,9 +141,9 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 	}
 
 	devQuery := logsDevEventQuery(opts, appID, sessionID)
-	eventBackend, err := selectDevEventBackend(ctx, store, opts)
-	if err != nil {
-		return err
+	eventBackend := resolveLogsVictoriaStackFunc(ctx, true)
+	if eventBackend == nil {
+		return errors.New("VictoriaLogs is unavailable")
 	}
 	devItems, err := eventBackend.ListDevEvents(ctx, devQuery)
 	if err != nil {
@@ -205,16 +171,8 @@ func logsDevEventQuery(opts logsOptions, appID, sessionID string) devdash.DevEve
 
 func parseLogsArgs(args []string) (logsOptions, error) {
 	opts := logsOptions{
-		Limit:   200,
-		Stream:  "all",
-		Backend: logsBackendAuto,
-	}
-	if backend := strings.TrimSpace(envpolicy.Get("SCENERY_LOGS_BACKEND")); backend != "" {
-		normalized := normalizeLogsBackend(backend)
-		if normalized == "" {
-			return logsOptions{}, fmt.Errorf("invalid logs backend %q", backend)
-		}
-		opts.Backend = normalized
+		Limit:  200,
+		Stream: "all",
 	}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -238,17 +196,6 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 			opts.Follow = true
 		case "--jsonl", "--json":
 			opts.JSONL = true
-		case "--tui":
-			opts.TUI = true
-		case "--backend":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --backend")
-			}
-			opts.Backend = normalizeLogsBackend(args[i])
-			if opts.Backend == "" {
-				return logsOptions{}, fmt.Errorf("invalid backend %q", args[i])
-			}
 		case "--stream":
 			i++
 			if i >= len(args) {
@@ -319,17 +266,6 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 		}
 	}
 	return opts, nil
-}
-
-func normalizeLogsBackend(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "auto":
-		return logsBackendAuto
-	case "victoria", "victorialogs", "vl":
-		return logsBackendVictoria
-	default:
-		return ""
-	}
 }
 
 func resolveLogsVictoriaStack(ctx context.Context, allowDefault bool) *victoriaStack {

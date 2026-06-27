@@ -4,7 +4,7 @@ This page is the human reference for scenery-owned environment variables. The ma
 
 Prefer `.scenery.json` for stable app configuration. Use environment variables for local overrides, secrets, process identity, or explicit escape hatches. New production env names must be added to the registry with rationale, docs, and tests; otherwise self-harness fails.
 
-Process environment wins over values loaded from `.env` and `.env.local`. `scenery up`, local `scenery serve`, local `scenery task run`, and local `scenery worker` require an app-root `.env`; `.env.local` is optional.
+Process environment wins over values loaded from `.env` and `.env.local`. `scenery up`, local `scenery task run`, and local `scenery worker` require an app-root `.env`; `.env.local` is optional.
 
 ## Agent And Dev Routing
 
@@ -95,7 +95,7 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 
 | Variable | Direction | Description |
 | --- | --- | --- |
-| `SCENERY_STORAGE_CONFIG` | injected/user input | App-facing storage capability config consumed by `scenery.sh/storage`. Dev sessions inject it; headless runtimes require an explicit operator-provided proxy config. It contains configured store names and Scenery-owned backend metadata such as a proxy socket, not raw object-store credentials. |
+| `SCENERY_STORAGE_CONFIG` | injected/user input | App-facing storage capability config consumed by `scenery.sh/storage`. Dev sessions inject it; production app or worker runtimes require an explicit operator-provided proxy config. It contains configured store names and Scenery-owned backend metadata such as a proxy socket, not raw object-store credentials. |
 | `SCENERY_STORAGE_CELL_ID` | injected | Stable shared storage cell ID for the app's configured storage capability. |
 | `SCENERY_STORAGE_CELL_ROOT` | injected | Scenery-owned shared storage-cell root used to expand managed ZeroFS service env. App code should use `scenery.sh/storage` instead of this substrate path. |
 | `SCENERY_STORAGE_ZEROFS_CONFIG` | injected | Path to the Scenery-written `0600` ZeroFS TOML for the managed ZeroFS process. Substrate/debug metadata only. |

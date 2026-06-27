@@ -210,52 +210,6 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 	}
 }
 
-func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-  "name": "demo",
-  "database": {
-    "apply": {
-      "command": "./scripts/db-safe-apply.sh",
-      "cwd": "scripts",
-      "env": { "MIGRATION_MODE": "safe" }
-    }
-  },
-  "generators": {
-    "sqlc": { "provider": "sqlc", "config": "sqlc.yaml" }
-  }
-}`)
-	writeSQLCFixture(t, root)
-
-	var ran []lifecycleExecRequest
-	restore := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
-		ran = append(ran, req)
-		return nil
-	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
-		return []byte("create schema scenery_auth;\n"), nil
-	})
-	defer restore()
-
-	if err := dbSyncCommand([]string{"--app-root", root}); err != nil {
-		t.Fatalf("dbSyncCommand returned error: %v", err)
-	}
-	if len(ran) != 2 {
-		t.Fatalf("ran = %+v", ran)
-	}
-	if ran[0].Dir != filepath.Join(root, "scripts") {
-		t.Fatalf("apply dir = %q", ran[0].Dir)
-	}
-	if runtime.GOOS != "windows" && (ran[0].Program != "/bin/sh" || strings.Join(ran[0].Args, " ") != "-c ./scripts/db-safe-apply.sh") {
-		t.Fatalf("apply command = %+v", ran[0])
-	}
-	if !containsEnv(ran[0].Env, "MIGRATION_MODE=safe") {
-		t.Fatalf("apply env missing overlay: %+v", ran[0].Env)
-	}
-	if ran[1].Program != "sqlc" {
-		t.Fatalf("second command = %+v", ran[1])
-	}
-}
-
 func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
