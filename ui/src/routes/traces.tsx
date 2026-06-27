@@ -1,27 +1,24 @@
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { requestTracesURL, traceDashboardURL } from "../lib/grafana";
 import { cn, formatDurationNanos, formatTimestamp } from "../lib/utils";
 import { useDashboard } from "../lib/dashboard-context";
 import type { TraceSummary } from "../lib/types";
 
 export function TracesPage({ traceId, spanId }: { traceId?: string; spanId?: string }) {
-  return <TraceGrafanaHandoff traceId={traceId} spanId={spanId} />;
+  return <TraceWorkbench traceId={traceId} spanId={spanId} />;
 }
 
 export function TracesListPage() {
-  return <TraceGrafanaHandoff />;
+  return <TraceWorkbench />;
 }
 
-function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: string }) {
+function TraceWorkbench({ traceId, spanId }: { traceId?: string; spanId?: string }) {
   const { appId, status, traces } = useDashboard();
-  const grafana = status?.grafana;
-  const requestURL = requestTracesURL(grafana);
   const trace = useMemo(
     () => traces.find((item) => item.trace_id === traceId) ?? null,
     [traceId, traces],
   );
-  const primaryURL = traceDashboardURL(grafana);
+  const tracesBackend = status?.observability?.traces;
 
   return (
     <div
@@ -35,7 +32,7 @@ function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: s
             <div>
               <h1 className="text-lg font-medium">Traces</h1>
               <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                The dashboard trace viewer is deprecated. Grafana is the trace workbench for this dev session.
+                Native Scenery trace summaries exported by this dev session.
               </p>
             </div>
             <Link
@@ -48,13 +45,19 @@ function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: s
           </div>
 
           <section className="rounded-md border border-border p-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <ExternalLink href={requestURL} label="Request traces" primary />
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-medium">Trace Backend</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {tracesBackend?.message || tracesBackend?.dialect || "VictoriaTraces"}
+                </p>
+              </div>
+              <span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium capitalize">
+                {tracesBackend?.status || "unavailable"}
+              </span>
             </div>
-            {!grafana?.available ? (
-              <p className="mt-4 text-sm text-muted-foreground">
-                Grafana is {grafana?.status || "unavailable"}{grafana?.message ? `: ${grafana.message}` : "."}
-              </p>
+            {tracesBackend?.url ? (
+              <code className="mt-4 block truncate text-xs text-muted-foreground">{tracesBackend.url}</code>
             ) : null}
           </section>
 
@@ -105,7 +108,13 @@ function TraceGrafanaHandoff({ traceId, spanId }: { traceId?: string; spanId?: s
                   <h2 className="text-base font-medium">Selected Trace</h2>
                   <p className="mt-1 font-mono text-xs text-muted-foreground">{traceId}</p>
                 </div>
-                <ExternalLink href={primaryURL} label="Open in Grafana" primary />
+                <Link
+                  to="/$appId/envs/local/traces"
+                  params={{ appId }}
+                  className="rounded-md border border-border px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                >
+                  All traces
+                </Link>
               </div>
               <TraceSummaryGrid trace={trace} traceId={traceId} spanId={spanId} />
             </section>
@@ -151,38 +160,5 @@ function TraceSummaryGrid({
         </div>
       ))}
     </div>
-  );
-}
-
-function ExternalLink({
-  href,
-  label,
-  primary = false,
-}: {
-  href: string;
-  label: string;
-  primary?: boolean;
-}) {
-  const disabled = !href;
-  return (
-    <a
-      href={href || "#"}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(event) => {
-        if (disabled) {
-          event.preventDefault();
-        }
-      }}
-      className={cn(
-        "rounded-md border px-3 py-2 text-sm transition-colors",
-        primary
-          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-          : "border-border hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        disabled && "pointer-events-none opacity-50",
-      )}
-    >
-      {label}
-    </a>
   );
 }

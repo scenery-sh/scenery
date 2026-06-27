@@ -108,7 +108,7 @@ func TestBuildHarnessUIRoutesIncludesSemanticJourneys(t *testing.T) {
 		{"traces", "trace table or empty state visible"},
 		{"db-explorer", "database list or unavailable state visible"},
 		{"cron", "cron status cards visible"},
-		{"observability", "worker status card visible"},
+		{"observability", "native backend status visible"},
 	}
 	for _, check := range checks {
 		if !harnessUIRouteHasCheck(byName[check.route], check.want) {

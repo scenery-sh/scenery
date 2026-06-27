@@ -12,11 +12,11 @@ import (
 func TestParseToolchainArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseToolchainArgs([]string{"verify", "--json", "--tool", "grafana", "--platform", "linux/amd64", "--images", "--strict"})
+	opts, err := parseToolchainArgs([]string{"verify", "--json", "--tool", "victoria-metrics", "--platform", "linux/amd64", "--images", "--strict"})
 	if err != nil {
 		t.Fatalf("parseToolchainArgs() error = %v", err)
 	}
-	if opts.Command != "verify" || !opts.JSON || opts.Tool != "grafana" || opts.Platform.String() != "linux/amd64" || !opts.Images || !opts.Strict {
+	if opts.Command != "verify" || !opts.JSON || opts.Tool != "victoria-metrics" || opts.Platform.String() != "linux/amd64" || !opts.Images || !opts.Strict {
 		t.Fatalf("opts = %+v", opts)
 	}
 	if _, err := parseToolchainArgs([]string{"path"}); err == nil {
@@ -59,32 +59,25 @@ func TestRenderToolchainStatusHidesPluginsByDefault(t *testing.T) {
 		StoreDir:       "/tmp/store",
 		Platform:       "darwin/arm64",
 		Artifacts: []toolchain.ArtifactStatus{
-			{Name: "grafana", Kind: "binary", Version: "13.0.2", Status: "missing", ManagedPath: "/tmp/store/grafana"},
-			{Name: "victoriametrics-metrics-datasource", Kind: "plugin", Version: "0.25.0", Status: "declared"},
 			{Name: "victoria-metrics", Kind: "binary", Version: "v1.145.0", Status: "missing"},
+			{Name: "victoria-logs", Kind: "binary", Version: "v1.50.0", Status: "missing", ManagedPath: "/tmp/store/victoria-logs"},
 		},
 	}
 	var out bytes.Buffer
 	if err := renderToolchainStatus(&out, false, false, status); err != nil {
 		t.Fatalf("renderToolchainStatus: %v", err)
 	}
-	if strings.Contains(out.String(), "victoriametrics-metrics-datasource") {
-		t.Fatalf("default output included plugin:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "grafana 13.0.2 missing") || !strings.Contains(out.String(), "victoria-metrics v1.145.0 missing") {
+	if !strings.Contains(out.String(), "victoria-metrics v1.145.0 missing") || !strings.Contains(out.String(), "victoria-logs v1.50.0 missing") {
 		t.Fatalf("default output missing binary artifacts:\n%s", out.String())
 	}
-	if strings.Contains(out.String(), "/tmp/store/grafana") {
+	if strings.Contains(out.String(), "/tmp/store/victoria-logs") {
 		t.Fatalf("default output included managed path:\n%s", out.String())
 	}
 	out.Reset()
 	if err := renderToolchainStatus(&out, false, true, status); err != nil {
 		t.Fatalf("renderToolchainStatus all: %v", err)
 	}
-	if !strings.Contains(out.String(), "victoriametrics-metrics-datasource 0.25.0 declared") {
-		t.Fatalf("--all output omitted plugin:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "/tmp/store/grafana") {
+	if !strings.Contains(out.String(), "/tmp/store/victoria-logs") {
 		t.Fatalf("--all output omitted managed path:\n%s", out.String())
 	}
 }
@@ -107,7 +100,7 @@ func TestVersionJSONIncludesToolchainManifest(t *testing.T) {
 func TestRunToolchainPathJSON(t *testing.T) {
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", t.TempDir())
 	var out bytes.Buffer
-	if err := runToolchain(t.Context(), &out, []string{"path", "--json", "--tool", "grafana"}); err != nil {
+	if err := runToolchain(t.Context(), &out, []string{"path", "--json", "--tool", "victoria-metrics"}); err != nil {
 		t.Fatalf("runToolchain path: %v", err)
 	}
 	if !strings.Contains(out.String(), `"managed_path"`) {

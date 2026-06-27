@@ -79,6 +79,12 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return dashboardLogEventsFromDevEvents(items), nil
+	case "observability/status":
+		var params struct {
+			AppID string `json:"app_id"`
+		}
+		_ = json.Unmarshal(raw, &params)
+		return s.observabilityStatus(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
 	case "process/output/list":
 		var params struct {
 			AppID string `json:"app_id"`

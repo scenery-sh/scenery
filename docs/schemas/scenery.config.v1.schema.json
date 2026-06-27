@@ -22,7 +22,6 @@
         "api_host": { "type": "string" },
         "console_host": { "type": "string" },
         "legacy-async-runtime_host": { "type": "string" },
-        "grafana_host": { "type": "string" },
         "frontends": {
           "type": ["object", "null"],
           "additionalProperties": { "$ref": "#/$defs/frontend" }

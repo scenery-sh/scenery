@@ -54,7 +54,6 @@ type devSupervisor struct {
 	dashboard    *dashboardServer
 	proxy        *localproxy.Proxy
 	victoria     *victoriaStack
-	grafana      *grafanaComponent
 	zeroFS       *managedZeroFSService
 	storageProxy *managedStorageProxy
 	reportToken  string
@@ -158,7 +157,6 @@ func (s *devSupervisor) Close() error {
 		app := s.detachCurrentApp()
 		frontends := s.detachManagedFrontends()
 		victoria := s.victoria
-		grafana := s.grafana
 		zeroFS := s.zeroFS
 		if s.shouldDetachManagedZeroFS(context.Background(), zeroFS) {
 			zeroFS = nil
@@ -172,11 +170,6 @@ func (s *devSupervisor) Close() error {
 		}
 		if victoria != nil {
 			if err := victoria.Interrupt(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if grafana != nil {
-			if err := grafana.Interrupt(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -241,11 +234,6 @@ func (s *devSupervisor) Close() error {
 		}
 		if victoria != nil {
 			if err := victoria.WaitOrKill(5 * time.Second); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if grafana != nil {
-			if err := grafana.WaitOrKill(5 * time.Second); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -325,11 +313,6 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 		s.eventSink().Emit(ctx, devdash.DevSource{ID: "victoria", Kind: "substrate", Name: "victoria", Role: "observability", Status: "running"}, "info", "Victoria stack ready", map[string]any{
 			"urls": s.victoria.URLs(),
 		})
-	}
-	if err := s.console.Phase("Starting Grafana", func() error {
-		return s.startGrafana(s.ctx)
-	}); err != nil {
-		return err
 	}
 	if err := s.startLocalProxy(); err != nil {
 		slog.Warn("local HTTPS proxy unavailable", "err", err)
@@ -968,7 +951,7 @@ func publicAppURLForSession(session *localagent.Session) string {
 	}
 	names := make([]string, 0, len(session.RouteManifest.Routes))
 	for name, record := range session.RouteManifest.Routes {
-		if name == localagent.RouteAPI || name == localagent.RouteDashboard || name == localagent.RouteGrafana || name == "root" {
+		if name == localagent.RouteAPI || name == localagent.RouteDashboard || name == "root" {
 			continue
 		}
 		if strings.TrimSpace(record.URL) != "" {
@@ -1468,13 +1451,6 @@ func (s *devSupervisor) currentZeroFS() *managedZeroFSService {
 	return s.zeroFS
 }
 
-func (s *devSupervisor) setGrafanaState(state devdash.GrafanaState) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.status.Grafana = encodeGrafanaState(state)
-	s.status.UpdatedAt = time.Now().UTC()
-}
-
 func (s *devSupervisor) detachCurrentApp() *runningApp {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1509,13 +1485,6 @@ func (s *devSupervisor) dashboardURL() string {
 	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.activeAppID())
 }
 
-func (s *devSupervisor) grafanaUpstream() string {
-	if s == nil || s.grafana == nil {
-		return ""
-	}
-	return s.grafana.URL()
-}
-
 func (s *devSupervisor) frontendURLs() map[string]string {
 	if s.proxy != nil {
 		return frontendURLs(s.proxy.Routes())
@@ -1544,46 +1513,6 @@ func substrateExitEventFields(exit localagent.SubstrateExit) map[string]any {
 		fields["error"] = exit.Error
 	}
 	return fields
-}
-
-func (s *devSupervisor) startGrafana(ctx context.Context) error {
-	if s == nil || s.grafana != nil {
-		return nil
-	}
-	var (
-		grafana *grafanaComponent
-		err     error
-	)
-	if s.agent != nil {
-		grafana, err = s.startAgentGrafana(ctx)
-	} else {
-		grafana, err = startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
-	}
-	if grafana != nil {
-		s.grafana = grafana
-		state := grafana.State()
-		if s.registerAgentSessionBackend(ctx, localagent.RouteGrafana, backendFromHTTPURL(grafana.URL())) {
-			if session := s.currentAgentSession(); session != nil {
-				if route := strings.TrimSpace(session.Routes[localagent.RouteGrafana]); route != "" {
-					state = grafanaStateWithBaseURL(state, route)
-				}
-			}
-		}
-		s.setGrafanaState(state)
-		_ = s.persistStatus(ctx)
-		if s.dashboard != nil {
-			s.dashboard.notify(&devdash.Notification{
-				Method: "grafana/status",
-				Params: state,
-			})
-		}
-		s.eventSink().Emit(ctx, devdash.DevSource{ID: "grafana", Kind: "substrate", Name: "grafana", Role: "observability-ui", Status: state.Status, URL: state.URL}, "info", "Grafana status updated", map[string]any{
-			"available": state.Available,
-			"status":    state.Status,
-			"url":       state.URL,
-		})
-	}
-	return err
 }
 
 func (s *devSupervisor) registerAgentSessionBackend(ctx context.Context, route string, backend localagent.Backend) bool {
@@ -1628,57 +1557,6 @@ func backendFromHTTPURL(raw string) localagent.Backend {
 		return localagent.Backend{}
 	}
 	return localagent.Backend{Network: "tcp", Addr: parsed.Host}
-}
-
-func (s *devSupervisor) startAgentGrafana(ctx context.Context) (*grafanaComponent, error) {
-	if s == nil || s.agent == nil {
-		return startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
-	}
-	paths, err := localagent.DefaultPaths()
-	if err != nil {
-		warnGrafana(s.console, "agent Grafana state path unavailable: %v", err)
-		return startGrafanaForDev(ctx, s.root, s.victoria, s.plannedGrafanaPublicURL(), s.console)
-	}
-	adapter := grafanaSubstrateAdapter{victoria: s.victoria, console: s.console}
-	handle, _, err := s.substrateManager().Ensure(ctx, filepath.Join(paths.AgentDir, "grafana"), adapter)
-	grafana, _ := handle.(*grafanaComponent)
-	if grafana == nil {
-		return grafana, err
-	}
-	if !grafana.State().Available {
-		return grafana, err
-	}
-	s.substrateManager().Monitor(grafana, adapter)
-	if s.console != nil && s.console.verbose {
-		s.console.Event("grafana.shared", map[string]any{
-			"owner": "agent",
-			"url":   grafana.URL(),
-		})
-	}
-	return grafana, err
-}
-
-func (s *devSupervisor) plannedGrafanaPublicURL() string {
-	if s == nil || !localproxy.Enabled() {
-		return ""
-	}
-	workspace := s.cfg.Proxy.Workspace
-	if workspace == "" {
-		workspace = localproxy.DiscoverWorkspace(s.root, s.activeAppID())
-	}
-	proxyCfg := localproxy.BuildConfig(localproxy.Config{
-		Workspace:         workspace,
-		APIHost:           s.cfg.Proxy.APIHost,
-		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
-		GrafanaHost:       s.cfg.Proxy.GrafanaHost,
-		APIUpstream:       s.addr,
-		DashboardUpstream: devdash.ListenAddr(),
-		GrafanaUpstream:   fmt.Sprintf("%s:%d", grafanaDefaultHost, grafanaDefaultPort),
-	})
-	if proxyCfg.Workspace == "" && proxyCfg.APIHost == "" {
-		return ""
-	}
-	return localproxy.PreviewRoutes(proxyCfg).GrafanaURL
 }
 
 func (s *devSupervisor) activeAppID() string {
@@ -1767,10 +1645,8 @@ func (s *devSupervisor) startLocalProxy() error {
 		Workspace:         workspace,
 		APIHost:           s.cfg.Proxy.APIHost,
 		ConsoleHost:       s.cfg.Proxy.ConsoleHost,
-		GrafanaHost:       s.cfg.Proxy.GrafanaHost,
 		APIUpstream:       s.addr,
 		DashboardUpstream: devdash.ListenAddr(),
-		GrafanaUpstream:   s.grafanaUpstream(),
 		Frontends:         localproxy.ResolveFrontends(s.root, localProxyFrontends(s.cfg.Proxy.Frontends)),
 		Verbose:           s.console != nil && s.console.verbose,
 	})
@@ -1784,14 +1660,6 @@ func (s *devSupervisor) startLocalProxy() error {
 	s.mu.Lock()
 	s.proxy = proxy
 	s.mu.Unlock()
-	if s.grafana != nil && proxy.Routes().GrafanaURL != "" {
-		state := grafanaStateWithBaseURL(s.grafana.State(), proxy.Routes().GrafanaURL)
-		s.setGrafanaState(state)
-		s.dashboard.notify(&devdash.Notification{
-			Method: "grafana/status",
-			Params: state,
-		})
-	}
 	return nil
 }
 
@@ -1847,7 +1715,7 @@ func frontendURLsFromAgentRoutes(routes map[string]string, frontends map[string]
 	} else {
 		for name, value := range routes {
 			switch name {
-			case localagent.RouteAPI, localagent.RouteDashboard, localagent.RouteGrafana:
+			case localagent.RouteAPI, localagent.RouteDashboard:
 				continue
 			}
 			if strings.TrimSpace(value) == "" {
@@ -1873,7 +1741,6 @@ func (s *devSupervisor) runURLs() runURLs {
 		Dashboard: s.dashboardURL(),
 		Frontends: s.frontendURLs(),
 		Victoria:  s.victoria.URLs(),
-		Grafana:   s.appStatus().Grafana,
 	}
 }
 
@@ -1917,22 +1784,23 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 		copy := *s.agentSession
 		session = &copy
 	}
+	victoria := s.victoria
 	status := devdash.AppStatus{
-		Running:      s.status.Running,
-		AppID:        s.status.ID,
-		BaseAppID:    s.status.BaseAppID,
-		RuntimeAppID: s.status.RuntimeAppID,
-		SessionID:    s.status.SessionID,
-		AppRoot:      s.status.Root,
-		PID:          s.status.PID,
-		Meta:         s.status.Metadata,
-		Addr:         s.status.ListenAddr,
-		APIEncoding:  s.status.APIEncoding,
-		Grafana:      decodeGrafanaState(s.status.Grafana),
-		Routes:       s.statusDashboardRoutesLocked(s.status.SessionID),
-		Aliases:      s.statusDashboardAliasesLocked(s.status.SessionID),
-		Compiling:    s.status.Compiling,
-		CompileError: s.status.CompileError,
+		Running:       s.status.Running,
+		AppID:         s.status.ID,
+		BaseAppID:     s.status.BaseAppID,
+		RuntimeAppID:  s.status.RuntimeAppID,
+		SessionID:     s.status.SessionID,
+		AppRoot:       s.status.Root,
+		PID:           s.status.PID,
+		Meta:          s.status.Metadata,
+		Addr:          s.status.ListenAddr,
+		APIEncoding:   s.status.APIEncoding,
+		Observability: observabilityStateFromVictoria(victoria, s.status.ID, s.status.SessionID, s.status.Root, session),
+		Routes:        s.statusDashboardRoutesLocked(s.status.SessionID),
+		Aliases:       s.statusDashboardAliasesLocked(s.status.SessionID),
+		Compiling:     s.status.Compiling,
+		CompileError:  s.status.CompileError,
 	}
 	s.mu.RUnlock()
 	applySessionStatusToAppStatus(&status, session)
@@ -2012,27 +1880,29 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 	routes := s.statusDashboardRoutesLocked(app.SessionID)
 	aliases := s.statusDashboardAliasesLocked(app.SessionID)
 	var session *localagent.Session
+	var victoria dashboardVictoria
 	if s.agentSession != nil {
 		copy := *s.agentSession
 		session = &copy
 	}
+	victoria = s.victoria
 	s.mu.RUnlock()
 	status := devdash.AppStatus{
-		Running:      app.Running,
-		AppID:        routeID,
-		BaseAppID:    app.BaseAppID,
-		RuntimeAppID: app.RuntimeAppID,
-		SessionID:    app.SessionID,
-		AppRoot:      app.Root,
-		PID:          app.PID,
-		Meta:         app.Metadata,
-		Addr:         app.ListenAddr,
-		APIEncoding:  app.APIEncoding,
-		Grafana:      decodeGrafanaState(app.Grafana),
-		Routes:       routes,
-		Aliases:      aliases,
-		Compiling:    app.Compiling,
-		CompileError: app.CompileError,
+		Running:       app.Running,
+		AppID:         routeID,
+		BaseAppID:     app.BaseAppID,
+		RuntimeAppID:  app.RuntimeAppID,
+		SessionID:     app.SessionID,
+		AppRoot:       app.Root,
+		PID:           app.PID,
+		Meta:          app.Metadata,
+		Addr:          app.ListenAddr,
+		APIEncoding:   app.APIEncoding,
+		Observability: observabilityStateFromVictoria(victoria, routeID, app.SessionID, app.Root, session),
+		Routes:        routes,
+		Aliases:       aliases,
+		Compiling:     app.Compiling,
+		CompileError:  app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, session)
 	return status, nil

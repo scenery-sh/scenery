@@ -21,7 +21,7 @@ export interface AppStatus {
   meta?: DashboardMeta;
   addr?: string;
   apiEncoding?: APIEncoding;
-  grafana?: GrafanaState;
+  observability?: ObservabilityState;
   routes?: Record<string, string>;
   aliases?: Record<string, string>;
   sessionStatus?: string;
@@ -30,30 +30,32 @@ export interface AppStatus {
   compileError?: string;
 }
 
-export interface GrafanaState {
+export interface ObservabilityState {
   enabled: boolean;
-  available: boolean;
-  status: string;
-  server_ready?: boolean;
-  datasources_ready?: boolean;
-  dashboards_ready?: boolean;
-  url?: string;
-  overview_url?: string;
-  logs_url?: string;
-  endpoint_url?: string;
-  config_path?: string;
-  provisioning_path?: string;
-  dashboards_path?: string;
-  datasources?: Record<string, string>;
-  datasource_status?: Record<string, string>;
-  dashboards?: GrafanaDashboard[];
+  backend: string;
+  metrics: ObservabilityBackendState;
+  logs: ObservabilityBackendState;
+  traces: ObservabilityBackendState;
+  scope?: ObservabilityScope;
   message?: string;
 }
 
-export interface GrafanaDashboard {
-  uid: string;
-  title: string;
-  url: string;
+export interface ObservabilityBackendState {
+  enabled: boolean;
+  available: boolean;
+  status: string;
+  url?: string;
+  query_path?: string;
+  dialect?: string;
+  message?: string;
+}
+
+export interface ObservabilityScope {
+  app_id?: string;
+  session_id?: string;
+  app_root_hash?: string;
+  worktree?: string;
+  branch?: string;
 }
 
 export interface DashboardMeta {

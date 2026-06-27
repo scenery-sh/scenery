@@ -200,10 +200,10 @@ hashes, fallback behavior, and unsupported reasons should be deterministic.
 These packages support the local development platform around a running app.
 
 `internal/devdash` stores dashboard-visible state and observability data.
-`internal/localproxy` owns the local proxy layer. Victoria sidecars and Grafana
-are supervised from `cmd/scenery` as local development companions, with generated
-Grafana configuration and provisioning rooted under `.scenery/grafana/`. The
-dashboard server and UI embedding are orchestrated from `cmd/scenery`.
+`internal/localproxy` owns the local proxy layer. Victoria sidecars are supervised
+from `cmd/scenery` as local development companions, and native dashboard views
+surface local logs, traces, and metrics. The dashboard server and UI embedding
+are orchestrated from `cmd/scenery`.
 
 Architecture invariant: development services should be optional around the app
 runtime. They can improve local ergonomics, but `scenery serve` must remain a
