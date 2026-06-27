@@ -141,12 +141,12 @@ agents and humans to diagnose drift without scraping terminal output.
 ### `scenery.sh/runtime`
 
 `runtime` is linked into generated app binaries. It registers generated
-endpoints, service initializers, middleware, auth handlers, Temporal workers,
+endpoints, service initializers, middleware, auth handlers, legacy async runtime workers,
 cron jobs, and wire endpoints, then starts one local HTTP server.
 
 Important runtime concerns include route matching, request decode/encode, auth
 context, current request metadata, structured error responses, middleware,
-observability reports, secrets, DB tracing, Temporal workers, cron, and graceful shutdown.
+observability reports, secrets, DB tracing, legacy async runtime workers, cron, and graceful shutdown.
 
 Architecture invariant: there is one local app server per generated app process.
 `scenery up` may run extra development services around it, but app API execution
@@ -169,7 +169,7 @@ The public packages at the module root are what user apps import:
 - `scenery.sh/middleware` exposes middleware types
 - `scenery.sh/model` and `scenery.sh/page` expose static compile-time vocabulary
   for model/view IR; they do not maintain a runtime registry
-- `scenery.sh/temporal`, `scenery.sh/cron`, `scenery.sh/pgxpool`, and related small
+- `scenery.sh/legacy-async-runtime`, `scenery.sh/cron`, `scenery.sh/pgxpool`, and related small
   packages expose local runtime integrations
 
 Architecture invariant: public packages are boundaries. Keep them small,

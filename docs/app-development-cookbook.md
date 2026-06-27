@@ -352,13 +352,13 @@ standard, ok := auth.CurrentAuthData()
 
 Common failure: relying on globals outside request handling. Pass context or actor values explicitly to lower layers.
 
-## Temporal Workflow Or Activity
+## legacy async runtime Workflow Or Activity
 
-Use `scenery.sh/temporal` for beta workflow and activity declarations. Packages that call `temporal.NewWorkflow` or `temporal.NewActivity` are imported by generated main so worker processes can register them. Set `temporal.enabled: true` in app config to opt in; Temporal remains off when the field is omitted, even if declarations or TypeScript worker settings are present. Use `scenery up` for local combined API/worker execution, and use `scenery worker` for worker-only processes. Set `ActivityConfig.MaxConcurrency` when a dedicated task queue should cap concurrent activity executions for resource-heavy work, and pass `temporal.WithHeartbeatTimeout(...)` when a workflow activity needs a heartbeat timeout.
+Use `scenery.sh/legacy-async-runtime` for beta workflow and activity declarations. Packages that call `legacy-async-runtime.NewWorkflow` or `legacy-async-runtime.NewActivity` are imported by generated main so worker processes can register them. Set `legacy-async-runtime.enabled: true` in app config to opt in; legacy async runtime remains off when the field is omitted, even if declarations or TypeScript worker settings are present. Use `scenery up` for local combined API/worker execution, and use `scenery worker` for worker-only processes. Set `ActivityConfig.MaxConcurrency` when a dedicated task queue should cap concurrent activity executions for resource-heavy work, and pass `legacy-async-runtime.WithHeartbeatTimeout(...)` when a workflow activity needs a heartbeat timeout.
 
 ## Cron Job
 
-Use `scenery.sh/cron` and see `testdata/apps/cron`. When Temporal is enabled, cron jobs run through Temporal Schedules. Set `OverlapPolicy`, `CatchupWindow`, `PauseOnFailure`, `ActivityStartToClose`, and `ActivityRetryPolicy` on `cron.JobConfig` when missed-run, overlap, timeout, or retry behavior must be explicit.
+Use `scenery.sh/cron` and see `testdata/apps/cron`. When legacy async runtime is enabled, cron jobs run through legacy async runtime Schedules. Set `OverlapPolicy`, `CatchupWindow`, `PauseOnFailure`, `ActivityStartToClose`, and `ActivityRetryPolicy` on `cron.JobConfig` when missed-run, overlap, timeout, or retry behavior must be explicit.
 
 ```go
 package jobs
@@ -598,9 +598,13 @@ Use app config proxy settings:
 ```json
 {
   "name": "myapp",
+  "dev": {
+    "routing": {
+      "mode": "path"
+    }
+  },
   "proxy": {
     "workspace": "acme",
-    "route_base_domain": "local.dev",
     "frontends": {
       "app": {
         "root": "apps/app"
@@ -614,15 +618,38 @@ Run:
 
 ```sh
 scenery up
+scenery ps
+```
+
+Default local dev routing is path mode. The app root's live runtime gets one base URL such as `http://localhost:4001`; API routes live under `/api/`, frontends under `/<frontend>/`, and Scenery runtime surfaces under `/runtime/`. The URLs in `route_manifest.routes` and compatibility `routes` are canonical for the current runtime. Direct browser API calls should use the generated API route.
+
+Use host mode only when you intentionally need domain-style local routes:
+
+```json
+{
+  "dev": {
+    "routing": {
+      "mode": "host"
+    }
+  },
+  "proxy": {
+    "route_base_domain": "local.dev"
+  }
+}
+```
+
+Then run the edge setup commands:
+
+```sh
 scenery system edge dns install
 scenery system edge privileged install
 scenery system edge install
 scenery system edge trust
 ```
 
-The URLs in `routes` are canonical for the app root's live dev runtime. Generated routes default to `api.<route-id>.local.dev`, frontend routes under `<frontend>.<route-id>.local.dev`, and direct browser API calls should use the generated API route. The route id is internal state, not a user-selected runtime name. Configured hosts appear as friendly aliases only for the live app root that owns the free alias. Use `scenery up --claim-aliases` only when intentionally transferring live aliases to the current app root.
+Host-mode configured hosts appear as friendly aliases only for the live app root that owns the free alias. Use `scenery up --claim-aliases` only when intentionally transferring live aliases to the current app root.
 
-Common failure: trying to bind the agent router or Caddy itself to `127.0.0.1:443` as a normal user. The default-port HTTPS path is managed DNS plus the privileged loopback helper on `127.0.0.1:443`, forwarding raw TCP to user-owned Caddy on a high loopback port, with the agent router kept on its internal loopback upstream. Run `scenery system edge dns install` and `scenery system edge privileged install` once as the normal user, then `scenery system edge install` to prepare user-owned Caddy. Do not run `sudo scenery system edge install`. `scenery system edge trust` trusts the local Caddy CA through a temporary admin-only Caddy process, so it does not require the port-443 edge to already be running. Trusting the local Caddy CA should be a one-time setup unless the CA changes.
+Common host-mode failure: trying to bind the agent router or Caddy itself to `127.0.0.1:443` as a normal user. The default-port HTTPS path is managed DNS plus the privileged loopback helper on `127.0.0.1:443`, forwarding raw TCP to user-owned Caddy on a high loopback port, with the agent router kept on its internal loopback upstream. Run `scenery system edge dns install` and `scenery system edge privileged install` once as the normal user, then `scenery system edge install` to prepare user-owned Caddy. Do not run `sudo scenery system edge install`. `scenery system edge trust` trusts the local Caddy CA through a temporary admin-only Caddy process, so it does not require the port-443 edge to already be running. Trusting the local Caddy CA should be a one-time setup unless the CA changes.
 
 The managed edge Caddy config flushes proxied responses immediately so sync and other SSE streams stay live. Do not disable upstream caching globally; sync uses cache headers for request collapsing.
 
@@ -645,7 +672,7 @@ scenery metrics list --json --since 1h
 scenery metrics query --json --since 15m --step 5s --promql 'scenery_request_duration_seconds'
 ```
 
-`scenery inspect models --json` and `scenery inspect views --json` expose the beta static IR from `//scenery:model`, `scenery.sh/model`, `//scenery:page`, and `scenery.sh/page`. Model records include source ownership metadata; `model.Table("tasks")` means a generated Scenery-owned table in the service schema, while `model.ExistingTable("legacy", "customers")` binds to an existing physical table, skips generated schema/seed ownership, and allows generated list/get only. View records include each collection page's projection as model/view IR: source row type, projection record type, projected fields, static column display hints, static filters, and static sorts. Use them to check parser-visible model/page shape. `scenery generate data --dry-run --json` writes desired Atlas HCL to `.scenery/gen/db/<service>/schema.hcl`, seed SQL to `.scenery/gen/db/<service>/seed.sql`, and beta frontend model/view packages to `.scenery/gen/web/<frontend>/` when collection pages and configured frontends exist. Generated model DB artifacts use the app-owned `<service>` schema, so seed SQL, generated CRUD SQL, and sync shape metadata target the same schema-qualified table instead of `public`; existing-table entities use their explicit schema-qualified table for read-only code and sync shape metadata without emitting generated DB ownership artifacts. Those frontend packages include typed storage rows, page projection records in `projections.ts`, sync shape definitions, collection descriptors with static filter/sort/display metadata, runtime adapter factories, default page components, route factories, and `registerGeneratedRoutes`; app code still owns the production router, sync client, TanStack DB instance, and layout-kit implementation. Mount a generated read-only page by declaring the entity/page in Go, running `scenery generate data --dry-run --json`, pointing a frontend alias such as `@scenery/generated` at `.scenery/gen/web/<frontend>/index.ts`, importing the generated page or route from that alias, mounting it, and running the host typecheck/render or build command. `scenery db diff --generated --json` compares generated desired schema with the app-owned `SERVICE/db/schema.hcl`; `scenery check --json` reports `model-schema` diagnostics when generated-source schemas drift. Model CRUD actions declared with `model.Generate` appear in `scenery inspect endpoints --json` with `"generated": true`; generated CRUD endpoints default to `auth`, generated CRUD route bases default to `/<service>/<table>`, and generated routes fail check on reserved prefixes (`/__scenery`, `/api`, `/sync`) or handwritten/generated route collisions. Generated list endpoints default to `limit=100`, accept `limit` up to 500 plus non-negative `offset`, and reject invalid values before querying. Generated create/patch payloads accept both response field names such as `CreatedAt` and DB-column JSON names such as `created_at`, so `time.Time` fields round-trip RFC3339 timestamps or fail decode with a field-scoped error. Generated CRUD stores share one package-level pgx pool for the configured app database URL env, defaulting to `DatabaseURL`, or Scenery's managed database env. Tenant-shaped generated CRUD is scoped to the active standard-auth tenant, with tenant fields limited to `string`, named string types, or `github.com/google/uuid.UUID`.
+`scenery inspect models --json` and `scenery inspect views --json` expose the beta static IR from `//scenery:model`, `scenery.sh/model`, `//scenery:page`, and `scenery.sh/page`. Model records include source ownership metadata; `model.Table("tasks")` means a generated Scenery-owned table in the service schema, while `model.ExistingTable("legacy", "customers")` binds to an existing physical table, skips generated schema/seed ownership, and allows generated list/get only. View records include each collection page's projection as model/view IR: source row type, projection record type, projected fields, static column display hints, static filters, and static sorts. Use them to check parser-visible model/page shape. `scenery generate data --dry-run --json` writes desired Atlas HCL to `.scenery/gen/db/<service>/schema.hcl`, seed SQL to `.scenery/gen/db/<service>/seed.sql`, and beta frontend model/view packages to `.scenery/gen/web/<frontend>/` when collection pages and configured frontends exist. Generated model DB artifacts use the app-owned `<service>` schema, so seed SQL, generated CRUD SQL, and sync shape metadata target the same schema-qualified table instead of `public`; existing-table entities use their explicit schema-qualified table for read-only code and sync shape metadata without emitting generated DB ownership artifacts. Those frontend packages include typed storage rows, page projection records in `projections.ts`, sync shape definitions, collection descriptors with static filter/sort/display metadata, runtime adapter factories, default page components, route factories, and `registerGeneratedRoutes`; app code still owns the production router, sync client, TanStack DB instance, and layout-kit implementation. Mount a generated read-only page by declaring the entity/page in Go, running `scenery generate data --dry-run --json`, pointing a frontend alias such as `@scenery/generated` at `.scenery/gen/web/<frontend>/index.ts`, importing the generated page or route from that alias, mounting it, and running the host typecheck/render or build command. `scenery db diff --generated --json` compares generated desired schema with the app-owned `SERVICE/db/schema.hcl`; `scenery check --json` reports `model-schema` diagnostics when generated-source schemas drift. Model CRUD actions declared with `model.Generate` appear in `scenery inspect endpoints --json` with `"generated": true`; generated CRUD endpoints default to `auth`, generated CRUD route bases default to `/<service>/<table>`, and generated routes fail check on reserved prefixes (`/runtime`, `/__scenery`, `/api`, `/sync`) or handwritten/generated route collisions. Generated list endpoints default to `limit=100`, accept `limit` up to 500 plus non-negative `offset`, and reject invalid values before querying. Generated create/patch payloads accept both response field names such as `CreatedAt` and DB-column JSON names such as `created_at`, so `time.Time` fields round-trip RFC3339 timestamps or fail decode with a field-scoped error. Generated CRUD stores share one package-level pgx pool for the configured app database URL env, defaulting to `DatabaseURL`, or Scenery's managed database env. Tenant-shaped generated CRUD is scoped to the active standard-auth tenant, with tenant fields limited to `string`, named string types, or `github.com/google/uuid.UUID`.
 
 For generated paths:
 

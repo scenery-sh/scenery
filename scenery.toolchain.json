@@ -233,28 +233,6 @@
           "extract": "zerofs-darwin-aarch64-pgo"
         }
       }
-    },
-    {
-      "name": "temporal-cli",
-      "kind": "binary",
-      "version": "1.7.2",
-      "license": "MIT",
-      "default_binary": "temporal",
-      "binaries": ["temporal"],
-      "platforms": {
-        "linux/amd64": {
-          "archive": "tar.gz",
-          "url": "https://github.com/temporalio/cli/releases/download/v1.7.2/temporal_cli_1.7.2_linux_amd64.tar.gz",
-          "sha256": "e2f548af84e820b7d71f25fc6461a4e6a1ab7cdb6a80fde3c375641b0772375b",
-          "extract": "temporal"
-        },
-        "darwin/arm64": {
-          "archive": "tar.gz",
-          "url": "https://github.com/temporalio/cli/releases/download/v1.7.2/temporal_cli_1.7.2_darwin_arm64.tar.gz",
-          "sha256": "561ac68bdb6c16c8e8cbbd49f12578218ff1776007c3f3ae0d0196c8c9a73e79",
-          "extract": "temporal"
-        }
-      }
     }
   ]
 }

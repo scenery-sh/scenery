@@ -36,6 +36,10 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_LISTEN_NETWORK` | injected | Runtime listen network, usually `unix` in agent dev or `tcp` otherwise. |
 | `SCENERY_LISTEN_ADDR` | injected | Runtime listen address or Unix socket path. |
 | `SCENERY_ROLE` | injected | Generated binary role: `all`, `api`, or `worker`. |
+| `SCENERY_DURABLE_ENDPOINT` | injected | Remote durable API endpoint for `scenery worker durable`. |
+| `SCENERY_DURABLE_TOKEN` | injected secret | Remote durable worker bearer token passed by `scenery worker durable`. |
+| `SCENERY_DURABLE_SERVICES` | injected | Comma-separated durable services the remote worker should poll. |
+| `SCENERY_DURABLE_WORKER_ID` | injected | Optional durable remote worker ID; defaults to the worker process ID. |
 | `SCENERY_LOG_FORMAT` | injected/user input | Runtime log format selected by CLI flags or env. |
 | `SCENERY_ENV` | injected/user input | App environment name such as `development`, `test`, or `production`. |
 | `SCENERY_RUNTIME_ENV` | injected/user input | Runtime environment name used by scenery internals. |
@@ -45,6 +49,8 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_APP_ROOT_HASH` | injected | Stable hash of the app root path. |
 | `SCENERY_BRANCH` | injected | Git branch captured for the dev session. |
 | `SCENERY_WORKTREE` | injected | Worktree directory name captured for the dev session. |
+| `SCENERY_ROUTE_MODE` | injected | Dev routing mode for the current session, usually `path` or `host`. |
+| `SCENERY_BASE_URL` | injected | Browser-facing base URL for the current dev runtime. In default path mode this is `http://localhost:<port>`. |
 | `SCENERY_DEV_SUPERVISOR` | injected | Marks a child process launched by `scenery up`. |
 | `SCENERY_DEV_SUPERVISOR_PID` | injected | Parent dev supervisor PID. |
 | `SCENERY_PARENT_MONITOR` | injected/user input | Enables runtime parent monitoring. |
@@ -69,7 +75,12 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_MANAGED_DATABASE_URL` | injected | Managed per-session Postgres URL exposed for tooling/debugging. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
 | `SCENERY_API_BASE_URL` | injected | scenery-prefixed API route exposed to app/frontends. |
+| `SCENERY_API_URL` | injected | Canonical API route URL exposed to app/frontends. |
+| `SCENERY_API_BASE_PATH` | injected | API path prefix for path-mode routing, normally `/api/`. |
 | `VITE_API_BASE_URL` | injected | Vite-compatible frontend API route. |
+| `SCENERY_FRONTEND_BASE_PATH` | injected | Managed frontend path prefix for the current frontend in path mode. |
+| `SCENERY_FRONTEND_PUBLIC_URL` | injected | Browser-facing URL for the current managed frontend. |
+| `VITE_SCENERY_*` | injected | Vite-compatible mirrors of Scenery dev route metadata for managed frontends. |
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
 | `SCENERY_AUTH_COOKIE_DOMAIN` | injected | Auth cookie domain; empty in default local agent dev. |
 
@@ -97,23 +108,23 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 | `SCENERY_ZEROFS_WEBUI_ADDR` | injected | Private loopback ZeroFS Web UI listener address for the managed ZeroFS process. Substrate/debug metadata only. |
 | `SCENERY_ZEROFS_WEBUI_URL` | injected | Protected Scenery route URL for the ZeroFS operator/debug Web UI when a storage route is attached to the current dev session. |
 
-## Temporal
+## legacy async runtime
 
 | Variable | Direction | Description |
 | --- | --- | --- |
-| `TEMPORAL_ADDRESS` | user input/injected | Default Temporal address env. Apps can override the env name with `temporal.address_env`. |
-| `TEMPORAL_NAMESPACE` | injected/user input | Temporal namespace. |
-| `TEMPORAL_API_KEY` | user input | Default Temporal API key env when configured. |
-| `TEMPORAL_TLS_SERVER_NAME` | user input | Default Temporal TLS server name env when configured. |
-| `TEMPORAL_TLS_CA_CERT_FILE` | user input | Default Temporal TLS CA file env when configured. |
-| `TEMPORAL_TLS_CERT_FILE` | user input | Default Temporal client certificate env when configured. |
-| `TEMPORAL_TLS_KEY_FILE` | user input | Default Temporal client key env when configured. |
-| `SCENERY_TEMPORAL_TASK_QUEUE_PREFIX` | injected/user input | Overrides generated Temporal task queue prefix. Agent dev sets this to a session-scoped value. |
-| `SCENERY_TEMPORAL_TASK_QUEUE_TEST_SUFFIX` | injected/user input | Test-runtime suffix appended to the Temporal task queue prefix so `scenery test` workers cannot share live dev queues. |
-| `SCENERY_TEMPORAL_TASK_QUEUE` | injected/user input | Worker task queue override; `scenery worker --task-queue` sets it. |
-| `SCENERY_TEMPORAL_DEPLOYMENT_NAME` | injected/user input | Temporal Worker Deployment name override. |
-| `SCENERY_TEMPORAL_VERSIONING_BEHAVIOR` | user input | `pinned` or `auto_upgrade`; default is `pinned`. |
-| `SCENERY_TEMPORAL_HOST_RESOURCE_REPORTING` | user input | `0` disables Temporal Go SDK host resource reporting. Enabled by default. |
+| `LEGACY_ASYNC_RUNTIME_ADDRESS` | user input/injected | Default legacy async runtime address env. Apps can override the env name with `legacy-async-runtime.address_env`. |
+| `LEGACY_ASYNC_RUNTIME_NAMESPACE` | injected/user input | legacy async runtime namespace. |
+| `LEGACY_ASYNC_RUNTIME_API_KEY` | user input | Default legacy async runtime API key env when configured. |
+| `LEGACY_ASYNC_RUNTIME_TLS_SERVER_NAME` | user input | Default legacy async runtime TLS server name env when configured. |
+| `LEGACY_ASYNC_RUNTIME_TLS_CA_CERT_FILE` | user input | Default legacy async runtime TLS CA file env when configured. |
+| `LEGACY_ASYNC_RUNTIME_TLS_CERT_FILE` | user input | Default legacy async runtime client certificate env when configured. |
+| `LEGACY_ASYNC_RUNTIME_TLS_KEY_FILE` | user input | Default legacy async runtime client key env when configured. |
+| `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_PREFIX` | injected/user input | Overrides generated legacy async runtime task queue prefix. Agent dev sets this to a session-scoped value. |
+| `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_TEST_SUFFIX` | injected/user input | Test-runtime suffix appended to the legacy async runtime task queue prefix so `scenery test` workers cannot share live dev queues. |
+| `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE` | injected/user input | Worker task queue override; `scenery worker --task-queue` sets it. |
+| `SCENERY_LEGACY_ASYNC_RUNTIME_DEPLOYMENT_NAME` | injected/user input | legacy async runtime Worker Deployment name override. |
+| `SCENERY_LEGACY_ASYNC_RUNTIME_VERSIONING_BEHAVIOR` | user input | `pinned` or `auto_upgrade`; default is `pinned`. |
+| `SCENERY_LEGACY_ASYNC_RUNTIME_HOST_RESOURCE_REPORTING` | user input | `0` disables legacy async runtime Go SDK host resource reporting. Enabled by default. |
 | `SCENERY_BUILD_ID` | injected/user input | Worker build ID. Agent dev uses the session ID. |
 
 ## Observability, Victoria, And Grafana

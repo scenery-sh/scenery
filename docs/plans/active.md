@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0090 Local Path Routing and Per-Runtime Dev Ports](0090-local-path-routing.md)
+  - Status: active
+  - Owner: scenery runtime / agent DX
+  - Created: 2026-06-27
+  - Focus: make localhost path routing with one automatic port per dev runtime the default local routing mode, keep Caddy, and make dnsmasq/domain routing optional.
 - [0088 SQLite Service Databases and Postgres Removal](0088-sqlite-service-databases.md)
   - Status: active
   - Owner: scenery runtime / database
@@ -42,11 +47,6 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: scenery runtime / release tooling / agent DX
   - Created: 2026-06-01
   - Focus: add a root frozen toolchain manifest, managed local tool store, `scenery toolchain` CLI, and remove implicit system `PATH` resolution for Scenery-managed tools.
-- [0047 TypeScript Temporal Workers](0047-typescript-temporal-workers.md)
-  - Status: active
-  - Owner: scenery runtime / Temporal
-  - Created: 2026-05-27
-  - Focus: domain-local TypeScript Temporal activities, generated worker runtime files, external Go activity declarations, and validation.
 - [0063 Database Lifecycle Split](0063-db-lifecycle-split.md)
   - Status: active
   - Owner: scenery runtime / ONLV integration

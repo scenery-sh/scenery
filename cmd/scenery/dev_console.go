@@ -741,12 +741,6 @@ func devConsoleSourceRank(id string) int {
 	switch id {
 	case "api":
 		return 10
-	case "worker:go":
-		return 20
-	case "worker:typescript":
-		return 21
-	case "temporal":
-		return 30
 	case "postgres":
 		return 40
 	case "grafana":

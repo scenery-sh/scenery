@@ -20,22 +20,19 @@ const (
 )
 
 var allowedDirectGoDeps = map[string]string{
-	"github.com/fsnotify/fsnotify":       "file watching for scenery up live rebuilds",
-	"github.com/golang-jwt/jwt/v5":       "JWT signing and verification for standard auth",
-	"github.com/google/uuid":             "UUID generation and parsing for standard auth database records",
-	"github.com/gorilla/websocket":       "dashboard JSON-RPC websocket transport",
-	"github.com/hugelgupf/p9":            "pure-Go 9P2000.L client for the managed ZeroFS storage proxy data plane",
-	"github.com/jackc/pgx/v5":            "Postgres pgxpool compatibility wrapper for scenery apps",
-	"github.com/lib/pq":                  "Postgres database explorer and psql URL handling",
-	"go.temporal.io/api":                 "Temporal API types used by deployment and scheduling integrations",
-	"go.temporal.io/sdk":                 "Temporal client and worker SDK for the durable execution runtime",
-	"go.temporal.io/sdk/contrib/sysinfo": "Temporal-recommended host and cgroup resource reporting for worker heartbeats",
-	"golang.org/x/crypto":                "password hashing primitives for standard auth",
-	"golang.org/x/mod":                   "Go module parsing for self-harness dependency checks",
-	"golang.org/x/sys":                   "portable OS syscalls for doctor disk and memory readiness probes",
-	"golang.org/x/tools":                 "Go package loading/parser pipeline",
-	"google.golang.org/protobuf":         "Temporal API timestamp assertions in hygiene tests",
-	"gopkg.in/yaml.v3":                   "SQLC generator graph inspection from sqlc.yaml without shell parsing",
+	"github.com/fsnotify/fsnotify": "file watching for scenery up live rebuilds",
+	"github.com/golang-jwt/jwt/v5": "JWT signing and verification for standard auth",
+	"github.com/google/uuid":       "UUID generation and parsing for standard auth database records",
+	"github.com/gorilla/websocket": "dashboard JSON-RPC websocket transport",
+	"github.com/hugelgupf/p9":      "pure-Go 9P2000.L client for the managed ZeroFS storage proxy data plane",
+	"github.com/jackc/pgx/v5":      "Postgres pgxpool compatibility wrapper for scenery apps",
+	"github.com/lib/pq":            "Postgres database explorer and psql URL handling",
+	"golang.org/x/crypto":          "password hashing primitives for standard auth",
+	"golang.org/x/mod":             "Go module parsing for self-harness dependency checks",
+	"golang.org/x/sys":             "portable OS syscalls for doctor disk and memory readiness probes",
+	"golang.org/x/tools":           "Go package loading/parser pipeline",
+	"gopkg.in/yaml.v3":             "SQLC generator graph inspection from sqlc.yaml without shell parsing",
+	"modernc.org/sqlite":           "pure-Go SQLite driver for Scenery-owned per-service durable databases",
 }
 
 var forbiddenSourceImports = map[string]string{

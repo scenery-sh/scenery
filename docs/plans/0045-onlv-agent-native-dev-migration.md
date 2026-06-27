@@ -17,15 +17,15 @@ After this work, a developer in `/Users/petrbrazdil/Repos/onlv` should run `just
 * [x] 2026-05-27: Add ONLV `.scenery.json` `dev.services` declarations for managed Postgres and sync.
 * [x] 2026-05-27: Update ONLV agent docs so sync/debug instructions use agent-routed sync and scenery DB commands.
 * [x] 2026-05-27: Validate the ONLV agent-native flow and refresh harness snapshots.
-* [x] 2026-05-27: Revalidate ONLV after shared Grafana and Temporal UI were added to the agent-routed session manifest.
+* [x] 2026-05-27: Revalidate ONLV after shared Grafana and legacy async runtime UI were added to the agent-routed session manifest.
 * [x] 2026-05-27: Revalidate ONLV after scenery started `pulse` and `blog` on hidden agent-owned frontend ports, then remove the fixed blog upstream from `.scenery.json`.
 * [x] 2026-05-27: Revalidate ONLV after HTTPS became the default agent router mode.
 * [x] 2026-05-27: Remove fixed host port publishing from ONLV's fallback `compose.dev.yml`.
 * [x] 2026-05-27: Validate a second ONLV worktree running concurrently through the agent, including frontend/API/sync routed URLs and a separate managed Postgres database.
 * [x] 2026-05-27: Fix session-addressed logs/inspect/dashboard reads so stale temp-worktree records cannot shadow the current ONLV session.
 * [x] 2026-05-27: Extend development trace/log/metric identity beyond `session_id` with app-root hash, branch, and worktree context.
-* [x] 2026-05-27: Scope explicit Temporal workflow/activity task queues in active dev sessions so the shared Temporal substrate cannot mix workers across parallel worktrees.
-* [x] 2026-05-27: Revalidate parallel ONLV sessions after explicit Temporal queue scoping, proving shared substrate reuse with isolated databases and task queues.
+* [x] 2026-05-27: Scope explicit legacy async runtime workflow/activity task queues in active dev sessions so the shared legacy async runtime substrate cannot mix workers across parallel worktrees.
+* [x] 2026-05-27: Revalidate parallel ONLV sessions after explicit legacy async runtime queue scoping, proving shared substrate reuse with isolated databases and task queues.
 
 ## Surprises & Discoveries
 
@@ -34,16 +34,16 @@ After this work, a developer in `/Users/petrbrazdil/Repos/onlv` should run `just
 * 2026-05-27: Once ONLV actually used the managed per-session DB, startup failed because the fresh database had no Atlas schema. The agent-native path needs a pre-app setup hook that runs with the managed DB env.
 * 2026-05-27: ONLV's local `pg_dump` was version 14 while managed Postgres was version 18, so the setup backup step needed to use a matching Docker `pg_dump` when the local binary is older than the server.
 * 2026-05-27: The agent-routed dashboard now loads without any browser token. A startup-only dev-report 401 was caused by an sync route session update clearing the private report token, not by browser authentication.
-* 2026-05-27: After adding shared substrate routes, the ONLV live session manifest includes `grafana` and `temporal` routes alongside app/API/frontend/sync routes. `frontend_urls` remains limited to configured frontends (`blog`, `pulse`) instead of exposing substrate routes as frontends.
+* 2026-05-27: After adding shared substrate routes, the ONLV live session manifest includes `grafana` and `legacy-async-runtime` routes alongside app/API/frontend/sync routes. `frontend_urls` remains limited to configured frontends (`blog`, `pulse`) instead of exposing substrate routes as frontends.
 * 2026-05-27: Once scenery owned frontend startup, the live ONLV session showed hidden frontend backends `pulse=127.0.0.1:53428` and `blog=127.0.0.1:53390`; both routed hostnames returned 200 through the agent. That made the checked-in `blog` upstream `127.0.0.1:4321` unnecessary.
-* 2026-05-27: Restarting the agent without `--router-tls` now reports `router_scheme=https`, and a fresh ONLV session emits HTTPS routes for API, dashboard, removed agent transport, frontends, sync, Grafana, and Temporal. TLS route smokes used `curl -k` so the validation covered the router/certificate path without depending on host trust-store state.
+* 2026-05-27: Restarting the agent without `--router-tls` now reports `router_scheme=https`, and a fresh ONLV session emits HTTPS routes for API, dashboard, removed agent transport, frontends, sync, Grafana, and legacy async runtime. TLS route smokes used `curl -k` so the validation covered the router/certificate path without depending on host trust-store state.
 * 2026-05-27: `compose.dev.yml` remains a manual fallback/debug artifact, but it no longer publishes fixed Postgres/sync host ports.
 * 2026-05-27: A temporary detached worktree initially exposed an sync collision: both sessions tried to use sync's default `sync_slot_default` on the shared Postgres cluster. scenery now sets a session-scoped sync replication stream id, and the parallel smoke showed active slots `sync_slot_default` for `main-dbe32e` and `sync_slot_scenery_onlv_prd5_parallel_6cfa10` for the temporary session.
 * 2026-05-27: The temporary worktree needed its own frontend dependency install; symlinking `apps/blog/node_modules` back to the original worktree made Astro generate invalid virtual module paths. That is a test-worktree setup issue, not a Scenery route collision.
 * 2026-05-27: After deleting the temporary worktree, the dashboard store still had a historical session row marked running and the legacy app row pointed at `/tmp/onlv-prd5-parallel`. `scenery logs --session current` and `scenery inspect ... --session current` now prefer the session-specific app record, and the agent dashboard normalizes stored session liveness against the live agent registry.
 * 2026-05-27: The agent-native local-dev contract requires emitted observability signals to carry session identity plus worktree context. The runtime now injects `SCENERY_APP_ROOT_HASH`, `SCENERY_BRANCH`, and `SCENERY_WORKTREE` alongside the session/runtime app IDs and exports those fields as Victoria trace/log attributes and metric labels.
-* 2026-05-27: ONLV declares several explicit Temporal task queues. Prefixing only default worker/cron queues was insufficient because explicit workflow/activity workers could still poll shared queue names on the shared Temporal dev server. scenery now session-prefixes explicit queues when `SCENERY_SESSION_ID` is present and scopes `ExecuteActivity`/workflow starts the same way.
-* 2026-05-27: A second ONLV session from `/tmp/onlv-prd5-audit` ran concurrently as `prd5-audit-parallel-8c8fab`. It reused the shared Grafana, Temporal, Victoria, and Postgres substrate PIDs, received its own database `onlvnext_o5o2_prd5_audit_parallel_8c8fab`, and app PID `33759` started only `scenery.onlvnext-o5o2.prd5-audit-parallel-8c8fab...` Temporal task queues. No current-pid `TaskQueue onlv.` lines were present.
+* 2026-05-27: ONLV declares several explicit legacy async runtime task queues. Prefixing only default worker/cron queues was insufficient because explicit workflow/activity workers could still poll shared queue names on the shared legacy async runtime dev server. scenery now session-prefixes explicit queues when `SCENERY_SESSION_ID` is present and scopes `ExecuteActivity`/workflow starts the same way.
+* 2026-05-27: A second ONLV session from `/tmp/onlv-prd5-audit` ran concurrently as `prd5-audit-parallel-8c8fab`. It reused the shared Grafana, legacy async runtime, Victoria, and Postgres substrate PIDs, received its own database `onlvnext_o5o2_prd5_audit_parallel_8c8fab`, and app PID `33759` started only `scenery.onlvnext-o5o2.prd5-audit-parallel-8c8fab...` legacy async runtime task queues. No current-pid `TaskQueue onlv.` lines were present.
 
 ## Decision Log
 
@@ -71,7 +71,7 @@ After this work, a developer in `/Users/petrbrazdil/Repos/onlv` should run `just
 
 First ONLV migration slice completed on 2026-05-27. ONLV now defaults `just dev` to the scenery agent path, declares managed Postgres/sync dev services, runs Atlas schema setup through `dev.setup`, and documents session-routed URLs. The runtime now also makes declared managed Postgres override local DB env by default, closing the stale `.env` bypass.
 
-Validation passed with ONLV `just repo-harness-json`, `scenery check --json`, `scenery inspect app/routes --json`, and `scenery harness --json --write`. A live `scenery dev --app-root /Users/petrbrazdil/Repos/onlv --detach --json` session reached `running` with default HTTPS routed `api`, `dashboard`, `removed-agent-transport`, `blog`, `pulse`, `sync`, `grafana`, and `temporal` URLs. The dashboard URL returned HTML without a token, sync returned `syncSQL/1.6.8-4-g58e68d6`, Grafana `/api/health` returned 200, Temporal UI returned 200 HTML, `pulse` and `blog` returned 200 through agent-routed hostnames backed by hidden loopback ports, and `scenery db psql` verified `onlvnext_o5o2_main_dbe32e|180001|logical|t` for database, server version, WAL level, and `audit.row_changes` existence.
+Validation passed with ONLV `just repo-harness-json`, `scenery check --json`, `scenery inspect app/routes --json`, and `scenery harness --json --write`. A live `scenery dev --app-root /Users/petrbrazdil/Repos/onlv --detach --json` session reached `running` with default HTTPS routed `api`, `dashboard`, `removed-agent-transport`, `blog`, `pulse`, `sync`, `grafana`, and `legacy-async-runtime` URLs. The dashboard URL returned HTML without a token, sync returned `syncSQL/1.6.8-4-g58e68d6`, Grafana `/api/health` returned 200, legacy async runtime UI returned 200 HTML, `pulse` and `blog` returned 200 through agent-routed hostnames backed by hidden loopback ports, and `scenery db psql` verified `onlvnext_o5o2_main_dbe32e|180001|logical|t` for database, server version, WAL level, and `audit.row_changes` existence.
 
 Parallel-session validation also passed with `/tmp/onlv-prd5-parallel` running concurrently as `onlv-prd5-parallel-6cfa10`. The temporary session used hidden ports distinct from the primary session, routed `pulse`, `blog`, API config, and sync root over HTTPS with 200 responses, and `scenery db psql --app-root /tmp/onlv-prd5-parallel` verified `onlvnext_o5o2_onlv_prd5_parallel_6cfa10|logical`. `pg_replication_slots` showed separate active sync slots for the primary and parallel databases.
 
@@ -88,7 +88,7 @@ Relevant scenery implementation:
 Relevant ONLV files:
 
 * `Justfile` defines human dev commands.
-* `.scenery.json` defines app identity, proxy frontends, auth, observability, Temporal, and managed `dev.services`.
+* `.scenery.json` defines app identity, proxy frontends, auth, observability, legacy async runtime, and managed `dev.services`.
 * `compose.dev.yml` remains only as a manual fallback/debug artifact and uses Docker-assigned host ports.
 * `docs/agent/SYNC.md` points agents at scenery-managed sync and the current agent route.
 * `AGENTS.md` points local development at `scenery dev`, `scenery status --json`, and scenery-managed Postgres/sync.

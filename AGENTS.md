@@ -76,13 +76,13 @@ Use a multi-context domain docs layout with root `CONTEXT-MAP.md` plus per-conte
 
 ## Current Mental Model
 
-scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Grafana, Victoria, Temporal dev server, local proxying, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
+scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Grafana, Victoria, legacy async runtime dev server, local proxying, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
 - App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
-- Go source is the app model: services, endpoints, auth handlers, middleware, Temporal declarations, cron jobs, and generated clients are discovered from code.
+- Go source is the app model: services, endpoints, auth handlers, middleware, legacy async runtime declarations, cron jobs, and generated clients are discovered from code.
 - `scenery serve` builds once and starts a headless API-role runtime.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
-- `scenery worker` builds once and starts a worker-role runtime for cron and native Temporal workers.
+- `scenery worker` builds once and starts a worker-role runtime for cron and native legacy async runtime workers.
 - `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
@@ -134,7 +134,7 @@ scenery version --json
 scenery doctor --json
 scenery check --json
 scenery inspect app|routes|services|endpoints|wire|build|paths|docs --json
-scenery inspect temporal --json
+scenery inspect legacy-async-runtime --json
 scenery traces list --json
 scenery metrics list --json
 scenery logs --jsonl --limit 200
@@ -259,10 +259,10 @@ When editing source that changes the public app model, confirm the docs and test
 - `//scenery:authhandler`
 - request tags: `json`, `header`, `query`, `qs`, `cookie`
 - response tag: `scenery:"httpstatus"`
-- public packages: `scenery`, `auth`, `errs`, `middleware`, `temporal`, `cron`, `db`, `pgxpool`, `et`
+- public packages: `scenery`, `auth`, `errs`, `middleware`, `legacy-async-runtime`, `cron`, `db`, `pgxpool`, `et`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
-- worker, Temporal, cron, middleware, and generated TypeScript client behavior when touched
+- worker, legacy async runtime, cron, middleware, and generated TypeScript client behavior when touched
 
 ## Repository Hygiene
 

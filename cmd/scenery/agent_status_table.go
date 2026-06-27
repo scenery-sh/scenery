@@ -16,12 +16,14 @@ func writeStatusTable(w io.Writer, sessions []localagent.Session, substrates []l
 		fmt.Fprintln(w, "No Scenery dev app roots found.")
 	} else {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "APP ROOT\tSTATUS\tCONSOLE\tUPDATED")
+		fmt.Fprintln(tw, "APP\tWORKTREE\tSTATUS\tURL\tSERVICES\tUPDATED")
 		for _, session := range sessions {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
-				statusTableValue(session.AppRoot),
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				statusTableValue(firstNonEmpty(session.BaseAppID, session.RuntimeAppID, session.AppRoot)),
+				statusTableValue(statusSessionWorktree(session)),
 				statusTableValue(session.Status),
-				statusTableValue(statusSessionConsoleURL(session)),
+				statusTableValue(statusSessionURL(session)),
+				statusTableValue(statusSessionServices(session)),
 				statusTableUpdated(session.UpdatedAt),
 			)
 		}
@@ -46,6 +48,46 @@ func writeStatusTable(w io.Writer, sessions []localagent.Session, substrates []l
 	_ = tw.Flush()
 }
 
+func statusSessionWorktree(session localagent.Session) string {
+	if value := strings.TrimSpace(session.RouteManifest.Worktree); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(session.Branch); value != "" {
+		return value
+	}
+	return filepathBase(session.AppRoot)
+}
+
+func statusSessionURL(session localagent.Session) string {
+	if value := strings.TrimSpace(session.RouteManifest.BaseURL); value != "" {
+		return value
+	}
+	return statusSessionConsoleURL(session)
+}
+
+func statusSessionServices(session localagent.Session) string {
+	routes := session.RouteManifest.Routes
+	if len(routes) == 0 {
+		return statusTableURLs(session.Routes)
+	}
+	names := make([]string, 0, len(routes))
+	for name, record := range routes {
+		if name == "root" || strings.TrimSpace(record.URL) == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+"="+strings.TrimSpace(routes[name].URL))
+	}
+	return strings.Join(parts, ",")
+}
+
 func statusSessionConsoleURL(session localagent.Session) string {
 	if session.Routes != nil {
 		if value := strings.TrimSpace(session.Routes[localagent.RouteDashboard]); value != "" {
@@ -66,6 +108,17 @@ func statusSessionConsoleURL(session localagent.Session) string {
 		}
 	}
 	return ""
+}
+
+func filepathBase(path string) string {
+	path = strings.TrimRight(strings.TrimSpace(path), "/")
+	if path == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(path, "/"); idx >= 0 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 func statusTableValue(value string) string {

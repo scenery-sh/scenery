@@ -116,9 +116,6 @@ func startCronScheduler(parent context.Context, cfg AppConfig) (*cronScheduler, 
 		close(done)
 		return &cronScheduler{done: done}, nil
 	}
-	if cfg.Temporal.Enabled {
-		return startTemporalCronScheduler(parent, cfg, jobs)
-	}
 	return startInProcessCronScheduler(parent, jobs), nil
 }
 
@@ -254,99 +251,6 @@ func cronScheduleSummary(job *CronJob) string {
 		return "every " + job.Every.String()
 	}
 	return job.Schedule
-}
-
-type TemporalCronScheduleSpec struct {
-	Intervals []time.Duration
-	Calendars []TemporalCronCalendarSpec
-}
-
-type TemporalCronCalendarSpec struct {
-	Second     []TemporalCronScheduleRange
-	Minute     []TemporalCronScheduleRange
-	Hour       []TemporalCronScheduleRange
-	DayOfMonth []TemporalCronScheduleRange
-	Month      []TemporalCronScheduleRange
-	DayOfWeek  []TemporalCronScheduleRange
-	Comment    string
-}
-
-type TemporalCronScheduleRange struct {
-	Start int
-	End   int
-	Step  int
-}
-
-func TemporalCronScheduleSpecForJob(job *CronJob) (TemporalCronScheduleSpec, error) {
-	if job == nil {
-		return TemporalCronScheduleSpec{}, fmt.Errorf("runtime: cron job cannot be nil")
-	}
-	if job.Every > 0 {
-		return TemporalCronScheduleSpec{Intervals: []time.Duration{job.Every}}, nil
-	}
-	plan, ok := job.plan.(parsedCronPlan)
-	if !ok {
-		return TemporalCronScheduleSpec{}, fmt.Errorf("runtime: cron job %s schedule was not parsed", job.ID)
-	}
-	return TemporalCronScheduleSpec{Calendars: cronCalendarSpecs(plan)}, nil
-}
-
-func cronCalendarSpecs(plan parsedCronPlan) []TemporalCronCalendarSpec {
-	base := TemporalCronCalendarSpec{
-		Second:  []TemporalCronScheduleRange{{Start: 0}},
-		Minute:  cronFieldRanges(plan.minute, false),
-		Hour:    cronFieldRanges(plan.hour, false),
-		Month:   cronFieldRanges(plan.month, false),
-		Comment: "scenery cron schedule",
-	}
-	if plan.dom.any || plan.dow.any {
-		base.DayOfMonth = cronFieldRanges(plan.dom, false)
-		base.DayOfWeek = cronDayOfWeekRanges(plan.dow, false)
-		return []TemporalCronCalendarSpec{base}
-	}
-	domSpec := base
-	domSpec.DayOfMonth = cronFieldRanges(plan.dom, false)
-	domSpec.DayOfWeek = cronDayOfWeekRanges(plan.dow, true)
-	dowSpec := base
-	dowSpec.DayOfMonth = cronFieldRanges(plan.dom, true)
-	dowSpec.DayOfWeek = cronDayOfWeekRanges(plan.dow, false)
-	return []TemporalCronCalendarSpec{domSpec, dowSpec}
-}
-
-func cronFieldRanges(field cronField, forceAny bool) []TemporalCronScheduleRange {
-	if forceAny || field.any {
-		return []TemporalCronScheduleRange{{Start: field.min, End: field.max, Step: 1}}
-	}
-	var ranges []TemporalCronScheduleRange
-	for value := field.min; value <= field.max; value++ {
-		if field.Has(value) {
-			ranges = append(ranges, TemporalCronScheduleRange{Start: value})
-		}
-	}
-	return ranges
-}
-
-func cronDayOfWeekRanges(field cronField, forceAny bool) []TemporalCronScheduleRange {
-	if forceAny || field.any {
-		return []TemporalCronScheduleRange{{Start: 0, End: 6, Step: 1}}
-	}
-	seen := make(map[int]bool)
-	var ranges []TemporalCronScheduleRange
-	for value := field.min; value <= field.max; value++ {
-		if !field.Has(value) {
-			continue
-		}
-		dow := value
-		if dow == 7 {
-			dow = 0
-		}
-		if dow < 0 || dow > 6 || seen[dow] {
-			continue
-		}
-		seen[dow] = true
-		ranges = append(ranges, TemporalCronScheduleRange{Start: dow})
-	}
-	return ranges
 }
 
 func InvokeCronJob(ctx context.Context, job *CronJob, scheduledAt time.Time, executionID string) error {

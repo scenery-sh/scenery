@@ -55,23 +55,17 @@ func Main(cfg AppConfig) error {
 	stopSupervisorMonitor := startSupervisorParentMonitor(cancelRun)
 	defer stopSupervisorMonitor()
 
-	stopTemporal, err := StartTemporalRuntime(runCtx, cfg)
+	stopDurable, err := startDurableRuntime(runCtx, cfg)
 	if err != nil {
 		return err
 	}
 	if err := InitializeServices(); err != nil {
-		_ = stopTemporal(context.Background())
-		return err
-	}
-	stopTemporalWorkers, err := startTemporalWorkerRuntime(runCtx, cfg)
-	if err != nil {
-		_ = stopTemporal(context.Background())
+		_ = stopDurable(context.Background())
 		return err
 	}
 	scheduler, err := startCronScheduler(runCtx, cfg)
 	if err != nil {
-		_ = stopTemporalWorkers(context.Background())
-		_ = stopTemporal(context.Background())
+		_ = stopDurable(context.Background())
 		return err
 	}
 
@@ -87,18 +81,18 @@ func Main(cfg AppConfig) error {
 		logTrace(context.Background(), "worker runtime started")
 		<-runCtx.Done()
 		cancelRun()
-		return shutdownRuntime(nil, stopTemporalWorkers, stopTemporal, scheduler)
+		return shutdownRuntime(nil, scheduler, stopDurable)
 	}
 
 	server, err := newServer(cfg.ListenAddr)
 	if err != nil {
 		cancelRun()
-		return shutdownRuntime(nil, stopTemporalWorkers, stopTemporal, scheduler)
+		return shutdownRuntime(nil, scheduler, stopDurable)
 	}
 	ln, err := listenRuntime(listenNetwork, cfg.ListenAddr)
 	if err != nil {
 		cancelRun()
-		return errorsJoin(err, shutdownRuntime(nil, stopTemporalWorkers, stopTemporal, scheduler))
+		return errorsJoin(err, shutdownRuntime(nil, scheduler, stopDurable))
 	}
 
 	errCh := make(chan error, 1)
@@ -116,10 +110,10 @@ func Main(cfg AppConfig) error {
 	select {
 	case <-runCtx.Done():
 		cancelRun()
-		return shutdownRuntime(server, stopTemporalWorkers, stopTemporal, scheduler)
+		return shutdownRuntime(server, scheduler, stopDurable)
 	case err := <-errCh:
 		cancelRun()
-		stopErr := shutdownRuntime(server, stopTemporalWorkers, stopTemporal, scheduler)
+		stopErr := shutdownRuntime(server, scheduler, stopDurable)
 		if errors.Is(err, http.ErrServerClosed) {
 			return stopErr
 		}
@@ -169,7 +163,7 @@ func runtimeRoleFromEnv() (runtimeRole, error) {
 	}
 }
 
-func shutdownRuntime(server *http.Server, stopTemporalWorkers func(context.Context) error, stopTemporal func(context.Context) error, scheduler *cronScheduler) error {
+func shutdownRuntime(server *http.Server, scheduler *cronScheduler, stopDurable func(context.Context) error) error {
 	var shutdownErrs []error
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -188,18 +182,10 @@ func shutdownRuntime(server *http.Server, stopTemporalWorkers func(context.Conte
 		}
 	}
 
-	temporalWorkersCtx, temporalWorkersCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer temporalWorkersCancel()
-	if stopTemporalWorkers != nil {
-		if err := stopTemporalWorkers(temporalWorkersCtx); err != nil && !errors.Is(err, context.Canceled) {
-			shutdownErrs = append(shutdownErrs, err)
-		}
-	}
-
-	temporalCtx, temporalCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer temporalCancel()
-	if stopTemporal != nil {
-		if err := stopTemporal(temporalCtx); err != nil && !errors.Is(err, context.Canceled) {
+	durableCtx, durableCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer durableCancel()
+	if stopDurable != nil {
+		if err := stopDurable(durableCtx); err != nil && !errors.Is(err, context.Canceled) {
 			shutdownErrs = append(shutdownErrs, err)
 		}
 	}

@@ -4,9 +4,9 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-the agent-native local-dev ExecPlan series requires every local development session to have isolated identity in runtime metadata, auth/local URLs, logs, traces, metrics, and Temporal task queues. The 0037 agent MVP records `session_id` and `runtime_app_id` in the session manifest, but the app runtime still primarily runs under the source app ID and most emitted signals are not session-scoped.
+the agent-native local-dev ExecPlan series requires every local development session to have isolated identity in runtime metadata, auth/local URLs, logs, traces, metrics, and legacy async runtime task queues. The 0037 agent MVP records `session_id` and `runtime_app_id` in the session manifest, but the app runtime still primarily runs under the source app ID and most emitted signals are not session-scoped.
 
-After this work, the runtime receives and exposes the agent session identity, dev output and observability records can be filtered by session, and Temporal local development uses session-specific task queue/build identifiers so parallel worktrees cannot consume each other's work.
+After this work, the runtime receives and exposes the agent session identity, dev output and observability records can be filtered by session, and legacy async runtime local development uses session-specific task queue/build identifiers so parallel worktrees cannot consume each other's work.
 
 ## Progress
 
@@ -17,7 +17,7 @@ After this work, the runtime receives and exposes the agent session identity, de
 * [x] 2026-05-26: Add session fields to trace/log observability records and JSON inspect surfaces.
 * [x] 2026-05-26: Attach session labels to traces and metrics emitted by the runtime and exported to Victoria.
 * [x] 2026-05-26: Add `--session current|<id>` filters to `scenery logs`, `inspect traces`, and `inspect metrics`.
-* [x] 2026-05-26: Scope local auth URLs and Temporal task queue/deployment/build IDs to the session.
+* [x] 2026-05-26: Scope local auth URLs and legacy async runtime task queue/deployment/build IDs to the session.
 
 ## Surprises & Discoveries
 
@@ -25,7 +25,7 @@ Record implementation findings here with commands, test output, or file referenc
 
 * 2026-05-26: Kept `Meta().AppID` as the source app ID for this slice and added `BaseAppID`, `RuntimeAppID`, and `SessionID` as additive metadata. Switching stored devdash app IDs to runtime IDs belongs with the devdash/session filtering milestone so dashboard records do not split unexpectedly.
 * 2026-05-26: Standard auth reads app/API URLs through configurable env names plus fallbacks, so the dev supervisor now sets the configured env names and the fallback names. It also writes empty cookie-domain env overrides so local auth cookies stay host-only when a session URL is active.
-* 2026-05-26: Temporal task queue prefix did not previously have an environment override. Added `SCENERY_TEMPORAL_TASK_QUEUE_PREFIX` so `scenery dev` can make a session-scoped task queue without mutating `.scenery.json`.
+* 2026-05-26: legacy async runtime task queue prefix did not previously have an environment override. Added `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_PREFIX` so `scenery dev` can make a session-scoped task queue without mutating `.scenery.json`.
 
 ## Decision Log
 
@@ -33,8 +33,8 @@ Record implementation findings here with commands, test output, or file referenc
   Rationale: Existing dashboards and scripts understand app IDs. Additive session fields preserve compatibility while enabling isolation and filtering.
   Date/Author: 2026-05-26 / Codex
 
-* Decision: Scope local Temporal by task queue/deployment/build ID in this milestone, not by namespace.
-  Rationale: Task queue isolation is enough to stop parallel workers from consuming each other's work and avoids adding namespace lifecycle management before the daemon-owned Temporal substrate work in 0040.
+* Decision: Scope local legacy async runtime by task queue/deployment/build ID in this milestone, not by namespace.
+  Rationale: Task queue isolation is enough to stop parallel workers from consuming each other's work and avoids adding namespace lifecycle management before the daemon-owned legacy async runtime substrate work in 0040.
   Date/Author: 2026-05-26 / Codex
 
 ## Outcomes & Retrospective
@@ -48,7 +48,7 @@ Shipped outcome:
 * `scenery logs --session current|<id>`, `scenery inspect traces --session current|<id> --json`, and `scenery inspect metrics --session current|<id> --json` filter session-scoped local records.
 * Runtime development reports propagate session identity into stored observability events and Victoria trace/log/metric labels, including `scenery.session_id` and `scenery_session_id`.
 * `scenery dev` sets session-scoped standard-auth URL env vars and clears local auth cookie-domain env vars for host-only local cookies.
-* `scenery dev` sets `SCENERY_TEMPORAL_TASK_QUEUE_PREFIX`, `SCENERY_TEMPORAL_DEPLOYMENT_NAME`, and `SCENERY_BUILD_ID` from the active session so local Temporal workers do not share default queues/build IDs.
+* `scenery dev` sets `SCENERY_LEGACY_ASYNC_RUNTIME_TASK_QUEUE_PREFIX`, `SCENERY_LEGACY_ASYNC_RUNTIME_DEPLOYMENT_NAME`, and `SCENERY_BUILD_ID` from the active session so local legacy async runtime workers do not share default queues/build IDs.
 
 Validation:
 
@@ -71,7 +71,7 @@ cmd/scenery/inspect_observability.go
 internal/devdash/*
 runtime/observability.go
 runtime/current.go
-runtime/temporal*.go
+runtime/legacy-async-runtime*.go
 auth/*
 ```
 
@@ -83,7 +83,7 @@ Milestone 2 stores session identity in devdash records and exposes it through ex
 
 Milestone 3 labels runtime traces/metrics/logs with session fields and adds session-aware inspect filters.
 
-Milestone 4 scopes local auth URLs and Temporal local worker identifiers by session.
+Milestone 4 scopes local auth URLs and legacy async runtime local worker identifiers by session.
 
 ## Plan of Work
 
@@ -96,8 +96,8 @@ Keep contracts versioned where schemas already exist. Where schema files cover J
 3. Add nullable session columns/fields to devdash app, process event, and process output records, preserving reads from older local stores.
 4. Add session labels to runtime observability records and update inspect/log schemas where JSON contracts expose those records.
 5. Add `--session current|<id>` filters to logs, traces, and metrics commands.
-6. Scope standard local auth URLs and Temporal task queue/build IDs to the active session.
-7. Add tests for session propagation, filtering, schema updates, and Temporal task queue isolation.
+6. Scope standard local auth URLs and legacy async runtime task queue/build IDs to the active session.
+7. Add tests for session propagation, filtering, schema updates, and legacy async runtime task queue isolation.
 
 ## Validation and Acceptance
 
@@ -116,7 +116,7 @@ Observable behavior:
 * Session manifests and runtime metadata agree on `session_id` and `runtime_app_id`.
 * `scenery logs --session current --json` only returns records for the current session.
 * `scenery inspect traces --session current --json` and `scenery inspect metrics --session current --json` include and filter session labels.
-* Parallel local Temporal workers use distinct task queues/build IDs by default.
+* Parallel local legacy async runtime workers use distinct task queues/build IDs by default.
 
 ## Idempotence and Recovery
 
@@ -132,7 +132,7 @@ cmd/scenery/logs.go
 cmd/scenery/inspect_observability.go
 internal/devdash/*
 runtime/observability.go
-runtime/temporal*.go
+runtime/legacy-async-runtime*.go
 docs/schemas/scenery.logs.event.v1.schema.json
 docs/schemas/scenery.inspect.traces.v1.schema.json
 docs/schemas/scenery.inspect.metrics.v1.schema.json

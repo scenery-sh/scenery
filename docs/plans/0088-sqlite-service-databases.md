@@ -1,5 +1,7 @@
 # 0088 - SQLite Service Databases and Postgres Removal
 
+This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` current as work proceeds.
+
 ## Purpose / Big Picture
 
 Scenery currently treats Postgres as the built-in managed database capability. This plan replaces that model with SQLite as the default managed local database model, using the invariant:

@@ -884,7 +884,6 @@ func generatorFingerprintPaths() []string {
 		"pgxpool",
 		"rlog",
 		"runtime",
-		"temporal",
 	}
 }
 

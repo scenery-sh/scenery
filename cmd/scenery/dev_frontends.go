@@ -366,7 +366,24 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 		env = append(env,
 			"API_BASE_URL="+apiURL,
 			"SCENERY_API_BASE_URL="+apiURL,
+			"SCENERY_API_URL="+apiURL,
 			"VITE_API_BASE_URL="+apiURL,
+		)
+	}
+	if session.RouteManifest.Mode != "" {
+		frontendPath := routeBasePath(&session, frontendName)
+		frontendURL := strings.TrimSpace(session.Routes[localagentLabel(frontendName)])
+		env = append(env,
+			"SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
+			"SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
+			"SCENERY_API_BASE_PATH="+routeBasePath(&session, localagent.RouteAPI),
+			"SCENERY_FRONTEND_BASE_PATH="+frontendPath,
+			"SCENERY_FRONTEND_PUBLIC_URL="+frontendURL,
+			"VITE_SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
+			"VITE_SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
+			"VITE_SCENERY_API_BASE_PATH="+routeBasePath(&session, localagent.RouteAPI),
+			"VITE_SCENERY_FRONTEND_BASE_PATH="+frontendPath,
+			"VITE_SCENERY_FRONTEND_PUBLIC_URL="+frontendURL,
 		)
 	}
 	if allowedHost := managedFrontendAllowedHost(session, frontendName); allowedHost != "" {

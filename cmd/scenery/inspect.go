@@ -13,18 +13,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
+	durablestore "scenery.sh/internal/durable/store"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/wiremodel"
-	"scenery.sh/internal/workers"
-	sceneryruntime "scenery.sh/runtime"
 )
 
 var inspectAppModelCache = struct {
@@ -87,14 +85,36 @@ type inspectPathsRecord struct {
 	BuildStatePath string `json:"build_state_path"`
 }
 
-type inspectTemporalResponse struct {
-	SchemaVersion   string                `json:"schema_version"`
-	App             inspectdata.AppRef    `json:"app"`
-	Temporal        inspectTemporalRecord `json:"temporal"`
-	Declarations    []temporalDeclaration `json:"declarations"`
-	TypeScript      temporalTypeScript    `json:"typescript"`
-	Connectivity    temporalConnectivity  `json:"connectivity"`
-	WorkerManifests workers.Validation    `json:"worker_manifests"`
+type inspectDurableResponse struct {
+	SchemaVersion string                 `json:"schema_version"`
+	App           inspectdata.AppRef     `json:"app"`
+	Durable       inspectDurableRecord   `json:"durable"`
+	Declarations  []durableDeclaration   `json:"declarations"`
+	Services      []durableServiceRecord `json:"services"`
+}
+
+type inspectDurableRecord struct {
+	StateRoot    string `json:"state_root"`
+	TaskCount    int    `json:"task_count"`
+	ServiceCount int    `json:"service_count"`
+}
+
+type durableDeclaration struct {
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Service  string `json:"service"`
+	DBPath   string `json:"db_path,omitempty"`
+	DBExists bool   `json:"db_exists"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Input    string `json:"input,omitempty"`
+	Output   string `json:"output,omitempty"`
+}
+
+type durableServiceRecord struct {
+	Name     string `json:"name"`
+	DBPath   string `json:"db_path"`
+	DBExists bool   `json:"db_exists"`
 }
 
 type inspectStorageResponse struct {
@@ -148,80 +168,6 @@ type inspectStorageLease struct {
 	URL       string `json:"url,omitempty"`
 	OwnerPID  int    `json:"owner_pid,omitempty"`
 	Live      bool   `json:"live"`
-}
-
-type inspectTemporalRecord struct {
-	Enabled          bool   `json:"enabled"`
-	Mode             string `json:"mode"`
-	Address          string `json:"address"`
-	AddressEnv       string `json:"address_env"`
-	AddressEnvSet    bool   `json:"address_env_set"`
-	Namespace        string `json:"namespace"`
-	NamespaceEnvSet  bool   `json:"namespace_env_set"`
-	TaskQueuePrefix  string `json:"task_queue_prefix"`
-	TaskQueueEnv     string `json:"task_queue_env"`
-	TaskQueueEnvSet  bool   `json:"task_queue_env_set"`
-	PayloadCodec     string `json:"payload_codec"`
-	APIKeyEnv        string `json:"api_key_env"`
-	APIKeyEnvSet     bool   `json:"api_key_env_set"`
-	TLSEnabled       bool   `json:"tls_enabled"`
-	TLSServerNameEnv string `json:"tls_server_name_env"`
-	TLSServerNameSet bool   `json:"tls_server_name_env_set"`
-	TLSCACertFileEnv string `json:"tls_ca_cert_file_env"`
-	TLSCACertFileSet bool   `json:"tls_ca_cert_file_env_set"`
-	TLSCertFileEnv   string `json:"tls_cert_file_env"`
-	TLSCertFileSet   bool   `json:"tls_cert_file_env_set"`
-	TLSKeyFileEnv    string `json:"tls_key_file_env"`
-	TLSKeyFileSet    bool   `json:"tls_key_file_env_set"`
-	HostReporting    bool   `json:"host_resource_reporting"`
-	HostReportingEnv string `json:"host_resource_reporting_env"`
-	HostReportingSet bool   `json:"host_resource_reporting_env_set"`
-	DeploymentName   string `json:"deployment_name"`
-	DeploymentEnv    string `json:"deployment_env"`
-	DeploymentEnvSet bool   `json:"deployment_env_set"`
-	WorkerBuildID    string `json:"worker_build_id"`
-	WorkerBuildIDEnv string `json:"worker_build_id_env"`
-	WorkerBuildIDSet bool   `json:"worker_build_id_set"`
-	Versioning       string `json:"versioning"`
-	VersioningEnv    string `json:"versioning_env"`
-	VersioningEnvSet bool   `json:"versioning_env_set"`
-	LocalAutoStart   bool   `json:"local_auto_start"`
-	LocalDBFilename  string `json:"local_db_filename"`
-	ConnectTimeoutMS int64  `json:"connect_timeout_ms"`
-}
-
-type temporalConnectivity struct {
-	Checked   bool   `json:"checked"`
-	Reachable bool   `json:"reachable"`
-	Error     string `json:"error,omitempty"`
-}
-
-type temporalDeclaration struct {
-	Kind              string `json:"kind"`
-	Name              string `json:"name"`
-	TaskQueue         string `json:"task_queue"`
-	TaskQueueExplicit bool   `json:"task_queue_explicit"`
-	File              string `json:"file"`
-	Line              int    `json:"line"`
-}
-
-type temporalTypeScript struct {
-	Checked      bool                         `json:"checked"`
-	OK           bool                         `json:"ok"`
-	GeneratedDir string                       `json:"generated_dir"`
-	Activities   []temporalTypeScriptActivity `json:"activities"`
-	Diagnostics  []workers.Diagnostic         `json:"diagnostics,omitempty"`
-}
-
-type temporalTypeScriptActivity struct {
-	Name           string `json:"name"`
-	TaskQueue      string `json:"task_queue"`
-	ExportName     string `json:"export_name"`
-	Input          string `json:"input"`
-	Output         string `json:"output"`
-	File           string `json:"file"`
-	Line           int    `json:"line"`
-	MaxConcurrency int    `json:"max_concurrency,omitempty"`
 }
 
 func inspectCommand(args []string) error {
@@ -368,12 +314,12 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 			return err
 		}
 		return writeInspectJSON(stdout, resp)
-	case "temporal":
-		resp, err := buildInspectTemporalResponse(context.Background(), appRoot, cfg)
+	case "durable":
+		model, err := cachedInspectAppModel(appRoot, cfg.Name)
 		if err != nil {
 			return err
 		}
-		return writeInspectJSON(stdout, resp)
+		return writeInspectJSON(stdout, buildInspectDurableResponse(appRoot, cfg, model))
 	case "storage":
 		return writeInspectJSON(stdout, buildInspectStorageResponse(context.Background(), appRoot, cfg))
 	case "validation":
@@ -793,148 +739,80 @@ func redactedInspectEnv(env map[string]string) map[string]string {
 	return out
 }
 
-func buildInspectTemporalResponse(ctx context.Context, appRoot string, cfg appcfg.Config) (inspectTemporalResponse, error) {
-	checkCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	info, status := checkTemporalConnection(checkCtx, cfg.Name, temporalRuntimeConfigFromApp(cfg.Temporal))
-	appModel, err := cachedInspectAppModel(appRoot, cfg.Name)
-	if err != nil {
-		return inspectTemporalResponse{}, err
-	}
-	ts := workers.DiscoverTypeScriptActivities(appRoot)
-	tsDiagnostics := workers.ValidateTypeScriptContracts(ts, temporalExternalActivityDeclarations(appRoot, appModel), nativeGoTemporalDeclarations(appRoot, appModel))
-	return inspectTemporalResponse{
-		SchemaVersion: "scenery.inspect.temporal.v1",
+func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, appModel *model.App) inspectDurableResponse {
+	stateRoot := filepath.Join(appRoot, ".scenery", "state")
+	declarations := durableDeclarations(appRoot, stateRoot, appModel)
+	services := durableServices(declarations)
+	return inspectDurableResponse{
+		SchemaVersion: "scenery.inspect.durable.v1",
 		App:           inspectAppInfo(appRoot, cfg, appModel),
-		Temporal: inspectTemporalRecord{
-			Enabled:          info.Enabled,
-			Mode:             info.Mode,
-			Address:          info.Address,
-			AddressEnv:       info.AddressEnv,
-			AddressEnvSet:    info.AddressEnvSet,
-			Namespace:        info.Namespace,
-			NamespaceEnvSet:  info.NamespaceEnvSet,
-			TaskQueuePrefix:  info.TaskQueuePrefix,
-			TaskQueueEnv:     info.TaskQueueEnv,
-			TaskQueueEnvSet:  info.TaskQueueEnvSet,
-			PayloadCodec:     info.PayloadCodec,
-			APIKeyEnv:        info.APIKeyEnv,
-			APIKeyEnvSet:     info.APIKeyEnvSet,
-			TLSEnabled:       info.TLSEnabled,
-			TLSServerNameEnv: info.TLSServerNameEnv,
-			TLSServerNameSet: info.TLSServerNameSet,
-			TLSCACertFileEnv: info.TLSCACertFileEnv,
-			TLSCACertFileSet: info.TLSCACertFileSet,
-			TLSCertFileEnv:   info.TLSCertFileEnv,
-			TLSCertFileSet:   info.TLSCertFileSet,
-			TLSKeyFileEnv:    info.TLSKeyFileEnv,
-			TLSKeyFileSet:    info.TLSKeyFileSet,
-			HostReporting:    info.HostReporting,
-			HostReportingEnv: info.HostReportingEnv,
-			HostReportingSet: info.HostReportingSet,
-			DeploymentName:   info.DeploymentName,
-			DeploymentEnv:    info.DeploymentEnv,
-			DeploymentEnvSet: info.DeploymentEnvSet,
-			WorkerBuildID:    info.WorkerBuildID,
-			WorkerBuildIDEnv: info.WorkerBuildIDEnv,
-			WorkerBuildIDSet: info.WorkerBuildIDSet,
-			Versioning:       info.Versioning,
-			VersioningEnv:    info.VersioningEnv,
-			VersioningEnvSet: info.VersioningEnvSet,
-			LocalAutoStart:   info.LocalAutoStart,
-			LocalDBFilename:  info.LocalDBFilename,
-			ConnectTimeoutMS: info.ConnectTimeoutMS,
+		Durable: inspectDurableRecord{
+			StateRoot:    filepath.ToSlash(stateRoot),
+			TaskCount:    len(declarations),
+			ServiceCount: len(services),
 		},
-		Declarations: temporalDeclarations(appRoot, appModel, info),
-		TypeScript:   temporalTypeScriptResponse(appRoot, ts, tsDiagnostics),
-		Connectivity: temporalConnectivity{
-			Checked:   status.Checked,
-			Reachable: status.Reachable,
-			Error:     status.Error,
-		},
-		WorkerManifests: workers.ValidateWithKnownActivities(appRoot, cfg.Name, knownTemporalActivityNames(appModel)),
-	}, nil
-}
-
-func temporalTypeScriptResponse(appRoot string, ts workers.TypeScriptWorkerModel, diagnostics []workers.Diagnostic) temporalTypeScript {
-	activities := make([]temporalTypeScriptActivity, 0, len(ts.Activities))
-	for _, activity := range ts.Activities {
-		activities = append(activities, temporalTypeScriptActivity{
-			Name:           activity.Name,
-			TaskQueue:      activity.TaskQueue,
-			ExportName:     activity.ExportName,
-			Input:          activity.Input,
-			Output:         activity.Output,
-			File:           activity.File,
-			Line:           activity.Line,
-			MaxConcurrency: activity.MaxConcurrency,
-		})
-	}
-	return temporalTypeScript{
-		Checked:      true,
-		OK:           len(diagnostics) == 0,
-		GeneratedDir: filepath.ToSlash(filepath.Join(appRoot, workers.TypeScriptWorkerGeneratedRelDir)),
-		Activities:   activities,
-		Diagnostics:  diagnostics,
+		Declarations: declarations,
+		Services:     services,
 	}
 }
 
-func temporalDeclarations(appRoot string, appModel *model.App, info sceneryruntime.TemporalRuntimeInfo) []temporalDeclaration {
+func durableDeclarations(appRoot, stateRoot string, appModel *model.App) []durableDeclaration {
 	if appModel == nil {
 		return nil
 	}
-	out := make([]temporalDeclaration, 0, len(appModel.Runtime))
+	out := make([]durableDeclaration, 0, len(appModel.Runtime))
 	for _, decl := range appModel.Runtime {
-		if decl.Kind != model.RuntimeDeclarationTemporalWorkflow && decl.Kind != model.RuntimeDeclarationTemporalActivity && decl.Kind != model.RuntimeDeclarationTemporalExternalActivity {
+		if decl.Kind != model.RuntimeDeclarationDurableTask {
 			continue
 		}
-		queue := decl.TaskQueue
-		explicit := decl.TaskQueueExplicit
-		if decl.Kind == model.RuntimeDeclarationTemporalWorkflow && queue == "" && decl.TaskQueueResolved {
-			queue = defaultTemporalWorkerTaskQueue(info.TaskQueuePrefix)
-			explicit = false
-		}
-		queue = sceneryruntime.SessionScopedTemporalTaskQueue(info, queue)
 		position := decl.Package.GoPkg.Fset.Position(decl.TokenPos)
-		out = append(out, temporalDeclaration{
-			Kind:              string(decl.Kind),
-			Name:              decl.Name,
-			TaskQueue:         queue,
-			TaskQueueExplicit: explicit,
-			File:              normalizeDiagnosticFile(appRoot, position.Filename),
-			Line:              position.Line,
+		dbPath := ""
+		dbExists := false
+		if decl.ServiceName != "" {
+			if path, err := durablestore.DurableDBPath(stateRoot, decl.ServiceName); err == nil {
+				dbPath = filepath.ToSlash(path)
+				if _, statErr := os.Stat(path); statErr == nil {
+					dbExists = true
+				}
+			}
+		}
+		out = append(out, durableDeclaration{
+			Kind:     string(decl.Kind),
+			Name:     decl.Name,
+			Service:  decl.ServiceName,
+			DBPath:   dbPath,
+			DBExists: dbExists,
+			File:     normalizeDiagnosticFile(appRoot, position.Filename),
+			Line:     position.Line,
+			Input:    decl.InputType,
+			Output:   decl.OutputType,
 		})
 	}
 	return out
 }
 
-func defaultTemporalWorkerTaskQueue(prefix string) string {
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		prefix = "scenery"
-	}
-	return strings.TrimSuffix(prefix, ".") + ".worker.go"
-}
-
-func knownTemporalActivityNames(appModel *model.App) []string {
-	if appModel == nil {
-		return nil
-	}
-	var names []string
-	for _, decl := range appModel.Runtime {
-		if (decl.Kind == model.RuntimeDeclarationTemporalActivity || decl.Kind == model.RuntimeDeclarationTemporalExternalActivity) && decl.Name != "" {
-			names = append(names, decl.Name)
+func durableServices(declarations []durableDeclaration) []durableServiceRecord {
+	byName := make(map[string]durableServiceRecord)
+	for _, decl := range declarations {
+		if strings.TrimSpace(decl.Service) == "" {
+			continue
+		}
+		byName[decl.Service] = durableServiceRecord{
+			Name:     decl.Service,
+			DBPath:   decl.DBPath,
+			DBExists: decl.DBExists,
 		}
 	}
-	return names
-}
-
-func knownTemporalActivityNamesFromRoot(appRoot, appName string) []string {
-	appModel, err := cachedInspectAppModel(appRoot, appName)
-	if err != nil {
-		return nil
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
 	}
-	return knownTemporalActivityNames(appModel)
+	sort.Strings(names)
+	out := make([]durableServiceRecord, 0, len(names))
+	for _, name := range names {
+		out = append(out, byName[name])
+	}
+	return out
 }
 
 func inspectAppInfo(appRoot string, cfg appcfg.Config, app *model.App) inspectdata.AppRef {

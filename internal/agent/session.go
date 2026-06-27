@@ -86,6 +86,10 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		routeNamespace = existing.RouteNamespace
 	}
 	routes := routesForSession(sessionID, routerAddr, routerScheme, backends, routeNamespace)
+	routeManifest := normalizeRouteManifest(req.RouteManifest, sessionID, baseAppID, appRoot, branch, backends, routes)
+	if routeManifest.Mode == RouteModePath {
+		routes = routesForPathManifest(routeManifest)
+	}
 	session := Session{
 		SchemaVersion:  SessionSchemaVersion,
 		SessionID:      sessionID,
@@ -100,6 +104,7 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		Owner:          owner,
 		AppPID:         strings.TrimSpace(req.AppPID),
 		Processes:      processes,
+		RouteManifest:  routeManifest,
 		Routes:         routes,
 		Backends:       backends,
 		ReportToken:    reportToken,
@@ -335,6 +340,254 @@ func routesForSession(sessionID, routerAddr, routerScheme string, backends map[s
 		routes[kind] = routeURL(routerScheme, sessionRouteHost(kind, sessionID, namespace), routerAddr, "")
 	}
 	return routes
+}
+
+func normalizeRouteManifest(manifest RouteManifest, sessionID, baseAppID, appRoot, branch string, backends map[string]Backend, hostRoutes map[string]string) RouteManifest {
+	if strings.TrimSpace(string(manifest.Mode)) == "" && strings.TrimSpace(manifest.BaseURL) == "" && len(manifest.Routes) == 0 {
+		return hostRouteManifestForSession(sessionID, branch, hostRoutes)
+	}
+	mode := manifest.Mode
+	if mode == "" {
+		mode = RouteModeHost
+	}
+	out := RouteManifest{
+		SchemaVersion: firstNonEmpty(manifest.SchemaVersion, RouteManifestVersion),
+		Mode:          mode,
+		BaseURL:       normalizeBaseURL(manifest.BaseURL),
+		Root:          strings.TrimSpace(manifest.Root),
+		Worktree:      sanitizeLabel(firstNonEmpty(manifest.Worktree, branch, sessionID)),
+		PortLease:     copyPortLease(manifest.PortLease),
+	}
+	if out.Root == "" {
+		if mode == RouteModePath {
+			out.Root = "scenery-console"
+		} else {
+			out.Root = RouteDashboard
+		}
+	}
+	out.Routes = normalizeRouteRecords(manifest.Routes)
+	if mode == RouteModePath {
+		if out.BaseURL == "" && out.PortLease != nil {
+			out.BaseURL = normalizeBaseURL(out.PortLease.URL)
+		}
+		out.Routes = completePathRouteRecords(out.BaseURL, out.Routes, backends)
+		if out.PortLease != nil {
+			out.PortLease.AppRoot = firstNonEmpty(out.PortLease.AppRoot, appRoot)
+			out.PortLease.SessionID = firstNonEmpty(out.PortLease.SessionID, sessionID)
+			out.PortLease.BaseAppID = firstNonEmpty(out.PortLease.BaseAppID, baseAppID)
+			out.PortLease.Branch = firstNonEmpty(out.PortLease.Branch, branch)
+			out.PortLease.WorktreeLabel = firstNonEmpty(out.PortLease.WorktreeLabel, out.Worktree)
+		}
+		return out
+	}
+	if len(out.Routes) == 0 {
+		return hostRouteManifestForSession(sessionID, branch, hostRoutes)
+	}
+	return out
+}
+
+func hostRouteManifestForSession(sessionID, branch string, routes map[string]string) RouteManifest {
+	records := map[string]RouteRecord{}
+	for name, rawURL := range routes {
+		name = normalizeRouteName(name)
+		if name == "" || strings.TrimSpace(rawURL) == "" {
+			continue
+		}
+		kind := name
+		if name == RouteDashboard {
+			kind = "scenery-console"
+		}
+		records[name] = RouteRecord{
+			Name:    name,
+			Kind:    kind,
+			URL:     strings.TrimSpace(rawURL),
+			Backend: backendForRouteName(name),
+		}
+	}
+	return RouteManifest{
+		SchemaVersion: RouteManifestVersion,
+		Mode:          RouteModeHost,
+		Root:          RouteDashboard,
+		Worktree:      sanitizeLabel(firstNonEmpty(branch, sessionID)),
+		Routes:        records,
+	}
+}
+
+func completePathRouteRecords(baseURL string, records map[string]RouteRecord, backends map[string]Backend) map[string]RouteRecord {
+	if records == nil {
+		records = map[string]RouteRecord{}
+	}
+	if _, ok := records["root"]; !ok {
+		records["root"] = RouteRecord{Name: "root", Kind: "scenery-console", URL: joinRouteURL(baseURL, "/"), Path: "/"}
+	}
+	if _, ok := records[RouteDashboard]; !ok {
+		records[RouteDashboard] = RouteRecord{Name: RouteDashboard, Kind: "scenery-console", URL: joinRouteURL(baseURL, "/console/"), Path: "/console/", StripPrefix: "/console", Backend: RouteDashboard}
+	}
+	for name := range backends {
+		name = normalizeRouteName(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := records[name]; ok {
+			continue
+		}
+		routePath := "/" + name + "/"
+		kind := name
+		if isFrontendRouteName(name) {
+			kind = "frontend"
+		}
+		records[name] = RouteRecord{
+			Name:        name,
+			Kind:        kind,
+			URL:         joinRouteURL(baseURL, routePath),
+			Path:        routePath,
+			StripPrefix: strings.TrimSuffix(routePath, "/"),
+			Backend:     backendForRouteName(name),
+		}
+	}
+	return normalizeRouteRecords(records)
+}
+
+func normalizeRouteRecords(records map[string]RouteRecord) map[string]RouteRecord {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make(map[string]RouteRecord, len(records))
+	for name, record := range records {
+		name = normalizeRouteName(firstNonEmpty(record.Name, name))
+		if name == "" {
+			continue
+		}
+		record.Name = name
+		if record.Kind == "" {
+			record.Kind = name
+		}
+		record.URL = strings.TrimSpace(record.URL)
+		record.Path = normalizeRoutePath(record.Path)
+		record.StripPrefix = normalizeStripPrefix(record.StripPrefix)
+		record.Backend = normalizeRouteName(record.Backend)
+		if record.Backend == "" {
+			record.Backend = backendForRouteName(name)
+		}
+		out[name] = record
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func routesForPathManifest(manifest RouteManifest) map[string]string {
+	routes := map[string]string{}
+	for name, record := range manifest.Routes {
+		name = normalizeRouteName(name)
+		if name == "" || strings.TrimSpace(record.URL) == "" {
+			continue
+		}
+		routes[name] = strings.TrimSpace(record.URL)
+	}
+	return routes
+}
+
+func normalizeRouteName(name string) string {
+	if strings.TrimSpace(name) == "root" {
+		return "root"
+	}
+	if strings.TrimSpace(name) == "console" {
+		return RouteDashboard
+	}
+	return sanitizeLabel(name)
+}
+
+func isFrontendRouteName(name string) bool {
+	switch name {
+	case "", "root", RouteAPI, RouteDashboard, RouteGrafana, "sync":
+		return false
+	default:
+		return true
+	}
+}
+
+func backendForRouteName(name string) string {
+	if name == "root" {
+		return ""
+	}
+	return normalizeRouteName(name)
+}
+
+func normalizeBaseURL(value string) string {
+	value = strings.TrimSpace(value)
+	return strings.TrimRight(value, "/")
+}
+
+func normalizeRoutePath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	value = pathClean(value)
+	if value != "/" && !strings.HasSuffix(value, "/") {
+		value += "/"
+	}
+	return value
+}
+
+func normalizeStripPrefix(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(value, "/") {
+		value = "/" + value
+	}
+	return strings.TrimSuffix(pathClean(value), "/")
+}
+
+func pathClean(value string) string {
+	parts := strings.Split(value, "/")
+	stack := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		default:
+			stack = append(stack, part)
+		}
+	}
+	if len(stack) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(stack, "/")
+}
+
+func joinRouteURL(baseURL, routePath string) string {
+	baseURL = normalizeBaseURL(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+	routePath = normalizeRoutePath(routePath)
+	if routePath == "" {
+		routePath = "/"
+	}
+	return baseURL + routePath
+}
+
+func copyPortLease(lease *PortLease) *PortLease {
+	if lease == nil {
+		return nil
+	}
+	copied := *lease
+	if copied.SchemaVersion == "" {
+		copied.SchemaVersion = "scenery.dev.port_lease.v1"
+	}
+	return &copied
 }
 
 func sessionRouteHost(route, sessionID string, namespace RouteNamespace) string {
