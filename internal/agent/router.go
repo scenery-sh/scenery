@@ -1,19 +1,24 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"syscall"
 )
+
+var htmlRootRefRE = regexp.MustCompile(`\b(src|href)="(/[^"]*)"`)
 
 func (s *Server) routerMux() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -143,6 +148,7 @@ type proxyBackendOptions struct {
 	routePrefix string
 	baseURL     string
 	publicURL   string
+	htmlPrefix  string
 }
 
 func (s *Server) proxyBackend(w http.ResponseWriter, req *http.Request, backend Backend, stripPrefix string) {
@@ -191,27 +197,38 @@ func (s *Server) proxyBackendWithOptions(w http.ResponseWriter, req *http.Reques
 			out.Header.Set("X-Scenery-Public-URL", opts.publicURL)
 		}
 	}
-	if opts.spaFallback {
+	if opts.spaFallback || opts.htmlPrefix != "" {
 		proxy.ModifyResponse = func(resp *http.Response) error {
-			if resp.StatusCode != http.StatusNotFound || resp.Request == nil || resp.Request.URL == nil {
+			if opts.spaFallback && resp.StatusCode == http.StatusNotFound && resp.Request != nil && resp.Request.URL != nil {
+				fallbackReq := resp.Request.Clone(req.Context())
+				fallbackReq.URL.Path = "/"
+				fallbackReq.URL.RawPath = ""
+				fallbackReq.URL.RawQuery = ""
+				fallbackResp, err := transport.RoundTrip(fallbackReq)
+				if err != nil {
+					return nil
+				}
+				_ = resp.Body.Close()
+				resp.StatusCode = fallbackResp.StatusCode
+				resp.Status = fallbackResp.Status
+				resp.Header = fallbackResp.Header
+				resp.Body = fallbackResp.Body
+				resp.ContentLength = fallbackResp.ContentLength
+				resp.TransferEncoding = fallbackResp.TransferEncoding
+				resp.Trailer = fallbackResp.Trailer
+			}
+			if opts.htmlPrefix == "" || !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
 				return nil
 			}
-			fallbackReq := resp.Request.Clone(req.Context())
-			fallbackReq.URL.Path = "/"
-			fallbackReq.URL.RawPath = ""
-			fallbackReq.URL.RawQuery = ""
-			fallbackResp, err := transport.RoundTrip(fallbackReq)
-			if err != nil {
-				return nil
-			}
+			body, err := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			resp.StatusCode = fallbackResp.StatusCode
-			resp.Status = fallbackResp.Status
-			resp.Header = fallbackResp.Header
-			resp.Body = fallbackResp.Body
-			resp.ContentLength = fallbackResp.ContentLength
-			resp.TransferEncoding = fallbackResp.TransferEncoding
-			resp.Trailer = fallbackResp.Trailer
+			if err != nil {
+				return err
+			}
+			body = rewriteHTMLRootRefs(body, opts.htmlPrefix)
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			resp.ContentLength = int64(len(body))
+			resp.Header.Set("Content-Length", fmt.Sprint(len(body)))
 			return nil
 		}
 	}
@@ -527,12 +544,39 @@ func pathProxyOptions(session Session, record RouteRecord) proxyBackendOptions {
 	if prefix == "/" {
 		prefix = ""
 	}
+	stripPrefix := strings.TrimSpace(record.StripPrefix)
+	if strings.TrimSpace(record.Kind) == "frontend" {
+		stripPrefix = ""
+	}
+	htmlPrefix := ""
+	if strings.TrimSpace(record.Kind) == "frontend" {
+		htmlPrefix = prefix
+	}
 	return proxyBackendOptions{
-		stripPrefix: strings.TrimSpace(record.StripPrefix),
+		stripPrefix: stripPrefix,
 		routePrefix: prefix,
 		baseURL:     session.RouteManifest.BaseURL,
 		publicURL:   firstNonEmpty(record.URL, joinPathModeURL(session.RouteManifest.BaseURL, record.Path)),
+		htmlPrefix:  htmlPrefix,
 	}
+}
+
+func rewriteHTMLRootRefs(body []byte, prefix string) []byte {
+	prefix = strings.TrimRight(cleanRequestPath(prefix), "/")
+	if prefix == "" || prefix == "/" {
+		return body
+	}
+	return htmlRootRefRE.ReplaceAllFunc(body, func(match []byte) []byte {
+		parts := htmlRootRefRE.FindSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+		refPath := string(parts[2])
+		if refPath == prefix || strings.HasPrefix(refPath, prefix+"/") || strings.HasPrefix(refPath, "//") {
+			return match
+		}
+		return []byte(string(parts[1]) + "=\"" + prefix + refPath + "\"")
+	})
 }
 
 func (opts proxyBackendOptions) withSPAFallback(enabled bool) proxyBackendOptions {
@@ -548,7 +592,16 @@ func shouldRedirectPathPrefix(req *http.Request, record RouteRecord) bool {
 		return false
 	}
 	path := strings.TrimSuffix(normalizeRoutePath(record.Path), "/")
-	return path != "" && path != "/" && cleanRequestPath(req.URL.Path) == path
+	return path != "" && path != "/" && cleanRequestPathPreserveTrailingSlash(req.URL.Path) == path
+}
+
+func cleanRequestPathPreserveTrailingSlash(value string) string {
+	trailing := strings.HasSuffix(value, "/") && value != "/"
+	cleaned := cleanRequestPath(value)
+	if trailing && cleaned != "/" && !strings.HasSuffix(cleaned, "/") {
+		cleaned += "/"
+	}
+	return cleaned
 }
 
 func pathRouteList(manifest RouteManifest) string {

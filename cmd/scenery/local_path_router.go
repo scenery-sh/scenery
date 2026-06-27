@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +23,8 @@ import (
 )
 
 const localPathRouterStateVersion = "scenery.local_path_router.v1"
+
+var localPathRouterHTMLRootRefRE = regexp.MustCompile(`\b(src|href)="(/[^"]*)"`)
 
 type localPathRouterState struct {
 	SchemaVersion string    `json:"schema_version"`
@@ -107,8 +111,9 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 			if originalPath == localagent.PathModeRuntimePrefix {
 				req.URL.Path = "/__scenery"
 			}
-			if originalPath == "/console" || strings.HasPrefix(originalPath, "/console/") {
-				req.URL.Path = strings.TrimPrefix(originalPath, "/console")
+			dashboardPrefix := localagent.PathModeDashboardPrefix
+			if originalPath == dashboardPrefix || strings.HasPrefix(originalPath, dashboardPrefix+"/") {
+				req.URL.Path = strings.TrimPrefix(originalPath, dashboardPrefix)
 				if req.URL.Path == "" {
 					req.URL.Path = "/"
 				}
@@ -117,8 +122,9 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			rawPath := cleanLocalPathPreserveSlash(req.URL.Path)
 			requestPath := cleanLocalPath(req.URL.Path)
-			if requestPath == "/console" && rawPath == "/console" {
-				http.Redirect(w, req, "/console/", http.StatusMovedPermanently)
+			dashboardPrefix := localagent.PathModeDashboardPrefix
+			if requestPath == dashboardPrefix && rawPath == dashboardPrefix {
+				http.Redirect(w, req, dashboardPrefix+"/", http.StatusMovedPermanently)
 				return
 			}
 			if requestPath == localagent.PathModeRuntimePrefix && isUpgradeRequest(req) {
@@ -127,7 +133,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 				}
 				return
 			}
-			if requestPath == localagent.PathModeRuntimePrefix || requestPath == "/console" || strings.HasPrefix(rawPath, "/console/") {
+			if requestPath == localagent.PathModeRuntimePrefix || requestPath == dashboardPrefix || strings.HasPrefix(rawPath, dashboardPrefix+"/") || localPathRouterDashboardAssetPath(requestPath) {
 				dashboardProxy.ServeHTTP(w, req)
 				return
 			}
@@ -186,6 +192,14 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		cleanup()
 	}()
 	return cleanup, nil
+}
+
+func localPathRouterDashboardAssetPath(requestPath string) bool {
+	requestPath = cleanLocalPath(requestPath)
+	return strings.HasPrefix(requestPath, "/assets/") ||
+		requestPath == "/site.webmanifest" ||
+		requestPath == "/favicon.ico" ||
+		requestPath == "/apple-touch-icon.png"
 }
 
 func isUpgradeRequest(req *http.Request) bool {
@@ -248,6 +262,23 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 	}
 	proxy := reverseProxyForLocalBackend(backend)
 	director := proxy.Director
+	if strings.TrimSpace(record.Kind) == "frontend" {
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+				return nil
+			}
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil {
+				return err
+			}
+			body = localPathRouterRewriteHTMLRootRefs(body, record.StripPrefix)
+			resp.Body = io.NopCloser(bytes.NewReader(body))
+			resp.ContentLength = int64(len(body))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
+			return nil
+		}
+	}
 	proxy.Director = func(out *http.Request) {
 		originalHost := out.Host
 		originalPath := cleanLocalPath(out.URL.Path)
@@ -260,7 +291,7 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 		out.Header.Set("X-Scenery-Route-Prefix", strings.TrimSpace(record.StripPrefix))
 		out.Header.Set("X-Scenery-Base-URL", baseURL)
 		out.Header.Set("X-Scenery-Public-URL", strings.TrimSpace(record.URL))
-		if record.StripPrefix != "" {
+		if record.StripPrefix != "" && localPathRouterShouldStripPrefix(record) {
 			out.URL.Path = strings.TrimPrefix(originalPath, record.StripPrefix)
 			if out.URL.Path == "" {
 				out.URL.Path = "/"
@@ -269,6 +300,28 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 	}
 	proxy.ServeHTTP(w, req)
 	return true
+}
+
+func localPathRouterShouldStripPrefix(record localagent.RouteRecord) bool {
+	return strings.TrimSpace(record.Kind) != "frontend"
+}
+
+func localPathRouterRewriteHTMLRootRefs(body []byte, prefix string) []byte {
+	prefix = strings.TrimRight(cleanLocalPath(prefix), "/")
+	if prefix == "" || prefix == "/" {
+		return body
+	}
+	return localPathRouterHTMLRootRefRE.ReplaceAllFunc(body, func(match []byte) []byte {
+		parts := localPathRouterHTMLRootRefRE.FindSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+		refPath := string(parts[2])
+		if refPath == prefix || strings.HasPrefix(refPath, prefix+"/") || strings.HasPrefix(refPath, "//") {
+			return match
+		}
+		return []byte(string(parts[1]) + "=\"" + prefix + refPath + "\"")
+	})
 }
 
 func localPathRouterRouteForSession(manifest localagent.RouteManifest, requestPath string) (localagent.RouteRecord, bool) {

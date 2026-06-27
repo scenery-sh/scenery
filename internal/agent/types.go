@@ -11,7 +11,8 @@ const (
 	RouteAPI       = "api"
 	RouteDashboard = "dashboard"
 
-	PathModeRuntimePrefix = "/runtime"
+	PathModeDashboardPrefix = "/consolenext"
+	PathModeRuntimePrefix   = "/runtime"
 
 	DefaultRouteBaseDomain = "local.dev"
 

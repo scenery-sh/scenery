@@ -193,7 +193,7 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 		return nil, err
 	}
 	allowedHost := managedFrontendAllowedHost(session, frontend.Name)
-	cmdName, args, err := managedFrontendCommand(root, port, allowedHost)
+	cmdName, args, err := managedFrontendCommand(root, port, allowedHost, managedFrontendBasePath(session, frontend.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -278,11 +278,12 @@ func managedFrontendRoot(appRoot string, frontend localproxy.FrontendConfig) str
 	return filepath.Join(appRoot, root)
 }
 
-func managedFrontendCommand(root, port, allowedHost string) (string, []string, error) {
+func managedFrontendCommand(root, port, allowedHost, basePath string) (string, []string, error) {
 	script, err := managedFrontendDevScript(root)
 	if err != nil {
 		return "", nil, err
 	}
+	baseArg := managedFrontendViteBaseArg(basePath)
 	if strings.Contains(script, "astro") {
 		if bin := managedFrontendLocalBin(root, "astro"); bin != "" {
 			args := []string{"dev", "--host", "127.0.0.1", "--port", port}
@@ -294,20 +295,65 @@ func managedFrontendCommand(root, port, allowedHost string) (string, []string, e
 	}
 	if strings.Contains(script, "vite") {
 		if bin := managedFrontendLocalBin(root, "vite"); bin != "" {
-			return bin, []string{"--host", "127.0.0.1", "--port", port}, nil
+			args := []string{"--host", "127.0.0.1", "--port", port}
+			if baseArg != "" {
+				args = append(args, "--base", baseArg)
+			}
+			return bin, args, nil
 		}
 	}
 	manager := managedFrontendPackageManager(root)
 	switch manager {
 	case "bun":
-		return "bun", []string{"run", "dev", "--host", "127.0.0.1", "--port", port}, nil
+		args := []string{"run", "dev", "--host", "127.0.0.1", "--port", port}
+		if strings.Contains(script, "vite") && baseArg != "" {
+			args = append(args, "--base", baseArg)
+		}
+		return "bun", args, nil
 	case "pnpm":
-		return "pnpm", []string{"run", "dev", "--", "--host", "127.0.0.1", "--port", port}, nil
+		args := []string{"run", "dev", "--", "--host", "127.0.0.1", "--port", port}
+		if strings.Contains(script, "vite") && baseArg != "" {
+			args = append(args, "--base", baseArg)
+		}
+		return "pnpm", args, nil
 	case "yarn":
-		return "yarn", []string{"dev", "--host", "127.0.0.1", "--port", port}, nil
+		args := []string{"dev", "--host", "127.0.0.1", "--port", port}
+		if strings.Contains(script, "vite") && baseArg != "" {
+			args = append(args, "--base", baseArg)
+		}
+		return "yarn", args, nil
 	default:
-		return "npm", []string{"run", "dev", "--", "--host", "127.0.0.1", "--port", port}, nil
+		args := []string{"run", "dev", "--", "--host", "127.0.0.1", "--port", port}
+		if strings.Contains(script, "vite") && baseArg != "" {
+			args = append(args, "--base", baseArg)
+		}
+		return "npm", args, nil
 	}
+}
+
+func managedFrontendViteBaseArg(basePath string) string {
+	basePath = strings.TrimSpace(basePath)
+	if basePath == "" || basePath == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(basePath, "/") {
+		basePath = "/" + basePath
+	}
+	return strings.TrimRight(basePath, "/") + "/"
+}
+
+func managedFrontendBasePath(session localagent.Session, frontendName string) string {
+	if got := routeBasePath(&session, frontendName); got != "" {
+		return got
+	}
+	if session.RouteManifest.Mode != localagent.RouteModePath {
+		return ""
+	}
+	frontendName = localagentLabel(frontendName)
+	if frontendName == "" {
+		return ""
+	}
+	return "/" + frontendName
 }
 
 func managedFrontendDevScript(root string) (string, error) {
@@ -390,7 +436,7 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 		)
 	}
 	if session.RouteManifest.Mode != "" {
-		frontendPath := routeBasePath(&session, frontendName)
+		frontendPath := managedFrontendBasePath(session, frontendName)
 		frontendURL := strings.TrimSpace(session.Routes[localagentLabel(frontendName)])
 		env = append(env,
 			"SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),

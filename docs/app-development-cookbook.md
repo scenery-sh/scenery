@@ -613,7 +613,7 @@ scenery up
 scenery ps
 ```
 
-Default local dev routing is path mode. The app root's live runtime gets one base URL such as `http://localhost:4001`; API routes live under `/api/`, frontends under `/<frontend>/`, and Scenery runtime surfaces under `/runtime/`. The URLs in `route_manifest.routes` and compatibility `routes` are canonical for the current runtime. Direct browser API calls should use the generated API route.
+Default local dev routing is path mode. The app root's live runtime gets one base URL such as `http://localhost:4001`; API routes live under `/api/`, the Scenery dashboard under `/consolenext/`, frontends under `/<frontend>/`, and Scenery runtime surfaces under `/runtime/`. The URLs in `route_manifest.routes` and compatibility `routes` are canonical for the current runtime. Direct browser API calls should use the generated API route.
 
 Use host mode only when you intentionally need domain-style local routes:
 
