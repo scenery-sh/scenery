@@ -53,3 +53,5 @@ Start with:
 - [scenery.inspect.docs.v1](schemas/scenery.inspect.docs.v1.schema.json)
 - [scenery.docs.index.v1](schemas/scenery.docs.index.v1.schema.json)
 - [scenery.version.v1](schemas/scenery.version.v1.schema.json)
+- [scenery.db.list.v2](schemas/scenery.db.list.v2.schema.json)
+- [scenery.db.server.status.v1](schemas/scenery.db.server.status.v1.schema.json)

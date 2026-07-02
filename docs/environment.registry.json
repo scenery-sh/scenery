@@ -119,7 +119,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Conventional database URL. Managed SQLite does not inject this unless the app explicitly configures that env name.",
+      "rationale": "Conventional database URL. Managed service databases do not inject this unless the app explicitly configures that env name.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -141,7 +141,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "scenery app-style database URL env and managed app database authority. Used when `auth.database_url_env` is `DatabaseURL`",
+      "rationale": "scenery app-style database URL env and managed app database authority when exactly one database service uses that env. Used when `auth.database_url_env` is `DatabaseURL`",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -1296,6 +1296,28 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Machine-readable registry of managed SQLite service database paths, URLs, and configured env names",
+      "preferred_surface": ".scenery.json dev.services entries",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "SCENERY_POSTGRES_DATABASES_JSON",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "injected",
+      "category": "app.services.database",
+      "stability": "injected",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Machine-readable registry of Postgres service database URLs, configured env names, database names, and managed/external source",
       "preferred_surface": ".scenery.json dev.services entries",
       "replacement": "",
       "sunset": "",

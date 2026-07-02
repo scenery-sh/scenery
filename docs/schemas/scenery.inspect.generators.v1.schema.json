@@ -53,6 +53,10 @@
       "required": ["service", "kind", "role", "path"],
       "properties": {
         "service": { "type": "string" },
+        "engine": {
+          "type": "string",
+          "enum": ["sqlite", "postgres"]
+        },
         "kind": {
           "type": "string",
           "enum": ["schema-source", "query", "generated-schema", "seed"]

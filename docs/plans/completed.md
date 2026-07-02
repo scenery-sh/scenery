@@ -30,6 +30,27 @@ Validation:
 
 - Passed focused Symphony store/RPC/harness tests, `go test ./cmd/scenery`, `go test ./...`, consolenext lint/typecheck/build, dashboard embed rebuild, harness UI fixture validation, and Chrome fixture validation.
 
+## First-Class Postgres Service Databases on a Shared Dev Server
+
+- Status: completed
+- Owner: scenery runtime / database
+- Completed: 2026-07-02
+- Quality: B
+- ExecPlan: [0093 First-Class Postgres Service Databases on a Shared Dev Server](0093-postgres-service-databases.md)
+
+Shipped:
+
+- Added `dev.services.<name>.kind: "postgres"` with external-DSN precedence and managed shared-server fallback for `scenery up`.
+- Added `internal/postgresdb`, pgx database/sql dispatch in `scenery.sh/db`, deterministic per-worktree database names, env registry encoding, admin reset/drop/list helpers, and Postgres seed ledgers.
+- Added a Docker-backed shared Postgres 18 dev server, digest-pinned toolchain artifact, agent substrate registration, doctor readiness, `scenery db server`, DB CLI list/shell/reset/drop/snapshot/seed support, and headless fail-closed DSN validation.
+- Kept SQLite behavior intact, including file paths, snapshots, branches, branch worktrees, and the single-service `DatabaseURL` alias rule generalized across engines.
+- Added no-Docker unit coverage, fixture config, self-harness Postgres probe with explicit Docker skip, schemas, environment registry entries, README/guide/skill/cookbook/local-contract updates, and 0088 closure.
+
+Validation:
+
+- Focused tests passed during implementation: `go test ./cmd/scenery ./internal/app ./internal/postgresdb ./db ./internal/toolchain`.
+- Final validation passed: `go test ./...`, `go test ./cmd/scenery`, and `go run ./cmd/scenery harness self --summary --write`. Self-harness reported `pass_with_warnings` and `can_proceed: true`; Docker was unavailable, so the live Postgres probe recorded an explicit skip warning.
+
 ## Remove Former Realtime Service and Reserve Entity Stream
 
 - Status: completed

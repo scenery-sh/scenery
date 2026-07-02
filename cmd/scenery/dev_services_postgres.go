@@ -1,0 +1,313 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/app"
+	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/postgresdb"
+)
+
+const (
+	postgresServerSchemaVersion = "scenery.dev.postgres.server.v1"
+	postgresServerContainer     = "scenery-postgres"
+	postgresServerVolume        = "scenery-postgres-data"
+	postgresServerImage         = "postgres:18@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20"
+	postgresServerUser          = "scenery"
+)
+
+type postgresServerState struct {
+	SchemaVersion string    `json:"schema_version"`
+	Container     string    `json:"container"`
+	Image         string    `json:"image"`
+	Port          int       `json:"port"`
+	User          string    `json:"user"`
+	Password      string    `json:"password"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type postgresDockerRunner interface {
+	Run(ctx context.Context, args ...string) (string, error)
+}
+
+type execPostgresDockerRunner struct{}
+
+func (execPostgresDockerRunner) Run(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return strings.TrimSpace(string(out)), fmt.Errorf("docker not found in PATH")
+		}
+		return strings.TrimSpace(string(out)), fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+var (
+	postgresDocker       postgresDockerRunner = execPostgresDockerRunner{}
+	openPostgresDatabase                      = postgresdb.Open
+	openPostgresAdmin                         = postgresdb.Open
+)
+
+func managedPostgresEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, baseEnv []string) ([]string, []postgresdb.Service, error) {
+	cfgs := cfg.PostgresServices()
+	if len(cfgs) == 0 {
+		return nil, nil, nil
+	}
+	services := make([]postgresdb.Service, 0, len(cfgs))
+	var server *postgresServerState
+	var admin *sql.DB
+	defer func() {
+		if admin != nil {
+			_ = admin.Close()
+		}
+	}()
+	for _, svc := range cfgs {
+		if value, _ := lookupEnvValue(baseEnv, svc.DatabaseURLEnv); value != "" {
+			if _, err := postgresdb.ParseURL(value); err != nil {
+				return nil, nil, fmt.Errorf("dev.services.%s %s must be a postgres URL: %w", svc.Name, svc.DatabaseURLEnv, err)
+			}
+			services = append(services, postgresdb.Service{Name: svc.Name, Database: strings.TrimSpace(svc.DatabaseLabel), URL: value, DatabaseURLEnv: svc.DatabaseURLEnv, Source: postgresdb.SourceExternal})
+			continue
+		}
+		if server == nil {
+			var err error
+			server, err = ensureSharedPostgresServer(ctx, appRoot, session)
+			if err != nil {
+				return nil, nil, err
+			}
+			admin, err = openPostgresAdmin(ctx, server.databaseURL("postgres"))
+			if err != nil {
+				return nil, nil, fmt.Errorf("connect to managed postgres server: %w", err)
+			}
+		}
+		dbName := postgresdb.DatabaseNameFor(cfg.AppID(), svc.Name, appRoot)
+		if err := postgresdb.EnsureDatabase(ctx, admin, dbName); err != nil {
+			return nil, nil, fmt.Errorf("ensure postgres database %s: %w", dbName, err)
+		}
+		services = append(services, postgresdb.Service{Name: svc.Name, Database: dbName, URL: server.databaseURL(dbName), DatabaseURLEnv: svc.DatabaseURLEnv, Source: postgresdb.SourceManaged})
+	}
+	includeAlias := len(cfg.SQLiteServices()) == 0 && len(cfgs) == 1 && strings.TrimSpace(cfgs[0].Raw.DatabaseURLEnv) == ""
+	return postgresdb.Env(services, includeAlias), services, nil
+}
+
+func ensureSharedPostgresServer(ctx context.Context, appRoot string, session *localagent.Session) (*postgresServerState, error) {
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		return nil, err
+	}
+	if err := localagent.EnsureDirs(paths); err != nil {
+		return nil, err
+	}
+	root := filepath.Join(paths.AgentDir, "postgres")
+	unlock, err := lockManagedSubstrateRoot(root, "postgres")
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	state, err := loadOrCreatePostgresServerState(paths)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensurePostgresDockerContainer(ctx, state); err != nil {
+		return nil, err
+	}
+	if err := waitForPostgresServer(ctx, state); err != nil {
+		return nil, err
+	}
+	_ = upsertPostgresSubstrate(ctx, state, appRoot, session)
+	return state, nil
+}
+
+func loadOrCreatePostgresServerState(paths localagent.Paths) (*postgresServerState, error) {
+	path := postgresServerStatePath(paths)
+	data, err := os.ReadFile(path)
+	if err == nil {
+		var state postgresServerState
+		if err := json.Unmarshal(data, &state); err != nil {
+			return nil, err
+		}
+		if state.SchemaVersion == postgresServerSchemaVersion && state.Port > 0 && state.Password != "" {
+			return &state, nil
+		}
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	port, err := freeLoopbackPort()
+	if err != nil {
+		return nil, err
+	}
+	password, err := randomPostgresPassword()
+	if err != nil {
+		return nil, err
+	}
+	state := postgresServerState{
+		SchemaVersion: postgresServerSchemaVersion,
+		Container:     postgresServerContainer,
+		Image:         postgresServerImage,
+		Port:          port,
+		User:          postgresServerUser,
+		Password:      password,
+		CreatedAt:     time.Now().UTC(),
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	data, err = json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+func ensurePostgresDockerContainer(ctx context.Context, state *postgresServerState) error {
+	status, err := postgresContainerStatus(ctx, state.Container)
+	if err != nil {
+		return err
+	}
+	switch status {
+	case "running":
+		return nil
+	case "":
+		_, err = postgresDocker.Run(ctx,
+			"run", "-d",
+			"--name", state.Container,
+			"-p", fmt.Sprintf("127.0.0.1:%d:5432", state.Port),
+			"-v", postgresServerVolume+":/var/lib/postgresql/data",
+			"-e", "POSTGRES_USER="+state.User,
+			"-e", "POSTGRES_PASSWORD="+state.Password,
+			state.Image,
+		)
+		return err
+	default:
+		_, err = postgresDocker.Run(ctx, "start", state.Container)
+		return err
+	}
+}
+
+func postgresContainerStatus(ctx context.Context, container string) (string, error) {
+	out, err := postgresDocker.Run(ctx, "container", "inspect", container, "--format", "{{.State.Status}}")
+	if err != nil {
+		msg := strings.ToLower(out + " " + err.Error())
+		if strings.Contains(msg, "no such object") || strings.Contains(msg, "not found") {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+func waitForPostgresServer(ctx context.Context, state *postgresServerState) error {
+	deadline := time.Now().Add(30 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		db, err := openPostgresDatabase(ctx, state.databaseURL("postgres"))
+		if err == nil {
+			_ = db.Close()
+			return nil
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("managed postgres server did not become ready: %w", lastErr)
+}
+
+func upsertPostgresSubstrate(ctx context.Context, state *postgresServerState, appRoot string, session *localagent.Session) error {
+	client, err := localagent.Ensure(ctx)
+	if err != nil || client == nil {
+		return err
+	}
+	health, err := client.Health(ctx)
+	if err != nil {
+		return err
+	}
+	owner := localagent.CaptureOwner(health.PID, "scenery-postgres")
+	leases := map[string]localagent.SubstrateLease{}
+	if session != nil && strings.TrimSpace(session.SessionID) != "" {
+		leaseOwner := session.Owner
+		if leaseOwner.PID <= 0 {
+			leaseOwner = localagent.CaptureOwner(firstPositiveInt(session.OwnerPID, os.Getpid()), "scenery-postgres-lease")
+		}
+		leases[session.SessionID] = localagent.SubstrateLease{
+			SessionID: session.SessionID,
+			AppRoot:   appRoot,
+			URL:       state.publicURL(),
+			OwnerPID:  leaseOwner.PID,
+			Owner:     leaseOwner,
+		}
+	}
+	_, err = client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:     localagent.SubstratePostgres,
+		Status:   "ready",
+		OwnerPID: owner.PID,
+		Owner:    owner,
+		URLs:     map[string]string{"server": state.publicURL()},
+		Endpoints: map[string]string{
+			"host": "127.0.0.1",
+			"port": fmt.Sprint(state.Port),
+		},
+		Leases: leases,
+	})
+	return err
+}
+
+func (s *postgresServerState) databaseURL(database string) string {
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(s.User, s.Password),
+		Host:   fmt.Sprintf("127.0.0.1:%d", s.Port),
+		Path:   "/" + strings.Trim(database, "/"),
+	}
+	return u.String()
+}
+
+func (s *postgresServerState) publicURL() string {
+	return postgresdb.RedactURL(s.databaseURL("postgres"))
+}
+
+func postgresServerStatePath(paths localagent.Paths) string {
+	return filepath.Join(paths.AgentDir, "postgres", "server.json")
+}
+
+func randomPostgresPassword() (string, error) {
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
+}
+
+func emitPostgresReadyEvents(ctx context.Context, sink *devEventSink, services []postgresdb.Service) {
+	if sink == nil {
+		return
+	}
+	for _, svc := range services {
+		sink.Emit(ctx, devdash.DevSource{ID: "postgres:" + svc.Name, Kind: "substrate", Name: svc.Name, Role: "database", Status: "running"}, "info", "Postgres service database ready", map[string]any{
+			"service":  svc.Name,
+			"database": svc.Database,
+			"source":   string(svc.Source),
+		})
+	}
+}

@@ -850,6 +850,11 @@ func harnessStepEffects(step harnessStep) []string {
 		set["external-binary"] = true
 		set["filesystem-write"] = true
 		set["tempdir"] = true
+	case "postgres service probe":
+		set["external-binary"] = true
+		set["loopback-network"] = true
+		set["tempdir"] = true
+		set["docker"] = true
 	case "go tests", "go test timing", "affected package tests", "race shortlist", "race full suite":
 		set["test-cache"] = true
 		set["external-binary"] = true

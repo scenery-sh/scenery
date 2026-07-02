@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0093 First-Class Postgres Service Databases on a Shared Dev Server](0093-postgres-service-databases.md)
-  - Status: active
-  - Owner: scenery runtime / database
-  - Created: 2026-07-02
-  - Focus: add `dev.services.<name>.kind: "postgres"` with external-DSN precedence and a shared machine-wide Docker Postgres dev server, one database per app/worktree/service; keep SQLite the default, Atlas + sqlc as the schema/query toolchain, and `go test ./...` Docker-free.
 - [0091 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0091-local-storage-and-zerofs-removal.md)
   - Status: active
   - Owner: scenery runtime / storage
@@ -22,11 +17,6 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: scenery runtime / agent DX
   - Created: 2026-06-27
   - Focus: make localhost path routing with one automatic port per dev runtime the default local routing mode, keep Caddy, and make dnsmasq/domain routing optional.
-- [0088 SQLite Service Databases and Postgres Removal](0088-sqlite-service-databases.md)
-  - Status: active
-  - Owner: scenery runtime / database
-  - Created: 2026-06-27
-  - Focus: replace built-in managed Postgres with per-service SQLite database files, including config, runtime env injection, DB CLI, branch lifecycle, standard auth, docs, schemas, and dependency cleanup.
 - [0079 Victoria Shared Substrate Visibility](0079-victoria-shared-substrate-visibility.md)
   - Status: active
   - Owner: scenery runtime / agent DX

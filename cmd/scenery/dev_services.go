@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -14,6 +12,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/identityhash"
 	"scenery.sh/internal/sqlitedb"
 )
 
@@ -39,7 +38,7 @@ func managedSQLiteEnv(ctx context.Context, appRoot string, cfg app.Config, sessi
 	if err := sqlitedb.EnsureFiles(ctx, services); err != nil {
 		return nil, nil, err
 	}
-	includeAlias := len(services) == 1
+	includeAlias := len(services) == 1 && len(cfg.PostgresServices()) == 0
 	if includeAlias {
 		cfgServices := cfg.SQLiteServices()
 		includeAlias = len(cfgServices) == 1 && strings.TrimSpace(cfgServices[0].Raw.DatabaseURLEnv) == ""
@@ -118,12 +117,7 @@ func sqliteServiceEnvName(name, suffix string) string {
 }
 
 func shortIdentityHash(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])[:12]
+	return identityhash.Short(value)
 }
 
 func verifySubstrateOwner(substrate localagent.Substrate) error {

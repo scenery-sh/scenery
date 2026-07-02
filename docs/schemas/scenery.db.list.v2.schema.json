@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.db.list.v2.schema.json",
+  "title": "scenery db list",
+  "type": "object",
+  "required": ["schema_version", "databases"],
+  "properties": {
+    "schema_version": { "const": "scenery.db.list.v2" },
+    "databases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["engine", "service", "database_url_env"],
+        "properties": {
+          "engine": { "type": "string", "enum": ["sqlite", "postgres"] },
+          "service": { "type": "string", "minLength": 1 },
+          "path": { "type": "string" },
+          "file_label": { "type": "string" },
+          "database": { "type": "string" },
+          "url": { "type": "string" },
+          "database_url_env": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "enum": ["managed", "external"] }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

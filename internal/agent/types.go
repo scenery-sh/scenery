@@ -17,6 +17,7 @@ const (
 	DefaultRouteBaseDomain = "local.dev"
 
 	SubstrateVictoria = "victoria"
+	SubstratePostgres = "postgres"
 )
 
 type RouteMode string

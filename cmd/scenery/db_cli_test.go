@@ -7,16 +7,17 @@ import (
 	"testing"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/sqlitedb"
 )
 
 func TestDBCommandRejectsMissingOrRemovedSubcommand(t *testing.T) {
 	t.Parallel()
 
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot|diff|branch [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot|diff|branch|server [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
-	for _, cmd := range []string{"vacuum", "p" + "sql", "post" + "gres"} {
+	for _, cmd := range []string{"vacuum", "psql", "postgres"} {
 		if err := dbCommand([]string{cmd}); err == nil || err.Error() != `unknown db command "`+cmd+`"` {
 			t.Fatalf("dbCommand(%s) error = %v", cmd, err)
 		}
@@ -71,6 +72,24 @@ func TestParseDBSnapshotArgs(t *testing.T) {
 	}
 	if _, err := parseDBSnapshotArgs([]string{}); err == nil || !strings.Contains(err.Error(), "scenery db snapshot create|restore") {
 		t.Fatalf("missing action error = %v", err)
+	}
+}
+
+func TestDatabaseListRecordsIncludeBothEngines(t *testing.T) {
+	t.Parallel()
+
+	records := databaseListRecords(
+		[]sqlitedb.Service{{Name: "cache", FileLabel: "cache", Path: "/tmp/cache.sqlite", URL: "sqlite:///tmp/cache.sqlite", DatabaseURLEnv: "CACHE_DATABASE_URL"}},
+		[]postgresdb.Service{{Name: "reports", Database: "demo_reports_abcd1234", URL: "postgres://user:secret@localhost/reports", DatabaseURLEnv: "REPORTS_DATABASE_URL", Source: postgresdb.SourceManaged}},
+	)
+	if len(records) != 2 {
+		t.Fatalf("records = %+v", records)
+	}
+	if records[0].Engine != "sqlite" || records[0].Service != "cache" || records[0].Path == "" {
+		t.Fatalf("sqlite record = %+v", records[0])
+	}
+	if records[1].Engine != "postgres" || records[1].Service != "reports" || records[1].Database == "" || strings.Contains(records[1].URL, "secret") {
+		t.Fatalf("postgres record = %+v", records[1])
 	}
 }
 
