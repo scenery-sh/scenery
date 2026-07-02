@@ -95,6 +95,30 @@ export class DashboardRPC {
     return this.call<boolean>('stored-requests/delete', { app_id: appID, id })
   }
 
+  symphonyState(appID: string): Promise<SymphonyState> {
+    return this.call<SymphonyState>('symphony/state', { app_id: appID })
+  }
+
+  symphonyCreateTask(appID: string, input: SymphonyTaskInput): Promise<SymphonyTask> {
+    return this.call<SymphonyTask>('symphony/task/create', { app_id: appID, input })
+  }
+
+  symphonyUpdateTask(appID: string, id: string, input: SymphonyTaskInput): Promise<SymphonyTask> {
+    return this.call<SymphonyTask>('symphony/task/update', { app_id: appID, id, input })
+  }
+
+  symphonyMoveTask(appID: string, id: string, statusKey: string, index: number): Promise<SymphonyState> {
+    return this.call<SymphonyState>('symphony/task/move', { app_id: appID, id, status_key: statusKey, index })
+  }
+
+  symphonyDeleteTask(appID: string, id: string): Promise<boolean> {
+    return this.call<boolean>('symphony/task/delete', { app_id: appID, id })
+  }
+
+  symphonyUpdateStatuses(appID: string, statuses: SymphonyStatusUpdate[]): Promise<SymphonyState> {
+    return this.call<SymphonyState>('symphony/statuses/update', { app_id: appID, statuses })
+  }
+
   onEvent(handler: EventHandler): () => void {
     this.eventHandlers.add(handler)
     return () => this.eventHandlers.delete(handler)
@@ -425,4 +449,79 @@ export type StoredRequestInput = {
     pathParams: unknown
     payload: unknown
   }
+}
+
+export type SymphonyState = {
+  statuses: SymphonyStatus[]
+  tasks: SymphonyTask[]
+  workflow: SymphonyWorkflow
+}
+
+export type SymphonyStatus = {
+  key: string
+  name: string
+  kind: string
+  sort_order: number
+  hidden: boolean
+  color: string
+  created_at: string
+  updated_at: string
+}
+
+export type SymphonyTask = {
+  id: string
+  app_id: string
+  identifier: string
+  title: string
+  description: string
+  status_key: string
+  sort_order: number
+  priority: string
+  assignee: string
+  estimate: string
+  branch_name: string
+  url: string
+  source: string
+  labels?: string[]
+  latest_run?: SymphonyRun
+  created_at: string
+  updated_at: string
+}
+
+export type SymphonyTaskInput = {
+  title: string
+  description: string
+  status_key: string
+  priority: string
+  assignee: string
+  estimate: string
+  branch_name: string
+  url: string
+  source: string
+  labels: string[]
+}
+
+export type SymphonyStatusUpdate = {
+  key: string
+  sort_order: number
+  hidden: boolean
+}
+
+export type SymphonyRun = {
+  id: string
+  task_id: string
+  status: string
+  attempt: number
+  summary: string
+  error: string
+  created_at: string
+  updated_at: string
+}
+
+export type SymphonyWorkflow = {
+  app_id: string
+  workflow_markdown: string
+  mode: string
+  max_concurrency: number
+  updated_at: string
 }

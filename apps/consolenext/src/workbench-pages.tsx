@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as stylex from '@stylexjs/stylex'
 import { Badge } from '@astryxdesign/core/Badge'
-import type { BadgeVariant } from '@astryxdesign/core/Badge'
 import { Button } from '@astryxdesign/core/Button'
 import { Card } from '@astryxdesign/core/Card'
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput'
@@ -22,7 +21,6 @@ import {
   DashboardRPC,
   type ApiCallResponse,
   type AppStatus,
-  type ObservabilitySignal,
   type ProcessOutput,
   type SQLDatabase,
   type SQLiteColumn,
@@ -181,7 +179,8 @@ export function ApiExplorerPage({
       return
     }
     try {
-      setStoredRequests(await rpc.listStoredRequests(appID))
+      const requests = await rpc.listStoredRequests(appID)
+      setStoredRequests(Array.isArray(requests) ? requests : [])
       setError('')
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'could not load stored requests')
@@ -236,7 +235,11 @@ export function ApiExplorerPage({
   )
 
   if (!selected) {
-    return <EmptyPanel title="API Explorer" message="No callable endpoints were discovered for this app." />
+    return (
+      <VStack gap={4} as="section" data-scenery-ui="ConsoleNextAPIExplorer">
+        <EmptyPanel title="API Explorer" message="No callable endpoints were discovered for this app." />
+      </VStack>
+    )
   }
 
   return (
@@ -606,7 +609,11 @@ export function DatabasesWorkbenchPage({
   const queryColumns = useMemo(() => inferColumns(queryRows).map((column) => ({ key: column, header: column, width: proportional(1) })), [queryRows])
 
   if (databases.length === 0) {
-    return <EmptyPanel title="Databases" message="No SQLite databases discovered for this app." />
+    return (
+      <VStack gap={4} as="section" data-scenery-ui="ConsoleNextDatabases">
+        <EmptyPanel title="Databases" message="No SQLite databases discovered for this app." />
+      </VStack>
+    )
   }
 
   return (
@@ -720,66 +727,6 @@ export function CronPage({ status, traces }: { status: AppStatus | null; traces:
           ))}
         </Grid>
       )}
-    </VStack>
-  )
-}
-
-export function ObservabilityPage({
-  status,
-  traces,
-  outputs,
-}: {
-  status: AppStatus | null
-  traces: TraceSummary[]
-  outputs: ProcessOutput[]
-}) {
-  const backends = [
-    { label: 'Metrics', state: status?.observability?.metrics },
-    { label: 'Logs', state: status?.observability?.logs },
-    { label: 'Traces', state: status?.observability?.traces },
-  ]
-  return (
-    <VStack gap={4} as="section" data-scenery-ui="ConsoleNextObservability">
-      <Grid columns={{ minWidth: 240, max: 3 }} gap={4}>
-        {backends.map((backend) => (
-          <Card key={backend.label} padding={4}>
-            <VStack gap={2} as="section">
-              <section {...stylex.props(styles.actionBar)}>
-                <Heading level={2} accessibilityLevel={3}>{backend.label}</Heading>
-                <Badge label={backend.state?.status ?? 'unknown'} variant={signalVariant(backend.state)} />
-              </section>
-              <Text type="supporting" color="secondary">{backend.state?.message ?? backend.state?.dialect ?? 'Victoria backend'}</Text>
-              <Text type="supporting" color="secondary" maxLines={1}>{backend.state?.url ?? backend.state?.query_path ?? 'n/a'}</Text>
-            </VStack>
-          </Card>
-        ))}
-      </Grid>
-      <Grid columns={{ minWidth: 260, max: 4 }} gap={4}>
-        <Metric label="Backend" value={status?.observability?.backend ?? 'victoria'} />
-        <Metric label="App" value={status?.observability?.scope?.app_id ?? status?.appID ?? 'local'} />
-        <Metric label="Session" value={status?.observability?.scope?.session_id ?? status?.sessionID ?? 'n/a'} />
-        <Metric label="Branch" value={status?.observability?.scope?.branch ?? 'n/a'} />
-      </Grid>
-      <Grid columns={{ minWidth: 320, max: 2 }} gap={4}>
-        <Section padding={4}>
-          <VStack gap={3} as="section">
-            <SectionHeading title="Recent Traces" description={`${traces.length} spans`} />
-            {traces.slice(0, 8).map((trace) => (
-              <Text key={traceKey(trace)} type="body">{traceName(trace)} {formatDuration(trace.duration_nanos)} {trace.is_error ? 'error' : 'ok'}</Text>
-            ))}
-            {traces.length === 0 ? <Text type="body" color="secondary">No local traces recorded yet.</Text> : null}
-          </VStack>
-        </Section>
-        <Section padding={4}>
-          <VStack gap={3} as="section">
-            <SectionHeading title="Recent Output" description={`${outputs.length} records`} />
-            {outputs.slice(-12).map((item) => (
-              <Text key={`${item.created_at}-${item.pid}-${item.stream}`} type="supporting" maxLines={2}>{item.stream} {processOutputText(item)}</Text>
-            ))}
-            {outputs.length === 0 ? <Text type="body" color="secondary">No process output recorded yet.</Text> : null}
-          </VStack>
-        </Section>
-      </Grid>
     </VStack>
   )
 }
@@ -948,17 +895,4 @@ function traceKey(trace: TraceSummary): string {
 
 function traceName(trace: TraceSummary): string {
   return `${trace.service_name ?? 'unknown'}.${trace.endpoint_name ?? trace.type}`
-}
-
-function signalVariant(signal: ObservabilitySignal | undefined): BadgeVariant {
-  if (!signal?.enabled) {
-    return 'neutral'
-  }
-  if (signal.available) {
-    return 'success'
-  }
-  if (signal.status === 'degraded') {
-    return 'warning'
-  }
-  return 'error'
 }

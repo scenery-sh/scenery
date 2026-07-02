@@ -13,7 +13,8 @@ Keep this app isolated from `apps/console` and `ui/` unless a task explicitly as
 - Created from Vite's React TypeScript template and initialized with `bunx astryx init`.
 - Astryx is wired through `@astryxdesign/build/vite` and StyleX.
 - `src/main.tsx` imports Astryx reset and neutral theme CSS; component CSS comes from the StyleX Vite source-build pipeline, so do not add `@astryxdesign/core/astryx.css` unless the package export is fixed.
-- Dashboard data must come through the existing local dashboard RPC/WebSocket surfaces (`status`, `logs/list`, `traces/list`, `process/output/list`, `api-call`, `db/query`, `stored-requests/*`). Do not read `.scenery/` caches or devdash storage directly from this app.
+- Dashboard data must come through the existing local dashboard RPC/WebSocket surfaces (`status`, `logs/list`, `traces/list`, `process/output/list`, `api-call`, `db/query`, `stored-requests/*`, `symphony/*`). Do not read `.scenery/` caches or devdash storage directly from this app.
+- The Symphony page uses `symphony/state`, `symphony/task/*`, `symphony/statuses/update`, and `symphony/workflow/*` RPCs backed by Scenery-owned dashboard SQLite. It must not call `/__graphql`, `postGraphQL`, or any Linear/GraphQL API. Runner methods such as `symphony/run/start` stay unavailable until the dashboard runner channel has an authenticated protocol.
 - `scripts/build-dashboard-ui-embed.sh` builds this app and copies `dist/` into `cmd/scenery/dashboard_static/dist` for embedded dashboard binaries.
 - Do not commit `node_modules/` or `dist/`.
 

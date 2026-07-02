@@ -28,6 +28,7 @@ import (
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/sqlitedb"
+	"scenery.sh/internal/symphony"
 )
 
 var dashboardUpgrader = websocket.Upgrader{
@@ -45,6 +46,9 @@ type dashboardServer struct {
 	clients map[*dashboardClient]struct{}
 	assets  fs.FS
 	traces  *dashboardTraceEventBuffer
+
+	symphonyMu    sync.Mutex
+	symphonyStore *symphony.Store
 }
 
 type dashboardVictoria interface {
@@ -271,6 +275,12 @@ func (s *dashboardServer) Close() error {
 		return nil
 	}
 	err := s.http.Close()
+	s.symphonyMu.Lock()
+	if s.symphonyStore != nil {
+		err = errors.Join(err, s.symphonyStore.Close())
+		s.symphonyStore = nil
+	}
+	s.symphonyMu.Unlock()
 	if stateErr := s.state.remove(); stateErr != nil {
 		return errors.Join(err, stateErr)
 	}

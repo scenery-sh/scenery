@@ -35,12 +35,12 @@ import {
   type Page,
 } from './dashboard-model'
 import { upsertTrace } from './dashboard-utils'
+import { SymphonyPage } from './symphony-page'
 import {
   ApiExplorerPage,
   CronPage,
   DatabasesWorkbenchPage,
   LogsAndOutputPage,
-  ObservabilityPage,
   ServiceCatalogPage,
   TracesWorkbenchPage,
 } from './workbench-pages'
@@ -384,7 +384,7 @@ function App() {
                 size="sm"
               >
                 {pages.map((item) => (
-                  <Tab key={item} value={item} label={item} endContent={tabCount(item, logs, traces, databases, outputs)} />
+                  <Tab key={item} value={item} label={item} endContent={tabCount(item, logs, traces, databases, outputs)} data-scenery-ui={`ConsoleNextTab:${item}`} />
                 ))}
               </TabList>
             </nav>
@@ -462,7 +462,7 @@ function App() {
             />
           ) : null}
           {page === 'Cron' ? <CronPage status={status} traces={traces} /> : null}
-          {page === 'Observability' ? <ObservabilityPage status={status} traces={traces} outputs={outputs} /> : null}
+          {page === 'Symphony' ? <SymphonyPage appID={selectedAppID} rpc={rpc} /> : null}
         </section>
       </main>
     </Theme>

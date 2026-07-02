@@ -101,7 +101,7 @@ export function OverviewPage({
   events: DashboardEvent[]
 }) {
   return (
-    <>
+    <VStack gap={4} as="section" data-scenery-ui="ConsoleNextOverview">
       <Section aria-labelledby="observability-title" padding={4}>
         <VStack gap={4} as="section">
           <SectionHeading
@@ -148,7 +148,7 @@ export function OverviewPage({
         <ServiceLinksPanel links={serviceLinks} />
         <ActivityPanel logs={logs} traces={traces} events={events} />
       </Grid>
-    </>
+    </VStack>
   )
 }
 

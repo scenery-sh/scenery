@@ -30,6 +30,9 @@ func (s *dashboardServer) handleRPC(ctx context.Context, req rpcRequest) rpcResp
 }
 
 func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+	if strings.HasPrefix(method, "symphony/") {
+		return s.dispatchSymphonyRPC(ctx, method, raw)
+	}
 	switch method {
 	case "version":
 		return map[string]any{"version": sceneryDashboardCompatVersion, "channel": sceneryDashboardCompatChannel}, nil

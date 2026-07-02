@@ -1,7 +1,7 @@
 import type { BadgeVariant } from '@astryxdesign/core/Badge'
 import type { AppStatus, AppSummary } from './scenery'
 
-export type Page = 'Overview' | 'API' | 'Catalog' | 'Logs' | 'Output' | 'Traces' | 'Databases' | 'Cron' | 'Observability'
+export type Page = 'Overview' | 'API' | 'Catalog' | 'Logs' | 'Output' | 'Traces' | 'Databases' | 'Cron' | 'Symphony'
 
 export type RouteLink = {
   id: string
@@ -10,7 +10,7 @@ export type RouteLink = {
   kind: 'route' | 'alias'
 }
 
-export const pages: Page[] = ['Overview', 'API', 'Catalog', 'Logs', 'Output', 'Traces', 'Databases', 'Cron', 'Observability']
+export const pages: Page[] = ['Overview', 'API', 'Catalog', 'Logs', 'Output', 'Traces', 'Databases', 'Cron', 'Symphony']
 
 export function appOptions(apps: AppSummary[]) {
   return apps.map((app) => ({

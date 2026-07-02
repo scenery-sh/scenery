@@ -180,7 +180,7 @@ func runSceneryHarnessUI(ctx context.Context, stdout io.Writer, args []string) e
 	resp.DashboardURL = dashboardURL
 
 	artifactRoot := filepath.Join(appRoot, ".scenery", "harness", "ui")
-	routes := buildHarnessUIRoutes(appDashboardURL(dashboardURL, cfg.AppID()))
+	routes := buildHarnessUIRoutes(dashboardURL, cfg.AppID())
 	result, err := runHarnessUIBrowserChecksFunc(ctx, routes, artifactRoot, opts.Headed)
 	if err != nil {
 		resp.OK = false
@@ -413,79 +413,65 @@ func runHarnessUIBrowserChecks(ctx context.Context, routes []harnessUIRouteSpec,
 	return runCDPBrowserChecks(ctx, routes, artifactRoot, headed)
 }
 
-func buildHarnessUIRoutes(appURL string) []harnessUIRouteSpec {
+func buildHarnessUIRoutes(dashboardURL, appID string) []harnessUIRouteSpec {
+	appURL := appDashboardURL(dashboardURL, appID)
 	return []harnessUIRouteSpec{
 		{
 			Name:    "dashboard-home",
 			Path:    appURL,
-			Markers: []string{`[data-scenery-ui="AppShell"]`},
+			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
 			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "session/app selector visible", Selector: `[data-scenery-ui="AppSelector"]`, Required: true},
-				{Name: "app status visible", Selector: `[data-scenery-ui="AppStatus"]`, Required: true},
-				{Name: "home route rendered", Selector: `[data-scenery-ui="DashboardHome"]`, Required: true},
-				{Name: "home service routes state visible", AnySelectors: []string{`[data-scenery-ui="DashboardHomeServiceRoutes"]`, `[data-scenery-ui="DashboardHomeNoServiceRoutes"][data-scenery-state="intentional-empty"]`}, Required: true},
+				{Name: "overview route rendered", Selector: `[data-scenery-ui="ConsoleNextOverview"]`, Required: true},
 			},
 		},
 		{
 			Name:    "api-explorer",
-			Path:    joinDashboardPath(appURL, "requests"),
-			Markers: []string{`[data-scenery-ui="AppShell"]`},
-			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "endpoint list loads", Selector: `[data-scenery-ui="APIExplorerEndpointList"]`, Required: true},
-				{Name: "endpoint detail visible", Selector: `[data-scenery-ui="APIExplorerEndpointDetail"]`, Required: true},
-				{Name: "request form renders", Selector: `[data-scenery-ui="APIExplorerRequestForm"]`, Required: true},
-			},
+			Path:    appURL,
+			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "endpoint selector opens", Click: `[data-scenery-ui="APIExplorerEndpointSelectorButton"]`, WaitSelector: `[data-scenery-ui="APIExplorerEndpointSelectorMenu"]`},
+				{Name: "api page opens", Click: `[data-scenery-ui="ConsoleNextTab:API"]`, WaitSelector: `[data-scenery-ui="ConsoleNextAPIExplorer"]`},
 			},
 		},
 		{
 			Name:    "service-catalog",
-			Path:    joinDashboardPath(appURL, "envs/local/api"),
-			Markers: []string{`[data-scenery-ui="AppShell"]`},
-			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "service count visible", Selector: `[data-scenery-ui="ServiceCatalogStats"]`, Required: true},
-				{Name: "service catalog state visible", AnySelectors: []string{`[data-scenery-ui="ServiceCatalogEndpointList"]`, `[data-scenery-ui="ServiceCatalogRouteMetadata"]`, `[data-scenery-ui="ServiceCatalogEmptyState"][data-scenery-state="intentional-empty"]`}, Required: true},
-			},
+			Path:    appURL,
+			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "route/access metadata opens", Click: `[data-scenery-ui="ServiceCatalogEndpointLink"]`, WaitSelector: `[data-scenery-ui="ServiceCatalogRouteMetadata"]`, Optional: true},
+				{Name: "catalog page opens", Click: `[data-scenery-ui="ConsoleNextTab:Catalog"]`, WaitSelector: `[data-scenery-ui="ConsoleNextServiceCatalog"]`},
 			},
 		},
 		{
 			Name:    "traces",
-			Path:    joinDashboardPath(appURL, "envs/local/traces"),
-			Markers: []string{`[data-scenery-ui="AppShell"]`},
-			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "trace table or empty state visible", AnySelectors: []string{`[data-scenery-ui="TraceTable"]`, `[data-scenery-ui="TraceEmptyState"][data-scenery-state="intentional-empty"]`}, Required: true},
-			},
+			Path:    appURL,
+			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
 			Actions: []harnessUIJourneyActionSpec{
-				{Name: "trace detail opens when fixture trace exists", Click: `[data-scenery-ui="TraceTableRow"]`, WaitSelector: `[data-scenery-ui="TraceDetail"]`, Optional: true},
+				{Name: "traces page opens", Click: `[data-scenery-ui="ConsoleNextTab:Traces"]`, WaitSelector: `[data-scenery-ui="ConsoleNextTraces"]`},
 			},
 		},
 		{
 			Name:    "db-explorer",
-			Path:    joinDashboardPath(appURL, "db"),
-			Markers: []string{`[data-scenery-ui="AppShell"]`},
-			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "database list or unavailable state visible", Selector: `[data-scenery-ui="DBExplorer"]`, Required: true},
-				{Name: "database route state visible", AnySelectors: []string{`[data-scenery-ui="DatabaseList"]`, `[data-scenery-ui="DBUnavailableState"][data-scenery-state="intentional-empty"]`}, Required: true},
+			Path:    appURL,
+			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Actions: []harnessUIJourneyActionSpec{
+				{Name: "databases page opens", Click: `[data-scenery-ui="ConsoleNextTab:Databases"]`, WaitSelector: `[data-scenery-ui="ConsoleNextDatabases"]`},
 			},
 		},
 		{
 			Name:    "cron",
-			Path:    joinDashboardPath(appURL, "cron"),
-			Markers: []string{`[data-scenery-ui="AppShell"]`},
-			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "cron status cards visible", Selector: `[data-scenery-ui="CronStatusCards"]`, Required: true},
-				{Name: "cron list or intentional empty state visible", AnySelectors: []string{`[data-scenery-ui="CronJobList"]`, `[data-scenery-ui="CronEmptyState"][data-scenery-state="intentional-empty"]`}, Required: true},
+			Path:    appURL,
+			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Actions: []harnessUIJourneyActionSpec{
+				{Name: "cron page opens", Click: `[data-scenery-ui="ConsoleNextTab:Cron"]`, WaitSelector: `[data-scenery-ui="ConsoleNextCron"]`},
 			},
 		},
 		{
-			Name:    "observability",
-			Path:    joinDashboardPath(appURL, "observability"),
-			Markers: []string{`[data-scenery-ui="AppShell"]`},
-			Checks: []harnessUIJourneyCheckSpec{
-				{Name: "native backend status visible", Selector: `[data-scenery-ui="ObservabilityBackends"]`, Required: true},
+			Name:    "symphony",
+			Path:    appURL,
+			Markers: []string{`[data-scenery-ui="ConsoleNextHeaderNav"]`},
+			Actions: []harnessUIJourneyActionSpec{
+				{Name: "symphony page opens", Click: `[data-scenery-ui="ConsoleNextTab:Symphony"]`, WaitSelector: `[data-scenery-ui="ConsoleNextSymphony"]`},
+				{Name: "symphony board visible", Click: `[data-scenery-ui="ConsoleNextTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyBoard"]`},
+				{Name: "symphony hidden columns visible", Click: `[data-scenery-ui="ConsoleNextTab:Symphony"]`, WaitSelector: `[data-scenery-ui="SymphonyHiddenColumns"]`},
 			},
 		},
 	}
@@ -501,15 +487,6 @@ func appDashboardURL(rawURL, appID string) string {
 		parsed.Path = "/" + url.PathEscape(appID)
 		return parsed.String()
 	}
-	return parsed.String()
-}
-
-func joinDashboardPath(appURL, suffix string) string {
-	parsed, err := url.Parse(appURL)
-	if err != nil {
-		return strings.TrimRight(appURL, "/") + "/" + strings.TrimLeft(suffix, "/")
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(suffix, "/")
 	return parsed.String()
 }
 

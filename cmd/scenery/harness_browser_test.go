@@ -33,11 +33,11 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 				URL:        routes[0].Path,
 				OK:         true,
 				DurationMS: 1,
-				Markers:    []harnessUIMarker{{Selector: `[data-scenery-ui="AppShell"]`, Count: 1, Found: true}},
+				Markers:    []harnessUIMarker{{Selector: `[data-scenery-ui="ConsoleNextHeaderNav"]`, Count: 1, Found: true}},
 				Journey: []harnessUIJourneyResult{{
-					Name:     "session/app selector visible",
+					Name:     "overview route rendered",
 					Kind:     "selector",
-					Selector: `[data-scenery-ui="AppSelector"]`,
+					Selector: `[data-scenery-ui="ConsoleNextOverview"]`,
 					Count:    1,
 					Found:    true,
 					Required: true,
@@ -88,12 +88,12 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 func TestBuildHarnessUIRoutesIncludesSemanticJourneys(t *testing.T) {
 	t.Parallel()
 
-	routes := buildHarnessUIRoutes("http://127.0.0.1:9401/demo")
+	routes := buildHarnessUIRoutes("http://127.0.0.1:9401", "demo")
 	byName := map[string]harnessUIRouteSpec{}
 	for _, route := range routes {
 		byName[route.Name] = route
 	}
-	for _, name := range []string{"dashboard-home", "api-explorer", "service-catalog", "traces", "db-explorer", "cron", "observability"} {
+	for _, name := range []string{"dashboard-home", "api-explorer", "service-catalog", "traces", "db-explorer", "cron", "symphony"} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("missing route %q in %#v", name, routes)
 		}
@@ -102,30 +102,43 @@ func TestBuildHarnessUIRoutesIncludesSemanticJourneys(t *testing.T) {
 		route string
 		want  string
 	}{
-		{"dashboard-home", "session/app selector visible"},
-		{"api-explorer", "request form renders"},
-		{"service-catalog", "service count visible"},
-		{"traces", "trace table or empty state visible"},
-		{"db-explorer", "database list or unavailable state visible"},
-		{"cron", "cron status cards visible"},
-		{"observability", "native backend status visible"},
+		{"dashboard-home", "overview route rendered"},
 	}
 	for _, check := range checks {
 		if !harnessUIRouteHasCheck(byName[check.route], check.want) {
 			t.Fatalf("route %s missing check %q: %#v", check.route, check.want, byName[check.route].Checks)
 		}
 	}
-	if len(byName["api-explorer"].Actions) == 0 {
-		t.Fatalf("api explorer should include an endpoint-open journey action")
+	actionChecks := []struct {
+		route string
+		want  string
+	}{
+		{"api-explorer", "api page opens"},
+		{"service-catalog", "catalog page opens"},
+		{"traces", "traces page opens"},
+		{"db-explorer", "databases page opens"},
+		{"cron", "cron page opens"},
+		{"symphony", "symphony board visible"},
 	}
-	if len(byName["traces"].Actions) == 0 || !byName["traces"].Actions[0].Optional {
-		t.Fatalf("traces should include an optional trace-detail journey action")
+	for _, check := range actionChecks {
+		if !harnessUIRouteHasAction(byName[check.route], check.want) {
+			t.Fatalf("route %s missing action %q: %#v", check.route, check.want, byName[check.route].Actions)
+		}
 	}
 }
 
 func harnessUIRouteHasCheck(route harnessUIRouteSpec, name string) bool {
 	for _, check := range route.Checks {
 		if check.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func harnessUIRouteHasAction(route harnessUIRouteSpec, name string) bool {
+	for _, action := range route.Actions {
+		if action.Name == name {
 			return true
 		}
 	}

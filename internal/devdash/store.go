@@ -1675,7 +1675,7 @@ func (s *Store) SetOnboarding(ctx context.Context, props []string) error {
 }
 
 func (s *Store) ListStoredRequests(ctx context.Context, appID string) ([]StoredRequest, error) {
-	var list []StoredRequest
+	list := []StoredRequest{}
 	err := s.withState(ctx, false, func(state *storeState) error {
 		for key, req := range state.StoredRequests {
 			kAppID, _ := splitStoredRequestKey(key)

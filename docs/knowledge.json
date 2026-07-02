@@ -117,7 +117,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, storage inspect/CLI lease surfaces, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, internal dashboard cache artifacts, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, storage inspect/CLI lease surfaces, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, internal dashboard cache artifacts including Symphony SQLite, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -187,7 +187,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, storage config/CLI/lease schemas including required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence artifacts, scoped observability queries, Victoria-backed trace/log history, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, storage config/CLI/lease schemas including required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence artifacts, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -872,12 +872,12 @@
       "path": "docs/plans/0092-symphony-dashboard.md",
       "title": "Symphony Dashboard",
       "owner": "scenery dashboard / agent DX",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-01",
-      "summary": "Active ExecPlan for replacing the consolenext Observability page with an app-scoped SQLite-backed Symphony Kanban board and Scenery-native Codex app-server orchestration surface without Linear or GraphQL.",
+      "summary": "Completed ExecPlan that replaced the consolenext Observability page with an app-scoped SQLite-backed Symphony Kanban board and workflow store, while keeping process-starting runner RPCs blocked until an authenticated runner channel exists.",
       "tags": [
         "plans",
         "execplans",

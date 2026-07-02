@@ -389,6 +389,9 @@ live in Victoria instead of `devdash.json`. Use CLI JSON or dashboard APIs
 instead of reading those files directly. When the local agent is active, the
 agent dashboard process owns writes to the global dashboard store; dev runtime
 supervisors send authenticated control-plane mutations to that backend.
+Symphony task-board data is stored separately in `<dashboard-cache-root>/symphony.sqlite`
+and should also be accessed through dashboard APIs rather than opened directly
+outside substrate debugging.
 
 Generated client mismatch:
 

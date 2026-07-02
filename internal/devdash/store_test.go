@@ -519,6 +519,14 @@ func TestStoreStoredRequestsCRUD(t *testing.T) {
 	})
 
 	ctx := context.Background()
+	list, err := store.ListStoredRequests(ctx, "app-test")
+	if err != nil {
+		t.Fatalf("list empty stored requests: %v", err)
+	}
+	if list == nil {
+		t.Fatal("expected empty stored request list, got nil")
+	}
+
 	created, err := store.CreateStoredRequest(ctx, StoredRequest{
 		AppID:  "app-test",
 		Title:  "Initial",
@@ -538,7 +546,7 @@ func TestStoreStoredRequestsCRUD(t *testing.T) {
 		t.Fatal("expected stored request id")
 	}
 
-	list, err := store.ListStoredRequests(ctx, "app-test")
+	list, err = store.ListStoredRequests(ctx, "app-test")
 	if err != nil {
 		t.Fatalf("list stored requests: %v", err)
 	}
@@ -592,6 +600,9 @@ func TestStoreStoredRequestsCRUD(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("expected 0 stored requests after delete, got %d", len(list))
+	}
+	if list == nil {
+		t.Fatal("expected empty stored request list after delete, got nil")
 	}
 }
 

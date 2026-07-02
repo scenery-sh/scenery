@@ -6,6 +6,30 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Symphony Dashboard
+
+- Status: completed
+- Owner: scenery dashboard / agent DX
+- Completed: 2026-07-02
+- Quality: B
+- ExecPlan: [0092 Symphony Dashboard](0092-symphony-dashboard.md)
+
+Shipped:
+
+- Replaced the consolenext `Observability` page with `Symphony`.
+- Added app-scoped SQLite board storage under `<dashboard-cache-root>/symphony.sqlite`, keyed by stable base app ID for agent sessions and direct dashboard app ID when no session id exists.
+- Added dashboard RPC methods for board state, task CRUD, task movement, status visibility, and workflow config.
+- Added a responsive Kanban board with visible and hidden columns, task cards, create/edit modal, explicit refresh, and reload persistence.
+- Added consolenext-specific browser-harness markers for the Symphony page.
+
+Not shipped:
+
+- Process-starting `symphony/run/*` RPCs; they remain blocked until an authenticated runner channel exists.
+
+Validation:
+
+- Passed focused Symphony store/RPC/harness tests, `go test ./cmd/scenery`, `go test ./...`, consolenext lint/typecheck/build, dashboard embed rebuild, harness UI fixture validation, and Chrome fixture validation.
+
 ## Remove Former Realtime Service and Reserve Entity Stream
 
 - Status: completed

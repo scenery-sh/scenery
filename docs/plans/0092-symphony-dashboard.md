@@ -43,10 +43,10 @@ This plan intentionally separates the first durable board implementation from th
 * [x] 2026-07-02 - Added this ExecPlan to `docs/knowledge.json`.
 * [x] 2026-07-02 - Asked `ask-oracle` to review this ExecPlan once using Claude Fable 5 in non-interactive print mode; no subagents were spawned.
 * [x] 2026-07-02 - Incorporated oracle findings around dashboard RPC authentication, deterministic SQLite path, multi-process concurrency, harness drift, schema constraints, and runner scope.
-* [ ] Implement milestone 1: app-scoped SQLite store, dashboard RPC, and board CRUD.
-* [ ] Implement milestone 2: Symphony page UI, modal, status columns, hidden columns, and reload persistence.
-* [ ] Implement milestone 3: workflow model, run records, event stream, and safe Codex app-server runner.
-* [ ] Implement milestone 4: browser/harness coverage, docs updates, and validation.
+* [x] 2026-07-02 - Implemented milestone 1: app-scoped SQLite store, deterministic dashboard cache path, dashboard RPC, board CRUD, base-app sharing, app isolation, and concurrent identifier tests.
+* [x] 2026-07-02 - Implemented milestone 2: replaced consolenext `Observability` nav/page with `Symphony`, added board columns, hidden columns, task cards, create/edit modal, task moves, deletes, reload persistence, and no-GraphQL frontend RPC calls.
+* [x] 2026-07-02 - Resolved milestone 3 safety gate: workflow config persistence plus run/run-event tables shipped, `codex app-server` protocol/schema surface was checked locally, and process-starting `symphony/run/*` RPCs remain unavailable until an authenticated runner channel exists.
+* [x] 2026-07-02 - Implemented milestone 4: added consolenext Symphony browser-harness route markers, updated docs/contracts/knowledge index, rebuilt embedded dashboard assets, and ran focused plus full validation listed in Outcomes.
 
 Update this section at every meaningful stopping point. Every update must include the date, what changed, and whether validation was run.
 
@@ -60,8 +60,8 @@ Initial source-review facts:
 * `apps/consolenext/src/scenery.ts` already has a WebSocket dashboard RPC client. Symphony board calls may add typed RPC methods there and must not use the stored-request GraphQL helper.
 * `cmd/scenery/dashboard_rpc.go` is the current server-side dashboard RPC dispatch point. Its WebSocket path is local but not authenticated today; the plan must not call it an authenticated channel.
 * `cmd/scenery/dashboard.go` defines `dashboardUpgrader` with a permissive origin check and `handleWebSocket` does not perform a token check. Process-starting `symphony/run/*` methods must not ship on this channel until origin/token auth is added or the methods move behind an authenticated Codex app-server channel.
-* `cmd/scenery/dashboard.go` already has `dashboardStoreAppID(status)`, which prefers `BaseAppID` over the runtime/session app ID. That is the right identity boundary for "app X or worktree of app X shows the same data."
-* Symphony handlers must hard-error when they cannot resolve a live app status to a stable base app id. Falling back to raw request `app_id` can fork storage by session/worktree and violates the user request.
+* `cmd/scenery/dashboard.go` already has `dashboardStoreAppID(status)`, which prefers `BaseAppID` and falls back to the dashboard app ID for non-session dashboards. That is the right identity boundary for "app X or worktree of app X shows the same data" while still supporting direct non-agent dashboards.
+* Symphony handlers must resolve a live app status before choosing storage identity. Falling back directly to the raw request `app_id` can fork storage by session/worktree and violates the user request.
 * `internal/devdash/store.go` is JSON-backed and app-keyed, but Symphony needs richer task/run queries and transactional writes. Use a dedicated SQLite store instead of extending the devdash JSON file.
 * `internal/sqlitedb` already provides modernc SQLite opening, directory creation, WAL, foreign keys, busy timeout, and metadata table setup. Symphony should reuse that package rather than adding another SQLite dependency.
 * `cmd/scenery/dashboard_sqlite.go` exposes application database inspection. It is not the right storage layer for Symphony because it reads app-owned databases; Symphony data is console/control-plane data.
@@ -82,6 +82,16 @@ Oracle review facts from 2026-07-02:
 * The oracle verified the ExecPlan section structure and the `dashboardStoreAppID` identity direction.
 * The oracle rejected the original "authenticated dashboard RPC" wording because the current dashboard WebSocket is loopback-only with permissive origin behavior, not authenticated.
 * The oracle recommended pinning the SQLite path, defining concurrent worktree/process behavior, making app identity resolution fail closed, correcting browser-harness assumptions, tightening schema constraints, and treating the Codex app-server runner as a protocol spike or follow-up if it grows beyond the board slice.
+
+Implementation facts from 2026-07-02:
+
+* `go test ./internal/symphony -count=1` initially exposed `SQLITE_BUSY` under two store handles creating tasks concurrently. The fix is a per-SQLite-file in-process mutex plus `SetMaxOpenConns(1)` on each store handle; `TestStoreConcurrentCreatesUseUniqueIdentifiers` now proves unique identifiers under concurrent writes.
+* `cmd/scenery/dashboard_symphony.go` prefers `BaseAppID` for agent/worktree sessions, falls back to the direct dashboard app ID when no session id exists, and fails closed for session records with no base id. `TestDashboardSymphonyRPCFallsBackToDashboardAppIDWithoutBaseAppID` and `TestDashboardSymphonyRPCFailsClosedForSessionWithoutBaseAppID` cover those paths.
+* `.scenery/harness/bin/scenery harness ui --json --write --app-root testdata/apps/basic` exposed that empty stored-request lists encoded as JSON `null`, crashing the API page, and that empty database pages lacked a stable page marker. `internal/devdash.Store.ListStoredRequests` now returns an empty slice, the API page defensively normalizes the list, and the Databases/API empty states keep their semantic root markers.
+* Chrome validation against a direct non-agent dashboard exposed that direct `scenery up` can have no `BaseAppID` even when the dashboard app id is stable. The resolver now allows fallback to `AppID` only when `SessionID` is empty, while session records without `BaseAppID` still fail closed.
+* `codex app-server --help` reports an experimental app-server with `--listen` transports and `--ws-auth` modes `capability-token` and `signed-bearer-token`. `codex app-server generate-json-schema --experimental --out /tmp/scenery-codex-schema.GAO6IP` generated v1/v2 schema files including `codex_app_server_protocol.schemas.json` and `codex_app_server_protocol.v2.schemas.json`. `codex app-server daemon version` failed because `/Users/petrbrazdil/.codex/app-server-control/app-server-control.sock` did not exist, so no running daemon was available to integrate against.
+* The implementation does not ship process-starting runner RPCs. `symphony/run/start` returns `symphony/run/start is unavailable until dashboard runner auth is implemented`, covered by `TestDashboardSymphonyRPCMovesAndRejectsRunnerMethods`.
+* `rg -n "postGraphQL|__graphql|GraphQL" apps/consolenext/src/symphony*.tsx apps/consolenext/src/symphony*.ts` exits with no matches; the Symphony frontend uses typed dashboard RPC methods only.
 
 Add new discoveries here with the command, test, or file that exposed them. Use this section to record unexpected compile failures, identity mismatches, SQLite migration issues, Codex app-server protocol details, UI assumptions, stale docs, or harness contract issues.
 
@@ -105,9 +115,9 @@ go run ./cmd/scenery inspect docs --json
 
   Author: initial ExecPlan
 
-* Decision: Scope Symphony persistence by stable application identity using `dashboardStoreAppID(status)`.
+* Decision: Scope Symphony persistence by application identity using `dashboardStoreAppID(status)`.
 
-  Rationale: The user specifically wants an app and any worktree of that app to share the same board, while different applications show different data. `BaseAppID` is already the Scenery concept for this boundary.
+  Rationale: The user specifically wants an app and any worktree of that app to share the same board, while different applications show different data. `BaseAppID` is already the Scenery concept for this boundary, and the direct-dashboard app ID is the available stable identity when no session id exists.
 
   Date: 2026-07-02
 
@@ -169,11 +179,44 @@ go run ./cmd/scenery inspect docs --json
 
   Author: oracle-incorporated ExecPlan
 
+* Decision: Complete this plan without process-starting runner RPCs.
+
+  Rationale: The board, workflow config, run/event schema, and Codex app-server schema spike are in place, but the dashboard WebSocket is still not an authenticated runner channel and no local app-server daemon was running. Shipping a Start/Stop runner through the current dashboard RPC would violate this plan's safety gate.
+
+  Date: 2026-07-02
+
+  Author: implementation
+
 ## Outcomes & Retrospective
 
-Not started.
+Completed on 2026-07-02.
 
-Fill this section when the implementation is complete. Summarize what shipped, what changed from the plan, exact validation results, and any follow-up plans or tech debt created.
+Shipped:
+
+* Added `internal/symphony` with Scenery-owned SQLite tables for statuses, tasks, labels, per-app counters, runs, run events, and workflow config at `<dashboard-cache-root>/symphony.sqlite`.
+* Added dashboard RPC methods for `symphony/state`, `symphony/task/create`, `symphony/task/update`, `symphony/task/move`, `symphony/task/delete`, `symphony/statuses/update`, `symphony/workflow/get`, and `symphony/workflow/update`.
+* Replaced the consolenext `Observability` page/nav item with `Symphony`, including board columns, task cards, hidden columns, create/edit modal, explicit refresh, status moves, and task deletion.
+* Added consolenext-specific browser-harness route coverage for `?page=Symphony`.
+* Updated `apps/consolenext/AGENTS.md`, `docs/local-contract.md`, `docs/agent-guide.md`, and `docs/knowledge.json`.
+
+Not shipped:
+
+* `symphony/run/*` process-starting RPCs. They remain blocked until Scenery has an authenticated runner channel or a verified authenticated Codex app-server integration path.
+
+Validation:
+
+* `go test ./internal/symphony -count=1` passed.
+* `go test ./cmd/scenery -run 'TestDashboardSymphony|TestBuildHarnessUIRoutes|TestHarnessUICommand|TestHarnessBrowser' -count=1` passed.
+* `go test ./cmd/scenery -run 'TestDashboardSymphony|TestDashboardRPC|TestHarnessBrowser' -count=1` passed.
+* `go test ./cmd/scenery` passed.
+* `go test ./...` passed.
+* `cd apps/consolenext && bun run lint` passed.
+* `cd apps/consolenext && bun run typecheck` passed.
+* `cd apps/consolenext && bun run build` passed.
+* `rg -n "postGraphQL|__graphql|GraphQL" apps/consolenext/src/symphony-page.tsx` produced no matches.
+* `./scripts/build-dashboard-ui-embed.sh` passed and refreshed `cmd/scenery/dashboard_static/dist`.
+* `.scenery/harness/bin/scenery harness ui --json --write --app-root testdata/apps/basic` passed and wrote `testdata/apps/basic/.scenery/harness/ui/latest.json`.
+* Chrome validation against a temporary copy of `testdata/apps/standard-auth` with a stable fixture id confirmed `Symphony`, `Backlog`, `Todo`, `In Progress`, `Human Review`, and `Hidden columns`; created `SYM-1`, edited it, moved it to In Progress, reloaded, saw it persist, and observed zero browser console errors.
 
 ## Context and Orientation
 
