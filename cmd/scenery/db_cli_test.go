@@ -98,18 +98,23 @@ func TestResolveDatabaseURLForConfigUsesSQLiteService(t *testing.T) {
 	}
 }
 
-func TestResolveDatabaseURLForConfigRequiresSingleSQLiteService(t *testing.T) {
+func TestResolveDatabaseURLForConfigDefaultsToDBService(t *testing.T) {
 	t.Parallel()
 
+	root := t.TempDir()
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"main":   {Kind: "sqlite"},
+			"db":     {Kind: "sqlite", Database: "main", DatabaseURLEnv: appDatabaseURLEnv},
 			"search": {Kind: "sqlite"},
 		}},
 	}
-	_, err := resolveDatabaseURLForConfig(context.Background(), t.TempDir(), cfg, nil, true)
-	if err == nil || !strings.Contains(err.Error(), "sqlite service name is required") {
-		t.Fatalf("resolveDatabaseURLForConfig error = %v", err)
+	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, nil, true)
+	if err != nil {
+		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
+	}
+	want := sqlitedb.URLForPath(filepath.Join(root, ".scenery", "sqlite", "local", "main.sqlite"))
+	if got != want {
+		t.Fatalf("database URL = %q, want %q", got, want)
 	}
 }

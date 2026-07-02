@@ -112,10 +112,11 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			runHarnessParallelDevStep(ctx, repoRoot),
 			runHarnessSQLiteBranchStep(ctx, repoRoot),
 		)
+		dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
 		resp.Steps = append(resp.Steps,
-			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
-			runHarnessExecStep(ctx, filepath.Join(repoRoot, "ui"), "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
-			runHarnessFreshnessStep("dashboard ui fresh", filepath.Join(repoRoot, "ui"), dashboardUIBuildStale, "Run `bun run build` inside `ui/`, then rerun `scenery harness self --json`."),
+			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
+			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
+			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBuildStale, "Run `bun run build` inside `apps/consolenext/`, then rerun `scenery harness self --json`."),
 		)
 		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
 		resp.FixtureMatrix = fixtureMatrix
@@ -737,7 +738,7 @@ func buildHarnessSelfArtifacts(repoRoot string, selfWillExist bool, resp harness
 		{Name: "fixture-matrix", Path: ".scenery/harness/fixture-matrix-latest.json", SchemaVersion: "scenery.harness.fixture_matrix.v1"},
 		{Name: "schema-validation", Path: ".scenery/harness/schema-validation-latest.json", SchemaVersion: "scenery.harness.schema_validation.v1"},
 		{Name: "agent-context", Path: ".scenery/harness/agent-context.json", SchemaVersion: "scenery.agent_context.v1"},
-		{Name: "dashboard-ui", Path: "ui/dist/index.html"},
+		{Name: "dashboard-ui", Path: "apps/consolenext/dist/index.html"},
 	}
 	reportWillExist := map[string]bool{
 		"self-harness":      selfWillExist,

@@ -20,6 +20,7 @@ type victoriaJaegerResponse struct {
 }
 
 const victoriaJaegerMaxTraceLimit = 1000
+const victoriaDefaultTraceSince = 15 * time.Minute
 
 type victoriaJaegerTrace struct {
 	TraceID   string                           `json:"traceID"`
@@ -89,7 +90,11 @@ func (s *victoriaStack) QueryTraceSummaries(ctx context.Context, query devdash.T
 	if query.Limit <= 0 {
 		query.Limit = 100
 	}
-	traces, err := queryVictoriaJaegerTraces(ctx, baseURL, query)
+	fetchQuery := query
+	if fetchQuery.Since.IsZero() && fetchQuery.TraceID == "" {
+		fetchQuery.Since = time.Now().UTC().Add(-victoriaDefaultTraceSince)
+	}
+	traces, err := queryVictoriaJaegerTraces(ctx, baseURL, fetchQuery)
 	if err != nil {
 		if strings.Contains(err.Error(), "VictoriaTraces returned no traces") {
 			return []*devdash.TraceSummary{}, nil

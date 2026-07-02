@@ -705,6 +705,22 @@ func TestStoreDevEventsRoundTripAndFilters(t *testing.T) {
 	}
 }
 
+func TestDevEventFromOutputKeepsShortLevelAboveStderr(t *testing.T) {
+	event := DevEventFromOutput(
+		"app-test",
+		"session-a",
+		DevSource{ID: "api", Stream: "stderr"},
+		[]byte("9:29PM INF health.console_probe log 5 step=done\n"),
+		time.Now().UTC(),
+	)
+	if event.Level != "info" {
+		t.Fatalf("level = %q, want info", event.Level)
+	}
+	if event.Parse.Format != "level-text" {
+		t.Fatalf("parse format = %q, want level-text", event.Parse.Format)
+	}
+}
+
 func TestStoreDevEventIDsAreAssignedBeforeInsert(t *testing.T) {
 	t.Parallel()
 

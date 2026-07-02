@@ -14,6 +14,7 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 		writeArchitectureSupportFiles(t, root)
 		writeTestAppFile(t, root, "internal/example/example.go", "package example\n\nimport \"fmt\"\n\nfunc Format(v string) string { return fmt.Sprintf(\"%s\", v) }\n")
+		writeTestAppFile(t, root, "apps/consolenext/node_modules/pkg/README.md", "model context "+"protocol\n")
 
 		step := runHarnessArchitectureStep(root)
 		if !step.OK {

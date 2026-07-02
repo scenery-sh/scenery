@@ -325,10 +325,17 @@ func resolveDatabaseURLForConfig(ctx context.Context, appRoot string, cfg appcfg
 		return "", err
 	}
 	services := cfg.SQLiteServices()
-	if len(services) != 1 {
+	svc, ok := cfg.SQLiteService("db")
+	if !ok {
+		if len(services) != 1 {
+			return "", fmt.Errorf("sqlite service name is required when %d services are configured", len(services))
+		}
+		svc = services[0]
+	}
+	if len(services) == 0 {
 		return "", fmt.Errorf("sqlite service name is required when %d services are configured", len(services))
 	}
-	envName := services[0].DatabaseURLEnv
+	envName := svc.DatabaseURLEnv
 	if value, _ := lookupEnvValue(env, envName); value != "" {
 		return value, nil
 	}

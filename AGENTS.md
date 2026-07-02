@@ -55,6 +55,7 @@ Child `AGENTS.md` files:
 ### Child Agent Index
 
 - `apps/console/AGENTS.md` owns the standalone Vite/React console app, shadcn component inventory, and frontend validation commands.
+- `apps/consolenext/AGENTS.md` owns the standalone Vite/React Astryx + StyleX console demo and frontend validation commands.
 
 ## Agent skills
 
@@ -268,4 +269,4 @@ When editing source that changes the public app model, confirm the docs and test
 - Keep changes small and explicit.
 - Prefer tests at stable boundaries: parser validation, codegen golden output, runtime HTTP behavior, CLI JSON contracts, schemas, and fixture apps.
 - Keep large files split. Non-generated source over 2500 lines should fail self-harness architecture checks; non-generated source over 1000 lines should be treated as a warning to split soon.
-- Do not bypass UI boundaries. Dashboard/app UI should compose from scenery primitives/layouts and approved `@scenery` registry items; read `docs/ui-agent-contract.md` before UI work.
+- Do not bypass UI boundaries. Dashboard/app UI under `ui/` should compose from scenery primitives/layouts and approved `@scenery` registry items; read `docs/ui-agent-contract.md` before UI work. The `apps/consolenext` dashboard prototype follows its local Astryx + StyleX contract.

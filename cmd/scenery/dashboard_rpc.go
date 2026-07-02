@@ -62,7 +62,7 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 		}
 		victoria := s.dashboardVictoria()
 		if victoria == nil {
-			return nil, fmt.Errorf("VictoriaLogs is unavailable")
+			return []dashboardLogEvent{}, nil
 		}
 		items, err := victoria.ListDevEvents(ctx, devdash.DevEventQuery{
 			AppID:     dashboardStoreAppID(status),
@@ -172,12 +172,70 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return s.traceEventsForSpan(ctx, dashboardStoreAppID(status), status.SessionID, params.TraceID, params.SpanID)
+	case "sqlite/tables":
+		var params dashboardSQLiteRequest
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		return s.sqliteTables(ctx, params)
+	case "sqlite/schema":
+		var params dashboardSQLiteRequest
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		return s.sqliteSchema(ctx, params)
+	case "sqlite/rows":
+		var params dashboardSQLiteRowsRequest
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		return s.sqliteRows(ctx, params)
 	case "api-call":
 		var params devdash.APICallRequest
 		if err := json.Unmarshal(raw, &params); err != nil {
 			return nil, err
 		}
 		return s.apiCall(ctx, params)
+	case "stored-requests/list":
+		var params struct {
+			AppID string `json:"app_id"`
+		}
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		return s.listStoredRequests(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
+	case "stored-requests/create":
+		var params storedRequestRPCParams
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		created, err := s.createStoredRequest(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return created.ID, nil
+	case "stored-requests/update":
+		var params storedRequestRPCParams
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		updated, err := s.updateStoredRequest(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return updated.ID, nil
+	case "stored-requests/delete":
+		var params struct {
+			AppID string `json:"app_id"`
+			ID    string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		if err := s.deleteStoredRequest(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()), params.ID); err != nil {
+			return nil, err
+		}
+		return true, nil
 	case "db/query":
 		var params devdash.QueryRequest
 		if err := json.Unmarshal(raw, &params); err != nil {

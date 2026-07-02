@@ -1,0 +1,7 @@
+body {
+  margin: 0;
+}
+
+[data-scenery-ui="ConsoleNextHeaderNav"]::-webkit-scrollbar {
+  display: none;
+}

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+
+	"scenery.sh/internal/appwalk"
 )
 
 const (
@@ -451,7 +453,7 @@ func architectureSkipDir(rel string) bool {
 		return false
 	}
 	for _, part := range strings.Split(rel, "/") {
-		if part == ".scenery" {
+		if appwalk.SkipDirName(part) || part == ".codex-tmp" || part == "coverage" || part == "oracle" {
 			return true
 		}
 	}

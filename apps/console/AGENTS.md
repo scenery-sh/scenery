@@ -10,7 +10,7 @@ Keep this app isolated from the existing `ui/` dashboard unless a task explicitl
 
 ## Local Contracts
 
-- React Compiler is enabled through the `react-compiler-ts` Vite scaffold.
+- React Compiler is enabled through the `react-compiler-ts` Vite scaffold in annotation mode; add `"use memo"` only to components that should opt in.
 - shadcn components live under `src/components/ui`.
 - Use `@/*` imports for app source.
 - Vite proxies `/__scenery` WebSocket traffic to Scenery's default dashboard backend at `127.0.0.1:9401`.

@@ -61,7 +61,7 @@ scenery version --json
 ```
 
 The module path is `scenery.sh`. Source installs are useful when working from a checkout or testing unreleased changes.
-Release binaries embed the built dashboard UI and do not build it at runtime. From source, run `./scripts/build-dashboard-ui-embed.sh` before `go install ./cmd/scenery` when the installed binary should carry the current dashboard build.
+Release binaries embed the built dashboard UI from `apps/consolenext/` and do not build it at runtime. From source, run `./scripts/build-dashboard-ui-embed.sh` before `go install ./cmd/scenery` when the installed binary should carry the current dashboard build.
 
 ## Prebuilt CLI Binaries
 

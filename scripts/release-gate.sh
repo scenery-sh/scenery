@@ -124,7 +124,7 @@ lint_go() {
 }
 
 ui_builds() {
-  cd "$ROOT/ui"
+  cd "$ROOT/apps/consolenext"
   need bun
   run bun run typecheck
   run bun run build

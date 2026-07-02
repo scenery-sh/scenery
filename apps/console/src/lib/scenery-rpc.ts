@@ -9,6 +9,10 @@ interface PendingRequest {
 }
 
 export function sceneryWebSocketURL(): string {
+  const configured = import.meta.env.VITE_SCENERY_DASHBOARD_WS_URL
+  if (configured) {
+    return configured
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}/__scenery`
 }
@@ -29,9 +33,10 @@ export class SceneryRpcClient {
   }
 
   connect(): void {
-    if (this.disposed || this.socket) {
+    if (this.socket) {
       return
     }
+    this.disposed = false
     const socket = new WebSocket(this.url)
     this.socket = socket
     socket.addEventListener('open', this.handleOpen)
@@ -45,11 +50,9 @@ export class SceneryRpcClient {
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer)
     }
-    this.socket?.close()
+    const socket = this.socket
     this.socket = null
-    for (const [id, pending] of this.pending) {
-      pending.reject(new Error(`request ${id} canceled`))
-    }
+    socket?.close()
     this.pending.clear()
   }
 
@@ -81,7 +84,10 @@ export class SceneryRpcClient {
     this.socket.send(payload)
   }
 
-  private readonly handleOpen = () => {
+  private readonly handleOpen = (event: Event) => {
+    if (event.target !== this.socket) {
+      return
+    }
     for (const listener of this.connectionListeners) {
       listener(true)
     }
@@ -93,7 +99,10 @@ export class SceneryRpcClient {
     }
   }
 
-  private readonly handleClose = () => {
+  private readonly handleClose = (event: CloseEvent) => {
+    if (event.target !== this.socket) {
+      return
+    }
     this.socket = null
     for (const listener of this.connectionListeners) {
       listener(false)
@@ -106,7 +115,10 @@ export class SceneryRpcClient {
     }
   }
 
-  private readonly handleError = () => {
+  private readonly handleError = (event: Event) => {
+    if (event.target !== this.socket) {
+      return
+    }
     for (const [id, pending] of this.pending) {
       pending.reject(new Error(`rpc request ${id} failed`))
     }
@@ -114,6 +126,9 @@ export class SceneryRpcClient {
   }
 
   private readonly handleMessage = (event: MessageEvent<string>) => {
+    if (event.target !== this.socket) {
+      return
+    }
     const message = JSON.parse(event.data) as {
       id?: number
       result?: unknown

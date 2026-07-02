@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -151,6 +152,90 @@ func TestDashboardProcessOutputListRPC(t *testing.T) {
 	}
 }
 
+func TestDashboardAPICallRPCDialsUnixAppBackend(t *testing.T) {
+	t.Parallel()
+
+	server := newTestDashboardServer(t)
+	socketDir, err := os.MkdirTemp("/tmp", "scenery-api-call-")
+	if err != nil {
+		t.Fatalf("mkdir temp socket dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(socketDir)
+	})
+	socketPath := filepath.Join(socketDir, "api.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+	})
+	go func() {
+		_ = http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/platform.Stats" {
+				t.Errorf("path = %s", r.URL.Path)
+			}
+			if r.Method != http.MethodGet {
+				t.Errorf("method = %s", r.Method)
+			}
+			w.Header().Set("X-Scenery-Trace-Id", "trace-unix")
+			_, _ = io.WriteString(w, `{"ok":true}`)
+		}))
+	}()
+	upsertDashboardAPITestApp(t, server, socketPath)
+
+	result := dispatchDashboardAPICall(t, server, map[string]any{
+		"app_id":   "app-test",
+		"service":  "platform",
+		"endpoint": "Stats",
+		"path":     "/platform.Stats",
+		"method":   "GET",
+	})
+	if result["status_code"] != http.StatusOK {
+		t.Fatalf("status_code = %v", result["status_code"])
+	}
+	if body := string(result["body"].([]byte)); body != `{"ok":true}` {
+		t.Fatalf("body = %q", body)
+	}
+	if result["trace_id"] != "trace-unix" {
+		t.Fatalf("trace_id = %v", result["trace_id"])
+	}
+}
+
+func TestDashboardAPICallRPCDialsTCPAppBackend(t *testing.T) {
+	t.Parallel()
+
+	appServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/service.Context" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("X-Scenery-Trace-Id", "trace-tcp")
+		_, _ = io.WriteString(w, `{"message":"svc"}`)
+	}))
+	defer appServer.Close()
+
+	server := newTestDashboardServer(t)
+	upsertDashboardAPITestApp(t, server, strings.TrimPrefix(appServer.URL, "http://"))
+
+	result := dispatchDashboardAPICall(t, server, map[string]any{
+		"app_id":   "app-test",
+		"service":  "service",
+		"endpoint": "Context",
+		"path":     "/service.Context",
+		"method":   "GET",
+	})
+	if result["status_code"] != http.StatusOK {
+		t.Fatalf("status_code = %v", result["status_code"])
+	}
+	if body := string(result["body"].([]byte)); body != `{"message":"svc"}` {
+		t.Fatalf("body = %q", body)
+	}
+	if result["trace_id"] != "trace-tcp" {
+		t.Fatalf("trace_id = %v", result["trace_id"])
+	}
+}
+
 func TestDashboardLogsListRPCUsesVictoriaLogs(t *testing.T) {
 	t.Parallel()
 
@@ -205,5 +290,61 @@ func TestDashboardLogsListRPCUsesVictoriaLogs(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ID != 42 || items[0].Source.ID != "api" || items[0].Message != "INFO ready" || items[0].Time == "" {
 		t.Fatalf("unexpected log events: %+v", items)
+	}
+}
+
+func upsertDashboardAPITestApp(t *testing.T, server *dashboardServer, listenAddr string) {
+	t.Helper()
+	if err := server.supervisor.store.UpsertApp(context.Background(), devdash.AppRecord{
+		ID:         "app-test",
+		BaseAppID:  "app-test",
+		SessionID:  "session-a",
+		Name:       "app-test",
+		Root:       t.TempDir(),
+		ListenAddr: listenAddr,
+		Running:    true,
+	}); err != nil {
+		t.Fatalf("upsert app: %v", err)
+	}
+}
+
+func dispatchDashboardAPICall(t *testing.T, server *dashboardServer, params map[string]any) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	result, err := server.dispatchRPC(context.Background(), "api-call", raw)
+	if err != nil {
+		t.Fatalf("dispatchRPC api-call: %v", err)
+	}
+	body, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	return body
+}
+
+func TestDashboardLogsListRPCWithoutVictoriaReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	server := newTestDashboardServer(t)
+	raw, err := json.Marshal(map[string]any{
+		"app_id": "app-test",
+		"limit":  10,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	result, err := server.dispatchRPC(context.Background(), "logs/list", raw)
+	if err != nil {
+		t.Fatalf("dispatchRPC: %v", err)
+	}
+	items, ok := result.([]dashboardLogEvent)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no log events, got %+v", items)
 	}
 }

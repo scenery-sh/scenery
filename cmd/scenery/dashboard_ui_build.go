@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const dashboardUIRootRel = "apps/consolenext"
+
 var dashboardUISourcePaths = []string{
 	"package.json",
 	"bun.lock",

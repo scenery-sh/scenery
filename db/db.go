@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -90,23 +91,68 @@ func resolveDatabaseURL(service ...string) (dsn string, source string, err error
 	var svc app.SQLiteServiceConfig
 	if name == "" {
 		services := cfg.SQLiteServices()
+		if svc, ok := cfg.SQLiteService("db"); ok {
+			return databaseURLForService(svc)
+		}
 		if len(services) != 1 {
 			return "", "", fmt.Errorf("scenery db: sqlite service name is required when %d services are configured", len(services))
 		}
-		svc = services[0]
+		return databaseURLForService(services[0])
 	} else {
 		var ok bool
 		svc, ok = cfg.SQLiteService(name)
 		if !ok {
+			if dsn, source := databaseURLForDiscoveredService(name); dsn != "" {
+				return dsn, source, nil
+			}
 			return "", "", fmt.Errorf("scenery db: sqlite service %q is not configured", name)
 		}
 	}
+	return databaseURLForService(svc)
+}
+
+func databaseURLForService(svc app.SQLiteServiceConfig) (dsn string, source string, err error) {
 	for _, envName := range []string{svc.DatabaseURLEnv, "DatabaseURL"} {
 		if dsn := strings.TrimSpace(getEnv(envName)); dsn != "" {
 			return dsn, envName, nil
 		}
 	}
 	return "", "", fmt.Errorf("scenery db: database URL is not configured; set %s or run under `scenery up`", svc.DatabaseURLEnv)
+}
+
+func databaseURLForDiscoveredService(name string) (string, string) {
+	raw := strings.TrimSpace(getEnv("SCENERY_SQLITE_DATABASES_JSON"))
+	if raw == "" {
+		return "", ""
+	}
+	var records []map[string]any
+	if err := json.Unmarshal([]byte(raw), &records); err != nil {
+		return "", ""
+	}
+	for _, record := range records {
+		recordName := strings.TrimSpace(fmt.Sprint(firstNonNil(record["service"], record["name"])))
+		if recordName != name {
+			continue
+		}
+		for _, key := range []string{"url", "database_url", "dsn"} {
+			if value := strings.TrimSpace(fmt.Sprint(record[key])); strings.HasPrefix(value, "sqlite:") {
+				return value, "SCENERY_SQLITE_DATABASES_JSON"
+			}
+		}
+		if value := strings.TrimSpace(fmt.Sprint(record["path"])); strings.HasPrefix(value, "/") {
+			return sqlitedb.URLForPath(value), "SCENERY_SQLITE_DATABASES_JSON"
+		}
+	}
+	return "", ""
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return ""
 }
 
 func discoverAppConfig() (app.Config, error) {
@@ -124,9 +170,6 @@ func discoverAppConfig() (app.Config, error) {
 			return app.Config{}, fmt.Errorf("scenery db: app config not found; set %s or run inside an app root with %s", appRootEnv, app.PrimaryConfigFilename)
 		}
 		return app.Config{}, fmt.Errorf("scenery db: read app config: %w", err)
-	}
-	if len(cfg.SQLiteServices()) == 0 {
-		return app.Config{}, fmt.Errorf("scenery db: no sqlite dev.services are configured")
 	}
 	return cfg, nil
 }

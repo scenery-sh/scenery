@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -29,6 +30,7 @@ import (
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/sqlitedb"
 )
 
 type runningApp struct {
@@ -797,20 +799,17 @@ func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
 }
 
 func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]string, error) {
-	if len(s.cfg.SQLiteServices()) > 0 {
-		env, services, err := managedSQLiteEnv(ctx, s.root, s.cfg, s.currentAgentSession())
-		if err != nil {
-			return nil, err
-		}
-		for _, svc := range services {
-			s.eventSink().Emit(ctx, devdash.DevSource{ID: "sqlite:" + svc.Name, Kind: "substrate", Name: svc.Name, Role: "database", Status: "running"}, "info", "SQLite service database ready", map[string]any{
-				"service": svc.Name,
-				"path":    svc.Path,
-			})
-		}
-		return env, nil
+	env, services, err := managedSQLiteEnv(ctx, s.root, s.cfg, s.currentAgentSession())
+	if err != nil {
+		return nil, err
 	}
-	return nil, nil
+	for _, svc := range services {
+		s.eventSink().Emit(ctx, devdash.DevSource{ID: "sqlite:" + svc.Name, Kind: "substrate", Name: svc.Name, Role: "database", Status: "running"}, "info", "SQLite service database ready", map[string]any{
+			"service": svc.Name,
+			"path":    svc.Path,
+		})
+	}
+	return env, nil
 }
 
 func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string) []string {
@@ -1652,6 +1651,7 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 	}
 	s.mu.RUnlock()
 	applySessionStatusToAppStatus(&status, session)
+	status.Meta = s.metadataWithRuntimeSQLiteDatabases(status.Meta, status.AppRoot, status.SessionID)
 	return status
 }
 
@@ -1753,7 +1753,124 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 		CompileError:  app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, session)
+	status.Meta = s.metadataWithRuntimeSQLiteDatabases(status.Meta, status.AppRoot, status.SessionID)
 	return status, nil
+}
+
+type dashboardSQLiteDatabase struct {
+	Name      string `json:"name"`
+	FileLabel string `json:"file_label,omitempty"`
+	Path      string `json:"path"`
+	URL       string `json:"url,omitempty"`
+	SizeBytes int64  `json:"size_bytes"`
+	Exists    bool   `json:"exists"`
+}
+
+func (s *devSupervisor) metadataWithRuntimeSQLiteDatabases(metadata json.RawMessage, appRoot, sessionID string) json.RawMessage {
+	if s == nil {
+		return metadata
+	}
+	appRoot = strings.TrimSpace(appRoot)
+	if appRoot == "" {
+		return metadata
+	}
+	return metadataWithRuntimeSQLiteDatabases(metadata, appRoot, sessionID, s.cfg, appRoot == s.root)
+}
+
+func metadataWithRuntimeSQLiteDatabases(metadata json.RawMessage, appRoot, sessionID string, cfg app.Config, cfgKnown bool) json.RawMessage {
+	appRoot = strings.TrimSpace(appRoot)
+	if appRoot == "" {
+		return metadata
+	}
+	root := appRoot
+	if !cfgKnown {
+		discoveredRoot, discoveredCfg, err := app.DiscoverRoot(root)
+		if err != nil {
+			return metadata
+		}
+		root = discoveredRoot
+		cfg = discoveredCfg
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	databases := configuredSQLiteDatabases(root, cfg, sessionID)
+	databases = append(databases, discoveredRuntimeSQLiteDatabases(root, sessionID, databases)...)
+	return metadataWithSQLiteDatabases(metadata, databases)
+}
+
+func configuredSQLiteDatabases(root string, cfg app.Config, sessionID string) []dashboardSQLiteDatabase {
+	if len(cfg.SQLiteServices()) == 0 {
+		return nil
+	}
+	req := sqlitedb.ResolveRequest{AppRoot: root, Config: cfg, Mode: sqlitedb.ModeLocal}
+	if sessionID != "" {
+		req.Mode = sqlitedb.ModeSession
+		req.SessionID = sessionID
+	}
+	resolved, err := sqlitedb.ResolveServices(req)
+	if err != nil {
+		return nil
+	}
+	databases := make([]dashboardSQLiteDatabase, 0, len(resolved))
+	for _, svc := range resolved {
+		databases = append(databases, sqliteDatabaseRecord(svc.Name, svc.FileLabel, svc.Path, svc.URL))
+	}
+	return databases
+}
+
+func discoveredRuntimeSQLiteDatabases(root, sessionID string, existing []dashboardSQLiteDatabase) []dashboardSQLiteDatabase {
+	seen := map[string]bool{}
+	for _, db := range existing {
+		seen[db.Path] = true
+	}
+	var databases []dashboardSQLiteDatabase
+	dir := filepath.Join(root, ".scenery", "sqlite", "local")
+	if sessionID != "" {
+		dir = filepath.Join(root, ".scenery", "sessions", sessionID, "sqlite")
+	}
+	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || seen[path] || !sqliteFileName(path) {
+			return nil
+		}
+		seen[path] = true
+		name := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".sqlite"), ".db")
+		databases = append(databases, sqliteDatabaseRecord(name, name, path, sqlitedb.URLForPath(path)))
+		return nil
+	})
+	sort.Slice(databases, func(i, j int) bool { return databases[i].Path < databases[j].Path })
+	return databases
+}
+
+func sqliteFileName(path string) bool {
+	name := strings.ToLower(filepath.Base(path))
+	return strings.HasSuffix(name, ".sqlite") || strings.HasSuffix(name, ".db")
+}
+
+func sqliteDatabaseRecord(name, fileLabel, path, url string) dashboardSQLiteDatabase {
+	db := dashboardSQLiteDatabase{Name: name, FileLabel: fileLabel, Path: path, URL: url}
+	info, err := os.Stat(path)
+	if err == nil && !info.IsDir() {
+		db.SizeBytes = info.Size()
+		db.Exists = true
+	}
+	return db
+}
+
+func metadataWithSQLiteDatabases(metadata json.RawMessage, databases []dashboardSQLiteDatabase) json.RawMessage {
+	if len(databases) == 0 {
+		return metadata
+	}
+	payload := map[string]any{}
+	if len(metadata) > 0 {
+		if err := json.Unmarshal(metadata, &payload); err != nil {
+			return metadata
+		}
+	}
+	payload["sql_databases"] = databases
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return metadata
+	}
+	return data
 }
 
 // statusDashboardRoutesLocked requires s.mu to be held.

@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0092 Symphony Dashboard](0092-symphony-dashboard.md)
+  - Status: active
+  - Owner: scenery dashboard / agent DX
+  - Created: 2026-07-02
+  - Focus: replace the consolenext Observability page with an app-scoped SQLite-backed Symphony board and Scenery-native Codex app-server orchestration surface.
 - [0090 Local Path Routing and Per-Runtime Dev Ports](0090-local-path-routing.md)
   - Status: active
   - Owner: scenery runtime / agent DX
@@ -77,7 +82,7 @@ Current focus:
 
 Current focus:
 
-- Maintain editable source dashboard behavior under `ui/`.
+- Maintain editable source dashboard behavior under `apps/consolenext/`.
 - Keep supported local-only surfaces first: API Explorer, traces, DB explorer, cron, service metadata.
 - Avoid reintroducing cloud, Clerk, deploy, or marketing surfaces.
 

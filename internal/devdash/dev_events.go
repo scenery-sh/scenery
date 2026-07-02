@@ -273,13 +273,13 @@ func normalizeDevLevel(level, stream string) string {
 
 func normalizeExplicitDevLevel(level string) string {
 	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "debug", "trace":
+	case "debug", "dbg", "trace", "trc":
 		return "debug"
-	case "info", "information", "notice":
+	case "info", "inf", "information", "notice":
 		return "info"
-	case "warn", "warning":
+	case "warn", "wrn", "warning":
 		return "warn"
-	case "error", "err":
+	case "error", "err", "eror":
 		return "error"
 	case "fatal", "panic":
 		return "fatal"

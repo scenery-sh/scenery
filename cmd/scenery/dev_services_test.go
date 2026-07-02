@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -53,5 +54,35 @@ func TestManagedSQLiteEnvSkipsAliasForExplicitDatabaseURLEnv(t *testing.T) {
 	}
 	if envValueFromList(env, appDatabaseURLEnv) != "" {
 		t.Fatalf("env should not include DatabaseURL alias: %+v", env)
+	}
+}
+
+func TestManagedSQLiteEnvDiscoversSchemaBackedServiceDatabases(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "tasks", "db"), 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tasks", "db", "schema.sql"), []byte("CREATE TABLE tasks(id TEXT);"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"db": {Kind: "sqlite", DatabaseURLEnv: appDatabaseURLEnv},
+		}},
+	}
+	env, services, err := managedSQLiteEnv(t.Context(), root, cfg, nil)
+	if err != nil {
+		t.Fatalf("managedSQLiteEnv returned error: %v", err)
+	}
+	wantPath := filepath.Join(root, ".scenery", "sqlite", "local", "tasks.sqlite")
+	if envValueFromList(env, "TASKS_DATABASE_URL") != sqlitedb.URLForPath(wantPath) {
+		t.Fatalf("TASKS_DATABASE_URL missing from env: %+v", env)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("tasks database was not created: %v", err)
+	}
+	if len(services) != 2 {
+		t.Fatalf("services = %+v, want db and tasks", services)
 	}
 }

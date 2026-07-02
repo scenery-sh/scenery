@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,14 +32,18 @@ func TestGetUsesSQLiteServiceEnv(t *testing.T) {
 	}
 }
 
-func TestGetRequiresServiceWhenAmbiguous(t *testing.T) {
+func TestGetDefaultsToDBServiceWhenMultipleServicesExist(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}, "billing": {"kind": "sqlite"}`)
+	root := writeAppConfig(t, `"db": {"kind": "sqlite", "database_url_env": "MAIN_DB"}, "billing": {"kind": "sqlite"}`)
 	t.Setenv(appRootEnv, root)
+	path := filepath.Join(root, "main.sqlite")
+	t.Setenv("MAIN_DB", sqlitedb.URLForPath(path))
 
-	_, err := Get(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "sqlite service name is required") {
-		t.Fatalf("Get error = %v", err)
+	if _, err := Get(context.Background()); err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("default db sqlite file was not created: %v", err)
 	}
 }
 
@@ -51,6 +56,29 @@ func TestGetUsesNamedService(t *testing.T) {
 
 	if _, err := Get(context.Background(), "billing"); err != nil {
 		t.Fatalf("Get named service returned error: %v", err)
+	}
+}
+
+func TestGetUsesDiscoveredServiceMetadata(t *testing.T) {
+	resetDBForTest(t)
+	root := writeAppConfig(t, ``)
+	t.Setenv(appRootEnv, root)
+	path := filepath.Join(root, "tasks.sqlite")
+	records := []map[string]string{{
+		"service": "tasks",
+		"path":    path,
+	}}
+	data, err := json.Marshal(records)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	t.Setenv("SCENERY_SQLITE_DATABASES_JSON", string(data))
+
+	if _, err := Get(context.Background(), "tasks"); err != nil {
+		t.Fatalf("Get discovered service returned error: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("discovered service sqlite file was not created: %v", err)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 )
 
@@ -229,5 +230,6 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		CompileError:        app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, nil)
+	status.Meta = metadataWithRuntimeSQLiteDatabases(status.Meta, status.AppRoot, status.SessionID, appcfg.Config{}, false)
 	return status
 }

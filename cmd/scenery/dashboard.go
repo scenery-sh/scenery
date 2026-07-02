@@ -343,7 +343,7 @@ func (s *dashboardServer) indexHTML(appID string) string {
     <main>
       <h1>scenery Dev Dashboard</h1>
       <p>The dashboard server is running for <code>` + appID + `</code>, but the dashboard UI build is not available.</p>
-      <p>Build it from the scenery repo with <code>bun run build</code> inside <code>ui/</code>.</p>
+      <p>Build it from the scenery repo with <code>bun run build</code> inside <code>apps/consolenext/</code>.</p>
       <p>WebSocket endpoint: <code>ws://` + s.addr + devdash.WebSocketPath + `</code></p>
     </main>
   </body>
@@ -617,7 +617,8 @@ func (s *dashboardServer) apiCall(ctx context.Context, params devdash.APICallReq
 	if len(params.Payload) > 0 {
 		body = strings.NewReader(string(params.Payload))
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://"+status.Addr+path, body)
+	client, baseURL := dashboardAppHTTPClient(status.Addr)
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +631,7 @@ func (s *dashboardServer) apiCall(ctx context.Context, params devdash.APICallReq
 	if params.CorrelationID != "" {
 		req.Header.Set("X-Correlation-ID", params.CorrelationID)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -642,6 +643,19 @@ func (s *dashboardServer) apiCall(ctx context.Context, params devdash.APICallReq
 		"body":        bodyBytes,
 		"trace_id":    resp.Header.Get("X-Scenery-Trace-Id"),
 	}, nil
+}
+
+func dashboardAppHTTPClient(addr string) (*http.Client, string) {
+	if host, _, err := net.SplitHostPort(addr); err == nil || strings.Contains(host, ":") {
+		return http.DefaultClient, "http://" + addr
+	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, "unix", addr)
+		},
+	}
+	return &http.Client{Transport: transport}, "http://scenery-app"
 }
 
 func (s *dashboardServer) resolveEndpointRequest(meta json.RawMessage, params devdash.APICallRequest) (path, method string, err error) {

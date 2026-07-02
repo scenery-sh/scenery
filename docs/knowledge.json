@@ -869,6 +869,26 @@
       ]
     },
     {
+      "path": "docs/plans/0092-symphony-dashboard.md",
+      "title": "Symphony Dashboard",
+      "owner": "scenery dashboard / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-02",
+      "review_after": "2026-08-01",
+      "summary": "Active ExecPlan for replacing the consolenext Observability page with an app-scoped SQLite-backed Symphony Kanban board and Scenery-native Codex app-server orchestration surface without Linear or GraphQL.",
+      "tags": [
+        "plans",
+        "execplans",
+        "dashboard",
+        "consolenext",
+        "symphony",
+        "sqlite",
+        "agents"
+      ]
+    },
+    {
       "path": "docs/plans/0078-devdash-app-model-blob-store.md",
       "title": "Devdash App-Model Blob Store",
       "owner": "scenery runtime / agent DX",

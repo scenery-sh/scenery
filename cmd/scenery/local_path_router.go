@@ -23,8 +23,10 @@ import (
 )
 
 const localPathRouterStateVersion = "scenery.local_path_router.v1"
+const localPathRouterStorageAssetCacheKey = "scenery_path=storage_v2"
 
 var localPathRouterHTMLRootRefRE = regexp.MustCompile(`\b(src|href)="(/[^"]*)"`)
+var localPathRouterStorageAssetRefRE = regexp.MustCompile(`\b(src|href)="(/storage/assets/[^"?]+\.(?:js|css))"`)
 
 type localPathRouterState struct {
 	SchemaVersion string    `json:"schema_version"`
@@ -75,6 +77,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 	if err != nil {
 		return nil, err
 	}
+	agentClient, _ := localagent.DefaultClient()
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(lease.Port)))
 	if err != nil {
 		return nil, fmt.Errorf("start local path router on %s: %w", baseURL, err)
@@ -122,6 +125,10 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			rawPath := cleanLocalPathPreserveSlash(req.URL.Path)
 			requestPath := cleanLocalPath(req.URL.Path)
+			currentSession := session
+			refreshCtx, cancel := context.WithTimeout(req.Context(), 200*time.Millisecond)
+			currentSession = localPathRouterCurrentSession(refreshCtx, agentClient, session)
+			cancel()
 			dashboardPrefix := localagent.PathModeDashboardPrefix
 			if requestPath == dashboardPrefix && rawPath == dashboardPrefix {
 				http.Redirect(w, req, dashboardPrefix+"/", http.StatusMovedPermanently)
@@ -137,7 +144,7 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 				dashboardProxy.ServeHTTP(w, req)
 				return
 			}
-			if localPathRouterProxySessionBackend(w, req, session, requestPath, lease.Port, baseURL) {
+			if localPathRouterProxySessionBackend(w, req, currentSession, requestPath, lease.Port, baseURL) {
 				return
 			}
 			proxy.ServeHTTP(w, req)
@@ -192,6 +199,22 @@ func startLocalPathRouter(ctx context.Context, opts localPathRouterOptions) (fun
 		cleanup()
 	}()
 	return cleanup, nil
+}
+
+func localPathRouterCurrentSession(ctx context.Context, client *localagent.Client, fallback localagent.Session) localagent.Session {
+	if client == nil || strings.TrimSpace(fallback.SessionID) == "" {
+		return fallback
+	}
+	sessions, err := client.List(ctx, fallback.AppRoot)
+	if err != nil {
+		return fallback
+	}
+	for _, candidate := range sessions {
+		if candidate.SessionID == fallback.SessionID {
+			return candidate
+		}
+	}
+	return fallback
 }
 
 func localPathRouterDashboardAssetPath(requestPath string) bool {
@@ -256,6 +279,10 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 	if !ok || record.Name == "root" || record.Backend == "" || record.Backend == localagent.RouteDashboard {
 		return false
 	}
+	if localPathRouterIsStorageRoute(record) && localPathRouterStorageRouteRoot(record, requestPath) {
+		http.Redirect(w, req, strings.TrimRight(record.StripPrefix, "/")+"/files", http.StatusFound)
+		return true
+	}
 	backend, ok := session.Backends[record.Backend]
 	if !ok || strings.TrimSpace(backend.Addr) == "" {
 		return false
@@ -264,18 +291,22 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 	director := proxy.Director
 	if strings.TrimSpace(record.Kind) == "frontend" {
 		proxy.ModifyResponse = func(resp *http.Response) error {
-			if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
-				return nil
+			contentType := strings.ToLower(resp.Header.Get("Content-Type"))
+			if strings.Contains(contentType, "text/html") {
+				return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
+					body = localPathRouterRewriteHTMLRootRefs(body, record.StripPrefix)
+					if localPathRouterIsStorageRoute(record) {
+						body = localPathRouterRewriteStorageAssetRefs(body)
+					}
+					return body
+				})
 			}
-			body, err := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			if err != nil {
-				return err
+			if localPathRouterIsStorageRoute(record) && localPathRouterJavaScriptContentType(contentType) {
+				resp.Header.Set("Cache-Control", "no-store")
+				return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
+					return localPathRouterRewriteStorageRootRefs(body, record.StripPrefix)
+				})
 			}
-			body = localPathRouterRewriteHTMLRootRefs(body, record.StripPrefix)
-			resp.Body = io.NopCloser(bytes.NewReader(body))
-			resp.ContentLength = int64(len(body))
-			resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
 			return nil
 		}
 	}
@@ -302,7 +333,41 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 	return true
 }
 
+func localPathRouterRewriteResponseBody(resp *http.Response, rewrite func([]byte) []byte) error {
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return err
+	}
+	body = rewrite(body)
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
+	return nil
+}
+
+func localPathRouterJavaScriptContentType(contentType string) bool {
+	contentType = strings.ToLower(contentType)
+	return strings.Contains(contentType, "javascript") || strings.Contains(contentType, "ecmascript")
+}
+
+func localPathRouterIsStorageRoute(record localagent.RouteRecord) bool {
+	return record.Name == "storage" || record.Backend == "storage"
+}
+
+func localPathRouterStorageRouteRoot(record localagent.RouteRecord, requestPath string) bool {
+	prefix := strings.TrimRight(cleanLocalPath(record.StripPrefix), "/")
+	if prefix == "" || prefix == "/" {
+		return false
+	}
+	requestPath = strings.TrimRight(cleanLocalPath(requestPath), "/")
+	return requestPath == prefix
+}
+
 func localPathRouterShouldStripPrefix(record localagent.RouteRecord) bool {
+	if localPathRouterIsStorageRoute(record) {
+		return true
+	}
 	return strings.TrimSpace(record.Kind) != "frontend"
 }
 
@@ -324,8 +389,32 @@ func localPathRouterRewriteHTMLRootRefs(body []byte, prefix string) []byte {
 	})
 }
 
+func localPathRouterRewriteStorageRootRefs(body []byte, prefix string) []byte {
+	prefix = strings.TrimRight(cleanLocalPath(prefix), "/")
+	if prefix == "" || prefix == "/" {
+		return body
+	}
+	replacements := []string{"/ws/9p", "/files", "/dashboard", "/terminal", "/favicon.svg"}
+	for _, value := range replacements {
+		body = bytes.ReplaceAll(body, []byte(value), []byte(prefix+value))
+	}
+	regexPrefix := strings.TrimLeft(prefix, "/")
+	body = bytes.ReplaceAll(body, []byte(`^\/`+regexPrefix+`/files`), []byte(`^\/`+strings.ReplaceAll(regexPrefix, "/", `\/`)+`\/files`))
+	return body
+}
+
+func localPathRouterRewriteStorageAssetRefs(body []byte) []byte {
+	return localPathRouterStorageAssetRefRE.ReplaceAll(body, []byte(`${1}="${2}?`+localPathRouterStorageAssetCacheKey+`"`))
+}
+
 func localPathRouterRouteForSession(manifest localagent.RouteManifest, requestPath string) (localagent.RouteRecord, bool) {
 	requestPath = cleanLocalPath(requestPath)
+	if requestPath == "/ws/9p" {
+		record, ok := manifest.Routes["storage"]
+		if ok && localPathRouterIsStorageRoute(record) {
+			return record, true
+		}
+	}
 	var best localagent.RouteRecord
 	bestLen := -1
 	for _, record := range manifest.Routes {
