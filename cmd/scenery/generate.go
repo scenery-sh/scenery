@@ -69,10 +69,12 @@ type sqlcSchemaPlan struct {
 	SQLCSchema  string
 	AtlasSource string
 	AtlasDevURL string
+	Engine      string
 }
 
 type databaseArtifactRecord struct {
 	Service string `json:"service"`
+	Engine  string `json:"engine,omitempty"`
 	Kind    string `json:"kind"`
 	Role    string `json:"role"`
 	Path    string `json:"path"`
@@ -485,14 +487,18 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 	}
 	schemaPlans := configuredSQLCSchemaPlans(conf)
 	knownSchemas := map[string]bool{}
+	schemaPlanIndex := map[string]int{}
 	for _, schema := range schemaPlans {
-		knownSchemas[filepath.ToSlash(schema.SQLCSchema)] = true
+		key := filepath.ToSlash(schema.SQLCSchema)
+		knownSchemas[key] = true
+		schemaPlanIndex[key] = len(schemaPlanIndex)
 	}
 	var inputs []string
 	var outputs []string
 	var queries []string
 	inputs = append(inputs, filepath.ToSlash(configRel))
 	for _, block := range sqlcCfg.SQL {
+		engine := normalizeSQLCEngine(block.Engine)
 		for _, query := range block.Queries.Values {
 			query = filepath.ToSlash(query)
 			inputs = append(inputs, query)
@@ -502,13 +508,21 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 			schema = filepath.ToSlash(schema)
 			outputs = append(outputs, schema)
 			if !knownSchemas[schema] {
-				schemaPlans = append(schemaPlans, inferSQLCSchemaPlan(appRoot, conf, schema))
+				plan := inferSQLCSchemaPlan(appRoot, conf, schema)
+				plan.Engine = engine
+				schemaPlans = append(schemaPlans, plan)
 				knownSchemas[schema] = true
+				schemaPlanIndex[schema] = len(schemaPlans) - 1
+			} else if idx, ok := schemaPlanIndex[schema]; ok && schemaPlans[idx].Engine == "" {
+				schemaPlans[idx].Engine = engine
 			}
 		}
 		if block.Gen.Go.Out != "" {
 			outputs = append(outputs, filepath.ToSlash(block.Gen.Go.Out))
 		}
+	}
+	if err := validateSQLCSchemaEngines(cfg, schemaPlans); err != nil {
+		return nil, false, err
 	}
 	for _, schema := range schemaPlans {
 		if schema.AtlasSource != "" {
@@ -541,6 +555,23 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 	var records []databaseArtifactRecord
 	seen := map[string]bool{}
 	keepMissing := map[string]bool{}
+	engineByPath := map[string]string{}
+	engineByService := map[string]string{}
+	if sqlcPlan != nil {
+		for _, schema := range sqlcPlan.Schemas {
+			engine := normalizeSQLCEngine(schema.Engine)
+			service := serviceNameForDBArtifact(schema.SQLCSchema)
+			if service != "" && service != "." && engine != "" {
+				engineByService[service] = engine
+			}
+			if schema.SQLCSchema != "" && engine != "" {
+				engineByPath[filepath.ToSlash(schema.SQLCSchema)] = engine
+			}
+			if schema.AtlasSource != "" && engine != "" {
+				engineByPath[filepath.ToSlash(schema.AtlasSource)] = engine
+			}
+		}
+	}
 	add := func(path, kind, role string) {
 		path = strings.TrimSpace(filepath.ToSlash(path))
 		if path == "" {
@@ -554,6 +585,7 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 		seen[key] = true
 		records = append(records, databaseArtifactRecord{
 			Service: service,
+			Engine:  firstNonEmpty(engineByPath[path], engineByService[service]),
 			Kind:    kind,
 			Role:    role,
 			Path:    path,
@@ -586,6 +618,7 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 			seen[key] = true
 			records = append(records, databaseArtifactRecord{
 				Service: schema.Service,
+				Engine:  "postgres",
 				Kind:    "generated-schema",
 				Role:    "generated-source",
 				Path:    schema.GeneratedPath,
@@ -600,6 +633,7 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 			seen[key] = true
 			records = append(records, databaseArtifactRecord{
 				Service: seed.Service,
+				Engine:  "postgres",
 				Kind:    "seed",
 				Role:    "initial-data",
 				Path:    seed.GeneratedPath,
@@ -714,6 +748,7 @@ type sqlcConfigFile struct {
 }
 
 type sqlcConfigBlock struct {
+	Engine  string         `yaml:"engine"`
 	Schema  yamlStringList `yaml:"schema"`
 	Queries yamlStringList `yaml:"queries"`
 	Gen     struct {
@@ -721,6 +756,39 @@ type sqlcConfigBlock struct {
 			Out string `yaml:"out"`
 		} `yaml:"go"`
 	} `yaml:"gen"`
+}
+
+func validateSQLCSchemaEngines(cfg appcfg.Config, schemas []sqlcSchemaPlan) error {
+	for _, schema := range schemas {
+		service := serviceNameForDBArtifact(schema.SQLCSchema)
+		if service == "." || service == "" {
+			continue
+		}
+		engine := normalizeSQLCEngine(schema.Engine)
+		if _, ok := cfg.PostgresService(service); ok {
+			if engine != "" && engine != "postgres" {
+				return fmt.Errorf("sqlc schema %s belongs to postgres service %s but uses engine %q; set engine: postgresql", schema.SQLCSchema, service, schema.Engine)
+			}
+			continue
+		}
+		if _, ok := cfg.SQLiteService(service); ok {
+			if engine != "" && engine != "sqlite" {
+				return fmt.Errorf("sqlc schema %s belongs to sqlite service %s but uses engine %q; set engine: sqlite", schema.SQLCSchema, service, schema.Engine)
+			}
+		}
+	}
+	return nil
+}
+
+func normalizeSQLCEngine(engine string) string {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "postgres", "postgresql":
+		return "postgres"
+	case "sqlite", "sqlite3":
+		return "sqlite"
+	default:
+		return strings.ToLower(strings.TrimSpace(engine))
+	}
 }
 
 type yamlStringList struct {

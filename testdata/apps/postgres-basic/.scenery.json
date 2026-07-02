@@ -1,0 +1,14 @@
+{
+  "name": "postgres-basic",
+  "id": "postgres-basic",
+  "dev": {
+    "services": {
+      "reports": {
+        "kind": "postgres"
+      },
+      "cache": {
+        "kind": "sqlite"
+      }
+    }
+  }
+}

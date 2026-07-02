@@ -18,6 +18,21 @@
   ],
   "artifacts": [
     {
+      "name": "postgres",
+      "kind": "image",
+      "version": "18",
+      "license": "PostgreSQL",
+      "images": [
+        {
+          "ref": "postgres:18",
+          "digest": "sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20",
+          "optional": false,
+          "usage": "dev.services.postgres",
+          "stability": "beta"
+        }
+      ]
+    },
+    {
       "name": "caddy",
       "kind": "binary",
       "version": "2.11.4",

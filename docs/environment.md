@@ -61,14 +61,15 @@ These are injected by scenery into generated app processes. App code may read th
 
 | Variable | Direction | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | user input | Conventional database URL. Managed SQLite does not inject this into app, setup, DB setup, or worker environments unless the app explicitly configures that env name. |
-| `DatabaseURL` | user input/injected | Default scenery app-style database URL env and managed app database authority when a single managed SQLite service uses that env. Generated model stores and standard auth honor the configured database URL env. |
+| `DATABASE_URL` | user input | Conventional database URL. Managed service databases do not inject this into app, setup, DB setup, or worker environments unless the app explicitly configures that env name. |
+| `DatabaseURL` | user input/injected | Default scenery app-style database URL env and managed app database authority when exactly one SQLite or Postgres service uses that env. Generated model stores and standard auth honor the configured database URL env. |
 | `SCENERY_AUTH_DATABASE_URL` | user input | Fallback DB URL for standard auth when app-specific envs are unset. |
 | `SCENERY_AUTH_JWT_SECRET` | user input | Fallback JWT signing secret for standard auth when `auth.jwt_secret_env` and `JWT_SECRET` are unset. |
 | `SCENERY_AUTH_EMAIL_FROM` | user input | Fallback sender address for standard auth email flows when `auth.email_from_env` and `AUTH_EMAIL_FROM` are unset. |
 | `SCENERY_MANAGED_DATABASE_NAME` | injected | Name of the managed per-session SQLite database. |
 | `SCENERY_MANAGED_DATABASE_URL` | injected | Managed per-session SQLite URL exposed for tooling/debugging. |
 | `SCENERY_SQLITE_DATABASES_JSON` | injected | JSON array describing managed SQLite services, paths, URLs, and configured env names. |
+| `SCENERY_POSTGRES_DATABASES_JSON` | injected | JSON array describing Postgres services, databases, URLs, configured env names, and source (`managed` or `external`). |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
 | `SCENERY_API_BASE_URL` | injected | scenery-prefixed API route exposed to app/frontends. |
 | `SCENERY_API_URL` | injected | Canonical API route URL exposed to app/frontends. |

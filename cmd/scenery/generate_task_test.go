@@ -130,6 +130,58 @@ func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
 	}
 }
 
+func TestSQLCGeneratorRejectsPostgresServiceEngineMismatch(t *testing.T) {
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	cfg := appcfg.Config{
+		Name: "demo",
+		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
+			"auth": {Kind: "postgres"},
+		}},
+	}
+
+	_, _, err := buildSQLCGeneratorPlan(root, cfg)
+	if err == nil || !strings.Contains(err.Error(), "belongs to postgres service auth") || !strings.Contains(err.Error(), "engine: postgresql") {
+		t.Fatalf("buildSQLCGeneratorPlan error = %v", err)
+	}
+}
+
+func TestSQLCGeneratorAcceptsPostgresServiceEngine(t *testing.T) {
+	root := t.TempDir()
+	writeSQLCFixture(t, root)
+	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
+sql:
+  - engine: "postgresql"
+    schema:
+      - "auth/db/gen/schema.sql"
+    queries:
+      - "auth/db/queries.sql"
+    gen:
+      go:
+        out: "auth/db/gen"
+`)
+	cfg := appcfg.Config{
+		Name: "demo",
+		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
+			"auth": {Kind: "postgres"},
+		}},
+	}
+
+	plan, ok, err := buildSQLCGeneratorPlan(root, cfg)
+	if err != nil || !ok {
+		t.Fatalf("buildSQLCGeneratorPlan ok=%v err=%v", ok, err)
+	}
+	if len(plan.Schemas) != 1 || plan.Schemas[0].Engine != "postgres" {
+		t.Fatalf("schemas = %+v", plan.Schemas)
+	}
+	artifacts := buildDatabaseArtifactRecords(root, plan, nil)
+	for _, artifact := range artifacts {
+		if artifact.Service == "auth" && artifact.Engine != "postgres" {
+			t.Fatalf("artifact missing postgres engine: %+v", artifact)
+		}
+	}
+}
+
 func TestInspectGeneratorsDiscoversServiceDBArtifacts(t *testing.T) {
 	t.Parallel()
 
@@ -340,6 +392,43 @@ func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
 	}
 	if len(store.applied) != 0 {
 		t.Fatalf("dry run applied seeds: %+v", store.applied)
+	}
+}
+
+func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
+	root := t.TempDir()
+	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
+`)
+	writeTestAppFile(t, root, "reports/db/seed.sql", `insert into reports.events(id) values ('event-1');
+`)
+	authURL := sqlitedb.URLForPath(filepath.Join(root, "auth.sqlite"))
+	reportsURL := "postgres://user:secret@localhost/reports"
+	cfg := appcfg.Config{
+		Name: "seedapp",
+		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
+			"auth":    {Kind: "sqlite", DatabaseURLEnv: "AUTH_DATABASE_URL"},
+			"reports": {Kind: "postgres", DatabaseURLEnv: "REPORTS_DATABASE_URL"},
+		}},
+	}
+	stores := map[string]*fakeSeedStore{}
+	restore := stubSeedStoresByDSN(t, stores)
+	defer restore()
+
+	result, err := buildDBSeedResultWithEnv(context.Background(), root, cfg, dbSeedOptions{}, []string{
+		"AUTH_DATABASE_URL=" + authURL,
+		"REPORTS_DATABASE_URL=" + reportsURL,
+	}, false)
+	if err != nil {
+		t.Fatalf("buildDBSeedResultWithEnv returned error: %v", err)
+	}
+	if result.Summary.Applied != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	if got := strings.Join(stores[authURL].applied, ","); got != "auth/db/seed.sql" {
+		t.Fatalf("auth store applied %q", got)
+	}
+	if got := strings.Join(stores[reportsURL].applied, ","); got != "reports/db/seed.sql" {
+		t.Fatalf("reports store applied %q", got)
 	}
 }
 
@@ -881,6 +970,22 @@ func stubSeedStore(t *testing.T, store *fakeSeedStore) func() {
 	t.Helper()
 	oldOpen := openDatabaseSeedStore
 	openDatabaseSeedStore = func(context.Context, string) (databaseSeedStore, error) {
+		return store, nil
+	}
+	return func() {
+		openDatabaseSeedStore = oldOpen
+	}
+}
+
+func stubSeedStoresByDSN(t *testing.T, stores map[string]*fakeSeedStore) func() {
+	t.Helper()
+	oldOpen := openDatabaseSeedStore
+	openDatabaseSeedStore = func(_ context.Context, dsn string) (databaseSeedStore, error) {
+		store := stores[dsn]
+		if store == nil {
+			store = newFakeSeedStore()
+			stores[dsn] = store
+		}
 		return store, nil
 	}
 	return func() {

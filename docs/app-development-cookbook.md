@@ -430,9 +430,9 @@ go test ./cron ./internal/parse ./internal/codegen
 
 Common failure: relying on wall-clock behavior in unit tests. Keep cron tests deterministic.
 
-## SQLite DB Helper
+## Database Helper
 
-For the default app database, prefer `scenery.sh/db` so services share one `*sql.DB` selected by the managed SQLite service's `database_url_env`:
+For the default app database, prefer `scenery.sh/db` so services share one `*sql.DB` selected by the configured service's `database_url_env`:
 
 ```go
 package api
@@ -459,7 +459,21 @@ func initService(ctx context.Context) (*Service, error) {
 }
 ```
 
-`scenery.sh/db` is intentionally scoped to the configured default managed SQLite database.
+`scenery.sh/db` is intentionally scoped to configured Scenery service databases. It opens SQLite service URLs with the SQLite driver and Postgres service URLs with the pgx database/sql driver; pass an explicit service name when the app has more than one database service.
+
+For a Postgres service on the shared dev server:
+
+```json
+{
+  "dev": {
+    "services": {
+      "reports": { "kind": "postgres" }
+    }
+  }
+}
+```
+
+During `scenery up`, Scenery creates a per-worktree database on the shared local Postgres server and injects `REPORTS_DATABASE_URL`. For production, headless `scenery serve`, headless `scenery worker`, or bring-your-own local Postgres, set that same env var to a `postgres://` or `postgresql://` URL; explicit DSNs always win and Scenery does not manage the server in that mode.
 
 Validate:
 
@@ -605,6 +619,7 @@ scenery db seed
 scenery db setup
 scenery db list --json
 scenery db shell
+scenery db server status --json
 scenery db branch status --json
 scenery db branch checkout feature/my-branch --json
 scenery db branch list --json
@@ -613,9 +628,9 @@ scenery db branch prune --older-than 336h --json
 scenery worktree create feature-my-branch --from main --json
 ```
 
-`scenery db apply` mutates schema or app-owned database setup only. It does not run SQLC generation or seed files. `scenery db seed` applies initial data such as `SERVICE/db/seed.sql` only, records successful runs in a small internal ledger, skips unchanged seeds, and fails closed if a previously-applied seed changes or if seed SQL contains destructive setup patterns such as `DROP`, `TRUNCATE`, or broad `DELETE`. `scenery db setup` runs apply, then seed.
+`scenery db apply` mutates schema or app-owned database setup only. It does not run SQLC generation or seed files. `scenery db seed` applies initial data such as `SERVICE/db/seed.sql` to the matching service database, records successful runs in a small internal ledger, skips unchanged seeds, and fails closed if a previously-applied seed changes or if seed SQL contains destructive setup patterns such as `DROP`, `TRUNCATE`, or broad `DELETE`. `scenery db setup` runs apply, then seed.
 
-During `scenery up`, the supervisor runs this DB setup lifecycle before starting the app when `database.apply` or seed files are present. It reuses the runtime-managed `DatabaseURL` env and skips setup on ordinary rebuilds until the `database.apply` config or seed file hashes change.
+During `scenery up`, the supervisor runs this DB setup lifecycle before starting the app when `database.apply` or seed files are present. It reuses the runtime-managed service database env values and skips setup on ordinary rebuilds until the `database.apply` config or seed file hashes change.
 
 `SERVICE/db/seed.sql` is data, not Atlas schema input and not SQLC input. The first seed implementation fails closed when a previously-applied seed changes or destructive seed SQL is detected, rather than offering force or reseed escape hatches.
 

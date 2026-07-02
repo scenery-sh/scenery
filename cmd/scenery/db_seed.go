@@ -74,6 +74,13 @@ type databaseSeedStore interface {
 }
 
 var openDatabaseSeedStore = func(ctx context.Context, databaseURL string) (databaseSeedStore, error) {
+	if strings.HasPrefix(strings.TrimSpace(databaseURL), "postgres:") || strings.HasPrefix(strings.TrimSpace(databaseURL), "postgresql:") {
+		db, err := openPostgresDatabase(ctx, databaseURL)
+		if err != nil {
+			return nil, err
+		}
+		return &postgresDatabaseSeedStore{db: db}, nil
+	}
 	path, err := sqlitedb.ParseURL(databaseURL)
 	if err != nil {
 		return nil, err
@@ -188,19 +195,40 @@ func buildDBSeedResultWithEnv(ctx context.Context, appRoot string, cfg appcfg.Co
 		}
 		return result, errors.Join(errs...)
 	}
-	dsn, err := resolveDatabaseURLForConfig(ctx, appRoot, cfg, baseEnv, useManaged)
-	if err != nil {
-		return result, err
+	env := baseEnv
+	if useManaged {
+		env, err = managedDatabaseLifecycleEnv(ctx, appRoot, cfg, baseEnv)
+		if err != nil {
+			return result, err
+		}
 	}
-	store, err := openDatabaseSeedStore(ctx, dsn)
-	if err != nil {
-		return result, err
-	}
+	stores := map[string]databaseSeedStore{}
+	ledgerReady := map[string]bool{}
 	defer func() {
-		_ = store.Close(context.Background())
+		for _, store := range stores {
+			_ = store.Close(context.Background())
+		}
 	}()
-	if err := store.EnsureLedger(ctx); err != nil {
-		return result, err
+	seedStoreForPlan := func(plan dbSeedPlan) (databaseSeedStore, error) {
+		dsn, err := resolveDatabaseURLForServiceFromEnv(cfg, env, plan.Service)
+		if err != nil {
+			return nil, err
+		}
+		store := stores[dsn]
+		if store == nil {
+			store, err = openDatabaseSeedStore(ctx, dsn)
+			if err != nil {
+				return nil, err
+			}
+			stores[dsn] = store
+		}
+		if !ledgerReady[dsn] {
+			if err := store.EnsureLedger(ctx); err != nil {
+				return nil, err
+			}
+			ledgerReady[dsn] = true
+		}
+		return store, nil
 	}
 	var errs []error
 	appID := cfg.AppID()
@@ -209,6 +237,14 @@ func buildDBSeedResultWithEnv(ctx context.Context, appRoot string, cfg appcfg.Co
 			Service: plan.Service,
 			Path:    plan.Path,
 			SHA256:  plan.SHA256,
+		}
+		store, err := seedStoreForPlan(plan)
+		if err != nil {
+			record.Status = "failed"
+			record.Error = err.Error()
+			result.addSeedRecord(record)
+			errs = append(errs, fmt.Errorf("resolve seed %s: %w", plan.Path, err))
+			continue
 		}
 		prior, ok, err := store.LookupSeed(ctx, appID, plan.Path)
 		if err != nil {
@@ -633,6 +669,61 @@ func (s *sqliteDatabaseSeedStore) ApplySeed(ctx context.Context, appID, path, ha
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `insert into scenery_internal_seed_runs (app_id, path, sha256) values (?, ?, ?)`, appID, path, hash); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+type postgresDatabaseSeedStore struct {
+	db *sql.DB
+}
+
+func (s *postgresDatabaseSeedStore) Close(context.Context) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
+func (s *postgresDatabaseSeedStore) EnsureLedger(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+create schema if not exists scenery_internal;
+create table if not exists scenery_internal.seed_runs (
+  app_id text not null,
+  path text not null,
+  sha256 text not null,
+  applied_at timestamptz not null default now(),
+  primary key (app_id, path)
+)`)
+	return err
+}
+
+func (s *postgresDatabaseSeedStore) LookupSeed(ctx context.Context, appID, path string) (string, bool, error) {
+	var hash string
+	err := s.db.QueryRowContext(ctx, `select sha256 from scenery_internal.seed_runs where app_id = $1 and path = $2`, appID, path).Scan(&hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return hash, true, nil
+}
+
+func (s *postgresDatabaseSeedStore) ApplySeed(ctx context.Context, appID, path, hash, script string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	if strings.TrimSpace(script) != "" {
+		if _, err := tx.ExecContext(ctx, script); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `insert into scenery_internal.seed_runs (app_id, path, sha256) values ($1, $2, $3)`, appID, path, hash); err != nil {
 		return err
 	}
 	return tx.Commit()

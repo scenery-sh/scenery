@@ -3,9 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/sqlitedb"
 )
 
@@ -54,6 +56,69 @@ func TestManagedSQLiteEnvSkipsAliasForExplicitDatabaseURLEnv(t *testing.T) {
 	}
 	if envValueFromList(env, appDatabaseURLEnv) != "" {
 		t.Fatalf("env should not include DatabaseURL alias: %+v", env)
+	}
+}
+
+func TestManagedSQLiteEnvSkipsAliasWhenPostgresServiceExists(t *testing.T) {
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"cache":   {Kind: "sqlite"},
+			"reports": {Kind: "postgres"},
+		}},
+	}
+	env, _, err := managedSQLiteEnv(t.Context(), root, cfg, nil)
+	if err != nil {
+		t.Fatalf("managedSQLiteEnv returned error: %v", err)
+	}
+	if envValueFromList(env, appDatabaseURLEnv) != "" {
+		t.Fatalf("env should not include DatabaseURL alias for mixed engines: %+v", env)
+	}
+}
+
+func TestManagedPostgresEnvUsesExternalDSNAndAlias(t *testing.T) {
+	root := t.TempDir()
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"reports": {Kind: "postgres"},
+		}},
+	}
+	dsn := "postgres://user:secret@localhost/reports"
+	env, services, err := managedPostgresEnv(t.Context(), root, cfg, nil, []string{"REPORTS_DATABASE_URL=" + dsn})
+	if err != nil {
+		t.Fatalf("managedPostgresEnv returned error: %v", err)
+	}
+	for _, want := range []string{
+		"REPORTS_DATABASE_URL=" + dsn,
+		appDatabaseURLEnv + "=" + dsn,
+	} {
+		if !containsString(env, want) {
+			t.Fatalf("env missing %q: %+v", want, env)
+		}
+	}
+	if registry := envValueFromList(env, postgresdb.RegistryEnv); !strings.Contains(registry, `"source":"external"`) {
+		t.Fatalf("registry = %q", registry)
+	}
+	if len(services) != 1 || services[0].Source != postgresdb.SourceExternal || services[0].URL != dsn {
+		t.Fatalf("services = %+v", services)
+	}
+}
+
+func TestValidateHeadlessPostgresEnvRequiresExplicitDSN(t *testing.T) {
+	cfg := app.Config{
+		Name: "demo",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"reports": {Kind: "postgres"},
+		}},
+	}
+	err := validateHeadlessPostgresEnv(cfg, nil)
+	if err == nil || !strings.Contains(err.Error(), "REPORTS_DATABASE_URL") || !strings.Contains(err.Error(), "scenery up") {
+		t.Fatalf("validateHeadlessPostgresEnv error = %v", err)
+	}
+	if err := validateHeadlessPostgresEnv(cfg, []string{"REPORTS_DATABASE_URL=postgres://user:secret@localhost/reports"}); err != nil {
+		t.Fatalf("validateHeadlessPostgresEnv rejected explicit DSN: %v", err)
 	}
 }
 

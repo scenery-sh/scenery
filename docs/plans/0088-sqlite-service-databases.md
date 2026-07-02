@@ -53,15 +53,16 @@ This change should preserve Scenery's agent-friendly guarantees: database state 
 
 * [x] 2026-06-27 - Initial ExecPlan drafted from current code survey.
 * [x] 2026-06-27 - Added this plan as `docs/plans/0088-sqlite-service-databases.md`, linked it from `docs/plans/active.md`, and indexed it in `docs/knowledge.json`.
-* [ ] 2026-06-27 - Re-run repository inventory for Postgres references before editing.
-* [ ] 2026-06-27 - Implement SQLite service discovery and config schema changes.
-* [ ] 2026-06-27 - Implement SQLite file resolver, connection helper, and env injection.
-* [ ] 2026-06-27 - Rewrite database CLI commands around SQLite.
-* [ ] 2026-06-27 - Rewrite database branch lifecycle around SQLite files.
-* [ ] 2026-06-27 - Port standard auth from pgx/Postgres to SQLite.
-* [ ] 2026-06-27 - Remove managed Postgres substrate, Postgres dependencies, Postgres toolchain image, and Postgres test helper.
-* [ ] 2026-06-27 - Update docs, schemas, harness expectations, and knowledge indexes.
-* [ ] 2026-06-27 - Run validation and record exact outcomes.
+* [x] 2026-06-27 - Re-run repository inventory for Postgres references before editing.
+* [x] 2026-06-27 - Implement SQLite service discovery and config schema changes.
+* [x] 2026-06-27 - Implement SQLite file resolver, connection helper, and env injection.
+* [x] 2026-06-27 - Rewrite database CLI commands around SQLite.
+* [x] 2026-06-27 - Rewrite database branch lifecycle around SQLite files.
+* [x] 2026-06-27 - Port standard auth from pgx/Postgres to SQLite.
+* [x] 2026-06-27 - Remove managed Postgres substrate, Postgres dependencies, Postgres toolchain image, and Postgres test helper.
+* [x] 2026-06-27 - Update docs, schemas, harness expectations, and knowledge indexes.
+* [x] 2026-06-27 - Run validation and record exact outcomes.
+* [x] 2026-07-02 - Closed stale plan bookkeeping while implementing plan 0093; confirmed 0088's old-substrate removal remains the shipped baseline and moved it out of active planning.
 
 Update this section at every meaningful stopping point. Every update must include the date, what changed, and whether validation was run.
 
@@ -91,26 +92,19 @@ When implementation chooses exact driver, CLI grammar, schema shape, or auth sto
 
 ## Outcomes & Retrospective
 
-Not yet completed.
-
-When complete, update this section with:
-
-```text
 Outcome:
-- What changed for app authors.
-- What changed for agents.
-- Which Postgres surfaces were removed.
-- Which compatibility paths, if any, intentionally remain.
+- App authors received SQLite as the default managed local database model, with one file-backed database per configured service.
+- Agents received service-oriented database inspection, shell, reset/drop, snapshot, branch, and setup surfaces that no longer required a built-in Postgres substrate.
+- The old managed Postgres substrate, Postgres auth/pgx coupling, per-app Docker lifecycle, Postgres branch provider, and `scenery db postgres` mental model were removed.
+- No compatibility aliases for removed Postgres commands were intentionally kept.
 
 Validation:
-- Exact commands run.
-- Exact pass/fail result.
-- Any skipped commands and why.
+- The implementation landed in commit `2c23508d` ("Replace Postgres service databases with SQLite") before this bookkeeping closure.
+- Plan 0093 later reintroduced Postgres support through a different architecture: opt-in service databases with external-DSN precedence and a shared dev server.
 
 Follow-up:
-- Known limitations.
-- Follow-up plan or issue numbers.
-```
+- Current database behavior is documented in `docs/local-contract.md`.
+- Plan 0093 is the follow-up for first-class Postgres service databases without reviving the old built-in substrate.
 
 ## Context and Orientation
 

@@ -132,8 +132,14 @@ func (c Config) StorageCellID() string {
 
 func (c Config) DatabaseURLEnv() string {
 	services := c.SQLiteServices()
-	if len(services) == 1 {
+	postgresServices := c.PostgresServices()
+	if len(services)+len(postgresServices) == 1 && len(services) == 1 {
 		if envName := strings.TrimSpace(services[0].DatabaseURLEnv); envName != "" {
+			return envName
+		}
+	}
+	if len(services)+len(postgresServices) == 1 && len(postgresServices) == 1 {
+		if envName := strings.TrimSpace(postgresServices[0].DatabaseURLEnv); envName != "" {
 			return envName
 		}
 	}
@@ -183,6 +189,49 @@ type SQLiteServiceConfig struct {
 	DatabaseURLEnv  string
 	DatabasePathEnv string
 	Raw             DevServiceConfig
+}
+
+func (c Config) PostgresServices() []PostgresServiceConfig {
+	out := make([]PostgresServiceConfig, 0, len(c.Dev.Services))
+	for name, svc := range c.Dev.Services {
+		if devServiceKind(name, svc) != "postgres" {
+			continue
+		}
+		label := strings.TrimSpace(svc.Database)
+		if label == "" {
+			label = name
+		}
+		envName := strings.TrimSpace(svc.DatabaseURLEnv)
+		if envName == "" {
+			envName = upperSnake(name) + "_DATABASE_URL"
+		}
+		out = append(out, PostgresServiceConfig{
+			Name:           name,
+			DatabaseLabel:  label,
+			DatabaseURLEnv: envName,
+			Raw:            svc,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func (c Config) PostgresService(name string) (PostgresServiceConfig, bool) {
+	for _, svc := range c.PostgresServices() {
+		if svc.Name == name {
+			return svc, true
+		}
+	}
+	return PostgresServiceConfig{}, false
+}
+
+type PostgresServiceConfig struct {
+	Name           string
+	DatabaseLabel  string
+	DatabaseURLEnv string
+	Raw            DevServiceConfig
 }
 
 func upperSnake(value string) string {
@@ -491,14 +540,11 @@ func (c Config) validateWatch() error {
 }
 
 func (c Config) validateDevServices() error {
-	removedDatabaseKind := "post" + "gres"
 	removedSyncKind := "elec" + "tric"
 	for name, svc := range c.Dev.Services {
-		kind := strings.TrimSpace(svc.Kind)
+		kind := devServiceKind(name, svc)
 		if kind == "" {
 			switch name {
-			case removedDatabaseKind:
-				kind = name
 			case removedSyncKind:
 				return errors.New("the removed legacy sync service declaration must be deleted")
 			}
@@ -507,11 +553,12 @@ func (c Config) validateDevServices() error {
 			return fmt.Errorf("dev.services.%s uses a removed legacy sync service kind; delete this service declaration", name)
 		}
 		switch kind {
-		case "", "sqlite":
+		case "", "sqlite", "postgres":
 		default:
 			return fmt.Errorf("dev.services.%s kind %q is not supported", name, kind)
 		}
-		if kind == "sqlite" {
+		switch kind {
+		case "sqlite", "postgres":
 			if !isStorageIdentifier(name) {
 				return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
 			}
@@ -519,8 +566,62 @@ func (c Config) validateDevServices() error {
 				return fmt.Errorf("dev.services.%s.database %q is invalid", name, label)
 			}
 		}
+		if kind == "postgres" {
+			for _, field := range postgresLegacyDevServiceFields(svc) {
+				return fmt.Errorf("dev.services.%s.%s is not supported for postgres services; plan 0093 supports only kind, database_url_env, database, and env", name, field)
+			}
+		}
 	}
 	return nil
+}
+
+func devServiceKind(name string, svc DevServiceConfig) string {
+	kind := strings.TrimSpace(svc.Kind)
+	if kind == "" && name == "postgres" {
+		return "postgres"
+	}
+	return kind
+}
+
+func postgresLegacyDevServiceFields(svc DevServiceConfig) []string {
+	var fields []string
+	if strings.TrimSpace(svc.Mode) != "" {
+		fields = append(fields, "mode")
+	}
+	if strings.TrimSpace(svc.Version) != "" {
+		fields = append(fields, "version")
+	}
+	if strings.TrimSpace(svc.Isolation) != "" {
+		fields = append(fields, "isolation")
+	}
+	if strings.TrimSpace(svc.Project) != "" {
+		fields = append(fields, "project")
+	}
+	if strings.TrimSpace(svc.ParentBranch) != "" {
+		fields = append(fields, "parent_branch")
+	}
+	if strings.TrimSpace(svc.ParentDatabase) != "" {
+		fields = append(fields, "parent_database")
+	}
+	if strings.TrimSpace(svc.BranchPolicy) != "" {
+		fields = append(fields, "branch_policy")
+	}
+	if strings.TrimSpace(svc.BranchNameTemplate) != "" {
+		fields = append(fields, "branch_name_template")
+	}
+	if strings.TrimSpace(svc.TTL) != "" {
+		fields = append(fields, "ttl")
+	}
+	if strings.TrimSpace(svc.Role) != "" {
+		fields = append(fields, "role")
+	}
+	if strings.TrimSpace(svc.Image) != "" {
+		fields = append(fields, "image")
+	}
+	if strings.TrimSpace(svc.Route) != "" {
+		fields = append(fields, "route")
+	}
+	return fields
 }
 
 func (c Config) validateStorage() error {

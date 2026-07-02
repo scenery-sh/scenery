@@ -111,6 +111,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 			goTestStep,
 			runHarnessParallelDevStep(ctx, repoRoot),
 			runHarnessSQLiteBranchStep(ctx, repoRoot),
+			runHarnessPostgresProbeStep(ctx, repoRoot),
 		)
 		dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
 		resp.Steps = append(resp.Steps,

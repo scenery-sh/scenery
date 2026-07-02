@@ -143,6 +143,7 @@ type doctorAppFeatures struct {
 	DockerRelevant       bool
 	DatabaseApplyCommand bool
 	StorageConfigured    bool
+	PostgresServices     bool
 }
 
 func doctorCommand(args []string) error {
@@ -328,6 +329,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 	features := doctorFeatures(cfg, resp.App)
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
 	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
+	resp.Checks = append(resp.Checks, doctorPostgresServerCheck(ctx, deps, features))
 
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
 	resp.OK = resp.Summary.Errors == 0
@@ -623,6 +625,7 @@ func doctorFeatures(cfg appcfg.Config, app *doctorAppInfo) doctorAppFeatures {
 	features.AtlasRelevant = sqlcUsesAtlas(cfg.Generators.SQLC)
 	features.DatabaseApplyCommand = strings.TrimSpace(cfg.Database.Apply.Command) != ""
 	features.StorageConfigured = len(cfg.Storage.Stores) > 0
+	features.PostgresServices = len(cfg.PostgresServices()) > 0
 	features.DockerRelevant = appUsesDocker(cfg)
 	features.TypeScriptTasks = appHasTypeScriptTasks(app.Root)
 	return features
@@ -651,6 +654,9 @@ func appUsesDocker(cfg appcfg.Config) bool {
 		}
 	}
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Generators.SQLC.DevURL)), "docker://") {
+		return true
+	}
+	if len(cfg.PostgresServices()) > 0 {
 		return true
 	}
 	for _, schema := range cfg.Generators.SQLC.Schemas {
@@ -732,6 +738,24 @@ func doctorDependencyChecks(ctx context.Context, deps doctorProbeDeps, features 
 			Relevant:        appFound && features.SQLCConfigured,
 			MissingMessage:  "sqlc not found; configured SQLC generation requires it",
 			SuggestedAction: "Install sqlc if you need `scenery generate sqlc`.",
+		},
+		{
+			ID:              "tool.psql",
+			Name:            "psql",
+			Command:         "psql",
+			VersionArgs:     []string{"--version"},
+			Relevant:        appFound && features.PostgresServices,
+			MissingMessage:  "psql not found; postgres services need it for `scenery db shell`",
+			SuggestedAction: "Install PostgreSQL client tools if you need postgres shell access.",
+		},
+		{
+			ID:              "tool.pg_dump",
+			Name:            "pg_dump",
+			Command:         "pg_dump",
+			VersionArgs:     []string{"--version"},
+			Relevant:        appFound && features.PostgresServices,
+			MissingMessage:  "pg_dump not found; postgres services need it for `scenery db snapshot create`",
+			SuggestedAction: "Install PostgreSQL client tools if you need postgres snapshots.",
 		},
 		{
 			ID:              "tool.git",
@@ -950,6 +974,44 @@ func doctorDockerEngineCheck(ctx context.Context, deps doctorProbeDeps, path str
 	}
 	if version, _ := check.Observed["server_version"].(string); version != "" {
 		check.Message = "Docker Engine " + version + " is reachable"
+	}
+	return check
+}
+
+func doctorPostgresServerCheck(ctx context.Context, deps doctorProbeDeps, features doctorAppFeatures) doctorCheck {
+	check := doctorCheck{
+		ID:       "db.postgres_server",
+		Category: "database",
+		Name:     "Managed Postgres dev server",
+		Status:   doctorStatusSkipped,
+		Severity: doctorSeverityInformational,
+		Message:  "no postgres dev.services are configured",
+	}
+	if !features.PostgresServices {
+		return check
+	}
+	check.Status = doctorStatusOK
+	check.Severity = doctorSeverityRequired
+	check.Message = "Docker is reachable for managed postgres dev services"
+	path, err := deps.LookPath("docker")
+	if err != nil {
+		check.Status = doctorStatusError
+		check.Message = "Docker CLI was not found; managed postgres dev services cannot start"
+		check.SuggestedAction = "Install Docker or set each postgres service database_url_env to an external postgres URL."
+		check.Observed = map[string]any{"command": "docker"}
+		return check
+	}
+	check.Observed = map[string]any{"command": "docker", "path": path}
+	cmdCtx, cancel := context.WithTimeout(ctx, doctorCommandTimeout)
+	out, infoErr := deps.RunCommand(cmdCtx, path, "info", "--format", "{{json .}}")
+	cancel()
+	if infoErr != nil {
+		check.Status = doctorStatusError
+		check.Message = "Docker engine is not reachable; managed postgres dev services cannot start"
+		check.SuggestedAction = "Start Docker Desktop or set each postgres service database_url_env to an external postgres URL."
+		if output := strings.TrimSpace(string(out)); output != "" {
+			check.Observed["error_output"] = output
+		}
 	}
 	return check
 }
