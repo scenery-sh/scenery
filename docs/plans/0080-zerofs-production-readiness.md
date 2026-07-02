@@ -1,6 +1,6 @@
 # ZeroFS Production Readiness
 
-> **Superseded by [plan 0091](0091-local-storage-and-zerofs-removal.md) (2026-07-02).** ZeroFS was removed from Scenery entirely; the local filesystem backend is now the production-supported storage kind. This plan is retained as history — the current storage contract lives in [docs/local-contract.md](../local-contract.md).
+> **Superseded by [plan 0091](0094-local-storage-and-zerofs-removal.md) (2026-07-02).** ZeroFS was removed from Scenery entirely; the local filesystem backend is now the production-supported storage kind. This plan is retained as history — the current storage contract lives in [docs/local-contract.md](../local-contract.md).
 
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
