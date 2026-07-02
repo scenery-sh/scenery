@@ -7,7 +7,7 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0091 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0091-local-storage-and-zerofs-removal.md)
+- [0094 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0094-local-storage-and-zerofs-removal.md)
   - Status: active
   - Owner: scenery runtime / storage
   - Created: 2026-07-02

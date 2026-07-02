@@ -652,7 +652,7 @@ func (c Config) validateStorage() error {
 		switch kind {
 		case "", "local":
 		default:
-			return fmt.Errorf("storage.stores.%s.kind %q is not supported; use %q (ZeroFS was removed in plan 0091)", name, kind, "local")
+			return fmt.Errorf("storage.stores.%s.kind %q is not supported; use %q (ZeroFS was removed in plan 0094)", name, kind, "local")
 		}
 		access := strings.TrimSpace(store.Access)
 		switch access {

@@ -153,7 +153,7 @@ internal/app/root.go            (DevServiceConfig, validateDevServices ~line 493
 internal/sqlitedb/sqlitedb.go   (the shape internal/postgresdb should rhyme with)
 db/db.go                        (current SQLite-only resolution)
 cmd/scenery/dev_services.go     (managedSQLiteEnv, shortIdentityHash, verifySubstrateOwner)
-cmd/scenery/dev_supervisor.go   (supervisor phases; storage-cell precedent from plan 0091)
+cmd/scenery/dev_supervisor.go   (supervisor phases; storage-cell precedent from plan 0094)
 cmd/scenery/db_cli.go           (db command routing, scenery.db.sqlite.list.v1)
 cmd/scenery/db_seed.go          (seed_runs ledger)
 cmd/scenery/doctor.go           (docker.context / docker.engine, optional-tool checks)
@@ -199,7 +199,7 @@ Each milestone leaves `go test ./...` green.
 
 6. **Milestone 5 — `scenery.sh/db` engine dispatch.** In `db/db.go`: resolution first checks configured postgres services (config + `SCENERY_POSTGRES_DATABASES_JSON` fallback, mirroring the SQLite discovery path), then sqlite. Dispatch on the resolved URL scheme: `sqlite:` → `sqlitedb.Open`; `postgres:`/`postgresql:` → `postgresdb.Open`. Pool cache stays keyed by DSN. Errors name the service, engine, and the env var to set. `db.Get(ctx)` with no name works when exactly one database service exists across both engines.
 
-7. **Milestone 6 — Headless contract.** `scenery serve`/`worker` with a declared postgres service and no `<SERVICE>_DATABASE_URL` in the environment fails closed at startup with: the service name, the env var to set, and a pointer that the managed server is a `scenery up` dev substrate only. This parallels the plan-0091 storage fail-closed posture. Document in `docs/local-contract.md`.
+7. **Milestone 6 — Headless contract.** `scenery serve`/`worker` with a declared postgres service and no `<SERVICE>_DATABASE_URL` in the environment fails closed at startup with: the service name, the env var to set, and a pointer that the managed server is a `scenery up` dev substrate only. This parallels the plan-0094 storage fail-closed posture. Document in `docs/local-contract.md`.
 
 8. **Milestone 7 — DB CLI.** In `db_cli.go` and `db_seed.go`:
    * `db list`: include postgres services; new schema `scenery.db.list.v2` with `engine` per entry (`sqlite` entries keep their fields; postgres entries carry `database`, redacted `url`, `source`). Keep emitting `scenery.db.sqlite.list.v1` semantics for sqlite-only apps is NOT required — migrate the schema version once, update `docs/schemas/`, tests, and any harness expectations together.
@@ -222,7 +222,7 @@ Work bottom-up so each commit compiles and no milestone depends on Docker to tes
 
 Milestones 1–2 are pure Go with unit tests (config + resolver). Milestone 3 introduces the only process-management code; keep every Docker interaction behind a small interface (`postgresServerRunner` with a real docker-CLI implementation and a test fake) so supervisor and CLI logic is unit-testable without Docker — the same pattern the ZeroFS supervisor used before its removal, minus the evidence machinery. Milestone 4 wires injection into the dev supervisor and is testable with the fake. Milestones 5–7 are engine dispatch and CLI, testable against config + env fixtures (plus live checks in the harness probe). Milestone 8 touches only generator plumbing. Milestones 9–10 close with proof and docs.
 
-Coordination with in-flight work: plan 0091 is actively rewriting `dev_supervisor.go`/`dev_services.go` (ZeroFS removal). Land this plan's supervisor changes **after** 0091's Milestone 2 merges, or rebase deliberately — both plans touch the same supervisor phase list.
+Coordination with in-flight work: plan 0094 is actively rewriting `dev_supervisor.go`/`dev_services.go` (ZeroFS removal). Land this plan's supervisor changes **after** 0091's Milestone 2 merges, or rebase deliberately — both plans touch the same supervisor phase list.
 
 Interplay with plan 0088: 0088's outcome ("Scenery does not ship a built-in Postgres substrate coupled to auth/branching/Electric") remains true. What returns here is narrower: an opt-in service kind, an isolated shared dev server, and DSN passthrough. Auth, durable execution, and branching stay SQLite-native.
 

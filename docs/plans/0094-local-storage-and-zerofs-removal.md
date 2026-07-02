@@ -95,7 +95,7 @@ Key files:
 * `go.mod` — `github.com/hugelgupf/p9 v0.4.1` becomes removable.
 * Docs: `README.md`, `SKILL.md`, `DSL.md`, `docs/local-contract.md`, `docs/agent-guide.md`, `docs/app-development-cookbook.md`, `docs/environment.md`, `docs/environment.registry.json`, `docs/index.md`, `docs/knowledge.json`, `docs/zerofs-legal.md`, `docs/schemas/scenery.config.v1.schema.json`, `docs/schemas/scenery.storage.inspect.v1.schema.json`.
 * Fixture: `testdata/apps/storage-basic/.scenery.json` declares `kind: "zerofs"`.
-* Historical plans 0048, 0059, 0078, 0080, 0081, 0087, 0088 mention ZeroFS. Per root `AGENTS.md`, do not rewrite history: add a short "superseded by plan 0091; current contract lives in docs/local-contract.md" note where a reader could otherwise mistake them for current contract (0078, 0080), and leave the rest untouched.
+* Historical plans 0048, 0059, 0078, 0080, 0081, 0087, 0088 mention ZeroFS. Per root `AGENTS.md`, do not rewrite history: add a short "superseded by plan 0094; current contract lives in docs/local-contract.md" note where a reader could otherwise mistake them for current contract (0078, 0080), and leave the rest untouched.
 
 ## Milestones
 
@@ -120,7 +120,7 @@ Existing-data note for anyone upgrading a machine with a populated ZeroFS cell: 
 
 All commands run from the repository root.
 
-1. `internal/app/root.go`: change store-kind validation to accept `""` and `"local"` (normalize empty to `local`), reject everything else including `zerofs` with: `storage.stores.%s.kind %q is not supported; use "local" (ZeroFS was removed in plan 0091)`. Remove `"zerofs"` from the dev-service kind switch. Update `root_test.go` cases.
+1. `internal/app/root.go`: change store-kind validation to accept `""` and `"local"` (normalize empty to `local`), reject everything else including `zerofs` with: `storage.stores.%s.kind %q is not supported; use "local" (ZeroFS was removed in plan 0094)`. Remove `"zerofs"` from the dev-service kind switch. Update `root_test.go` cases.
 2. `docs/schemas/scenery.config.v1.schema.json`: update the store `kind` enum to `["local"]`; remove the `zerofs` dev-service kind. `testdata/apps/storage-basic/.scenery.json`: set `"kind": "local"` and delete the `dev.services` storage entry if it only existed for ZeroFS.
 3. `cmd/scenery/dev_services.go` + new small helper (suggested: `storage_cell.go`): replace `managedZeroFSPlan` with a `storageCellPlan{CellID, CellRoot, ObjectsDir string}` resolved from `cfg.StorageCellID()` and `localagent` paths. Keep `resolveStorageCellPlan` signature-compatible with existing call sites in `storage.go`.
 4. `cmd/scenery/storage_proxy.go`: build stores with `storagebackend.NewLocalStoreWithOptions(name, filepath.Join(plan.ObjectsDir, name), storagebackend.LocalStoreOptions{MaxObjectBytes: storeCfg.MaxObjectBytes})`; drop the 9P socket requirement and the `zerofs` kind check (kind is validated at config load now).
@@ -131,7 +131,7 @@ All commands run from the repository root.
 9. Remove the `zerofs` artifact from `scenery.toolchain.json` and `internal/toolchain/scenery.toolchain.json`; remove p9 from `harness_arch.go`'s dependency allowlist; `go mod tidy` (drops `github.com/hugelgupf/p9`).
 10. `cmd/scenery/harness_self_storage.go`: rewrite the probe per Milestone 6; `harness_schema.go`: replace the ZeroFS failure-evidence example with a neutral managed-dev-service example or delete it if the evidence type is now unused.
 11. Env registry: remove `SCENERY_STORAGE_ZEROFS_CONFIG`, `SCENERY_ZEROFS_WEBUI_ADDR`, `SCENERY_ZEROFS_WEBUI_URL` from `docs/environment.registry.json` and `docs/environment.md`; grep for remaining consumers first.
-12. Docs sweep per Milestone 5; delete `docs/zerofs-legal.md`; update `docs/knowledge.json` (remove the legal doc entry, add/refresh affected doc entries, mark plan 0080 superseded by 0091); add the supersession note at the top of `docs/plans/0080-zerofs-production-readiness.md` and a pointer in `0078-scenery-storage.md`.
+12. Docs sweep per Milestone 5; delete `docs/zerofs-legal.md`; update `docs/knowledge.json` (remove the legal doc entry, add/refresh affected doc entries, mark plan 0080 superseded by 0094); add the supersession note at the top of `docs/plans/0080-zerofs-production-readiness.md` and a pointer in `0078-scenery-storage.md`.
 13. Move this plan's entry and 0080's entry appropriately in `docs/plans/active.md`; when finished, update `docs/plans/completed.md`.
 14. Final grep gate: `grep -ri zerofs --exclude-dir=.git --exclude-dir=docs/plans .` returns nothing (historical ExecPlans under `docs/plans/` are the only permitted matches).
 

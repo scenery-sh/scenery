@@ -530,7 +530,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Completed ExecPlan that hardened the app-facing storage API/runtime-route contract (tenant enforcement, durable metadata, atomic writes, crash/restart proof, fail-closed headless config, cleanup and migration proof). Superseded by plan 0091, which removed ZeroFS entirely and promoted the local filesystem backend to a production-supported kind; current contract lives in docs/local-contract.md.",
+      "summary": "Completed ExecPlan that hardened the app-facing storage API/runtime-route contract (tenant enforcement, durable metadata, atomic writes, crash/restart proof, fail-closed headless config, cleanup and migration proof). Superseded by plan 0094, which removed ZeroFS entirely and promoted the local filesystem backend to a production-supported kind; current contract lives in docs/local-contract.md.",
       "tags": [
         "plans",
         "execplans",
@@ -852,7 +852,7 @@
       ]
     },
     {
-      "path": "docs/plans/0091-local-storage-and-zerofs-removal.md",
+      "path": "docs/plans/0094-local-storage-and-zerofs-removal.md",
       "title": "Local Filesystem Storage Promotion and Complete ZeroFS Removal",
       "owner": "scenery runtime / storage",
       "status": "active",
