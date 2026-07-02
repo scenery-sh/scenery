@@ -67,7 +67,7 @@ func TestStoreIsolatesAppsAndKeepsWorkflow(t *testing.T) {
 	if _, err := store.CreateTask(ctx, "demo", TaskInput{Title: "Only demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpdateWorkflow(ctx, "demo", WorkflowInput{WorkflowMarkdown: "manual only", Mode: "manual", MaxConcurrency: 2}); err != nil {
+	if _, err := store.UpdateWorkflow(ctx, "demo", WorkflowInput{WorkflowMarkdown: "manual only", Mode: "auto", MaxConcurrency: 2}); err != nil {
 		t.Fatal(err)
 	}
 	demo, err := store.State(ctx, "demo")
@@ -78,7 +78,7 @@ func TestStoreIsolatesAppsAndKeepsWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(demo.Tasks) != 1 || demo.Workflow.MaxConcurrency != 2 {
+	if len(demo.Tasks) != 1 || demo.Workflow.Mode != "auto" || demo.Workflow.MaxConcurrency != 2 {
 		t.Fatalf("demo state = %+v", demo)
 	}
 	if demo.Tasks[0].Labels == nil {
@@ -86,6 +86,73 @@ func TestStoreIsolatesAppsAndKeepsWorkflow(t *testing.T) {
 	}
 	if len(other.Tasks) != 0 || other.Workflow.MaxConcurrency != 1 {
 		t.Fatalf("other state = %+v", other)
+	}
+}
+
+func TestStoreRunLifecycleAndRunnableTasks(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t)
+	backlog, err := store.CreateTask(ctx, "demo", TaskInput{Title: "Backlog task", StatusKey: "backlog"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	todo, err := store.CreateTask(ctx, "demo", TaskInput{Title: "Ready task", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runnable, err := store.RunnableTasks(ctx, "demo", []string{"todo"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runnable) != 1 || runnable[0].ID != todo.ID {
+		t.Fatalf("runnable = %+v, backlog = %+v", runnable, backlog)
+	}
+	run, err := store.StartRun(ctx, "demo", todo.ID, "/tmp/work", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "queued" || run.Attempt != 1 || run.WorkspacePath != "/tmp/work" {
+		t.Fatalf("queued run = %+v", run)
+	}
+	if _, err := store.StartRun(ctx, "demo", todo.ID, "/tmp/other", "session-1"); err == nil {
+		t.Fatal("expected duplicate active run error")
+	}
+	run, err = store.MarkRunRunning(ctx, "demo", run.ID, 1234, "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "running" || run.ProcessID != 1234 || run.ThreadID != "thread-1" || run.StartedAt == "" {
+		t.Fatalf("running run = %+v", run)
+	}
+	run, err = store.MarkRunTurn(ctx, "demo", run.ID, "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.TurnID != "turn-1" {
+		t.Fatalf("turn run = %+v", run)
+	}
+	run, err = store.CompleteRun(ctx, "demo", run.ID, "succeeded", "done", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "succeeded" || run.Summary != "done" || run.EndedAt == "" {
+		t.Fatalf("completed run = %+v", run)
+	}
+	events, err := store.RunEvents(ctx, "demo", run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 || events[0].Type != "run.queued" || events[3].Type != "run.succeeded" {
+		t.Fatalf("events = %+v", events)
+	}
+	runnable, err = store.RunnableTasks(ctx, "demo", []string{"todo"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runnable) != 0 {
+		t.Fatalf("completed task should not auto rerun: %+v", runnable)
 	}
 }
 

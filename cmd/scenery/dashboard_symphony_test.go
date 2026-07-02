@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -154,6 +157,85 @@ func TestDashboardSymphonyRPCFailsClosedForSessionWithoutBaseAppID(t *testing.T)
 	}
 }
 
+func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	oldRunner := symphonyRunCodexAgent
+	oldAsync := startSymphonyRunAsync
+	t.Cleanup(func() {
+		symphonyRunCodexAgent = oldRunner
+		startSymphonyRunAsync = oldAsync
+	})
+	startSymphonyRunAsync = func(fn func()) { fn() }
+	symphonyRunCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+		if callbacks.ThreadStarted != nil {
+			callbacks.ThreadStarted(1234, "thread-test")
+		}
+		if callbacks.TurnStarted != nil {
+			callbacks.TurnStarted("turn-test")
+		}
+		if err := os.WriteFile(filepath.Join(req.AppWorkspace, "prepared.txt"), []byte(req.Task.Identifier), 0o644); err != nil {
+			return symphonyRunResult{}, err
+		}
+		return symphonyRunResult{ThreadID: "thread-test", TurnID: "turn-test", Summary: "prepared"}, nil
+	}
+
+	repoRoot := t.TempDir()
+	appRoot := filepath.Join(repoRoot, "testdata", "apps", "basic")
+	if err := os.MkdirAll(appRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "go.mod"), []byte("module example.com/basic\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "scenery@example.test")
+	runGit(t, repoRoot, "config", "user.name", "Scenery Test")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "commit", "-m", "initial")
+
+	store, err := openDashboardSymphonyStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Prepare me", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+		t.Fatal(err)
+	}
+	server := &dashboardServer{}
+	err = server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+		AppID:     "demo--session",
+		BaseAppID: "demo",
+		SessionID: "session-1",
+		AppRoot:   appRoot,
+		Running:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.State(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Tasks) != 1 || state.Tasks[0].ID != task.ID || state.Tasks[0].LatestRun == nil {
+		t.Fatalf("state = %+v", state)
+	}
+	run := state.Tasks[0].LatestRun
+	if run.Status != "succeeded" || run.ThreadID != "thread-test" || run.TurnID != "turn-test" || run.WorkspacePath == "" {
+		t.Fatalf("run = %+v", run)
+	}
+	if data, err := os.ReadFile(filepath.Join(run.WorkspacePath, "prepared.txt")); err != nil || string(data) != task.Identifier {
+		t.Fatalf("prepared workspace file: data=%q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, "prepared.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("live app root was modified or stat failed: %v", err)
+	}
+}
+
 func newSymphonyDashboardTestServer(t *testing.T) *dashboardServer {
 	t.Helper()
 	store, err := devdash.OpenStore(filepath.Join(t.TempDir(), "devdash"))
@@ -172,6 +254,14 @@ func newSymphonyDashboardTestServer(t *testing.T) *dashboardServer {
 		}
 	}
 	return newDashboardServerWithController(&agentDashboardController{store: store}, t.TempDir(), "127.0.0.1:0", "", nil)
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
 }
 
 func dispatchSymphonyTestRPC[T any](ctx context.Context, server *dashboardServer, method string, params map[string]any) (T, error) {

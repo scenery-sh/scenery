@@ -877,7 +877,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-01",
-      "summary": "Completed ExecPlan that replaced the consolenext Observability page with an app-scoped SQLite-backed Symphony Kanban board and workflow store, while keeping process-starting runner RPCs blocked until an authenticated runner channel exists.",
+      "summary": "Completed ExecPlan that replaced the consolenext Observability page with an app-scoped SQLite-backed Symphony Kanban board, workflow store, and workflow-gated server-side Codex app-server auto runner while keeping manual process-starting runner RPCs blocked until an authenticated runner channel exists.",
       "tags": [
         "plans",
         "execplans",

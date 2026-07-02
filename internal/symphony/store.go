@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -96,6 +97,15 @@ type Run struct {
 	UpdatedAt      string `json:"updated_at"`
 }
 
+type RunEvent struct {
+	AppID       string          `json:"app_id"`
+	RunID       string          `json:"run_id"`
+	Seq         int             `json:"seq"`
+	Type        string          `json:"type"`
+	PayloadJSON json.RawMessage `json:"payload_json"`
+	CreatedAt   string          `json:"created_at"`
+}
+
 type Workflow struct {
 	AppID            string `json:"app_id"`
 	WorkflowMarkdown string `json:"workflow_markdown"`
@@ -120,6 +130,11 @@ var defaultStatuses = []Status{
 	{Key: "done", Name: "Done", Kind: "terminal", SortOrder: 7000, Hidden: true, Color: "success"},
 	{Key: "canceled", Name: "Canceled", Kind: "terminal", SortOrder: 8000, Hidden: true, Color: "neutral"},
 	{Key: "duplicate", Name: "Duplicate", Kind: "terminal", SortOrder: 9000, Hidden: true, Color: "neutral"},
+}
+
+var activeRunStatuses = map[string]bool{
+	"queued":  true,
+	"running": true,
 }
 
 var storeLocks sync.Map
@@ -471,7 +486,7 @@ func (s *Store) UpdateWorkflow(ctx context.Context, appID string, input Workflow
 	if mode == "" {
 		mode = "manual"
 	}
-	if mode != "manual" && mode != "disabled" {
+	if mode != "manual" && mode != "auto" && mode != "disabled" {
 		return Workflow{}, fmt.Errorf("unsupported workflow mode %q", mode)
 	}
 	maxConcurrency := input.MaxConcurrency
@@ -487,6 +502,231 @@ func (s *Store) UpdateWorkflow(ctx context.Context, appID string, input Workflow
 		return Workflow{}, err
 	}
 	return s.Workflow(ctx, appID)
+}
+
+func (s *Store) RunnableTasks(ctx context.Context, appID string, statusKeys []string, limit int) ([]Task, error) {
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureApp(ctx, appID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 1
+	}
+	statusKeys = cleanStatusKeys(statusKeys)
+	if len(statusKeys) == 0 {
+		statusKeys = []string{"todo"}
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(statusKeys)), ",")
+	args := []any{appID}
+	for _, key := range statusKeys {
+		args = append(args, key)
+	}
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, taskSelectSQL()+` AND t.status_key IN (`+placeholders+`) AND NOT EXISTS (
+			SELECT 1 FROM symphony_runs r WHERE r.app_id = t.app_id AND r.task_id = t.id
+		) ORDER BY st.sort_order, t.sort_order, t.updated_at DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tasks, err := scanTasks(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachLabels(ctx, appID, tasks); err != nil {
+		return nil, err
+	}
+	if err := s.attachLatestRuns(ctx, appID, tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func (s *Store) ActiveRunCount(ctx context.Context, appID string) (int, error) {
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM symphony_runs WHERE app_id = ? AND status IN ('queued', 'running')`, appID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Store) StartRun(ctx context.Context, appID, taskID, workspacePath, ownerSessionID string) (Run, error) {
+	unlock := s.lock()
+	defer unlock()
+
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return Run{}, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return Run{}, errors.New("task id is required")
+	}
+	workspacePath = strings.TrimSpace(workspacePath)
+	ownerSessionID = strings.TrimSpace(ownerSessionID)
+	now := nowText()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Run{}, err
+	}
+	defer tx.Rollback()
+	if err := ensureAppTx(ctx, tx, appID, now); err != nil {
+		return Run{}, err
+	}
+	if _, err := taskTx(ctx, tx, appID, taskID); err != nil {
+		return Run{}, err
+	}
+	if err := noActiveRunTx(ctx, tx, appID, taskID); err != nil {
+		return Run{}, err
+	}
+	attempt, err := nextRunAttemptTx(ctx, tx, appID, taskID)
+	if err != nil {
+		return Run{}, err
+	}
+	id, err := randomID("run")
+	if err != nil {
+		return Run{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO symphony_runs (
+		id, app_id, task_id, attempt, status, workspace_path, owner_session_id, created_at, updated_at
+	) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
+		id, appID, taskID, attempt, workspacePath, ownerSessionID, now, now,
+	); err != nil {
+		return Run{}, err
+	}
+	if err := appendRunEventTx(ctx, tx, appID, id, "run.queued", map[string]any{"workspace_path": workspacePath}, now); err != nil {
+		return Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, err
+	}
+	return s.Run(ctx, appID, id)
+}
+
+func (s *Store) MarkRunRunning(ctx context.Context, appID, runID string, processID int, threadID string) (Run, error) {
+	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
+		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'running', process_id = ?, thread_id = ?, started_at = coalesce(started_at, ?), updated_at = ? WHERE app_id = ? AND id = ?`,
+			processID, strings.TrimSpace(threadID), now, now, appID, runID,
+		)
+		if err != nil {
+			return err
+		}
+		return appendRunEventTx(ctx, tx, appID, runID, "run.started", map[string]any{"process_id": processID, "thread_id": strings.TrimSpace(threadID)}, now)
+	})
+}
+
+func (s *Store) MarkRunTurn(ctx context.Context, appID, runID, turnID string) (Run, error) {
+	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
+		turnID = strings.TrimSpace(turnID)
+		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET turn_id = ?, updated_at = ? WHERE app_id = ? AND id = ?`, turnID, now, appID, runID)
+		if err != nil {
+			return err
+		}
+		return appendRunEventTx(ctx, tx, appID, runID, "turn.started", map[string]any{"turn_id": turnID}, now)
+	})
+}
+
+func (s *Store) CompleteRun(ctx context.Context, appID, runID, status, summary, runError string) (Run, error) {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = "succeeded"
+	}
+	if activeRunStatuses[status] {
+		return Run{}, fmt.Errorf("completion status %q is still active", status)
+	}
+	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
+		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = ?, summary = ?, error = ?, ended_at = coalesce(ended_at, ?), updated_at = ? WHERE app_id = ? AND id = ?`,
+			status, strings.TrimSpace(summary), strings.TrimSpace(runError), now, now, appID, runID,
+		)
+		if err != nil {
+			return err
+		}
+		return appendRunEventTx(ctx, tx, appID, runID, "run."+status, map[string]any{"summary": strings.TrimSpace(summary), "error": strings.TrimSpace(runError)}, now)
+	})
+}
+
+func (s *Store) Run(ctx context.Context, appID, runID string) (Run, error) {
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return Run{}, err
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return Run{}, errors.New("run id is required")
+	}
+	rows, err := s.db.QueryContext(ctx, runSelectSQL()+` WHERE app_id = ? AND id = ?`, appID, runID)
+	if err != nil {
+		return Run{}, err
+	}
+	defer rows.Close()
+	runs, err := scanRuns(rows)
+	if err != nil {
+		return Run{}, err
+	}
+	if len(runs) == 0 {
+		return Run{}, sql.ErrNoRows
+	}
+	return runs[0], nil
+}
+
+func (s *Store) RunEvents(ctx context.Context, appID, runID string) ([]RunEvent, error) {
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT app_id, run_id, seq, type, payload_json, created_at FROM symphony_run_events WHERE app_id = ? AND run_id = ? ORDER BY seq`, appID, strings.TrimSpace(runID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunEvent
+	for rows.Next() {
+		var event RunEvent
+		var payload string
+		if err := rows.Scan(&event.AppID, &event.RunID, &event.Seq, &event.Type, &payload, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		event.PayloadJSON = json.RawMessage(payload)
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) updateRun(ctx context.Context, appID, runID string, fn func(context.Context, *sql.Tx, string) error) (Run, error) {
+	unlock := s.lock()
+	defer unlock()
+
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return Run{}, err
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return Run{}, errors.New("run id is required")
+	}
+	now := nowText()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Run{}, err
+	}
+	defer tx.Rollback()
+	if err := runExistsTx(ctx, tx, appID, runID); err != nil {
+		return Run{}, err
+	}
+	if err := fn(ctx, tx, now); err != nil {
+		return Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, err
+	}
+	return s.Run(ctx, appID, runID)
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -745,12 +985,50 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 	return nil
 }
 
+func runSelectSQL() string {
+	return `SELECT id, app_id, task_id, attempt, status, workspace_path,
+		thread_id, turn_id, process_id, owner_session_id, summary, error,
+		coalesce(started_at, ''), coalesce(ended_at, ''), created_at, updated_at
+		FROM symphony_runs`
+}
+
+func scanRuns(rows *sql.Rows) ([]Run, error) {
+	var out []Run
+	for rows.Next() {
+		var run Run
+		if err := rows.Scan(
+			&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.WorkspacePath,
+			&run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.Summary, &run.Error,
+			&run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, run)
+	}
+	return out, rows.Err()
+}
+
 func cleanAppID(appID string) (string, error) {
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
 		return "", errors.New("app id is required")
 	}
 	return appID, nil
+}
+
+func cleanStatusKeys(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		key := strings.TrimSpace(value)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func cleanTaskInput(input TaskInput) TaskInput {
@@ -801,6 +1079,56 @@ func taskTx(ctx context.Context, tx *sql.Tx, appID, id string) (Task, error) {
 		&task.Priority, &task.Assignee, &task.Estimate, &task.BranchName, &task.URL, &task.Source, &task.CreatedAt, &task.UpdatedAt,
 	)
 	return task, err
+}
+
+func runExistsTx(ctx context.Context, tx *sql.Tx, appID, runID string) error {
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_runs WHERE app_id = ? AND id = ?`, appID, runID).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sql.ErrNoRows
+		}
+		return err
+	}
+	return nil
+}
+
+func noActiveRunTx(ctx context.Context, tx *sql.Tx, appID, taskID string) error {
+	var active int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_runs WHERE app_id = ? AND task_id = ? AND status IN ('queued', 'running') LIMIT 1`, appID, taskID).Scan(&active)
+	if err == nil {
+		return errors.New("task already has an active run")
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	return err
+}
+
+func nextRunAttemptTx(ctx context.Context, tx *sql.Tx, appID, taskID string) (int, error) {
+	var attempt int
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(attempt), 0) + 1 FROM symphony_runs WHERE app_id = ? AND task_id = ?`, appID, taskID).Scan(&attempt); err != nil {
+		return 0, err
+	}
+	return attempt, nil
+}
+
+func appendRunEventTx(ctx context.Context, tx *sql.Tx, appID, runID, eventType string, payload any, now string) error {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return errors.New("run event type is required")
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	var seq int
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(seq), 0) + 1 FROM symphony_run_events WHERE app_id = ? AND run_id = ?`, appID, runID).Scan(&seq); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO symphony_run_events (app_id, run_id, seq, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		appID, runID, seq, eventType, string(payloadJSON), now,
+	)
+	return err
 }
 
 func nextIdentifierTx(ctx context.Context, tx *sql.Tx, appID, now string) (string, error) {

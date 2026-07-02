@@ -28,10 +28,10 @@ Opening consolenext for a worktree of app X shows the same Symphony board.
 Opening consolenext for app Y shows a different Symphony board.
 Tasks persist across runtime restarts.
 Tasks can be created, edited, moved between status columns, hidden in terminal columns, and reloaded without data loss.
-Codex runs, when enabled after the runner safety gate, are tied to tasks and recorded in the same app-scoped store.
+Codex runs, when workflow auto mode is enabled, are tied to tasks and recorded in the same app-scoped store.
 ```
 
-This plan intentionally separates the first durable board implementation from the later automated-runner implementation. The board and SQLite model are the foundation. Codex app-server orchestration is added only after the store, app identity, workspace-safety rules, event model, dashboard/auth channel, and UI states are in place.
+This plan intentionally shipped the durable board before the automated runner. The 2026-07-02 continuation adds a minimal server-side auto runner on top of the tested store, app identity, workspace-safety rules, and event model while keeping manual runner RPCs blocked behind the authentication gate.
 
 ## Progress
 
@@ -47,6 +47,8 @@ This plan intentionally separates the first durable board implementation from th
 * [x] 2026-07-02 - Implemented milestone 2: replaced consolenext `Observability` nav/page with `Symphony`, added board columns, hidden columns, task cards, create/edit modal, task moves, deletes, reload persistence, and no-GraphQL frontend RPC calls.
 * [x] 2026-07-02 - Resolved milestone 3 safety gate: workflow config persistence plus run/run-event tables shipped, `codex app-server` protocol/schema surface was checked locally, and process-starting `symphony/run/*` RPCs remain unavailable until an authenticated runner channel exists.
 * [x] 2026-07-02 - Implemented milestone 4: added consolenext Symphony browser-harness route markers, updated docs/contracts/knowledge index, rebuilt embedded dashboard assets, and ran focused plus full validation listed in Outcomes.
+* [x] 2026-07-02 - Implemented the minimal Symphony auto runner: workflow `mode=auto` plus `Todo` tasks create isolated Git worktrees, launch `codex app-server --listen stdio://`, record run lifecycle events, and keep manual `symphony/run/*` RPCs unavailable.
+* [x] 2026-07-02 - Re-tested on `testdata/apps/basic` through Chrome: creating a `Todo` task caused Codex app-server to prepare a new `tasksvc` service with `/tasksvc/ping` in the isolated worktree while the live fixture checkout stayed clean.
 
 Update this section at every meaningful stopping point. Every update must include the date, what changed, and whether validation was run.
 
@@ -92,6 +94,9 @@ Implementation facts from 2026-07-02:
 * `codex app-server --help` reports an experimental app-server with `--listen` transports and `--ws-auth` modes `capability-token` and `signed-bearer-token`. `codex app-server generate-json-schema --experimental --out /tmp/scenery-codex-schema.GAO6IP` generated v1/v2 schema files including `codex_app_server_protocol.schemas.json` and `codex_app_server_protocol.v2.schemas.json`. `codex app-server daemon version` failed because `/Users/petrbrazdil/.codex/app-server-control/app-server-control.sock` did not exist, so no running daemon was available to integrate against.
 * The implementation does not ship process-starting runner RPCs. `symphony/run/start` returns `symphony/run/start is unavailable until dashboard runner auth is implemented`, covered by `TestDashboardSymphonyRPCMovesAndRejectsRunnerMethods`.
 * `rg -n "postGraphQL|__graphql|GraphQL" apps/consolenext/src/symphony*.tsx apps/consolenext/src/symphony*.ts` exits with no matches; the Symphony frontend uses typed dashboard RPC methods only.
+* Before the auto runner was implemented, live Chrome validation against `testdata/apps/basic` could create Symphony tasks but `symphony_runs` and `symphony_run_events` stayed empty. That reproduced the user-visible bug: the dashboard board existed, but no Codex appserver process picked up work.
+* The first live auto-run attempt created a run and launched app-server, but `turn/start` failed with `Invalid request: missing field 'type'` because the request included an unsupported `sandboxPolicy` object. Removing that field matched the app-server protocol currently accepted by the local Codex binary.
+* The final patched live fixture run created run `run_62311d5012533cdcd4a2d09a9e264165` for `SYM-1`, started Codex thread `019f227b-a0a8-7123-b003-7d4814c17f7d` and turn `019f227b-a13e-7142-9f5d-2c48f84db6d9`, recorded exactly one `turn.started` event, and wrote the new service only in `/tmp/scenery-symphony-live-65312/workspaces/basicapp/SYM-1-1782989954982384000/repo/testdata/apps/basic/tasksvc`.
 
 Add new discoveries here with the command, test, or file that exposed them. Use this section to record unexpected compile failures, identity mismatches, SQLite migration issues, Codex app-server protocol details, UI assumptions, stale docs, or harness contract issues.
 
@@ -181,7 +186,15 @@ go run ./cmd/scenery inspect docs --json
 
 * Decision: Complete this plan without process-starting runner RPCs.
 
-  Rationale: The board, workflow config, run/event schema, and Codex app-server schema spike are in place, but the dashboard WebSocket is still not an authenticated runner channel and no local app-server daemon was running. Shipping a Start/Stop runner through the current dashboard RPC would violate this plan's safety gate.
+  Rationale: The dashboard WebSocket is still not an authenticated runner channel. Shipping a Start/Stop runner through that RPC path would violate this plan's safety gate even though the trusted dashboard server can run a workflow-gated auto runner internally.
+
+  Date: 2026-07-02
+
+  Author: implementation
+
+* Decision: Ship the first automated runner as a server-side auto mode, not a dashboard command.
+
+  Rationale: `mode=auto` plus `Todo` status gives an explicit workflow opt-in, keeps Backlog/manual workflows inert, and lets Scenery claim work transactionally before starting Codex. Detached Git worktrees keep prepared changes out of the live checkout.
 
   Date: 2026-07-02
 
@@ -197,11 +210,12 @@ Shipped:
 * Added dashboard RPC methods for `symphony/state`, `symphony/task/create`, `symphony/task/update`, `symphony/task/move`, `symphony/task/delete`, `symphony/statuses/update`, `symphony/workflow/get`, and `symphony/workflow/update`.
 * Replaced the consolenext `Observability` page/nav item with `Symphony`, including board columns, task cards, hidden columns, create/edit modal, explicit refresh, status moves, and task deletion.
 * Added consolenext-specific browser-harness route coverage for `?page=Symphony`.
+* Added the server-side Symphony auto runner for workflow `mode=auto`: it claims `Todo` tasks without previous runs, creates detached Git worktrees under `<dashboard-cache-root>/workspaces/...`, runs Codex app-server over stdio in the app workspace, and records queued/running/turn/succeeded or failed lifecycle events.
 * Updated `apps/consolenext/AGENTS.md`, `docs/local-contract.md`, `docs/agent-guide.md`, and `docs/knowledge.json`.
 
 Not shipped:
 
-* `symphony/run/*` process-starting RPCs. They remain blocked until Scenery has an authenticated runner channel or a verified authenticated Codex app-server integration path.
+* Manual `symphony/run/*` process-starting RPCs, cancellation, retries, and event streaming. They remain blocked until Scenery has an authenticated runner channel.
 
 Validation:
 
@@ -210,6 +224,8 @@ Validation:
 * `go test ./cmd/scenery -run 'TestDashboardSymphony|TestDashboardRPC|TestHarnessBrowser' -count=1` passed.
 * `go test ./cmd/scenery` passed.
 * `go test ./...` passed.
+* `go test ./cmd/scenery -run 'TestDashboardSymphony' -count=1` passed after adding the auto-runner claim test.
+* A live Chrome fixture run against `testdata/apps/basic` created a `Todo` Symphony task, observed the dashboard server claim it, confirmed `symphony_runs.status='succeeded'`, and verified the isolated worktree contained a new `tasksvc` service with a public `/tasksvc/ping` endpoint.
 * `cd apps/consolenext && bun run lint` passed.
 * `cd apps/consolenext && bun run typecheck` passed.
 * `cd apps/consolenext && bun run build` passed.
@@ -522,7 +538,8 @@ Minimum acceptance for the first implementation slice:
 * Two store handles can create and move tasks for the same app without duplicate identifiers or corrupted ordering.
 * The frontend has a clear refresh model for writes made by another dashboard process: explicit Refresh is acceptable for the first slice, and focus/poll refresh can be added if cheap.
 * No Symphony frontend code calls GraphQL helpers.
-* No `symphony/run/*` process-starting method ships until the auth/protocol gate is satisfied.
+* No manual `symphony/run/*` process-starting method ships until the auth/protocol gate is satisfied.
+* With workflow `mode=auto`, a `Todo` task with no prior run is prepared by Codex app-server in an isolated Git worktree and records run lifecycle events.
 * Browser validation confirms the board, modal, hidden columns, and scrollbars render correctly on desktop and a narrow viewport.
 
 Suggested validation commands:

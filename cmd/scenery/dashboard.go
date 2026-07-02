@@ -187,6 +187,7 @@ func (s *dashboardServer) Start(ctx context.Context) error {
 			slog.Error("scenery dashboard server failed", "err", err)
 		}
 	}()
+	s.startSymphonyRunner(ctx)
 	return nil
 }
 
