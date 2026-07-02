@@ -25,9 +25,20 @@ func TestLocalPathRouterShouldNotStripFrontendPrefix(t *testing.T) {
 func TestLocalPathRouterRewriteHTMLRootRefs(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`<script type="module" src="/@vite/client"></script><link href="/blog"><img src="/profile.jpg">`)
+	body := []byte(`<script type="module" src="/@vite/client"></script><astro-island component-url="/@id/astro:scripts/before-hydration.js"></astro-island><link href="/blog"><img src="/profile.jpg">`)
 	got := string(localPathRouterRewriteHTMLRootRefs(body, "/blog"))
-	want := `<script type="module" src="/blog/@vite/client"></script><link href="/blog"><img src="/blog/profile.jpg">`
+	want := `<script type="module" src="/blog/@vite/client"></script><astro-island component-url="/blog/@id/astro:scripts/before-hydration.js"></astro-island><link href="/blog"><img src="/blog/profile.jpg">`
+	if got != want {
+		t.Fatalf("rewrite = %q, want %q", got, want)
+	}
+}
+
+func TestLocalPathRouterRewriteJSRootRefs(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`import "/@vite/client";import { injectIntoGlobalHook } from "/@react-refresh";import("/src/main.tsx");const logo="/logo.png";const home="/";const api="/api/healthy";const path="/Users/me/app"`)
+	got := string(localPathRouterRewriteJSRootRefs(body, "/blog"))
+	want := `import "/blog/@vite/client";import { injectIntoGlobalHook } from "/blog/@react-refresh";import("/blog/src/main.tsx");const logo="/blog/logo.png";const home="/blog/";const api="/api/healthy";const path="/Users/me/app"`
 	if got != want {
 		t.Fatalf("rewrite = %q, want %q", got, want)
 	}

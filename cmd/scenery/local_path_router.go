@@ -26,6 +26,9 @@ const localPathRouterStateVersion = "scenery.local_path_router.v1"
 const localPathRouterStorageAssetCacheKey = "scenery_path=storage_v2"
 
 var localPathRouterHTMLRootRefRE = regexp.MustCompile(`\b(src|href)="(/[^"]*)"`)
+var localPathRouterHTMLDevRootRefRE = regexp.MustCompile(`"(/(?:@fs/|@id/|@react-refresh|@vite/|node_modules/|src/)[^"]*)"`)
+var localPathRouterJSRootImportRE = regexp.MustCompile(`((?:from|import)\s*(?:\(\s*)?["'])(/(?:@fs/|@id/|@react-refresh|@vite/|node_modules/|src/)[^"']*)(["'])`)
+var localPathRouterJSRootAssetRefRE = regexp.MustCompile(`(["'])(/(?:[^"'\\]*\.(?:avif|gif|ico|jpe?g|png|svg|webp)|))(["'])`)
 var localPathRouterStorageAssetRefRE = regexp.MustCompile(`\b(src|href)="(/storage/assets/[^"?]+\.(?:js|css))"`)
 
 type localPathRouterState struct {
@@ -301,10 +304,14 @@ func localPathRouterProxySessionBackend(w http.ResponseWriter, req *http.Request
 					return body
 				})
 			}
-			if localPathRouterIsStorageRoute(record) && localPathRouterJavaScriptContentType(contentType) {
+			if localPathRouterJavaScriptContentType(contentType) {
 				resp.Header.Set("Cache-Control", "no-store")
 				return localPathRouterRewriteResponseBody(resp, func(body []byte) []byte {
-					return localPathRouterRewriteStorageRootRefs(body, record.StripPrefix)
+					body = localPathRouterRewriteJSRootRefs(body, record.StripPrefix)
+					if localPathRouterIsStorageRoute(record) {
+						body = localPathRouterRewriteStorageRootRefs(body, record.StripPrefix)
+					}
+					return body
 				})
 			}
 			return nil
@@ -376,7 +383,7 @@ func localPathRouterRewriteHTMLRootRefs(body []byte, prefix string) []byte {
 	if prefix == "" || prefix == "/" {
 		return body
 	}
-	return localPathRouterHTMLRootRefRE.ReplaceAllFunc(body, func(match []byte) []byte {
+	body = localPathRouterHTMLRootRefRE.ReplaceAllFunc(body, func(match []byte) []byte {
 		parts := localPathRouterHTMLRootRefRE.FindSubmatch(match)
 		if len(parts) != 3 {
 			return match
@@ -386,6 +393,30 @@ func localPathRouterRewriteHTMLRootRefs(body []byte, prefix string) []byte {
 			return match
 		}
 		return []byte(string(parts[1]) + "=\"" + prefix + refPath + "\"")
+	})
+	return localPathRouterRewriteDevRootRefs(body, prefix, localPathRouterHTMLDevRootRefRE, 1)
+}
+
+func localPathRouterRewriteJSRootRefs(body []byte, prefix string) []byte {
+	prefix = strings.TrimRight(cleanLocalPath(prefix), "/")
+	if prefix == "" || prefix == "/" {
+		return body
+	}
+	body = localPathRouterRewriteDevRootRefs(body, prefix, localPathRouterJSRootImportRE, 2)
+	return localPathRouterRewriteDevRootRefs(body, prefix, localPathRouterJSRootAssetRefRE, 2)
+}
+
+func localPathRouterRewriteDevRootRefs(body []byte, prefix string, re *regexp.Regexp, pathIndex int) []byte {
+	return re.ReplaceAllFunc(body, func(match []byte) []byte {
+		parts := re.FindSubmatch(match)
+		if len(parts) <= pathIndex {
+			return match
+		}
+		refPath := string(parts[pathIndex])
+		if refPath == prefix || strings.HasPrefix(refPath, prefix+"/") || strings.HasPrefix(refPath, "//") {
+			return match
+		}
+		return bytes.Replace(match, parts[pathIndex], []byte(prefix+refPath), 1)
 	})
 }
 
