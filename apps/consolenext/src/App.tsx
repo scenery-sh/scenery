@@ -84,6 +84,11 @@ const styles = stylex.create({
     overflowY: 'hidden',
     scrollbarWidth: 'none',
   },
+  navContent: {
+    display: 'inline-block',
+    width: 'max-content',
+    paddingInlineEnd: 'var(--spacing-2)',
+  },
   page: {
     maxWidth: '72rem',
     marginInline: 'auto',
@@ -122,6 +127,7 @@ function App() {
   const [sqliteSchema, setSQLiteSchema] = useState<SQLiteColumn[]>([])
   const [sqliteRows, setSQLiteRows] = useState<SQLiteRows | null>(null)
   const [databaseError, setDatabaseError] = useState('')
+  const navRef = useRef<HTMLElement | null>(null)
 
   const databases = useMemo(() => status?.meta?.sql_databases ?? [], [status])
   const serviceLinks = useMemo(() => routeLinks(status), [status])
@@ -135,9 +141,41 @@ function App() {
     selectedAppIDRef.current = selectedAppID
   }, [selectedAppID])
 
+  useEffect(() => {
+    let frame = 0
+    const alignActiveTab = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() => {
+        const nav = navRef.current
+        const activeTab = Array.from(nav?.querySelectorAll<HTMLElement>('[data-scenery-ui]') ?? [])
+          .find((element) => element.dataset.sceneryUi === `ConsoleNextTab:${page}`)
+        if (!nav || !activeTab) {
+          return
+        }
+        const gutter = 8
+        const navRect = nav.getBoundingClientRect()
+        const tabRect = activeTab.getBoundingClientRect()
+        if (tabRect.right > navRect.right - gutter) {
+          nav.scrollLeft += tabRect.right - navRect.right + gutter
+        } else if (tabRect.left < navRect.left + gutter) {
+          nav.scrollLeft -= navRect.left - tabRect.left + gutter
+        }
+      })
+    }
+
+    alignActiveTab()
+    window.addEventListener('resize', alignActiveTab)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', alignActiveTab)
+    }
+  }, [page])
+
   const refreshDashboard = useCallback(
-    async (requestedAppID?: string) => {
-      setLoading(true)
+    async (requestedAppID?: string, showLoading = false) => {
+      if (showLoading) {
+        setLoading(true)
+      }
       setError('')
       try {
         const nextApps = await rpc.call<AppSummary[]>('list-apps')
@@ -178,7 +216,9 @@ function App() {
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : 'dashboard refresh failed')
       } finally {
-        setLoading(false)
+        if (showLoading) {
+          setLoading(false)
+        }
       }
     },
     [rpc, selectedAppID],
@@ -368,28 +408,30 @@ function App() {
                   writeLocationState(value, page)
                   setSelectedDatabase('')
                   setSelectedTable('')
-                  void refreshDashboard(value)
+                  void refreshDashboard(value, true)
                 }}
               />
             </HStack>
 
-            <nav {...stylex.props(styles.nav)} aria-label="Console sections" data-scenery-ui="ConsoleNextHeaderNav">
-              <TabList
-                value={page}
-                onChange={(value) => {
-                  const nextPage = parsePage(value)
-                  setPage(nextPage)
-                  writeLocationState(selectedAppID, nextPage)
-                }}
-                size="sm"
-              >
-                {pages.map((item) => (
-                  <Tab key={item} value={item} label={item} endContent={tabCount(item, logs, traces, databases, outputs)} data-scenery-ui={`ConsoleNextTab:${item}`} />
-                ))}
-              </TabList>
+            <nav ref={navRef} {...stylex.props(styles.nav)} aria-label="Console sections" data-scenery-ui="ConsoleNextHeaderNav">
+              <section {...stylex.props(styles.navContent)}>
+                <TabList
+                  value={page}
+                  onChange={(value) => {
+                    const nextPage = parsePage(value)
+                    setPage(nextPage)
+                    writeLocationState(selectedAppID, nextPage)
+                  }}
+                  size="sm"
+                >
+                  {pages.map((item) => (
+                    <Tab key={item} value={item} label={item} endContent={tabCount(item, logs, traces, databases, outputs)} data-scenery-ui={`ConsoleNextTab:${item}`} />
+                  ))}
+                </TabList>
+              </section>
             </nav>
 
-            <Button label="Refresh" size="sm" variant="secondary" isLoading={loading} onClick={() => void refreshDashboard()} />
+            <Button label="Refresh" size="sm" variant="secondary" isLoading={loading} onClick={() => void refreshDashboard(undefined, true)} />
           </section>
         </header>
 

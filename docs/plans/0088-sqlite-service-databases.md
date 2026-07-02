@@ -1,5 +1,7 @@
 # 0088 - SQLite Service Databases and Postgres Removal
 
+> Note (2026-07-02): this plan's implementation landed in commit `2c23508d`. Its removal of the old built-in Postgres substrate (auth/pgx coupling, per-app Docker lifecycle, `scenery db postgres`, Postgres branching) stands. Plan `0093-postgres-service-databases.md` later re-introduces Postgres *support* with a different architecture: an opt-in `dev.services` kind with external-DSN precedence and a shared machine-wide dev server. The current database contract lives in `docs/local-contract.md`.
+
 This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` current as work proceeds.
 
 ## Purpose / Big Picture

@@ -829,6 +829,27 @@
       ]
     },
     {
+      "path": "docs/plans/0093-postgres-service-databases.md",
+      "title": "First-Class Postgres Service Databases on a Shared Dev Server",
+      "owner": "scenery runtime / database",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-02",
+      "review_after": "2026-08-02",
+      "summary": "Active ExecPlan that adds Postgres as an opt-in first-class dev.services kind: an external DSN via the service's database_url_env always wins; otherwise scenery up manages one shared machine-wide Docker Postgres server with one database per app/worktree/service. SQLite stays the default database model, Atlas + sqlc stay the schema/query toolchain, auth/durable/branching stay SQLite-native, and go test ./... stays Docker-free.",
+      "tags": [
+        "plans",
+        "execplans",
+        "database",
+        "postgres",
+        "sqlite",
+        "docker",
+        "runtime",
+        "dev-services"
+      ]
+    },
+    {
       "path": "docs/plans/0091-local-storage-and-zerofs-removal.md",
       "title": "Local Filesystem Storage Promotion and Complete ZeroFS Removal",
       "owner": "scenery runtime / storage",

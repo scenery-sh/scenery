@@ -24,15 +24,6 @@ type TaskForm = SymphonyTaskInput & {
 }
 
 const styles = stylex.create({
-  shell: {
-    display: 'grid',
-    gridTemplateColumns: {
-      default: 'minmax(0, 1fr)',
-      '@media (min-width: 1060px)': 'minmax(0, 1fr) 16rem',
-    },
-    gap: 'var(--spacing-4)',
-    alignItems: 'start',
-  },
   toolbar: {
     display: 'flex',
     alignItems: 'center',
@@ -296,73 +287,71 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
           {error}
         </Text>
       ) : null}
-      <section {...stylex.props(styles.shell)}>
-        <section {...stylex.props(styles.board)} data-scenery-ui="SymphonyBoard">
-          {activeStatuses.map((status) => {
-            const columnTasks = tasks.filter((task) => task.status_key === status.key)
-            return (
-              <section key={status.key} {...stylex.props(styles.column)} data-scenery-ui={`SymphonyColumn:${status.key}`}>
-                <section {...stylex.props(styles.columnHeader)}>
-                  <HStack gap={2} vAlign="center">
-                    <Badge label={status.name} variant={badgeVariant(status)} />
-                    <Text type="supporting" color="secondary">
-                      {columnTasks.length}
-                    </Text>
-                  </HStack>
-                  <Button label="Add" size="sm" variant="ghost" onClick={() => openCreate(status.key)} />
-                </section>
-                <section {...stylex.props(styles.cardList)} data-scenery-state={columnTasks.length === 0 ? 'intentional-empty' : undefined}>
-                  {columnTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      statuses={activeStatuses}
-                      onOpen={() => openEdit(task)}
-                      onMove={moveTask}
-                      busy={saving}
-                    />
-                  ))}
-                  {columnTasks.length === 0 ? (
-                    <section {...stylex.props(styles.empty)}>
-                      <Text type="supporting" color="secondary">
-                        Empty
-                      </Text>
-                    </section>
-                  ) : null}
-                </section>
+      <section {...stylex.props(styles.board)} data-scenery-ui="SymphonyBoard">
+        {activeStatuses.map((status) => {
+          const columnTasks = tasks.filter((task) => task.status_key === status.key)
+          return (
+            <section key={status.key} {...stylex.props(styles.column)} data-scenery-ui={`SymphonyColumn:${status.key}`}>
+              <section {...stylex.props(styles.columnHeader)}>
+                <HStack gap={2} vAlign="center">
+                  <Badge label={status.name} variant={badgeVariant(status)} />
+                  <Text type="supporting" color="secondary">
+                    {columnTasks.length}
+                  </Text>
+                </HStack>
+                <Button label="Add" size="sm" variant="ghost" onClick={() => openCreate(status.key)} />
               </section>
-            )
-          })}
-        </section>
-        <Section padding={4} data-scenery-ui="SymphonyHiddenColumns">
-          <VStack gap={3} as="section">
-            <HStack gap={2} vAlign="center">
-              <Heading level={3}>Hidden columns</Heading>
-              <Badge label={hiddenStatuses.length} variant="neutral" />
-            </HStack>
-            <section {...stylex.props(styles.hiddenList)}>
-              {hiddenStatuses.map((status) => (
-                <Card key={status.key} padding={3}>
-                  <HStack gap={2} vAlign="center" hAlign="between">
-                    <VStack gap={1} as="section">
-                      <Text type="label" weight="semibold">
-                        {status.name}
-                      </Text>
-                      <Text type="supporting" color="secondary">
-                        {taskCounts.get(status.key) ?? 0} tasks
-                      </Text>
-                    </VStack>
-                    <Button label="Show" size="sm" variant="secondary" isDisabled={saving} onClick={() => void toggleStatus(status)} />
-                  </HStack>
-                </Card>
-              ))}
-              {statuses.filter((status) => !status.hidden).map((status) => (
-                <Button key={status.key} label={`Hide ${status.name}`} size="sm" variant="ghost" isDisabled={saving} onClick={() => void toggleStatus(status)} />
-              ))}
+              <section {...stylex.props(styles.cardList)} data-scenery-state={columnTasks.length === 0 ? 'intentional-empty' : undefined}>
+                {columnTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    statuses={activeStatuses}
+                    onOpen={() => openEdit(task)}
+                    onMove={moveTask}
+                    busy={saving}
+                  />
+                ))}
+                {columnTasks.length === 0 ? (
+                  <section {...stylex.props(styles.empty)}>
+                    <Text type="supporting" color="secondary">
+                      Empty
+                    </Text>
+                  </section>
+                ) : null}
+              </section>
             </section>
-          </VStack>
-        </Section>
+          )
+        })}
       </section>
+      <Section padding={4} data-scenery-ui="SymphonyHiddenColumns">
+        <VStack gap={3} as="section">
+          <HStack gap={2} vAlign="center">
+            <Heading level={3}>Hidden columns</Heading>
+            <Badge label={hiddenStatuses.length} variant="neutral" />
+          </HStack>
+          <section {...stylex.props(styles.hiddenList)}>
+            {hiddenStatuses.map((status) => (
+              <Card key={status.key} padding={3}>
+                <HStack gap={2} vAlign="center" hAlign="between">
+                  <VStack gap={1} as="section">
+                    <Text type="label" weight="semibold">
+                      {status.name}
+                    </Text>
+                    <Text type="supporting" color="secondary">
+                      {taskCounts.get(status.key) ?? 0} tasks
+                    </Text>
+                  </VStack>
+                  <Button label="Show" size="sm" variant="secondary" isDisabled={saving} onClick={() => void toggleStatus(status)} />
+                </HStack>
+              </Card>
+            ))}
+            {statuses.filter((status) => !status.hidden).map((status) => (
+              <Button key={status.key} label={`Hide ${status.name}`} size="sm" variant="ghost" isDisabled={saving} onClick={() => void toggleStatus(status)} />
+            ))}
+          </section>
+        </VStack>
+      </Section>
       {form ? (
         <section {...stylex.props(styles.overlay)} role="presentation">
           <Section padding={4} xstyle={styles.modal} data-scenery-ui="SymphonyTaskModal">
