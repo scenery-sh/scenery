@@ -507,7 +507,7 @@ func (c Config) validateDevServices() error {
 			return fmt.Errorf("dev.services.%s uses a removed legacy sync service kind; delete this service declaration", name)
 		}
 		switch kind {
-		case "", "sqlite", "zerofs":
+		case "", "sqlite":
 		default:
 			return fmt.Errorf("dev.services.%s kind %q is not supported", name, kind)
 		}
@@ -548,8 +548,10 @@ func (c Config) validateStorage() error {
 			return fmt.Errorf("storage.stores.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
 		}
 		kind := strings.TrimSpace(store.Kind)
-		if kind != "zerofs" {
-			return fmt.Errorf("storage.stores.%s.kind %q is not supported; use %q", name, kind, "zerofs")
+		switch kind {
+		case "", "local":
+		default:
+			return fmt.Errorf("storage.stores.%s.kind %q is not supported; use %q (ZeroFS was removed in plan 0091)", name, kind, "local")
 		}
 		access := strings.TrimSpace(store.Access)
 		switch access {

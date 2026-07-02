@@ -18,31 +18,9 @@ import (
 )
 
 const (
-	devZeroFSDefaultRoute      = "storage"
-	devZeroFSToolchainArtifact = "zerofs"
-	appDatabaseURLEnv          = "DatabaseURL"
-	legacyDatabaseURLEnv       = "DATABASE_URL"
+	appDatabaseURLEnv    = "DatabaseURL"
+	legacyDatabaseURLEnv = "DATABASE_URL"
 )
-
-type managedZeroFSPlan struct {
-	ServiceName   string
-	StorageCellID string
-	Route         string
-	Image         string
-	ToolchainDir  string
-	CellRoot      string
-	CacheDir      string
-	ObjectsDir    string
-	RunDir        string
-	ConfigPath    string
-	NinePListen   string
-	NinePSocket   string
-	RPCSocket     string
-	WebUIListen   string
-	WebUIAddrPath string
-	LogPath       string
-	Env           map[string]string
-}
 
 func managedSQLiteEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session) ([]string, []sqlitedb.Service, error) {
 	req := sqlitedb.ResolveRequest{AppRoot: appRoot, Config: cfg, Mode: sqlitedb.ModeLocal}

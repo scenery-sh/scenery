@@ -87,14 +87,6 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 
 	console := newRunConsole(os.Stdout, os.Stderr, verbose, jsonMode, cfg.AppID(), root)
 
-	if managedDevServicePreflightRequired(cfg) {
-		if err := console.Phase("Preflighting managed dev services", func() error {
-			return preflightRequiredManagedDevServices(ctx, root, cfg)
-		}); err != nil {
-			return err
-		}
-	}
-
 	var snapshot fileSnapshot
 	if err := console.Phase("Scanning source files", func() error {
 		var err error

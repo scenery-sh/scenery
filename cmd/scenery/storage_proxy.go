@@ -18,7 +18,6 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/envpolicy"
 	storagebackend "scenery.sh/internal/storage"
 	publicstorage "scenery.sh/storage"
 )
@@ -38,11 +37,7 @@ func (s *devSupervisor) ensureManagedStorageProxy(ctx context.Context) error {
 	if session == nil || storageProxySocketPath(session) == "" {
 		return nil
 	}
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, ".env", ".env.local")
-	if err != nil {
-		return err
-	}
-	plan, err := resolveManagedZeroFSPlan(s.cfg, session, baseEnv, "")
+	plan, err := resolveStorageCellPlan(s.cfg, "")
 	if err != nil || plan == nil {
 		return err
 	}
@@ -56,7 +51,7 @@ func (s *devSupervisor) ensureManagedStorageProxy(ctx context.Context) error {
 	return nil
 }
 
-func startManagedStorageProxy(ctx context.Context, cfg appcfg.Config, session *localagent.Session, plan *managedZeroFSPlan) (*managedStorageProxy, error) {
+func startManagedStorageProxy(ctx context.Context, cfg appcfg.Config, session *localagent.Session, plan *storageCellPlan) (*managedStorageProxy, error) {
 	socketPath := storageProxySocketPath(session)
 	if socketPath == "" || plan == nil || len(cfg.Storage.Stores) == 0 {
 		return nil, nil
@@ -71,16 +66,12 @@ func startManagedStorageProxy(ctx context.Context, cfg appcfg.Config, session *l
 	}
 	stores := map[string]publicstorage.Store{}
 	for name, storeCfg := range cfg.Storage.Stores {
-		if strings.TrimSpace(storeCfg.Kind) != "zerofs" {
+		root := plan.storageStoreObjectsDir(name)
+		if err := os.MkdirAll(root, 0o755); err != nil {
 			_ = ln.Close()
-			return nil, fmt.Errorf("storage store %q kind %q is not supported", name, storeCfg.Kind)
+			return nil, err
 		}
-		if strings.TrimSpace(plan.NinePSocket) == "" {
-			_ = ln.Close()
-			return nil, fmt.Errorf("storage store %q requires a managed ZeroFS 9P socket", name)
-		}
-		stores[name] = storagebackend.NewZeroFSStore(name, plan.NinePSocket, storagebackend.ZeroFSStoreOptions{
-			Prefix:         name,
+		stores[name] = storagebackend.NewLocalStoreWithOptions(name, root, storagebackend.LocalStoreOptions{
 			MaxObjectBytes: storeCfg.MaxObjectBytes,
 		})
 	}

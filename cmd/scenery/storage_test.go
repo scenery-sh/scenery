@@ -6,17 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
-
-	"github.com/hugelgupf/p9/fsimpl/localfs"
-	"github.com/hugelgupf/p9/p9"
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
@@ -32,10 +27,9 @@ func TestRunStorageStatus(t *testing.T) {
 		"storage": {
 			"default": "app",
 			"stores": {
-				"app": {"kind": "zerofs", "access": "auth"}
+				"app": {"kind": "local", "access": "auth"}
 			}
-		},
-		"dev": {"services": {"storage": {"kind": "zerofs", "mode": "local"}}}
+		}
 	}`)
 	var out bytes.Buffer
 	if err := runStorageCommand([]string{"status", "--json", "--app-root", root}, &out); err != nil {
@@ -45,21 +39,20 @@ func TestRunStorageStatus(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal(status) error = %v\n%s", err, out.String())
 	}
-	if payload.SchemaVersion != "scenery.storage.status.v1" || !payload.Storage.Configured || payload.Storage.Readiness != "configured" {
+	if payload.SchemaVersion != "scenery.storage.status.v1" || !payload.Storage.Configured {
 		t.Fatalf("payload = %+v", payload)
 	}
-	if len(payload.Stores) != 1 || payload.Stores[0].Name != "app" {
+	if len(payload.Stores) != 1 || payload.Stores[0].Name != "app" || payload.Stores[0].Kind != "local" {
 		t.Fatalf("stores = %+v", payload.Stores)
 	}
 }
 
-func TestRunStorageWebUIReportsMissingRuntimeRoute(t *testing.T) {
+func TestRunStorageWebUIReportsNoManagedUI(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "storageapp",
-		"storage": {"stores": {"app": {"kind": "zerofs"}}},
-		"dev": {"services": {"storage": {"kind": "zerofs"}}}
+		"storage": {"stores": {"app": {"kind": "local"}}}
 	}`)
 	var out bytes.Buffer
 	if err := runStorageCommand([]string{"webui", "--json", "--app-root", root}, &out); err != nil {
@@ -83,10 +76,9 @@ func TestRunStorageObjectCommands(t *testing.T) {
 		"storage": {
 			"default": "app",
 			"stores": {
-				"app": {"kind": "zerofs", "access": "auth"}
+				"app": {"kind": "local", "access": "auth"}
 			}
-		},
-		"dev": {"services": {"storage": {"kind": "zerofs"}}}
+		}
 	}`)
 	source := filepath.Join(t.TempDir(), "report.txt")
 	if err := os.WriteFile(source, []byte("storage report"), 0o644); err != nil {
@@ -164,10 +156,9 @@ func TestRunStoragePutHonorsMaxObjectBytes(t *testing.T) {
 		"storage": {
 			"default": "app",
 			"stores": {
-				"app": {"kind": "zerofs", "access": "auth", "max_object_bytes": 4}
+				"app": {"kind": "local", "access": "auth", "max_object_bytes": 4}
 			}
-		},
-		"dev": {"services": {"storage": {"kind": "zerofs"}}}
+		}
 	}`)
 	source := filepath.Join(t.TempDir(), "too-large.txt")
 	if err := os.WriteFile(source, []byte("storage report"), 0o644); err != nil {
@@ -187,8 +178,7 @@ func TestRunStorageCleanupDefaultsToDryRun(t *testing.T) {
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "storageapp",
-		"storage": {"stores": {"app": {"kind": "zerofs"}}},
-		"dev": {"services": {"storage": {"kind": "zerofs"}}}
+		"storage": {"stores": {"app": {"kind": "local"}}}
 	}`)
 	cellRoot := filepath.Join(agentHome, "agent", "storage", "storageapp")
 	if err := os.MkdirAll(cellRoot, 0o755); err != nil {
@@ -211,53 +201,32 @@ func TestRunStorageCleanupDefaultsToDryRun(t *testing.T) {
 	}
 }
 
-func TestRunStorageCleanupYesRefusesLiveLease(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	agentDone := startTestAgentServer(t, ctx)
-	defer func() {
-		cancel()
-		waitForTestAgentServer(t, agentDone)
-	}()
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRunStorageCleanupYesRemovesCellRoot(t *testing.T) {
+	agentHome := t.TempDir()
+	t.Setenv("SCENERY_AGENT_HOME", agentHome)
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "storageapp",
-		"storage": {"stores": {"app": {"kind": "zerofs"}}},
-		"dev": {"services": {"storage": {"kind": "zerofs"}}}
+		"storage": {"stores": {"app": {"kind": "local"}}}
 	}`)
-	if _, err := client.Register(ctx, localagent.RegisterRequest{
-		BaseAppID: "storageapp",
-		AppRoot:   root,
-		SessionID: "main-live",
-		Status:    "running",
-		OwnerPID:  os.Getpid(),
-		Owner:     localagent.CaptureOwner(os.Getpid(), "test"),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
-		Kind:   managedZeroFSSubstrateKind("storageapp"),
-		Status: "ready",
-		Leases: map[string]localagent.SubstrateLease{
-			"main-live": {
-				SessionID: "main-live",
-				AppRoot:   root,
-				OwnerPID:  os.Getpid(),
-				Owner:     localagent.CaptureOwner(os.Getpid(), "test"),
-			},
-		},
-	}); err != nil {
+	cellRoot := filepath.Join(agentHome, "agent", "storage", "storageapp")
+	if err := os.MkdirAll(filepath.Join(cellRoot, "objects", "app"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	var out bytes.Buffer
-	err = runStorageCommand([]string{"cleanup", "--yes", "--json", "--app-root", root}, &out)
-	if err == nil || !strings.Contains(err.Error(), "live lease") {
-		t.Fatalf("cleanup --yes error = %v, output = %s", err, out.String())
+	if err := runStorageCommand([]string{"cleanup", "--yes", "--json", "--app-root", root}, &out); err != nil {
+		t.Fatalf("storage cleanup --yes error = %v", err)
+	}
+	var payload storageCleanupResponse
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal cleanup: %v\n%s", err, out.String())
+	}
+	if payload.DryRun || !payload.Deleted || payload.Exists {
+		t.Fatalf("cleanup payload = %+v", payload)
+	}
+	if _, err := os.Stat(cellRoot); !os.IsNotExist(err) {
+		t.Fatalf("cleanup --yes did not remove cell root: %v", err)
 	}
 }
 
@@ -269,12 +238,9 @@ func TestStorageCapabilityEnvPointsAtSharedCell(t *testing.T) {
 			CellID:  "shared-cell",
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "zerofs", MaxObjectBytes: 100},
+				"app": {Kind: "local", MaxObjectBytes: 100},
 			},
 		},
-		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"storage": {Kind: "zerofs"},
-		}},
 	}
 	env, err := storageCapabilityEnv(cfg, &localagent.Session{SessionID: "dev", BaseAppID: "storageapp"}, nil, agentHome)
 	if err != nil {
@@ -304,12 +270,9 @@ func TestStorageCapabilityEnvUsesProxyForSessionStateRoot(t *testing.T) {
 			CellID:  "shared-cell",
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "zerofs"},
+				"app": {Kind: "local"},
 			},
 		},
-		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"storage": {Kind: "zerofs"},
-		}},
 	}
 	env, err := storageCapabilityEnv(cfg, &localagent.Session{SessionID: "dev", BaseAppID: "storageapp", StateRoot: stateRoot}, nil, agentHome)
 	if err != nil {
@@ -331,7 +294,7 @@ func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testi
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "zerofs"},
+				"app": {Kind: "local"},
 			},
 		},
 	}
@@ -345,7 +308,7 @@ func TestAppProcessEnvFailsClosedForStorageWithoutExplicitRuntimeConfig(t *testi
 	}
 }
 
-func TestAppProcessEnvAcceptsExplicitStorageRuntimeConfig(t *testing.T) {
+func TestAppProcessEnvAcceptsExplicitProxyStorageRuntimeConfig(t *testing.T) {
 	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"proxy","proxy_socket":"/tmp/storage.sock"}}}`
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
@@ -353,7 +316,7 @@ func TestAppProcessEnvAcceptsExplicitStorageRuntimeConfig(t *testing.T) {
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "zerofs"},
+				"app": {Kind: "local"},
 			},
 		},
 	}
@@ -365,76 +328,48 @@ func TestAppProcessEnvAcceptsExplicitStorageRuntimeConfig(t *testing.T) {
 	if !strings.Contains(joined, storageconfig.RuntimeConfigEnv+"="+raw) {
 		t.Fatalf("env missing explicit runtime config: %v", env)
 	}
-	if strings.Contains(joined, `"kind":"local"`) {
-		t.Fatalf("headless env synthesized local storage config: %v", env)
-	}
 }
 
-func TestAppProcessEnvRejectsExplicitLocalStorageRuntimeConfig(t *testing.T) {
-	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"local","root":"` + t.TempDir() + `"}}}`
+func TestAppProcessEnvAcceptsExplicitLocalStorageRuntimeConfig(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"local","root":"` + dir + `"}}}`
 	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "zerofs"},
+				"app": {Kind: "local"},
 			},
 		},
 	}
-	_, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
-	if err == nil {
-		t.Fatal("appProcessEnv accepted explicit local storage runtime config")
+	env, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
+	if err != nil {
+		t.Fatalf("appProcessEnv rejected explicit local storage runtime config: %v", err)
 	}
-	if !strings.Contains(err.Error(), `must use kind "proxy"`) {
-		t.Fatalf("error = %v", err)
+	if !strings.Contains(strings.Join(env, "\n"), storageconfig.RuntimeConfigEnv+"="+raw) {
+		t.Fatalf("env missing explicit local runtime config: %v", env)
 	}
 }
 
-func TestRequiredManagedZeroFSPreflightFailsWhenToolchainUnavailable(t *testing.T) {
-	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
-	t.Setenv("SCENERY_TOOLCHAIN_DIR", filepath.Join(t.TempDir(), "toolchain"))
-	t.Setenv("SCENERY_TOOLCHAIN_DOWNLOAD", "0")
+func TestAppProcessEnvRejectsRelativeLocalStorageRoot(t *testing.T) {
+	raw := `{"schema_version":"` + storageconfig.RuntimeSchemaVersion + `","cell_id":"prod-cell","stores":{"app":{"kind":"local","root":"relative/path"}}}`
+	t.Setenv(storageconfig.RuntimeConfigEnv, raw)
 	cfg := appcfg.Config{
 		Name: "storageapp",
 		Storage: appcfg.StorageConfig{
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "zerofs"},
+				"app": {Kind: "local"},
 			},
 		},
-		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"storage": {Kind: "zerofs"},
-		}},
 	}
-	root := t.TempDir()
-	err := preflightRequiredManagedDevServices(context.Background(), root, cfg)
+	_, err := appProcessEnv(t.TempDir(), cfg, "json", "production")
 	if err == nil {
-		t.Fatal("preflight succeeded, want required managed ZeroFS toolchain failure")
+		t.Fatal("appProcessEnv accepted relative local storage root")
 	}
-	evidencePath := filepath.Join(root, ".scenery", "evidence", "managed-zerofs-preflight-failure.json")
-	message := err.Error()
-	for _, want := range []string{
-		"dev.services.storage managed ZeroFS preflight failed",
-		`required managed toolchain artifact "zerofs" is unavailable`,
-		"toolchain downloads disabled by SCENERY_TOOLCHAIN_DOWNLOAD=0",
-		"scenery system toolchain sync --tool zerofs",
-		"Evidence: " + evidencePath,
-	} {
-		if !strings.Contains(message, want) {
-			t.Fatalf("preflight error missing %q:\n%s", want, message)
-		}
-	}
-	var evidence managedDevFailureEvidence
-	data, readErr := os.ReadFile(evidencePath)
-	if readErr != nil {
-		t.Fatalf("read preflight evidence: %v", readErr)
-	}
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("unmarshal preflight evidence: %v\n%s", err, data)
-	}
-	if evidence.SchemaVersion != managedDevFailureEvidenceSchema || evidence.Phase != "managed-zerofs.preflight" || evidence.Session.Status != "not_created" || evidence.Substrate.Kind != "zerofs-storageapp" || evidence.Substrate.Component != "zerofs" || evidence.App.Root != root {
-		t.Fatalf("preflight evidence = %+v", evidence)
+	if !strings.Contains(err.Error(), "must be an absolute path") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -452,19 +387,15 @@ func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
 			CellID:  "shared-cell",
 			Default: "app",
 			Stores: map[string]appcfg.StorageStoreConfig{
-				"app": {Kind: "zerofs", MaxObjectBytes: 100},
+				"app": {Kind: "local", MaxObjectBytes: 100},
 			},
 		},
-		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"storage": {Kind: "zerofs"},
-		}},
 	}
 	session := &localagent.Session{SessionID: "dev", BaseAppID: "storageapp", StateRoot: stateRoot}
-	plan, err := resolveManagedZeroFSPlan(cfg, session, nil, agentHome)
+	plan, err := resolveStorageCellPlan(cfg, agentHome)
 	if err != nil {
-		t.Fatalf("resolveManagedZeroFSPlan returned error: %v", err)
+		t.Fatalf("resolveStorageCellPlan returned error: %v", err)
 	}
-	startStorageP9Server(t, plan.NinePSocket, plan.ObjectsDir)
 	proxy, err := startManagedStorageProxy(context.Background(), cfg, session, plan)
 	if err != nil {
 		t.Fatalf("startManagedStorageProxy returned error: %v", err)
@@ -514,6 +445,10 @@ func TestManagedStorageProxyRoundTripThroughPublicStoragePackage(t *testing.T) {
 	}
 	if string(data) != "storage report" || obj.Key != "reports/report.txt" || obj.Metadata["Source"] != "proxy" {
 		t.Fatalf("proxy get data=%q object=%+v", data, obj)
+	}
+	// Objects are plain files under the cell's per-store object root.
+	if _, err := os.Stat(filepath.Join(plan.ObjectsDir, "app", "reports", "report.txt")); err != nil {
+		t.Fatalf("expected object file under cell object root: %v", err)
 	}
 	assertStorageProxyConcurrentIfNoneMatch(t, store)
 	if err := store.Delete(context.Background(), "reports/report.txt"); err != nil {
@@ -567,37 +502,6 @@ func TestStorageProxySocketPathFallsBackToShortTempPath(t *testing.T) {
 	if len(path) > 100 {
 		t.Fatalf("fallback storage proxy path length = %d, want <= 100: %q", len(path), path)
 	}
-}
-
-func startStorageP9Server(t *testing.T, socketPath, root string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Remove(socketPath)
-	ln, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatalf("listen p9 socket: %v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	server := p9.NewServer(localfs.Attacher(root))
-	done := make(chan error, 1)
-	go func() {
-		done <- server.ServeContext(ctx, ln)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		_ = ln.Close()
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Fatal("p9 server did not stop")
-		}
-		_ = os.Remove(socketPath)
-	})
 }
 
 func storageTestEnvValue(t *testing.T, env []string, key string) string {

@@ -140,13 +140,13 @@ func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath strin
 	step.Summary["worktree_a"] = filepath.ToSlash(rootA)
 	step.Summary["worktree_b"] = filepath.ToSlash(rootB)
 	step.Summary["shared_get_output"] = strings.TrimSpace(getOut)
-	realSummary, err := runHarnessRealZeroFSProbe(ctx, repoRoot, sceneryPath, fixtureRoot)
+	restartSummary, err := runHarnessLocalStorageRestartProbe(ctx, repoRoot, sceneryPath, fixtureRoot)
 	if err != nil {
 		step.OK = false
 		step.Error = err.Error()
 		return step
 	}
-	for key, value := range realSummary {
+	for key, value := range restartSummary {
 		step.Summary[key] = value
 	}
 	return step
@@ -163,45 +163,42 @@ func runHarnessStorageProbeCommand(ctx context.Context, repoRoot, agentHome stri
 	return stdout.String(), stderr.String(), err
 }
 
-func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtureRoot string) (map[string]any, error) {
+// runHarnessLocalStorageRestartProbe proves durability of the local storage
+// backend across a full dev-runtime restart: it writes an object through the
+// live app route, stops the runtime with `scenery down`, restarts it, and reads
+// the same object back. Because storage is a plain fsync'd directory tree there
+// is no separate storage process to interrupt; stopping the whole runtime is the
+// strongest crash surface the fixture exercises.
+func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPath, fixtureRoot string) (map[string]any, error) {
 	summary := map[string]any{
-		"real_zerofs_probe": "skipped",
+		"local_storage_restart_probe": "skipped",
 	}
 	baseEnv := envpolicy.Environ()
-	agentHome := filepath.Join(repoRoot, ".scenery", "harness", "storage-real-zerofs-agent-home")
+	agentHome := filepath.Join(repoRoot, ".scenery", "harness", "storage-restart-agent-home")
 	sessionRoot := filepath.Join(fixtureRoot, ".scenery", "sessions", "main-f49603")
-	cleanupHarnessRealZeroFSAgent(ctx, repoRoot, sceneryPath, agentHome, envWithOverrides(baseEnv, "SCENERY_AGENT_HOME="+agentHome))
+	env := envWithOverrides(baseEnv, "SCENERY_AGENT_HOME="+agentHome)
+	cleanupHarnessStorageRestartAgent(ctx, repoRoot, sceneryPath, agentHome, env)
 	if err := os.RemoveAll(agentHome); err != nil {
 		return summary, err
 	}
 	if err := os.RemoveAll(sessionRoot); err != nil {
 		return summary, err
 	}
-	env := envWithOverrides(baseEnv, "SCENERY_AGENT_HOME="+agentHome)
 	upCommand := []string{sceneryPath, "up", "--app-root", fixtureRoot, "--json", "--detach"}
 	upOut, upErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, upCommand)
 	if err != nil {
-		return summary, fmt.Errorf("real ZeroFS scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(upErr, upOut), 8192))
+		return summary, fmt.Errorf("local storage scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(upErr, upOut), 8192))
 	}
 	defer func() {
 		downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "--json"}
 		_, _, _ = runHarnessStorageProbeCommandWithEnv(context.Background(), repoRoot, env, downCommand)
-		cleanupHarnessRealZeroFSAgent(context.Background(), repoRoot, sceneryPath, agentHome, env)
+		cleanupHarnessStorageRestartAgent(context.Background(), repoRoot, sceneryPath, agentHome, env)
 	}()
-	var detach struct {
-		Session struct {
-			StateRoot string `json:"state_root"`
-		} `json:"session"`
+	stateRoot, err := harnessDetachStateRoot(upOut)
+	if err != nil {
+		return summary, err
 	}
-	if err := json.Unmarshal([]byte(upOut), &detach); err != nil {
-		return summary, fmt.Errorf("parse real ZeroFS detach JSON: %w", err)
-	}
-	stateRoot := strings.TrimSpace(detach.Session.StateRoot)
-	if stateRoot == "" {
-		return summary, fmt.Errorf("real ZeroFS detach JSON did not include session.state_root")
-	}
-	socketPath := devAPIUnixSocketPath(stateRoot)
-	probeBody, err := waitForHarnessStorageHTTPProbe(ctx, socketPath, http.MethodPost, 2*time.Minute)
+	probeBody, err := waitForHarnessStorageHTTPProbe(ctx, devAPIUnixSocketPath(stateRoot), http.MethodPost, 2*time.Minute)
 	if err != nil {
 		return summary, err
 	}
@@ -211,73 +208,49 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 		Body      string `json:"body"`
 	}
 	if err := json.Unmarshal([]byte(probeBody), &probe); err != nil {
-		return summary, fmt.Errorf("parse real ZeroFS probe response: %w: %s", err, probeBody)
+		return summary, fmt.Errorf("parse local storage probe response: %w: %s", err, probeBody)
 	}
 	if probe.Key != "probe/public.txt" || probe.Body != "hello public" || probe.SizeBytes != int64(len("hello public")) {
-		return summary, fmt.Errorf("unexpected real ZeroFS probe response: %s", probeBody)
+		return summary, fmt.Errorf("unexpected local storage probe response: %s", probeBody)
 	}
 	inspectCommand := []string{sceneryPath, "inspect", "storage", "--app-root", fixtureRoot, "--json"}
 	inspectOut, inspectErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, inspectCommand)
 	if err != nil {
-		return summary, fmt.Errorf("real ZeroFS inspect storage failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(inspectErr, inspectOut), 8192))
+		return summary, fmt.Errorf("local storage inspect failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(inspectErr, inspectOut), 8192))
 	}
 	var inspect struct {
 		Storage struct {
 			Readiness string `json:"readiness"`
 			Runtime   struct {
-				SubstrateKind string `json:"substrate_kind"`
-				Attached      bool   `json:"attached"`
-				LeaseCount    int    `json:"lease_count"`
+				CellRoot string `json:"cell_root"`
+				Exists   bool   `json:"exists"`
 			} `json:"runtime"`
 		} `json:"storage"`
 	}
 	if err := json.Unmarshal([]byte(inspectOut), &inspect); err != nil {
-		return summary, fmt.Errorf("parse real ZeroFS inspect storage JSON: %w", err)
+		return summary, fmt.Errorf("parse local storage inspect JSON: %w", err)
 	}
-	if inspect.Storage.Readiness != "ready" || !inspect.Storage.Runtime.Attached || inspect.Storage.Runtime.SubstrateKind == "" {
-		return summary, fmt.Errorf("real ZeroFS inspect storage not ready: %s", strings.TrimSpace(inspectOut))
+	if inspect.Storage.Readiness != "ready" || !inspect.Storage.Runtime.Exists || inspect.Storage.Runtime.CellRoot == "" {
+		return summary, fmt.Errorf("local storage inspect not ready: %s", strings.TrimSpace(inspectOut))
 	}
-	summary["real_zerofs_probe"] = "passed"
-	summary["real_zerofs_agent_home"] = filepath.ToSlash(agentHome)
-	if status, err := managedToolchainArtifactStatusInDir(filepath.Join(agentHome, "toolchain"), devZeroFSToolchainArtifact); err == nil {
-		summary["real_zerofs_bin"] = filepath.ToSlash(status.ManagedPath)
-		summary["real_zerofs_toolchain_store"] = filepath.ToSlash(filepath.Join(agentHome, "toolchain"))
-		summary["real_zerofs_toolchain_version"] = status.Version
-	}
-	summary["real_zerofs_response"] = probeBody
-	summary["real_zerofs_readiness"] = inspect.Storage.Readiness
-	summary["real_zerofs_substrate_kind"] = inspect.Storage.Runtime.SubstrateKind
-	summary["real_zerofs_lease_count"] = inspect.Storage.Runtime.LeaseCount
-	zeroFSPID, err := harnessManagedZeroFSPID(ctx, repoRoot, env, sceneryPath, inspect.Storage.Runtime.SubstrateKind)
-	if err != nil {
-		return summary, err
-	}
-	if zeroFSPID <= 0 {
-		return summary, fmt.Errorf("real ZeroFS restart proof could not find managed ZeroFS PID")
-	}
-	if proc, err := os.FindProcess(zeroFSPID); err == nil {
-		_ = proc.Signal(os.Interrupt)
-	}
-	time.Sleep(750 * time.Millisecond)
+	summary["local_storage_probe"] = "passed"
+	summary["local_storage_agent_home"] = filepath.ToSlash(agentHome)
+	summary["local_storage_response"] = probeBody
+	summary["local_storage_readiness"] = inspect.Storage.Readiness
+	summary["local_storage_cell_root"] = inspect.Storage.Runtime.CellRoot
+
+	// Restart the whole runtime and confirm the fsync'd object survived.
 	downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "--json"}
 	if downOut, downErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, downCommand); err != nil {
-		return summary, fmt.Errorf("real ZeroFS restart proof down failed after interrupting pid %d: %s\n%s", zeroFSPID, strings.TrimSpace(err.Error()), tailString(firstNonEmpty(downErr, downOut), 8192))
+		return summary, fmt.Errorf("local storage restart proof down failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(downErr, downOut), 8192))
 	}
 	restartOut, restartErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, upCommand)
 	if err != nil {
-		return summary, fmt.Errorf("real ZeroFS restart scenery up failed after interrupting pid %d: %s\n%s", zeroFSPID, strings.TrimSpace(err.Error()), tailString(firstNonEmpty(restartErr, restartOut), 8192))
+		return summary, fmt.Errorf("local storage restart scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(restartErr, restartOut), 8192))
 	}
-	var restart struct {
-		Session struct {
-			StateRoot string `json:"state_root"`
-		} `json:"session"`
-	}
-	if err := json.Unmarshal([]byte(restartOut), &restart); err != nil {
-		return summary, fmt.Errorf("parse real ZeroFS restart detach JSON: %w", err)
-	}
-	restartStateRoot := strings.TrimSpace(restart.Session.StateRoot)
-	if restartStateRoot == "" {
-		return summary, fmt.Errorf("real ZeroFS restart detach JSON did not include session.state_root")
+	restartStateRoot, err := harnessDetachStateRoot(restartOut)
+	if err != nil {
+		return summary, err
 	}
 	restartProbeBody, err := waitForHarnessStorageHTTPProbe(ctx, devAPIUnixSocketPath(restartStateRoot), http.MethodGet, 2*time.Minute)
 	if err != nil {
@@ -289,41 +262,33 @@ func runHarnessRealZeroFSProbe(ctx context.Context, repoRoot, sceneryPath, fixtu
 		Body      string `json:"body"`
 	}
 	if err := json.Unmarshal([]byte(restartProbeBody), &restartProbe); err != nil {
-		return summary, fmt.Errorf("parse real ZeroFS restart probe response: %w: %s", err, restartProbeBody)
+		return summary, fmt.Errorf("parse local storage restart probe response: %w: %s", err, restartProbeBody)
 	}
 	if restartProbe.Key != probe.Key || restartProbe.Body != probe.Body || restartProbe.SizeBytes != probe.SizeBytes {
-		return summary, fmt.Errorf("unexpected real ZeroFS restart probe response: %s", restartProbeBody)
+		return summary, fmt.Errorf("unexpected local storage restart probe response: %s", restartProbeBody)
 	}
-	summary["real_zerofs_restart_probe"] = "passed"
-	summary["real_zerofs_interrupted_pid"] = zeroFSPID
-	summary["real_zerofs_restart_response"] = restartProbeBody
+	summary["local_storage_restart_probe"] = "passed"
+	summary["local_storage_restart_response"] = restartProbeBody
 	return summary, nil
 }
 
-func harnessManagedZeroFSPID(ctx context.Context, repoRoot string, env []string, sceneryPath, substrateKind string) (int, error) {
-	psCommand := []string{sceneryPath, "ps", "--json"}
-	psOut, psErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, psCommand)
-	if err != nil {
-		return 0, fmt.Errorf("real ZeroFS restart proof ps failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(psErr, psOut), 8192))
+func harnessDetachStateRoot(detachJSON string) (string, error) {
+	var detach struct {
+		Session struct {
+			StateRoot string `json:"state_root"`
+		} `json:"session"`
 	}
-	var status struct {
-		Substrates []struct {
-			Kind string         `json:"kind"`
-			PIDs map[string]int `json:"pids"`
-		} `json:"substrates"`
+	if err := json.Unmarshal([]byte(detachJSON), &detach); err != nil {
+		return "", fmt.Errorf("parse storage detach JSON: %w", err)
 	}
-	if err := json.Unmarshal([]byte(psOut), &status); err != nil {
-		return 0, fmt.Errorf("parse real ZeroFS ps JSON: %w", err)
+	stateRoot := strings.TrimSpace(detach.Session.StateRoot)
+	if stateRoot == "" {
+		return "", fmt.Errorf("storage detach JSON did not include session.state_root")
 	}
-	for _, substrate := range status.Substrates {
-		if substrate.Kind == substrateKind {
-			return firstPositiveInt(substrate.PIDs["zerofs"], 0), nil
-		}
-	}
-	return 0, nil
+	return stateRoot, nil
 }
 
-func cleanupHarnessRealZeroFSAgent(ctx context.Context, repoRoot, sceneryPath, agentHome string, env []string) {
+func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPath, agentHome string, env []string) {
 	if strings.TrimSpace(agentHome) == "" {
 		return
 	}
@@ -410,7 +375,7 @@ func waitForHarnessStorageHTTPProbe(ctx context.Context, socketPath, method stri
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	return "", fmt.Errorf("real ZeroFS storage HTTP probe did not succeed within %s: %v", timeout, lastErr)
+	return "", fmt.Errorf("local storage HTTP probe did not succeed within %s: %v", timeout, lastErr)
 }
 
 func harnessStorageHTTPProbe(ctx context.Context, socketPath, method string) (string, error) {

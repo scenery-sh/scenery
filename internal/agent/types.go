@@ -17,7 +17,6 @@ const (
 	DefaultRouteBaseDomain = "local.dev"
 
 	SubstrateVictoria = "victoria"
-	SubstrateZeroFS   = "zerofs"
 )
 
 type RouteMode string

@@ -4,17 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
-
-	"github.com/hugelgupf/p9/fsimpl/localfs"
-	"github.com/hugelgupf/p9/p9"
 
 	public "scenery.sh/storage"
 )
@@ -173,89 +168,6 @@ func TestLocalStoreIfNoneMatchConcurrent(t *testing.T) {
 	assertConcurrentIfNoneMatch(t, NewLocalStore("app", t.TempDir()))
 }
 
-func TestZeroFSStoreUsesP9Socket(t *testing.T) {
-	ctx := context.Background()
-	shortRoot, err := os.MkdirTemp("/tmp", "scn-zerofs-store-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(shortRoot) })
-	root := filepath.Join(shortRoot, "objects")
-	socketPath := filepath.Join(shortRoot, "zerofs.9p.sock")
-	startTestP9Server(t, socketPath, root)
-	store := NewZeroFSStore("app", socketPath, ZeroFSStoreOptions{Prefix: "app", MaxObjectBytes: 64})
-	if _, err := store.Put(ctx, "artifacts/report.txt", strings.NewReader("report"), public.PutOptions{
-		ContentType: "application/x-report",
-		Metadata:    map[string]string{"source": "zerofs"},
-	}); err != nil {
-		t.Fatalf("Put returned error: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(root, "app", "artifacts", "report.txt"))
-	if err != nil {
-		t.Fatalf("ReadFile returned error: %v", err)
-	}
-	if string(data) != "report" {
-		t.Fatalf("file data = %q", data)
-	}
-	page, err := store.List(ctx, public.ListOptions{Prefix: "artifacts/"})
-	if err != nil {
-		t.Fatalf("List returned error: %v", err)
-	}
-	if len(page.Objects) != 1 || page.Objects[0].Key != "artifacts/report.txt" || page.Objects[0].Metadata["source"] != "zerofs" {
-		t.Fatalf("page = %+v", page)
-	}
-	rc, obj, err := store.Get(ctx, "artifacts/report.txt", public.GetOptions{})
-	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	got, err := io.ReadAll(rc)
-	_ = rc.Close()
-	if err != nil {
-		t.Fatalf("ReadAll returned error: %v", err)
-	}
-	if string(got) != "report" || obj.SizeBytes != 6 || obj.SHA256 == "" || obj.ContentType != "application/x-report" || obj.Metadata["source"] != "zerofs" {
-		t.Fatalf("get data = %q object = %+v", got, obj)
-	}
-	offset, length := int64(3), int64(99)
-	rc, obj, err = store.Get(ctx, "artifacts/report.txt", public.GetOptions{Offset: &offset, Length: &length})
-	if err != nil {
-		t.Fatalf("Get long range returned error: %v", err)
-	}
-	got, err = io.ReadAll(rc)
-	_ = rc.Close()
-	if err != nil {
-		t.Fatalf("ReadAll long range returned error: %v", err)
-	}
-	if string(got) != "ort" || obj.SizeBytes != 3 {
-		t.Fatalf("long range data = %q object = %+v", got, obj)
-	}
-	if _, err := store.Put(ctx, "artifacts/report.txt", strings.NewReader(strings.Repeat("x", 65)), public.PutOptions{}); err == nil {
-		t.Fatal("oversized Put returned nil error")
-	}
-	rc, _, err = store.Get(ctx, "artifacts/report.txt", public.GetOptions{})
-	if err != nil {
-		t.Fatalf("Get after oversized Put returned error: %v", err)
-	}
-	got, err = io.ReadAll(rc)
-	_ = rc.Close()
-	if err != nil {
-		t.Fatalf("ReadAll after oversized Put returned error: %v", err)
-	}
-	if string(got) != "report" {
-		t.Fatalf("oversized Put corrupted existing object: %q", got)
-	}
-	assertConcurrentIfNoneMatch(t, store)
-	if err := store.Delete(ctx, "artifacts/report.txt"); err != nil {
-		t.Fatalf("Delete returned error: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "app", "artifacts", "report.txt")); !os.IsNotExist(err) {
-		t.Fatalf("file after delete stat err = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "app", "__scenery", "metadata", "artifacts", "report.txt.json")); !os.IsNotExist(err) {
-		t.Fatalf("metadata sidecar after delete stat err = %v", err)
-	}
-}
-
 func assertConcurrentIfNoneMatch(t *testing.T, store public.Store) {
 	t.Helper()
 	var success int32
@@ -282,35 +194,4 @@ func assertConcurrentIfNoneMatch(t *testing.T, store public.Store) {
 	if success != 1 {
 		t.Fatalf("successful IfNoneMatch writes = %d, want 1", success)
 	}
-}
-
-func startTestP9Server(t *testing.T, socketPath, root string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Remove(socketPath)
-	ln, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatalf("listen p9 socket: %v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	server := p9.NewServer(localfs.Attacher(root))
-	done := make(chan error, 1)
-	go func() {
-		done <- server.ServeContext(ctx, ln)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		_ = ln.Close()
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Fatal("p9 server did not stop")
-		}
-		_ = os.Remove(socketPath)
-	})
 }

@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0091 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0091-local-storage-and-zerofs-removal.md)
+  - Status: active
+  - Owner: scenery runtime / storage
+  - Created: 2026-07-02
+  - Focus: promote the local filesystem storage backend to a production-supported kind with a documented rclone/restic S3 replication recipe, and remove ZeroFS entirely (adapter, managed dev service, toolchain artifact, p9 dependency, docs, schemas, harness surfaces).
 - [0090 Local Path Routing and Per-Runtime Dev Ports](0090-local-path-routing.md)
   - Status: active
   - Owner: scenery runtime / agent DX

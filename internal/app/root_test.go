@@ -210,23 +210,10 @@ func TestDiscoverRootAcceptsStorageConfig(t *testing.T) {
 			"default": "app",
 			"stores": {
 				"app": {
-					"kind": "zerofs",
+					"kind": "local",
 					"access": "auth",
 					"tenant_scoped": true,
 					"max_object_bytes": 1073741824
-				}
-			}
-		},
-		"dev": {
-			"services": {
-				"storage": {
-					"kind": "zerofs",
-					"mode": "local",
-					"route": "storage",
-					"image": "ghcr.io/zerofs/zerofs:latest",
-					"env": {
-						"ZEROFS_WEBUI": "true"
-					}
 				}
 			}
 		}
@@ -240,11 +227,8 @@ func TestDiscoverRootAcceptsStorageConfig(t *testing.T) {
 		t.Fatalf("StorageCellID = %q, want onlv", got)
 	}
 	store := cfg.Storage.Stores["app"]
-	if cfg.Storage.Default != "app" || store.Kind != "zerofs" || store.Access != "auth" || !store.TenantScoped || store.MaxObjectBytes != 1073741824 {
+	if cfg.Storage.Default != "app" || store.Kind != "local" || store.Access != "auth" || !store.TenantScoped || store.MaxObjectBytes != 1073741824 {
 		t.Fatalf("storage = %+v store = %+v", cfg.Storage, store)
-	}
-	if cfg.Dev.Services["storage"].Kind != "zerofs" {
-		t.Fatalf("dev storage service = %+v", cfg.Dev.Services["storage"])
 	}
 }
 
@@ -337,7 +321,7 @@ func TestDiscoverRootRejectsInvalidStorageConfig(t *testing.T) {
 			"storage": {
 				"stores": {
 					"app": {
-						"kind": "zerofs",
+						"kind": "local",
 						"bucket": "example"
 					}
 				}
@@ -389,7 +373,7 @@ func TestDiscoverRootRejectsInvalidStorageConfig(t *testing.T) {
 				"default": "missing",
 				"stores": {
 					"app": {
-						"kind": "zerofs"
+						"kind": "local"
 					}
 				}
 			}
@@ -399,6 +383,27 @@ func TestDiscoverRootRejectsInvalidStorageConfig(t *testing.T) {
 			t.Fatalf("DiscoverRoot default error = %v", err)
 		}
 	})
+}
+
+func TestDiscoverRootAcceptsEmptyStorageKindAsLocal(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{
+		"name": "storageapp",
+		"storage": {
+			"stores": {
+				"app": {
+					"access": "auth"
+				}
+			}
+		}
+	}`)
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if store := cfg.Storage.Stores["app"]; store.Kind != "" {
+		t.Fatalf("store kind = %q, want empty (treated as local)", store.Kind)
+	}
 }
 
 func writeAppTestFile(t *testing.T, root, rel, contents string) {

@@ -95,12 +95,8 @@ Managed toolchain artifacts come from `scenery.toolchain.json` and manifest-driv
 
 | Variable | Direction | Description |
 | --- | --- | --- |
-| `SCENERY_STORAGE_CONFIG` | injected/user input | App-facing storage capability config consumed by `scenery.sh/storage`. Dev sessions inject it; headless runtimes require an explicit operator-provided proxy config. It contains configured store names and Scenery-owned backend metadata such as a proxy socket, not raw object-store credentials. |
+| `SCENERY_STORAGE_CONFIG` | injected/user input | App-facing storage capability config consumed by `scenery.sh/storage`. Dev sessions inject it; headless runtimes require an explicit operator-provided config whose stores use `kind: "local"` (absolute `root`) or `kind: "proxy"` (`proxy_socket`). It contains configured store names and Scenery-owned backend metadata, not raw object-store credentials. |
 | `SCENERY_STORAGE_CELL_ID` | injected | Stable shared storage cell ID for the app's configured storage capability. |
-| `SCENERY_STORAGE_CELL_ROOT` | injected | Scenery-owned shared storage-cell root used to expand managed ZeroFS service env. App code should use `scenery.sh/storage` instead of this substrate path. |
-| `SCENERY_STORAGE_ZEROFS_CONFIG` | injected | Path to the Scenery-written `0600` ZeroFS TOML for the managed ZeroFS process. Substrate/debug metadata only. |
-| `SCENERY_ZEROFS_WEBUI_ADDR` | injected | Private loopback ZeroFS Web UI listener address for the managed ZeroFS process. Substrate/debug metadata only. |
-| `SCENERY_ZEROFS_WEBUI_URL` | injected | Protected Scenery route URL for the ZeroFS operator/debug Web UI when a storage route is attached to the current dev session. |
 
 ## Observability And Victoria
 

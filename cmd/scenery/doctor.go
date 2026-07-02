@@ -20,7 +20,6 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/envpolicy"
 )
 
 const (
@@ -144,7 +143,6 @@ type doctorAppFeatures struct {
 	DockerRelevant       bool
 	DatabaseApplyCommand bool
 	StorageConfigured    bool
-	ManagedZeroFS        bool
 }
 
 func doctorCommand(args []string) error {
@@ -329,7 +327,6 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 
 	features := doctorFeatures(cfg, resp.App)
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
-	resp.Checks = append(resp.Checks, doctorStorageRuntimeChecks(ctx, deps, features, appFound)...)
 	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
 
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
@@ -626,61 +623,9 @@ func doctorFeatures(cfg appcfg.Config, app *doctorAppInfo) doctorAppFeatures {
 	features.AtlasRelevant = sqlcUsesAtlas(cfg.Generators.SQLC)
 	features.DatabaseApplyCommand = strings.TrimSpace(cfg.Database.Apply.Command) != ""
 	features.StorageConfigured = len(cfg.Storage.Stores) > 0
-	_, _, features.ManagedZeroFS = managedZeroFSDeclared(cfg)
 	features.DockerRelevant = appUsesDocker(cfg)
 	features.TypeScriptTasks = appHasTypeScriptTasks(app.Root)
 	return features
-}
-
-func doctorStorageRuntimeChecks(ctx context.Context, deps doctorProbeDeps, features doctorAppFeatures, appFound bool) []doctorCheck {
-	if !appFound || !features.StorageConfigured || !features.ManagedZeroFS {
-		return nil
-	}
-	check := doctorCheck{
-		ID:       "storage.zerofs_toolchain",
-		Category: "storage",
-		Name:     "ZeroFS toolchain",
-		Status:   doctorStatusOK,
-		Severity: doctorSeverityOptional,
-		Observed: map[string]any{
-			"artifact": devZeroFSToolchainArtifact,
-		},
-	}
-	agentHome, err := deps.AgentHome()
-	if err != nil {
-		check.Status = doctorStatusWarn
-		check.Message = "storage is configured with managed ZeroFS, but the Scenery agent home could not be resolved: " + err.Error()
-		check.SuggestedAction = "Fix SCENERY_AGENT_HOME or run `scenery doctor --json` from a normal user shell."
-		return []doctorCheck{check}
-	}
-	storeDir := zeroFSToolchainStoreDir(localagent.PathsForHome(agentHome))
-	check.Observed["store_dir"] = storeDir
-	status, err := managedToolchainArtifactStatusInDir(storeDir, devZeroFSToolchainArtifact)
-	if status.Name != "" {
-		check.Observed["status"] = status.Status
-		check.Observed["version"] = status.Version
-		if status.ManagedPath != "" {
-			check.Observed["path"] = status.ManagedPath
-		}
-	}
-	if err == nil && status.ManagedPath != "" && isExecutableFile(status.ManagedPath) {
-		check.Message = "managed ZeroFS is installed at " + status.ManagedPath
-		return []doctorCheck{check}
-	}
-	if isFalseEnv(envpolicy.Get("SCENERY_TOOLCHAIN_DOWNLOAD")) {
-		check.Status = doctorStatusWarn
-		check.Message = "managed ZeroFS is not installed and toolchain downloads are disabled"
-		check.SuggestedAction = "Enable toolchain downloads or run `scenery system toolchain sync --tool zerofs` before `scenery up`."
-		return []doctorCheck{check}
-	}
-	if err != nil && status.Name == "" {
-		check.Status = doctorStatusWarn
-		check.Message = "managed ZeroFS toolchain status could not be inspected: " + err.Error()
-		check.SuggestedAction = "Run `scenery system toolchain sync --tool zerofs` to repair the managed toolchain store."
-		return []doctorCheck{check}
-	}
-	check.Message = "managed ZeroFS will sync from the bundled toolchain manifest when `scenery up` needs it"
-	return []doctorCheck{check}
 }
 
 func sqlcGeneratorConfigured(cfg appcfg.SQLCGeneratorConfig) bool {

@@ -6,24 +6,10 @@
     "default": "app",
     "stores": {
       "app": {
-        "kind": "zerofs",
+        "kind": "local",
         "access": "auth",
         "tenant_scoped": true,
         "max_object_bytes": 10485760
-      }
-    }
-  },
-  "dev": {
-    "services": {
-      "storage": {
-        "kind": "zerofs",
-        "mode": "local",
-        "route": "storage",
-        "env": {
-          "ZEROFS_STORAGE_URL": "file://${SCENERY_STORAGE_CELL_ROOT}/objects",
-          "ZEROFS_CACHE_DIR": "${SCENERY_STORAGE_CELL_ROOT}/cache",
-          "ZEROFS_WEBUI": "true"
-        }
       }
     }
   }

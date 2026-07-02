@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
@@ -118,11 +117,10 @@ type durableServiceRecord struct {
 }
 
 type inspectStorageResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	App           inspectdata.AppRef     `json:"app"`
-	Storage       inspectStorageRecord   `json:"storage"`
-	Stores        []inspectStorageStore  `json:"stores"`
-	DevService    *inspectStorageService `json:"dev_service,omitempty"`
+	SchemaVersion string                `json:"schema_version"`
+	App           inspectdata.AppRef    `json:"app"`
+	Storage       inspectStorageRecord  `json:"storage"`
+	Stores        []inspectStorageStore `json:"stores"`
 }
 
 type inspectStorageRecord struct {
@@ -140,34 +138,14 @@ type inspectStorageStore struct {
 	Access         string `json:"access"`
 	TenantScoped   bool   `json:"tenant_scoped"`
 	MaxObjectBytes int64  `json:"max_object_bytes,omitempty"`
-}
-
-type inspectStorageService struct {
-	Name  string            `json:"name"`
-	Kind  string            `json:"kind"`
-	Mode  string            `json:"mode,omitempty"`
-	Route string            `json:"route,omitempty"`
-	Image string            `json:"image,omitempty"`
-	Env   map[string]string `json:"env,omitempty"`
+	ObjectCount    int    `json:"object_count"`
+	TotalBytes     int64  `json:"total_bytes"`
 }
 
 type inspectStorageRuntime struct {
-	SubstrateKind   string                `json:"substrate_kind,omitempty"`
-	SubstrateStatus string                `json:"substrate_status,omitempty"`
-	Route           string                `json:"route,omitempty"`
-	WebUIURL        string                `json:"webui_url,omitempty"`
-	Attached        bool                  `json:"attached,omitempty"`
-	LeaseCount      int                   `json:"lease_count,omitempty"`
-	Leases          []inspectStorageLease `json:"leases,omitempty"`
-}
-
-type inspectStorageLease struct {
-	SessionID string `json:"session_id"`
-	AppRoot   string `json:"app_root,omitempty"`
-	Route     string `json:"route,omitempty"`
-	URL       string `json:"url,omitempty"`
-	OwnerPID  int    `json:"owner_pid,omitempty"`
-	Live      bool   `json:"live"`
+	CellRoot   string `json:"cell_root,omitempty"`
+	ObjectsDir string `json:"objects_dir,omitempty"`
+	Exists     bool   `json:"exists"`
 }
 
 func inspectCommand(args []string) error {
@@ -599,144 +577,73 @@ func buildInspectPathsResponse(appRoot string, cfg appcfg.Config) (inspectPathsR
 }
 
 func buildInspectStorageResponse(ctx context.Context, appRoot string, cfg appcfg.Config) inspectStorageResponse {
+	_ = ctx
 	storage := inspectStorageRecord{Configured: len(cfg.Storage.Stores) > 0, Readiness: "not_configured"}
+	plan, planErr := resolveStorageCellPlan(cfg, "")
 	if storage.Configured {
 		storage.CellID = cfg.StorageCellID()
 		storage.Share = firstNonEmpty(strings.TrimSpace(cfg.Storage.Share), "worktree")
 		storage.Default = strings.TrimSpace(cfg.Storage.Default)
 		storage.Readiness = "configured"
+		if planErr == nil && plan != nil {
+			runtime := &inspectStorageRuntime{CellRoot: filepath.ToSlash(plan.CellRoot), ObjectsDir: filepath.ToSlash(plan.ObjectsDir)}
+			if info, err := os.Stat(plan.ObjectsDir); err == nil && info.IsDir() {
+				runtime.Exists = true
+				storage.Readiness = "ready"
+			}
+			storage.Runtime = runtime
+		}
 	}
 	stores := make([]inspectStorageStore, 0, len(cfg.Storage.Stores))
 	for name, store := range cfg.Storage.Stores {
-		stores = append(stores, inspectStorageStore{
+		record := inspectStorageStore{
 			Name:           name,
-			Kind:           strings.TrimSpace(store.Kind),
+			Kind:           firstNonEmpty(strings.TrimSpace(store.Kind), "local"),
 			Access:         firstNonEmpty(strings.TrimSpace(store.Access), "auth"),
 			TenantScoped:   store.TenantScoped,
 			MaxObjectBytes: store.MaxObjectBytes,
-		})
+		}
+		if planErr == nil && plan != nil {
+			record.ObjectCount, record.TotalBytes = storageStoreUsage(plan.storageStoreObjectsDir(name))
+		}
+		stores = append(stores, record)
 	}
 	sort.Slice(stores, func(i, j int) bool { return stores[i].Name < stores[j].Name })
 
-	var service *inspectStorageService
-	if name, svc, ok := managedZeroFSDeclared(cfg); ok {
-		service = &inspectStorageService{
-			Name:  name,
-			Kind:  firstNonEmpty(strings.TrimSpace(svc.Kind), "zerofs"),
-			Mode:  strings.TrimSpace(svc.Mode),
-			Route: strings.TrimSpace(svc.Route),
-			Image: strings.TrimSpace(svc.Image),
-			Env:   redactedInspectEnv(svc.Env),
-		}
-	}
-	if storage.Configured {
-		if runtime := inspectStorageRuntimeState(ctx, appRoot, cfg, service); runtime != nil {
-			storage.Runtime = runtime
-			switch runtime.SubstrateStatus {
-			case "running", "ready":
-				storage.Readiness = "ready"
-			case "degraded", "exited", "error", "failed":
-				storage.Readiness = "error"
-			}
-		}
-	}
 	return inspectStorageResponse{
 		SchemaVersion: "scenery.storage.inspect.v1",
 		App:           inspectAppInfo(appRoot, cfg, nil),
 		Storage:       storage,
 		Stores:        stores,
-		DevService:    service,
 	}
 }
 
-func inspectStorageRuntimeState(ctx context.Context, appRoot string, cfg appcfg.Config, service *inspectStorageService) *inspectStorageRuntime {
-	client, err := localagent.DefaultClient()
-	if err != nil {
+// storageStoreUsage counts the object files under a store's on-disk root,
+// excluding Scenery-owned sidecar metadata. Missing directories report zero.
+func storageStoreUsage(root string) (int, int64) {
+	if strings.TrimSpace(root) == "" {
+		return 0, 0
+	}
+	var count int
+	var total int64
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		if strings.HasPrefix(filepath.ToSlash(rel), "__scenery/") {
+			return nil
+		}
+		count++
+		if info, infoErr := d.Info(); infoErr == nil {
+			total += info.Size()
+		}
 		return nil
-	}
-	defer client.CloseIdleConnections()
-	kind := managedZeroFSSubstrateKind(cfg.StorageCellID())
-	substrate, err := client.GetSubstrate(ctx, kind)
-	if err != nil {
-		return nil
-	}
-	runtime := &inspectStorageRuntime{
-		SubstrateKind:   substrate.Kind,
-		SubstrateStatus: substrate.Status,
-		WebUIURL:        strings.TrimSpace(substrate.URLs["webui"]),
-	}
-	route := devZeroFSDefaultRoute
-	if service != nil && strings.TrimSpace(service.Route) != "" {
-		route = localagentLabel(service.Route)
-	}
-	runtime.Route = route
-	session, err := currentAgentSessionForAppRootWithClient(ctx, client, appRoot)
-	if err == nil && session != nil {
-		if backend, ok := session.Backends[route]; ok && backend.Network == "tcp" && strings.TrimSpace(backend.Addr) != "" {
-			runtime.Attached = true
-		}
-		if url := strings.TrimSpace(session.Routes[route]); url != "" {
-			runtime.WebUIURL = url
-		}
-	}
-	runtime.Leases = inspectStorageLeases(ctx, client, substrate.Leases)
-	runtime.LeaseCount = len(runtime.Leases)
-	return runtime
-}
-
-func inspectStorageLeases(ctx context.Context, client *localagent.Client, leases map[string]localagent.SubstrateLease) []inspectStorageLease {
-	if len(leases) == 0 {
-		return nil
-	}
-	sessions, _ := client.List(ctx, "")
-	liveBySession := map[string]bool{}
-	for _, session := range sessions {
-		if strings.TrimSpace(session.SessionID) == "" {
-			continue
-		}
-		_, live := sessionOwnerProcessLive(session)
-		liveBySession[session.SessionID] = live
-	}
-	ids := make([]string, 0, len(leases))
-	for id := range leases {
-		if strings.TrimSpace(id) != "" {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	out := make([]inspectStorageLease, 0, len(ids))
-	for _, id := range ids {
-		lease := leases[id]
-		sessionID := strings.TrimSpace(firstNonEmpty(lease.SessionID, id))
-		if sessionID == "" {
-			continue
-		}
-		out = append(out, inspectStorageLease{
-			SessionID: sessionID,
-			AppRoot:   strings.TrimSpace(lease.AppRoot),
-			Route:     strings.TrimSpace(lease.Route),
-			URL:       strings.TrimSpace(lease.URL),
-			OwnerPID:  firstPositiveInt(lease.OwnerPID, lease.Owner.PID),
-			Live:      liveBySession[sessionID],
-		})
-	}
-	return out
-}
-
-func redactedInspectEnv(env map[string]string) map[string]string {
-	if len(env) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(env))
-	for key := range env {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	out := make(map[string]string, len(keys))
-	for _, key := range keys {
-		out[key] = "<redacted>"
-	}
-	return out
+	})
+	return count, total
 }
 
 func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, appModel *model.App) inspectDurableResponse {

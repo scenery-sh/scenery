@@ -21,8 +21,7 @@ scenery harness self --summary
 - [Architecture](../ARCHITECTURE.md): high-level repo map, boundaries, and architectural invariants.
 - [Local Contract](local-contract.md): CLI grammar, stable JSON schemas, generated artifacts, and local runtime contracts.
 - [Environment Reference](environment.md): scenery-owned env vars, app-injected env, and local override escape hatches.
-- [App Development Cookbook](app-development-cookbook.md): practical recipes for building scenery apps.
-- [ZeroFS Legal Posture](zerofs-legal.md): current licensing gate for managed ZeroFS storage.
+- [App Development Cookbook](app-development-cookbook.md): practical recipes for building scenery apps, including single-server storage with offsite S3 replication.
 - [Harness Engineering](harness-engineering.md): agent validation loop, harness outputs, and self-harness expectations.
 - [Execution Plan Standard](../PLANS.md): required structure for long-running agent-executable implementation plans.
 

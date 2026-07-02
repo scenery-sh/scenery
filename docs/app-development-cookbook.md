@@ -101,34 +101,27 @@ Declare Scenery-owned storage in app config:
     "default": "app",
     "stores": {
       "app": {
-        "kind": "zerofs",
+        "kind": "local",
         "access": "auth",
         "tenant_scoped": true,
         "max_object_bytes": 104857600
-      }
-    }
-  },
-  "dev": {
-    "services": {
-      "storage": {
-        "kind": "zerofs",
-        "mode": "local",
-        "route": "storage",
-        "env": {
-          "AWS_REGION": "us-east-1"
-        }
       }
     }
   }
 }
 ```
 
-The app-facing storage API is production-supported when headless `scenery serve`
-or standalone `scenery worker` receives an explicit operator-provided
-`SCENERY_STORAGE_CONFIG` whose stores use `kind: "proxy"` and `proxy_socket`.
-Managed ZeroFS remains the beta local-dev path behind `scenery up`; headless
-runtimes reject missing or local-root storage config instead of silently creating
-local storage.
+The `local` backend is a Scenery-owned directory tree with atomic temp-file+rename
+writes, checked fsync on objects and their parent directories, and sidecar
+object metadata. It needs no managed process, toolchain artifact, or dev-service
+declaration: declaring `storage.stores` is enough, and `scenery up` serves the
+stores from the local backend over a session-local proxy.
+
+For a headless `scenery serve` or standalone `scenery worker`, set an explicit
+`SCENERY_STORAGE_CONFIG` whose stores use either `kind: "local"` with an absolute
+`root`, or `kind: "proxy"` with a `proxy_socket` pointing at an operator-owned
+storage runtime. Headless runtimes fail closed when storage is declared but the
+config is missing or empty.
 
 Inspect and exercise the configured store through Scenery JSON surfaces:
 
@@ -144,7 +137,7 @@ scenery storage rm app uploads/ --recursive --json
 scenery storage cleanup --json
 ```
 
-App code launched by Scenery can import `scenery.sh/storage` and call `storage.Default(ctx)` or `storage.Named(ctx, "app")`. The package reads Scenery-injected capability metadata and talks to the configured proxy socket. In agent-backed dev sessions, that proxy speaks to the managed ZeroFS 9P Unix socket; app code should not depend on Scenery agent-state paths, ZeroFS sockets, proxy sockets, or object directories.
+App code launched by Scenery can import `scenery.sh/storage` and call `storage.Default(ctx)` or `storage.Named(ctx, "app")`. The package reads Scenery-injected capability metadata and talks to the configured proxy socket. App code should not depend on Scenery agent-state paths, proxy sockets, or object directories.
 
 For stores with `tenant_scoped: true`, caller-visible keys stay unchanged while Scenery stores them under a tenant namespace. Authenticated HTTP storage routes derive the tenant from standard auth data. Private/internal calls must pass a standard-auth request context or wrap the context with `storage.WithTenantID(ctx, tenantID)`.
 
@@ -152,7 +145,56 @@ For stores with `tenant_scoped: true`, caller-visible keys stay unchanged while 
 
 For beta import/export checks, use `put` to import files, `ls`/`stat` to verify object metadata and checksums, `get` to export bytes, and `rm --recursive` to roll back a test prefix. This is a single-object/prefix operational proof, not a production backup system.
 
-When a managed ZeroFS storage cell is attached, `scenery inspect storage --json` and `scenery storage status --json` include runtime lease ownership. `scenery down` releases only the current session's storage lease. `scenery storage cleanup --json` reports the shared storage cell without deleting it; add `--yes` only after live leases are gone.
+`scenery inspect storage --json` and `scenery storage status --json` report the storage-cell path and per-store object counts and total bytes. `scenery storage cleanup --json` reports the shared storage cell without deleting it; add `--yes` to remove the storage-cell directory.
+
+### Single-server production storage with offsite S3 replication
+
+The `local` backend is a plain directory tree, which makes offsite durability an
+operator recipe rather than a Scenery subsystem. On a single server, keep the
+local store hot (fast, fsync-durable) and replicate the storage-cell object
+directories to S3 on a timer. Replicate the **whole** store root so the
+`__scenery/metadata/` sidecars travel with their objects.
+
+Find the store root from `scenery inspect storage --json` (`storage.runtime.objects_dir`,
+with a per-store subdirectory), or point at an explicit `root` from your headless
+`SCENERY_STORAGE_CONFIG`. Then, with `rclone`:
+
+```sh
+# One-way mirror of the store root to a bucket/prefix (includes sidecars).
+rclone sync /var/lib/files-app/storage/files-app/objects/app \
+  s3:my-bucket/files-app/app --transfers 8 --fast-list
+```
+
+Drive it from a systemd timer (or cron) every few minutes:
+
+```ini
+# /etc/systemd/system/files-app-storage-sync.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rclone sync /var/lib/files-app/storage/files-app/objects/app s3:my-bucket/files-app/app --transfers 8 --fast-list
+
+# /etc/systemd/system/files-app-storage-sync.timer
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+```
+
+`restic` is a good alternative when you want deduplicated, encrypted, point-in-time
+snapshots instead of a live mirror:
+
+```sh
+restic -r s3:s3.amazonaws.com/my-bucket/files-app backup \
+  /var/lib/files-app/storage/files-app/objects/app
+```
+
+Restore drill: stop the app, restore the mirror/snapshot back into an empty store
+root (`rclone sync s3:my-bucket/files-app/app <root>` or `restic restore latest --target <root>`),
+then start the app and confirm `scenery storage ls app --json` and a `get` return
+the expected objects and metadata. Replication is asynchronous, so objects written
+since the last sync can be lost on host loss; size the interval to your tolerated
+data-loss window.
 
 When storage is configured, the app runtime also exposes auth-protected object routes for browser code:
 

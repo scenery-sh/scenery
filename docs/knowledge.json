@@ -24,8 +24,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-05-31",
-      "review_after": "2026-06-30",
+      "last_reviewed": "2026-07-02",
+      "review_after": "2026-08-02",
       "summary": "Human entry point for the repo knowledge base, with explicit agent entry points and current-contract guidance.",
       "tags": [
         "docs",
@@ -79,7 +79,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, storage inspection and leases, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, local filesystem storage inspection with offsite S3 replication, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -117,7 +117,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, storage inspect/CLI lease surfaces, required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, internal dashboard cache artifacts including Symphony SQLite, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, internal dashboard cache artifacts including Symphony SQLite, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -187,7 +187,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, storage config/CLI/lease schemas including required ZeroFS toolchain preflight, bounded readiness diagnostics, structured dev failure evidence artifacts, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -209,7 +209,6 @@
         "docs/schemas/scenery.worktree.create.v1.schema.json",
         "docs/schemas/scenery.worktree.list.v1.schema.json",
         "docs/schemas/scenery.worktree.remove.v1.schema.json",
-        "docs/schemas/scenery.dev.failure.v1.schema.json",
         "docs/schemas/scenery.harness.artifact.v1.schema.json",
         "docs/schemas/scenery.harness.self.summary.v1.schema.json",
         "docs/schemas/scenery.inspect.harness.v1.schema.json",
@@ -269,8 +268,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-06-01",
-      "review_after": "2026-07-01",
+      "last_reviewed": "2026-07-02",
+      "review_after": "2026-08-02",
       "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including remote durable worker endpoint/token/service variables.",
       "tags": [
         "environment",
@@ -292,7 +291,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-10",
       "review_after": "2026-07-07",
-      "summary": "Agent validation loop, shared harness evidence model, structured dev failure evidence, agent-context handoff file, browser UI harness route journeys and DOM artifacts, managed SQLite branch self-harness proof, and doc-gardening rules for review-due and drift handling.",
+      "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, managed SQLite branch self-harness proof, local storage restart durability proof, and doc-gardening rules for review-due and drift handling.",
       "tags": [
         "harness",
         "agents",
@@ -300,30 +299,11 @@
       ],
       "schema_refs": [
         "docs/schemas/scenery.harness.artifact.v1.schema.json",
-        "docs/schemas/scenery.dev.failure.v1.schema.json",
         "docs/schemas/scenery.harness.self.summary.v1.schema.json",
         "docs/schemas/scenery.inspect.harness.v1.schema.json",
         "docs/schemas/scenery.agent_context.v1.schema.json",
         "docs/schemas/scenery.harness.ui.v1.schema.json",
         "docs/schemas/scenery.harness.ui.dom.v1.schema.json"
-      ]
-    },
-    {
-      "path": "docs/zerofs-legal.md",
-      "title": "ZeroFS Legal Posture",
-      "owner": "scenery maintainers",
-      "status": "active",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-26",
-      "review_after": "2026-07-26",
-      "summary": "Current legal posture for the AGPL-licensed pinned ZeroFS toolchain artifact and the production-readiness release gate for managed storage.",
-      "tags": [
-        "storage",
-        "zerofs",
-        "legal",
-        "toolchain",
-        "release"
       ]
     },
     {
@@ -333,8 +313,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-06-08",
-      "review_after": "2026-07-01",
+      "last_reviewed": "2026-07-02",
+      "review_after": "2026-08-02",
       "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, durable workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
@@ -548,7 +528,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Completed ExecPlan that promoted the app-facing storage API/runtime-route contract for operator-provided proxy-backed production use while keeping managed ZeroFS and storage CLI/inspect surfaces beta local-dev/operator tooling, with tenant enforcement, durable metadata, atomic writes, crash/restart proof, fail-closed headless config, legal boundaries, cleanup and migration proof.",
+      "summary": "Completed ExecPlan that hardened the app-facing storage API/runtime-route contract (tenant enforcement, durable metadata, atomic writes, crash/restart proof, fail-closed headless config, cleanup and migration proof). Superseded by plan 0091, which removed ZeroFS entirely and promoted the local filesystem backend to a production-supported kind; current contract lives in docs/local-contract.md.",
       "tags": [
         "plans",
         "execplans",
@@ -846,6 +826,26 @@
         "workers",
         "runtime",
         "agents"
+      ]
+    },
+    {
+      "path": "docs/plans/0091-local-storage-and-zerofs-removal.md",
+      "title": "Local Filesystem Storage Promotion and Complete ZeroFS Removal",
+      "owner": "scenery runtime / storage",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-02",
+      "review_after": "2026-08-02",
+      "summary": "Active ExecPlan that promotes the local filesystem storage backend to a production-supported kind for app config and headless runtime config with a documented rclone/restic S3 replication recipe, and removes ZeroFS entirely: 9P adapter, managed dev service, toolchain artifact, p9 dependency, doctor/inspect/harness surfaces, env vars, schemas, and docs.",
+      "tags": [
+        "plans",
+        "execplans",
+        "storage",
+        "local",
+        "production",
+        "runtime",
+        "s3"
       ]
     },
     {

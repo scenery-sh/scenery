@@ -54,7 +54,6 @@ type devSupervisor struct {
 	storeWriter  dashboardControlPlaneWriter
 	dashboard    *dashboardServer
 	victoria     *victoriaStack
-	zeroFS       *managedZeroFSService
 	storageProxy *managedStorageProxy
 	reportToken  string
 	console      *runConsole
@@ -157,10 +156,6 @@ func (s *devSupervisor) Close() error {
 		app := s.detachCurrentApp()
 		frontends := s.detachManagedFrontends()
 		victoria := s.victoria
-		zeroFS := s.zeroFS
-		if s.shouldDetachManagedZeroFS(context.Background(), zeroFS) {
-			zeroFS = nil
-		}
 
 		var errs []error
 		if app != nil {
@@ -170,11 +165,6 @@ func (s *devSupervisor) Close() error {
 		}
 		if victoria != nil {
 			if err := victoria.Interrupt(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if zeroFS != nil {
-			if err := zeroFS.Interrupt(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -234,11 +224,6 @@ func (s *devSupervisor) Close() error {
 				errs = append(errs, err)
 			}
 		}
-		if zeroFS != nil {
-			if err := zeroFS.WaitOrKill(5 * time.Second); err != nil {
-				errs = append(errs, err)
-			}
-		}
 
 		if s.store != nil {
 			if err := s.store.Close(); err != nil {
@@ -246,9 +231,6 @@ func (s *devSupervisor) Close() error {
 			}
 		}
 		if session := s.currentAgentSession(); s.agent != nil && session != nil {
-			if _, err := releaseManagedZeroFSLeasesForSession(context.Background(), s.agent, *session); err != nil {
-				errs = append(errs, err)
-			}
 			if _, _, err := s.agent.DeleteOwnedSession(context.Background(), *session, false); err != nil {
 				errs = append(errs, err)
 			}
@@ -281,11 +263,6 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 		if err := s.dashboard.Start(ctx); err != nil {
 			return err
 		}
-	}
-	if err := s.console.Phase("Starting ZeroFS storage service", func() error {
-		return s.ensureManagedZeroFS(ctx)
-	}); err != nil {
-		return err
 	}
 	if err := s.console.Phase("Starting storage proxy", func() error {
 		return s.ensureManagedStorageProxy(ctx)
@@ -1372,15 +1349,6 @@ func (s *devSupervisor) storeAgentSession(session *localagent.Session) {
 	s.setSessionIdentity(session)
 }
 
-func (s *devSupervisor) currentZeroFS() *managedZeroFSService {
-	if s == nil {
-		return nil
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.zeroFS
-}
-
 func (s *devSupervisor) detachCurrentApp() *runningApp {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1944,11 +1912,6 @@ func (s *devSupervisor) sessionProcessesFor(session *localagent.Session, appPID 
 	processes := copySessionProcesses(session.Processes)
 	if pid := atoiPID(appPID); pid > 0 {
 		processes[localagent.RouteAPI] = localagent.Process{PID: pid}
-	}
-	if zeroFS := s.currentZeroFS(); zeroFS != nil {
-		if pid := zeroFS.PID(); pid > 0 {
-			processes["zerofs"] = localagent.Process{PID: pid}
-		}
 	}
 	if len(processes) == 0 {
 		return nil

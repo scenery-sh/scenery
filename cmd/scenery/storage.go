@@ -33,10 +33,9 @@ type storageCLIOptions struct {
 }
 
 type storageStatusResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	Storage       inspectStorageRecord   `json:"storage"`
-	Stores        []inspectStorageStore  `json:"stores"`
-	DevService    *inspectStorageService `json:"dev_service,omitempty"`
+	SchemaVersion string                `json:"schema_version"`
+	Storage       inspectStorageRecord  `json:"storage"`
+	Stores        []inspectStorageStore `json:"stores"`
 }
 
 type storageWebUIResponse struct {
@@ -73,7 +72,6 @@ type storageCleanupResponse struct {
 	Exists        bool   `json:"exists"`
 	DryRun        bool   `json:"dry_run"`
 	Deleted       bool   `json:"deleted"`
-	LeaseCount    int    `json:"lease_count"`
 }
 
 func storageCommand(args []string) error {
@@ -103,7 +101,6 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 			SchemaVersion: "scenery.storage.status.v1",
 			Storage:       inspect.Storage,
 			Stores:        inspect.Stores,
-			DevService:    inspect.DevService,
 		})
 	case "webui":
 		return writeStorageJSON(stdout, buildStorageWebUIResponse(cfg))
@@ -277,19 +274,12 @@ func parseStorageArgs(args []string) (storageCLIOptions, error) {
 }
 
 func runStorageCleanup(ctx context.Context, stdout io.Writer, cfg appcfg.Config, opts storageCLIOptions) error {
-	plan, err := resolveManagedZeroFSPlan(cfg, &localagent.Session{SessionID: "cleanup", BaseAppID: cfg.AppID()}, nil, "")
+	plan, err := resolveStorageCellPlan(cfg, "")
 	if err != nil {
 		return err
 	}
 	if plan == nil {
 		return fmt.Errorf("storage is not configured")
-	}
-	leaseCount, leaseErr := storageCleanupLeaseCount(ctx, plan.StorageCellID)
-	if opts.Yes && leaseErr != nil {
-		return fmt.Errorf("cannot verify storage leases before cleanup: %w", leaseErr)
-	}
-	if opts.Yes && leaseCount > 0 {
-		return fmt.Errorf("refusing to cleanup storage cell %q with %d live lease(s)", plan.StorageCellID, leaseCount)
 	}
 	_, statErr := os.Stat(plan.CellRoot)
 	exists := statErr == nil
@@ -311,23 +301,7 @@ func runStorageCleanup(ctx context.Context, stdout io.Writer, cfg appcfg.Config,
 		Exists:        exists,
 		DryRun:        !opts.Yes,
 		Deleted:       deleted,
-		LeaseCount:    leaseCount,
 	})
-}
-
-func storageCleanupLeaseCount(ctx context.Context, cellID string) (int, error) {
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		return 0, err
-	}
-	substrate, err := client.GetSubstrate(ctx, managedZeroFSSubstrateKind(cellID))
-	if err != nil {
-		if localagent.IsNotFound(err) {
-			return 0, nil
-		}
-		return 0, err
-	}
-	return len(inspectStorageLeases(ctx, client, substrate.Leases)), nil
 }
 
 func storageStoreForCLI(cfg appcfg.Config, name string) (publicstorage.Store, error) {
@@ -342,17 +316,14 @@ func storageStoreForCLI(cfg appcfg.Config, name string) (publicstorage.Store, er
 	if !ok {
 		return nil, fmt.Errorf("storage store %q is not configured", name)
 	}
-	if strings.TrimSpace(storeCfg.Kind) != "zerofs" {
-		return nil, fmt.Errorf("storage store %q kind %q is not supported", name, storeCfg.Kind)
-	}
-	plan, err := resolveManagedZeroFSPlan(cfg, &localagent.Session{SessionID: "cli", BaseAppID: cfg.AppID()}, nil, "")
+	plan, err := resolveStorageCellPlan(cfg, "")
 	if err != nil {
 		return nil, err
 	}
 	if plan == nil {
 		return nil, fmt.Errorf("storage is not configured")
 	}
-	return storagebackend.NewLocalStoreWithOptions(name, filepath.Join(plan.ObjectsDir, name), storagebackend.LocalStoreOptions{
+	return storagebackend.NewLocalStoreWithOptions(name, plan.storageStoreObjectsDir(name), storagebackend.LocalStoreOptions{
 		MaxObjectBytes: storeCfg.MaxObjectBytes,
 	}), nil
 }
@@ -361,10 +332,7 @@ func storageCapabilityEnv(cfg appcfg.Config, session *localagent.Session, baseEn
 	if len(cfg.Storage.Stores) == 0 {
 		return nil, nil
 	}
-	if session == nil {
-		session = &localagent.Session{SessionID: "process", BaseAppID: cfg.AppID()}
-	}
-	plan, err := resolveManagedZeroFSPlan(cfg, session, baseEnv, agentHome)
+	plan, err := resolveStorageCellPlan(cfg, agentHome)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +342,7 @@ func storageCapabilityEnv(cfg appcfg.Config, session *localagent.Session, baseEn
 	stores := make(map[string]storageconfig.RuntimeStoreConfig, len(cfg.Storage.Stores))
 	proxySocket := storageProxySocketPath(session)
 	for name, store := range cfg.Storage.Stores {
-		root := filepath.Join(plan.ObjectsDir, name)
+		root := plan.storageStoreObjectsDir(name)
 		storeRuntime := storageconfig.RuntimeStoreConfig{
 			Access:         strings.TrimSpace(store.Access),
 			TenantScoped:   store.TenantScoped,
@@ -407,16 +375,10 @@ func storageCapabilityEnv(cfg appcfg.Config, session *localagent.Session, baseEn
 	if err != nil {
 		return nil, err
 	}
-	result := []string{
+	return []string{
 		"SCENERY_STORAGE_CELL_ID=" + plan.StorageCellID,
 		storageconfig.RuntimeConfigEnv + "=" + string(data),
-	}
-	if session != nil {
-		if webUIURL := strings.TrimSpace(session.Routes[plan.Route]); webUIURL != "" {
-			result = append(result, "SCENERY_ZEROFS_WEBUI_URL="+webUIURL)
-		}
-	}
-	return result, nil
+	}, nil
 }
 
 func headlessStorageCapabilityEnv(cfg appcfg.Config, baseEnv []string) ([]string, error) {
@@ -429,7 +391,7 @@ func headlessStorageCapabilityEnv(cfg appcfg.Config, baseEnv []string) ([]string
 		}
 		return nil, nil
 	}
-	return nil, fmt.Errorf("storage is configured, but headless runtimes require explicit %s; run `scenery up` for managed dev ZeroFS or set %s to an operator-provided storage runtime config", storageconfig.RuntimeConfigEnv, storageconfig.RuntimeConfigEnv)
+	return nil, fmt.Errorf("storage is configured, but headless runtimes require explicit %s; run `scenery up` for managed local dev storage or set %s to a production storage runtime config", storageconfig.RuntimeConfigEnv, storageconfig.RuntimeConfigEnv)
 }
 
 func storageRuntimeConfigValue(env []string) (string, bool) {
@@ -451,11 +413,21 @@ func validateHeadlessStorageRuntimeConfig(raw string) error {
 		return fmt.Errorf("%s must define at least one store for headless storage runtimes", storageconfig.RuntimeConfigEnv)
 	}
 	for name, store := range cfg.Stores {
-		if strings.TrimSpace(store.Kind) != "proxy" {
-			return fmt.Errorf("headless storage store %q must use kind \"proxy\"; managed ZeroFS and local roots are dev-only", name)
-		}
-		if strings.TrimSpace(store.ProxySocket) == "" {
-			return fmt.Errorf("headless storage store %q must set proxy_socket", name)
+		switch strings.TrimSpace(store.Kind) {
+		case "local":
+			root := strings.TrimSpace(store.Root)
+			if root == "" {
+				return fmt.Errorf("headless storage store %q must set root when kind is \"local\"", name)
+			}
+			if !filepath.IsAbs(root) {
+				return fmt.Errorf("headless storage store %q root %q must be an absolute path", name, root)
+			}
+		case "proxy":
+			if strings.TrimSpace(store.ProxySocket) == "" {
+				return fmt.Errorf("headless storage store %q must set proxy_socket when kind is \"proxy\"", name)
+			}
+		default:
+			return fmt.Errorf("headless storage store %q kind %q is not supported; use \"local\" (with an absolute root) or \"proxy\" (with proxy_socket)", name, strings.TrimSpace(store.Kind))
 		}
 	}
 	return nil
@@ -466,10 +438,7 @@ func buildStorageWebUIResponse(cfg appcfg.Config) storageWebUIResponse {
 	if !configured {
 		return storageWebUIResponse{SchemaVersion: "scenery.storage.webui.v1", Configured: false, Ready: false, Reason: "storage is not configured"}
 	}
-	if _, _, ok := managedZeroFSDeclared(cfg); !ok {
-		return storageWebUIResponse{SchemaVersion: "scenery.storage.webui.v1", Configured: true, Ready: false, Reason: "managed ZeroFS dev service is not configured"}
-	}
-	return storageWebUIResponse{SchemaVersion: "scenery.storage.webui.v1", Configured: true, Ready: false, Reason: "storage runtime startup has not attached a protected Web UI route yet"}
+	return storageWebUIResponse{SchemaVersion: "scenery.storage.webui.v1", Configured: true, Ready: false, Reason: "local storage has no managed Web UI; use `scenery storage ls/stat` or `scenery inspect storage`"}
 }
 
 func writeStorageJSON(w io.Writer, payload any) error {

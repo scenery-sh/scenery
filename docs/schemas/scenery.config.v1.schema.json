@@ -184,7 +184,7 @@
     "devService": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "enum": ["sqlite", "zerofs"] },
+        "kind": { "type": "string", "enum": ["sqlite"] },
         "mode": { "type": "string", "enum": ["", "local"], "description": "Managed provider mode for services that need a local process." },
         "version": { "type": "string", "description": "Requested local service version for services that use one." },
         "isolation": { "type": "string", "enum": ["", "database", "schema", "container"], "description": "Requested isolation mode for services that use one." },
@@ -227,12 +227,11 @@
     "storageStore": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "enum": ["zerofs"] },
+        "kind": { "type": "string", "enum": ["", "local"], "description": "Storage backend kind. Empty defaults to local. The local backend is a Scenery-owned directory tree with atomic writes, checked fsync, and sidecar metadata; replicate offsite with rclone/restic for durability." },
         "access": { "type": "string", "enum": ["", "auth", "private"] },
         "tenant_scoped": { "type": "boolean" },
         "max_object_bytes": { "type": "integer", "minimum": 0 }
       },
-      "required": ["kind"],
       "additionalProperties": false
     },
     "clientGenerator": {

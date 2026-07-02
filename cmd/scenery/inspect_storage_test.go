@@ -2,12 +2,10 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
-
-	localagent "scenery.sh/internal/agent"
 )
 
 func TestRunSceneryInspectStorage(t *testing.T) {
@@ -23,28 +21,14 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 			"default": "app",
 			"stores": {
 				"logs": {
-					"kind": "zerofs",
+					"kind": "local",
 					"access": "private"
 				},
 				"app": {
-					"kind": "zerofs",
+					"kind": "local",
 					"access": "auth",
 					"tenant_scoped": true,
 					"max_object_bytes": 1048576
-				}
-			}
-		},
-		"dev": {
-			"services": {
-				"storage": {
-					"kind": "zerofs",
-					"mode": "local",
-					"route": "storage",
-					"image": "zerofs:dev",
-					"env": {
-						"ZEROFS_STORAGE_URL": "s3://secret-bucket",
-						"AWS_SECRET_ACCESS_KEY": "secret"
-					}
 				}
 			}
 		}
@@ -68,14 +52,9 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 			Access         string `json:"access"`
 			TenantScoped   bool   `json:"tenant_scoped"`
 			MaxObjectBytes int64  `json:"max_object_bytes"`
+			ObjectCount    int    `json:"object_count"`
+			TotalBytes     int64  `json:"total_bytes"`
 		} `json:"stores"`
-		DevService struct {
-			Name  string            `json:"name"`
-			Kind  string            `json:"kind"`
-			Route string            `json:"route"`
-			Image string            `json:"image"`
-			Env   map[string]string `json:"env"`
-		} `json:"dev_service"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal(storage) error = %v\n%s", err, out.String())
@@ -89,29 +68,14 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 	if len(payload.Stores) != 2 || payload.Stores[0].Name != "app" || payload.Stores[1].Name != "logs" {
 		t.Fatalf("stores = %+v", payload.Stores)
 	}
-	if payload.Stores[0].Kind != "zerofs" || payload.Stores[0].Access != "auth" || !payload.Stores[0].TenantScoped || payload.Stores[0].MaxObjectBytes != 1048576 {
+	if payload.Stores[0].Kind != "local" || payload.Stores[0].Access != "auth" || !payload.Stores[0].TenantScoped || payload.Stores[0].MaxObjectBytes != 1048576 {
 		t.Fatalf("store app = %+v", payload.Stores[0])
-	}
-	if payload.DevService.Name != "storage" || payload.DevService.Kind != "zerofs" || payload.DevService.Route != "storage" || payload.DevService.Image != "zerofs:dev" {
-		t.Fatalf("dev service = %+v", payload.DevService)
-	}
-	if payload.DevService.Env["AWS_SECRET_ACCESS_KEY"] != "<redacted>" || payload.DevService.Env["ZEROFS_STORAGE_URL"] != "<redacted>" {
-		t.Fatalf("env was not redacted: %+v", payload.DevService.Env)
 	}
 }
 
-func TestRunSceneryInspectStorageReportsAgentRuntime(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	agentDone := startTestAgentServer(t, ctx)
-	defer func() {
-		cancel()
-		waitForTestAgentServer(t, agentDone)
-	}()
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRunSceneryInspectStorageReportsLocalCellUsage(t *testing.T) {
+	agentHome := t.TempDir()
+	t.Setenv("SCENERY_AGENT_HOME", agentHome)
 
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
@@ -120,31 +84,23 @@ func TestRunSceneryInspectStorageReportsAgentRuntime(t *testing.T) {
 		"storage": {
 			"cell_id": "onlv",
 			"default": "app",
-			"stores": {"app": {"kind": "zerofs", "access": "auth"}}
-		},
-		"dev": {"services": {"storage": {"kind": "zerofs", "route": "storage"}}}
+			"stores": {"app": {"kind": "local", "access": "auth"}}
+		}
 	}`)
-	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
-		Kind:     managedZeroFSSubstrateKind("onlv"),
-		Status:   "running",
-		OwnerPID: os.Getpid(),
-		URLs: map[string]string{
-			"webui": "https://storage.dev.local/",
-		},
-	}); err != nil {
+
+	// Seed the cell with one object plus a Scenery-owned metadata sidecar that
+	// must be excluded from the object count.
+	appObjects := filepath.Join(agentHome, "agent", "storage", "onlv", "objects", "app")
+	if err := os.MkdirAll(filepath.Join(appObjects, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Register(ctx, localagent.RegisterRequest{
-		BaseAppID: "storage-id",
-		AppRoot:   root,
-		SessionID: "storage-session",
-		Status:    "running",
-		OwnerPID:  os.Getpid(),
-		Owner:     localagent.CaptureOwner(os.Getpid(), "test"),
-		Backends: map[string]localagent.Backend{
-			"storage": {Network: "tcp", Addr: "127.0.0.1:49152"},
-		},
-	}); err != nil {
+	if err := os.WriteFile(filepath.Join(appObjects, "reports", "report.txt"), []byte("storage report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(appObjects, "__scenery", "metadata", "reports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appObjects, "__scenery", "metadata", "reports", "report.txt.json"), []byte(`{"content_type":"text/plain"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -156,13 +112,16 @@ func TestRunSceneryInspectStorageReportsAgentRuntime(t *testing.T) {
 		Storage struct {
 			Readiness string `json:"readiness"`
 			Runtime   struct {
-				SubstrateKind   string `json:"substrate_kind"`
-				SubstrateStatus string `json:"substrate_status"`
-				Route           string `json:"route"`
-				WebUIURL        string `json:"webui_url"`
-				Attached        bool   `json:"attached"`
+				CellRoot   string `json:"cell_root"`
+				ObjectsDir string `json:"objects_dir"`
+				Exists     bool   `json:"exists"`
 			} `json:"runtime"`
 		} `json:"storage"`
+		Stores []struct {
+			Name        string `json:"name"`
+			ObjectCount int    `json:"object_count"`
+			TotalBytes  int64  `json:"total_bytes"`
+		} `json:"stores"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal(storage) error = %v\n%s", err, out.String())
@@ -170,7 +129,13 @@ func TestRunSceneryInspectStorageReportsAgentRuntime(t *testing.T) {
 	if payload.Storage.Readiness != "ready" {
 		t.Fatalf("readiness = %q, payload = %s", payload.Storage.Readiness, out.String())
 	}
-	if payload.Storage.Runtime.SubstrateKind != managedZeroFSSubstrateKind("onlv") || payload.Storage.Runtime.SubstrateStatus != "running" || payload.Storage.Runtime.Route != "storage" || !payload.Storage.Runtime.Attached || payload.Storage.Runtime.WebUIURL == "" {
+	if !payload.Storage.Runtime.Exists || payload.Storage.Runtime.CellRoot == "" || payload.Storage.Runtime.ObjectsDir == "" {
 		t.Fatalf("runtime = %+v", payload.Storage.Runtime)
+	}
+	if len(payload.Stores) != 1 || payload.Stores[0].Name != "app" {
+		t.Fatalf("stores = %+v", payload.Stores)
+	}
+	if payload.Stores[0].ObjectCount != 1 || payload.Stores[0].TotalBytes != int64(len("storage report")) {
+		t.Fatalf("store usage = %+v", payload.Stores[0])
 	}
 }

@@ -1,5 +1,7 @@
 # Scenery Storage
 
+> **Historical note (2026-07-02).** This plan built the storage capability on managed ZeroFS. ZeroFS was later removed in [plan 0091](0091-local-storage-and-zerofs-removal.md); the current storage backend is the local filesystem and the current contract lives in [docs/local-contract.md](../local-contract.md).
+
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
 ## Purpose / Big Picture
