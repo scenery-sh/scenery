@@ -72,7 +72,12 @@ func DefaultClient() (*Client, error) {
 	return NewClient(paths.SocketPath), nil
 }
 
-func Ensure(ctx context.Context) (*Client, error) {
+// Ensure connects to the local agent, starting one when none is running.
+// When a running agent reports an older build identity than current (or no
+// identity because it predates identity reporting), Ensure restarts it once so
+// commands talk to an agent built from the current binary. A zero current
+// identity accepts any running agent.
+func Ensure(ctx context.Context, current Identity) (*Client, error) {
 	if DisabledByEnv() {
 		return nil, nil
 	}
@@ -81,18 +86,81 @@ func Ensure(ctx context.Context) (*Client, error) {
 		return nil, err
 	}
 	client := NewClient(paths.SocketPath)
-	if err := client.Ping(ctx); err == nil {
+	if health, err := client.Health(ctx); err == nil {
+		if !ShouldReplaceAgent(current, health.Identity) {
+			return client, nil
+		}
+		if err := replaceRunningAgent(ctx, client, paths, health); err != nil {
+			return nil, fmt.Errorf("restart outdated scenery agent (running %s, current %s): %w", health.Identity, current, err)
+		}
 		return client, nil
 	}
 	if err := StartProcess(paths, StartOptions{}); err != nil {
 		return nil, err
 	}
+	return waitForAgentReady(ctx, client, paths, 0)
+}
+
+// replaceRunningAgent stops the running agent described by health and starts a
+// new one from the current executable, preserving the router address and
+// internal router scheme so registered route URLs stay valid. It attempts the
+// replacement once; it never re-checks identity, so it cannot loop.
+func replaceRunningAgent(ctx context.Context, client *Client, paths Paths, health HealthResponse) error {
+	if health.PID > 0 {
+		if err := terminateProcess(health.PID); err != nil {
+			return fmt.Errorf("stop scenery agent pid %d: %w", health.PID, err)
+		}
+		if err := waitForAgentExit(ctx, client, health.PID); err != nil {
+			return err
+		}
+	}
+	client.CloseIdleConnections()
+	opts := StartOptions{
+		RouterAddr: health.RouterAddr,
+		RouterTLS:  internalRouterTLS(health),
+	}
+	if err := StartProcess(paths, opts); err != nil {
+		return err
+	}
+	_, err := waitForAgentReady(ctx, client, paths, health.PID)
+	return err
+}
+
+func internalRouterTLS(health HealthResponse) bool {
+	if scheme := strings.TrimSpace(health.InternalRouterScheme); scheme != "" {
+		return scheme == "https"
+	}
+	// Old agents do not report the internal router scheme. With an active
+	// edge the internal router serves HTTP behind it; without one the public
+	// router scheme is the internal scheme.
+	return health.Edge == nil && health.RouterScheme == "https"
+}
+
+func waitForAgentExit(ctx context.Context, client *Client, pid int) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		health, err := client.Health(ctx)
+		if err != nil || health.PID != pid {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("timed out waiting for scenery agent pid %d to stop", pid)
+}
+
+func waitForAgentReady(ctx context.Context, client *Client, paths Paths, oldPID int) (*Client, error) {
 	deadline := time.Now().Add(5 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		if err := client.Ping(ctx); err == nil {
+		health, err := client.Health(ctx)
+		if err == nil && (oldPID == 0 || health.PID != oldPID) {
 			return client, nil
-		} else {
+		}
+		if err != nil {
 			lastErr = err
 		}
 		select {

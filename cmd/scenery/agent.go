@@ -101,7 +101,8 @@ func agentCommand(args []string) error {
 			Network: "tcp",
 			Addr:    dashboardAddr,
 		},
-		JSON: opts.JSON,
+		Identity: cliBuildIdentity(),
+		JSON:     opts.JSON,
 	})
 	if err != nil {
 		return err

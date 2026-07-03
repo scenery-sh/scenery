@@ -235,7 +235,7 @@ func waitForPostgresServer(ctx context.Context, state *postgresServerState) erro
 }
 
 func upsertPostgresSubstrate(ctx context.Context, state *postgresServerState, appRoot string, session *localagent.Session) error {
-	client, err := localagent.Ensure(ctx)
+	client, err := localagent.Ensure(ctx, cliBuildIdentity())
 	if err != nil || client == nil {
 		return err
 	}

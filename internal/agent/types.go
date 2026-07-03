@@ -215,19 +215,22 @@ type SubstratesResponse struct {
 }
 
 type HealthResponse struct {
-	SchemaVersion    string     `json:"schema_version"`
-	PID              int        `json:"pid"`
-	SocketPath       string     `json:"socket_path"`
-	RouterAddr       string     `json:"router_addr"`
-	PublicRouterAddr string     `json:"public_router_addr,omitempty"`
-	RouterScheme     string     `json:"router_scheme"`
-	Edge             *EdgeState `json:"edge,omitempty"`
-	DashboardBackend Backend    `json:"dashboard_backend"`
+	SchemaVersion string `json:"schema_version"`
+	PID           int    `json:"pid"`
+	Identity
+	SocketPath           string     `json:"socket_path"`
+	RouterAddr           string     `json:"router_addr"`
+	PublicRouterAddr     string     `json:"public_router_addr,omitempty"`
+	RouterScheme         string     `json:"router_scheme"`
+	InternalRouterScheme string     `json:"internal_router_scheme,omitempty"`
+	Edge                 *EdgeState `json:"edge,omitempty"`
+	DashboardBackend     Backend    `json:"dashboard_backend"`
 }
 
 type State struct {
-	SchemaVersion    string     `json:"schema_version"`
-	PID              int        `json:"pid"`
+	SchemaVersion string `json:"schema_version"`
+	PID           int    `json:"pid"`
+	Identity
 	SocketPath       string     `json:"socket_path"`
 	RouterAddr       string     `json:"router_addr"`
 	PublicRouterAddr string     `json:"public_router_addr,omitempty"`

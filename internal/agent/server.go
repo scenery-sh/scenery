@@ -28,6 +28,7 @@ type RunOptions struct {
 	RouterTLS        bool
 	InstallTrust     bool
 	DashboardBackend Backend
+	Identity         Identity
 	JSON             bool
 }
 
@@ -41,6 +42,7 @@ type Server struct {
 	edge                 *EdgeState
 	edgeToken            string
 	dashboard            Backend
+	identity             Identity
 	tlsCA                localproxy.LocalCA
 	tlsCerts             sync.Map
 	control              *http.Server
@@ -143,6 +145,7 @@ func NewServer(opts RunOptions) (*Server, error) {
 		edge:                 activeEdge,
 		edgeToken:            readEdgeToken(paths.EdgeTokenPath),
 		dashboard:            normalizeBackend(opts.DashboardBackend),
+		identity:             opts.Identity,
 		tlsCA:                tlsCA,
 		controlLn:            controlLn,
 		routerLn:             routerLn,
@@ -400,6 +403,7 @@ func (s *Server) writeState() error {
 	state := State{
 		SchemaVersion:    StateSchemaVersion,
 		PID:              os.Getpid(),
+		Identity:         s.identity,
 		SocketPath:       s.paths.SocketPath,
 		RouterAddr:       s.routerAddr,
 		PublicRouterAddr: s.publicRouterAddr,
@@ -432,14 +436,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, HealthResponse{
-		SchemaVersion:    StateSchemaVersion,
-		PID:              os.Getpid(),
-		SocketPath:       s.paths.SocketPath,
-		RouterAddr:       s.routerAddr,
-		PublicRouterAddr: s.publicRouterAddr,
-		RouterScheme:     s.routerScheme,
-		Edge:             s.edge,
-		DashboardBackend: s.dashboard,
+		SchemaVersion:        StateSchemaVersion,
+		PID:                  os.Getpid(),
+		Identity:             s.identity,
+		SocketPath:           s.paths.SocketPath,
+		RouterAddr:           s.routerAddr,
+		PublicRouterAddr:     s.publicRouterAddr,
+		RouterScheme:         s.routerScheme,
+		InternalRouterScheme: s.internalRouterScheme,
+		Edge:                 s.edge,
+		DashboardBackend:     s.dashboard,
 	})
 }
 

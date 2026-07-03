@@ -17,3 +17,11 @@ func interruptProcess(pid int) error {
 	}
 	return proc.Signal(os.Interrupt)
 }
+
+func terminateProcess(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Kill()
+}

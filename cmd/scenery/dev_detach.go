@@ -52,7 +52,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
 	defer cancel()
-	client, err := localagent.Ensure(ctx)
+	client, err := localagent.Ensure(ctx, cliBuildIdentity())
 	if err != nil {
 		return err
 	}

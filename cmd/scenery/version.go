@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"runtime/debug"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/toolchain"
 )
 
@@ -98,6 +99,15 @@ func buildVersionResponse() versionResponse {
 		}
 	}
 	return resp
+}
+
+func cliBuildIdentity() localagent.Identity {
+	resp := buildVersionResponse()
+	return localagent.Identity{
+		Version: resp.Version,
+		Commit:  resp.Commit,
+		BuiltAt: resp.BuiltAt,
+	}
 }
 
 func writeVersionJSON(w io.Writer, resp versionResponse) error {

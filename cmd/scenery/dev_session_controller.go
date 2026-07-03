@@ -143,7 +143,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	agentUnavailable := false
 	if err := c.runPhase("Connecting scenery dev agent", func() error {
 		var err error
-		client, err = localagent.Ensure(ctx)
+		client, err = localagent.Ensure(ctx, cliBuildIdentity())
 		if err != nil {
 			if requiresPortlessEdge {
 				return fmt.Errorf("proxy.route_base_domain %q requires the scenery agent and local edge; agent unavailable: %w", routeNamespace.BaseDomain, err)

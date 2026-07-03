@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -18,4 +19,15 @@ func interruptProcess(pid int) error {
 		return err
 	}
 	return proc.Signal(os.Interrupt)
+}
+
+func terminateProcess(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
 }
