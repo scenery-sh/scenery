@@ -20,7 +20,7 @@ func runDBBranchCommand(ctx context.Context, stdout io.Writer, args []string) er
 	if err != nil {
 		return err
 	}
-	if _, cfg, err := discoverConfiguredApp(opts.AppRoot); err == nil && len(cfg.PostgresServices()) > 0 {
+	if _, cfg, err := discoverConfiguredApp(opts.AppRoot); err == nil && len(cfg.PostgresServices()) > 0 && len(cfg.SQLiteServices()) == 0 {
 		return fmt.Errorf("postgres services are not branchable; worktree isolation is automatic via per-worktree databases (plan 0093)")
 	}
 	switch opts.Command {

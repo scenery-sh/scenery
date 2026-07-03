@@ -1,8 +1,11 @@
 package postgresdb
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestDatabaseNameForIsStableAndKeepsHash(t *testing.T) {
@@ -55,5 +58,14 @@ func TestEnvAndRegistry(t *testing.T) {
 	decoded, err := DecodeRegistry(registry)
 	if err != nil || len(decoded) != 1 || decoded[0].Name != "reports" {
 		t.Fatalf("DecodeRegistry = %+v err=%v", decoded, err)
+	}
+}
+
+func TestIsDuplicateDatabase(t *testing.T) {
+	if !isDuplicateDatabase(&pgconn.PgError{Code: "42P04"}) {
+		t.Fatalf("isDuplicateDatabase rejected duplicate_database")
+	}
+	if isDuplicateDatabase(fmt.Errorf("duplicate_database")) {
+		t.Fatalf("isDuplicateDatabase accepted plain text error")
 	}
 }

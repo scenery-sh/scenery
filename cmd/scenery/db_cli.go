@@ -272,7 +272,7 @@ func dbShellCommand(args []string) error {
 }
 
 func dbDropCommand(args []string) error {
-	opts, err := parseSQLiteDBArgs(args, false)
+	opts, err := parseDBTargetArgs(args)
 	if err != nil {
 		return err
 	}
@@ -280,20 +280,32 @@ func dbDropCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	services, err := resolveSQLiteServicesForCLI(context.Background(), appRoot, cfg)
-	if err != nil && len(cfg.SQLiteServices()) > 0 {
-		return err
+	ctx := context.Background()
+	var services []sqlitedb.Service
+	if shouldResolveSQLiteForDBTarget(cfg, opts.Service) {
+		services, err = resolveSQLiteServicesForCLIOptional(ctx, appRoot, cfg)
+		if err != nil {
+			return err
+		}
 	}
-	postgresServices, err := resolvePostgresServicesForCLI(context.Background(), appRoot, cfg)
-	if err != nil {
-		return err
+	var postgresServices []postgresdb.Service
+	if shouldResolvePostgresForDBTarget(cfg, opts.Service) {
+		postgresServices, err = resolvePostgresServicesForCLI(ctx, appRoot, cfg)
+		if err != nil {
+			return err
+		}
 	}
-	for _, svc := range filterSQLiteServices(services, opts.Service) {
+	sqliteTargets := filterSQLiteServices(services, opts.Service)
+	postgresTargets := filterPostgresServices(postgresServices, opts.Service)
+	if strings.TrimSpace(opts.Service) != "" && len(sqliteTargets)+len(postgresTargets) == 0 {
+		return fmt.Errorf("database service %q is not configured", opts.Service)
+	}
+	for _, svc := range sqliteTargets {
 		if err := os.Remove(svc.Path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
-	if err := dropPostgresServices(context.Background(), postgresServices, opts); err != nil {
+	if err := dropPostgresServices(ctx, postgresTargets, opts); err != nil {
 		return err
 	}
 	fmt.Fprintln(os.Stdout, "dropped scenery database services")
@@ -301,7 +313,7 @@ func dbDropCommand(args []string) error {
 }
 
 func dbResetCommand(args []string) error {
-	opts, err := parseSQLiteDBArgs(args, false)
+	opts, err := parseDBTargetArgs(args)
 	if err != nil {
 		return err
 	}
@@ -309,23 +321,35 @@ func dbResetCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	services, err := resolveSQLiteServicesForCLI(context.Background(), appRoot, cfg)
-	if err != nil && len(cfg.SQLiteServices()) > 0 {
-		return err
+	ctx := context.Background()
+	var services []sqlitedb.Service
+	if shouldResolveSQLiteForDBTarget(cfg, opts.Service) {
+		services, err = resolveSQLiteServicesForCLIOptional(ctx, appRoot, cfg)
+		if err != nil {
+			return err
+		}
 	}
-	postgresServices, err := resolvePostgresServicesForCLI(context.Background(), appRoot, cfg)
-	if err != nil {
-		return err
+	var postgresServices []postgresdb.Service
+	if shouldResolvePostgresForDBTarget(cfg, opts.Service) {
+		postgresServices, err = resolvePostgresServicesForCLI(ctx, appRoot, cfg)
+		if err != nil {
+			return err
+		}
 	}
-	for _, svc := range filterSQLiteServices(services, opts.Service) {
+	sqliteTargets := filterSQLiteServices(services, opts.Service)
+	postgresTargets := filterPostgresServices(postgresServices, opts.Service)
+	if strings.TrimSpace(opts.Service) != "" && len(sqliteTargets)+len(postgresTargets) == 0 {
+		return fmt.Errorf("database service %q is not configured", opts.Service)
+	}
+	for _, svc := range sqliteTargets {
 		if err := os.Remove(svc.Path); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		if err := sqlitedb.EnsureFiles(context.Background(), []sqlitedb.Service{svc}); err != nil {
+		if err := sqlitedb.EnsureFiles(ctx, []sqlitedb.Service{svc}); err != nil {
 			return err
 		}
 	}
-	if err := resetPostgresServices(context.Background(), postgresServices, opts); err != nil {
+	if err := resetPostgresServices(ctx, postgresTargets, opts); err != nil {
 		return err
 	}
 	fmt.Fprintln(os.Stdout, "reset scenery database services")
@@ -689,6 +713,26 @@ func filterPostgresServices(services []postgresdb.Service, name string) []postgr
 	return nil
 }
 
+func shouldResolveSQLiteForDBTarget(cfg appcfg.Config, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return true
+	}
+	if _, ok := cfg.PostgresService(name); ok {
+		return false
+	}
+	return true
+}
+
+func shouldResolvePostgresForDBTarget(cfg appcfg.Config, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return len(cfg.PostgresServices()) > 0
+	}
+	_, ok := cfg.PostgresService(name)
+	return ok
+}
+
 func databaseListRecords(sqliteServices []sqlitedb.Service, postgresServices []postgresdb.Service) []databaseListRecord {
 	records := make([]databaseListRecord, 0, len(sqliteServices)+len(postgresServices))
 	for _, svc := range sqliteServices {
@@ -904,6 +948,31 @@ func parseSQLiteDBArgs(args []string, serviceRequired bool) (sqliteDBOptions, er
 	}
 	if serviceRequired && opts.Service == "" {
 		opts.Args = nil
+	}
+	return opts, nil
+}
+
+func parseDBTargetArgs(args []string) (sqliteDBOptions, error) {
+	var opts sqliteDBOptions
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--app-root":
+			i++
+			if i >= len(args) {
+				return sqliteDBOptions{}, fmt.Errorf("missing value for --app-root")
+			}
+			opts.AppRoot = args[i]
+		case "--yes":
+			opts.Yes = true
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				return sqliteDBOptions{}, fmt.Errorf("unknown flag %q", args[i])
+			}
+			if opts.Service != "" {
+				return sqliteDBOptions{}, fmt.Errorf("unexpected argument %q", args[i])
+			}
+			opts.Service = args[i]
+		}
 	}
 	return opts, nil
 }

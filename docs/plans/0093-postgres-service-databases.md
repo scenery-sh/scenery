@@ -222,7 +222,7 @@ Work bottom-up so each commit compiles and no milestone depends on Docker to tes
 
 Milestones 1–2 are pure Go with unit tests (config + resolver). Milestone 3 introduces the only process-management code; keep every Docker interaction behind a small interface (`postgresServerRunner` with a real docker-CLI implementation and a test fake) so supervisor and CLI logic is unit-testable without Docker — the same pattern the ZeroFS supervisor used before its removal, minus the evidence machinery. Milestone 4 wires injection into the dev supervisor and is testable with the fake. Milestones 5–7 are engine dispatch and CLI, testable against config + env fixtures (plus live checks in the harness probe). Milestone 8 touches only generator plumbing. Milestones 9–10 close with proof and docs.
 
-Coordination with in-flight work: plan 0094 is actively rewriting `dev_supervisor.go`/`dev_services.go` (ZeroFS removal). Land this plan's supervisor changes **after** 0091's Milestone 2 merges, or rebase deliberately — both plans touch the same supervisor phase list.
+Coordination note: plan 0094 also rewrote `dev_supervisor.go`/`dev_services.go` for ZeroFS removal, so this branch was rebased after that work before completion.
 
 Interplay with plan 0088: 0088's outcome ("Scenery does not ship a built-in Postgres substrate coupled to auth/branching/Electric") remains true. What returns here is narrower: an opt-in service kind, an isolated shared dev server, and DSN passthrough. Auth, durable execution, and branching stay SQLite-native.
 

@@ -834,7 +834,7 @@
       "path": "docs/plans/0093-postgres-service-databases.md",
       "title": "First-Class Postgres Service Databases on a Shared Dev Server",
       "owner": "scenery runtime / database",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-02",

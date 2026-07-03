@@ -3,8 +3,11 @@ package postgresdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type DatabaseInfo struct {
@@ -17,14 +20,23 @@ func EnsureDatabase(ctx context.Context, db *sql.DB, name string) error {
 	if name == "" {
 		return fmt.Errorf("postgres database name is required")
 	}
-	var exists bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&exists); err != nil {
+	exists, err := databaseExists(ctx, db, name)
+	if err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
-	_, err := db.ExecContext(ctx, `CREATE DATABASE `+quoteIdent(name))
+	_, err = db.ExecContext(ctx, `CREATE DATABASE `+quoteIdent(name))
+	if isDuplicateDatabase(err) {
+		exists, checkErr := databaseExists(ctx, db, name)
+		if checkErr != nil {
+			return checkErr
+		}
+		if exists {
+			return nil
+		}
+	}
 	return err
 }
 
@@ -71,6 +83,19 @@ ORDER BY datname`)
 func terminateBackends(ctx context.Context, db *sql.DB, name string) error {
 	_, err := db.ExecContext(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
 	return err
+}
+
+func databaseExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
+	var exists bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func isDuplicateDatabase(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42P04"
 }
 
 func quoteIdent(value string) string {

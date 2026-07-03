@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +41,67 @@ func TestParseSQLiteDBArgs(t *testing.T) {
 	}
 	if _, err := parseSQLiteDBArgs([]string{"--app-root"}, false); err == nil || err.Error() != "missing value for --app-root" {
 		t.Fatalf("missing app root error = %v", err)
+	}
+}
+
+func TestParseDBTargetArgsAllowsYesAfterService(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseDBTargetArgs([]string{"reports", "--yes", "--app-root", "/tmp/app"})
+	if err != nil {
+		t.Fatalf("parseDBTargetArgs returned error: %v", err)
+	}
+	if opts.Service != "reports" || !opts.Yes || opts.AppRoot != "/tmp/app" {
+		t.Fatalf("opts = %+v", opts)
+	}
+	if _, err := parseDBTargetArgs([]string{"reports", "extra"}); err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+		t.Fatalf("extra arg error = %v", err)
+	}
+}
+
+func TestDBTargetResolutionSkipsOtherEngineWhenServiceKnown(t *testing.T) {
+	t.Parallel()
+
+	cfg := app.Config{Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+		"cache":   {Kind: "sqlite"},
+		"reports": {Kind: "postgres"},
+	}}}
+	if shouldResolvePostgresForDBTarget(cfg, "cache") {
+		t.Fatalf("sqlite target should not resolve postgres services")
+	}
+	if shouldResolveSQLiteForDBTarget(cfg, "reports") {
+		t.Fatalf("postgres target should not resolve sqlite services")
+	}
+	if !shouldResolveSQLiteForDBTarget(cfg, "discovered") {
+		t.Fatalf("unknown target may be a discovered sqlite service")
+	}
+}
+
+func TestDBBranchAllowsSQLiteBranchesInMixedDatabaseApp(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"demo","dev":{"services":{"cache":{"kind":"sqlite"},"reports":{"kind":"postgres"}}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	var stdout bytes.Buffer
+	err := runDBBranchCommand(context.Background(), &stdout, []string{"status", "--app-root", root})
+	if err != nil {
+		t.Fatalf("mixed app branch status returned error: %v", err)
+	}
+}
+
+func TestDBBranchRejectsPostgresOnlyApp(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"demo","dev":{"services":{"reports":{"kind":"postgres"}}}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	var stdout bytes.Buffer
+	err := runDBBranchCommand(context.Background(), &stdout, []string{"status", "--app-root", root})
+	if err == nil || !strings.Contains(err.Error(), "postgres services are not branchable") {
+		t.Fatalf("postgres-only branch status error = %v", err)
 	}
 }
 
