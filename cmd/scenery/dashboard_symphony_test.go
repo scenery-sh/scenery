@@ -94,6 +94,33 @@ func TestDashboardSymphonyRPCMovesAndRejectsRunnerMethods(t *testing.T) {
 	}
 }
 
+func TestDashboardSymphonyRPCBlocksAutoEscalation(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	server := newSymphonyDashboardTestServer(t)
+	_, err := dispatchSymphonyTestRPC[symphony.Workflow](context.Background(), server, "symphony/workflow/update", map[string]any{
+		"app_id": "session-a",
+		"input": map[string]any{
+			"mode":            "auto",
+			"max_concurrency": 1,
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "mode=auto") {
+		t.Fatalf("expected auto mode gate, got %v", err)
+	}
+}
+
+func TestDashboardWebSocketOriginCheck(t *testing.T) {
+	req := &http.Request{Host: "localhost:4747", Header: http.Header{"Origin": []string{"http://localhost:4747"}}}
+	if !dashboardCheckOrigin(req) {
+		t.Fatal("expected same-origin dashboard websocket to pass")
+	}
+	req.Header.Set("Origin", "https://example.com")
+	if dashboardCheckOrigin(req) {
+		t.Fatal("expected cross-origin dashboard websocket to be rejected")
+	}
+}
+
 func TestDashboardSymphonyRPCFallsBackToDashboardAppIDWithoutBaseAppID(t *testing.T) {
 	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
 
@@ -206,7 +233,10 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(appRoot, "go.mod"), []byte("module example.com/basic\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(appRoot, "WORKFLOW.md"), []byte("---\nagent:\n  max_concurrent_agents: 1\n  max_turns: 1\n  unknown_future_key: ignored\n---\nTicket {{ issue.identifier }} in {{ workspace.path }}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(`{"name":"demo","id":"demo"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "WORKFLOW.md"), []byte("---\nagent:\n  max_concurrent_agents: 1\n  max_attempts: 3\n  max_turns: 20\n  unknown_future_key: ignored\n---\nTicket {{ issue.identifier }} in {{ workspace.path }}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, repoRoot, "init")
@@ -229,7 +259,7 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 9}); err != nil {
+	if err := symphonyCommand([]string{"auto", "--on", "--app-root", appRoot}); err != nil {
 		t.Fatal(err)
 	}
 	server := &dashboardServer{}
@@ -292,6 +322,148 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(appRoot, "prepared.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("live app root was modified or stat failed: %v", err)
+	}
+}
+
+func TestDashboardSymphonyAutoRunnerRecoversExpiredRun(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	oldRunner := symphonyRunCodexAgent
+	oldAsync := startSymphonyRunAsync
+	t.Cleanup(func() {
+		symphonyRunCodexAgent = oldRunner
+		startSymphonyRunAsync = oldAsync
+	})
+	startSymphonyRunAsync = func(fn func()) { fn() }
+	symphonyRunCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+		return symphonyRunResult{Summary: "recovered"}, nil
+	}
+
+	repoRoot, appRoot := newSymphonyGitFixture(t, "---\nagent:\n  max_concurrent_agents: 1\n  max_attempts: 3\n---\nRecover {{ issue.identifier }}")
+	store, err := openDashboardSymphonyStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Recover", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRun, err := store.StartRunWithRepo(context.Background(), "demo", task.ID, filepath.Join(repoRoot, "app"), "old-session", repoRoot, filepath.Join(symphonyCacheRoot(), "workspaces", "demo", task.Identifier, "repo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MoveTask(context.Background(), "demo", task.ID, "in_progress", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RenewRunLease(context.Background(), "demo", oldRun.ID, -time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+		AppID:     "demo--session",
+		BaseAppID: "demo",
+		SessionID: "session-1",
+		AppRoot:   appRoot,
+		Running:   true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stalled, err := store.Run(context.Background(), "demo", oldRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.State(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stalled.Status != "stalled" || len(state.Tasks) != 1 || state.Tasks[0].StatusKey != "human_review" || state.Tasks[0].LatestRun == nil || state.Tasks[0].LatestRun.Attempt != 2 {
+		t.Fatalf("stalled=%+v state=%+v", stalled, state)
+	}
+}
+
+func TestDashboardSymphonyAutoRunnerTimesOutRun(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	oldRunner := symphonyRunCodexAgent
+	oldAsync := startSymphonyRunAsync
+	t.Cleanup(func() {
+		symphonyRunCodexAgent = oldRunner
+		startSymphonyRunAsync = oldAsync
+	})
+	startSymphonyRunAsync = func(fn func()) { fn() }
+	symphonyRunCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+		return symphonyRunResult{Summary: "timed out"}, context.DeadlineExceeded
+	}
+
+	_, appRoot := newSymphonyGitFixture(t, "---\nagent:\n  turn_timeout_ms: 1000\n  stall_timeout_ms: 1000\n---\nTimeout")
+	store, err := openDashboardSymphonyStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if _, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Timeout", StatusKey: "todo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", SessionID: "session-1", AppRoot: appRoot, Running: true}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.State(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Tasks[0].StatusKey != "rework" || state.Tasks[0].LatestRun == nil || state.Tasks[0].LatestRun.Status != "timed_out" {
+		t.Fatalf("state = %+v", state)
+	}
+}
+
+func TestDashboardSymphonyAutoRunnerHonorsMaxAttempts(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	oldRunner := symphonyRunCodexAgent
+	t.Cleanup(func() { symphonyRunCodexAgent = oldRunner })
+	symphonyRunCodexAgent = func(context.Context, symphonyRunRequest, symphonyRunCallbacks) (symphonyRunResult, error) {
+		t.Fatal("runner should not reclaim an exhausted task")
+		return symphonyRunResult{}, nil
+	}
+
+	appRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appRoot, "WORKFLOW.md"), []byte("---\nagent:\n  max_attempts: 1\n  max_turns: 20\n---\nNo retry"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := openDashboardSymphonyStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "No retry", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.StartRun(context.Background(), "demo", task.ID, "", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteRun(context.Background(), "demo", run.ID, "failed", "", "failed once"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", AppRoot: appRoot, Running: true}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.State(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Tasks[0].LatestRun == nil || state.Tasks[0].LatestRun.Attempt != 1 || state.Tasks[0].LatestRun.Status != "failed" {
+		t.Fatalf("state = %+v", state)
 	}
 }
 
@@ -367,6 +539,106 @@ func TestDashboardSymphonyAutoRunnerRequiresWorkflow(t *testing.T) {
 	}
 }
 
+func TestPrepareSymphonyWorkspaceResetsExistingWorktree(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "tracked.txt"), []byte("clean\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "scenery@example.test")
+	runGit(t, repoRoot, "config", "user.name", "Scenery Test")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "commit", "-m", "initial")
+	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", "demo", "SYM-1", "repo")
+	reset, err := prepareSymphonyWorkspace(context.Background(), repoRoot, repoWorkspace, repoWorkspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reset {
+		t.Fatal("new worktree should not report reset")
+	}
+	if err := os.WriteFile(filepath.Join(repoWorkspace, "tracked.txt"), []byte("dirty\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoWorkspace, "untracked.txt"), []byte("remove me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reset, err = prepareSymphonyWorkspace(context.Background(), repoRoot, repoWorkspace, repoWorkspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reset {
+		t.Fatal("existing worktree should report reset")
+	}
+	data, err := os.ReadFile(filepath.Join(repoWorkspace, "tracked.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "clean\n" {
+		t.Fatalf("tracked file = %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(repoWorkspace, "untracked.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("untracked file survived reset: %v", err)
+	}
+}
+
+func TestCleanupSymphonyRunWorkspaceRemovesWorktree(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	repoRoot, appRoot := newSymphonyGitFixture(t, "manual")
+	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", "demo", "SYM-1", "repo")
+	if _, err := prepareSymphonyWorkspace(context.Background(), repoRoot, repoWorkspace, repoWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupSymphonyRunWorkspace(context.Background(), symphony.Run{RepoRoot: repoRoot, RepoWorkspace: repoWorkspace, WorkspacePath: appRoot}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(repoWorkspace); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("workspace still exists: %v", err)
+	}
+	out := string(runGitOutput(t, repoRoot, "worktree", "list", "--porcelain"))
+	if strings.Contains(out, repoWorkspace) {
+		t.Fatalf("worktree registration survived:\n%s", out)
+	}
+}
+
+func TestCodexAppServerClientCompletesAfterNotificationHandler(t *testing.T) {
+	handled := make(chan struct{})
+	client := &codexAppServerClient{
+		done:         make(chan error, 1),
+		turnDone:     make(chan struct{}),
+		lastActivity: time.Now(),
+		onNotification: func(method string, params json.RawMessage) {
+			if method == "turn/completed" {
+				close(handled)
+			}
+		},
+	}
+	go client.readLoop(strings.NewReader(`{"method":"turn/completed","params":{"turn":{"id":"turn-1"}}}` + "\n"))
+	if err := client.waitForTurnCompleted(context.Background(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-handled:
+	default:
+		t.Fatal("turn completed before notification handler ran")
+	}
+}
+
+func TestCodexAppServerClientStallTimeout(t *testing.T) {
+	client := &codexAppServerClient{
+		done:         make(chan error, 1),
+		turnDone:     make(chan struct{}),
+		lastActivity: time.Now().Add(-time.Second),
+	}
+	err := client.waitForTurnCompleted(context.Background(), 5*time.Millisecond)
+	if !errors.Is(err, errSymphonyRunStalled) {
+		t.Fatalf("err = %v, want stalled", err)
+	}
+}
+
 func newSymphonyDashboardTestServer(t *testing.T) *dashboardServer {
 	t.Helper()
 	store, err := devdash.OpenStore(filepath.Join(t.TempDir(), "devdash"))
@@ -387,12 +659,46 @@ func newSymphonyDashboardTestServer(t *testing.T) *dashboardServer {
 	return newDashboardServerWithController(&agentDashboardController{store: store}, t.TempDir(), "127.0.0.1:0", "", nil)
 }
 
+func newSymphonyGitFixture(t *testing.T, workflow string) (string, string) {
+	t.Helper()
+	repoRoot := t.TempDir()
+	appRoot := filepath.Join(repoRoot, "testdata", "apps", "basic")
+	if err := os.MkdirAll(appRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, ".scenery.json"), []byte(`{"name":"demo","id":"demo"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "go.mod"), []byte("module example.com/basic\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "WORKFLOW.md"), []byte(workflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "scenery@example.test")
+	runGit(t, repoRoot, "config", "user.name", "Scenery Test")
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "commit", "-m", "initial")
+	return repoRoot, appRoot
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
+}
+
+func runGitOutput(t *testing.T, dir string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+	return output
 }
 
 func dispatchSymphonyTestRPC[T any](ctx context.Context, server *dashboardServer, method string, params map[string]any) (T, error) {

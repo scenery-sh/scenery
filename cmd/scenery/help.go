@@ -65,6 +65,7 @@ var rootHelpGroups = []helpRootGroup{
 		{Command: "task", Summary: "List, inspect, graph, and run app tasks"},
 		{Command: "validate", Summary: "Run validation profiles"},
 		{Command: "storage", Summary: "Inspect configured storage"},
+		{Command: "symphony", Summary: "Manage local Symphony workflow mode"},
 		{Command: "harness", Summary: "Run Scenery harnesses"},
 	}},
 	{Name: "Workspace", Entries: []helpRootEntry{
@@ -147,6 +148,9 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery storage put",
 		"scenery storage get",
 		"scenery storage rm",
+	}},
+	{Name: "Symphony", Commands: []string{
+		"scenery symphony auto",
 	}},
 	{Name: "Runtime", Commands: []string{
 		"scenery serve",
@@ -340,6 +344,15 @@ var helpCommands = []helpCommandEntry{
 		Subcommands: []string{"status", "webui", "ls", "stat", "put", "get", "rm", "cleanup"},
 		Flags:       []string{"--json", "--app-root <path>", "--prefix <prefix>", "--cursor <cursor>", "--limit <n>", "--output <file>", "--recursive", "--yes"},
 		JSON:        true,
+		Stability:   "beta",
+	},
+	{
+		Command:     "symphony",
+		Group:       "App resources",
+		Summary:     "Manage local Symphony workflow mode.",
+		Usage:       []string{"scenery symphony auto --on|--off [--app-root <path>]"},
+		Subcommands: []string{"auto"},
+		Flags:       []string{"--on", "--off", "--app-root <path>"},
 		Stability:   "beta",
 	},
 	{

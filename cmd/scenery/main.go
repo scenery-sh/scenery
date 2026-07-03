@@ -62,6 +62,8 @@ func run(args []string) error {
 		return validateCommand(args[1:])
 	case "storage":
 		return storageCommand(args[1:])
+	case "symphony":
+		return symphonyCommand(args[1:])
 	case "worker":
 		return workerCommand(args[1:])
 	case "version":

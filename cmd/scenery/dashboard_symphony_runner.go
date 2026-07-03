@@ -25,6 +25,7 @@ var (
 	symphonyRunnerInterval = 2 * time.Second
 	symphonyRunCodexAgent  = runSymphonyCodexAppServer
 	startSymphonyRunAsync  = func(fn func()) { go fn() }
+	errSymphonyRunStalled  = errors.New("codex app-server stalled")
 )
 
 const maxSymphonyArtifactBytes = 120 * 1024
@@ -39,12 +40,17 @@ type symphonyRunRequest struct {
 	Run           symphony.Run
 	Prompt        string
 	MaxTurns      int
+	TurnTimeout   time.Duration
+	StallTimeout  time.Duration
 }
 
 type symphonyWorkflowRuntime struct {
 	PromptTemplate string
 	MaxConcurrency int
 	MaxTurns       int
+	MaxAttempts    int
+	TurnTimeout    time.Duration
+	StallTimeout   time.Duration
 }
 
 type symphonyRunResult struct {
@@ -61,6 +67,9 @@ type symphonyRunCallbacks struct {
 
 func (s *dashboardServer) startSymphonyRunner(ctx context.Context) {
 	go func() {
+		if err := s.cleanupSymphonyTerminalWorkspaces(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Warn("symphony workspace cleanup failed", "err", err)
+		}
 		timer := time.NewTimer(500 * time.Millisecond)
 		defer timer.Stop()
 		for {
@@ -105,10 +114,77 @@ func (s *dashboardServer) runSymphonyAutoOnce(ctx context.Context) error {
 	return nil
 }
 
+func (s *dashboardServer) cleanupSymphonyTerminalWorkspaces(ctx context.Context) error {
+	apps, err := s.dashboardListApps(ctx)
+	if err != nil {
+		return err
+	}
+	store, err := s.dashboardSymphonyStore(ctx)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, app := range apps {
+		requested := stringFromMap(app, "id")
+		if requested == "" {
+			continue
+		}
+		status, err := s.dashboardStatusFor(ctx, requested)
+		if err != nil {
+			continue
+		}
+		appID := dashboardStoreAppID(status)
+		if appID == "" || seen[appID] {
+			continue
+		}
+		seen[appID] = true
+		runs, err := store.TerminalWorkspaces(ctx, appID)
+		if err != nil {
+			return err
+		}
+		for _, run := range runs {
+			if err := cleanupSymphonyRunWorkspace(ctx, run); err != nil {
+				slog.Warn("symphony workspace cleanup failed", "app", appID, "run", run.ID, "err", err)
+			}
+		}
+	}
+	return nil
+}
+
+func cleanupSymphonyRunWorkspace(ctx context.Context, run symphony.Run) error {
+	repoWorkspace := strings.TrimSpace(run.RepoWorkspace)
+	if repoWorkspace == "" {
+		return nil
+	}
+	if !symphonyWorkspacePathAllowed(repoWorkspace) {
+		return fmt.Errorf("refusing to remove workspace outside Symphony cache: %s", repoWorkspace)
+	}
+	if _, err := os.Stat(repoWorkspace); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	repoRoot := strings.TrimSpace(run.RepoRoot)
+	if repoRoot != "" {
+		cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "worktree", "remove", "--force", repoWorkspace)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			if _, statErr := os.Stat(repoWorkspace); errors.Is(statErr, os.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("remove worktree: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	}
+	return os.RemoveAll(repoWorkspace)
+}
+
 func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symphony.Store, status devdash.AppStatus) error {
 	appID := dashboardStoreAppID(status)
 	if appID == "" || status.AppRoot == "" {
 		return nil
+	}
+	if _, err := store.MarkExpiredRunsStalled(ctx, appID); err != nil {
+		return err
 	}
 	workflow, err := store.Workflow(ctx, appID)
 	if err != nil {
@@ -133,7 +209,7 @@ func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symp
 	if available <= 0 {
 		return nil
 	}
-	tasks, err := store.RunnableTasksWithMaxAttempts(ctx, appID, []string{"todo"}, available, runtimeWorkflow.MaxTurns)
+	tasks, err := store.RunnableTasksWithMaxAttempts(ctx, appID, []string{"todo"}, available, runtimeWorkflow.MaxAttempts)
 	if err != nil {
 		return err
 	}
@@ -160,7 +236,7 @@ func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *sym
 	}
 	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", safePathSegment(appID), safePathSegment(task.Identifier), "repo")
 	appWorkspace := filepath.Join(repoWorkspace, relAppRoot)
-	run, err := store.StartRun(ctx, appID, task.ID, appWorkspace, status.SessionID)
+	run, err := store.StartRunWithRepo(ctx, appID, task.ID, appWorkspace, status.SessionID, repoRoot, repoWorkspace)
 	if err != nil {
 		return symphonyRunRequest{}, err
 	}
@@ -173,6 +249,8 @@ func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *sym
 		Task:          task,
 		Run:           run,
 		MaxTurns:      workflow.MaxTurns,
+		TurnTimeout:   workflow.TurnTimeout,
+		StallTimeout:  workflow.StallTimeout,
 	}
 	prompt, err := renderSymphonyRunPrompt(workflow, req)
 	if err != nil {
@@ -188,9 +266,24 @@ func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *sym
 }
 
 func (s *dashboardServer) executeSymphonyRun(ctx context.Context, store *symphony.Store, req symphonyRunRequest) {
-	if err := prepareSymphonyWorkspace(ctx, req.RepoRoot, req.RepoWorkspace, req.AppWorkspace); err != nil {
+	runCtx := ctx
+	var cancel context.CancelFunc
+	if req.TurnTimeout > 0 {
+		runCtx, cancel = context.WithTimeout(ctx, req.TurnTimeout)
+	} else {
+		runCtx, cancel = context.WithCancel(ctx)
+	}
+	defer cancel()
+	stopHeartbeat := startSymphonyRunHeartbeat(runCtx, store, req)
+	defer stopHeartbeat()
+
+	reset, err := prepareSymphonyWorkspace(runCtx, req.RepoRoot, req.RepoWorkspace, req.AppWorkspace)
+	if err != nil {
 		completeSymphonyRun(store, req, "failed", "", err.Error(), "rework")
 		return
+	}
+	if reset {
+		_ = store.RecordRunEvent(context.Background(), req.AppID, req.Run.ID, "workspace.reset", map[string]any{"repo_workspace_path": req.RepoWorkspace})
 	}
 	callbacks := symphonyRunCallbacks{
 		ThreadStarted: func(processID int, threadID string) {
@@ -203,12 +296,37 @@ func (s *dashboardServer) executeSymphonyRun(ctx context.Context, store *symphon
 			// Detailed event storage can be widened later; the lifecycle events already cover recovery.
 		},
 	}
-	result, err := symphonyRunCodexAgent(ctx, req, callbacks)
+	result, err := symphonyRunCodexAgent(runCtx, req, callbacks)
 	if err != nil {
-		completeSymphonyRun(store, req, "failed", result.Summary, err.Error(), "rework")
+		status := "failed"
+		if errors.Is(err, context.DeadlineExceeded) {
+			status = "timed_out"
+		} else if errors.Is(err, errSymphonyRunStalled) {
+			status = "stalled"
+		}
+		completeSymphonyRun(store, req, status, result.Summary, err.Error(), "rework")
 		return
 	}
 	completeSymphonyRun(store, req, "succeeded", result.Summary, "", "human_review")
+}
+
+func startSymphonyRunHeartbeat(ctx context.Context, store *symphony.Store, req symphonyRunRequest) func() {
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(symphonyRunnerInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				if _, err := store.RenewRunLease(context.Background(), req.AppID, req.Run.ID, symphony.DefaultRunLeaseDuration); err != nil {
+					slog.Warn("symphony run heartbeat failed", "task", req.Task.Identifier, "run", req.Run.ID, "err", err)
+				}
+			}
+		}
+	}()
+	return cancel
 }
 
 func completeSymphonyRun(store *symphony.Store, req symphonyRunRequest, status, summary, runError, nextStatus string) {
@@ -267,30 +385,85 @@ func gitRepoRootForApp(ctx context.Context, appRoot string) (string, string, err
 	return repoRoot, rel, nil
 }
 
-func prepareSymphonyWorkspace(ctx context.Context, repoRoot, repoWorkspace, appWorkspace string) error {
+func prepareSymphonyWorkspace(ctx context.Context, repoRoot, repoWorkspace, appWorkspace string) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(repoWorkspace), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := os.Stat(repoWorkspace); errors.Is(err, os.ErrNotExist) {
 		cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "worktree", "add", "--detach", repoWorkspace, "HEAD")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("create worktree: %w: %s", err, strings.TrimSpace(string(output)))
+			return false, fmt.Errorf("create worktree: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 	} else if err != nil {
-		return err
+		return false, err
+	} else {
+		if !symphonyWorkspacePathAllowed(repoWorkspace) {
+			return false, fmt.Errorf("workspace path %s is outside the Symphony cache", repoWorkspace)
+		}
+		if _, err := gitOutput(ctx, repoWorkspace, "reset", "--hard", "HEAD"); err != nil {
+			return false, err
+		}
+		if _, err := gitOutput(ctx, repoWorkspace, "clean", "-fd"); err != nil {
+			return false, err
+		}
+		if info, err := os.Stat(appWorkspace); err != nil || !info.IsDir() {
+			if err != nil {
+				return true, fmt.Errorf("app workspace %s: %w", appWorkspace, err)
+			}
+			return true, fmt.Errorf("app workspace %s is not a directory", appWorkspace)
+		}
+		return true, nil
 	}
 	if info, err := os.Stat(appWorkspace); err != nil || !info.IsDir() {
 		if err != nil {
-			return fmt.Errorf("app workspace %s: %w", appWorkspace, err)
+			return false, fmt.Errorf("app workspace %s: %w", appWorkspace, err)
 		}
-		return fmt.Errorf("app workspace %s is not a directory", appWorkspace)
+		return false, fmt.Errorf("app workspace %s is not a directory", appWorkspace)
 	}
-	return nil
+	return false, nil
 }
 
 func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
-	client, err := newCodexAppServerClient(ctx)
+	var resultMu sync.Mutex
+	var result symphonyRunResult
+	var agentSummary strings.Builder
+	handler := func(method string, params json.RawMessage) {
+		resultMu.Lock()
+		defer resultMu.Unlock()
+		switch method {
+		case "turn/started":
+			turnID := jsonString(params, "turn", "id")
+			if turnID != "" {
+				result.TurnID = turnID
+				if callbacks.TurnStarted != nil {
+					callbacks.TurnStarted(turnID)
+				}
+			}
+		case "turn/completed":
+			if turnID := jsonString(params, "turn", "id"); turnID != "" {
+				result.TurnID = turnID
+			}
+		case "item/agentMessage/delta":
+			if text := firstNonEmpty(jsonString(params, "delta"), jsonString(params, "text")); text != "" && agentSummary.Len() < maxSymphonyArtifactBytes {
+				agentSummary.WriteString(text)
+			}
+			if callbacks.Event != nil {
+				callbacks.Event(method, map[string]any{"params": json.RawMessage(params)})
+			}
+		}
+	}
+	snapshotResult := func(defaultSummary bool) symphonyRunResult {
+		resultMu.Lock()
+		defer resultMu.Unlock()
+		out := result
+		out.Summary = strings.TrimSpace(agentSummary.String())
+		if defaultSummary && out.Summary == "" {
+			out.Summary = "Codex app-server completed the Symphony task."
+		}
+		return out
+	}
+	client, err := newCodexAppServerClient(ctx, handler)
 	if err != nil {
 		return symphonyRunResult{}, err
 	}
@@ -322,32 +495,9 @@ func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, call
 		callbacks.ThreadStarted(client.pid(), threadID)
 	}
 	prompt := symphonyTaskPrompt(req)
-	var result symphonyRunResult
+	resultMu.Lock()
 	result.ThreadID = threadID
-	var agentSummary strings.Builder
-	client.onNotification = func(method string, params json.RawMessage) {
-		switch method {
-		case "turn/started":
-			turnID := jsonString(params, "turn", "id")
-			if turnID != "" {
-				result.TurnID = turnID
-				if callbacks.TurnStarted != nil {
-					callbacks.TurnStarted(turnID)
-				}
-			}
-		case "turn/completed":
-			if turnID := jsonString(params, "turn", "id"); turnID != "" {
-				result.TurnID = turnID
-			}
-		case "item/agentMessage/delta":
-			if text := firstNonEmpty(jsonString(params, "delta"), jsonString(params, "text")); text != "" && agentSummary.Len() < maxSymphonyArtifactBytes {
-				agentSummary.WriteString(text)
-			}
-			if callbacks.Event != nil {
-				callbacks.Event(method, map[string]any{"params": json.RawMessage(params)})
-			}
-		}
-	}
+	resultMu.Unlock()
 	if _, err := client.call(ctx, "turn/start", map[string]any{
 		"threadId": threadID,
 		"cwd":      req.AppWorkspace,
@@ -358,16 +508,12 @@ func runSymphonyCodexAppServer(ctx context.Context, req symphonyRunRequest, call
 		"approvalPolicy":        "never",
 		"runtimeWorkspaceRoots": []string{req.AppWorkspace},
 	}); err != nil {
-		return result, err
+		return snapshotResult(false), err
 	}
-	if err := client.waitForTurnCompleted(ctx); err != nil {
-		return result, err
+	if err := client.waitForTurnCompleted(ctx, req.StallTimeout); err != nil {
+		return snapshotResult(false), err
 	}
-	result.Summary = strings.TrimSpace(agentSummary.String())
-	if result.Summary == "" {
-		result.Summary = "Codex app-server completed the Symphony task."
-	}
-	return result, nil
+	return snapshotResult(true), nil
 }
 
 func symphonyTaskPrompt(req symphonyRunRequest) string {
@@ -420,7 +566,12 @@ func renderSymphonyRunPrompt(workflow symphonyWorkflowRuntime, req symphonyRunRe
 }
 
 func loadSymphonyWorkflowRuntime(appRoot string, workflow symphony.Workflow) (symphonyWorkflowRuntime, error) {
-	out := symphonyWorkflowRuntime{MaxTurns: 20}
+	out := symphonyWorkflowRuntime{
+		MaxTurns:     20,
+		MaxAttempts:  3,
+		TurnTimeout:  time.Hour,
+		StallTimeout: 5 * time.Minute,
+	}
 	if text := strings.TrimSpace(workflow.WorkflowMarkdown); text != "" {
 		return parseSymphonyWorkflowRuntime(text, out)
 	}
@@ -485,6 +636,24 @@ func applySymphonyWorkflowConfig(lines []string, out *symphonyWorkflowRuntime) e
 				return fmt.Errorf("invalid agent.%s: %w", key, err)
 			}
 			out.MaxTurns = n
+		case "max_attempts":
+			n, err := parseSymphonyPositiveInt(value)
+			if err != nil {
+				return fmt.Errorf("invalid agent.%s: %w", key, err)
+			}
+			out.MaxAttempts = n
+		case "turn_timeout_ms":
+			timeout, err := parseSymphonyPositiveDurationMillis(value)
+			if err != nil {
+				return fmt.Errorf("invalid agent.%s: %w", key, err)
+			}
+			out.TurnTimeout = timeout
+		case "stall_timeout_ms":
+			timeout, err := parseSymphonyPositiveDurationMillis(value)
+			if err != nil {
+				return fmt.Errorf("invalid agent.%s: %w", key, err)
+			}
+			out.StallTimeout = timeout
 		}
 	}
 	return nil
@@ -501,6 +670,14 @@ func parseSymphonyPositiveInt(value string) (int, error) {
 		return 0, fmt.Errorf("must be positive")
 	}
 	return n, nil
+}
+
+func parseSymphonyPositiveDurationMillis(value string) (time.Duration, error) {
+	n, err := parseSymphonyPositiveInt(value)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(n) * time.Millisecond, nil
 }
 
 func collectSymphonyRunArtifacts(ctx context.Context, appWorkspace string) (string, string, error) {
@@ -558,6 +735,8 @@ type codexAppServerClient struct {
 	done           chan error
 	turnDone       chan struct{}
 	onNotification func(string, json.RawMessage)
+	activityMu     sync.Mutex
+	lastActivity   time.Time
 }
 
 type codexRPCMessage struct {
@@ -573,7 +752,7 @@ type codexRPCError struct {
 	Message string `json:"message"`
 }
 
-func newCodexAppServerClient(ctx context.Context) (*codexAppServerClient, error) {
+func newCodexAppServerClient(ctx context.Context, onNotification func(string, json.RawMessage)) (*codexAppServerClient, error) {
 	cmd := exec.CommandContext(ctx, "codex", "app-server", "--listen", "stdio://")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -588,11 +767,13 @@ func newCodexAppServerClient(ctx context.Context) (*codexAppServerClient, error)
 		return nil, err
 	}
 	client := &codexAppServerClient{
-		cmd:      cmd,
-		stdin:    stdin,
-		pending:  map[int]chan codexRPCMessage{},
-		done:     make(chan error, 1),
-		turnDone: make(chan struct{}),
+		cmd:            cmd,
+		stdin:          stdin,
+		pending:        map[int]chan codexRPCMessage{},
+		done:           make(chan error, 1),
+		turnDone:       make(chan struct{}),
+		onNotification: onNotification,
+		lastActivity:   time.Now(),
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
@@ -682,6 +863,10 @@ func (c *codexAppServerClient) readLoop(stdout io.Reader) {
 			}
 		}
 		if msg.Method != "" {
+			c.markActivity()
+			if c.onNotification != nil {
+				c.onNotification(msg.Method, msg.Params)
+			}
 			if msg.Method == "turn/completed" {
 				select {
 				case <-c.turnDone:
@@ -689,22 +874,55 @@ func (c *codexAppServerClient) readLoop(stdout io.Reader) {
 					close(c.turnDone)
 				}
 			}
-			if c.onNotification != nil {
-				c.onNotification(msg.Method, msg.Params)
-			}
 		}
 	}
 }
 
-func (c *codexAppServerClient) waitForTurnCompleted(ctx context.Context) error {
+func (c *codexAppServerClient) waitForTurnCompleted(ctx context.Context, stallTimeout time.Duration) error {
+	if stallTimeout <= 0 {
+		stallTimeout = 5 * time.Minute
+	}
+	tick := stallTimeout / 4
+	if tick <= 0 || tick > time.Second {
+		tick = time.Second
+	}
+	ticker := time.NewTicker(tick)
+	defer ticker.Stop()
 	select {
 	case <-c.turnDone:
 		return nil
-	case err := <-c.done:
-		return fmt.Errorf("codex app-server exited before turn completed: %w", err)
-	case <-ctx.Done():
-		return ctx.Err()
+	default:
 	}
+	for {
+		select {
+		case <-c.turnDone:
+			return nil
+		case err := <-c.done:
+			return fmt.Errorf("codex app-server exited before turn completed: %w", err)
+		case <-ticker.C:
+			if c.idleFor() >= stallTimeout {
+				return errSymphonyRunStalled
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (c *codexAppServerClient) markActivity() {
+	c.activityMu.Lock()
+	c.lastActivity = time.Now()
+	c.activityMu.Unlock()
+}
+
+func (c *codexAppServerClient) idleFor() time.Duration {
+	c.activityMu.Lock()
+	last := c.lastActivity
+	c.activityMu.Unlock()
+	if last.IsZero() {
+		return 0
+	}
+	return time.Since(last)
 }
 
 func numericID(value any) (int, bool) {

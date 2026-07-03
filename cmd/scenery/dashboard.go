@@ -32,7 +32,25 @@ import (
 )
 
 var dashboardUpgrader = websocket.Upgrader{
-	CheckOrigin: func(*http.Request) bool { return true },
+	CheckOrigin: dashboardCheckOrigin,
+}
+
+func dashboardCheckOrigin(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	origin := strings.TrimSpace(req.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	return strings.EqualFold(u.Host, req.Host)
 }
 
 type dashboardServer struct {

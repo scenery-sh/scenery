@@ -18,6 +18,27 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0095-symphony-hardening.md",
+      "title": "Symphony Hardening",
+      "owner": "scenery dashboard / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-03",
+      "review_after": "2026-08-03",
+      "summary": "Active ExecPlan hardening the Symphony dashboard and auto runner: dashboard RPC auto-mode gating, local CLI auto opt-in, run leases, stale recovery, timeout and stall statuses, max_attempts semantics, latest-run correctness, and workspace lifecycle cleanup.",
+      "tags": [
+        "plans",
+        "execplans",
+        "dashboard",
+        "consolenext",
+        "symphony",
+        "sqlite",
+        "agents",
+        "security"
+      ]
+    },
+    {
       "path": "docs/index.md",
       "title": "scenery Documentation Index",
       "owner": "scenery maintainers",

@@ -521,11 +521,15 @@ export type SymphonyRun = {
   task_id: string
   status: string
   attempt: number
+  repo_root?: string
+  repo_workspace_path?: string
   workspace_path: string
   thread_id: string
   turn_id: string
   process_id: number
   owner_session_id: string
+  owner_started_at?: string
+  lease_expires_at?: string
   summary: string
   error: string
   diff_stat: string
