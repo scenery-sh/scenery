@@ -762,10 +762,11 @@ func waitForDatabaseSetupConnection(ctx context.Context, env []string) error {
 }
 
 func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
-	if len(cfg.SQLiteServices()) == 0 {
+	if len(cfg.SQLiteServices()) == 0 && len(cfg.PostgresServices()) == 0 {
 		return nil
 	}
 	keys := sqliteEnvKeys(cfg)
+	keys = append(keys, postgresEnvKeys(cfg)...)
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if value := envValueFromList(managedEnv, key); value != "" {
@@ -786,6 +787,12 @@ func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]
 			"path":    svc.Path,
 		})
 	}
+	postgresEnv, postgresServices, err := managedPostgresEnv(ctx, s.root, s.cfg, s.currentAgentSession(), baseEnv)
+	if err != nil {
+		return nil, err
+	}
+	emitPostgresReadyEvents(ctx, s.eventSink(), postgresServices)
+	env = append(env, postgresEnv...)
 	return env, nil
 }
 
@@ -793,11 +800,12 @@ func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string) []string {
 	if s == nil {
 		return baseEnv
 	}
-	if services := s.cfg.SQLiteServices(); len(services) > 0 {
+	if len(s.cfg.SQLiteServices()) > 0 || len(s.cfg.PostgresServices()) > 0 {
 		keys := []string{appDatabaseURLEnv, legacyDatabaseURLEnv, "SCENERY_SQLITE_DATABASES_JSON"}
-		for _, svc := range services {
+		for _, svc := range s.cfg.SQLiteServices() {
 			keys = append(keys, svc.DatabaseURLEnv, svc.DatabasePathEnv)
 		}
+		keys = append(keys, postgresEnvKeys(s.cfg)...)
 		return envWithoutKeys(baseEnv, keys...)
 	}
 	return baseEnv

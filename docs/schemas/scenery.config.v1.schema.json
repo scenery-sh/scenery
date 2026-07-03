@@ -184,7 +184,7 @@
     "devService": {
       "type": "object",
       "properties": {
-        "kind": { "type": "string", "enum": ["sqlite"] },
+        "kind": { "type": "string", "enum": ["sqlite", "postgres"] },
         "mode": { "type": "string", "enum": ["", "local"], "description": "Managed provider mode for services that need a local process." },
         "version": { "type": "string", "description": "Requested local service version for services that use one." },
         "isolation": { "type": "string", "enum": ["", "database", "schema", "container"], "description": "Requested isolation mode for services that use one." },
@@ -195,9 +195,9 @@
         "branch_name_template": { "type": "string", "description": "Template for derived managed database branch names. Supported placeholders are {app}, {git_branch}, {worktree}, and {session}." },
         "ttl": { "type": "string", "description": "Branch lease TTL as a Go duration." },
         "role": { "type": "string", "description": "Database role label for service metadata." },
-        "database_url_env": { "type": "string", "description": "App env var receiving the SQLite service URL. Defaults to upper-snake service name plus _DATABASE_URL." },
+        "database_url_env": { "type": "string", "description": "App env var receiving the SQLite or Postgres service URL. Defaults to upper-snake service name plus _DATABASE_URL." },
         "image": { "type": "string", "description": "Optional container image for services that support explicit container startup." },
-        "database": { "type": "string", "description": "SQLite file label for sqlite services." },
+        "database": { "type": "string", "description": "SQLite file label or Postgres database label for service databases." },
         "route": { "type": "string", "description": "Agent route label for a managed session backend." },
         "env": {
           "type": ["object", "null"],
@@ -205,7 +205,6 @@
           "additionalProperties": { "type": "string" }
         }
       },
-      "required": ["kind"],
       "additionalProperties": false
     },
     "storage": {

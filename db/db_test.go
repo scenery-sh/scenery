@@ -32,18 +32,21 @@ func TestGetUsesSQLiteServiceEnv(t *testing.T) {
 	}
 }
 
-func TestGetDefaultsToDBServiceWhenMultipleServicesExist(t *testing.T) {
+func TestGetRequiresServiceNameWhenMultipleServicesExist(t *testing.T) {
 	resetDBForTest(t)
 	root := writeAppConfig(t, `"db": {"kind": "sqlite", "database_url_env": "MAIN_DB"}, "billing": {"kind": "sqlite"}`)
 	t.Setenv(appRootEnv, root)
 	path := filepath.Join(root, "main.sqlite")
 	t.Setenv("MAIN_DB", sqlitedb.URLForPath(path))
 
-	if _, err := Get(context.Background()); err != nil {
-		t.Fatalf("Get returned error: %v", err)
+	if _, err := Get(context.Background()); err == nil || !strings.Contains(err.Error(), "database service name is required") {
+		t.Fatalf("Get error = %v", err)
+	}
+	if _, err := Get(context.Background(), "db"); err != nil {
+		t.Fatalf("Get named db service returned error: %v", err)
 	}
 	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("default db sqlite file was not created: %v", err)
+		t.Fatalf("named db sqlite file was not created: %v", err)
 	}
 }
 
@@ -82,6 +85,47 @@ func TestGetUsesDiscoveredServiceMetadata(t *testing.T) {
 	}
 }
 
+func TestResolveDatabaseURLUsesPostgresServiceEnv(t *testing.T) {
+	resetDBForTest(t)
+	root := writeAppConfig(t, `"reports": {"kind": "postgres", "database_url_env": "REPORTS_DATABASE_URL"}`)
+	t.Setenv(appRootEnv, root)
+	t.Setenv("REPORTS_DATABASE_URL", "postgres://user:secret@localhost/reports")
+
+	dsn, source, err := resolveDatabaseURL("reports")
+	if err != nil {
+		t.Fatalf("resolveDatabaseURL returned error: %v", err)
+	}
+	if dsn != "postgres://user:secret@localhost/reports" || source != "REPORTS_DATABASE_URL" {
+		t.Fatalf("resolveDatabaseURL = %q from %q", dsn, source)
+	}
+}
+
+func TestResolveDatabaseURLUsesDiscoveredPostgresMetadata(t *testing.T) {
+	resetDBForTest(t)
+	root := writeAppConfig(t, ``)
+	t.Setenv(appRootEnv, root)
+	t.Setenv("SCENERY_POSTGRES_DATABASES_JSON", `[{"service":"reports","database":"reports_abc","url":"postgres://u:p@localhost/reports","database_url_env":"REPORTS_DATABASE_URL","source":"managed"}]`)
+
+	dsn, source, err := resolveDatabaseURL("reports")
+	if err != nil {
+		t.Fatalf("resolveDatabaseURL returned error: %v", err)
+	}
+	if dsn != "postgres://u:p@localhost/reports" || source != "SCENERY_POSTGRES_DATABASES_JSON" {
+		t.Fatalf("resolveDatabaseURL = %q from %q", dsn, source)
+	}
+}
+
+func TestResolveDatabaseURLRequiresNameAcrossMixedServices(t *testing.T) {
+	resetDBForTest(t)
+	root := writeAppConfig(t, `"main": {"kind": "sqlite"}, "reports": {"kind": "postgres"}`)
+	t.Setenv(appRootEnv, root)
+
+	_, _, err := resolveDatabaseURL()
+	if err == nil || !strings.Contains(err.Error(), "database service name is required when 2 services are configured") {
+		t.Fatalf("resolveDatabaseURL error = %v", err)
+	}
+}
+
 func TestGetReportsMissingDatabaseURL(t *testing.T) {
 	resetDBForTest(t)
 	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
@@ -105,7 +149,7 @@ func TestGetReportsInvalidDatabaseURLWithoutRawDSN(t *testing.T) {
 		t.Fatal("Get returned nil error")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "invalid SQLite database URL") {
+	if !strings.Contains(msg, "unsupported database URL scheme") {
 		t.Fatalf("error = %q, want invalid URL", msg)
 	}
 	if strings.Contains(msg, raw) || strings.Contains(msg, "secret") {

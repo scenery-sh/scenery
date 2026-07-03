@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -42,6 +41,40 @@ func TestDiscoverRootAcceptsSQLiteServices(t *testing.T) {
 	billing, ok := cfg.SQLiteService("billing")
 	if !ok || billing.DatabaseURLEnv != "BILLING_DB" || billing.DatabasePathEnv != "BILLING_DATABASE_PATH" || billing.FileLabel != "billing-data" {
 		t.Fatalf("billing service = %+v ok=%v", billing, ok)
+	}
+}
+
+func TestDiscoverRootAcceptsPostgresServices(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{
+		"name": "pgapp",
+		"dev": {
+			"services": {
+				"reports": {
+					"kind": "postgres",
+					"database": "reports-db",
+					"database_url_env": "REPORTS_DSN"
+				},
+				"postgres": {}
+			}
+		}
+	}`)
+
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	services := cfg.PostgresServices()
+	if len(services) != 2 {
+		t.Fatalf("PostgresServices count = %d, want 2", len(services))
+	}
+	reports, ok := cfg.PostgresService("reports")
+	if !ok || reports.DatabaseURLEnv != "REPORTS_DSN" || reports.DatabaseLabel != "reports-db" {
+		t.Fatalf("reports service = %+v ok=%v", reports, ok)
+	}
+	postgres, ok := cfg.PostgresService("postgres")
+	if !ok || postgres.DatabaseURLEnv != "POSTGRES_DATABASE_URL" || postgres.DatabaseLabel != "postgres" {
+		t.Fatalf("postgres service = %+v ok=%v", postgres, ok)
 	}
 }
 
@@ -292,24 +325,23 @@ func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 	}
 }
 
-func TestDiscoverRootRejectsRemovedDatabaseService(t *testing.T) {
+func TestDiscoverRootRejectsLegacyPostgresFields(t *testing.T) {
 	root := t.TempDir()
-	removedKind := "post" + "gres"
-	writeAppTestFile(t, root, ".scenery.json", fmt.Sprintf(`{
+	writeAppTestFile(t, root, ".scenery.json", `{
 		"name": "pgapp",
 		"dev": {
 			"services": {
-				"%[1]s": {
-					"kind": "%[1]s"
+				"main": {
+					"kind": "postgres",
+					"project": "legacy"
 				}
 			}
 		}
-	}`, removedKind))
+	}`)
 
 	_, _, err := DiscoverRoot(root)
-	want := fmt.Sprintf(`dev.services.%[1]s kind "%[1]s" is not supported`, removedKind)
-	if err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("DiscoverRoot removed database service error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "dev.services.main.project is not supported for postgres services") {
+		t.Fatalf("DiscoverRoot legacy postgres field error = %v", err)
 	}
 }
 

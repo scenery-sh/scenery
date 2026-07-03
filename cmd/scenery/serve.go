@@ -18,6 +18,7 @@ import (
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/postgresdb"
 )
 
 type serveOptions struct {
@@ -332,12 +333,28 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 	if envName != "" {
 		overrides = append(overrides, "SCENERY_ENV="+envName, "SCENERY_RUNTIME_ENV="+envName)
 	}
+	if err := validateHeadlessPostgresEnv(cfg, baseEnv); err != nil {
+		return nil, err
+	}
 	storageEnv, err := headlessStorageCapabilityEnv(cfg, baseEnv)
 	if err != nil {
 		return nil, err
 	}
 	overrides = append(overrides, storageEnv...)
 	return envWithOverrides(baseEnv, overrides...), nil
+}
+
+func validateHeadlessPostgresEnv(cfg app.Config, baseEnv []string) error {
+	for _, svc := range cfg.PostgresServices() {
+		if value, _ := lookupEnvValue(baseEnv, svc.DatabaseURLEnv); value != "" {
+			if _, err := postgresdb.ParseURL(value); err != nil {
+				return fmt.Errorf("postgres service %q env %s is invalid: %w", svc.Name, svc.DatabaseURLEnv, err)
+			}
+			continue
+		}
+		return fmt.Errorf("postgres service %q requires %s for `scenery serve`/`scenery worker`; the managed shared Postgres server is a `scenery up` dev substrate only", svc.Name, svc.DatabaseURLEnv)
+	}
+	return nil
 }
 
 func envWithOverrides(base []string, overrides ...string) []string {

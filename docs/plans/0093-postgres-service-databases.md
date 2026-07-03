@@ -27,17 +27,18 @@ When this plan is done: an app can declare `dev.services.reports.kind: "postgres
 
 * [x] 2026-07-02 - Surveyed current SQLite-only model, plan 0088 history, toolchain image support, doctor Docker checks, substrate machinery; drafted this plan.
 * [x] 2026-07-02 - Registered this plan in `docs/plans/active.md` and `docs/knowledge.json`; added a forward-pointer note to plan 0088.
-* [ ] Milestone 0: Inventory and 0088 closure note.
-* [ ] Milestone 1: Config surface — accept `kind: "postgres"`, `PostgresServices()` helpers, JSON schema update.
-* [ ] Milestone 2: Driver and resolver — `internal/postgresdb` package, `jackc/pgx/v5` stdlib driver, database-name derivation, admin operations.
-* [ ] Milestone 3: Managed shared server — Docker container lifecycle, agent-home credentials/state, toolchain image pin, substrate registration, doctor check, `scenery db server` CLI.
-* [ ] Milestone 4: Dev runtime env injection — per-worktree database ensure + env injection under `scenery up`, external-DSN precedence, `SCENERY_POSTGRES_DATABASES_JSON`, dev events.
-* [ ] Milestone 5: `scenery.sh/db` engine dispatch — `db.Get` serves both engines by URL scheme.
-* [ ] Milestone 6: Headless contract — `scenery serve`/`worker` require explicit DSNs for postgres services; fail-closed errors.
-* [ ] Milestone 7: DB CLI — `list`/`shell`/`reset`/`drop`/`snapshot`/`seed` postgres awareness; `path` and `branch` fail with clear guidance.
-* [ ] Milestone 8: Atlas/sqlc plumbing — postgres dialect through `scenery generate sqlc`, `generate data`, `scenery db diff --generated`.
-* [ ] Milestone 9: Fixture, tests, and harness probe (Docker-gated, skips cleanly).
-* [ ] Milestone 10: Docs, schemas, env registry, knowledge sync, final validation.
+* [x] Milestone 0: Inventory and 0088 closure note.
+* [x] Milestone 1: Config surface — accept `kind: "postgres"`, `PostgresServices()` helpers, JSON schema update.
+* [x] Milestone 2: Driver and resolver — `internal/postgresdb` package, `jackc/pgx/v5` stdlib driver, database-name derivation, admin operations.
+* [x] Milestone 3: Managed shared server — Docker container lifecycle, agent-home credentials/state, toolchain image pin, substrate registration, doctor check, `scenery db server` CLI.
+* [x] Milestone 4: Dev runtime env injection — per-worktree database ensure + env injection under `scenery up`, external-DSN precedence, `SCENERY_POSTGRES_DATABASES_JSON`, dev events.
+* [x] Milestone 5: `scenery.sh/db` engine dispatch — `db.Get` serves both engines by URL scheme.
+* [x] Milestone 6: Headless contract — `scenery serve`/`worker` require explicit DSNs for postgres services; fail-closed errors.
+* [x] Milestone 7: DB CLI — `list`/`shell`/`reset`/`drop`/`snapshot`/`seed` postgres awareness; `path` and `branch` fail with clear guidance.
+* [x] Milestone 8: Atlas/sqlc plumbing — postgres dialect through `scenery generate sqlc`, `generate data`, `scenery db diff --generated`.
+* [x] Milestone 9: Fixture, tests, and harness probe (Docker-gated, skips cleanly).
+* [x] Milestone 10: Docs, schemas, env registry, knowledge sync, final validation.
+* [x] 2026-07-02 - Implemented Postgres service support end-to-end in this branch: config/runtime/env/db helper/CLI/server/doctor/harness/docs. Focused validation passed with `go test ./cmd/scenery ./internal/app ./internal/postgresdb ./db ./internal/toolchain`; final full-suite validation is recorded below.
 
 Update this section at every meaningful stopping point with date, what changed, and whether validation ran.
 
@@ -47,6 +48,9 @@ Update this section at every meaningful stopping point with date, what changed, 
 * 2026-07-02: `internal/app/root.go` `validateDevServices` spells the rejected kind as `"post" + "gres"` so plan 0088's final grep gate passes. This plan replaces that rejection with real support, which also retires the string-splitting trick.
 * 2026-07-02: The toolchain manifest already supports `kind: "image"` artifacts (`internal/toolchain/manifest.go:154`) and the store already shells out to `docker image inspect` (`internal/toolchain/store.go:34`), so pinning a Postgres image needs no new toolchain machinery.
 * 2026-07-02: Doctor already has `docker.context` and `docker.engine` checks (`cmd/scenery/doctor.go:848`), and already special-cases `docker://` Atlas dev URLs. The managed-server path can build on these.
+* 2026-07-02: A bare `dev.services.postgres: {}` now becomes a Postgres service named `postgres`; this removes the old string-split rejection while keeping explicit service maps compact.
+* 2026-07-02: Service-local seed routing was still defaulting all seeds into one database. The implementation now resolves each `SERVICE/db/seed.sql` and generated `.scenery/gen/db/<service>/seed.sql` against the matching service database, with a single-service or conventional `db` fallback for old simple apps.
+* 2026-07-02: Generated model HCL was already Postgres-shaped and schema-qualified. The generator work needed here was SQLC engine validation/metadata: schemas for configured Postgres services must use a Postgres SQLC engine, and `inspect generators` now carries optional artifact `engine`.
 
 Add new surprises here with the command, test, or file that exposed them.
 
@@ -96,11 +100,37 @@ Add new surprises here with the command, test, or file that exposed them.
   Rationale: Scenery must not drop databases on servers it does not own. Fail closed with a message naming the env var that made the service external.
   Date/Author: 2026-07-02 / this plan.
 
+* Decision: `dev.services.postgres: {}` is accepted as a Postgres service named `postgres`.
+  Rationale: It keeps the common single-service shorthand compact, and validation still rejects old provider/isolation fields for Postgres services.
+  Date/Author: 2026-07-02 / implementation.
+
+* Decision: `scenery generate sqlc` validates service-owned SQLC engines but does not invent a new Scenery-only `atlas_dev_url` indirection.
+  Rationale: SQLC's own `engine: postgresql` is the app-owned source of truth. Atlas already accepts `postgres://`, `postgresql://`, and `docker://` dev URLs, so Scenery should pass those through rather than add hidden magic.
+  Date/Author: 2026-07-02 / implementation.
+
 When implementation chooses exact SQL, container flags, schema shapes, or error texts, append new entries here.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Outcome:
+- Apps can declare Postgres service databases with `dev.services.<name>.kind: "postgres"`.
+- Existing explicit service DSNs win and are marked `source: "external"`; otherwise `scenery up` ensures a shared local Docker Postgres server and creates one database per app root/worktree/service.
+- SQLite remains the default and keeps file paths, snapshots, branches, worktree branch creation, and single-service alias behavior. The `DatabaseURL` alias rule now counts all database service engines.
+- `scenery.sh/db` opens SQLite and Postgres URLs behind the same `*sql.DB` API.
+- `scenery db list`, `shell`, `reset`, `drop`, `snapshot`, `seed`, `path`, `branch`, and `server` now have explicit Postgres behavior. External Postgres destructive operations fail closed.
+- `scenery serve` and `scenery worker` require explicit Postgres DSNs and never start the managed dev server.
+- Docs, schemas, env registry, toolchain manifest, fixture config, and self-harness probe were updated. Plan 0088 was closed as the old-substrate-removal baseline that this plan does not undo.
+
+Validation:
+- `go test ./cmd/scenery ./internal/app ./internal/postgresdb ./db ./internal/toolchain` passed during implementation.
+- `go test ./...` passed.
+- `go test ./cmd/scenery` passed.
+- `go run ./cmd/scenery harness self --summary --write` passed with warnings and `can_proceed: true`. Warning classes were existing large-file/timing warnings plus the Postgres service probe skipping live Docker proof because the local Docker/OrbStack engine socket was unavailable.
+
+Follow-up:
+- Dashboard DB explorer remains SQLite-only.
+- Standard auth, durable execution, cron storage, and SQLite branch templates stay SQLite-native.
+- A future plan can add richer Postgres database diffing or branch/template database strategies if demand appears.
 
 ## Context and Orientation
 
@@ -192,7 +222,7 @@ Work bottom-up so each commit compiles and no milestone depends on Docker to tes
 
 Milestones 1–2 are pure Go with unit tests (config + resolver). Milestone 3 introduces the only process-management code; keep every Docker interaction behind a small interface (`postgresServerRunner` with a real docker-CLI implementation and a test fake) so supervisor and CLI logic is unit-testable without Docker — the same pattern the ZeroFS supervisor used before its removal, minus the evidence machinery. Milestone 4 wires injection into the dev supervisor and is testable with the fake. Milestones 5–7 are engine dispatch and CLI, testable against config + env fixtures (plus live checks in the harness probe). Milestone 8 touches only generator plumbing. Milestones 9–10 close with proof and docs.
 
-Coordination with in-flight work: plan 0094 is actively rewriting `dev_supervisor.go`/`dev_services.go` (ZeroFS removal). Land this plan's supervisor changes **after** 0091's Milestone 2 merges, or rebase deliberately — both plans touch the same supervisor phase list.
+Coordination note: plan 0094 also rewrote `dev_supervisor.go`/`dev_services.go` for ZeroFS removal, so this branch was rebased after that work before completion.
 
 Interplay with plan 0088: 0088's outcome ("Scenery does not ship a built-in Postgres substrate coupled to auth/branching/Electric") remains true. What returns here is narrower: an opt-in service kind, an isolated shared dev server, and DSN passthrough. Auth, durable execution, and branching stay SQLite-native.
 
@@ -229,8 +259,8 @@ All commands run from the repository root. Compile-check order matches milestone
 
 12. **Final gates.**
 
-        git grep -n '"post" + "gres"' -- .        # returns nothing
-        git grep -ni "not supported.*postgres" -- internal cmd   # no stale rejections
+        git grep -n '"post" + "gres"' -- internal cmd db        # returns nothing
+        git grep -ni "not supported.*postgres" -- internal cmd   # only intentional legacy-field validation remains
 
 ## Validation and Acceptance
 

@@ -57,14 +57,17 @@ func TestBundledManifestMatchesRootFile(t *testing.T) {
 	}
 }
 
-func TestBundledManifestDoesNotDeclareRemovedDatabaseImage(t *testing.T) {
+func TestBundledManifestDeclaresDigestPinnedPostgresImage(t *testing.T) {
 	manifest, err := LoadBundledManifest()
 	if err != nil {
 		t.Fatalf("LoadBundledManifest() error = %v", err)
 	}
-	removedArtifact := "post" + "gres"
-	if _, ok := manifest.Artifact(removedArtifact); ok {
-		t.Fatalf("%s artifact should not be bundled", removedArtifact)
+	artifact, ok := manifest.Artifact("postgres")
+	if !ok {
+		t.Fatal("postgres image artifact should be bundled")
+	}
+	if artifact.Kind != "image" || len(artifact.Images) != 1 || artifact.Images[0].Digest == "" {
+		t.Fatalf("postgres artifact is not a digest-pinned image: %+v", artifact)
 	}
 }
 
