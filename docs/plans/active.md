@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0095 Symphony Hardening](0095-symphony-hardening.md)
+  - Status: active
+  - Owner: scenery dashboard / agent DX
+  - Created: 2026-07-03
+  - Focus: close Symphony auto-mode escalation over unauthenticated dashboard RPC, add run leases and stale recovery, separate max attempts from max turns, and harden runner workspace lifecycle.
 - [0094 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0094-local-storage-and-zerofs-removal.md)
   - Status: active
   - Owner: scenery runtime / storage

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestStorePersistsBoardCRUD(t *testing.T) {
@@ -116,6 +117,9 @@ func TestStoreRunLifecycleAndRunnableTasks(t *testing.T) {
 	if run.Status != "queued" || run.Attempt != 1 || run.WorkspacePath != "/tmp/work" {
 		t.Fatalf("queued run = %+v", run)
 	}
+	if run.OwnerStartedAt == "" || run.LeaseExpiresAt == "" {
+		t.Fatalf("queued run missing lease fields: %+v", run)
+	}
 	if _, err := store.StartRun(ctx, "demo", todo.ID, "/tmp/other", "session-1"); err == nil {
 		t.Fatal("expected duplicate active run error")
 	}
@@ -167,6 +171,100 @@ func TestStoreRunLifecycleAndRunnableTasks(t *testing.T) {
 	}
 	if len(runnable) != 0 {
 		t.Fatalf("max attempts should cap retry: %+v", runnable)
+	}
+}
+
+func TestStoreMarksExpiredRunStalledAndReleasesTask(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t)
+	task, err := store.CreateTask(ctx, "demo", TaskInput{Title: "Recover me", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.StartRun(ctx, "demo", task.ID, "/tmp/work", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MoveTask(ctx, "demo", task.ID, "in_progress", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RenewRunLease(ctx, "demo", run.ID, -time.Second); err != nil {
+		t.Fatal(err)
+	}
+	marked, err := store.MarkExpiredRunsStalled(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marked != 1 {
+		t.Fatalf("marked = %d, want 1", marked)
+	}
+	gotRun, err := store.Run(ctx, "demo", run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRun.Status != "stalled" || gotRun.EndedAt == "" {
+		t.Fatalf("run = %+v", gotRun)
+	}
+	state, err := store.State(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Tasks) != 1 || state.Tasks[0].StatusKey != "todo" {
+		t.Fatalf("task not released: %+v", state.Tasks)
+	}
+	runnable, err := store.RunnableTasks(ctx, "demo", []string{"todo"}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runnable) != 1 || runnable[0].ID != task.ID {
+		t.Fatalf("runnable = %+v", runnable)
+	}
+	events, err := store.RunEvents(ctx, "demo", run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events[len(events)-1].Type != "run.stalled" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestStoreLatestRunUsesAttemptNotCreatedAt(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t)
+	task, err := store.CreateTask(ctx, "demo", TaskInput{Title: "Latest run", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.StartRun(ctx, "demo", task.ID, "/tmp/one", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteRun(ctx, "demo", first.ID, "failed", "", "nope"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.StartRun(ctx, "demo", task.ID, "/tmp/two", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteRun(ctx, "demo", second.ID, "succeeded", "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE symphony_runs SET created_at = CASE id WHEN ? THEN '2026-01-01T00:00:00Z' WHEN ? THEN '2026-01-01T00:00:00.5Z' ELSE created_at END`, first.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.State(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Tasks) != 1 || state.Tasks[0].LatestRun == nil {
+		t.Fatalf("state = %+v", state)
+	}
+	if state.Tasks[0].LatestRun.ID != second.ID || state.Tasks[0].LatestRun.Attempt != 2 {
+		t.Fatalf("latest run = %+v, want attempt 2", state.Tasks[0].LatestRun)
 	}
 }
 

@@ -393,12 +393,23 @@ agent dashboard process owns writes to the global dashboard store; dev runtime
 supervisors send authenticated control-plane mutations to that backend.
 Symphony task-board data is stored separately in `<dashboard-cache-root>/symphony.sqlite`
 and should also be accessed through dashboard APIs rather than opened directly
-outside substrate debugging. If a Symphony workflow is set to `auto`, the dashboard
-server requires saved workflow markdown or app-root `WORKFLOW.md`, may prepare
-`Todo` tasks by creating isolated Git worktrees, and runs Codex app-server over
-stdio; use the read-only `symphony/run/detail` RPC for workspace, changed-file,
-diff, summary, and lifecycle evidence. Manual
-process-starting `symphony/run/*` RPCs are not part of the public dashboard API.
+outside substrate debugging. The dashboard WebSocket is same-origin, but it is not
+the trust path for enabling auto mode: `symphony/workflow/update` cannot change a
+non-auto workflow to `auto`; use `scenery symphony auto --on --app-root <path>`
+locally, and `--off` to return to manual mode. If a Symphony workflow is set to
+`auto`, the dashboard server requires saved workflow markdown or app-root
+`WORKFLOW.md`, may prepare `Todo` tasks by creating or resetting isolated Git
+worktrees, and runs one Codex app-server turn over stdio. `agent.max_attempts`
+defaults to `3` and gates retries; `agent.max_turns` defaults to `20` but is
+currently parsed for a future multi-turn loop rather than used as a retry count.
+`agent.turn_timeout_ms` defaults to `3600000`; `agent.stall_timeout_ms` defaults to
+`300000`. Active runs heartbeat leases; expired active leases become terminal
+`stalled` runs and release tasks still in `Todo` or `In Progress` back to `Todo`.
+Codex turn timeouts become terminal `timed_out` runs and route tasks to `Rework`;
+Codex no-notification stalls become terminal `stalled` runs and route tasks to
+`Rework`. Use the read-only `symphony/run/detail` RPC for workspace, changed-file,
+diff, summary, and lifecycle evidence. Manual process-starting `symphony/run/*`
+RPCs are not part of the public dashboard API.
 
 Generated client mismatch:
 

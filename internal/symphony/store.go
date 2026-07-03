@@ -84,11 +84,15 @@ type Run struct {
 	TaskID         string `json:"task_id"`
 	Attempt        int    `json:"attempt"`
 	Status         string `json:"status"`
+	RepoRoot       string `json:"repo_root,omitempty"`
+	RepoWorkspace  string `json:"repo_workspace_path,omitempty"`
 	WorkspacePath  string `json:"workspace_path"`
 	ThreadID       string `json:"thread_id"`
 	TurnID         string `json:"turn_id"`
 	ProcessID      int    `json:"process_id"`
 	OwnerSessionID string `json:"owner_session_id"`
+	OwnerStartedAt string `json:"owner_started_at,omitempty"`
+	LeaseExpiresAt string `json:"lease_expires_at,omitempty"`
 	Summary        string `json:"summary"`
 	Error          string `json:"error"`
 	DiffStat       string `json:"diff_stat"`
@@ -138,6 +142,8 @@ var activeRunStatuses = map[string]bool{
 	"queued":  true,
 	"running": true,
 }
+
+const DefaultRunLeaseDuration = time.Minute
 
 var storeLocks sync.Map
 
@@ -571,6 +577,10 @@ func (s *Store) ActiveRunCount(ctx context.Context, appID string) (int, error) {
 }
 
 func (s *Store) StartRun(ctx context.Context, appID, taskID, workspacePath, ownerSessionID string) (Run, error) {
+	return s.StartRunWithRepo(ctx, appID, taskID, workspacePath, ownerSessionID, "", "")
+}
+
+func (s *Store) StartRunWithRepo(ctx context.Context, appID, taskID, workspacePath, ownerSessionID, repoRoot, repoWorkspace string) (Run, error) {
 	unlock := s.lock()
 	defer unlock()
 
@@ -584,7 +594,11 @@ func (s *Store) StartRun(ctx context.Context, appID, taskID, workspacePath, owne
 	}
 	workspacePath = strings.TrimSpace(workspacePath)
 	ownerSessionID = strings.TrimSpace(ownerSessionID)
-	now := nowText()
+	repoRoot = strings.TrimSpace(repoRoot)
+	repoWorkspace = strings.TrimSpace(repoWorkspace)
+	nowTime := time.Now().UTC()
+	now := nowTime.Format(time.RFC3339Nano)
+	leaseExpiresAt := nowTime.Add(DefaultRunLeaseDuration).Format(time.RFC3339Nano)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Run{}, err
@@ -608,13 +622,14 @@ func (s *Store) StartRun(ctx context.Context, appID, taskID, workspacePath, owne
 		return Run{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO symphony_runs (
-		id, app_id, task_id, attempt, status, workspace_path, owner_session_id, created_at, updated_at
-	) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
-		id, appID, taskID, attempt, workspacePath, ownerSessionID, now, now,
+		id, app_id, task_id, attempt, status, repo_root, repo_workspace_path, workspace_path, owner_session_id,
+		owner_started_at, lease_expires_at, created_at, updated_at
+	) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, appID, taskID, attempt, repoRoot, repoWorkspace, workspacePath, ownerSessionID, now, leaseExpiresAt, now, now,
 	); err != nil {
 		return Run{}, err
 	}
-	if err := appendRunEventTx(ctx, tx, appID, id, "run.queued", map[string]any{"workspace_path": workspacePath}, now); err != nil {
+	if err := appendRunEventTx(ctx, tx, appID, id, "run.queued", map[string]any{"workspace_path": workspacePath, "repo_workspace_path": repoWorkspace, "lease_expires_at": leaseExpiresAt}, now); err != nil {
 		return Run{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -625,11 +640,15 @@ func (s *Store) StartRun(ctx context.Context, appID, taskID, workspacePath, owne
 
 func (s *Store) MarkRunRunning(ctx context.Context, appID, runID string, processID int, threadID string) (Run, error) {
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
-		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'running', process_id = ?, thread_id = ?, started_at = coalesce(started_at, ?), updated_at = ? WHERE app_id = ? AND id = ?`,
-			processID, strings.TrimSpace(threadID), now, now, appID, runID,
+		leaseExpiresAt := time.Now().UTC().Add(DefaultRunLeaseDuration).Format(time.RFC3339Nano)
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'running', process_id = ?, thread_id = ?, lease_expires_at = ?, started_at = coalesce(started_at, ?), updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`,
+			processID, strings.TrimSpace(threadID), leaseExpiresAt, now, now, appID, runID,
 		)
 		if err != nil {
 			return err
+		}
+		if rows, _ := result.RowsAffected(); rows == 0 {
+			return nil
 		}
 		return appendRunEventTx(ctx, tx, appID, runID, "run.started", map[string]any{"process_id": processID, "thread_id": strings.TrimSpace(threadID)}, now)
 	})
@@ -638,12 +657,117 @@ func (s *Store) MarkRunRunning(ctx context.Context, appID, runID string, process
 func (s *Store) MarkRunTurn(ctx context.Context, appID, runID, turnID string) (Run, error) {
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
 		turnID = strings.TrimSpace(turnID)
-		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET turn_id = ?, updated_at = ? WHERE app_id = ? AND id = ?`, turnID, now, appID, runID)
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET turn_id = ?, updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`, turnID, now, appID, runID)
 		if err != nil {
 			return err
 		}
+		if rows, _ := result.RowsAffected(); rows == 0 {
+			return nil
+		}
 		return appendRunEventTx(ctx, tx, appID, runID, "turn.started", map[string]any{"turn_id": turnID}, now)
 	})
+}
+
+func (s *Store) RenewRunLease(ctx context.Context, appID, runID string, duration time.Duration) (Run, error) {
+	if duration == 0 {
+		duration = DefaultRunLeaseDuration
+	}
+	expiresAt := time.Now().UTC().Add(duration).Format(time.RFC3339Nano)
+	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
+		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET lease_expires_at = ?, updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`, expiresAt, now, appID, runID)
+		return err
+	})
+}
+
+func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, error) {
+	unlock := s.lock()
+	defer unlock()
+
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return 0, err
+	}
+	nowTime := time.Now().UTC()
+	now := nowTime.Format(time.RFC3339Nano)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id, task_id, coalesce(lease_expires_at, '') FROM symphony_runs WHERE app_id = ? AND status IN ('queued', 'running')`, appID)
+	if err != nil {
+		return 0, err
+	}
+	type expiredRun struct {
+		id             string
+		taskID         string
+		leaseExpiresAt string
+		reason         string
+	}
+	var expired []expiredRun
+	for rows.Next() {
+		var item expiredRun
+		if err := rows.Scan(&item.id, &item.taskID, &item.leaseExpiresAt); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		item.reason = "lease expired"
+		if strings.TrimSpace(item.leaseExpiresAt) == "" {
+			item.reason = "missing lease"
+			expired = append(expired, item)
+			continue
+		}
+		leaseTime, err := time.Parse(time.RFC3339Nano, item.leaseExpiresAt)
+		if err != nil || !leaseTime.After(nowTime) {
+			if err != nil {
+				item.reason = "invalid lease"
+			}
+			expired = append(expired, item)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	marked := 0
+	for _, item := range expired {
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'stalled', error = ?, ended_at = coalesce(ended_at, ?), updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`,
+			item.reason, now, now, appID, item.id,
+		)
+		if err != nil {
+			return 0, err
+		}
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			continue
+		}
+		marked++
+		if err := appendRunEventTx(ctx, tx, appID, item.id, "run.stalled", map[string]any{"reason": item.reason, "lease_expires_at": item.leaseExpiresAt}, now); err != nil {
+			return 0, err
+		}
+		task, err := taskTx(ctx, tx, appID, item.taskID)
+		if err != nil {
+			return 0, err
+		}
+		if task.StatusKey == "todo" || task.StatusKey == "in_progress" {
+			sortOrder := task.SortOrder
+			if task.StatusKey != "todo" {
+				sortOrder, err = nextSortOrderTx(ctx, tx, appID, "todo")
+				if err != nil {
+					return 0, err
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE symphony_tasks SET status_key = 'todo', sort_order = ?, updated_at = ? WHERE app_id = ? AND id = ? AND deleted_at IS NULL`, sortOrder, now, appID, item.taskID); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return marked, nil
 }
 
 func (s *Store) CompleteRun(ctx context.Context, appID, runID, status, summary, runError string) (Run, error) {
@@ -655,11 +779,14 @@ func (s *Store) CompleteRun(ctx context.Context, appID, runID, status, summary, 
 		return Run{}, fmt.Errorf("completion status %q is still active", status)
 	}
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
-		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = ?, summary = ?, error = ?, ended_at = coalesce(ended_at, ?), updated_at = ? WHERE app_id = ? AND id = ?`,
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = ?, summary = ?, error = ?, ended_at = coalesce(ended_at, ?), updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`,
 			status, strings.TrimSpace(summary), strings.TrimSpace(runError), now, now, appID, runID,
 		)
 		if err != nil {
 			return err
+		}
+		if rows, _ := result.RowsAffected(); rows == 0 {
+			return nil
 		}
 		return appendRunEventTx(ctx, tx, appID, runID, "run."+status, map[string]any{"summary": strings.TrimSpace(summary), "error": strings.TrimSpace(runError)}, now)
 	})
@@ -675,6 +802,33 @@ func (s *Store) RecordRunArtifacts(ctx context.Context, appID, runID, diffStat, 
 		}
 		return appendRunEventTx(ctx, tx, appID, runID, "run.artifacts", map[string]any{"has_diff": strings.TrimSpace(diff) != "", "has_diff_stat": strings.TrimSpace(diffStat) != ""}, now)
 	})
+}
+
+func (s *Store) RecordRunEvent(ctx context.Context, appID, runID, eventType string, payload any) error {
+	unlock := s.lock()
+	defer unlock()
+
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return err
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return errors.New("run id is required")
+	}
+	now := nowText()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := runExistsTx(ctx, tx, appID, runID); err != nil {
+		return err
+	}
+	if err := appendRunEventTx(ctx, tx, appID, runID, eventType, payload, now); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Run(ctx context.Context, appID, runID string) (Run, error) {
@@ -722,6 +876,21 @@ func (s *Store) RunEvents(ctx context.Context, appID, runID string) ([]RunEvent,
 		out = append(out, event)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) TerminalWorkspaces(ctx context.Context, appID string) ([]Run, error) {
+	appID, err := cleanAppID(appID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, runSelectSQL()+` JOIN symphony_tasks t ON t.app_id = symphony_runs.app_id AND t.id = symphony_runs.task_id
+		JOIN symphony_statuses st ON st.app_id = t.app_id AND st.status_key = t.status_key
+		WHERE symphony_runs.app_id = ? AND st.kind = 'terminal' AND symphony_runs.repo_workspace_path <> ''`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRuns(rows)
 }
 
 func (s *Store) updateRun(ctx context.Context, appID, runID string, fn func(context.Context, *sql.Tx, string) error) (Run, error) {
@@ -809,6 +978,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			task_id text not null,
 			attempt integer not null,
 			status text not null,
+			repo_root text not null default '',
+			repo_workspace_path text not null default '',
 			workspace_path text not null default '',
 			thread_id text not null default '',
 			turn_id text not null default '',
@@ -852,6 +1023,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 	}
 	for _, stmt := range []string{
+		`ALTER TABLE symphony_runs ADD COLUMN repo_root text not null default ''`,
+		`ALTER TABLE symphony_runs ADD COLUMN repo_workspace_path text not null default ''`,
+		`ALTER TABLE symphony_runs ADD COLUMN owner_started_at text`,
+		`ALTER TABLE symphony_runs ADD COLUMN lease_expires_at text`,
 		`ALTER TABLE symphony_runs ADD COLUMN diff_stat text not null default ''`,
 		`ALTER TABLE symphony_runs ADD COLUMN diff text not null default ''`,
 	} {
@@ -986,16 +1161,17 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 	if len(tasks) == 0 {
 		return nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT r.id, r.app_id, r.task_id, r.attempt, r.status, r.workspace_path,
-		r.thread_id, r.turn_id, r.process_id, r.owner_session_id, r.summary, r.error,
+	rows, err := s.db.QueryContext(ctx, `SELECT r.id, r.app_id, r.task_id, r.attempt, r.status,
+		r.repo_root, r.repo_workspace_path, r.workspace_path, r.thread_id, r.turn_id, r.process_id,
+		r.owner_session_id, coalesce(r.owner_started_at, ''), coalesce(r.lease_expires_at, ''), r.summary, r.error,
 		r.diff_stat, r.diff, coalesce(r.started_at, ''), coalesce(r.ended_at, ''), r.created_at, r.updated_at
 		FROM symphony_runs r
 		JOIN (
-			SELECT task_id, max(created_at) AS created_at
+			SELECT task_id, max(attempt) AS attempt
 			FROM symphony_runs
 			WHERE app_id = ?
 			GROUP BY task_id
-		) latest ON latest.task_id = r.task_id AND latest.created_at = r.created_at
+		) latest ON latest.task_id = r.task_id AND latest.attempt = r.attempt
 		WHERE r.app_id = ?`, appID, appID)
 	if err != nil {
 		return err
@@ -1004,7 +1180,7 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 	runs := map[string]Run{}
 	for rows.Next() {
 		var run Run
-		if err := rows.Scan(&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.WorkspacePath, &run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.Summary, &run.Error, &run.DiffStat, &run.Diff, &run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
+		if err := rows.Scan(&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.RepoRoot, &run.RepoWorkspace, &run.WorkspacePath, &run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.OwnerStartedAt, &run.LeaseExpiresAt, &run.Summary, &run.Error, &run.DiffStat, &run.Diff, &run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
 			return err
 		}
 		runs[run.TaskID] = run
@@ -1021,9 +1197,13 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 }
 
 func runSelectSQL() string {
-	return `SELECT id, app_id, task_id, attempt, status, workspace_path,
-		thread_id, turn_id, process_id, owner_session_id, summary, error,
-		diff_stat, diff, coalesce(started_at, ''), coalesce(ended_at, ''), created_at, updated_at
+	return `SELECT symphony_runs.id, symphony_runs.app_id, symphony_runs.task_id, symphony_runs.attempt, symphony_runs.status,
+		symphony_runs.repo_root, symphony_runs.repo_workspace_path, symphony_runs.workspace_path,
+		symphony_runs.thread_id, symphony_runs.turn_id, symphony_runs.process_id, symphony_runs.owner_session_id,
+		coalesce(symphony_runs.owner_started_at, ''), coalesce(symphony_runs.lease_expires_at, ''),
+		symphony_runs.summary, symphony_runs.error, symphony_runs.diff_stat, symphony_runs.diff,
+		coalesce(symphony_runs.started_at, ''), coalesce(symphony_runs.ended_at, ''),
+		symphony_runs.created_at, symphony_runs.updated_at
 		FROM symphony_runs`
 }
 
@@ -1032,8 +1212,8 @@ func scanRuns(rows *sql.Rows) ([]Run, error) {
 	for rows.Next() {
 		var run Run
 		if err := rows.Scan(
-			&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.WorkspacePath,
-			&run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.Summary, &run.Error,
+			&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.RepoRoot, &run.RepoWorkspace, &run.WorkspacePath,
+			&run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.OwnerStartedAt, &run.LeaseExpiresAt, &run.Summary, &run.Error,
 			&run.DiffStat, &run.Diff, &run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt,
 		); err != nil {
 			return nil, err

@@ -88,6 +88,15 @@ func (s *dashboardServer) dispatchSymphonyRPC(ctx context.Context, method string
 		if err := json.Unmarshal(raw, &params); err != nil {
 			return nil, err
 		}
+		if strings.TrimSpace(params.Input.Mode) == "auto" {
+			current, err := store.Workflow(ctx, appID)
+			if err != nil {
+				return nil, err
+			}
+			if current.Mode != "auto" {
+				return nil, fmt.Errorf("symphony/workflow/update mode=auto is unavailable over unauthenticated dashboard RPC; run `scenery symphony auto --on --app-root <path>` locally")
+			}
+		}
 		return store.UpdateWorkflow(ctx, appID, params.Input)
 	case "symphony/run/detail":
 		var params struct {
