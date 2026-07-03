@@ -91,6 +91,8 @@ type Run struct {
 	OwnerSessionID string `json:"owner_session_id"`
 	Summary        string `json:"summary"`
 	Error          string `json:"error"`
+	DiffStat       string `json:"diff_stat"`
+	Diff           string `json:"diff"`
 	StartedAt      string `json:"started_at,omitempty"`
 	EndedAt        string `json:"ended_at,omitempty"`
 	CreatedAt      string `json:"created_at"`
@@ -505,6 +507,10 @@ func (s *Store) UpdateWorkflow(ctx context.Context, appID string, input Workflow
 }
 
 func (s *Store) RunnableTasks(ctx context.Context, appID string, statusKeys []string, limit int) ([]Task, error) {
+	return s.RunnableTasksWithMaxAttempts(ctx, appID, statusKeys, limit, 0)
+}
+
+func (s *Store) RunnableTasksWithMaxAttempts(ctx context.Context, appID string, statusKeys []string, limit, maxAttempts int) ([]Task, error) {
 	appID, err := cleanAppID(appID)
 	if err != nil {
 		return nil, err
@@ -524,10 +530,17 @@ func (s *Store) RunnableTasks(ctx context.Context, appID string, statusKeys []st
 	for _, key := range statusKeys {
 		args = append(args, key)
 	}
+	attemptFilter := ""
+	if maxAttempts > 0 {
+		attemptFilter = ` AND (
+			SELECT count(*) FROM symphony_runs attempts WHERE attempts.app_id = t.app_id AND attempts.task_id = t.id
+		) < ?`
+		args = append(args, maxAttempts)
+	}
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, taskSelectSQL()+` AND t.status_key IN (`+placeholders+`) AND NOT EXISTS (
-			SELECT 1 FROM symphony_runs r WHERE r.app_id = t.app_id AND r.task_id = t.id
-		) ORDER BY st.sort_order, t.sort_order, t.updated_at DESC LIMIT ?`, args...)
+			SELECT 1 FROM symphony_runs r WHERE r.app_id = t.app_id AND r.task_id = t.id AND r.status IN ('queued', 'running')
+		)`+attemptFilter+` ORDER BY st.sort_order, t.sort_order, t.updated_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -649,6 +662,18 @@ func (s *Store) CompleteRun(ctx context.Context, appID, runID, status, summary, 
 			return err
 		}
 		return appendRunEventTx(ctx, tx, appID, runID, "run."+status, map[string]any{"summary": strings.TrimSpace(summary), "error": strings.TrimSpace(runError)}, now)
+	})
+}
+
+func (s *Store) RecordRunArtifacts(ctx context.Context, appID, runID, diffStat, diff string) (Run, error) {
+	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
+		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET diff_stat = ?, diff = ?, updated_at = ? WHERE app_id = ? AND id = ?`,
+			strings.TrimSpace(diffStat), strings.TrimSpace(diff), now, appID, runID,
+		)
+		if err != nil {
+			return err
+		}
+		return appendRunEventTx(ctx, tx, appID, runID, "run.artifacts", map[string]any{"has_diff": strings.TrimSpace(diff) != "", "has_diff_stat": strings.TrimSpace(diffStat) != ""}, now)
 	})
 }
 
@@ -793,6 +818,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			lease_expires_at text,
 			summary text not null default '',
 			error text not null default '',
+			diff_stat text not null default '',
+			diff text not null default '',
 			started_at text,
 			ended_at text,
 			created_at text not null,
@@ -821,6 +848,14 @@ func (s *Store) migrate(ctx context.Context) error {
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE symphony_runs ADD COLUMN diff_stat text not null default ''`,
+		`ALTER TABLE symphony_runs ADD COLUMN diff text not null default ''`,
+	} {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			return err
 		}
 	}
@@ -953,7 +988,7 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT r.id, r.app_id, r.task_id, r.attempt, r.status, r.workspace_path,
 		r.thread_id, r.turn_id, r.process_id, r.owner_session_id, r.summary, r.error,
-		coalesce(r.started_at, ''), coalesce(r.ended_at, ''), r.created_at, r.updated_at
+		r.diff_stat, r.diff, coalesce(r.started_at, ''), coalesce(r.ended_at, ''), r.created_at, r.updated_at
 		FROM symphony_runs r
 		JOIN (
 			SELECT task_id, max(created_at) AS created_at
@@ -969,7 +1004,7 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 	runs := map[string]Run{}
 	for rows.Next() {
 		var run Run
-		if err := rows.Scan(&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.WorkspacePath, &run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.Summary, &run.Error, &run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
+		if err := rows.Scan(&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.WorkspacePath, &run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.Summary, &run.Error, &run.DiffStat, &run.Diff, &run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt); err != nil {
 			return err
 		}
 		runs[run.TaskID] = run
@@ -988,7 +1023,7 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 func runSelectSQL() string {
 	return `SELECT id, app_id, task_id, attempt, status, workspace_path,
 		thread_id, turn_id, process_id, owner_session_id, summary, error,
-		coalesce(started_at, ''), coalesce(ended_at, ''), created_at, updated_at
+		diff_stat, diff, coalesce(started_at, ''), coalesce(ended_at, ''), created_at, updated_at
 		FROM symphony_runs`
 }
 
@@ -999,7 +1034,7 @@ func scanRuns(rows *sql.Rows) ([]Run, error) {
 		if err := rows.Scan(
 			&run.ID, &run.AppID, &run.TaskID, &run.Attempt, &run.Status, &run.WorkspacePath,
 			&run.ThreadID, &run.TurnID, &run.ProcessID, &run.OwnerSessionID, &run.Summary, &run.Error,
-			&run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt,
+			&run.DiffStat, &run.Diff, &run.StartedAt, &run.EndedAt, &run.CreatedAt, &run.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

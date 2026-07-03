@@ -13,8 +13,13 @@ import (
 	"scenery.sh/internal/symphony"
 )
 
+type symphonyRunDetail struct {
+	Run    symphony.Run        `json:"run"`
+	Events []symphony.RunEvent `json:"events"`
+}
+
 func (s *dashboardServer) dispatchSymphonyRPC(ctx context.Context, method string, raw json.RawMessage) (any, error) {
-	if strings.HasPrefix(method, "symphony/run/") {
+	if strings.HasPrefix(method, "symphony/run/") && method != "symphony/run/detail" {
 		return nil, fmt.Errorf("%s is unavailable until dashboard runner auth is implemented", method)
 	}
 	appID, err := s.symphonyAppID(ctx, raw)
@@ -84,6 +89,32 @@ func (s *dashboardServer) dispatchSymphonyRPC(ctx context.Context, method string
 			return nil, err
 		}
 		return store.UpdateWorkflow(ctx, appID, params.Input)
+	case "symphony/run/detail":
+		var params struct {
+			RunID string `json:"run_id"`
+		}
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, err
+		}
+		run, err := store.Run(ctx, appID, params.RunID)
+		if err != nil {
+			return nil, err
+		}
+		if (run.DiffStat == "" || run.Diff == "") && symphonyWorkspacePathAllowed(run.WorkspacePath) {
+			if diffStat, diff, err := collectSymphonyRunArtifacts(ctx, run.WorkspacePath); err == nil {
+				if run.DiffStat == "" {
+					run.DiffStat = diffStat
+				}
+				if run.Diff == "" {
+					run.Diff = diff
+				}
+			}
+		}
+		events, err := store.RunEvents(ctx, appID, params.RunID)
+		if err != nil {
+			return nil, err
+		}
+		return symphonyRunDetail{Run: run, Events: events}, nil
 	default:
 		return nil, fmt.Errorf("method not found: %s", method)
 	}
@@ -141,4 +172,24 @@ func symphonyCacheRoot() string {
 		return filepath.Join(dir, "scenery")
 	}
 	return filepath.Join(os.TempDir(), "scenery")
+}
+
+func symphonyWorkspacePathAllowed(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	root, err := filepath.Abs(filepath.Join(symphonyCacheRoot(), "workspaces"))
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, absPath)
+	if err != nil || rel == "." || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }

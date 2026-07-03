@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -162,17 +163,34 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 
 	oldRunner := symphonyRunCodexAgent
 	oldAsync := startSymphonyRunAsync
+	var runnerStore *symphony.Store
 	t.Cleanup(func() {
 		symphonyRunCodexAgent = oldRunner
 		startSymphonyRunAsync = oldAsync
 	})
 	startSymphonyRunAsync = func(fn func()) { fn() }
 	symphonyRunCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+		if !strings.Contains(req.Prompt, "Ticket "+req.Task.Identifier) || !strings.Contains(req.Prompt, req.AppWorkspace) {
+			return symphonyRunResult{}, fmt.Errorf("prompt = %q", req.Prompt)
+		}
 		if callbacks.ThreadStarted != nil {
 			callbacks.ThreadStarted(1234, "thread-test")
 		}
 		if callbacks.TurnStarted != nil {
 			callbacks.TurnStarted("turn-test")
+		}
+		state, err := runnerStore.State(ctx, req.AppID)
+		if err != nil {
+			return symphonyRunResult{}, err
+		}
+		var found bool
+		for _, task := range state.Tasks {
+			if task.ID == req.Task.ID && task.StatusKey == "in_progress" {
+				found = true
+			}
+		}
+		if !found {
+			return symphonyRunResult{}, fmt.Errorf("task status while running = %+v, want in_progress", state.Tasks)
 		}
 		if err := os.WriteFile(filepath.Join(req.AppWorkspace, "prepared.txt"), []byte(req.Task.Identifier), 0o644); err != nil {
 			return symphonyRunResult{}, err
@@ -188,6 +206,9 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(appRoot, "go.mod"), []byte("module example.com/basic\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(appRoot, "WORKFLOW.md"), []byte("---\nagent:\n  max_concurrent_agents: 1\n  max_turns: 1\n  unknown_future_key: ignored\n---\nTicket {{ issue.identifier }} in {{ workspace.path }}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, repoRoot, "init")
 	runGit(t, repoRoot, "config", "user.email", "scenery@example.test")
 	runGit(t, repoRoot, "config", "user.name", "Scenery Test")
@@ -198,12 +219,17 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runnerStore = store
 	t.Cleanup(func() { _ = store.Close() })
 	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Prepare me", StatusKey: "todo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+	queued, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Wait for slot", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 9}); err != nil {
 		t.Fatal(err)
 	}
 	server := &dashboardServer{}
@@ -221,18 +247,123 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.Tasks) != 1 || state.Tasks[0].ID != task.ID || state.Tasks[0].LatestRun == nil {
+	if len(state.Tasks) != 2 {
 		t.Fatalf("state = %+v", state)
 	}
-	run := state.Tasks[0].LatestRun
+	var completed symphony.Task
+	var waiting symphony.Task
+	for _, item := range state.Tasks {
+		if item.ID == task.ID {
+			completed = item
+		}
+		if item.ID == queued.ID {
+			waiting = item
+		}
+	}
+	if completed.LatestRun == nil || completed.StatusKey != "human_review" {
+		t.Fatalf("completed task = %+v", completed)
+	}
+	if waiting.StatusKey != "todo" || waiting.LatestRun != nil {
+		t.Fatalf("queued task = %+v, want untouched todo due workflow concurrency", waiting)
+	}
+	run := completed.LatestRun
 	if run.Status != "succeeded" || run.ThreadID != "thread-test" || run.TurnID != "turn-test" || run.WorkspacePath == "" {
 		t.Fatalf("run = %+v", run)
+	}
+	if !strings.Contains(run.WorkspacePath, filepath.Join("workspaces", "demo", task.Identifier, "repo")) {
+		t.Fatalf("workspace path = %q, want stable task workspace", run.WorkspacePath)
+	}
+	if !strings.Contains(run.DiffStat, "prepared.txt") {
+		t.Fatalf("run diff stat = %q, want prepared.txt", run.DiffStat)
+	}
+	detailServer := newSymphonyDashboardTestServer(t)
+	detail, err := dispatchSymphonyTestRPC[symphonyRunDetail](context.Background(), detailServer, "symphony/run/detail", map[string]any{
+		"app_id": "session-a",
+		"run_id": run.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Run.ID != run.ID || !strings.Contains(detail.Run.DiffStat, "prepared.txt") || len(detail.Events) == 0 {
+		t.Fatalf("detail = %+v", detail)
 	}
 	if data, err := os.ReadFile(filepath.Join(run.WorkspacePath, "prepared.txt")); err != nil || string(data) != task.Identifier {
 		t.Fatalf("prepared workspace file: data=%q err=%v", data, err)
 	}
 	if _, err := os.Stat(filepath.Join(appRoot, "prepared.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("live app root was modified or stat failed: %v", err)
+	}
+}
+
+func TestCompleteSymphonyRunDoesNotOverrideMovedTask(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	ctx := context.Background()
+	store, err := openDashboardSymphonyStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	task, err := store.CreateTask(ctx, "demo", symphony.TaskInput{Title: "Do not override", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.StartRun(ctx, "demo", task.ID, "", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MoveTask(ctx, "demo", task.ID, "in_progress", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MoveTask(ctx, "demo", task.ID, "done", 0); err != nil {
+		t.Fatal(err)
+	}
+	completeSymphonyRun(store, symphonyRunRequest{AppID: "demo", Task: task, Run: run}, "succeeded", "done", "", "human_review")
+	state, err := store.State(ctx, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Tasks) != 1 {
+		t.Fatalf("state = %+v", state)
+	}
+	if state.Tasks[0].StatusKey != "done" {
+		t.Fatalf("task status = %q, want done", state.Tasks[0].StatusKey)
+	}
+	if state.Tasks[0].LatestRun == nil || state.Tasks[0].LatestRun.Status != "succeeded" {
+		t.Fatalf("latest run = %+v", state.Tasks[0].LatestRun)
+	}
+}
+
+func TestDashboardSymphonyAutoRunnerRequiresWorkflow(t *testing.T) {
+	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+
+	store, err := openDashboardSymphonyStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Needs workflow", StatusKey: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
+		t.Fatal(err)
+	}
+	err = (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+		AppID:     "demo--session",
+		BaseAppID: "demo",
+		SessionID: "session-1",
+		AppRoot:   t.TempDir(),
+		Running:   true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "WORKFLOW.md") {
+		t.Fatalf("expected missing workflow error, got %v", err)
+	}
+	state, err := store.State(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Tasks) != 1 || state.Tasks[0].ID != task.ID || state.Tasks[0].StatusKey != "todo" || state.Tasks[0].LatestRun != nil {
+		t.Fatalf("task should stay unclaimed: %+v", state.Tasks)
 	}
 }
 

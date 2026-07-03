@@ -14,11 +14,14 @@ import { TextInput } from '@astryxdesign/core/TextInput'
 import { VStack } from '@astryxdesign/core/VStack'
 import {
   DashboardRPC,
+  type SymphonyRun,
+  type SymphonyRunDetail,
   type SymphonyState,
   type SymphonyStatus,
   type SymphonyTask,
   type SymphonyTaskInput,
 } from './scenery'
+import { formatDuration, formatTimestamp } from './dashboard-utils'
 
 type TaskForm = SymphonyTaskInput & {
   labelsText: string
@@ -120,6 +123,104 @@ const styles = stylex.create({
   fullWidth: {
     gridColumn: '1 / -1',
   },
+  diffSummary: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 'var(--spacing-2)',
+  },
+  diffFile: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 'var(--spacing-2)',
+    maxWidth: '100%',
+    borderWidth: 'var(--border-width)',
+    borderStyle: 'solid',
+    borderColor: 'var(--color-border)',
+    borderRadius: 'var(--radius-2)',
+    padding: 'var(--spacing-1) var(--spacing-2)',
+    backgroundColor: 'var(--color-background-muted)',
+    fontFamily: 'var(--font-family-mono)',
+    fontSize: 'var(--font-size-1)',
+  },
+  diffBadge: {
+    minWidth: '1.5rem',
+    borderRadius: 'var(--radius-1)',
+    padding: '0 var(--spacing-1)',
+    textAlign: 'center',
+    fontWeight: 700,
+  },
+  diffBadgeAdd: {
+    backgroundColor: 'var(--color-background-green)',
+    color: 'var(--color-text-green)',
+  },
+  diffBadgeDelete: {
+    backgroundColor: 'var(--color-background-red)',
+    color: 'var(--color-text-red)',
+  },
+  diffBadgeModify: {
+    backgroundColor: 'var(--color-background-yellow)',
+    color: 'var(--color-text-yellow)',
+  },
+  diffBadgeMove: {
+    backgroundColor: 'var(--color-background-blue)',
+    color: 'var(--color-text-blue)',
+  },
+  diffFilePath: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  diffShell: {
+    margin: 0,
+    maxHeight: '24rem',
+    overflow: 'auto',
+    borderWidth: 'var(--border-width)',
+    borderStyle: 'solid',
+    borderColor: 'var(--color-border)',
+    borderRadius: 'var(--radius-2)',
+    backgroundColor: 'var(--color-background-surface)',
+    fontFamily: 'var(--font-family-mono)',
+    fontSize: 'var(--font-size-1)',
+    lineHeight: 'var(--line-height-1)',
+  },
+  diffLine: {
+    display: 'grid',
+    gridTemplateColumns: '3rem 1fr',
+    minWidth: 'max-content',
+    whiteSpace: 'pre',
+  },
+  diffLineNumber: {
+    padding: '0 var(--spacing-2)',
+    color: 'var(--color-text-secondary)',
+    textAlign: 'right',
+    userSelect: 'none',
+    borderRightWidth: 'var(--border-width)',
+    borderRightStyle: 'solid',
+    borderRightColor: 'var(--color-border)',
+    backgroundColor: 'var(--color-background-muted)',
+  },
+  diffLineText: {
+    padding: '0 var(--spacing-3)',
+  },
+  diffLineAdd: {
+    backgroundColor: 'var(--color-background-green)',
+    color: 'var(--color-text-green)',
+  },
+  diffLineDelete: {
+    backgroundColor: 'var(--color-background-red)',
+    color: 'var(--color-text-red)',
+  },
+  diffLineHunk: {
+    backgroundColor: 'var(--color-background-blue)',
+    color: 'var(--color-text-blue)',
+    fontWeight: 700,
+  },
+  diffLineFile: {
+    backgroundColor: 'var(--color-background-muted)',
+    color: 'var(--color-text-primary)',
+    fontWeight: 700,
+  },
   errorText: {
     color: 'var(--color-error)',
   },
@@ -132,6 +233,8 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<SymphonyTask | null>(null)
   const [form, setForm] = useState<TaskForm | null>(null)
+  const [runDetail, setRunDetail] = useState<SymphonyRunDetail | null>(null)
+  const [loadingRunDetail, setLoadingRunDetail] = useState(false)
 
   const refresh = useCallback(async () => {
     if (appID === '') {
@@ -168,10 +271,12 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
   function openCreate(statusKey = activeStatuses[0]?.key ?? 'backlog') {
     setEditing(null)
     setForm(emptyForm(statusKey))
+    setRunDetail(null)
   }
 
   function openEdit(task: SymphonyTask) {
     setEditing(task)
+    setRunDetail(null)
     setForm({
       title: task.title,
       description: task.description,
@@ -283,6 +388,21 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
       setError(nextError instanceof Error ? nextError.message : 'could not update workflow')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function loadRunDetail() {
+    if (appID === '' || !editing?.latest_run) {
+      return
+    }
+    setLoadingRunDetail(true)
+    setError('')
+    try {
+      setRunDetail(await rpc.symphonyRunDetail(appID, editing.latest_run.id))
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'could not load run details')
+    } finally {
+      setLoadingRunDetail(false)
     }
   }
 
@@ -406,6 +526,20 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
                   <TextInput label="Labels" value={form.labelsText} onChange={(labelsText) => setForm({ ...form, labelsText })} width="100%" />
                 </section>
               </section>
+              {editing?.latest_run ? (
+                <Section padding={3} data-scenery-ui="SymphonyRunDetail">
+                  <VStack gap={3} as="section">
+                    <section {...stylex.props(styles.toolbar)}>
+                      <HStack gap={2} vAlign="center">
+                        <Heading level={3}>Run</Heading>
+                        <Badge label={(runDetail?.run ?? editing.latest_run).status} variant={runBadgeVariant((runDetail?.run ?? editing.latest_run).status)} />
+                      </HStack>
+                      <Button label={runDetail ? 'Reload details' : 'Load details'} size="sm" variant="secondary" isLoading={loadingRunDetail} onClick={() => void loadRunDetail()} />
+                    </section>
+                    <RunMeta detail={runDetail} task={editing} />
+                  </VStack>
+                </Section>
+              ) : null}
               <section {...stylex.props(styles.toolbar)}>
                 <HStack gap={2}>
                   {editing ? <Button label="Delete" variant="secondary" isDisabled={saving} onClick={() => void deleteTask()} /> : null}
@@ -421,6 +555,122 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
       ) : null}
     </VStack>
   )
+}
+
+function RunMeta({ detail, task }: { detail: SymphonyRunDetail | null; task: SymphonyTask }) {
+  const run = detail?.run ?? task.latest_run
+  if (!run) {
+    return null
+  }
+  return (
+    <VStack gap={3} as="section">
+      <VStack gap={1} as="section">
+        <Text type="supporting" color="secondary">
+          {formatRunTiming(run)}
+        </Text>
+        {run.summary !== '' ? (
+          <Text type="body" color="secondary">
+            {run.summary}
+          </Text>
+        ) : null}
+        {run.error !== '' ? (
+          <Text type="body" xstyle={styles.errorText}>
+            {run.error}
+          </Text>
+        ) : null}
+        {run.workspace_path !== '' ? (
+          <Text type="supporting" color="secondary">
+            Workspace: {run.workspace_path}
+          </Text>
+        ) : null}
+        {run.thread_id !== '' ? (
+          <Text type="supporting" color="secondary">
+            Thread: {run.thread_id}
+          </Text>
+        ) : null}
+        {run.turn_id !== '' ? (
+          <Text type="supporting" color="secondary">
+            Turn: {run.turn_id}
+          </Text>
+        ) : null}
+      </VStack>
+      {detail ? (
+        <VStack gap={2} as="section">
+          <Text type="label" weight="semibold">
+            Changed files
+          </Text>
+          <DiffDetails stat={run.diff_stat} diff={run.diff} />
+          <Text type="supporting" color="secondary">
+            Events: {detail.events.map((event) => event.type).join(' -> ') || 'none'}
+          </Text>
+        </VStack>
+      ) : null}
+    </VStack>
+  )
+}
+
+function DiffDetails({ stat, diff }: { stat: string; diff: string }) {
+  const statLines = stat.split('\n').map((line) => line.trim()).filter(Boolean)
+  const diffLines = diff.split('\n')
+  if (statLines.length === 0 && diff.trim() === '') {
+    return <Text type="supporting" color="secondary">No workspace diff recorded.</Text>
+  }
+  return (
+    <VStack gap={2} as="section">
+      {statLines.length > 0 ? (
+        <section {...stylex.props(styles.diffSummary)}>
+          {statLines.map((line) => {
+            const [status = '', ...pathParts] = line.split(/\s+/)
+            return (
+              <span key={line} {...stylex.props(styles.diffFile)}>
+                <span {...stylex.props(styles.diffBadge, diffBadgeStyle(status))}>{status}</span>
+                <span {...stylex.props(styles.diffFilePath)}>{pathParts.join(' ')}</span>
+              </span>
+            )
+          })}
+        </section>
+      ) : null}
+      {diff.trim() !== '' ? (
+        <pre {...stylex.props(styles.diffShell)}>
+          {diffLines.map((line, index) => (
+            <code key={`${index}-${line}`} {...stylex.props(styles.diffLine, diffLineStyle(line))}>
+              <span {...stylex.props(styles.diffLineNumber)}>{index + 1}</span>
+              <span {...stylex.props(styles.diffLineText)}>{line || ' '}</span>
+            </code>
+          ))}
+        </pre>
+      ) : null}
+    </VStack>
+  )
+}
+
+function diffBadgeStyle(status: string) {
+  if (status.includes('A')) {
+    return styles.diffBadgeAdd
+  }
+  if (status.includes('D')) {
+    return styles.diffBadgeDelete
+  }
+  if (status.includes('R') || status.includes('C')) {
+    return styles.diffBadgeMove
+  }
+  return styles.diffBadgeModify
+}
+
+function diffLineStyle(line: string) {
+  if (line.startsWith('diff --git') || line.startsWith('+++ ') || line.startsWith('--- ')) {
+    return styles.diffLineFile
+  }
+  if (line.startsWith('@@')) {
+    return styles.diffLineHunk
+  }
+  if (line.startsWith('+')) {
+    return styles.diffLineAdd
+  }
+  if (line.startsWith('-')) {
+    return styles.diffLineDelete
+  }
+  return null
 }
 
 function TaskCard({
@@ -530,6 +780,32 @@ function badgeVariant(status: SymphonyStatus) {
     default:
       return status.kind === 'terminal' ? 'neutral' : 'info'
   }
+}
+
+function runBadgeVariant(status: string) {
+  if (status === 'succeeded') {
+    return 'success'
+  }
+  if (status === 'failed') {
+    return 'warning'
+  }
+  return 'info'
+}
+
+function formatRunTiming(run: SymphonyRun) {
+  const startedAt = run.started_at || run.created_at
+  const endedAt = run.ended_at || (run.status === 'running' ? '' : run.updated_at)
+  const pieces = [`Attempt ${run.attempt}`]
+  const startedLabel = formatTimestamp(startedAt)
+  if (startedLabel !== '') {
+    pieces.push(`started ${startedLabel}`)
+  }
+  const startTime = Date.parse(startedAt)
+  const endTime = Date.parse(endedAt)
+  if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
+    pieces.push(formatDuration((endTime - startTime) * 1_000_000))
+  }
+  return pieces.join(' / ')
 }
 
 function formatDate(value: string) {

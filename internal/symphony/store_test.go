@@ -133,6 +133,13 @@ func TestStoreRunLifecycleAndRunnableTasks(t *testing.T) {
 	if run.TurnID != "turn-1" {
 		t.Fatalf("turn run = %+v", run)
 	}
+	run, err = store.RecordRunArtifacts(ctx, "demo", run.ID, "M file.go", "diff --git a/file.go b/file.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.DiffStat != "M file.go" || run.Diff == "" {
+		t.Fatalf("artifact run = %+v", run)
+	}
 	run, err = store.CompleteRun(ctx, "demo", run.ID, "succeeded", "done", "")
 	if err != nil {
 		t.Fatal(err)
@@ -144,15 +151,22 @@ func TestStoreRunLifecycleAndRunnableTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 4 || events[0].Type != "run.queued" || events[3].Type != "run.succeeded" {
+	if len(events) != 5 || events[0].Type != "run.queued" || events[3].Type != "run.artifacts" || events[4].Type != "run.succeeded" {
 		t.Fatalf("events = %+v", events)
 	}
 	runnable, err = store.RunnableTasks(ctx, "demo", []string{"todo"}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(runnable) != 1 || runnable[0].ID != todo.ID {
+		t.Fatalf("completed non-active run should not block retry: %+v", runnable)
+	}
+	runnable, err = store.RunnableTasksWithMaxAttempts(ctx, "demo", []string{"todo"}, 10, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(runnable) != 0 {
-		t.Fatalf("completed task should not auto rerun: %+v", runnable)
+		t.Fatalf("max attempts should cap retry: %+v", runnable)
 	}
 }
 

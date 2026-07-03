@@ -394,9 +394,11 @@ supervisors send authenticated control-plane mutations to that backend.
 Symphony task-board data is stored separately in `<dashboard-cache-root>/symphony.sqlite`
 and should also be accessed through dashboard APIs rather than opened directly
 outside substrate debugging. If a Symphony workflow is set to `auto`, the dashboard
-server may prepare `Todo` tasks by creating isolated Git worktrees and running
-Codex app-server over stdio; manual `symphony/run/*` RPCs are not part of the
-public dashboard API.
+server requires saved workflow markdown or app-root `WORKFLOW.md`, may prepare
+`Todo` tasks by creating isolated Git worktrees, and runs Codex app-server over
+stdio; use the read-only `symphony/run/detail` RPC for workspace, changed-file,
+diff, summary, and lifecycle evidence. Manual
+process-starting `symphony/run/*` RPCs are not part of the public dashboard API.
 
 Generated client mismatch:
 

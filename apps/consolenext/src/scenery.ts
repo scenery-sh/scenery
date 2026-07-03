@@ -123,6 +123,10 @@ export class DashboardRPC {
     return this.call<SymphonyWorkflow>('symphony/workflow/update', { app_id: appID, input })
   }
 
+  symphonyRunDetail(appID: string, runID: string): Promise<SymphonyRunDetail> {
+    return this.call<SymphonyRunDetail>('symphony/run/detail', { app_id: appID, run_id: runID })
+  }
+
   onEvent(handler: EventHandler): () => void {
     this.eventHandlers.add(handler)
     return () => this.eventHandlers.delete(handler)
@@ -513,13 +517,37 @@ export type SymphonyStatusUpdate = {
 
 export type SymphonyRun = {
   id: string
+  app_id: string
   task_id: string
   status: string
   attempt: number
+  workspace_path: string
+  thread_id: string
+  turn_id: string
+  process_id: number
+  owner_session_id: string
   summary: string
   error: string
+  diff_stat: string
+  diff: string
+  started_at?: string
+  ended_at?: string
   created_at: string
   updated_at: string
+}
+
+export type SymphonyRunEvent = {
+  app_id: string
+  run_id: string
+  seq: number
+  type: string
+  payload_json: unknown
+  created_at: string
+}
+
+export type SymphonyRunDetail = {
+  run: SymphonyRun
+  events: SymphonyRunEvent[]
 }
 
 export type SymphonyWorkflow = {
