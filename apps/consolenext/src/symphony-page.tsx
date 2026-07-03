@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import * as stylex from '@stylexjs/stylex'
 import { Badge } from '@astryxdesign/core/Badge'
 import { Button } from '@astryxdesign/core/Button'
+import { ButtonGroup } from '@astryxdesign/core/ButtonGroup'
 import { Card } from '@astryxdesign/core/Card'
 import { HStack } from '@astryxdesign/core/HStack'
 import { Heading } from '@astryxdesign/core/Heading'
@@ -156,6 +157,7 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
   const activeStatuses = statuses.filter((status) => !status.hidden)
   const hiddenStatuses = statuses.filter((status) => status.hidden)
   const tasks = state?.tasks ?? []
+  const workflowMode = state?.workflow.mode ?? 'manual'
   const statusOptions = statuses.map((status) => ({ value: status.key, label: status.name }))
 
   const taskCounts = new Map<string, number>()
@@ -264,6 +266,26 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
     }
   }
 
+  async function setWorkflowMode(mode: 'manual' | 'auto') {
+    if (appID === '' || !state || workflowMode === mode) {
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const workflow = await rpc.symphonyUpdateWorkflow(appID, {
+        workflow_markdown: state.workflow.workflow_markdown,
+        mode,
+        max_concurrency: state.workflow.max_concurrency,
+      })
+      setState({ ...state, workflow })
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'could not update workflow')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (appID === '') {
     return <EmptyPanel title="Symphony" message="No app selected." />
   }
@@ -278,6 +300,10 @@ export function SymphonyPage({ appID, rpc }: { appID: string; rpc: DashboardRPC 
           </Text>
         </VStack>
         <HStack gap={2} vAlign="center">
+          <ButtonGroup label="Workflow mode" size="sm">
+            <Button label="Manual" size="sm" variant={workflowMode === 'manual' ? 'primary' : 'secondary'} isDisabled={saving} onClick={() => void setWorkflowMode('manual')} />
+            <Button label="Auto" size="sm" variant={workflowMode === 'auto' ? 'primary' : 'secondary'} isDisabled={saving} onClick={() => void setWorkflowMode('auto')} />
+          </ButtonGroup>
           <Button label="Refresh" size="sm" variant="secondary" isLoading={loading} onClick={() => void refresh()} />
           <Button label="New task" size="sm" onClick={() => openCreate()} />
         </HStack>

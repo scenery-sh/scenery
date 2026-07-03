@@ -119,6 +119,10 @@ export class DashboardRPC {
     return this.call<SymphonyState>('symphony/statuses/update', { app_id: appID, statuses })
   }
 
+  symphonyUpdateWorkflow(appID: string, input: SymphonyWorkflowInput): Promise<SymphonyWorkflow> {
+    return this.call<SymphonyWorkflow>('symphony/workflow/update', { app_id: appID, input })
+  }
+
   onEvent(handler: EventHandler): () => void {
     this.eventHandlers.add(handler)
     return () => this.eventHandlers.delete(handler)
@@ -524,4 +528,10 @@ export type SymphonyWorkflow = {
   mode: string
   max_concurrency: number
   updated_at: string
+}
+
+export type SymphonyWorkflowInput = {
+  workflow_markdown: string
+  mode: 'manual' | 'auto'
+  max_concurrency: number
 }
