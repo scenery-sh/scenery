@@ -10,6 +10,8 @@ import (
 	"sync"
 	"unicode"
 	"unicode/utf8"
+
+	"scenery.sh/internal/watchignore"
 )
 
 type embedPatternCacheEntry struct {
@@ -38,7 +40,7 @@ func embedPatternsForFile(path string, info fs.FileInfo) []string {
 	return patterns
 }
 
-func discoverEmbeddedWatchFiles(root string, ignore *watchIgnoreMatcher) (map[string]struct{}, error) {
+func discoverEmbeddedWatchFiles(root string, ignore *watchignore.Matcher) (map[string]struct{}, error) {
 	files := make(map[string]struct{})
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -62,7 +64,7 @@ func discoverEmbeddedWatchFiles(root string, ignore *watchIgnoreMatcher) (map[st
 			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) {
 				return filepath.SkipDir
 			}
-			ignore.loadDir(rel)
+			ignore.LoadDir(rel)
 			return nil
 		}
 		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
@@ -140,7 +142,7 @@ func nextEmbedToken(input string) (string, string, bool) {
 	return input[:i], input[i:], true
 }
 
-func addEmbeddedPatternFiles(root, pkgDir, pattern string, files map[string]struct{}, ignore *watchIgnoreMatcher) error {
+func addEmbeddedPatternFiles(root, pkgDir, pattern string, files map[string]struct{}, ignore *watchignore.Matcher) error {
 	includeHidden := false
 	if strings.HasPrefix(pattern, "all:") {
 		includeHidden = true
@@ -162,7 +164,7 @@ func addEmbeddedPatternFiles(root, pkgDir, pattern string, files map[string]stru
 	return nil
 }
 
-func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files map[string]fileStamp, ignore *watchIgnoreMatcher) error {
+func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files map[string]fileStamp, ignore *watchignore.Matcher) error {
 	includeHidden := false
 	if strings.HasPrefix(pattern, "all:") {
 		includeHidden = true
@@ -184,7 +186,7 @@ func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files map[string]fil
 	return nil
 }
 
-func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files map[string]fileStamp, ignore *watchIgnoreMatcher) error {
+func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files map[string]fileStamp, ignore *watchignore.Matcher) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil
@@ -247,7 +249,7 @@ func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files map[st
 	})
 }
 
-func addEmbeddedPath(root, path string, includeHidden bool, files map[string]struct{}, ignore *watchIgnoreMatcher) error {
+func addEmbeddedPath(root, path string, includeHidden bool, files map[string]struct{}, ignore *watchignore.Matcher) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil
@@ -285,7 +287,7 @@ func addEmbeddedPath(root, path string, includeHidden bool, files map[string]str
 			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) {
 				return filepath.SkipDir
 			}
-			ignore.loadDir(rel)
+			ignore.LoadDir(rel)
 			if !includeHidden && hasHiddenOrUnderscorePart(rel) {
 				return filepath.SkipDir
 			}

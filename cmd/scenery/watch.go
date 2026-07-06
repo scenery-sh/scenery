@@ -25,6 +25,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/watchignore"
 )
 
 var (
@@ -499,7 +500,7 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, events <-ch
 func scanWatchedFiles(root string) (fileSnapshot, error) {
 	snapshot := fileSnapshot{files: make(map[string]fileStamp)}
 	dirs := map[string]struct{}{}
-	ignore := newWatchIgnoreMatcher(root)
+	ignore := watchignore.New(root)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Tolerate entries vanishing or turning unreadable mid-scan; a
@@ -526,7 +527,7 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) {
 				return filepath.SkipDir
 			}
-			ignore.loadDir(rel)
+			ignore.LoadDir(rel)
 			dirs[rel] = struct{}{}
 			return nil
 		}
@@ -589,7 +590,7 @@ func shouldIgnoreWatchPath(rel string) bool {
 	return shouldIgnoreWatchPathWithMatcher(rel, false, nil)
 }
 
-func shouldIgnoreWatchPathWithMatcher(rel string, isDir bool, ignore *watchIgnoreMatcher) bool {
+func shouldIgnoreWatchPathWithMatcher(rel string, isDir bool, ignore *watchignore.Matcher) bool {
 	rel = filepath.ToSlash(filepath.Clean(rel))
 	if rel == "." || rel == "" {
 		return false
@@ -597,7 +598,7 @@ func shouldIgnoreWatchPathWithMatcher(rel string, isDir bool, ignore *watchIgnor
 	if shouldIgnoreWatchPathBuiltin(rel, isDir) {
 		return true
 	}
-	if ignore != nil && ignore.ignored(rel, isDir) {
+	if ignore != nil && ignore.Ignored(rel, isDir) {
 		return true
 	}
 	return false
@@ -731,7 +732,7 @@ type fileChangeWatcher struct {
 	watcher      *fsnotify.Watcher
 	root         string
 	resolvedRoot string
-	ignore       *watchIgnoreMatcher
+	ignore       *watchignore.Matcher
 	done         chan struct{}
 }
 
@@ -749,7 +750,7 @@ func newFileChangeWatcher(root string, snapshot fileSnapshot) (*fileChangeWatche
 		watcher:      underlying,
 		root:         root,
 		resolvedRoot: resolvedRoot,
-		ignore:       newWatchIgnoreMatcher(root),
+		ignore:       watchignore.New(root),
 		done:         make(chan struct{}),
 	}
 	if err := fw.addSnapshotDirs(snapshot); err != nil {
@@ -840,7 +841,7 @@ func (fw *fileChangeWatcher) handleEvent(event fsnotify.Event) {
 	}
 	rel = filepath.ToSlash(rel)
 	if filepath.Base(rel) == ".gitignore" {
-		fw.ignore = newWatchIgnoreMatcher(fw.root)
+		fw.ignore = watchignore.New(fw.root)
 		fw.signal()
 		return
 	}
@@ -879,7 +880,7 @@ func (fw *fileChangeWatcher) addTree(root string) error {
 			if rel != "." && shouldIgnoreWatchPathWithMatcher(rel, true, fw.ignore) {
 				return filepath.SkipDir
 			}
-			fw.ignore.loadDir(rel)
+			fw.ignore.LoadDir(rel)
 		}
 		return fw.watcher.Add(path)
 	})

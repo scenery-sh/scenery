@@ -1,4 +1,4 @@
-package main
+package watchignore
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"scenery.sh/internal/app"
 )
 
-type watchIgnoreMatcher struct {
+type Matcher struct {
 	root        string
 	loaded      map[string]struct{}
 	configRules []watchIgnoreRule
@@ -24,13 +24,13 @@ type watchIgnoreRule struct {
 	hasSlash bool
 }
 
-func newWatchIgnoreMatcher(root string) *watchIgnoreMatcher {
-	m := &watchIgnoreMatcher{
+func New(root string) *Matcher {
+	m := &Matcher{
 		root:        root,
 		loaded:      make(map[string]struct{}),
 		configRules: watchConfigIgnoreRules(root),
 	}
-	m.loadDir("")
+	m.LoadDir("")
 	return m
 }
 
@@ -48,7 +48,7 @@ func watchConfigIgnoreRules(root string) []watchIgnoreRule {
 	return rules
 }
 
-func (m *watchIgnoreMatcher) loadDir(rel string) {
+func (m *Matcher) LoadDir(rel string) {
 	if m == nil {
 		return
 	}
@@ -69,7 +69,7 @@ func (m *watchIgnoreMatcher) loadDir(rel string) {
 	}
 }
 
-func (m *watchIgnoreMatcher) ignored(rel string, isDir bool) bool {
+func (m *Matcher) Ignored(rel string, isDir bool) bool {
 	if m == nil {
 		return false
 	}
