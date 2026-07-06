@@ -93,6 +93,8 @@ func TestRunGenerateDryRunJSON(t *testing.T) {
 }
 
 func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
@@ -106,16 +108,15 @@ func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
 	assertStringSliceNotContains(t, plan.Record.Outputs, "auth/db/seed.sql")
 
 	var ran []lifecycleExecRequest
-	restore := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
 		return nil
 	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
 		t.Fatalf("unexpected output command: %+v", req)
 		return nil, nil
 	})
-	defer restore()
 
-	if err := runSQLCGenerator(context.Background(), &bytes.Buffer{}, root, plan, true); err != nil {
+	if err := runSQLCGeneratorWithHooks(context.Background(), &bytes.Buffer{}, root, plan, true, hooks); err != nil {
 		t.Fatalf("runSQLCGenerator returned error: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "auth/db/gen/schema.sql"))
@@ -131,6 +132,8 @@ func TestSQLCGeneratorIgnoresSeedData(t *testing.T) {
 }
 
 func TestSQLCGeneratorRejectsPostgresServiceEngineMismatch(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
 	cfg := appcfg.Config{
@@ -147,6 +150,8 @@ func TestSQLCGeneratorRejectsPostgresServiceEngineMismatch(t *testing.T) {
 }
 
 func TestSQLCGeneratorAcceptsPostgresServiceEngine(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
 	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
@@ -223,6 +228,8 @@ select 1;
 }
 
 func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
 	plan := &sqlcGeneratorPlan{
@@ -235,7 +242,7 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 	}
 
 	var ran []lifecycleExecRequest
-	restore := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
 		return nil
 	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
@@ -244,10 +251,9 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 		}
 		return []byte("create schema scenery_auth;\n"), nil
 	})
-	defer restore()
 
 	var out bytes.Buffer
-	if err := runSQLCGenerator(context.Background(), &out, root, plan, false); err != nil {
+	if err := runSQLCGeneratorWithHooks(context.Background(), &out, root, plan, false, hooks); err != nil {
 		t.Fatalf("runSQLCGenerator returned error: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "auth/db/gen/schema.sql"))
@@ -263,6 +269,8 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 }
 
 func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "demo",
@@ -280,15 +288,14 @@ func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
 	writeSQLCFixture(t, root)
 
 	var ran []lifecycleExecRequest
-	restore := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
 		return nil
 	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
 		return []byte("create schema scenery_auth;\n"), nil
 	})
-	defer restore()
 
-	if err := dbSyncCommand([]string{"--app-root", root}); err != nil {
+	if err := dbSyncCommandWithHooks([]string{"--app-root", root}, hooks); err != nil {
 		t.Fatalf("dbSyncCommand returned error: %v", err)
 	}
 	if len(ran) != 2 {
@@ -309,6 +316,8 @@ func TestDBSyncRunsApplyThenSQLC(t *testing.T) {
 }
 
 func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "demo",
@@ -326,17 +335,16 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	writeSQLCFixture(t, root)
 
 	var ran []lifecycleExecRequest
-	restore := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
 		return nil
 	}, func(_ context.Context, req lifecycleExecRequest) ([]byte, error) {
 		t.Fatalf("db apply must not run output lifecycle exec: %+v", req)
 		return nil, nil
 	})
-	defer restore()
 
 	var out bytes.Buffer
-	if err := runDBApply(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBApplyWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
 		t.Fatalf("runDBApply returned error: %v", err)
 	}
 	if len(ran) != 1 {
@@ -374,13 +382,14 @@ func TestDBApplyReportsMissingConfiguration(t *testing.T) {
 }
 
 func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
-	restore := stubSeedStore(t, store)
-	defer restore()
+	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--dry-run", "--json"}); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--dry-run", "--json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed returned error: %v", err)
 	}
 	var payload dbSeedResult
@@ -396,6 +405,8 @@ func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
 }
 
 func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 `)
@@ -411,13 +422,12 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 		}},
 	}
 	stores := map[string]*fakeSeedStore{}
-	restore := stubSeedStoresByDSN(t, stores)
-	defer restore()
+	hooks := seedStoresByDSNHooks(t, stores)
 
-	result, err := buildDBSeedResultWithEnv(context.Background(), root, cfg, dbSeedOptions{}, []string{
+	result, err := buildDBSeedResultWithEnvHooks(context.Background(), root, cfg, dbSeedOptions{}, []string{
 		"AUTH_DATABASE_URL=" + authURL,
 		"REPORTS_DATABASE_URL=" + reportsURL,
-	}, false)
+	}, false, hooks)
 	if err != nil {
 		t.Fatalf("buildDBSeedResultWithEnv returned error: %v", err)
 	}
@@ -433,14 +443,15 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 }
 
 func TestDBSeedDisabledDiscoversNoSeeds(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp","database":{"seed":{"enabled":false}}}`)
 	store := newFakeSeedStore()
-	restore := stubSeedStore(t, store)
-	defer restore()
+	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed returned error: %v", err)
 	}
 	var payload dbSeedResult
@@ -453,13 +464,14 @@ func TestDBSeedDisabledDiscoversNoSeeds(t *testing.T) {
 }
 
 func TestDBSeedAppliesThenSkipsUnchangedSeed(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
-	restore := stubSeedStore(t, store)
-	defer restore()
+	hooks := seedStoreHooks(t, store)
 
 	var first bytes.Buffer
-	if err := runDBSeed(context.Background(), &first, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &first, []string{"--app-root", root, "--json"}, hooks); err != nil {
 		t.Fatalf("first runDBSeed returned error: %v", err)
 	}
 	var firstPayload dbSeedResult
@@ -471,7 +483,7 @@ func TestDBSeedAppliesThenSkipsUnchangedSeed(t *testing.T) {
 	}
 
 	var second bytes.Buffer
-	if err := runDBSeed(context.Background(), &second, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &second, []string{"--app-root", root, "--json"}, hooks); err != nil {
 		t.Fatalf("second runDBSeed returned error: %v", err)
 	}
 	var secondPayload dbSeedResult
@@ -484,14 +496,15 @@ func TestDBSeedAppliesThenSkipsUnchangedSeed(t *testing.T) {
 }
 
 func TestDBSeedChangedSeedFailsClosed(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
 	store.ledger["seedapp|auth/db/seed.sql"] = "old-hash"
-	restore := stubSeedStore(t, store)
-	defer restore()
+	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--json"})
+	err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks)
 	if err == nil || !strings.Contains(err.Error(), "changed after it was applied") {
 		t.Fatalf("runDBSeed changed seed error = %v", err)
 	}
@@ -505,14 +518,15 @@ func TestDBSeedChangedSeedFailsClosed(t *testing.T) {
 }
 
 func TestDBSeedApplyFailureReportsFailed(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
 	store.applyErr = errors.New("boom")
-	restore := stubSeedStore(t, store)
-	defer restore()
+	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--json"})
+	err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("runDBSeed apply error = %v", err)
 	}
@@ -526,17 +540,18 @@ func TestDBSeedApplyFailureReportsFailed(t *testing.T) {
 }
 
 func TestDBSeedSafetyAllowsIdempotentInsertsAndUpserts(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 insert into scenery_auth.users(id) values ('dev-user') on conflict (id) do update set id = excluded.id;
 delete from scenery_auth.temp_users where id = 'dev-user';
 `)
 	store := newFakeSeedStore()
-	restore := stubSeedStore(t, store)
-	defer restore()
+	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed safe seed returned error: %v", err)
 	}
 	var payload dbSeedResult
@@ -549,6 +564,8 @@ delete from scenery_auth.temp_users where id = 'dev-user';
 }
 
 func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		sql     string
@@ -562,14 +579,15 @@ func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			root := writeSeedCommandFixture(t)
 			writeTestAppFile(t, root, "auth/db/seed.sql", tt.sql)
 			store := newFakeSeedStore()
-			restore := stubSeedStore(t, store)
-			defer restore()
+			hooks := seedStoreHooks(t, store)
 
 			var out bytes.Buffer
-			err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--json"})
+			err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks)
 			if err == nil || !strings.Contains(err.Error(), tt.message) || !strings.Contains(err.Error(), "auth/db/seed.sql") {
 				t.Fatalf("runDBSeed error = %v", err)
 			}
@@ -591,6 +609,8 @@ func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
 }
 
 func TestDBSeedSafetyIgnoresCommentsAndStrings(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	writeTestAppFile(t, root, "auth/db/seed.sql", `-- drop table scenery_auth.users;
 /* truncate table scenery_auth.users; */
@@ -598,11 +618,10 @@ insert into scenery_auth.audit(message) values ('delete from scenery_auth.users;
 insert into scenery_auth.audit(message) values ($$drop table scenery_auth.users;$$);
 `)
 	store := newFakeSeedStore()
-	restore := stubSeedStore(t, store)
-	defer restore()
+	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeed(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed comments/strings returned error: %v", err)
 	}
 	var payload dbSeedResult
@@ -626,19 +645,19 @@ func TestDBSeedSafetyHasNoForceEscapeHatch(t *testing.T) {
 }
 
 func TestDBSetupRunsApplyThenSeed(t *testing.T) {
+	t.Parallel()
+
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
 	var events []string
-	restoreSeed := stubSeedStore(t, store)
-	defer restoreSeed()
-	restoreExec := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+	seedHooks := seedStoreHooks(t, store)
+	lifecycleHooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		events = append(events, "apply:"+req.Program)
 		return nil
 	}, nil)
-	defer restoreExec()
 
 	var out bytes.Buffer
-	if err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("runDBSetup returned error: %v", err)
 	}
 	var payload dbSetupResult
@@ -654,18 +673,18 @@ func TestDBSetupRunsApplyThenSeed(t *testing.T) {
 }
 
 func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
+	t.Parallel()
+
 	root := writeSeedCommandFixture(t)
 	store := newFakeSeedStore()
-	restoreSeed := stubSeedStore(t, store)
-	defer restoreSeed()
-	restoreExec := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
+	seedHooks := seedStoreHooks(t, store)
+	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		t.Fatal("database apply should not run without database.apply.command")
 		return nil
 	}, nil)
-	defer restoreExec()
 
 	var out bytes.Buffer
-	if err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
 	}
 	var payload dbSetupResult
@@ -698,13 +717,12 @@ func TestDBSetupApplyUsesManagedSQLiteDatabaseURL(t *testing.T) {
   }
 }`)
 	var applyEnv []string
-	restoreExec := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		applyEnv = req.Env
 		return nil
 	}, nil)
-	defer restoreExec()
 	var out bytes.Buffer
-	if err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks, defaultDBSeedHooks()); err != nil {
 		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
 	}
 	wantURL := sqlitedb.URLForPath(filepath.Join(root, ".scenery", "sqlite", "local", "managedsetup.sqlite"))
@@ -717,17 +735,17 @@ func TestDBSetupApplyUsesManagedSQLiteDatabaseURL(t *testing.T) {
 }
 
 func TestDBSetupStopsWhenApplyFails(t *testing.T) {
+	t.Parallel()
+
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
-	restoreSeed := stubSeedStore(t, store)
-	defer restoreSeed()
-	restoreExec := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
+	seedHooks := seedStoreHooks(t, store)
+	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		return errors.New("apply failed")
 	}, nil)
-	defer restoreExec()
 
 	var out bytes.Buffer
-	err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"})
+	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks)
 	if err == nil || !strings.Contains(err.Error(), "apply failed") {
 		t.Fatalf("runDBSetup apply error = %v", err)
 	}
@@ -741,18 +759,18 @@ func TestDBSetupStopsWhenApplyFails(t *testing.T) {
 }
 
 func TestDBSetupReportsSeedFailure(t *testing.T) {
+	t.Parallel()
+
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
 	store.applyErr = errors.New("seed failed")
-	restoreSeed := stubSeedStore(t, store)
-	defer restoreSeed()
-	restoreExec := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
+	seedHooks := seedStoreHooks(t, store)
+	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		return nil
 	}, nil)
-	defer restoreExec()
 
 	var out bytes.Buffer
-	err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"})
+	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks)
 	if err == nil || !strings.Contains(err.Error(), "seed failed") {
 		t.Fatalf("runDBSetup seed error = %v", err)
 	}
@@ -766,20 +784,20 @@ func TestDBSetupReportsSeedFailure(t *testing.T) {
 }
 
 func TestDBSetupRepeatedRunSkipsUnchangedSeed(t *testing.T) {
+	t.Parallel()
+
 	root := writeSetupCommandFixture(t)
 	store := newFakeSeedStore()
-	restoreSeed := stubSeedStore(t, store)
-	defer restoreSeed()
-	restoreExec := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
+	seedHooks := seedStoreHooks(t, store)
+	lifecycleHooks := stubLifecycleExec(t, func(context.Context, lifecycleExecRequest) error {
 		return nil
 	}, nil)
-	defer restoreExec()
 
-	if err := runDBSetup(context.Background(), &bytes.Buffer{}, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &bytes.Buffer{}, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("first runDBSetup returned error: %v", err)
 	}
 	var out bytes.Buffer
-	if err := runDBSetup(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("second runDBSetup returned error: %v", err)
 	}
 	var payload dbSetupResult
@@ -792,6 +810,8 @@ func TestDBSetupRepeatedRunSkipsUnchangedSeed(t *testing.T) {
 }
 
 func TestTaskGraphAndRun(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "demo",
@@ -817,12 +837,11 @@ func TestTaskGraphAndRun(t *testing.T) {
 	}
 
 	var ran []lifecycleExecRequest
-	restore := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
+	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
 		ran = append(ran, req)
 		return nil
 	}, nil)
-	defer restore()
-	if err := runTaskCommand(context.Background(), &bytes.Buffer{}, []string{"run", "echo", "--app-root", root}); err != nil {
+	if err := runTaskCommandWithHooks(context.Background(), &bytes.Buffer{}, []string{"run", "echo", "--app-root", root}, hooks, defaultDBSeedHooks()); err != nil {
 		t.Fatalf("runTaskCommand run returned error: %v", err)
 	}
 	if len(ran) != 1 || ran[0].Dir != filepath.Join(root, "tools") {
@@ -885,20 +904,16 @@ func writeSetupCommandFixture(t *testing.T) string {
 	return root
 }
 
-func stubLifecycleExec(t *testing.T, run func(context.Context, lifecycleExecRequest) error, output func(context.Context, lifecycleExecRequest) ([]byte, error)) func() {
+func stubLifecycleExec(t *testing.T, run func(context.Context, lifecycleExecRequest) error, output func(context.Context, lifecycleExecRequest) ([]byte, error)) lifecycleHooks {
 	t.Helper()
-	oldRun := runLifecycleExec
-	oldOutput := outputLifecycleExec
+	hooks := defaultLifecycleHooks()
 	if run != nil {
-		runLifecycleExec = run
+		hooks.runExec = run
 	}
 	if output != nil {
-		outputLifecycleExec = output
+		hooks.outputExec = output
 	}
-	return func() {
-		runLifecycleExec = oldRun
-		outputLifecycleExec = oldOutput
-	}
+	return hooks
 }
 
 func assertStringSliceContains(t *testing.T, values []string, want string) {
@@ -966,26 +981,29 @@ func (s *fakeSeedStore) ApplySeed(_ context.Context, appID, path, hash, _ string
 	return nil
 }
 
-func stubSeedStore(t *testing.T, store *fakeSeedStore) func() {
+func seedStoreHooks(t *testing.T, store *fakeSeedStore) dbSeedHooks {
 	t.Helper()
-	oldOpen := openDatabaseSeedStore
-	openDatabaseSeedStore = func(context.Context, string) (databaseSeedStore, error) {
+	return dbSeedHooks{openStore: func(context.Context, string) (databaseSeedStore, error) {
 		return store, nil
-	}
-	return func() {
-		openDatabaseSeedStore = oldOpen
-	}
+	}}
 }
 
-func stubSeedStoresByDSN(t *testing.T, stores map[string]*fakeSeedStore) func() {
+func seedStoresByDSNHooks(t *testing.T, stores map[string]*fakeSeedStore) dbSeedHooks {
 	t.Helper()
-	oldOpen := openDatabaseSeedStore
-	openDatabaseSeedStore = func(_ context.Context, dsn string) (databaseSeedStore, error) {
+	return dbSeedHooks{openStore: func(_ context.Context, dsn string) (databaseSeedStore, error) {
 		store := stores[dsn]
 		if store == nil {
 			store = newFakeSeedStore()
 			stores[dsn] = store
 		}
+		return store, nil
+	}}
+}
+
+func stubSeedStore(t *testing.T, store *fakeSeedStore) func() {
+	t.Helper()
+	oldOpen := openDatabaseSeedStore
+	openDatabaseSeedStore = func(context.Context, string) (databaseSeedStore, error) {
 		return store, nil
 	}
 	return func() {

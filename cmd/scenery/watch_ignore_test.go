@@ -22,11 +22,11 @@ func TestScanWatchedFilesSkipsGitignoredPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanWatchedFiles returned error: %v", err)
 	}
-	if _, ok := snapshot["kept/api.go"]; !ok {
+	if _, ok := snapshot.files["kept/api.go"]; !ok {
 		t.Fatalf("snapshot missing kept/api.go: %+v", snapshot)
 	}
 	for _, ignored := range []string{".env", "ignored/api.go"} {
-		if _, ok := snapshot[ignored]; ok {
+		if _, ok := snapshot.files[ignored]; ok {
 			t.Fatalf("snapshot unexpectedly included gitignored path %q: %+v", ignored, snapshot)
 		}
 	}
@@ -51,10 +51,10 @@ var embedded []byte
 	if err != nil {
 		t.Fatalf("scanWatchedFiles returned error: %v", err)
 	}
-	if _, ok := snapshot["svc/assets/kept.txt"]; !ok {
+	if _, ok := snapshot.files["svc/assets/kept.txt"]; !ok {
 		t.Fatalf("snapshot missing embedded kept file: %+v", snapshot)
 	}
-	if _, ok := snapshot["svc/assets/generated/ignored.txt"]; ok {
+	if _, ok := snapshot.files["svc/assets/generated/ignored.txt"]; ok {
 		t.Fatalf("snapshot unexpectedly included gitignored embedded file: %+v", snapshot)
 	}
 }
@@ -79,11 +79,11 @@ func TestScanWatchedFilesSkipsConfiguredWatchIgnorePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanWatchedFiles returned error: %v", err)
 	}
-	if _, ok := snapshot["kept/api.go"]; !ok {
+	if _, ok := snapshot.files["kept/api.go"]; !ok {
 		t.Fatalf("snapshot missing kept/api.go: %+v", snapshot)
 	}
 	for _, ignored := range []string{"reference/api.go", "scratch/drop.go"} {
-		if _, ok := snapshot[ignored]; ok {
+		if _, ok := snapshot.files[ignored]; ok {
 			t.Fatalf("snapshot unexpectedly included watch.ignore path %q: %+v", ignored, snapshot)
 		}
 	}
@@ -106,13 +106,13 @@ func TestScanWatchedFilesSkipsConfigAliasWatchIgnorePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanWatchedFiles returned error: %v", err)
 	}
-	if _, ok := snapshot[".config.json"]; !ok {
+	if _, ok := snapshot.files[".config.json"]; !ok {
 		t.Fatalf("snapshot missing .config.json: %+v", snapshot)
 	}
-	if _, ok := snapshot["kept/api.go"]; !ok {
+	if _, ok := snapshot.files["kept/api.go"]; !ok {
 		t.Fatalf("snapshot missing kept/api.go: %+v", snapshot)
 	}
-	if _, ok := snapshot["reference/api.go"]; ok {
+	if _, ok := snapshot.files["reference/api.go"]; ok {
 		t.Fatalf("snapshot unexpectedly included configured watch.ignore path: %+v", snapshot)
 	}
 }
@@ -141,6 +141,25 @@ func TestSnapshotFingerprintIgnoresConfiguredWatchIgnoreChanges(t *testing.T) {
 	}
 	if got, want := snapshotFingerprint(after), snapshotFingerprint(before); got != want {
 		t.Fatalf("fingerprint changed after watch.ignore-only edit: got %s want %s; before=%+v after=%+v", got, want, before, after)
+	}
+}
+
+func TestSnapshotFingerprintUsesContentHash(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeWatchFile(t, root, "svc/api.go", "package svc\nconst A = 1\n")
+	before, err := scanWatchedFiles(root)
+	if err != nil {
+		t.Fatalf("initial scanWatchedFiles returned error: %v", err)
+	}
+	writeWatchFile(t, root, "svc/api.go", "package svc\nconst A = 2\n")
+	after, err := scanWatchedFiles(root)
+	if err != nil {
+		t.Fatalf("second scanWatchedFiles returned error: %v", err)
+	}
+	if got, wantNot := snapshotFingerprint(after), snapshotFingerprint(before); got == wantNot {
+		t.Fatalf("fingerprint did not change after same-path content edit: %s", got)
 	}
 }
 

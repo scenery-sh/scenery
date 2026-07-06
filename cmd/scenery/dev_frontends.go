@@ -41,7 +41,13 @@ type managedFrontendStartResult struct {
 	err     error
 }
 
+type managedFrontendStarter func(context.Context, string, string, int, localproxy.FrontendConfig, []string, localagent.Session) managedFrontendStartResult
+
 func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
+	return managedFrontendBackendsForSessionWithStarter(ctx, root, cfg, baseEnv, session, startManagedFrontend)
+}
+
+func managedFrontendBackendsForSessionWithStarter(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, starter managedFrontendStarter) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
 	frontends := localProxyFrontends(cfg.Proxy.Frontends)
 	if len(frontends) == 0 {
 		return nil, nil, nil
@@ -62,7 +68,7 @@ func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app
 		}
 		startable = append(startable, frontend)
 	}
-	results := startManagedFrontends(ctx, root, cfg.AppID(), startable, baseEnv, session)
+	results := startManagedFrontends(ctx, root, cfg.AppID(), startable, baseEnv, session, starter)
 	processes := make([]*managedFrontendProcess, 0, len(results))
 	for _, result := range results {
 		if result.process != nil {
@@ -105,9 +111,12 @@ func localProxyFrontends(frontends map[string]app.FrontendConfig) []localproxy.F
 	return resolved
 }
 
-func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session) []managedFrontendStartResult {
+func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session, starter managedFrontendStarter) []managedFrontendStartResult {
 	if len(frontends) == 0 {
 		return nil
+	}
+	if starter == nil {
+		starter = startManagedFrontend
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -117,7 +126,7 @@ func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends
 		wg.Add(1)
 		go func(index int, frontend localproxy.FrontendConfig) {
 			defer wg.Done()
-			result := startManagedFrontend(ctx, appRoot, appID, index, frontend, baseEnv, session)
+			result := starter(ctx, appRoot, appID, index, frontend, baseEnv, session)
 			if result.err != nil {
 				cancel()
 			}

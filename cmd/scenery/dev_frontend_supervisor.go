@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	localagent "scenery.sh/internal/agent"
@@ -13,7 +14,14 @@ import (
 	"scenery.sh/internal/localproxy"
 )
 
-const managedFrontendRestartDelay = 500 * time.Millisecond
+var (
+	managedFrontendRestartDelay = 500 * time.Millisecond
+
+	managedFrontendTestHooks struct {
+		sync.Mutex
+		sessionUpdated func(string, localagent.Backend, *managedFrontendProcess)
+	}
+)
 
 func (s *devSupervisor) adoptManagedFrontends(processes []*managedFrontendProcess) {
 	if s == nil || len(processes) == 0 {
@@ -207,7 +215,17 @@ func (s *devSupervisor) updateManagedFrontendSession(ctx context.Context, name s
 		return err
 	}
 	s.storeAgentSession(&updated)
+	notifyManagedFrontendSessionUpdated(name, backend, process)
 	return nil
+}
+
+func notifyManagedFrontendSessionUpdated(name string, backend localagent.Backend, process *managedFrontendProcess) {
+	managedFrontendTestHooks.Lock()
+	fn := managedFrontendTestHooks.sessionUpdated
+	managedFrontendTestHooks.Unlock()
+	if fn != nil {
+		fn(name, backend, process)
+	}
 }
 
 func (s *devSupervisor) setManagedFrontend(name string, process *managedFrontendProcess) {

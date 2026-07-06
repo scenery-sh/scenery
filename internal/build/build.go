@@ -64,6 +64,18 @@ type SourceStamp struct {
 	Perm        uint32 `json:"perm"`
 }
 
+type SourceSnapshot struct {
+	Files map[string]SourceSnapshotFile
+}
+
+type SourceSnapshotFile struct {
+	Size        int64
+	ModTimeNano int64
+	Perm        uint32
+	Hash        string
+	Embedded    bool
+}
+
 type buildState struct {
 	Version                   string                 `json:"version,omitempty"`
 	DependencyFingerprint     string                 `json:"dependency_fingerprint"`
@@ -192,8 +204,12 @@ func App(appRoot string, cfg app.Config) (*Result, error) {
 }
 
 func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
+	return LoadReusableBinaryWithSnapshot(appRoot, cfg, nil)
+}
+
+func LoadReusableBinaryWithSnapshot(appRoot string, cfg app.Config, snapshot *SourceSnapshot) (*Result, bool, error) {
 	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
-	sourceFingerprint, err := currentAppSourceFingerprint(appRoot)
+	sourceFingerprint, err := currentAppSourceFingerprintWithSnapshot(appRoot, snapshot)
 	if err != nil {
 		return nil, false, err
 	}
@@ -227,6 +243,9 @@ func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
 	if !pathExists(binary) {
 		return nil, false, nil
 	}
+	if ok, err := latestBuildManifestMatchesReusableBinary(appRoot, cfg, workspaceDir, binary, state); err != nil || !ok {
+		return nil, false, err
+	}
 	result := &Result{
 		AppRoot:                   appRoot,
 		AppName:                   cfg.Name,
@@ -251,7 +270,33 @@ func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
 	return result, true, nil
 }
 
+func latestBuildManifestMatchesReusableBinary(appRoot string, cfg app.Config, workspaceDir, binary string, state buildState) (bool, error) {
+	manifest, ok, err := ReadLatestBuildManifest(appRoot)
+	if err != nil || !ok {
+		return false, err
+	}
+	if manifest.SchemaVersion != "scenery.build.latest.v1" ||
+		manifest.App.Root != appRoot ||
+		manifest.App.Name != cfg.Name ||
+		manifest.App.ID != cfg.ID ||
+		manifest.Build.Phase != "compiled" ||
+		manifest.Build.WorkspaceDir != workspaceDir ||
+		manifest.Build.BinaryPath != binary ||
+		!manifest.Build.WorkspaceExists ||
+		!manifest.Build.BinaryExists ||
+		manifest.Build.BuildStateVersion != buildStateVersion ||
+		manifest.Build.DependencyFingerprint != state.DependencyFingerprint ||
+		manifest.Build.GraphFingerprint != state.GraphFingerprint {
+		return false, nil
+	}
+	return true, nil
+}
+
 func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) {
+	return PrepareWithSnapshot(appRoot, model, cfg, nil)
+}
+
+func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
 	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
 	artifacts, err := writeGeneratedInspectArtifacts(appRoot, cfg, model)
 	if err != nil {
@@ -281,11 +326,11 @@ func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) 
 	// Hash the app source before syncing so a file that changes mid-prepare
 	// invalidates this fingerprint instead of blessing a workspace that may
 	// not contain the change.
-	sourceFingerprint, err := currentAppSourceFingerprint(appRoot)
+	sourceFingerprint, err := currentAppSourceFingerprintWithSnapshot(appRoot, snapshot)
 	if err != nil {
 		return nil, err
 	}
-	sourceFiles, sourceStamps, err := syncSourceFiles(workspaceDir, appRoot, state.SourceStamps, nil)
+	sourceFiles, sourceStamps, err := syncSourceFilesWithSnapshot(workspaceDir, appRoot, state.SourceStamps, nil, snapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -584,6 +629,50 @@ func copyTree(src, dst string) error {
 // rewrites it. Files in skip are tracked and stamped but never written; their
 // workspace content is owned by generated-file sync.
 func syncSourceFiles(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}) ([]string, map[string]SourceStamp, error) {
+	return syncSourceFilesWithSnapshot(root, appRoot, prevStamps, skip, nil)
+}
+
+func syncSourceFilesWithSnapshot(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}, snapshot *SourceSnapshot) ([]string, map[string]SourceStamp, error) {
+	if snapshot == nil {
+		return syncSourceFilesFromDisk(root, appRoot, prevStamps, skip)
+	}
+	currentFiles := snapshotSourceFiles(snapshot)
+	stamps := make(map[string]SourceStamp, len(currentFiles))
+	for _, rel := range currentFiles {
+		stamp := sourceStampFromSnapshot(snapshot.Files[rel])
+		if _, ok := skip[rel]; ok {
+			stamps[rel] = stamp
+			continue
+		}
+		if prev, ok := prevStamps[rel]; ok && prev == stamp {
+			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+				stamps[rel] = stamp
+				continue
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return nil, nil, err
+			}
+		}
+		data, err := sourceFileData(filepath.Join(appRoot, filepath.FromSlash(rel)), rel)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := writeFileIfChanged(root, rel, data); err != nil {
+			return nil, nil, err
+		}
+		stamps[rel] = stamp
+	}
+	for rel := range prevStamps {
+		if _, ok := stamps[rel]; ok {
+			continue
+		}
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, nil, err
+		}
+	}
+	return sourceFilesFromStamps(stamps), stamps, nil
+}
+
+func syncSourceFilesFromDisk(root, appRoot string, prevStamps map[string]SourceStamp, skip map[string]struct{}) ([]string, map[string]SourceStamp, error) {
 	currentFiles, err := listSourceFiles(appRoot)
 	if err != nil {
 		return nil, nil, err
@@ -629,6 +718,14 @@ func syncSourceFiles(root, appRoot string, prevStamps map[string]SourceStamp, sk
 		}
 	}
 	return sourceFilesFromStamps(stamps), stamps, nil
+}
+
+func sourceStampFromSnapshot(file SourceSnapshotFile) SourceStamp {
+	return SourceStamp{
+		Size:        file.Size,
+		ModTimeNano: file.ModTimeNano,
+		Perm:        file.Perm,
+	}
 }
 
 func sourceStampFromInfo(info os.FileInfo) SourceStamp {
@@ -732,6 +829,39 @@ func addAppEmbeddedFiles(appRoot, goRel string, files map[string]struct{}) error
 }
 
 func currentAppSourceFingerprint(appRoot string) (string, error) {
+	return currentAppSourceFingerprintWithSnapshot(appRoot, nil)
+}
+
+func currentAppSourceFingerprintWithSnapshot(appRoot string, snapshot *SourceSnapshot) (string, error) {
+	if snapshot == nil {
+		return currentAppSourceFingerprintFromDisk(appRoot)
+	}
+	h := sha256.New()
+	configPath, err := app.ResolveConfigPath(appRoot)
+	if err != nil {
+		return "", err
+	}
+	if rel, ok, err := snapshotRel(appRoot, configPath); err != nil {
+		return "", err
+	} else if ok {
+		if file, exists := snapshot.Files[rel]; exists {
+			_, _ = h.Write([]byte(rel))
+			_, _ = h.Write([]byte{0})
+			_, _ = h.Write([]byte(file.Hash))
+			_, _ = h.Write([]byte{0})
+		}
+	}
+	for _, rel := range snapshotSourceFiles(snapshot) {
+		file := snapshot.Files[rel]
+		_, _ = h.Write([]byte(rel))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(file.Hash))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func currentAppSourceFingerprintFromDisk(appRoot string) (string, error) {
 	files, err := listSourceFiles(appRoot)
 	if err != nil {
 		return "", err
@@ -746,9 +876,10 @@ func currentAppSourceFingerprint(appRoot string) (string, error) {
 		if relErr != nil {
 			rel = filepath.Base(configPath)
 		}
+		sum := sha256.Sum256(data)
 		_, _ = h.Write([]byte(filepath.ToSlash(rel)))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(data)
+		_, _ = h.Write([]byte(hex.EncodeToString(sum[:])))
 		_, _ = h.Write([]byte{0})
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
@@ -758,12 +889,39 @@ func currentAppSourceFingerprint(appRoot string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		sum := sha256.Sum256(data)
 		_, _ = h.Write([]byte(rel))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(data)
+		_, _ = h.Write([]byte(hex.EncodeToString(sum[:])))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func snapshotRel(root, path string) (string, bool, error) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", false, err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false, nil
+	}
+	return filepath.ToSlash(rel), true, nil
+}
+
+func snapshotSourceFiles(snapshot *SourceSnapshot) []string {
+	if snapshot == nil {
+		return nil
+	}
+	files := make([]string, 0, len(snapshot.Files))
+	for rel, file := range snapshot.Files {
+		rel = filepath.ToSlash(rel)
+		if file.Embedded || isGoWorkspaceSourceFile(rel) {
+			files = append(files, rel)
+		}
+	}
+	sort.Strings(files)
+	return files
 }
 
 var generatorFingerprint struct {

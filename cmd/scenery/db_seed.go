@@ -73,7 +73,22 @@ type databaseSeedStore interface {
 	ApplySeed(context.Context, string, string, string, string) error
 }
 
-var openDatabaseSeedStore = func(ctx context.Context, databaseURL string) (databaseSeedStore, error) {
+type dbSeedHooks struct {
+	openStore func(context.Context, string) (databaseSeedStore, error)
+}
+
+func defaultDBSeedHooks() dbSeedHooks {
+	return dbSeedHooks{openStore: openDatabaseSeedStore}
+}
+
+func (h dbSeedHooks) withDefaults() dbSeedHooks {
+	if h.openStore == nil {
+		h.openStore = defaultOpenDatabaseSeedStore
+	}
+	return h
+}
+
+func defaultOpenDatabaseSeedStore(ctx context.Context, databaseURL string) (databaseSeedStore, error) {
 	if strings.HasPrefix(strings.TrimSpace(databaseURL), "postgres:") || strings.HasPrefix(strings.TrimSpace(databaseURL), "postgresql:") {
 		db, err := openPostgresDatabase(ctx, databaseURL)
 		if err != nil {
@@ -92,11 +107,17 @@ var openDatabaseSeedStore = func(ctx context.Context, databaseURL string) (datab
 	return &sqliteDatabaseSeedStore{db: db}, nil
 }
 
+var openDatabaseSeedStore = defaultOpenDatabaseSeedStore
+
 func dbSeedCommand(args []string) error {
 	return runDBSeed(context.Background(), os.Stdout, args)
 }
 
 func runDBSeed(ctx context.Context, stdout io.Writer, args []string) error {
+	return runDBSeedWithHooks(ctx, stdout, args, defaultDBSeedHooks())
+}
+
+func runDBSeedWithHooks(ctx context.Context, stdout io.Writer, args []string, hooks dbSeedHooks) error {
 	opts, err := parseDBSeedArgs(args)
 	if err != nil {
 		return err
@@ -105,7 +126,7 @@ func runDBSeed(ctx context.Context, stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	result, err := buildDBSeedResult(ctx, appRoot, cfg, opts)
+	result, err := buildDBSeedResultWithHooks(ctx, appRoot, cfg, opts, hooks)
 	if opts.JSON {
 		if writeErr := writeInspectJSON(stdout, result); writeErr != nil {
 			return writeErr
@@ -141,15 +162,24 @@ func parseDBSeedArgs(args []string) (dbSeedOptions, error) {
 }
 
 func buildDBSeedResult(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions) (dbSeedResult, error) {
+	return buildDBSeedResultWithHooks(ctx, appRoot, cfg, opts, defaultDBSeedHooks())
+}
+
+func buildDBSeedResultWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, hooks dbSeedHooks) (dbSeedResult, error) {
 	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		result := emptyDBSeedResult(appRoot, cfg, opts)
 		return result, err
 	}
-	return buildDBSeedResultWithEnv(ctx, appRoot, cfg, opts, baseEnv, true)
+	return buildDBSeedResultWithEnvHooks(ctx, appRoot, cfg, opts, baseEnv, true, hooks)
 }
 
 func buildDBSeedResultWithEnv(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool) (dbSeedResult, error) {
+	return buildDBSeedResultWithEnvHooks(ctx, appRoot, cfg, opts, baseEnv, useManaged, defaultDBSeedHooks())
+}
+
+func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool, hooks dbSeedHooks) (dbSeedResult, error) {
+	hooks = hooks.withDefaults()
 	result := dbSeedResult{
 		SchemaVersion: "scenery.db.seed.result.v1",
 		App: inspectdata.AppRef{
@@ -216,7 +246,7 @@ func buildDBSeedResultWithEnv(ctx context.Context, appRoot string, cfg appcfg.Co
 		}
 		store := stores[dsn]
 		if store == nil {
-			store, err = openDatabaseSeedStore(ctx, dsn)
+			store, err = hooks.openStore(ctx, dsn)
 			if err != nil {
 				return nil, err
 			}

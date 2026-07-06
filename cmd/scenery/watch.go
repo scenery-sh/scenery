@@ -23,6 +23,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 )
 
@@ -37,9 +38,15 @@ const stopTimeout = 5 * time.Second
 type fileStamp struct {
 	modTime time.Time
 	size    int64
+	mode    uint32
+	hash    string
+	embed   bool
 }
 
-type fileSnapshot map[string]fileStamp
+type fileSnapshot struct {
+	files map[string]fileStamp
+	dirs  []string
+}
 
 type devBackend struct {
 	Network string
@@ -126,7 +133,7 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
 	}
 
-	watcher, err := newFileChangeWatcher(root)
+	watcher, err := newFileChangeWatcher(root, snapshot)
 	if err != nil {
 		if verbose {
 			supervisor.console.printf(supervisor.console.err, "  %s\n\n", err.Error())
@@ -383,13 +390,13 @@ func waitForStableChangePolling(ctx context.Context, root string, current fileSn
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return fileSnapshot{}, ctx.Err()
 		case <-ticker.C:
 		}
 
 		next, err := scanWatchedFiles(root)
 		if err != nil {
-			return nil, err
+			return fileSnapshot{}, err
 		}
 		if snapshotsEqual(current, next) {
 			continue
@@ -405,7 +412,7 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return fileSnapshot{}, ctx.Err()
 		case _, ok := <-events:
 			if !ok {
 				return waitForStableChangePolling(ctx, root, current)
@@ -413,7 +420,7 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 		case <-ticker.C:
 			next, err := scanWatchedFiles(root)
 			if err != nil {
-				return nil, err
+				return fileSnapshot{}, err
 			}
 			if snapshotsEqual(current, next) {
 				continue
@@ -423,7 +430,7 @@ func waitForStableChangeEvents(ctx context.Context, root string, current fileSna
 
 		next, err := waitForSnapshotToSettleEvents(ctx, root, events)
 		if err != nil {
-			return nil, err
+			return fileSnapshot{}, err
 		}
 		if snapshotsEqual(current, next) {
 			continue
@@ -441,13 +448,13 @@ func waitForSnapshotToSettlePolling(ctx context.Context, root string, current fi
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return fileSnapshot{}, ctx.Err()
 		case <-timer.C:
 			return current, nil
 		case <-ticker.C:
 			next, err := scanWatchedFiles(root)
 			if err != nil {
-				return nil, err
+				return fileSnapshot{}, err
 			}
 			if snapshotsEqual(current, next) {
 				continue
@@ -471,7 +478,7 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, events <-ch
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return fileSnapshot{}, ctx.Err()
 		case <-timer.C:
 			return scanWatchedFiles(root)
 		case _, ok := <-events:
@@ -490,13 +497,10 @@ func waitForSnapshotToSettleEvents(ctx context.Context, root string, events <-ch
 }
 
 func scanWatchedFiles(root string) (fileSnapshot, error) {
-	snapshot := make(fileSnapshot)
+	snapshot := fileSnapshot{files: make(map[string]fileStamp)}
+	dirs := map[string]struct{}{}
 	ignore := newWatchIgnoreMatcher(root)
-	embeddedFiles, err := discoverEmbeddedWatchFiles(root, ignore)
-	if err != nil {
-		return nil, err
-	}
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			// Tolerate entries vanishing or turning unreadable mid-scan; a
 			// transient walk error must not abort the watch loop.
@@ -523,6 +527,7 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 				return filepath.SkipDir
 			}
 			ignore.loadDir(rel)
+			dirs[rel] = struct{}{}
 			return nil
 		}
 		if d.Type()&os.ModeSymlink != 0 {
@@ -532,25 +537,52 @@ func scanWatchedFiles(root string) (fileSnapshot, error) {
 			return nil
 		}
 		if !isWatchedFile(rel) {
-			if _, ok := embeddedFiles[rel]; !ok {
-				return nil
-			}
+			return nil
 		}
 
 		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
-		snapshot[rel] = fileStamp{
-			modTime: info.ModTime().UTC().Round(0),
-			size:    info.Size(),
+		stamp, data, err := stampWatchedFile(path, info, false)
+		if err != nil {
+			return nil
+		}
+		snapshot.files[rel] = stamp
+		if filepath.Ext(rel) == ".go" {
+			pkgDir := filepath.Dir(rel)
+			for _, pattern := range parseGoEmbedPatterns(string(data)) {
+				if err := addEmbeddedSnapshotFiles(root, pkgDir, pattern, snapshot.files, ignore); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return fileSnapshot{}, err
 	}
+	snapshot.dirs = make([]string, 0, len(dirs))
+	for dir := range dirs {
+		snapshot.dirs = append(snapshot.dirs, dir)
+	}
+	sort.Strings(snapshot.dirs)
 	return snapshot, nil
+}
+
+func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, []byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fileStamp{}, nil, err
+	}
+	sum := sha256.Sum256(data)
+	return fileStamp{
+		modTime: info.ModTime().UTC().Round(0),
+		size:    info.Size(),
+		mode:    uint32(info.Mode().Perm()),
+		hash:    hex.EncodeToString(sum[:]),
+		embed:   embedded,
+	}, data, nil
 }
 
 func shouldIgnoreWatchPath(rel string) bool {
@@ -631,11 +663,11 @@ func isWatchedRootDotFile(rel string) bool {
 }
 
 func snapshotsEqual(a, b fileSnapshot) bool {
-	if len(a) != len(b) {
+	if len(a.files) != len(b.files) {
 		return false
 	}
-	for path, stamp := range a {
-		if other, ok := b[path]; !ok || other != stamp {
+	for path, stamp := range a.files {
+		if other, ok := b.files[path]; !ok || other != stamp {
 			return false
 		}
 	}
@@ -643,15 +675,15 @@ func snapshotsEqual(a, b fileSnapshot) bool {
 }
 
 func changedPaths(before, after fileSnapshot) []string {
-	seen := make(map[string]struct{}, len(before)+len(after))
-	paths := make([]string, 0, len(before)+len(after))
-	for path, stamp := range before {
+	seen := make(map[string]struct{}, len(before.files)+len(after.files))
+	paths := make([]string, 0, len(before.files)+len(after.files))
+	for path, stamp := range before.files {
 		seen[path] = struct{}{}
-		if other, ok := after[path]; !ok || other != stamp {
+		if other, ok := after.files[path]; !ok || other != stamp {
 			paths = append(paths, path)
 		}
 	}
-	for path := range after {
+	for path := range after.files {
 		if _, ok := seen[path]; ok {
 			continue
 		}
@@ -662,22 +694,36 @@ func changedPaths(before, after fileSnapshot) []string {
 }
 
 func snapshotFingerprint(snapshot fileSnapshot) string {
-	paths := make([]string, 0, len(snapshot))
-	for path := range snapshot {
+	paths := make([]string, 0, len(snapshot.files))
+	for path := range snapshot.files {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
 	h := sha256.New()
 	for _, path := range paths {
-		stamp := snapshot[path]
+		stamp := snapshot.files[path]
 		_, _ = h.Write([]byte(path))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(stamp.modTime.Format(time.RFC3339Nano)))
+		_, _ = h.Write([]byte(stamp.hash))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(fmt.Sprintf("%d", stamp.size)))
+		_, _ = h.Write([]byte(fmt.Sprintf("%d:%d:%o:%t", stamp.size, stamp.modTime.UnixNano(), stamp.mode, stamp.embed)))
 		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func buildSourceSnapshot(snapshot fileSnapshot) *build.SourceSnapshot {
+	files := make(map[string]build.SourceSnapshotFile, len(snapshot.files))
+	for rel, stamp := range snapshot.files {
+		files[rel] = build.SourceSnapshotFile{
+			Size:        stamp.size,
+			ModTimeNano: stamp.modTime.UnixNano(),
+			Perm:        stamp.mode,
+			Hash:        stamp.hash,
+			Embedded:    stamp.embed,
+		}
+	}
+	return &build.SourceSnapshot{Files: files}
 }
 
 type fileChangeWatcher struct {
@@ -689,7 +735,7 @@ type fileChangeWatcher struct {
 	done         chan struct{}
 }
 
-func newFileChangeWatcher(root string) (*fileChangeWatcher, error) {
+func newFileChangeWatcher(root string, snapshot fileSnapshot) (*fileChangeWatcher, error) {
 	underlying, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -706,12 +752,30 @@ func newFileChangeWatcher(root string) (*fileChangeWatcher, error) {
 		ignore:       newWatchIgnoreMatcher(root),
 		done:         make(chan struct{}),
 	}
-	if err := fw.addTree(root); err != nil {
+	if err := fw.addSnapshotDirs(snapshot); err != nil {
 		_ = underlying.Close()
 		return nil, err
 	}
 	go fw.run()
 	return fw, nil
+}
+
+func (fw *fileChangeWatcher) addSnapshotDirs(snapshot fileSnapshot) error {
+	if len(snapshot.dirs) == 0 {
+		return fw.addTree(fw.root)
+	}
+	if err := fw.watcher.Add(fw.root); err != nil {
+		return err
+	}
+	for _, rel := range snapshot.dirs {
+		if rel == "." || rel == "" {
+			continue
+		}
+		if err := fw.watcher.Add(filepath.Join(fw.root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (fw *fileChangeWatcher) Events() <-chan struct{} {

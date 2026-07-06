@@ -39,6 +39,27 @@
       ]
     },
     {
+      "path": "docs/plans/0096-dev-loop-performance.md",
+      "title": "Dev Loop Performance",
+      "owner": "scenery runtime / agent DX",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-06",
+      "review_after": "2026-08-06",
+      "summary": "Active ExecPlan speeding up scenery up startup to full readiness (single source snapshot, parse and compile fast paths, parallel startup phases, tighter readiness probes) and continuing test-suite speed work from plan 0050 (event-driven frontend tests, build fixture reuse, parallelizable test clusters, opportunistic cmd/scenery package splits).",
+      "tags": [
+        "plans",
+        "execplans",
+        "performance",
+        "dev-loop",
+        "build",
+        "watch",
+        "victoria",
+        "tests"
+      ]
+    },
+    {
       "path": "docs/index.md",
       "title": "scenery Documentation Index",
       "owner": "scenery maintainers",

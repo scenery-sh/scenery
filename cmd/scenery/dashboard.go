@@ -67,6 +67,8 @@ type dashboardServer struct {
 
 	symphonyMu    sync.Mutex
 	symphonyStore *symphony.Store
+	symphonyRoot  string
+	symphonyHooks symphonyRunnerHooks
 }
 
 type dashboardVictoria interface {

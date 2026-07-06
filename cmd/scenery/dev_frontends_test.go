@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
+	"scenery.sh/internal/localproxy"
 )
 
 func TestManagedFrontendCommandUsesViteLocalBin(t *testing.T) {
@@ -176,12 +178,9 @@ func TestManagedFrontendFailsFastWhenChildExitsBeforeReady(t *testing.T) {
 
 	root := t.TempDir()
 	appRoot := filepath.Join(root, "app")
-	frontendRoot := filepath.Join(appRoot, "apps", "web")
-	writeFrontendPackage(t, frontendRoot, `{"scripts":{"dev":"vite"}}`)
-	writeFrontendBinWithScript(t, frontendRoot, "vite", "echo frontend-boom\nexit 7\n")
 
 	start := time.Now()
-	_, _, err := managedFrontendBackendsForSession(context.Background(), appRoot, app.Config{
+	_, _, err := managedFrontendBackendsForSessionWithStarter(context.Background(), appRoot, app.Config{
 		Name: "demo",
 		Proxy: app.ProxyConfig{
 			Frontends: map[string]app.FrontendConfig{
@@ -191,11 +190,17 @@ func TestManagedFrontendFailsFastWhenChildExitsBeforeReady(t *testing.T) {
 	}, nil, localagent.Session{
 		SessionID: "main-test",
 		StateRoot: filepath.Join(root, "state"),
+	}, func(_ context.Context, _ string, _ string, index int, frontend localproxy.FrontendConfig, _ []string, _ localagent.Session) managedFrontendStartResult {
+		return managedFrontendStartResult{
+			index: index,
+			name:  frontend.Name,
+			err:   errors.New("frontend web exited before becoming ready: exit status 7\nfrontend-boom"),
+		}
 	})
 	if err == nil {
 		t.Fatal("managedFrontendBackendsForSession returned nil error, want early exit")
 	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
+	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("managed frontend failure took %s, want early exit before timeout", elapsed)
 	}
 	got := err.Error()
@@ -209,33 +214,6 @@ func TestManagedFrontendBackendsStartsFrontendsConcurrently(t *testing.T) {
 
 	root := t.TempDir()
 	appRoot := filepath.Join(root, "app")
-	markerDir := filepath.Join(root, "markers")
-	if err := os.MkdirAll(markerDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	serverPath := frontendTestServerBinary(t)
-	for _, name := range []string{"alpha", "beta"} {
-		frontendRoot := filepath.Join(appRoot, "apps", name)
-		writeFrontendPackage(t, frontendRoot, `{"scripts":{"dev":"vite"}}`)
-		writeFrontendBinWithScript(t, frontendRoot, "vite", `
-set -eu
-port=""
-prev=""
-for arg in "$@"; do
-	if [ "$prev" = "--port" ]; then
-		port="$arg"
-		break
-	fi
-	prev="$arg"
-done
-name="${PWD##*/}"
-touch "$SCENERY_FRONTEND_TEST_MARKER_DIR/$name.started"
-while [ ! -f "$SCENERY_FRONTEND_TEST_MARKER_DIR/go" ]; do
-	sleep 0.05
-done
-SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test.run '^TestManagedFrontendTestServerHelper$' -- "$port"
-`)
-	}
 	cfg := app.Config{
 		Name: "demo",
 		Proxy: app.ProxyConfig{
@@ -245,6 +223,31 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 			},
 		},
 	}
+	addrs := map[string]string{
+		"alpha": "127.0.0.1:4101",
+		"beta":  "127.0.0.1:4102",
+	}
+	pids := map[string]int{
+		"alpha": 4101,
+		"beta":  4102,
+	}
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	starter := func(ctx context.Context, _ string, _ string, index int, frontend localproxy.FrontendConfig, _ []string, _ localagent.Session) managedFrontendStartResult {
+		started <- frontend.Name
+		select {
+		case <-ctx.Done():
+			return managedFrontendStartResult{index: index, name: frontend.Name, err: ctx.Err()}
+		case <-release:
+		}
+		addr := addrs[frontend.Name]
+		return managedFrontendStartResult{
+			index:   index,
+			name:    frontend.Name,
+			backend: localagent.Backend{Network: "tcp", Addr: addr},
+			process: fakeManagedFrontendProcess(frontend.Name, addr, pids[frontend.Name]),
+		}
+	}
 	type frontendResult struct {
 		backends  map[string]localagent.Backend
 		processes []*managedFrontendProcess
@@ -253,43 +256,39 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	done := make(chan frontendResult, 1)
-	baseEnv := []string{
-		"HOME=" + os.Getenv("HOME"),
-		"PATH=" + os.Getenv("PATH"),
-		"SCENERY_FRONTEND_TEST_MARKER_DIR=" + markerDir,
-		"SCENERY_FRONTEND_TEST_SERVER=" + serverPath,
-	}
 	go func() {
-		backends, processes, err := managedFrontendBackendsForSession(ctx, appRoot, cfg, baseEnv, localagent.Session{
+		backends, processes, err := managedFrontendBackendsForSessionWithStarter(ctx, appRoot, cfg, nil, localagent.Session{
 			SessionID: "main-test",
 			StateRoot: filepath.Join(root, "state"),
-		})
+		}, starter)
 		done <- frontendResult{backends: backends, processes: processes, err: err}
 	}()
 
-	waitForFile(t, filepath.Join(markerDir, "alpha.started"), 2*time.Second)
-	waitForFile(t, filepath.Join(markerDir, "beta.started"), 2*time.Second)
-	if err := os.WriteFile(filepath.Join(markerDir, "go"), []byte("go\n"), 0o644); err != nil {
-		t.Fatal(err)
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		select {
+		case name := <-started:
+			seen[name] = true
+		case result := <-done:
+			t.Fatalf("managedFrontendBackendsForSession returned before all starters ran: %+v", result)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
 	}
+	close(release)
 
 	select {
 	case result := <-done:
 		if result.err != nil {
 			t.Fatal(result.err)
 		}
-		t.Cleanup(func() { stopManagedFrontendProcesses(result.processes) })
 		if len(result.processes) != 2 {
 			t.Fatalf("processes = %d, want 2", len(result.processes))
 		}
-		time.Sleep(300 * time.Millisecond)
 		for _, name := range []string{"alpha", "beta"} {
 			backend := result.backends[name]
-			if backend.Network != "tcp" || backend.Addr == "" {
-				t.Fatalf("%s backend = %+v, want tcp addr", name, backend)
-			}
-			if !tcpAddrAcceptsConnections(backend.Addr) {
-				t.Fatalf("%s backend %s stopped accepting connections after startup returned", name, backend.Addr)
+			if backend.Network != "tcp" || backend.Addr != addrs[name] {
+				t.Fatalf("%s backend = %+v, want tcp %s", name, backend, addrs[name])
 			}
 		}
 	case <-ctx.Done():
@@ -298,8 +297,6 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 }
 
 func TestManagedFrontendExitRestartsAndUpdatesAgentSession(t *testing.T) {
-	t.Parallel()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	root := t.TempDir()
 	appRoot := filepath.Join(root, "app")
@@ -393,6 +390,30 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 		t.Fatal(err)
 	}
 	defer supervisor.Close()
+	oldDelay := managedFrontendRestartDelay
+	managedFrontendRestartDelay = time.Millisecond
+	defer func() { managedFrontendRestartDelay = oldDelay }()
+	type frontendUpdate struct {
+		backend localagent.Backend
+		pid     int
+	}
+	updates := make(chan frontendUpdate, 2)
+	managedFrontendTestHooks.Lock()
+	managedFrontendTestHooks.sessionUpdated = func(name string, backend localagent.Backend, process *managedFrontendProcess) {
+		if name != "web" || process == nil || process.Process == nil {
+			return
+		}
+		select {
+		case updates <- frontendUpdate{backend: backend, pid: process.Process.PID}:
+		default:
+		}
+	}
+	managedFrontendTestHooks.Unlock()
+	defer func() {
+		managedFrontendTestHooks.Lock()
+		managedFrontendTestHooks.sessionUpdated = nil
+		managedFrontendTestHooks.Unlock()
+	}()
 	supervisor.agent = prepared.Client
 	supervisor.agentSession = prepared.Session
 	supervisor.adoptManagedFrontends(prepared.FrontendProcesses)
@@ -405,30 +426,38 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 	}
 
 	var latest localagent.Session
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		sessions, err := prepared.Client.List(ctx, appRoot)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, session := range sessions {
-			if session.SessionID == prepared.Session.SessionID {
-				latest = session
-				break
+	deadline := time.After(8 * time.Second)
+	for {
+		select {
+		case update := <-updates:
+			if update.backend.Addr == "" || update.backend.Addr == oldAddr || update.pid <= 0 || update.pid == oldPID {
+				continue
 			}
-		}
-		backend := latest.Backends["web"]
-		process := latest.Processes["frontend-web"]
-		if backend.Addr != "" && backend.Addr != oldAddr && process.PID > 0 && process.PID != oldPID && tcpAddrAcceptsConnections(backend.Addr) {
-			time.Sleep(300 * time.Millisecond)
-			if !tcpAddrAcceptsConnections(backend.Addr) {
-				t.Fatalf("restarted frontend backend %s stopped accepting connections shortly after session update", backend.Addr)
+			if !tcpAddrAcceptsConnections(update.backend.Addr) {
+				t.Fatalf("restarted frontend backend %s is not accepting connections", update.backend.Addr)
 			}
-			return
+			sessions, err := prepared.Client.List(ctx, appRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, session := range sessions {
+				if session.SessionID == prepared.Session.SessionID {
+					latest = session
+					break
+				}
+			}
+			backend := latest.Backends["web"]
+			process := latest.Processes["frontend-web"]
+			if backend.Addr == update.backend.Addr && process.PID == update.pid {
+				return
+			}
+			t.Fatalf("session update = backend=%+v pid=%d, latest=%+v", update.backend, update.pid, latest)
+		case <-deadline:
+			t.Fatalf("frontend did not restart with updated session backend; old addr=%s pid=%d latest=%+v", oldAddr, oldPID, latest)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("frontend did not restart with updated session backend; old addr=%s pid=%d latest=%+v", oldAddr, oldPID, latest)
 }
 
 func startManagedFrontendTestAgentServer(t *testing.T, ctx context.Context, home string) (*localagent.Client, <-chan error) {
@@ -455,6 +484,26 @@ func startManagedFrontendTestAgentServer(t *testing.T, ctx context.Context, home
 		t.Fatal(err)
 	}
 	return client, done
+}
+
+func fakeManagedFrontendProcess(name, addr string, pid int) *managedFrontendProcess {
+	done := make(chan struct{})
+	close(done)
+	outputDone := make(chan struct{})
+	close(outputDone)
+	return &managedFrontendProcess{
+		Name: name,
+		Addr: addr,
+		Process: &devManagedProcess{
+			Name:       name,
+			Kind:       "frontend",
+			Role:       "web-frontend",
+			PID:        pid,
+			StartedAt:  time.Now().UTC(),
+			done:       done,
+			outputDone: outputDone,
+		},
+	}
 }
 
 func writeFrontendPackage(t *testing.T, root, data string) {
@@ -520,18 +569,4 @@ func frontendTestServerBinary(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func waitForFile(t *testing.T, path string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", path)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
 }

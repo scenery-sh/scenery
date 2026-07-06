@@ -162,6 +162,91 @@ func addEmbeddedPatternFiles(root, pkgDir, pattern string, files map[string]stru
 	return nil
 }
 
+func addEmbeddedSnapshotFiles(root, pkgDir, pattern string, files map[string]fileStamp, ignore *watchIgnoreMatcher) error {
+	includeHidden := false
+	if strings.HasPrefix(pattern, "all:") {
+		includeHidden = true
+		pattern = strings.TrimPrefix(pattern, "all:")
+	}
+	if pattern == "" || filepath.IsAbs(pattern) || strings.HasPrefix(pattern, "../") || strings.Contains(pattern, "/../") {
+		return nil
+	}
+	search := filepath.Join(root, filepath.FromSlash(pkgDir), filepath.FromSlash(pattern))
+	matches, err := filepath.Glob(search)
+	if err != nil {
+		return nil
+	}
+	for _, match := range matches {
+		if err := addEmbeddedSnapshotPath(root, match, includeHidden, files, ignore); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addEmbeddedSnapshotPath(root, path string, includeHidden bool, files map[string]fileStamp, ignore *watchIgnoreMatcher) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	rel = filepath.ToSlash(rel)
+	if rel != "." && shouldIgnoreWatchPathWithMatcher(rel, info.IsDir(), ignore) {
+		return nil
+	}
+	if !info.IsDir() {
+		if includeHidden || !hasHiddenOrUnderscorePart(rel) {
+			stamp, _, err := stampWatchedFile(path, info, true)
+			if err != nil {
+				return nil
+			}
+			files[rel] = stamp
+		}
+		return nil
+	}
+	return filepath.WalkDir(path, func(child string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() && child != path {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, child)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) {
+				return filepath.SkipDir
+			}
+			if !includeHidden && hasHiddenOrUnderscorePart(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !includeHidden && hasHiddenOrUnderscorePart(rel) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		stamp, _, err := stampWatchedFile(child, info, true)
+		if err != nil {
+			return nil
+		}
+		files[rel] = stamp
+		return nil
+	})
+}
+
 func addEmbeddedPath(root, path string, includeHidden bool, files map[string]struct{}, ignore *watchIgnoreMatcher) error {
 	info, err := os.Stat(path)
 	if err != nil {

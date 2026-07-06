@@ -136,6 +136,9 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 	if state.BuildFingerprint == "" {
 		return nil, false, nil
 	}
+	if len(state.Metadata) == 0 || len(state.APIEncoding) == 0 {
+		return nil, false, nil
+	}
 	result := &Result{
 		AppRoot:                   appRoot,
 		AppName:                   cfg.Name,
@@ -164,6 +167,10 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 }
 
 func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
+	return RefreshCachedWorkspaceWithSnapshot(appRoot, result, nil)
+}
+
+func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot *SourceSnapshot) (bool, error) {
 	if result == nil {
 		return false, fmt.Errorf("nil build result")
 	}
@@ -178,7 +185,7 @@ func RefreshCachedWorkspace(appRoot string, result *Result) (bool, error) {
 			return false, err
 		}
 	}
-	sourceFiles, sourceStamps, err := syncSourceFiles(result.Dir, appRoot, result.SourceStamps, generated)
+	sourceFiles, sourceStamps, err := syncSourceFilesWithSnapshot(result.Dir, appRoot, result.SourceStamps, generated, snapshot)
 	if err != nil {
 		return false, err
 	}

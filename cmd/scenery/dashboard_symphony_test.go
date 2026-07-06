@@ -18,7 +18,7 @@ import (
 )
 
 func TestDashboardSymphonyRPCScopesByBaseAppID(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
 	server := newSymphonyDashboardTestServer(t)
 	ctx := context.Background()
@@ -66,7 +66,7 @@ func TestDashboardSymphonyRPCScopesByBaseAppID(t *testing.T) {
 }
 
 func TestDashboardSymphonyRPCMovesAndRejectsRunnerMethods(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
 	server := newSymphonyDashboardTestServer(t)
 	ctx := context.Background()
@@ -95,7 +95,7 @@ func TestDashboardSymphonyRPCMovesAndRejectsRunnerMethods(t *testing.T) {
 }
 
 func TestDashboardSymphonyRPCBlocksAutoEscalation(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
 	server := newSymphonyDashboardTestServer(t)
 	_, err := dispatchSymphonyTestRPC[symphony.Workflow](context.Background(), server, "symphony/workflow/update", map[string]any{
@@ -111,6 +111,8 @@ func TestDashboardSymphonyRPCBlocksAutoEscalation(t *testing.T) {
 }
 
 func TestDashboardWebSocketOriginCheck(t *testing.T) {
+	t.Parallel()
+
 	req := &http.Request{Host: "localhost:4747", Header: http.Header{"Origin": []string{"http://localhost:4747"}}}
 	if !dashboardCheckOrigin(req) {
 		t.Fatal("expected same-origin dashboard websocket to pass")
@@ -122,7 +124,7 @@ func TestDashboardWebSocketOriginCheck(t *testing.T) {
 }
 
 func TestDashboardSymphonyRPCFallsBackToDashboardAppIDWithoutBaseAppID(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
 	store, err := devdash.OpenStore(t.TempDir())
 	if err != nil {
@@ -139,6 +141,7 @@ func TestDashboardSymphonyRPCFallsBackToDashboardAppIDWithoutBaseAppID(t *testin
 		t.Fatal(err)
 	}
 	server := newDashboardServerWithController(&symphonyNoBaseController{store: store}, t.TempDir(), "127.0.0.1:0", "", nil)
+	server.symphonyStore = newSymphonyStore(t)
 	task, err := dispatchSymphonyTestRPC[symphony.Task](context.Background(), server, "symphony/task/create", map[string]any{
 		"app_id": "legacy",
 		"input":  map[string]any{"title": "Fallback task"},
@@ -162,7 +165,7 @@ func TestDashboardSymphonyRPCFallsBackToDashboardAppIDWithoutBaseAppID(t *testin
 }
 
 func TestDashboardSymphonyRPCFailsClosedForSessionWithoutBaseAppID(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
 	store, err := devdash.OpenStore(t.TempDir())
 	if err != nil {
@@ -180,23 +183,19 @@ func TestDashboardSymphonyRPCFailsClosedForSessionWithoutBaseAppID(t *testing.T)
 		t.Fatal(err)
 	}
 	server := newDashboardServerWithController(&symphonyNoBaseController{store: store}, t.TempDir(), "127.0.0.1:0", "", nil)
+	server.symphonyStore = newSymphonyStore(t)
 	if _, err := dispatchSymphonyTestRPC[symphony.State](context.Background(), server, "symphony/state", map[string]any{"app_id": "legacy-session"}); err == nil {
 		t.Fatal("expected missing base app id error")
 	}
 }
 
 func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
-	oldRunner := symphonyRunCodexAgent
-	oldAsync := startSymphonyRunAsync
 	var runnerStore *symphony.Store
-	t.Cleanup(func() {
-		symphonyRunCodexAgent = oldRunner
-		startSymphonyRunAsync = oldAsync
-	})
-	startSymphonyRunAsync = func(fn func()) { fn() }
-	symphonyRunCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+	hooks := symphonyRunnerHooks{}
+	hooks.startAsync = func(fn func()) { fn() }
+	hooks.runCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
 		if !strings.Contains(req.Prompt, "Ticket "+req.Task.Identifier) || !strings.Contains(req.Prompt, req.AppWorkspace) {
 			return symphonyRunResult{}, fmt.Errorf("prompt = %q", req.Prompt)
 		}
@@ -245,12 +244,8 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	runGit(t, repoRoot, "add", ".")
 	runGit(t, repoRoot, "commit", "-m", "initial")
 
-	store, err := openDashboardSymphonyStore(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := newSymphonyStore(t)
 	runnerStore = store
-	t.Cleanup(func() { _ = store.Close() })
 	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Prepare me", StatusKey: "todo"})
 	if err != nil {
 		t.Fatal(err)
@@ -259,10 +254,10 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := symphonyCommand([]string{"auto", "--on", "--app-root", appRoot}); err != nil {
+	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	server := &dashboardServer{}
+	server := &dashboardServer{symphonyRoot: t.TempDir(), symphonyHooks: hooks}
 	err = server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
 		AppID:     "demo--session",
 		BaseAppID: "demo",
@@ -306,7 +301,8 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 	if !strings.Contains(run.DiffStat, "prepared.txt") {
 		t.Fatalf("run diff stat = %q, want prepared.txt", run.DiffStat)
 	}
-	detailServer := newSymphonyDashboardTestServer(t)
+	detailServer := newSymphonyDashboardTestServer(t, store)
+	detailServer.symphonyRoot = server.symphonyRoot
 	detail, err := dispatchSymphonyTestRPC[symphonyRunDetail](context.Background(), detailServer, "symphony/run/detail", map[string]any{
 		"app_id": "session-a",
 		"run_id": run.ID,
@@ -326,30 +322,25 @@ func TestDashboardSymphonyAutoRunnerClaimsTodoTask(t *testing.T) {
 }
 
 func TestDashboardSymphonyAutoRunnerRecoversExpiredRun(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
-	oldRunner := symphonyRunCodexAgent
-	oldAsync := startSymphonyRunAsync
-	t.Cleanup(func() {
-		symphonyRunCodexAgent = oldRunner
-		startSymphonyRunAsync = oldAsync
-	})
-	startSymphonyRunAsync = func(fn func()) { fn() }
-	symphonyRunCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
-		return symphonyRunResult{Summary: "recovered"}, nil
+	server := &dashboardServer{
+		symphonyRoot: t.TempDir(),
+		symphonyHooks: symphonyRunnerHooks{
+			startAsync: func(fn func()) { fn() },
+			runCodexAgent: func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+				return symphonyRunResult{Summary: "recovered"}, nil
+			},
+		},
 	}
 
 	repoRoot, appRoot := newSymphonyGitFixture(t, "---\nagent:\n  max_concurrent_agents: 1\n  max_attempts: 3\n---\nRecover {{ issue.identifier }}")
-	store, err := openDashboardSymphonyStore(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := newSymphonyStore(t)
 	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Recover", StatusKey: "todo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldRun, err := store.StartRunWithRepo(context.Background(), "demo", task.ID, filepath.Join(repoRoot, "app"), "old-session", repoRoot, filepath.Join(symphonyCacheRoot(), "workspaces", "demo", task.Identifier, "repo"))
+	oldRun, err := store.StartRunWithRepo(context.Background(), "demo", task.ID, filepath.Join(repoRoot, "app"), "old-session", repoRoot, filepath.Join(server.symphonyCacheRoot(), "workspaces", "demo", task.Identifier, "repo"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +353,7 @@ func TestDashboardSymphonyAutoRunnerRecoversExpiredRun(t *testing.T) {
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+	if err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
 		AppID:     "demo--session",
 		BaseAppID: "demo",
 		SessionID: "session-1",
@@ -385,32 +376,27 @@ func TestDashboardSymphonyAutoRunnerRecoversExpiredRun(t *testing.T) {
 }
 
 func TestDashboardSymphonyAutoRunnerTimesOutRun(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
-	oldRunner := symphonyRunCodexAgent
-	oldAsync := startSymphonyRunAsync
-	t.Cleanup(func() {
-		symphonyRunCodexAgent = oldRunner
-		startSymphonyRunAsync = oldAsync
-	})
-	startSymphonyRunAsync = func(fn func()) { fn() }
-	symphonyRunCodexAgent = func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
-		return symphonyRunResult{Summary: "timed out"}, context.DeadlineExceeded
+	server := &dashboardServer{
+		symphonyRoot: t.TempDir(),
+		symphonyHooks: symphonyRunnerHooks{
+			startAsync: func(fn func()) { fn() },
+			runCodexAgent: func(ctx context.Context, req symphonyRunRequest, callbacks symphonyRunCallbacks) (symphonyRunResult, error) {
+				return symphonyRunResult{Summary: "timed out"}, context.DeadlineExceeded
+			},
+		},
 	}
 
 	_, appRoot := newSymphonyGitFixture(t, "---\nagent:\n  turn_timeout_ms: 1000\n  stall_timeout_ms: 1000\n---\nTimeout")
-	store, err := openDashboardSymphonyStore(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := newSymphonyStore(t)
 	if _, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Timeout", StatusKey: "todo"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", SessionID: "session-1", AppRoot: appRoot, Running: true}); err != nil {
+	if err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", SessionID: "session-1", AppRoot: appRoot, Running: true}); err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.State(context.Background(), "demo")
@@ -423,24 +409,23 @@ func TestDashboardSymphonyAutoRunnerTimesOutRun(t *testing.T) {
 }
 
 func TestDashboardSymphonyAutoRunnerHonorsMaxAttempts(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
-	oldRunner := symphonyRunCodexAgent
-	t.Cleanup(func() { symphonyRunCodexAgent = oldRunner })
-	symphonyRunCodexAgent = func(context.Context, symphonyRunRequest, symphonyRunCallbacks) (symphonyRunResult, error) {
-		t.Fatal("runner should not reclaim an exhausted task")
-		return symphonyRunResult{}, nil
+	server := &dashboardServer{
+		symphonyRoot: t.TempDir(),
+		symphonyHooks: symphonyRunnerHooks{
+			runCodexAgent: func(context.Context, symphonyRunRequest, symphonyRunCallbacks) (symphonyRunResult, error) {
+				t.Fatal("runner should not reclaim an exhausted task")
+				return symphonyRunResult{}, nil
+			},
+		},
 	}
 
 	appRoot := t.TempDir()
 	if err := os.WriteFile(filepath.Join(appRoot, "WORKFLOW.md"), []byte("---\nagent:\n  max_attempts: 1\n  max_turns: 20\n---\nNo retry"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	store, err := openDashboardSymphonyStore(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := newSymphonyStore(t)
 	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "No retry", StatusKey: "todo"})
 	if err != nil {
 		t.Fatal(err)
@@ -455,7 +440,7 @@ func TestDashboardSymphonyAutoRunnerHonorsMaxAttempts(t *testing.T) {
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", AppRoot: appRoot, Running: true}); err != nil {
+	if err := server.runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{AppID: "demo", BaseAppID: "demo", AppRoot: appRoot, Running: true}); err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.State(context.Background(), "demo")
@@ -468,13 +453,10 @@ func TestDashboardSymphonyAutoRunnerHonorsMaxAttempts(t *testing.T) {
 }
 
 func TestCompleteSymphonyRunDoesNotOverrideMovedTask(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
+
 	ctx := context.Background()
-	store, err := openDashboardSymphonyStore(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := newSymphonyStore(t)
 	task, err := store.CreateTask(ctx, "demo", symphony.TaskInput{Title: "Do not override", StatusKey: "todo"})
 	if err != nil {
 		t.Fatal(err)
@@ -506,13 +488,9 @@ func TestCompleteSymphonyRunDoesNotOverrideMovedTask(t *testing.T) {
 }
 
 func TestDashboardSymphonyAutoRunnerRequiresWorkflow(t *testing.T) {
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
+	t.Parallel()
 
-	store, err := openDashboardSymphonyStore(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := newSymphonyStore(t)
 	task, err := store.CreateTask(context.Background(), "demo", symphony.TaskInput{Title: "Needs workflow", StatusKey: "todo"})
 	if err != nil {
 		t.Fatal(err)
@@ -520,7 +498,7 @@ func TestDashboardSymphonyAutoRunnerRequiresWorkflow(t *testing.T) {
 	if _, err := store.UpdateWorkflow(context.Background(), "demo", symphony.WorkflowInput{Mode: "auto", MaxConcurrency: 1}); err != nil {
 		t.Fatal(err)
 	}
-	err = (&dashboardServer{}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
+	err = (&dashboardServer{symphonyRoot: t.TempDir()}).runSymphonyAutoForApp(context.Background(), store, devdash.AppStatus{
 		AppID:     "demo--session",
 		BaseAppID: "demo",
 		SessionID: "session-1",
@@ -605,6 +583,8 @@ func TestCleanupSymphonyRunWorkspaceRemovesWorktree(t *testing.T) {
 }
 
 func TestCodexAppServerClientCompletesAfterNotificationHandler(t *testing.T) {
+	t.Parallel()
+
 	handled := make(chan struct{})
 	client := &codexAppServerClient{
 		done:         make(chan error, 1),
@@ -628,6 +608,8 @@ func TestCodexAppServerClientCompletesAfterNotificationHandler(t *testing.T) {
 }
 
 func TestCodexAppServerClientStallTimeout(t *testing.T) {
+	t.Parallel()
+
 	client := &codexAppServerClient{
 		done:         make(chan error, 1),
 		turnDone:     make(chan struct{}),
@@ -639,7 +621,7 @@ func TestCodexAppServerClientStallTimeout(t *testing.T) {
 	}
 }
 
-func newSymphonyDashboardTestServer(t *testing.T) *dashboardServer {
+func newSymphonyDashboardTestServer(t *testing.T, symphonyStores ...*symphony.Store) *dashboardServer {
 	t.Helper()
 	store, err := devdash.OpenStore(filepath.Join(t.TempDir(), "devdash"))
 	if err != nil {
@@ -656,7 +638,24 @@ func newSymphonyDashboardTestServer(t *testing.T) *dashboardServer {
 			t.Fatal(err)
 		}
 	}
-	return newDashboardServerWithController(&agentDashboardController{store: store}, t.TempDir(), "127.0.0.1:0", "", nil)
+	server := newDashboardServerWithController(&agentDashboardController{store: store}, t.TempDir(), "127.0.0.1:0", "", nil)
+	if len(symphonyStores) > 0 {
+		server.symphonyStore = symphonyStores[0]
+	} else {
+		server.symphonyStore = newSymphonyStore(t)
+	}
+	server.symphonyRoot = t.TempDir()
+	return server
+}
+
+func newSymphonyStore(t *testing.T) *symphony.Store {
+	t.Helper()
+	store, err := symphony.Open(context.Background(), filepath.Join(t.TempDir(), "symphony.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }
 
 func newSymphonyGitFixture(t *testing.T, workflow string) (string, string) {

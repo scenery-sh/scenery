@@ -66,6 +66,10 @@ func dbApplyCommand(args []string) error {
 }
 
 func runDBApply(ctx context.Context, stdout io.Writer, args []string) error {
+	return runDBApplyWithHooks(ctx, stdout, args, defaultLifecycleHooks())
+}
+
+func runDBApplyWithHooks(ctx context.Context, stdout io.Writer, args []string, hooks lifecycleHooks) error {
 	opts, err := parseDBApplyArgs(args)
 	if err != nil {
 		return err
@@ -74,7 +78,7 @@ func runDBApply(ctx context.Context, stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := runDatabaseApplyCommand(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
+	if err := runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, cfg.Database.Apply, hooks); err != nil {
 		return err
 	}
 	result := buildDBApplyResult(appRoot, cfg)
@@ -86,6 +90,10 @@ func runDBApply(ctx context.Context, stdout io.Writer, args []string) error {
 }
 
 func dbSyncCommand(args []string) error {
+	return dbSyncCommandWithHooks(args, defaultLifecycleHooks())
+}
+
+func dbSyncCommandWithHooks(args []string, hooks lifecycleHooks) error {
 	opts, err := parseDBResetArgs(args)
 	if err != nil {
 		return err
@@ -95,13 +103,13 @@ func dbSyncCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	if err := runDatabaseApplyCommand(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
+	if err := runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, cfg.Database.Apply, hooks); err != nil {
 		return err
 	}
 	if sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg); err != nil {
 		return err
 	} else if ok {
-		return runSQLCGenerator(ctx, os.Stdout, appRoot, sqlcPlan, false)
+		return runSQLCGeneratorWithHooks(ctx, os.Stdout, appRoot, sqlcPlan, false, hooks)
 	}
 	fmt.Fprintln(os.Stdout, "scenery: database sync complete; no sqlc generator configured")
 	return nil
@@ -142,6 +150,10 @@ func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
 }
 
 func runDatabaseApplyCommand(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig) error {
+	return runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, apply, defaultLifecycleHooks())
+}
+
+func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, hooks lifecycleHooks) error {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
@@ -150,20 +162,29 @@ func runDatabaseApplyCommand(ctx context.Context, appRoot string, cfg appcfg.Con
 	if err != nil {
 		return err
 	}
-	return runDatabaseApplyCommandWithEnv(ctx, appRoot, apply, env)
+	return runDatabaseApplyCommandWithEnvHooks(ctx, appRoot, apply, env, hooks)
 }
 
 func runDatabaseApplyCommandWithEnv(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string) error {
-	return runDatabaseApplyCommandWithEnvIO(ctx, appRoot, apply, env, os.Stdout, os.Stderr)
+	return runDatabaseApplyCommandWithEnvHooks(ctx, appRoot, apply, env, defaultLifecycleHooks())
+}
+
+func runDatabaseApplyCommandWithEnvHooks(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, hooks lifecycleHooks) error {
+	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, os.Stdout, os.Stderr, hooks)
 }
 
 func runDatabaseApplyCommandWithEnvIO(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer) error {
+	return runDatabaseApplyCommandWithEnvIOHooks(ctx, appRoot, apply, env, stdout, stderr, defaultLifecycleHooks())
+}
+
+func runDatabaseApplyCommandWithEnvIOHooks(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, stdout, stderr io.Writer, hooks lifecycleHooks) error {
 	command := strings.TrimSpace(apply.Command)
 	if command == "" {
 		return fmt.Errorf("database.apply is not configured")
 	}
 	program, args := shellInvocation(command)
-	return runLifecycleExec(ctx, lifecycleExecRequest{
+	hooks = hooks.withDefaults()
+	return hooks.runExec(ctx, lifecycleExecRequest{
 		Dir:     resolveLifecycleCWD(appRoot, apply.CWD),
 		Env:     overlayEnv(env, apply.Env),
 		Program: program,

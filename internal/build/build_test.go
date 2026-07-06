@@ -2,6 +2,8 @@ package build
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -781,6 +783,95 @@ func TestLoadReusableBinaryRequiresMatchingSourceFingerprint(t *testing.T) {
 	}
 }
 
+func TestLoadReusableBinaryWithSnapshotInvalidatesStrictInputs(t *testing.T) {
+	useFakeGoRunner(t)
+	cacheDir := t.TempDir()
+	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	appDir := newBuildTestApp(t)
+	cfg := appcfg.Config{Name: "buildtest"}
+
+	model, err := parse.App(appDir, "buildtest")
+	if err != nil {
+		t.Fatalf("parse app: %v", err)
+	}
+	snapshot := sourceSnapshotForTest(t, appDir, map[string]bool{
+		".scenery.json": false,
+		"go.mod":        false,
+		"svc/api.go":    false,
+	})
+	result, err := PrepareWithSnapshot(appDir, model, cfg, snapshot)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	result.Metadata = json.RawMessage(`{"ok":true}`)
+	result.APIEncoding = json.RawMessage(`{"api":"v1"}`)
+	if err := Compile(result); err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if reused, ok, err := LoadReusableBinaryWithSnapshot(appDir, cfg, snapshot); err != nil || !ok || reused == nil {
+		t.Fatalf("expected reusable binary with matching snapshot, ok=%v result=%#v err=%v", ok, reused, err)
+	}
+
+	writeBuildTestFile(t, appDir, "svc/api.go", "package svc\n\nfunc changed() {}\n")
+	changedSource := sourceSnapshotForTest(t, appDir, map[string]bool{
+		".scenery.json": false,
+		"go.mod":        false,
+		"svc/api.go":    false,
+	})
+	if reused, ok, err := LoadReusableBinaryWithSnapshot(appDir, cfg, changedSource); err != nil || ok || reused != nil {
+		t.Fatalf("expected source snapshot change to reject binary, ok=%v result=%#v err=%v", ok, reused, err)
+	}
+
+	writeBuildTestFile(t, appDir, "go.mod", "module example.com/buildtest\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.1\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	changedDependency := sourceSnapshotForTest(t, appDir, map[string]bool{
+		".scenery.json": false,
+		"go.mod":        false,
+		"svc/api.go":    false,
+	})
+	if reused, ok, err := LoadReusableBinaryWithSnapshot(appDir, cfg, changedDependency); err != nil || ok || reused != nil {
+		t.Fatalf("expected dependency input change to reject binary, ok=%v result=%#v err=%v", ok, reused, err)
+	}
+	writeBuildTestFile(t, appDir, "go.mod", "module example.com/buildtest\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRoot(t)+"\n")
+	writeBuildTestFile(t, appDir, "svc/api.go", `package svc
+
+import "context"
+
+//scenery:api public
+func Hello(ctx context.Context) error { return nil }
+`)
+	state, err := loadBuildState(result.Dir)
+	if err != nil {
+		t.Fatalf("load build state: %v", err)
+	}
+	state.GeneratorFingerprint = "stale-generator"
+	if err := saveBuildState(result.Dir, state); err != nil {
+		t.Fatalf("save stale generator state: %v", err)
+	}
+	if reused, ok, err := LoadReusableBinaryWithSnapshot(appDir, cfg, snapshot); err != nil || ok || reused != nil {
+		t.Fatalf("expected generator fingerprint change to reject binary, ok=%v result=%#v err=%v", ok, reused, err)
+	}
+
+	state.GeneratorFingerprint = result.GeneratorFingerprint
+	if err := saveBuildState(result.Dir, state); err != nil {
+		t.Fatalf("restore build state: %v", err)
+	}
+	manifest, ok, err := ReadLatestBuildManifest(appDir)
+	if err != nil || !ok {
+		t.Fatalf("ReadLatestBuildManifest ok=%v err=%v", ok, err)
+	}
+	manifest.Build.DependencyFingerprint = "stale-deps"
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(LatestBuildPath(appDir), data, 0o644); err != nil {
+		t.Fatalf("write stale latest manifest: %v", err)
+	}
+	if reused, ok, err := LoadReusableBinaryWithSnapshot(appDir, cfg, snapshot); err != nil || ok || reused != nil {
+		t.Fatalf("expected dependency manifest mismatch to reject binary, ok=%v result=%#v err=%v", ok, reused, err)
+	}
+}
+
 func TestLoadReusableBinaryRequiresMatchingGoBuildFlags(t *testing.T) {
 	useFakeGoRunner(t)
 	cacheDir := t.TempDir()
@@ -1049,6 +1140,34 @@ func TestCachedGeneratorFingerprintInvalidatesOnSourceMetadata(t *testing.T) {
 	}
 }
 
+func TestSourceSnapshotFingerprintIncludesConfigAlias(t *testing.T) {
+	root := t.TempDir()
+	writeBuildTestFile(t, root, ".config.json", `{"name":"aliasapp"}`)
+	writeBuildTestFile(t, root, "go.mod", "module example.com/alias\n\ngo 1.26.3\n")
+	writeBuildTestFile(t, root, "svc/api.go", "package svc\n")
+
+	first, err := currentAppSourceFingerprintWithSnapshot(root, sourceSnapshotForTest(t, root, map[string]bool{
+		".config.json": false,
+		"go.mod":       false,
+		"svc/api.go":   false,
+	}))
+	if err != nil {
+		t.Fatalf("first fingerprint: %v", err)
+	}
+	writeBuildTestFile(t, root, ".config.json", `{"name":"aliasapp","watch":{"ignore":["tmp/"]}}`)
+	second, err := currentAppSourceFingerprintWithSnapshot(root, sourceSnapshotForTest(t, root, map[string]bool{
+		".config.json": false,
+		"go.mod":       false,
+		"svc/api.go":   false,
+	}))
+	if err != nil {
+		t.Fatalf("second fingerprint: %v", err)
+	}
+	if first == second {
+		t.Fatalf("expected .config.json alias change to affect source fingerprint %q", first)
+	}
+}
+
 func TestCachedGeneratorFingerprintIncludesRootPackageFiles(t *testing.T) {
 	cacheDir := t.TempDir()
 	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
@@ -1242,6 +1361,26 @@ func TestLoadCachedGraph(t *testing.T) {
 	}
 	if cached.Result.AppRoot != appDir || cached.Result.AppName != "buildtest" {
 		t.Fatalf("cached result identity = %+v", cached.Result)
+	}
+}
+
+func TestLoadCachedGraphRejectsMissingPayloads(t *testing.T) {
+	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
+	state, err := loadBuildState(result.Dir)
+	if err != nil {
+		t.Fatalf("load build state: %v", err)
+	}
+	state.Metadata = nil
+	if err := saveBuildState(result.Dir, state); err != nil {
+		t.Fatalf("save build state: %v", err)
+	}
+
+	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
+	if err != nil {
+		t.Fatalf("LoadCachedGraph() error = %v", err)
+	}
+	if ok || cached != nil {
+		t.Fatalf("expected missing cached payloads to reject graph hit, got ok=%v cached=%#v", ok, cached)
 	}
 }
 
@@ -1816,6 +1955,31 @@ func writeBuildTestFile(t *testing.T, root, rel, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func sourceSnapshotForTest(t *testing.T, root string, files map[string]bool) *SourceSnapshot {
+	t.Helper()
+	snapshot := &SourceSnapshot{Files: make(map[string]SourceSnapshotFile, len(files))}
+	for rel, embedded := range files {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(data)
+		snapshot.Files[filepath.ToSlash(rel)] = SourceSnapshotFile{
+			Size:        info.Size(),
+			ModTimeNano: info.ModTime().UnixNano(),
+			Perm:        uint32(info.Mode().Perm()),
+			Hash:        hex.EncodeToString(sum[:]),
+			Embedded:    embedded,
+		}
+	}
+	return snapshot
 }
 
 func useFakeGoRunner(t *testing.T) {

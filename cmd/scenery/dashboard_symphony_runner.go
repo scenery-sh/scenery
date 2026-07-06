@@ -23,8 +23,6 @@ import (
 
 var (
 	symphonyRunnerInterval = 2 * time.Second
-	symphonyRunCodexAgent  = runSymphonyCodexAppServer
-	startSymphonyRunAsync  = func(fn func()) { go fn() }
 	errSymphonyRunStalled  = errors.New("codex app-server stalled")
 )
 
@@ -63,6 +61,28 @@ type symphonyRunCallbacks struct {
 	ThreadStarted func(processID int, threadID string)
 	TurnStarted   func(turnID string)
 	Event         func(eventType string, payload any)
+}
+
+type symphonyRunnerHooks struct {
+	runCodexAgent func(context.Context, symphonyRunRequest, symphonyRunCallbacks) (symphonyRunResult, error)
+	startAsync    func(func())
+}
+
+func (h symphonyRunnerHooks) withDefaults() symphonyRunnerHooks {
+	if h.runCodexAgent == nil {
+		h.runCodexAgent = runSymphonyCodexAppServer
+	}
+	if h.startAsync == nil {
+		h.startAsync = func(fn func()) { go fn() }
+	}
+	return h
+}
+
+func (s *dashboardServer) runnerHooks() symphonyRunnerHooks {
+	if s == nil {
+		return (symphonyRunnerHooks{}).withDefaults()
+	}
+	return s.symphonyHooks.withDefaults()
 }
 
 func (s *dashboardServer) startSymphonyRunner(ctx context.Context) {
@@ -219,7 +239,7 @@ func (s *dashboardServer) runSymphonyAutoForApp(ctx context.Context, store *symp
 			slog.Warn("symphony run claim failed", "task", task.Identifier, "err", err)
 			continue
 		}
-		startSymphonyRunAsync(func() { s.executeSymphonyRun(ctx, store, req) })
+		s.runnerHooks().startAsync(func() { s.executeSymphonyRun(ctx, store, req) })
 	}
 	return nil
 }
@@ -234,7 +254,7 @@ func (s *dashboardServer) startSymphonyRunRecord(ctx context.Context, store *sym
 		}
 		return symphonyRunRequest{}, err
 	}
-	repoWorkspace := filepath.Join(symphonyCacheRoot(), "workspaces", safePathSegment(appID), safePathSegment(task.Identifier), "repo")
+	repoWorkspace := filepath.Join(s.symphonyCacheRoot(), "workspaces", safePathSegment(appID), safePathSegment(task.Identifier), "repo")
 	appWorkspace := filepath.Join(repoWorkspace, relAppRoot)
 	run, err := store.StartRunWithRepo(ctx, appID, task.ID, appWorkspace, status.SessionID, repoRoot, repoWorkspace)
 	if err != nil {
@@ -296,7 +316,7 @@ func (s *dashboardServer) executeSymphonyRun(ctx context.Context, store *symphon
 			// Detailed event storage can be widened later; the lifecycle events already cover recovery.
 		},
 	}
-	result, err := symphonyRunCodexAgent(runCtx, req, callbacks)
+	result, err := s.runnerHooks().runCodexAgent(runCtx, req, callbacks)
 	if err != nil {
 		status := "failed"
 		if errors.Is(err, context.DeadlineExceeded) {

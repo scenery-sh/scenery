@@ -58,7 +58,18 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		err         error
 	)
 	graphFingerprint := snapshotFingerprint(snapshot)
+	sourceSnapshot := buildSourceSnapshot(snapshot)
 	if err := s.console.Phase("Building scenery application graph", func() error {
+		var reused bool
+		result, reused, err = build.LoadReusableBinaryWithSnapshot(s.root, s.cfg, sourceSnapshot)
+		if err != nil {
+			return err
+		}
+		if reused && result != nil && len(result.Metadata) > 0 && len(result.APIEncoding) > 0 {
+			metadata = append(json.RawMessage(nil), result.Metadata...)
+			apiEncoding = append(json.RawMessage(nil), result.APIEncoding...)
+			return nil
+		}
 		cached, _, err = build.LoadCachedGraph(s.root, s.cfg, graphFingerprint)
 		if err != nil {
 			return err
@@ -77,7 +88,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		return nil, devBuildError(nil, nil, err)
 	}
 	if err := s.console.Phase("Analyzing service topology", func() error {
-		if cached != nil && len(metadata) > 0 && len(apiEncoding) > 0 {
+		if len(metadata) > 0 && len(apiEncoding) > 0 {
 			return nil
 		}
 		metadata, err = devmeta.BuildMetadataSnapshot(appModel)
@@ -93,17 +104,22 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
+		if result != nil && result.ReuseCompiled && len(metadata) > 0 && len(apiEncoding) > 0 {
+			return nil
+		}
 		if cached != nil {
-			reused, refreshErr := build.RefreshCachedWorkspace(s.root, result)
+			reused, refreshErr := build.RefreshCachedWorkspaceWithSnapshot(s.root, result, sourceSnapshot)
 			if refreshErr != nil {
 				return refreshErr
 			}
 			if reused {
 				return nil
 			}
-			appModel, err = parse.App(s.root, s.cfg.Name)
-			if err != nil {
-				return err
+			if appModel == nil {
+				appModel, err = parse.App(s.root, s.cfg.Name)
+				if err != nil {
+					return err
+				}
 			}
 			metadata, err = devmeta.BuildMetadataSnapshot(appModel)
 			if err != nil {
@@ -114,7 +130,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 				return err
 			}
 		}
-		result, err = build.Prepare(s.root, appModel, s.cfg)
+		result, err = build.PrepareWithSnapshot(s.root, appModel, s.cfg, sourceSnapshot)
 		if err == nil && result != nil {
 			result.GraphFingerprint = graphFingerprint
 			result.Metadata = append(json.RawMessage(nil), metadata...)

@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0096 Dev Loop Performance](0096-dev-loop-performance.md)
+  - Status: active
+  - Owner: scenery runtime / agent DX
+  - Created: 2026-07-06
+  - Focus: speed up `scenery up` startup to full readiness (single source snapshot, parse/compile fast paths, parallel startup phases, tighter readiness probes) and continue test-suite speed work from plan 0050 (event-driven frontend tests, fixture reuse, parallelizable clusters, opportunistic package splits).
 - [0095 Symphony Hardening](0095-symphony-hardening.md)
   - Status: active
   - Owner: scenery dashboard / agent DX

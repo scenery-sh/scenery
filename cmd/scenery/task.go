@@ -92,6 +92,10 @@ func taskCommand(args []string) error {
 }
 
 func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error {
+	return runTaskCommandWithHooks(ctx, stdout, args, defaultLifecycleHooks(), defaultDBSeedHooks())
+}
+
+func runTaskCommandWithHooks(ctx context.Context, stdout io.Writer, args []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	opts, err := parseTaskArgs(args)
 	if err != nil {
 		return err
@@ -146,7 +150,7 @@ func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error 
 		}
 		return writeInspectJSON(stdout, graph)
 	case "run":
-		return runTaskTarget(ctx, appRoot, cfg, opts)
+		return runTaskTargetWithHooks(ctx, appRoot, cfg, opts, lifecycle, seed)
 	default:
 		return fmt.Errorf("unknown task command %q", opts.Action)
 	}
@@ -443,6 +447,10 @@ func taskTargetKind(target string) (string, error) {
 }
 
 func runTaskTarget(ctx context.Context, appRoot string, cfg appcfg.Config, opts taskOptions) error {
+	return runTaskTargetWithHooks(ctx, appRoot, cfg, opts, defaultLifecycleHooks(), defaultDBSeedHooks())
+}
+
+func runTaskTargetWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts taskOptions, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	kind, err := taskTargetKind(opts.Target)
 	if err != nil {
 		return err
@@ -458,7 +466,7 @@ func runTaskTarget(ctx context.Context, appRoot string, cfg appcfg.Config, opts 
 		if len(opts.Args) > 0 {
 			return fmt.Errorf("configured task %q does not accept arguments", opts.Target)
 		}
-		return runConfiguredTask(ctx, appRoot, cfg, opts.Target, nil)
+		return runConfiguredTaskWithHooks(ctx, appRoot, cfg, opts.Target, nil, lifecycle, seed)
 	case taskKindCode:
 		return runSceneryScript(ctx, scriptOptions{
 			AppRoot: appRoot,
@@ -473,6 +481,10 @@ func runTaskTarget(ctx context.Context, appRoot string, cfg appcfg.Config, opts 
 }
 
 func runConfiguredTask(ctx context.Context, appRoot string, cfg appcfg.Config, name string, stack []string) error {
+	return runConfiguredTaskWithHooks(ctx, appRoot, cfg, name, stack, defaultLifecycleHooks(), defaultDBSeedHooks())
+}
+
+func runConfiguredTaskWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, name string, stack []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	task, ok := cfg.Tasks[name]
 	if !ok {
 		return fmt.Errorf("task %q is not configured", name)
@@ -487,13 +499,13 @@ func runConfiguredTask(ctx context.Context, appRoot string, cfg appcfg.Config, n
 		return fmt.Errorf("task %q cannot define both run and steps", name)
 	}
 	if strings.TrimSpace(task.Run) != "" {
-		return runTaskShellCommand(ctx, appRoot, cfg, task)
+		return runTaskShellCommandWithHooks(ctx, appRoot, cfg, task, lifecycle)
 	}
 	if len(task.Steps) == 0 {
 		return fmt.Errorf("task %q has no run command or steps", name)
 	}
 	for _, step := range task.Steps {
-		if err := runTaskStep(ctx, appRoot, cfg, step, stack); err != nil {
+		if err := runTaskStepWithHooks(ctx, appRoot, cfg, step, stack, lifecycle, seed); err != nil {
 			return err
 		}
 	}
@@ -501,6 +513,10 @@ func runConfiguredTask(ctx context.Context, appRoot string, cfg appcfg.Config, n
 }
 
 func runTaskShellCommand(ctx context.Context, appRoot string, cfg appcfg.Config, task appcfg.TaskConfig) error {
+	return runTaskShellCommandWithHooks(ctx, appRoot, cfg, task, defaultLifecycleHooks())
+}
+
+func runTaskShellCommandWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, task appcfg.TaskConfig, hooks lifecycleHooks) error {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
@@ -511,7 +527,8 @@ func runTaskShellCommand(ctx context.Context, appRoot string, cfg appcfg.Config,
 	}
 	env = envWithOverrides(env, storageEnv...)
 	program, args := shellInvocation(task.Run)
-	return runLifecycleExec(ctx, lifecycleExecRequest{
+	hooks = hooks.withDefaults()
+	return hooks.runExec(ctx, lifecycleExecRequest{
 		Dir:     resolveLifecycleCWD(appRoot, task.CWD),
 		Env:     overlayEnv(env, task.Env),
 		Program: program,
@@ -523,6 +540,10 @@ func runTaskShellCommand(ctx context.Context, appRoot string, cfg appcfg.Config,
 }
 
 func runTaskStep(ctx context.Context, appRoot string, cfg appcfg.Config, step string, stack []string) error {
+	return runTaskStepWithHooks(ctx, appRoot, cfg, step, stack, defaultLifecycleHooks(), defaultDBSeedHooks())
+}
+
+func runTaskStepWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, step string, stack []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	step = strings.TrimSpace(step)
 	switch {
 	case strings.HasPrefix(step, "task:"):
@@ -535,9 +556,9 @@ func runTaskStep(ctx context.Context, appRoot string, cfg appcfg.Config, step st
 			return err
 		}
 		if kind == taskKindConfigured {
-			return runConfiguredTask(ctx, appRoot, cfg, target, stack)
+			return runConfiguredTaskWithHooks(ctx, appRoot, cfg, target, stack, lifecycle, seed)
 		}
-		return runTaskTarget(ctx, appRoot, cfg, taskOptions{Action: "run", Target: target})
+		return runTaskTargetWithHooks(ctx, appRoot, cfg, taskOptions{Action: "run", Target: target}, lifecycle, seed)
 	case step == "check":
 		return runSceneryCheck(ctx, os.Stdout, []string{"--app-root", appRoot})
 	case step == "test":
@@ -545,17 +566,17 @@ func runTaskStep(ctx context.Context, appRoot string, cfg appcfg.Config, step st
 	case step == "test:go":
 		return runSceneryTest(ctx, []string{"--app-root", appRoot})
 	case step == "generate":
-		return runGenerate(ctx, os.Stdout, []string{"--app-root", appRoot})
+		return runGenerateWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, lifecycle)
 	case step == "generate:client":
-		return runGenerate(ctx, os.Stdout, []string{"client", "--app-root", appRoot})
+		return runGenerateWithHooks(ctx, os.Stdout, []string{"client", "--app-root", appRoot}, lifecycle)
 	case step == "generate:sqlc":
-		return runGenerate(ctx, os.Stdout, []string{"sqlc", "--app-root", appRoot})
+		return runGenerateWithHooks(ctx, os.Stdout, []string{"sqlc", "--app-root", appRoot}, lifecycle)
 	case step == "db:apply":
-		return dbApplyCommand([]string{"--app-root", appRoot})
+		return runDBApplyWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, lifecycle)
 	case step == "db:seed":
-		return dbSeedCommand([]string{"--app-root", appRoot})
+		return runDBSeedWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, seed)
 	case step == "db:setup":
-		return dbSetupCommand([]string{"--app-root", appRoot})
+		return runDBSetupWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, lifecycle, seed)
 	default:
 		return fmt.Errorf("unknown task step %q", step)
 	}

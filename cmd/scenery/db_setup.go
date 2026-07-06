@@ -32,6 +32,10 @@ func dbSetupCommand(args []string) error {
 }
 
 func runDBSetup(ctx context.Context, stdout io.Writer, args []string) error {
+	return runDBSetupWithHooks(ctx, stdout, args, defaultLifecycleHooks(), defaultDBSeedHooks())
+}
+
+func runDBSetupWithHooks(ctx context.Context, stdout io.Writer, args []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	opts, err := parseDBSetupArgs(args)
 	if err != nil {
 		return err
@@ -54,7 +58,7 @@ func runDBSetup(ctx context.Context, stdout io.Writer, args []string) error {
 	if strings.TrimSpace(cfg.Database.Apply.Command) == "" {
 		result.Apply.Status = "skipped"
 	} else {
-		if err := runDatabaseApplyCommand(ctx, appRoot, cfg, cfg.Database.Apply); err != nil {
+		if err := runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, cfg.Database.Apply, lifecycle); err != nil {
 			result.Apply.Status = "failed"
 			result.Apply.Error = err.Error()
 			if opts.JSON {
@@ -69,7 +73,7 @@ func runDBSetup(ctx context.Context, stdout io.Writer, args []string) error {
 		result.Apply.Status = "applied"
 	}
 
-	seedResult, seedErr := buildDBSeedResult(ctx, appRoot, cfg, dbSeedOptions{})
+	seedResult, seedErr := buildDBSeedResultWithHooks(ctx, appRoot, cfg, dbSeedOptions{}, seed)
 	result.Seed = seedResult
 	if opts.JSON {
 		if writeErr := writeInspectJSON(stdout, result); writeErr != nil {

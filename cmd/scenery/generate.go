@@ -90,7 +90,26 @@ type lifecycleExecRequest struct {
 	Stderr  io.Writer
 }
 
-var runLifecycleExec = func(ctx context.Context, req lifecycleExecRequest) error {
+type lifecycleHooks struct {
+	runExec    func(context.Context, lifecycleExecRequest) error
+	outputExec func(context.Context, lifecycleExecRequest) ([]byte, error)
+}
+
+func defaultLifecycleHooks() lifecycleHooks {
+	return lifecycleHooks{runExec: defaultRunLifecycleExec, outputExec: defaultOutputLifecycleExec}
+}
+
+func (h lifecycleHooks) withDefaults() lifecycleHooks {
+	if h.runExec == nil {
+		h.runExec = defaultRunLifecycleExec
+	}
+	if h.outputExec == nil {
+		h.outputExec = defaultOutputLifecycleExec
+	}
+	return h
+}
+
+func defaultRunLifecycleExec(ctx context.Context, req lifecycleExecRequest) error {
 	cmd := exec.CommandContext(ctx, req.Program, req.Args...)
 	cmd.Dir = req.Dir
 	if req.Env != nil {
@@ -102,7 +121,11 @@ var runLifecycleExec = func(ctx context.Context, req lifecycleExecRequest) error
 	return cmd.Run()
 }
 
-var outputLifecycleExec = func(ctx context.Context, req lifecycleExecRequest) ([]byte, error) {
+func runLifecycleExec(ctx context.Context, req lifecycleExecRequest) error {
+	return defaultRunLifecycleExec(ctx, req)
+}
+
+func defaultOutputLifecycleExec(ctx context.Context, req lifecycleExecRequest) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, req.Program, req.Args...)
 	cmd.Dir = req.Dir
 	if req.Env != nil {
@@ -127,6 +150,10 @@ func generateCommand(args []string) error {
 }
 
 func runGenerate(ctx context.Context, stdout io.Writer, args []string) error {
+	return runGenerateWithHooks(ctx, stdout, args, defaultLifecycleHooks())
+}
+
+func runGenerateWithHooks(ctx context.Context, stdout io.Writer, args []string, hooks lifecycleHooks) error {
 	opts, err := parseGenerateArgs(args)
 	if err != nil {
 		return err
@@ -147,7 +174,7 @@ func runGenerate(ctx context.Context, stdout io.Writer, args []string) error {
 		}
 		return renderGeneratorPlan(stdout, opts.JSON, plan.Graph)
 	}
-	if err := executeGeneratorPlan(ctx, stdout, appRoot, cfg, opts, plan); err != nil {
+	if err := executeGeneratorPlan(ctx, stdout, appRoot, cfg, opts, plan, hooks); err != nil {
 		return err
 	}
 	if opts.JSON {
@@ -830,7 +857,7 @@ func readSQLCConfig(path string) (sqlcConfigFile, error) {
 	return cfg, nil
 }
 
-func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string, cfg appcfg.Config, opts generateOptions, plan generatorExecutionPlan) error {
+func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string, cfg appcfg.Config, opts generateOptions, plan generatorExecutionPlan, hooks lifecycleHooks) error {
 	for _, client := range plan.Clients {
 		outputPath, err := writeTypeScriptClient(appRoot, cfg, client.Target, client.Output)
 		if err != nil {
@@ -841,7 +868,7 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 		}
 	}
 	if plan.SQLC != nil {
-		if err := runSQLCGenerator(ctx, stdout, appRoot, plan.SQLC, opts.JSON); err != nil {
+		if err := runSQLCGeneratorWithHooks(ctx, stdout, appRoot, plan.SQLC, opts.JSON, hooks); err != nil {
 			return err
 		}
 	}
@@ -865,6 +892,11 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 }
 
 func runSQLCGenerator(ctx context.Context, stdout io.Writer, appRoot string, plan *sqlcGeneratorPlan, quiet bool) error {
+	return runSQLCGeneratorWithHooks(ctx, stdout, appRoot, plan, quiet, defaultLifecycleHooks())
+}
+
+func runSQLCGeneratorWithHooks(ctx context.Context, stdout io.Writer, appRoot string, plan *sqlcGeneratorPlan, quiet bool, hooks lifecycleHooks) error {
+	hooks = hooks.withDefaults()
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return err
@@ -880,7 +912,7 @@ func runSQLCGenerator(ctx context.Context, stdout io.Writer, appRoot string, pla
 		if !filepath.IsAbs(sourcePath) {
 			sourcePath = filepath.Join(appRoot, filepath.FromSlash(sourcePath))
 		}
-		out, err := outputLifecycleExec(ctx, lifecycleExecRequest{
+		out, err := hooks.outputExec(ctx, lifecycleExecRequest{
 			Dir:     appRoot,
 			Env:     env,
 			Program: "atlas",
@@ -916,7 +948,7 @@ func runSQLCGenerator(ctx context.Context, stdout io.Writer, appRoot string, pla
 	if plan.ConfigPath != "" && plan.ConfigPath != "sqlc.yaml" {
 		args = append(args, "-f", plan.ConfigPath)
 	}
-	if err := runLifecycleExec(ctx, lifecycleExecRequest{
+	if err := hooks.runExec(ctx, lifecycleExecRequest{
 		Dir:     appRoot,
 		Env:     env,
 		Program: "sqlc",

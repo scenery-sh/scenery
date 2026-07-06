@@ -109,7 +109,7 @@ func (s *dashboardServer) dispatchSymphonyRPC(ctx context.Context, method string
 		if err != nil {
 			return nil, err
 		}
-		if (run.DiffStat == "" || run.Diff == "") && symphonyWorkspacePathAllowed(run.WorkspacePath) {
+		if (run.DiffStat == "" || run.Diff == "") && s.symphonyWorkspacePathAllowed(run.WorkspacePath) {
 			if diffStat, diff, err := collectSymphonyRunArtifacts(ctx, run.WorkspacePath); err == nil {
 				if run.DiffStat == "" {
 					run.DiffStat = diffStat
@@ -138,7 +138,7 @@ func (s *dashboardServer) dashboardSymphonyStore(ctx context.Context) (*symphony
 	if s.symphonyStore != nil {
 		return s.symphonyStore, nil
 	}
-	store, err := openDashboardSymphonyStore(ctx)
+	store, err := s.openDashboardSymphonyStore(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +170,17 @@ func openDashboardSymphonyStore(ctx context.Context) (*symphony.Store, error) {
 	return symphony.Open(ctx, filepath.Join(symphonyCacheRoot(), "symphony.sqlite"))
 }
 
+func (s *dashboardServer) openDashboardSymphonyStore(ctx context.Context) (*symphony.Store, error) {
+	return symphony.Open(ctx, filepath.Join(s.symphonyCacheRoot(), "symphony.sqlite"))
+}
+
+func (s *dashboardServer) symphonyCacheRoot() string {
+	if s != nil && strings.TrimSpace(s.symphonyRoot) != "" {
+		return s.symphonyRoot
+	}
+	return symphonyCacheRoot()
+}
+
 func symphonyCacheRoot() string {
 	if value := strings.TrimSpace(envpolicy.Get("SCENERY_DEV_CACHE_DIR")); value != "" {
 		return value
@@ -184,11 +195,19 @@ func symphonyCacheRoot() string {
 }
 
 func symphonyWorkspacePathAllowed(path string) bool {
+	return symphonyWorkspacePathAllowedInRoot(symphonyCacheRoot(), path)
+}
+
+func (s *dashboardServer) symphonyWorkspacePathAllowed(path string) bool {
+	return symphonyWorkspacePathAllowedInRoot(s.symphonyCacheRoot(), path)
+}
+
+func symphonyWorkspacePathAllowedInRoot(cacheRoot, path string) bool {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return false
 	}
-	root, err := filepath.Abs(filepath.Join(symphonyCacheRoot(), "workspaces"))
+	root, err := filepath.Abs(filepath.Join(cacheRoot, "workspaces"))
 	if err != nil {
 		return false
 	}
