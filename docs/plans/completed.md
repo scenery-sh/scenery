@@ -6,6 +6,21 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Postgres-Only Data Platform
+
+- Status: completed
+- Owner: scenery runtime / database
+- Completed: 2026-07-06
+- Quality: B
+- ExecPlan: [0097 Postgres-Only Data Platform](0097-postgres-only-data-platform.md)
+
+Shipped:
+
+- Removed SQLite entirely; Postgres 18 is the only database engine.
+- One managed database per app root/worktree on the shared Docker server, one schema per service, scenery-native tables (auth, durable execution, seed ledger) in the `scenery` schema, external `DATABASE_URL` precedence.
+- Single shared durable job store with `FOR UPDATE SKIP LOCKED` leasing; Postgres-only DB CLI (`scenery.db.list.v3`); `db path`/`db branch` removed; symphony store and dashboard DB explorer on Postgres.
+- Migrated the onlv client app end to end.
+
 ## Symphony Dashboard
 
 - Status: completed

@@ -668,23 +668,12 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 		}
 	}
 
-	entries, err := os.ReadDir(appRoot)
-	if err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() || skipDBArtifactServiceDir(appRoot, entry.Name()) {
-				continue
-			}
-			service := entry.Name()
-			dbRoot := filepath.Join(appRoot, service, "db")
-			if !pathExists(dbRoot) {
-				continue
-			}
-			relRoot := filepath.ToSlash(filepath.Join(service, "db"))
-			add(filepath.ToSlash(filepath.Join(relRoot, "schema.hcl")), "schema-source", "schema")
-			add(filepath.ToSlash(filepath.Join(relRoot, "queries.sql")), "query", "query-generation-input")
-			add(filepath.ToSlash(filepath.Join(relRoot, "gen", "schema.sql")), "generated-schema", "generated-source")
-			add(filepath.ToSlash(filepath.Join(relRoot, "seed.sql")), "seed", "initial-data")
-		}
+	for _, relDir := range discoverDBArtifactServiceDirs(appRoot) {
+		relRoot := filepath.ToSlash(filepath.Join(relDir, "db"))
+		add(filepath.ToSlash(filepath.Join(relRoot, "schema.hcl")), "schema-source", "schema")
+		add(filepath.ToSlash(filepath.Join(relRoot, "queries.sql")), "query", "query-generation-input")
+		add(filepath.ToSlash(filepath.Join(relRoot, "gen", "schema.sql")), "generated-schema", "generated-source")
+		add(filepath.ToSlash(filepath.Join(relRoot, "seed.sql")), "seed", "initial-data")
 	}
 
 	filtered := records[:0]
@@ -712,6 +701,43 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 
 // skipDBArtifactServiceDir keeps service-listing-specific skips ("ui" and any
 // dot directory) on top of the shared appwalk policy.
+// discoverDBArtifactServiceDirs returns app-root-relative service directories
+// that own a db/ artifact root. Services may nest one level below a domain
+// directory (for example solar/projects/db), so both depths are scanned.
+func discoverDBArtifactServiceDirs(appRoot string) []string {
+	var out []string
+	entries, err := os.ReadDir(appRoot)
+	if err != nil {
+		return nil
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || skipDBArtifactServiceDir(appRoot, entry.Name()) {
+			continue
+		}
+		if pathExists(filepath.Join(appRoot, entry.Name(), "db")) {
+			out = append(out, entry.Name())
+		}
+		nested, err := os.ReadDir(filepath.Join(appRoot, entry.Name()))
+		if err != nil {
+			continue
+		}
+		for _, child := range nested {
+			if !child.IsDir() || child.Name() == "db" {
+				continue
+			}
+			rel := filepath.Join(entry.Name(), child.Name())
+			if skipDBArtifactServiceDir(appRoot, rel) {
+				continue
+			}
+			if pathExists(filepath.Join(appRoot, rel, "db")) {
+				out = append(out, rel)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func skipDBArtifactServiceDir(appRoot, name string) bool {
 	switch name {
 	case "", ".", "..", "ui":
