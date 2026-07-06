@@ -18,6 +18,47 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0098-google-social-login.md",
+      "title": "Google Social Login: Enable/Disable Contract, Hardening, and Tests",
+      "owner": "scenery auth / ONLV integration",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-07",
+      "review_after": "2026-08-06",
+      "summary": "Active ExecPlan completing Google sign-in in standard auth: honor auth.google_oauth.enabled across runtime registration, standardauthmeta, app model, and generated TypeScript client; JWKS caching, callback error redirects, expired oauth-state cleanup; fake-Google flow tests; docs, environment registry, and scenery check diagnostics.",
+      "tags": [
+        "plans",
+        "execplans",
+        "auth",
+        "google",
+        "oauth",
+        "clientgen",
+        "onlv"
+      ]
+    },
+    {
+      "path": "docs/plans/0099-google-connections-and-gmail.md",
+      "title": "Google Connections and Gmail Platform: Reliable Offline Tokens for App Integrations",
+      "owner": "scenery auth / ONLV integration",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-07",
+      "review_after": "2026-08-06",
+      "summary": "Active ExecPlan (blocked on 0098) adding per-user Google connections to standard auth: encrypted offline refresh-token storage, single-flight cross-process refresh, transient-vs-permanent error taxonomy with reauth_required status, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV (sync, drafts, durable send outbox).",
+      "tags": [
+        "plans",
+        "execplans",
+        "auth",
+        "google",
+        "gmail",
+        "oauth",
+        "postgres",
+        "onlv"
+      ]
+    },
+    {
       "path": "docs/plans/0095-symphony-hardening.md",
       "title": "Symphony Hardening",
       "owner": "scenery dashboard / agent DX",

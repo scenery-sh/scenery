@@ -7,6 +7,16 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0098 Google Social Login](0098-google-social-login.md)
+  - Status: active
+  - Owner: scenery auth / ONLV integration
+  - Created: 2026-07-07
+  - Focus: finish Google sign-in in standard auth — honor `auth.google_oauth.enabled` across runtime registration, app model, and generated TypeScript client; JWKS caching and callback error-redirect hardening; fake-Google flow tests; docs, env registry, and `scenery check` diagnostics.
+- [0099 Google Connections and Gmail Platform](0099-google-connections-and-gmail.md)
+  - Status: active (blocked on 0098)
+  - Owner: scenery auth / ONLV integration
+  - Created: 2026-07-07
+  - Focus: per-user Google connections with encrypted offline refresh tokens, single-flight refresh across processes, transient-vs-permanent error taxonomy with `reauth_required` status and reconnect flow, connection endpoints + `auth.GoogleAccessToken` API, and the Gmail integration contract ONLV builds on.
 - [0096 Dev Loop Performance](0096-dev-loop-performance.md)
   - Status: active
   - Owner: scenery runtime / agent DX
