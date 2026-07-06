@@ -67,6 +67,7 @@ type devSupervisor struct {
 	current            *runningApp
 	status             devdash.AppRecord
 	pendingDevEvents   []devdash.DevEvent
+	startupReady       <-chan error
 	victoriaStarted    bool
 	dbSetupFingerprint string
 }
@@ -264,31 +265,86 @@ func (s *devSupervisor) Start(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := s.console.Phase("Starting storage proxy", func() error {
-		return s.ensureManagedStorageProxy(ctx)
-	}); err != nil {
-		return err
-	}
-	var victoria *victoriaStack
-	_ = s.console.Phase("Starting Victoria observability stack", func() error {
-		victoria = s.startVictoriaStack(ctx)
-		return nil
-	})
+	ready := s.startDevServiceStartup(ctx)
 	s.mu.Lock()
-	s.victoria = victoria
-	s.victoriaStarted = true
-	pendingDevEvents := append([]devdash.DevEvent(nil), s.pendingDevEvents...)
-	s.pendingDevEvents = nil
+	s.startupReady = ready
 	s.mu.Unlock()
-	if s.victoria != nil {
-		for _, event := range pendingDevEvents {
-			s.eventSink().ExportVictoriaDevEvent(event)
-		}
-		s.eventSink().Emit(ctx, devdash.DevSource{ID: "victoria", Kind: "substrate", Name: "victoria", Role: "observability", Status: "running"}, "info", "Victoria stack ready", map[string]any{
-			"urls": s.victoria.URLs(),
-		})
-	}
 	return nil
+}
+
+func (s *devSupervisor) startDevServiceStartup(ctx context.Context) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		var wg sync.WaitGroup
+		errCh := make(chan error, 2)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.console.Phase("Starting storage proxy", func() error {
+				return s.ensureManagedStorageProxy(ctx)
+			}); err != nil {
+				errCh <- err
+			}
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var victoria *victoriaStack
+			_ = s.console.Phase("Starting Victoria observability stack", func() error {
+				victoria = s.startVictoriaStack(ctx)
+				return nil
+			})
+			s.mu.Lock()
+			s.victoria = victoria
+			s.victoriaStarted = true
+			pendingDevEvents := append([]devdash.DevEvent(nil), s.pendingDevEvents...)
+			s.pendingDevEvents = nil
+			s.mu.Unlock()
+			if s.victoria != nil {
+				for _, event := range pendingDevEvents {
+					s.eventSink().ExportVictoriaDevEvent(event)
+				}
+				s.eventSink().Emit(ctx, devdash.DevSource{ID: "victoria", Kind: "substrate", Name: "victoria", Role: "observability", Status: "running"}, "info", "Victoria stack ready", map[string]any{
+					"urls": s.victoria.URLs(),
+				})
+			}
+		}()
+		wg.Wait()
+		close(errCh)
+		var errs []error
+		for err := range errCh {
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
+		err := errors.Join(errs...)
+		if err != nil && s.cancel != nil {
+			s.cancel()
+		}
+		done <- err
+		close(done)
+	}()
+	return done
+}
+
+func (s *devSupervisor) waitForStartupReady(ctx context.Context) error {
+	s.mu.RLock()
+	ready := s.startupReady
+	s.mu.RUnlock()
+	if ready == nil {
+		return nil
+	}
+	select {
+	case err := <-ready:
+		s.mu.Lock()
+		if s.startupReady == ready {
+			s.startupReady = nil
+		}
+		s.mu.Unlock()
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
@@ -385,6 +441,11 @@ func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, sna
 	if err != nil {
 		metadata, apiEncoding := devBuildErrorPayload(err)
 		return s.handleCompileError(ctx, metadata, apiEncoding, err)
+	}
+	if initial {
+		if err := s.waitForStartupReady(ctx); err != nil {
+			return err
+		}
 	}
 
 	// Detach before stopping so the exit watchers treat this as an intentional
@@ -787,7 +848,7 @@ func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]
 			"path":    svc.Path,
 		})
 	}
-	postgresEnv, postgresServices, err := managedPostgresEnv(ctx, s.root, s.cfg, s.currentAgentSession(), baseEnv)
+	postgresEnv, postgresServices, err := managedPostgresEnvWithAgent(ctx, s.root, s.cfg, s.currentAgentSession(), s.agent, baseEnv)
 	if err != nil {
 		return nil, err
 	}

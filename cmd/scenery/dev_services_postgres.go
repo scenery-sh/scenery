@@ -61,9 +61,24 @@ var (
 	postgresDocker       postgresDockerRunner = execPostgresDockerRunner{}
 	openPostgresDatabase                      = postgresdb.Open
 	openPostgresAdmin                         = postgresdb.Open
+	postgresReadyProbe                        = defaultPostgresReadyProbe
+	postgresReadySleep                        = func(ctx context.Context, d time.Duration) error {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}
 )
 
 func managedPostgresEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, baseEnv []string) ([]string, []postgresdb.Service, error) {
+	return managedPostgresEnvWithAgent(ctx, appRoot, cfg, session, nil, baseEnv)
+}
+
+func managedPostgresEnvWithAgent(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, agent *localagent.Client, baseEnv []string) ([]string, []postgresdb.Service, error) {
 	cfgs := cfg.PostgresServices()
 	if len(cfgs) == 0 {
 		return nil, nil, nil
@@ -86,7 +101,7 @@ func managedPostgresEnv(ctx context.Context, appRoot string, cfg app.Config, ses
 		}
 		if server == nil {
 			var err error
-			server, err = ensureSharedPostgresServer(ctx, appRoot, session)
+			server, err = ensureSharedPostgresServerWithAgent(ctx, appRoot, session, agent)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -106,6 +121,10 @@ func managedPostgresEnv(ctx context.Context, appRoot string, cfg app.Config, ses
 }
 
 func ensureSharedPostgresServer(ctx context.Context, appRoot string, session *localagent.Session) (*postgresServerState, error) {
+	return ensureSharedPostgresServerWithAgent(ctx, appRoot, session, nil)
+}
+
+func ensureSharedPostgresServerWithAgent(ctx context.Context, appRoot string, session *localagent.Session, agent *localagent.Client) (*postgresServerState, error) {
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
 		return nil, err
@@ -129,7 +148,7 @@ func ensureSharedPostgresServer(ctx context.Context, appRoot string, session *lo
 	if err := waitForPostgresServer(ctx, state); err != nil {
 		return nil, err
 	}
-	_ = upsertPostgresSubstrate(ctx, state, appRoot, session)
+	_ = upsertPostgresSubstrateWithAgent(ctx, state, appRoot, session, agent)
 	return state, nil
 }
 
@@ -217,27 +236,55 @@ func postgresContainerStatus(ctx context.Context, container string) (string, err
 
 func waitForPostgresServer(ctx context.Context, state *postgresServerState) error {
 	deadline := time.Now().Add(30 * time.Second)
+	delay := 50 * time.Millisecond
 	var lastErr error
-	for time.Now().Before(deadline) {
-		db, err := openPostgresDatabase(ctx, state.databaseURL("postgres"))
-		if err == nil {
-			_ = db.Close()
+	for {
+		if err := postgresReadyProbe(ctx, state); err == nil {
 			return nil
+		} else {
+			lastErr = err
 		}
-		lastErr = err
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(500 * time.Millisecond):
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		sleepFor := delay
+		if sleepFor > remaining {
+			sleepFor = remaining
+		}
+		if err := postgresReadySleep(ctx, sleepFor); err != nil {
+			return err
+		}
+		if delay < 500*time.Millisecond {
+			delay *= 2
+			if delay > 500*time.Millisecond {
+				delay = 500 * time.Millisecond
+			}
 		}
 	}
 	return fmt.Errorf("managed postgres server did not become ready: %w", lastErr)
 }
 
 func upsertPostgresSubstrate(ctx context.Context, state *postgresServerState, appRoot string, session *localagent.Session) error {
-	client, err := localagent.Ensure(ctx, cliBuildIdentity())
-	if err != nil || client == nil {
+	return upsertPostgresSubstrateWithAgent(ctx, state, appRoot, session, nil)
+}
+
+func defaultPostgresReadyProbe(ctx context.Context, state *postgresServerState) error {
+	db, err := openPostgresDatabase(ctx, state.databaseURL("postgres"))
+	if err != nil {
 		return err
+	}
+	_ = db.Close()
+	return nil
+}
+
+func upsertPostgresSubstrateWithAgent(ctx context.Context, state *postgresServerState, appRoot string, session *localagent.Session, client *localagent.Client) error {
+	var err error
+	if client == nil {
+		client, err = localagent.Ensure(ctx, cliBuildIdentity())
+		if err != nil || client == nil {
+			return err
+		}
 	}
 	health, err := client.Health(ctx)
 	if err != nil {

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/postgresdb"
@@ -103,6 +106,42 @@ func TestManagedPostgresEnvUsesExternalDSNAndAlias(t *testing.T) {
 	}
 	if len(services) != 1 || services[0].Source != postgresdb.SourceExternal || services[0].URL != dsn {
 		t.Fatalf("services = %+v", services)
+	}
+}
+
+func TestWaitForPostgresServerBacksOffFromFastPoll(t *testing.T) {
+	oldProbe := postgresReadyProbe
+	oldSleep := postgresReadySleep
+	t.Cleanup(func() {
+		postgresReadyProbe = oldProbe
+		postgresReadySleep = oldSleep
+	})
+	var attempts int
+	var sleeps []time.Duration
+	postgresReadyProbe = func(context.Context, *postgresServerState) error {
+		attempts++
+		if attempts < 4 {
+			return errors.New("not ready")
+		}
+		return nil
+	}
+	postgresReadySleep = func(_ context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		return nil
+	}
+
+	err := waitForPostgresServer(context.Background(), &postgresServerState{User: "scenery", Password: "secret", Port: 5432})
+	if err != nil {
+		t.Fatalf("waitForPostgresServer returned error: %v", err)
+	}
+	want := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
+	if len(sleeps) != len(want) {
+		t.Fatalf("sleeps = %v, want %v", sleeps, want)
+	}
+	for i := range want {
+		if sleeps[i] != want[i] {
+			t.Fatalf("sleeps = %v, want %v", sleeps, want)
+		}
 	}
 }
 

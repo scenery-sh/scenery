@@ -226,6 +226,57 @@ func TestStartVictoriaComponentReusesOccupiedPort(t *testing.T) {
 	}
 }
 
+func TestStartVictoriaComponentsAttributesStartErrors(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "victoria-logs-prod")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 42\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCENERY_VICTORIA_LOGS_BIN", bin)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	results := startVictoriaComponents(context.Background(), root, filepath.Join(root, "bin"), []victoriaComponentSpec{
+		{
+			Name:         "metrics",
+			DisplayName:  "VictoriaMetrics",
+			DefaultPort:  ln.Addr().(*net.TCPAddr).Port,
+			EndpointPath: "/opentelemetry/v1/metrics",
+			StorageDir:   "metrics-data",
+		},
+		{
+			Name:         "logs",
+			DisplayName:  "VictoriaLogs",
+			DefaultPort:  freeTestTCPPort(t),
+			EndpointPath: "/insert/opentelemetry/v1/logs",
+			StorageDir:   "logs-data",
+			EnvPrefix:    "SCENERY_VICTORIA_LOGS",
+		},
+	}, false, nil)
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2", len(results))
+	}
+	if results[0].err != nil || results[0].component == nil || !results[0].component.external {
+		t.Fatalf("occupied component result = %+v", results[0])
+	}
+	if results[1].err == nil || !strings.Contains(results[1].err.Error(), "VictoriaLogs exited before accepting TCP connections") {
+		t.Fatalf("start error = %v, want VictoriaLogs attribution", results[1].err)
+	}
+}
+
+func freeTestTCPPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
 func TestBuildOTLPTracePayload(t *testing.T) {
 	t.Parallel()
 

@@ -55,11 +55,29 @@ type victoriaComponent struct {
 	startedAt   time.Time
 }
 
+type victoriaComponentStartPlan struct {
+	spec        victoriaComponentSpec
+	binaryPath  string
+	baseURL     string
+	endpointURL string
+	storagePath string
+	external    bool
+}
+
+type victoriaComponentStartResult struct {
+	index     int
+	spec      victoriaComponentSpec
+	component *victoriaComponent
+	err       error
+}
+
 type victoriaStack struct {
 	components []*victoriaComponent
 	mu         sync.RWMutex
 	clearSince map[string]time.Time
 }
+
+var victoriaToolchainSyncMu sync.Mutex
 
 func startVictoriaStack(ctx context.Context, appRoot string, console *runConsole) *victoriaStack {
 	return startVictoriaStackWithRoot(ctx, victoriaRootDir(appRoot), console)
@@ -76,14 +94,14 @@ func startVictoriaStackWithRoot(ctx context.Context, root string, console *runCo
 		return nil
 	}
 
-	stack := &victoriaStack{}
-	for _, spec := range victoriaComponentSpecs() {
-		component, err := startVictoriaComponent(ctx, root, binDir, spec, download, console)
-		if err != nil {
-			warnVictoria(console, "%s unavailable: %v", spec.DisplayName, err)
+	results := startVictoriaComponents(ctx, root, binDir, victoriaComponentSpecs(), download, console)
+	stack := &victoriaStack{components: make([]*victoriaComponent, 0, len(results))}
+	for _, result := range results {
+		if result.err != nil {
+			warnVictoria(console, "%s unavailable: %v", result.spec.DisplayName, result.err)
 			continue
 		}
-		stack.components = append(stack.components, component)
+		stack.components = append(stack.components, result.component)
 	}
 	if len(stack.components) == 0 {
 		return nil
@@ -223,8 +241,15 @@ func (s *victoriaStack) Reachable() bool {
 	if s == nil || len(s.components) == 0 {
 		return false
 	}
+	done := make(chan bool, len(s.components))
 	for _, component := range s.components {
-		if component == nil || !urlAcceptsTCP(component.baseURL) {
+		component := component
+		go func() {
+			done <- component != nil && urlAcceptsTCP(component.baseURL)
+		}()
+	}
+	for range s.components {
+		if !<-done {
 			return false
 		}
 	}
@@ -340,36 +365,97 @@ func intEnvOrDefault(key string, fallback int) int {
 }
 
 func startVictoriaComponent(ctx context.Context, root, binDir string, spec victoriaComponentSpec, download bool, console *runConsole) (*victoriaComponent, error) {
+	plan, err := prepareVictoriaComponentStart(ctx, root, binDir, spec, download, console)
+	if err != nil {
+		return nil, err
+	}
+	return startVictoriaComponentFromPlan(ctx, root, plan, console)
+}
+
+func startVictoriaComponents(ctx context.Context, root, binDir string, specs []victoriaComponentSpec, download bool, console *runConsole) []victoriaComponentStartResult {
+	if len(specs) == 0 {
+		return nil
+	}
+	plans := make([]victoriaComponentStartPlan, len(specs))
+	results := make([]victoriaComponentStartResult, len(specs))
+	var wg sync.WaitGroup
+	for i, spec := range specs {
+		results[i] = victoriaComponentStartResult{index: i, spec: spec}
+		wg.Add(1)
+		go func(index int, spec victoriaComponentSpec) {
+			defer wg.Done()
+			plan, err := prepareVictoriaComponentStart(ctx, root, binDir, spec, download, console)
+			if err != nil {
+				results[index].err = err
+				return
+			}
+			plans[index] = plan
+		}(i, spec)
+	}
+	wg.Wait()
+	wg = sync.WaitGroup{}
+	for i := range specs {
+		if results[i].err != nil {
+			continue
+		}
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			component, err := startVictoriaComponentFromPlan(ctx, root, plans[index], console)
+			results[index].component = component
+			results[index].err = err
+		}(i)
+	}
+	wg.Wait()
+	return results
+}
+
+func prepareVictoriaComponentStart(ctx context.Context, root, binDir string, spec victoriaComponentSpec, download bool, console *runConsole) (victoriaComponentStartPlan, error) {
 	baseURL := fmt.Sprintf("http://%s:%d", victoriaDefaultHost, spec.DefaultPort)
-	component := &victoriaComponent{
+	plan := victoriaComponentStartPlan{
 		spec:        spec,
 		baseURL:     baseURL,
 		endpointURL: baseURL + spec.EndpointPath,
 		storagePath: filepath.Join(root, spec.StorageDir),
 	}
 	if !tcpAddrAvailable(victoriaDefaultHost, spec.DefaultPort) {
-		component.external = true
+		plan.external = true
 		warnVictoria(console, "%s appears to be already running at %s; reusing it", spec.DisplayName, baseURL)
-		return component, nil
+		return plan, nil
 	}
 
 	binaryPath, err := resolveVictoriaBinary(ctx, spec, binDir, download)
 	if err != nil {
-		return nil, err
+		return victoriaComponentStartPlan{}, err
 	}
-	component.binaryPath = binaryPath
+	plan.binaryPath = binaryPath
+	return plan, nil
+}
+
+func startVictoriaComponentFromPlan(ctx context.Context, root string, plan victoriaComponentStartPlan, console *runConsole) (*victoriaComponent, error) {
+	component := &victoriaComponent{
+		spec:        plan.spec,
+		binaryPath:  plan.binaryPath,
+		baseURL:     plan.baseURL,
+		endpointURL: plan.endpointURL,
+		storagePath: plan.storagePath,
+		external:    plan.external,
+	}
+	if component.external {
+		return component, nil
+	}
 
 	if err := os.MkdirAll(component.storagePath, 0o755); err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, binaryPath,
-		"-httpListenAddr="+net.JoinHostPort(victoriaDefaultHost, strconv.Itoa(spec.DefaultPort)),
+	cmd := exec.CommandContext(ctx, component.binaryPath,
+		"-httpListenAddr="+net.JoinHostPort(victoriaDefaultHost, strconv.Itoa(component.spec.DefaultPort)),
 		"-storageDataPath="+component.storagePath,
 	)
 	configureChildProcess(cmd)
 	configureCommandCancellation(cmd, 5*time.Second)
 	cmd.Dir = root
-	logs, err := openSubstrateLogWriters(root, localagent.SubstrateVictoria, spec.Name, console)
+	logs, err := openSubstrateLogWriters(root, localagent.SubstrateVictoria, component.spec.Name, console)
 	if err != nil {
 		return nil, fmt.Errorf("open substrate logs: %w", err)
 	}
@@ -396,7 +482,7 @@ func startVictoriaComponent(ctx context.Context, root, binDir string, spec victo
 	}
 	if console != nil && console.verbose {
 		console.Event("victoria.start", map[string]any{
-			"component":    spec.Name,
+			"component":    component.spec.Name,
 			"url":          component.baseURL,
 			"endpoint_url": component.endpointURL,
 			"storage_path": component.storagePath,
@@ -450,6 +536,8 @@ func resolveVictoriaBinary(ctx context.Context, spec victoriaComponentSpec, binD
 	if !download {
 		return "", fmt.Errorf("managed %s is not installed; system PATH binaries are not used for managed toolchain artifacts; run `scenery system toolchain sync --tool %s` or set %s_BIN explicitly", spec.DisplayName, artifactName, spec.EnvPrefix)
 	}
+	victoriaToolchainSyncMu.Lock()
+	defer victoriaToolchainSyncMu.Unlock()
 	status, err := syncManagedToolchainArtifact(ctx, filepath.Dir(binDir), artifactName)
 	if err != nil {
 		return "", fmt.Errorf("managed %s is not installed and could not be synced: %w", spec.DisplayName, err)
@@ -651,8 +739,8 @@ func (a victoriaSubstrateAdapter) SourceID() string   { return "victoria" }
 func (a victoriaSubstrateAdapter) SourceName() string { return "Victoria stack" }
 func (a victoriaSubstrateAdapter) Role() string       { return "observability" }
 
-func (a victoriaSubstrateAdapter) Start(_ context.Context, root string) (managedSubstrateHandle, error) {
-	return startVictoriaStackWithRoot(context.Background(), root, a.console), nil
+func (a victoriaSubstrateAdapter) Start(ctx context.Context, root string) (managedSubstrateHandle, error) {
+	return startVictoriaStackWithRoot(ctx, root, a.console), nil
 }
 
 func (a victoriaSubstrateAdapter) FromSubstrate(_ context.Context, substrate localagent.Substrate) (managedSubstrateHandle, bool) {

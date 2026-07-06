@@ -20,6 +20,21 @@ import (
 	"scenery.sh/internal/parse"
 )
 
+func TestMain(m *testing.M) {
+	cacheDir, err := os.MkdirTemp("", "scenery-build-test-cache-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create build test cache: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir); err != nil {
+		fmt.Fprintf(os.Stderr, "set build test cache: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(cacheDir)
+	os.Exit(code)
+}
+
 func TestCopyTreeSkipsHiddenDirsAndBrokenSymlinks(t *testing.T) {
 	t.Parallel()
 
@@ -139,9 +154,10 @@ func TestListSourceFilesSkipsLocalSecretsAndArtifacts(t *testing.T) {
 }
 
 func TestBuildPrepSkipsBrowserRuntimeArtifactsAndNonRegularFiles(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	dst := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", t.TempDir())
 	writeBuildTestFile(t, root, ".scenery.json", `{"name":"browserartifacts"}`)
 	writeBuildTestFile(t, root, "go.mod", "module example.com/browserartifacts\n\ngo 1.26.3\n")
 	writeBuildTestFile(t, root, "go.sum", "")
@@ -248,9 +264,9 @@ func Ping(context.Context) (*Response, error) {
 }
 
 func TestPrepareWritesInspectArtifacts(t *testing.T) {
+	t.Parallel()
+
 	appDir := t.TempDir()
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
 
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"inspectartifacts","id":"inspect-id"}`)
 	writeBuildTestFile(t, appDir, "go.mod", "module example.com/inspectartifacts\n\ngo 1.26.3\n")
@@ -362,9 +378,8 @@ func Config(context.Context) error { return nil }
 }
 
 func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -393,8 +408,13 @@ func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 		t.Fatal("did not expect build state after prepare")
 	}
 
+	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write reusable binary: %v", err)
+	}
+	result.NeedsTidy = false
+	result.ReuseCompiled = true
 	if err := Compile(result); err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf("compile reusable result: %v", err)
 	}
 	manifest, ok, err = ReadLatestBuildManifest(appDir)
 	if err != nil {
@@ -415,8 +435,8 @@ func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 }
 
 func TestCompileRealGoBuildSmoke(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)
 
@@ -458,8 +478,6 @@ func TestCompileRealGoBuildSmoke(t *testing.T) {
 }
 
 func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)
 
@@ -514,8 +532,6 @@ func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
 }
 
 func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)
 
@@ -558,8 +574,6 @@ func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
 }
 
 func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
 	appDir := t.TempDir()
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"smoke"}`)
 
@@ -611,9 +625,8 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 }
 
 func TestPrepareReusesPersistentWorkspace(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -628,8 +641,9 @@ func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 	if !first.NeedsTidy {
 		t.Fatal("expected first prepare to require go mod tidy")
 	}
-	if err := Compile(first); err != nil {
-		t.Fatalf("first compile: %v", err)
+	first.NeedsTidy = false
+	if err := savePrimedWorkspace(first); err != nil {
+		t.Fatalf("save primed workspace: %v", err)
 	}
 
 	second, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
@@ -642,15 +656,11 @@ func TestPrepareReusesPersistentWorkspace(t *testing.T) {
 	if second.NeedsTidy {
 		t.Fatal("expected incremental prepare to skip go mod tidy")
 	}
-	if err := Compile(second); err != nil {
-		t.Fatalf("second compile without tidy: %v", err)
-	}
 }
 
 func TestPrepareUsesFingerprintSpecificWorkspaceBinary(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	appDir := newBuildTestApp(t)
 	cfg := appcfg.Config{Name: "buildtest"}
 
@@ -661,9 +671,6 @@ func TestPrepareUsesFingerprintSpecificWorkspaceBinary(t *testing.T) {
 	first, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
-	}
-	if err := Compile(first); err != nil {
-		t.Fatalf("first compile: %v", err)
 	}
 
 	writeBuildTestFile(t, appDir, "svc/api.go", `package svc
@@ -703,9 +710,8 @@ func Changed() {}
 }
 
 func TestPrepareIncludesGoBuildFlagsInFingerprint(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	appDir := newBuildTestApp(t)
 
 	model, err := parse.App(appDir, "buildtest")
@@ -719,9 +725,6 @@ func TestPrepareIncludesGoBuildFlagsInFingerprint(t *testing.T) {
 	first, err := Prepare(appDir, model, firstCfg)
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
-	}
-	if err := Compile(first); err != nil {
-		t.Fatalf("first compile: %v", err)
 	}
 
 	secondCfg := appcfg.Config{
@@ -744,23 +747,10 @@ func TestPrepareIncludesGoBuildFlagsInFingerprint(t *testing.T) {
 }
 
 func TestLoadReusableBinaryRequiresMatchingSourceFingerprint(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
-	appDir := newBuildTestApp(t)
-	cfg := appcfg.Config{Name: "buildtest"}
+	t.Parallel()
 
-	model, err := parse.App(appDir, "buildtest")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
-	result, err := Prepare(appDir, model, cfg)
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if err := Compile(result); err != nil {
-		t.Fatalf("compile: %v", err)
-	}
+	cfg := appcfg.Config{Name: "buildtest"}
+	appDir, result := newReusableBinaryBuildTestWorkspace(t, cfg)
 
 	reused, ok, err := LoadReusableBinary(appDir, cfg)
 	if err != nil {
@@ -784,30 +774,16 @@ func TestLoadReusableBinaryRequiresMatchingSourceFingerprint(t *testing.T) {
 }
 
 func TestLoadReusableBinaryWithSnapshotInvalidatesStrictInputs(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
-	appDir := newBuildTestApp(t)
-	cfg := appcfg.Config{Name: "buildtest"}
+	t.Parallel()
 
-	model, err := parse.App(appDir, "buildtest")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
+	cfg := appcfg.Config{Name: "buildtest"}
+	appDir, result := newReusableBinaryBuildTestWorkspace(t, cfg)
+
 	snapshot := sourceSnapshotForTest(t, appDir, map[string]bool{
 		".scenery.json": false,
 		"go.mod":        false,
 		"svc/api.go":    false,
 	})
-	result, err := PrepareWithSnapshot(appDir, model, cfg, snapshot)
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	result.Metadata = json.RawMessage(`{"ok":true}`)
-	result.APIEncoding = json.RawMessage(`{"api":"v1"}`)
-	if err := Compile(result); err != nil {
-		t.Fatalf("compile: %v", err)
-	}
 	if reused, ok, err := LoadReusableBinaryWithSnapshot(appDir, cfg, snapshot); err != nil || !ok || reused == nil {
 		t.Fatalf("expected reusable binary with matching snapshot, ok=%v result=%#v err=%v", ok, reused, err)
 	}
@@ -873,26 +849,13 @@ func Hello(ctx context.Context) error { return nil }
 }
 
 func TestLoadReusableBinaryRequiresMatchingGoBuildFlags(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
-	appDir := newBuildTestApp(t)
+	t.Parallel()
+
 	cfg := appcfg.Config{
 		Name:  "buildtest",
 		Build: appcfg.BuildConfig{GoFlags: []string{"-tags=roofmapnet_native"}},
 	}
-
-	model, err := parse.App(appDir, "buildtest")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
-	result, err := Prepare(appDir, model, cfg)
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if err := Compile(result); err != nil {
-		t.Fatalf("compile: %v", err)
-	}
+	appDir, _ := newReusableBinaryBuildTestWorkspace(t, cfg)
 
 	reused, ok, err := LoadReusableBinary(appDir, cfg)
 	if err != nil {
@@ -916,9 +879,8 @@ func TestLoadReusableBinaryRequiresMatchingGoBuildFlags(t *testing.T) {
 }
 
 func TestPrepareReusesExistingFingerprintBinaryWhenStatePointsElsewhere(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	appDir := newBuildTestApp(t)
 	cfg := appcfg.Config{Name: "buildtest"}
 
@@ -930,8 +892,12 @@ func TestPrepareReusesExistingFingerprintBinaryWhenStatePointsElsewhere(t *testi
 	if err != nil {
 		t.Fatalf("first prepare: %v", err)
 	}
-	if err := Compile(first); err != nil {
-		t.Fatalf("first compile: %v", err)
+	if err := os.WriteFile(first.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write first binary: %v", err)
+	}
+	first.NeedsTidy = false
+	if err := savePrimedWorkspace(first); err != nil {
+		t.Fatalf("save first state: %v", err)
 	}
 	firstBinary := first.Binary
 
@@ -952,8 +918,12 @@ func Hello(ctx context.Context) error {
 	if err != nil {
 		t.Fatalf("second prepare: %v", err)
 	}
-	if err := Compile(second); err != nil {
-		t.Fatalf("second compile: %v", err)
+	if err := os.WriteFile(second.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write second binary: %v", err)
+	}
+	second.NeedsTidy = false
+	if err := savePrimedWorkspace(second); err != nil {
+		t.Fatalf("save second state: %v", err)
 	}
 	if second.Binary == firstBinary {
 		t.Fatal("expected source change to produce a different fingerprint binary")
@@ -999,8 +969,6 @@ func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 	}
 	t.Cleanup(func() { runGo = old })
 
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 	workspace, err := workspaceDir(appDir, "buildtest")
 	if err != nil {
@@ -1044,8 +1012,6 @@ func TestCompileReusesExistingBinaryDespiteDependencyFingerprintDrift(t *testing
 	}
 	t.Cleanup(func() { runGo = old })
 
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
 	appDir := newBuildTestApp(t)
 	workspace, err := workspaceDir(appDir, "buildtest")
 	if err != nil {
@@ -1091,8 +1057,8 @@ func TestCompileReusesExistingBinaryDespiteDependencyFingerprintDrift(t *testing
 }
 
 func TestCachedGeneratorFingerprintInvalidatesOnSourceMetadata(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	repo := t.TempDir()
 	sourcePath := filepath.Join(repo, "internal", "codegen", "sample.go")
 	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
@@ -1141,6 +1107,8 @@ func TestCachedGeneratorFingerprintInvalidatesOnSourceMetadata(t *testing.T) {
 }
 
 func TestSourceSnapshotFingerprintIncludesConfigAlias(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeBuildTestFile(t, root, ".config.json", `{"name":"aliasapp"}`)
 	writeBuildTestFile(t, root, "go.mod", "module example.com/alias\n\ngo 1.26.3\n")
@@ -1169,8 +1137,8 @@ func TestSourceSnapshotFingerprintIncludesConfigAlias(t *testing.T) {
 }
 
 func TestCachedGeneratorFingerprintIncludesRootPackageFiles(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	repo := t.TempDir()
 	sourcePath := filepath.Join(repo, "scenery.go")
 	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example.com/repo\n"), 0o644); err != nil {
@@ -1201,8 +1169,8 @@ func TestCachedGeneratorFingerprintIncludesRootPackageFiles(t *testing.T) {
 }
 
 func TestCachedGeneratorFingerprintIncludesEmbeddedFiles(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	repo := t.TempDir()
 	sourcePath := filepath.Join(repo, "auth", "standard.go")
 	embedPath := filepath.Join(repo, "auth", "db", "gen", "schema.sql")
@@ -1240,8 +1208,8 @@ func TestCachedGeneratorFingerprintIncludesEmbeddedFiles(t *testing.T) {
 }
 
 func TestCachedGeneratorFingerprintIgnoresUnrelatedInternalPackages(t *testing.T) {
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
+	t.Parallel()
+
 	repo := t.TempDir()
 	trackedPath := filepath.Join(repo, "internal", "codegen", "sample.go")
 	unrelatedPath := filepath.Join(repo, "internal", "agent", "sample.go")
@@ -1282,21 +1250,13 @@ func TestCachedGeneratorFingerprintIgnoresUnrelatedInternalPackages(t *testing.T
 }
 
 func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
-	useFakeGoRunner(t)
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
-	appDir := newBuildTestApp(t)
+	t.Parallel()
 
+	cfg := appcfg.Config{Name: "buildtest"}
+	appDir, _ := newReusableBinaryBuildTestWorkspace(t, cfg)
 	model, err := parse.App(appDir, "buildtest")
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
-	}
-	result, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if err := Compile(result); err != nil {
-		t.Fatalf("compile: %v", err)
 	}
 
 	goModPath := filepath.Join(appDir, "go.mod")
@@ -1309,7 +1269,7 @@ func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	next, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
+	next, err := Prepare(appDir, model, cfg)
 	if err != nil {
 		t.Fatalf("prepare after go.mod change: %v", err)
 	}
@@ -1341,6 +1301,8 @@ func TestSyncWorkspaceRemovesStaleFiles(t *testing.T) {
 }
 
 func TestLoadCachedGraph(t *testing.T) {
+	t.Parallel()
+
 	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
 
 	cached, ok, err := LoadCachedGraph(appDir, appcfg.Config{Name: "buildtest"}, "graph-1")
@@ -1365,6 +1327,8 @@ func TestLoadCachedGraph(t *testing.T) {
 }
 
 func TestLoadCachedGraphRejectsMissingPayloads(t *testing.T) {
+	t.Parallel()
+
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 	state, err := loadBuildState(result.Dir)
 	if err != nil {
@@ -1385,6 +1349,8 @@ func TestLoadCachedGraphRejectsMissingPayloads(t *testing.T) {
 }
 
 func TestLoadCachedGraphRequiresMatchingGoBuildFlags(t *testing.T) {
+	t.Parallel()
+
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 	flags := []string{"-tags=roofmapnet_native"}
 
@@ -1457,6 +1423,8 @@ func TestCompileCachedGraphWritesLatestBuildManifest(t *testing.T) {
 }
 
 func TestLoadCachedGraphRejectsOldBuildStateVersion(t *testing.T) {
+	t.Parallel()
+
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 
 	statePath := filepath.Join(result.Dir, buildStateFile)
@@ -1487,6 +1455,8 @@ func TestLoadCachedGraphRejectsOldBuildStateVersion(t *testing.T) {
 }
 
 func TestLoadCachedGraphRejectsGeneratorFingerprintMismatch(t *testing.T) {
+	t.Parallel()
+
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 
 	statePath := filepath.Join(result.Dir, buildStateFile)
@@ -1512,6 +1482,8 @@ func TestLoadCachedGraphRejectsGeneratorFingerprintMismatch(t *testing.T) {
 }
 
 func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
+	t.Parallel()
+
 	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
 
 	newFile := "svc/helper.go"
@@ -1545,6 +1517,8 @@ func TestRefreshCachedWorkspaceResyncsMissingSourceFiles(t *testing.T) {
 }
 
 func TestRefreshCachedWorkspaceResyncsChangedSourceFiles(t *testing.T) {
+	t.Parallel()
+
 	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
 
 	// Regression: a git pull changed svc/api.go without the dev watcher
@@ -1586,6 +1560,8 @@ func pulledInChange() {}
 }
 
 func TestRefreshCachedWorkspaceFallsBackWhenSourceFileMissing(t *testing.T) {
+	t.Parallel()
+
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 
 	target := filepath.Join(result.Dir, "svc", "api.go")
@@ -1614,6 +1590,8 @@ func TestRefreshCachedWorkspaceFallsBackWhenSourceFileMissing(t *testing.T) {
 }
 
 func TestRefreshCachedWorkspaceMarksNeedsTidyWhenImportsChange(t *testing.T) {
+	t.Parallel()
+
 	appDir, _ := newCachedBuildTestWorkspace(t, "graph-1")
 
 	writeBuildTestFile(t, appDir, "svc/extra.go", `package svc
@@ -1642,6 +1620,8 @@ import _ "rsc.io/quote"
 }
 
 func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.T) {
+	t.Parallel()
+
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 
 	if err := seedSceneryGoSum(result.Dir, repoRoot(t)); err != nil {
@@ -1692,6 +1672,8 @@ func TestRefreshCachedWorkspaceSeedsDependencyFingerprintBeforeReuse(t *testing.
 }
 
 func TestRefreshCachedWorkspaceFallsBackWhenGeneratedFileMissing(t *testing.T) {
+	t.Parallel()
+
 	appDir, result := newCachedBuildTestWorkspace(t, "graph-1")
 
 	target := filepath.Join(result.Dir, "svc", "scenery.gen.go")
@@ -1855,8 +1837,6 @@ func Hello(ctx context.Context) error { return nil }
 
 func newCachedBuildTestWorkspace(t *testing.T, graphFingerprint string) (string, *Result) {
 	t.Helper()
-	cacheDir := t.TempDir()
-	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheDir)
 	appDir := t.TempDir()
 
 	const goMod = "module example.com/buildtest\n\ngo 1.26.3\n"
@@ -1932,6 +1912,102 @@ func Hello(ctx context.Context) error { return nil }
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
 	}); err != nil {
+		t.Fatal(err)
+	}
+	return appDir, result
+}
+
+func newReusableBinaryBuildTestWorkspace(t *testing.T, cfg appcfg.Config) (string, *Result) {
+	t.Helper()
+	if cfg.Name == "" {
+		cfg.Name = "buildtest"
+	}
+	appDir := newBuildTestApp(t)
+	workspace, err := workspaceDir(appDir, cfg.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sourceFiles := []string{"go.mod", "svc/api.go"}
+	for _, rel := range sourceFiles {
+		data, err := os.ReadFile(filepath.Join(appDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeBuildTestFile(t, workspace, rel, string(data))
+	}
+	generatedFiles := []string{"scenery_internal_main/main.go", "svc/scenery.gen.go"}
+	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
+	writeBuildTestFile(t, workspace, "svc/scenery.gen.go", "package svc\n")
+
+	sourceFingerprint, err := currentAppSourceFingerprint(appDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	depFingerprint, err := dependencyFingerprintFromWorkspace(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceStamps := make(map[string]SourceStamp, len(sourceFiles))
+	for _, rel := range sourceFiles {
+		info, err := os.Stat(filepath.Join(appDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sourceStamps[rel] = sourceStampFromInfo(info)
+	}
+	sourceMetadataFingerprint := sourceStampsFingerprint(sourceStamps)
+	generatorFingerprint, err := currentGeneratorFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
+	buildFingerprint, err := workspaceBuildFingerprint(workspace, goBuildFlags, sourceFiles, generatedFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(workspace, workspaceBinaryName(appDir, buildFingerprint))
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result := &Result{
+		AppRoot:                   appDir,
+		AppName:                   cfg.Name,
+		AppID:                     cfg.ID,
+		Dir:                       workspace,
+		Binary:                    binary,
+		NeedsTidy:                 false,
+		DependencyFingerprint:     depFingerprint,
+		SourceFingerprint:         sourceFingerprint,
+		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		GeneratorFingerprint:      generatorFingerprint,
+		BuildFingerprint:          buildFingerprint,
+		Metadata:                  json.RawMessage(`{"ok":true}`),
+		APIEncoding:               json.RawMessage(`{"api":"v1"}`),
+		SourceFiles:               append([]string(nil), sourceFiles...),
+		SourceStamps:              sourceStamps,
+		GeneratedFiles:            append([]string(nil), generatedFiles...),
+		ReuseCompiled:             true,
+		GoBuildFlags:              goBuildFlags,
+	}
+	if err := saveBuildState(workspace, buildState{
+		Version:                   buildStateVersion,
+		DependencyFingerprint:     depFingerprint,
+		SourceFingerprint:         sourceFingerprint,
+		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		GeneratorFingerprint:      generatorFingerprint,
+		BuildFingerprint:          buildFingerprint,
+		Metadata:                  append([]byte(nil), result.Metadata...),
+		APIEncoding:               append([]byte(nil), result.APIEncoding...),
+		SourceStamps:              sourceStamps,
+		GeneratedFiles:            generatedFiles,
+		GoBuildFlags:              goBuildFlags,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
 		t.Fatal(err)
 	}
 	return appDir, result

@@ -161,9 +161,12 @@ var (
 )
 
 func defaultConfiguredEdgeRouteProbe(ctx context.Context, rawURL string) error {
+	if err := probeConfiguredEdgeRouteOnce(ctx, rawURL); err == nil {
+		return nil
+	}
 	deadline := time.Now().Add(edgeProbeRetryWindow)
 	var lastErr error
-	for attempt := 0; ; attempt++ {
+	for {
 		lastErr = probeConfiguredEdgeRouteOnce(ctx, rawURL)
 		if lastErr == nil {
 			return nil

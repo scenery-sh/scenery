@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
@@ -17,6 +18,11 @@ type DevSessionController struct {
 	cfg     app.Config
 	listen  devListenRequest
 	console *runConsole
+}
+
+var devSessionTestHooks struct {
+	sync.Mutex
+	register func(localagent.RegisterRequest)
 }
 
 // runPhase reports a timed run-output step when a console is attached so
@@ -140,6 +146,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		})
 	}
 	var client *localagent.Client
+	var agentHealth localagent.HealthResponse
 	agentUnavailable := false
 	if err := c.runPhase("Connecting scenery dev agent", func() error {
 		var err error
@@ -159,6 +166,10 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 			fmt.Fprintf(os.Stderr, "scenery: agent dashboard unavailable; continuing without routed app URLs: %v\n", err)
 			agentUnavailable = true
 			return nil
+		}
+		agentHealth, err = client.Health(ctx)
+		if err != nil {
+			return err
 		}
 		return nil
 	}); err != nil {
@@ -186,76 +197,41 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		return prepared, err
 	}
 	existingSessions, _ := client.List(ctx, root)
+	backend := fallback
 	if listen.Addr != "" {
+		backend = devBackend{Network: "tcp", Addr: listen.Addr}
 		backends[localagent.RouteAPI] = localagent.Backend{Network: "tcp", Addr: listen.Addr}
+	} else {
+		backend = devBackend{
+			Network: "unix",
+			Addr:    devAPIUnixSocketPath(localagent.StateRoot(root, sessionID)),
+		}
+		backends[localagent.RouteAPI] = localagent.Backend{Network: backend.Network, Addr: backend.Addr}
 	}
 	if err := rejectLiveDuplicateDevSession(root, existingSessions); err != nil {
 		return prepared, err
 	}
 	var session localagent.Session
-	backend := fallback
-	if err := c.runPhase("Registering dev session routes", func() error {
-		if requiresPortlessEdge {
-			if _, err := checkConfiguredEdgeReadiness(ctx, client, routeNamespace.BaseDomain); err != nil {
-				return err
-			}
-		}
-		var err error
-		session, err = client.Register(ctx, localagent.RegisterRequest{
-			BaseAppID:      cfg.AppID(),
-			AppRoot:        root,
-			SessionID:      sessionID,
-			Branch:         branch,
-			Status:         "starting",
-			OwnerPID:       os.Getpid(),
-			Backends:       backends,
-			RouteNamespace: routeNamespace,
-			RouteManifest:  routeManifest,
-			ClaimOwner:     true,
-			ClaimAliases:   listen.ClaimAliases,
-		})
-		if err != nil {
+	if requiresPortlessEdge {
+		if err := c.runPhase("Checking configured edge", func() error {
+			_, err := checkConfiguredEdgeReadiness(ctx, client, routeNamespace.BaseDomain)
 			return err
+		}); err != nil {
+			return prepared, err
 		}
-		if requiresPortlessEdge {
-			if err := verifyConfiguredEdgeSessionRoute(ctx, client, session, routeNamespace.BaseDomain, true); err != nil {
-				_, _ = client.Delete(ctx, session.SessionID, false)
-				return err
-			}
-		}
-		if err := cleanupStaleDevSessionProcesses(ctx, session, existingSessions); err != nil {
-			return err
-		}
-		if listen.Addr == "" {
-			backend = devBackend{
-				Network: "unix",
-				Addr:    devAPIUnixSocketPath(session.StateRoot),
-			}
-			backends[localagent.RouteAPI] = localagent.Backend{Network: backend.Network, Addr: backend.Addr}
-			session, err = client.Register(ctx, localagent.RegisterRequest{
-				BaseAppID:      cfg.AppID(),
-				AppRoot:        root,
-				SessionID:      session.SessionID,
-				Branch:         session.Branch,
-				Status:         "starting",
-				OwnerPID:       os.Getpid(),
-				Backends:       backends,
-				RouteNamespace: routeNamespace,
-				RouteManifest:  routeManifest,
-				ClaimAliases:   listen.ClaimAliases,
-			})
-			if err != nil {
-				return err
-			}
-			if requiresPortlessEdge {
-				if err := verifyConfiguredEdgeSessionRoute(ctx, client, session, routeNamespace.BaseDomain, false); err != nil {
-					_, _ = client.Delete(ctx, session.SessionID, false)
-					return err
-				}
-			}
-		}
-		return nil
-	}); err != nil {
+	}
+	frontendSeedSession, err := localagent.NewSession(localagent.RegisterRequest{
+		BaseAppID:      cfg.AppID(),
+		AppRoot:        root,
+		SessionID:      sessionID,
+		Branch:         branch,
+		Status:         "starting",
+		OwnerPID:       os.Getpid(),
+		Backends:       backends,
+		RouteNamespace: routeNamespace,
+		RouteManifest:  routeManifest,
+	}, agentHealth.RouterAddr, agentHealth.RouterScheme, nil)
+	if err != nil {
 		return prepared, err
 	}
 	var frontendBackends map[string]localagent.Backend
@@ -263,7 +239,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	if len(localProxyFrontends(cfg.Proxy.Frontends)) > 0 {
 		if err := c.runPhase("Starting frontend dev servers", func() error {
 			var err error
-			frontendBackends, frontendProcesses, err = managedFrontendBackendsForSession(ctx, root, cfg, baseEnv, session)
+			frontendBackends, frontendProcesses, err = managedFrontendBackendsForSession(ctx, root, cfg, baseEnv, frontendSeedSession)
 			return err
 		}); err != nil {
 			return prepared, err
@@ -279,28 +255,40 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		for name, backend := range frontendBackends {
 			backends[name] = backend
 		}
-		session, err = client.Register(ctx, localagent.RegisterRequest{
+	}
+	if err := c.runPhase("Registering dev session routes", func() error {
+		var err error
+		req := localagent.RegisterRequest{
 			BaseAppID:      cfg.AppID(),
 			AppRoot:        root,
-			SessionID:      session.SessionID,
-			Branch:         session.Branch,
+			SessionID:      sessionID,
+			Branch:         branch,
 			Status:         "starting",
 			OwnerPID:       os.Getpid(),
 			Backends:       backends,
 			RouteNamespace: routeNamespace,
 			RouteManifest:  routeManifest,
 			Processes:      frontendSessionProcesses(frontendProcesses),
+			ClaimOwner:     true,
 			ClaimAliases:   listen.ClaimAliases,
-		})
+		}
+		notifyDevSessionRegister(req)
+		session, err = client.Register(ctx, req)
 		if err != nil {
-			return prepared, err
+			return err
 		}
 		if requiresPortlessEdge {
-			if err := verifyConfiguredEdgeSessionRoute(ctx, client, session, routeNamespace.BaseDomain, false); err != nil {
+			if err := verifyConfiguredEdgeSessionRoute(ctx, client, session, routeNamespace.BaseDomain, true); err != nil {
 				_, _ = client.Delete(ctx, session.SessionID, false)
-				return prepared, err
+				return err
 			}
 		}
+		if err := cleanupStaleDevSessionProcesses(ctx, session, existingSessions); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return prepared, err
 	}
 	if routingMode == localagent.RouteModePath {
 		if err := c.runPhase("Starting local path router", func() error {
@@ -335,4 +323,13 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	prepared.Session = &session
 	prepared.Backend = backend.normalized()
 	return prepared, nil
+}
+
+func notifyDevSessionRegister(req localagent.RegisterRequest) {
+	devSessionTestHooks.Lock()
+	fn := devSessionTestHooks.register
+	devSessionTestHooks.Unlock()
+	if fn != nil {
+		fn(req)
+	}
 }

@@ -2,6 +2,10 @@
 
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
+## Context and Orientation
+
+`scenery up` startup had never had a dedicated performance pass; the test suite had one (plan 0050) that left a ~9.9s package-compile floor. Two code-trace investigations (2026-07-06) produced the item lists below; all file references were verified against the tree at that date.
+
 ## Purpose / Big Picture
 
 Make the local development loop fast in two places:
@@ -10,6 +14,16 @@ Make the local development loop fast in two places:
 2. `go test ./...` wall clock, continuing plan 0050. The no-cache suite is ~11-14s with a ~9.9s package-compile floor; remaining wins are targeted test rewrites and structural package splits.
 
 Source evidence for all items: startup-path and test-suite investigations recorded in this plan's initial commit (2026-07-06, gpt-5.5 read-only code traces plus `.scenery/harness/test-timing-latest.json`).
+
+## Milestones
+
+1. Phase 1: warm-path build fast paths (U1-U3) and the two biggest test rewrites (T1, T2, T4).
+2. Phase 2: startup orchestration (U4-U6) and build-test fixture reuse (T3).
+3. Phase 3: opportunistic `cmd/scenery` package split (T5) and recorded before/after measurements.
+
+## Plan of Work
+
+Scope items below; execution ordering in "Execution Order". Each phase is delegated to Codex (gpt-5.5) implementation agents with disjoint file allowlists, reviewed and verified by Claude, and committed per phase.
 
 ## Scope
 
@@ -32,6 +46,26 @@ Source evidence for all items: startup-path and test-suite investigations record
 
 Keep `internal/testlimit` as-is; measured A/B shows the GOMAXPROCS cap helps.
 
+## Concrete Steps
+
+Each phase: write per-agent Codex prompts with disjoint file allowlists, run them in parallel where files do not overlap, review diffs, run the validation matrix, update this plan, commit. Phase composition is listed under Milestones; item details under Scope.
+
+## Validation and Acceptance
+
+Per phase: `go build ./...`, `go test ./...` (plus `-race` on packages with newly parallel tests), and `scenery harness self --summary --write` with the worktree-local binary. Acceptance for the up-path items: warm `scenery up` on an unchanged app skips parse and compile entirely (fast-path hit), and no fast path can serve stale generated code (invalidation tests). Acceptance for test items: package times drop as recorded in Progress without deleted coverage.
+
+## Idempotence and Recovery
+
+All changes are ordinary code changes committed per phase; re-running a phase's agent on a clean tree is safe. If a phase must be reverted, revert its commit; fast paths are guarded by fingerprints so a partial revert cannot serve stale binaries.
+
+## Artifacts and Notes
+
+Investigation reports and per-agent Codex prompts/reports live in the session scratchpad (not committed). Timing evidence: `.scenery/harness/test-timing-latest.json` snapshots recorded in Progress.
+
+## Interfaces and Dependencies
+
+No public CLI or JSON contract changes are planned. Internal seams added: injectable frontend restart delay/starter, dashboard Symphony runner hooks, per-call generate/task/db lifecycle hooks, `SourceSnapshot` through build prepare/refresh/reuse, concurrent Victoria component start. Depends on plan 0050's testlimit and timing tooling.
+
 ## Execution Order
 
 Workstreams overlap in `internal/build` and `watch.go`, so phases keep file sets disjoint:
@@ -46,7 +80,7 @@ Validation per phase: `go build ./...`, `go test ./...`, `scenery harness self -
 
 - [x] 2026-07-06: Created this ExecPlan from the two performance investigations.
 - [x] 2026-07-06: Phase 1 complete (T1, T2, T4, U1-U3). Frontend restart test is event-driven with injectable delay; frontend failure/concurrency tests use fake starters with one real subprocess smoke. Symphony runner hooks live on dashboardServer; generate/task/db lifecycle hooks are per-call; freed tests run parallel (validated with -race). Warm `scenery up` tries LoadReusableBinaryWithSnapshot before graph load, guarded by source/generator/build fingerprints plus manifest match, with invalidation tests; graph cache hits skip packages.Load; cache-miss refresh reuses the parsed model; the startup watch scan snapshot (hashes, embeds, ignores) feeds fingerprinting, sync, and watcher setup.
-- [ ] Phase 2: T3, U4-U6.
+- [x] 2026-07-06: Phase 2 complete (T3, U4-U6). internal/build tests: 1.927s -> 0.931s package time via shared TestMain cache dir, a reusable-binary workspace helper, one real compile smoke, and t.Parallel (race-clean). Startup: Victoria binaries pre-resolve and components start concurrently with locked toolchain sync; substrate reachability probes fan out; Postgres readiness polls 50ms with backoff to 500ms and the substrate upsert reuses the supervisor agent client; edge preflight does one immediate sanity probe before entering retry; session prep publishes a single route registration with final API and frontend backends; storage proxy and Victoria/substrate startup run concurrently with the initial build, joined before app launch. Frontend startup stays before final session registration because the starter consumes session route shape.
 - [ ] Phase 3: T5 and final measurements.
 
 ## Surprises & Discoveries
