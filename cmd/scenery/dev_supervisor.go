@@ -347,6 +347,31 @@ func (s *devSupervisor) waitForStartupReady(ctx context.Context) error {
 	}
 }
 
+func (s *devSupervisor) addStartupReady(ready <-chan error) {
+	if s == nil || ready == nil {
+		return
+	}
+	s.mu.Lock()
+	existing := s.startupReady
+	s.startupReady = joinStartupReady(existing, ready)
+	s.mu.Unlock()
+}
+
+func joinStartupReady(left, right <-chan error) <-chan error {
+	if left == nil {
+		return right
+	}
+	if right == nil {
+		return left
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- errors.Join(<-left, <-right)
+		close(done)
+	}()
+	return done
+}
+
 func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 	if s == nil || s.agent == nil {
 		return startVictoriaStack(s.ctx, s.root, s.console)

@@ -35,7 +35,13 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 	}
 	switch method {
 	case "version":
-		return map[string]any{"version": sceneryDashboardCompatVersion, "channel": sceneryDashboardCompatChannel}, nil
+		bundle := s.dashboardBundleStatus()
+		return map[string]any{
+			"version":               sceneryDashboardCompatVersion,
+			"channel":               sceneryDashboardCompatChannel,
+			"dashboard_bundle_hash": bundle.RunningHash,
+			"dashboard_bundle":      bundle,
+		}, nil
 	case "list-apps":
 		return s.dashboardListApps(ctx)
 	case "status":

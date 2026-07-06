@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/stdlog"
@@ -135,6 +136,7 @@ type devOptions struct {
 	JSON         bool
 	AppRoot      string
 	Detach       bool
+	Wait         string
 	ClaimAliases bool
 }
 
@@ -147,7 +149,7 @@ type devListenRequest struct {
 }
 
 func parseDevArgs(args []string) (devOptions, error) {
-	opts := devOptions{Port: 4000}
+	opts := devOptions{Port: 4000, Wait: detachedDevWaitReady}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--port", "-p":
@@ -174,6 +176,16 @@ func parseDevArgs(args []string) (devOptions, error) {
 			opts.JSON = true
 		case "--detach":
 			opts.Detach = true
+		case "--wait":
+			i++
+			if i >= len(args) {
+				return devOptions{}, fmt.Errorf("missing value for --wait")
+			}
+			wait, err := normalizeDetachedDevWaitMode(args[i])
+			if err != nil {
+				return devOptions{}, err
+			}
+			opts.Wait = wait
 		case "--app-root":
 			i++
 			if i >= len(args) {
@@ -187,6 +199,14 @@ func parseDevArgs(args []string) (devOptions, error) {
 		case "--claim-aliases":
 			opts.ClaimAliases = true
 		default:
+			if strings.HasPrefix(args[i], "--wait=") {
+				wait, err := normalizeDetachedDevWaitMode(strings.TrimPrefix(args[i], "--wait="))
+				if err != nil {
+					return devOptions{}, err
+				}
+				opts.Wait = wait
+				continue
+			}
 			return devOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
 	}

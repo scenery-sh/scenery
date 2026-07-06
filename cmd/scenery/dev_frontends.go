@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -43,8 +44,84 @@ type managedFrontendStartResult struct {
 
 type managedFrontendStarter func(context.Context, string, string, int, localproxy.FrontendConfig, []string, localagent.Session) managedFrontendStartResult
 
+type pendingManagedFrontendStart struct {
+	managedFrontendStartResult
+	ready <-chan error
+}
+
 func managedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
 	return managedFrontendBackendsForSessionWithStarter(ctx, root, cfg, baseEnv, session, startManagedFrontend)
+}
+
+func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session) (map[string]localagent.Backend, []*managedFrontendProcess, func(context.Context) error, error) {
+	frontends := localProxyFrontends(cfg.Proxy.Frontends)
+	if len(frontends) == 0 {
+		return nil, nil, nil, nil
+	}
+	sort.Slice(frontends, func(i, j int) bool {
+		return frontends[i].Name < frontends[j].Name
+	})
+	backends := map[string]localagent.Backend{}
+	var startable []localproxy.FrontendConfig
+	for _, frontend := range frontends {
+		frontend.Name = localagentLabel(frontend.Name)
+		if frontend.Name == "" {
+			continue
+		}
+		if override := localproxy.FrontendOverride(frontend.Name); override != "" {
+			backends[frontend.Name] = localagent.Backend{Network: "tcp", Addr: override}
+			continue
+		}
+		if frontend.AllowSharedUpstream {
+			result := startManagedFrontend(ctx, root, cfg.AppID(), len(startable), frontend, baseEnv, session)
+			if result.err != nil {
+				return nil, nil, nil, result.err
+			}
+			if result.name != "" {
+				backends[result.name] = result.backend
+			}
+			continue
+		}
+		startable = append(startable, frontend)
+	}
+	pending := beginManagedFrontends(ctx, root, cfg.AppID(), startable, baseEnv, session)
+	processes := make([]*managedFrontendProcess, 0, len(pending))
+	var ready []<-chan error
+	for _, result := range pending {
+		if result.err != nil {
+			stopManagedFrontendProcesses(processes)
+			return nil, nil, nil, result.err
+		}
+		if result.process != nil {
+			processes = append(processes, result.process)
+		}
+		if result.name != "" {
+			backends[result.name] = result.backend
+		}
+		if result.ready != nil {
+			ready = append(ready, result.ready)
+		}
+	}
+	if len(backends) == 0 {
+		backends = nil
+	}
+	wait := func(context.Context) error {
+		var errs []error
+		for _, ch := range ready {
+			if err := <-ch; err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if err := errors.Join(errs...); err != nil {
+			stopManagedFrontendProcesses(processes)
+			return err
+		}
+		return nil
+	}
+	if len(ready) == 0 {
+		wait = nil
+	}
+	return backends, processes, wait, nil
 }
 
 func managedFrontendBackendsForSessionWithStarter(ctx context.Context, root string, cfg app.Config, baseEnv []string, session localagent.Session, starter managedFrontendStarter) (map[string]localagent.Backend, []*managedFrontendProcess, error) {
@@ -142,6 +219,64 @@ func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends
 	return results
 }
 
+func beginManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session) []pendingManagedFrontendStart {
+	if len(frontends) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	resultCh := make(chan pendingManagedFrontendStart, len(frontends))
+	var wg sync.WaitGroup
+	for i, frontend := range frontends {
+		wg.Add(1)
+		go func(index int, frontend localproxy.FrontendConfig) {
+			defer wg.Done()
+			result := beginManagedFrontend(ctx, cancel, appRoot, appID, index, frontend, baseEnv, session)
+			if result.err != nil {
+				cancel()
+			}
+			resultCh <- result
+		}(i, frontend)
+	}
+	wg.Wait()
+	close(resultCh)
+	results := make([]pendingManagedFrontendStart, len(frontends))
+	for result := range resultCh {
+		results[result.index] = result
+	}
+	return results
+}
+
+func beginManagedFrontend(ctx context.Context, cancel context.CancelFunc, appRoot, appID string, index int, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) pendingManagedFrontendStart {
+	result := pendingManagedFrontendStart{
+		managedFrontendStartResult: managedFrontendStartResult{index: index, name: frontend.Name},
+	}
+	process, err := startManagedFrontendProcessWithoutWaiting(ctx, appRoot, appID, frontend, baseEnv, session)
+	if err != nil {
+		if strings.TrimSpace(frontend.Upstream) != "" {
+			result.err = fmt.Errorf("start managed frontend %q: %w; configured upstream is ignored unless allow_shared_upstream is true or %s is set", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
+			return result
+		}
+		result.err = fmt.Errorf("start managed frontend %q: %w; set %s for a manual upstream", frontend.Name, err, frontendOverrideEnvName(frontend.Name))
+		return result
+	}
+	result.process = process
+	result.backend = localagent.Backend{Network: "tcp", Addr: process.Addr}
+	ready := make(chan error, 1)
+	go func() {
+		if err := waitForManagedFrontend(ctx, process); err != nil {
+			cancel()
+			_ = process.Stop()
+			ready <- err
+			close(ready)
+			return
+		}
+		ready <- nil
+		close(ready)
+	}()
+	result.ready = ready
+	return result
+}
+
 func startManagedFrontend(ctx context.Context, appRoot, appID string, index int, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) managedFrontendStartResult {
 	result := managedFrontendStartResult{index: index, name: frontend.Name}
 	process, err := startManagedFrontendProcess(ctx, appRoot, appID, frontend, baseEnv, session)
@@ -189,6 +324,18 @@ func frontendOverrideEnvName(name string) string {
 }
 
 func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) (*managedFrontendProcess, error) {
+	process, err := startManagedFrontendProcessWithoutWaiting(ctx, appRoot, appID, frontend, baseEnv, session)
+	if err != nil {
+		return nil, err
+	}
+	if err := waitForManagedFrontend(ctx, process); err != nil {
+		_ = process.Stop()
+		return nil, err
+	}
+	return process, nil
+}
+
+func startManagedFrontendProcessWithoutWaiting(ctx context.Context, appRoot, appID string, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) (*managedFrontendProcess, error) {
 	root := managedFrontendRoot(appRoot, frontend)
 	if root == "" {
 		return nil, fmt.Errorf("frontend %s has no root", frontend.Name)
@@ -237,10 +384,6 @@ func startManagedFrontendProcess(ctx context.Context, appRoot, appID string, fro
 		return nil, err
 	}
 	process.Process = runner
-	if err := waitForManagedFrontend(ctx, process); err != nil {
-		_ = process.Stop()
-		return nil, err
-	}
 	return process, nil
 }
 

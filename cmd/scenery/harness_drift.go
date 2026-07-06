@@ -562,7 +562,7 @@ func buildHarnessArtifactHygieneReport(ctx context.Context, repoRoot string, dia
 			}
 		}
 	}
-	source := readOptionalText(filepath.Join(repoRoot, "internal", "build", "build.go"))
+	source := readOptionalText(filepath.Join(repoRoot, "internal", "build", "source.go"))
 	for _, token := range []string{".env", ".DS_Store", "__MACOSX", "node_modules", "coverage"} {
 		ok := strings.Contains(source, token)
 		report.WorkspaceRules = append(report.WorkspaceRules, token)
@@ -570,7 +570,7 @@ func buildHarnessArtifactHygieneReport(ctx context.Context, repoRoot string, dia
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "contract drift checks",
 				Severity:        "error",
-				File:            filepath.ToSlash(filepath.Join(repoRoot, "internal", "build", "build.go")),
+				File:            filepath.ToSlash(filepath.Join(repoRoot, "internal", "build", "source.go")),
 				Message:         "build workspace copy exclusion is missing token: " + token,
 				SuggestedAction: "Update build workspace copy rules so local/generated files cannot leak into builds.",
 			})

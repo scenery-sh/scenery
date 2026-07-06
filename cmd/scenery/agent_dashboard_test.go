@@ -75,6 +75,31 @@ func TestAppRecordStatusUsesStoredSessionHealth(t *testing.T) {
 	}
 }
 
+func TestAppRecordStatusIncludesDashboardBundleJSON(t *testing.T) {
+	t.Parallel()
+
+	status := appRecordStatus(devdash.AppRecord{
+		ID:        "demo",
+		SessionID: "session-a",
+		Root:      "/tmp/demo",
+	})
+	if status.DashboardBundle == nil || status.DashboardBundle.RunningHash == "" {
+		t.Fatalf("dashboard bundle = %+v, want running hash", status.DashboardBundle)
+	}
+	data, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal status: %v", err)
+	}
+	bundle, ok := payload["dashboardBundle"].(map[string]any)
+	if !ok || bundle["runningHash"] == "" {
+		t.Fatalf("dashboardBundle JSON = %#v", payload["dashboardBundle"])
+	}
+}
+
 func TestDashboardControlPlaneWritesThroughAgentDashboardStore(t *testing.T) {
 	t.Parallel()
 

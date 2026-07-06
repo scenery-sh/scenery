@@ -43,7 +43,7 @@ func runHarnessPostgresProbeStep(ctx context.Context, repoRoot string) harnessSt
 	return step
 }
 
-func runHarnessPostgresProbeCheck(parent context.Context, _ string) (map[string]any, []checkDiagnostic, error) {
+func runHarnessPostgresProbeCheck(parent context.Context, _ string) (summary map[string]any, diagnostics []checkDiagnostic, err error) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -51,6 +51,32 @@ func runHarnessPostgresProbeCheck(parent context.Context, _ string) (map[string]
 	}
 	if out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .}}").CombinedOutput(); err != nil {
 		return postgresProbeSkip(strings.TrimSpace(string(out))), []checkDiagnostic{postgresProbeSkipDiagnostic("Docker engine is unavailable")}, nil
+	}
+	initialContainerStatus, err := postgresContainerStatus(ctx, postgresServerContainer)
+	if err != nil {
+		return nil, nil, err
+	}
+	if initialContainerStatus == "" {
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if cleanupErr := cleanupPostgresHarnessContainer(cleanupCtx); cleanupErr != nil {
+				diagnostics = append(diagnostics, checkDiagnostic{
+					Stage:           "postgres service probe",
+					Severity:        "warning",
+					Message:         "Disposable postgres harness container cleanup failed: " + cleanupErr.Error(),
+					SuggestedAction: "Remove `scenery-postgres` and `scenery-postgres-data`, then rerun `scenery harness self --json --write`.",
+				})
+				if summary != nil {
+					summary["cleanup"] = "warning"
+					summary["diagnostics"] = len(diagnostics)
+				}
+				return
+			}
+			if summary != nil {
+				summary["cleanup"] = "removed_disposable_container"
+			}
+		}()
 	}
 	agentHome := filepath.Join(os.TempDir(), "scenery-harness-postgres-"+harnessRandomLabel())
 	defer os.RemoveAll(agentHome)
@@ -83,7 +109,6 @@ func runHarnessPostgresProbeCheck(parent context.Context, _ string) (map[string]
 	if len(servicesA) != 1 || len(servicesB) != 1 {
 		return nil, nil, fmt.Errorf("postgres harness expected one service per worktree")
 	}
-	diagnostics := []checkDiagnostic{}
 	check := func(ok bool, message string) {
 		if !ok {
 			diagnostics = append(diagnostics, checkDiagnostic{Stage: "postgres service probe", Severity: "error", Message: message})
@@ -130,16 +155,36 @@ func runHarnessPostgresProbeCheck(parent context.Context, _ string) (map[string]
 	}
 	_ = postgresdb.DropDatabase(ctx, admin, servicesA[0].Database)
 	_ = postgresdb.DropDatabase(ctx, admin, servicesB[0].Database)
-	summary := map[string]any{
-		"postgres_probe": "ran",
-		"database_a":     servicesA[0].Database,
-		"database_b":     servicesB[0].Database,
-		"diagnostics":    len(diagnostics),
+	containerMode := "existing"
+	if initialContainerStatus == "" {
+		containerMode = "disposable"
+	}
+	summary = map[string]any{
+		"postgres_probe":   "ran",
+		"container_status": firstNonEmpty(initialContainerStatus, "missing"),
+		"container_mode":   containerMode,
+		"database_a":       servicesA[0].Database,
+		"database_b":       servicesB[0].Database,
+		"diagnostics":      len(diagnostics),
 	}
 	if hasErrorDiagnostics(diagnostics) {
 		return summary, diagnostics, fmt.Errorf("postgres service probe failed")
 	}
 	return summary, diagnostics, nil
+}
+
+func cleanupPostgresHarnessContainer(ctx context.Context) error {
+	var messages []string
+	if out, err := postgresDocker.Run(ctx, "rm", "-f", postgresServerContainer); err != nil && !isMissingDockerObject(out, err) {
+		messages = append(messages, err.Error())
+	}
+	if out, err := postgresDocker.Run(ctx, "volume", "rm", postgresServerVolume); err != nil && !isMissingDockerObject(out, err) {
+		messages = append(messages, err.Error())
+	}
+	if len(messages) > 0 {
+		return fmt.Errorf("%s", strings.Join(messages, "; "))
+	}
+	return nil
 }
 
 func postgresProbeSkip(reason string) map[string]any {

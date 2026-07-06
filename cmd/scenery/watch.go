@@ -129,9 +129,13 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	if err := supervisor.Start(ctx); err != nil {
 		return err
 	}
+	supervisor.addStartupReady(preparedSession.FrontendReady)
 
 	if err := supervisor.RebuildAndRestart(ctx, true, snapshot); err != nil {
 		supervisor.console.InitialBuildFailed(err, supervisor.runURLs())
+		if len(preparedSession.FrontendProcesses) > 0 {
+			return err
+		}
 	}
 
 	watcher, err := newFileChangeWatcher(root, snapshot)

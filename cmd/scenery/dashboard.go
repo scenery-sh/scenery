@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -60,10 +61,11 @@ type dashboardServer struct {
 	addr       string
 	state      dashboardRunState
 
-	mu      sync.Mutex
-	clients map[*dashboardClient]struct{}
-	assets  fs.FS
-	traces  *dashboardTraceEventBuffer
+	mu             sync.Mutex
+	clients        map[*dashboardClient]struct{}
+	assets         fs.FS
+	traces         *dashboardTraceEventBuffer
+	bundleWarnOnce sync.Once
 
 	symphonyMu    sync.Mutex
 	symphonyStore *symphony.Store
@@ -309,6 +311,7 @@ func (s *dashboardServer) Close() error {
 }
 
 func (s *dashboardServer) handleRoot(w http.ResponseWriter, req *http.Request) {
+	s.writeDashboardBundleHeaders(w)
 	switch req.URL.Path {
 	case "/":
 		if appID := s.dashboardActiveAppID(); appID != "" {
@@ -342,6 +345,7 @@ func (s *dashboardServer) serveAsset(w http.ResponseWriter, req *http.Request, n
 		http.NotFound(w, req)
 		return
 	}
+	s.writeDashboardBundleHeaders(w)
 	w.Header().Set("Cache-Control", "no-store")
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
@@ -353,10 +357,12 @@ func (s *dashboardServer) indexHTML(appID string) string {
 	if appID == "" {
 		appID = s.dashboardActiveAppID()
 	}
+	bundle := s.dashboardBundleStatus()
 	if data, err := s.readAsset("index.html"); err == nil {
-		return strings.ReplaceAll(string(data), "__APP_ID__", appID)
+		index := strings.ReplaceAll(string(data), "__APP_ID__", appID)
+		return dashboardIndexWithBundleMeta(index, bundle)
 	}
-	return `<!doctype html>
+	return dashboardIndexWithBundleMeta(`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -373,12 +379,54 @@ func (s *dashboardServer) indexHTML(appID string) string {
 	<body>
     <main>
       <h1>scenery Dev Dashboard</h1>
-      <p>The dashboard server is running for <code>` + appID + `</code>, but the dashboard UI build is not available.</p>
+      <p>The dashboard server is running for <code>`+appID+`</code>, but the dashboard UI build is not available.</p>
       <p>Build it from the scenery repo with <code>bun run build</code> inside <code>apps/consolenext/</code>.</p>
-      <p>WebSocket endpoint: <code>ws://` + s.addr + devdash.WebSocketPath + `</code></p>
+      <p>WebSocket endpoint: <code>ws://`+s.addr+devdash.WebSocketPath+`</code></p>
     </main>
   </body>
-</html>`
+</html>`, bundle)
+}
+
+func (s *dashboardServer) dashboardBundleStatus() devdash.DashboardBundle {
+	status, err := dashboardBundleStatusForCurrentRepo()
+	if err != nil {
+		return devdash.DashboardBundle{}
+	}
+	if status.Stale {
+		s.bundleWarnOnce.Do(func() {
+			slog.Warn("scenery dashboard UI bundle is stale", "running_hash", status.RunningHash, "disk_hash", status.DiskHash, "disk_path", status.DiskPath, "suggested_action", status.Warning)
+		})
+	}
+	return status
+}
+
+func (s *dashboardServer) writeDashboardBundleHeaders(w http.ResponseWriter) {
+	status := s.dashboardBundleStatus()
+	if status.RunningHash != "" {
+		w.Header().Set("X-Scenery-Dashboard-Bundle-Hash", status.RunningHash)
+	}
+	if status.Stale {
+		w.Header().Set("X-Scenery-Dashboard-Bundle-Stale", "true")
+		w.Header().Set("X-Scenery-Dashboard-Bundle-Warning", status.Warning)
+	}
+}
+
+func dashboardIndexWithBundleMeta(index string, status devdash.DashboardBundle) string {
+	if status.RunningHash == "" {
+		return index
+	}
+	lines := []string{`    <meta name="scenery-dashboard-bundle-hash" content="` + html.EscapeString(status.RunningHash) + `" />`}
+	if status.Stale {
+		lines = append(lines,
+			`    <meta name="scenery-dashboard-bundle-stale" content="true" />`,
+			`    <meta name="scenery-dashboard-bundle-warning" content="`+html.EscapeString(status.Warning)+`" />`,
+		)
+	}
+	meta := strings.Join(lines, "\n")
+	if strings.Contains(index, "</head>") {
+		return strings.Replace(index, "</head>", meta+"\n  </head>", 1)
+	}
+	return index
 }
 
 func dashboardSessionPath(path string) (string, bool) {

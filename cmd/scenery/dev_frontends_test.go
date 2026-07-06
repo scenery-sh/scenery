@@ -296,6 +296,79 @@ func TestManagedFrontendBackendsStartsFrontendsConcurrently(t *testing.T) {
 	}
 }
 
+func TestBeginManagedFrontendBackendsReturnsBeforeReady(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "app")
+	frontendRoot := filepath.Join(appRoot, "apps", "web")
+	readyFile := filepath.Join(root, "frontend.ready")
+	writeFrontendPackage(t, frontendRoot, `{"scripts":{"dev":"vite"}}`)
+	serverPath := frontendTestServerBinary(t)
+	writeFrontendBinWithScript(t, frontendRoot, "vite", `
+set -eu
+port=""
+prev=""
+for arg in "$@"; do
+	if [ "$prev" = "--port" ]; then
+		port="$arg"
+		break
+	fi
+	prev="$arg"
+done
+SCENERY_FRONTEND_TEST_SERVER_HELPER=1 SCENERY_FRONTEND_TEST_READY_FILE="$SCENERY_FRONTEND_TEST_READY_FILE" exec "$SCENERY_FRONTEND_TEST_SERVER" -test.run '^TestManagedFrontendTestServerHelper$' -- "$port"
+`)
+	cfg := app.Config{
+		Name: "demo",
+		Proxy: app.ProxyConfig{
+			Frontends: map[string]app.FrontendConfig{
+				"web": {Root: "apps/web"},
+			},
+		},
+	}
+	baseEnv := []string{
+		"SCENERY_FRONTEND_TEST_SERVER=" + serverPath,
+		"SCENERY_FRONTEND_TEST_READY_FILE=" + readyFile,
+	}
+	backends, processes, wait, err := beginManagedFrontendBackendsForSession(ctx, appRoot, cfg, baseEnv, localagent.Session{
+		SessionID: "main-test",
+		StateRoot: filepath.Join(root, "state"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopManagedFrontendProcesses(processes)
+	if wait == nil {
+		t.Fatal("wait = nil, want readiness join")
+	}
+	if got := backends["web"]; got.Network != "tcp" || got.Addr == "" {
+		t.Fatalf("web backend = %+v", got)
+	}
+	if len(processes) != 1 || processes[0].Process == nil || processes[0].Process.PID <= 0 {
+		t.Fatalf("processes = %+v", processes)
+	}
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- wait(ctx) }()
+	select {
+	case err := <-waitDone:
+		t.Fatalf("frontend readiness finished before release: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := os.WriteFile(readyFile, []byte("ready"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-waitDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+}
+
 func TestManagedFrontendExitRestartsAndUpdatesAgentSession(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	root := t.TempDir()
@@ -547,6 +620,14 @@ func TestManagedFrontendTestServerHelper(t *testing.T) {
 	}
 	if port == "" {
 		t.Fatal("missing port")
+	}
+	if readyFile := os.Getenv("SCENERY_FRONTEND_TEST_READY_FILE"); readyFile != "" {
+		for {
+			if _, err := os.Stat(readyFile); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {

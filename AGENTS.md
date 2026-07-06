@@ -146,7 +146,7 @@ Use `scenery doctor --json` before expensive troubleshooting when the failure ma
 Use runtime commands according to intent:
 
 ```text
-scenery up [--app-root <path>] [--json] [--detach]
+scenery up [--app-root <path>] [--json] [--detach] [--wait ready|registered]
 scenery logs --follow [--app-root <path>] [--jsonl]
 scenery down [--app-root <path>] [--db] [--state] [--all] [--json]
 scenery task list [--app-root <path>] [--json]

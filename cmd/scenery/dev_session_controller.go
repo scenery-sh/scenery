@@ -40,6 +40,7 @@ type PreparedDevSession struct {
 	Session           *localagent.Session
 	Backend           devBackend
 	FrontendProcesses []*managedFrontendProcess
+	FrontendReady     <-chan error
 	Cleanup           func()
 }
 
@@ -236,16 +237,29 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	var frontendBackends map[string]localagent.Backend
 	var frontendProcesses []*managedFrontendProcess
+	var frontendReady <-chan error
 	if len(localProxyFrontends(cfg.Proxy.Frontends)) > 0 {
 		if err := c.runPhase("Starting frontend dev servers", func() error {
+			var wait func(context.Context) error
 			var err error
-			frontendBackends, frontendProcesses, err = managedFrontendBackendsForSession(ctx, root, cfg, baseEnv, frontendSeedSession)
+			frontendBackends, frontendProcesses, wait, err = beginManagedFrontendBackendsForSession(ctx, root, cfg, baseEnv, frontendSeedSession)
+			if wait != nil {
+				ready := make(chan error, 1)
+				go func() {
+					ready <- c.runPhase("Waiting for frontend dev servers", func() error {
+						return wait(ctx)
+					})
+					close(ready)
+				}()
+				frontendReady = ready
+			}
 			return err
 		}); err != nil {
 			return prepared, err
 		}
 	}
 	prepared.FrontendProcesses = frontendProcesses
+	prepared.FrontendReady = frontendReady
 	if len(frontendProcesses) > 0 {
 		restorers = append(restorers, func() {
 			stopManagedFrontendProcesses(frontendProcesses)

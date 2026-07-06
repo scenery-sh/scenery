@@ -104,6 +104,42 @@ func TestDashboardServesEmbeddedUIAssets(t *testing.T) {
 	}
 }
 
+func TestDashboardResponsesIncludeBundleIdentity(t *testing.T) {
+	server := newTestDashboardServer(t)
+	server.assets = fstest.MapFS{
+		"index.html": {Data: []byte(`<!doctype html><html><head></head><body>app __APP_ID__</body></html>`)},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/app-test", nil)
+	server.handleRoot(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", rec.Code)
+	}
+	hash := rec.Header().Get("X-Scenery-Dashboard-Bundle-Hash")
+	if hash == "" {
+		t.Fatalf("missing dashboard bundle hash header: headers=%v", rec.Header())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `name="scenery-dashboard-bundle-hash" content="`+hash+`"`) {
+		t.Fatalf("missing dashboard bundle meta tag: %s", body)
+	}
+
+	result, err := server.dispatchRPC(context.Background(), "version", nil)
+	if err != nil {
+		t.Fatalf("version rpc: %v", err)
+	}
+	payload, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("version payload type = %T", result)
+	}
+	if payload["dashboard_bundle_hash"] != hash {
+		t.Fatalf("dashboard_bundle_hash = %v, want %s", payload["dashboard_bundle_hash"], hash)
+	}
+	if _, ok := payload["dashboard_bundle"].(devdash.DashboardBundle); !ok {
+		t.Fatalf("dashboard_bundle missing or wrong type: %#v", payload["dashboard_bundle"])
+	}
+}
+
 func TestDashboardProcessOutputListRPC(t *testing.T) {
 	t.Parallel()
 

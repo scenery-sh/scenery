@@ -109,6 +109,57 @@ func TestManagedPostgresEnvUsesExternalDSNAndAlias(t *testing.T) {
 	}
 }
 
+type fakePostgresDockerRunner struct {
+	calls [][]string
+	run   func(args []string) (string, error)
+}
+
+func (f *fakePostgresDockerRunner) Run(_ context.Context, args ...string) (string, error) {
+	f.calls = append(f.calls, append([]string(nil), args...))
+	return f.run(args)
+}
+
+func TestPostgresContainerStatusTreatsNoSuchContainerAsMissing(t *testing.T) {
+	oldDocker := postgresDocker
+	t.Cleanup(func() { postgresDocker = oldDocker })
+	postgresDocker = &fakePostgresDockerRunner{run: func(args []string) (string, error) {
+		return "Error: No such container: scenery-postgres", errors.New("docker container inspect failed")
+	}}
+
+	status, err := postgresContainerStatus(context.Background(), postgresServerContainer)
+	if err != nil {
+		t.Fatalf("postgresContainerStatus returned error: %v", err)
+	}
+	if status != "" {
+		t.Fatalf("status = %q, want missing", status)
+	}
+}
+
+func TestCleanupPostgresHarnessContainerRemovesContainerAndVolume(t *testing.T) {
+	oldDocker := postgresDocker
+	t.Cleanup(func() { postgresDocker = oldDocker })
+	fake := &fakePostgresDockerRunner{run: func(args []string) (string, error) {
+		return "", nil
+	}}
+	postgresDocker = fake
+
+	if err := cleanupPostgresHarnessContainer(context.Background()); err != nil {
+		t.Fatalf("cleanupPostgresHarnessContainer returned error: %v", err)
+	}
+	want := [][]string{
+		{"rm", "-f", postgresServerContainer},
+		{"volume", "rm", postgresServerVolume},
+	}
+	if len(fake.calls) != len(want) {
+		t.Fatalf("docker calls = %#v, want %#v", fake.calls, want)
+	}
+	for i := range want {
+		if strings.Join(fake.calls[i], " ") != strings.Join(want[i], " ") {
+			t.Fatalf("docker calls = %#v, want %#v", fake.calls, want)
+		}
+	}
+}
+
 func TestWaitForPostgresServerBacksOffFromFastPoll(t *testing.T) {
 	oldProbe := postgresReadyProbe
 	oldSleep := postgresReadySleep

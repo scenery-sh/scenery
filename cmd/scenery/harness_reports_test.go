@@ -182,7 +182,7 @@ func TestBuildHarnessDriftReport(t *testing.T) {
   ]
 }`)
 	writeTestAppFile(t, root, "cmd/scenery/env.go", "package main\n\nconst _ = \"SCENERY_APP_ID\"\n")
-	writeTestAppFile(t, root, "internal/build/build.go", "package build\n\nconst _ = `.env .DS_Store __MACOSX node_modules coverage`\n")
+	writeTestAppFile(t, root, "internal/build/source.go", "package build\n\nconst _ = `.env .DS_Store __MACOSX node_modules coverage`\n")
 
 	report := buildHarnessDriftReport(context.Background(), root)
 	if report.SchemaVersion != harnessDriftSchema {

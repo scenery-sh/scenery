@@ -117,7 +117,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		resp.Steps = append(resp.Steps,
 			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
 			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
-			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBuildStale, "Run `bun run build` inside `apps/consolenext/`, then rerun `scenery harness self --json`."),
+			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBundleStale, "Run `./scripts/build-dashboard-ui-embed.sh`, rebuild the scenery binary, restart scenery, then rerun `scenery harness self --json`."),
 		)
 		fixtureStep, fixtureMatrix := runHarnessFixtureMatrixStep(ctx, repoRoot)
 		resp.FixtureMatrix = fixtureMatrix

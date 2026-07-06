@@ -24,12 +24,17 @@ import (
 const (
 	detachedDevChildEnv       = "SCENERY_DEV_DETACHED_CHILD"
 	detachedDevStartupTimeout = 30 * time.Second
+	detachedDevWaitReady      = "ready"
+	detachedDevWaitRegistered = "registered"
 )
 
 var detachedDevStartupInterval = 100 * time.Millisecond
 
+var detachedDevBackendAcceptsConnections = backendAcceptsConnections
+
 type detachedDevResult struct {
 	SchemaVersion string             `json:"schema_version"`
+	Wait          string             `json:"wait"`
 	PID           int                `json:"pid"`
 	LogPath       string             `json:"log_path"`
 	AttachCommand string             `json:"attach_command"`
@@ -38,11 +43,15 @@ type detachedDevResult struct {
 }
 
 func runDetachedDev(args []string, opts devOptions) error {
+	waitMode, err := normalizeDetachedDevWaitMode(opts.Wait)
+	if err != nil {
+		return err
+	}
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	root, _, err := app.DiscoverRoot(start)
+	root, cfg, err := app.DiscoverRoot(start)
 	if err != nil {
 		return err
 	}
@@ -50,16 +59,16 @@ func runDetachedDev(args []string, opts devOptions) error {
 	if localagent.DisabledByEnv() {
 		return fmt.Errorf("scenery up --detach requires the local scenery agent; unset SCENERY_AGENT_DISABLE")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
-	defer cancel()
-	client, err := localagent.Ensure(ctx, cliBuildIdentity())
+	setupCtx, setupCancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
+	defer setupCancel()
+	client, err := localagent.Ensure(setupCtx, cliBuildIdentity())
 	if err != nil {
 		return err
 	}
 	if client == nil {
 		return fmt.Errorf("scenery up --detach requires the local scenery agent")
 	}
-	if err := rejectDetachedDuplicateDevSession(ctx, client, root, opts); err != nil {
+	if err := rejectDetachedDuplicateDevSession(setupCtx, client, root, opts); err != nil {
 		return err
 	}
 
@@ -96,17 +105,20 @@ func runDetachedDev(args []string, opts devOptions) error {
 		return err
 	}
 
-	session, err := waitForDetachedDevSession(ctx, client, root, cmd.Process.Pid)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
+	defer waitCancel()
+	session, err := waitForDetachedDevSession(waitCtx, client, root, cmd.Process.Pid, waitMode, detachedDevExpectedFrontendRoutes(cfg.Proxy.Frontends))
 	if err != nil {
 		_ = interruptProcessTree(cmd)
 		_ = cmd.Process.Release()
-		return fmt.Errorf("detached scenery up process %d did not register an agent session before timeout: %w; see %s", cmd.Process.Pid, err, logPath)
+		return fmt.Errorf("detached scenery up process %d did not reach %s within %s: %w; see %s", cmd.Process.Pid, waitMode, detachedDevStartupTimeout, err, logPath)
 	}
 	if err := cmd.Process.Release(); err != nil {
 		return err
 	}
 	return writeDetachedDevResult(os.Stdout, opts.JSON, detachedDevResult{
 		SchemaVersion: "scenery.dev.detach.v1",
+		Wait:          waitMode,
 		PID:           session.OwnerPID,
 		LogPath:       logPath,
 		AttachCommand: fmt.Sprintf("scenery logs --follow --app-root %q", root),
@@ -140,6 +152,13 @@ func devArgsForDetachedChild(args []string, appRoot string) []string {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--detach" {
+			continue
+		}
+		if arg == "--wait" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "--wait=") {
 			continue
 		}
 		if arg == "--app-root" {
@@ -183,29 +202,94 @@ func safeDetachedLogName(value string) string {
 	return out
 }
 
-func waitForDetachedDevSession(ctx context.Context, client *localagent.Client, appRoot string, ownerPID int) (localagent.Session, error) {
+func waitForDetachedDevSession(ctx context.Context, client *localagent.Client, appRoot string, ownerPID int, waitMode string, expectedFrontends []string) (localagent.Session, error) {
+	return waitForDetachedDevSessionWithLister(ctx, client.List, appRoot, ownerPID, waitMode, expectedFrontends)
+}
+
+type detachedDevSessionLister func(context.Context, string) ([]localagent.Session, error)
+
+func waitForDetachedDevSessionWithLister(ctx context.Context, list detachedDevSessionLister, appRoot string, ownerPID int, waitMode string, expectedFrontends []string) (localagent.Session, error) {
 	ticker := time.NewTicker(detachedDevStartupInterval)
 	defer ticker.Stop()
 	var lastErr error
+	var lastSession localagent.Session
+	lastState := "not registered"
 	for {
-		sessions, err := client.List(ctx, appRoot)
+		sessions, err := list(ctx, appRoot)
 		if err != nil {
 			lastErr = err
 		}
 		for _, session := range sessions {
 			if session.OwnerPID == ownerPID {
-				return session, nil
+				lastSession = session
+				ready, state := detachedDevReadinessState(session, waitMode, expectedFrontends)
+				lastState = state
+				if ready {
+					return session, nil
+				}
 			}
 		}
 		select {
 		case <-ctx.Done():
+			timeoutErr := fmt.Errorf("last state: %s", lastState)
 			if lastErr != nil {
-				return localagent.Session{}, errors.Join(ctx.Err(), lastErr)
+				return lastSession, errors.Join(ctx.Err(), timeoutErr, lastErr)
 			}
-			return localagent.Session{}, ctx.Err()
+			return lastSession, errors.Join(ctx.Err(), timeoutErr)
 		case <-ticker.C:
 		}
 	}
+}
+
+func normalizeDetachedDevWaitMode(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", detachedDevWaitReady:
+		return detachedDevWaitReady, nil
+	case detachedDevWaitRegistered:
+		return detachedDevWaitRegistered, nil
+	default:
+		return "", fmt.Errorf("invalid --wait %q; expected registered or ready", value)
+	}
+}
+
+func detachedDevExpectedFrontendRoutes(frontends map[string]app.FrontendConfig) []string {
+	configured := localProxyFrontends(frontends)
+	names := make([]string, 0, len(configured))
+	for _, frontend := range configured {
+		if name := localagentLabel(frontend.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func detachedDevReadinessState(session localagent.Session, waitMode string, expectedFrontends []string) (bool, string) {
+	if waitMode == detachedDevWaitRegistered {
+		return true, "registered"
+	}
+	status := strings.TrimSpace(session.Status)
+	if status != "running" {
+		if status == "" {
+			status = "registered"
+		}
+		return false, "registered; status=" + status
+	}
+	if backend, ok := session.Backends[localagent.RouteAPI]; !ok || strings.TrimSpace(backend.Addr) == "" {
+		return false, "registered running; api backend missing"
+	} else if !detachedDevBackendAcceptsConnections(devBackend{Network: backend.Network, Addr: backend.Addr}) {
+		return false, "registered running; api backend not accepting connections"
+	}
+	for _, name := range expectedFrontends {
+		backend, ok := session.Backends[name]
+		if !ok || strings.TrimSpace(backend.Addr) == "" {
+			return false, fmt.Sprintf("registered running; frontend %s backend missing", name)
+		}
+		if !detachedDevBackendAcceptsConnections(devBackend{Network: backend.Network, Addr: backend.Addr}) {
+			return false, fmt.Sprintf("registered running; frontend %s backend not accepting connections", name)
+		}
+	}
+	return true, "ready"
 }
 
 func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult) error {
@@ -222,6 +306,9 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 		detachedDevDisplayStatus(result.Session.Status),
 		result.PID,
 	)
+	if result.Session.Status == "running" {
+		newRunConsole(w, io.Discard, false, false, detachedDevAppLabel(result.Session), result.Session.AppRoot).Banner(detachedDevRunURLs(result.Session))
+	}
 	fmt.Fprintln(w, "Use:")
 	if statusCommand := detachedDevStatusCommand(result.Session); statusCommand != "" {
 		fmt.Fprintf(w, "  status  %s\n", statusCommand)
@@ -249,6 +336,14 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 		fmt.Fprintf(w, "  %-10s %s owned by %s\n", name, conflict.Host, aliasConflictOwnerLabel(conflict))
 	}
 	return nil
+}
+
+func detachedDevRunURLs(session localagent.Session) runURLs {
+	return runURLs{
+		API:       session.Routes[localagent.RouteAPI],
+		Dashboard: session.Routes[localagent.RouteDashboard],
+		Frontends: frontendURLsFromAgentRoutes(session.Routes, nil),
+	}
 }
 
 func detachedDevAppLabel(session localagent.Session) string {

@@ -226,10 +226,19 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		Aliases:             app.Aliases,
 		SessionStatus:       app.SessionStatus,
 		SessionStatusReason: app.SessionStatusReason,
+		DashboardBundle:     dashboardBundleStatusPtr(),
 		Compiling:           app.Compiling,
 		CompileError:        app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, nil)
 	status.Meta = metadataWithRuntimeSQLiteDatabases(status.Meta, status.AppRoot, status.SessionID, appcfg.Config{}, false)
 	return status
+}
+
+func dashboardBundleStatusPtr() *devdash.DashboardBundle {
+	status, err := dashboardBundleStatusForCurrentRepo()
+	if err != nil || status.RunningHash == "" {
+		return nil
+	}
+	return &status
 }

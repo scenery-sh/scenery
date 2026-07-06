@@ -60,8 +60,17 @@ type AppStatus struct {
 	Aliases             map[string]string   `json:"aliases,omitempty"`
 	SessionStatus       string              `json:"sessionStatus,omitempty"`
 	SessionStatusReason string              `json:"sessionStatusReason,omitempty"`
+	DashboardBundle     *DashboardBundle    `json:"dashboardBundle,omitempty"`
 	Compiling           bool                `json:"compiling"`
 	CompileError        string              `json:"compileError,omitempty"`
+}
+
+type DashboardBundle struct {
+	RunningHash string `json:"runningHash,omitempty"`
+	DiskHash    string `json:"diskHash,omitempty"`
+	DiskPath    string `json:"diskPath,omitempty"`
+	Stale       bool   `json:"stale"`
+	Warning     string `json:"warning,omitempty"`
 }
 
 type ObservabilityState struct {

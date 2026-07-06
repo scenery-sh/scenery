@@ -210,7 +210,9 @@ func ensurePostgresDockerContainer(ctx context.Context, state *postgresServerSta
 			"run", "-d",
 			"--name", state.Container,
 			"-p", fmt.Sprintf("127.0.0.1:%d:5432", state.Port),
-			"-v", postgresServerVolume+":/var/lib/postgresql/data",
+			// postgres:18+ images require the volume at /var/lib/postgresql;
+			// mounting the data subdirectory makes the entrypoint refuse to start.
+			"-v", postgresServerVolume+":/var/lib/postgresql",
 			"-e", "POSTGRES_USER="+state.User,
 			"-e", "POSTGRES_PASSWORD="+state.Password,
 			state.Image,
@@ -225,13 +227,23 @@ func ensurePostgresDockerContainer(ctx context.Context, state *postgresServerSta
 func postgresContainerStatus(ctx context.Context, container string) (string, error) {
 	out, err := postgresDocker.Run(ctx, "container", "inspect", container, "--format", "{{.State.Status}}")
 	if err != nil {
-		msg := strings.ToLower(out + " " + err.Error())
-		if strings.Contains(msg, "no such object") || strings.Contains(msg, "not found") {
+		if isMissingDockerObject(out, err) {
 			return "", nil
 		}
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+func isMissingDockerObject(out string, err error) bool {
+	msg := strings.ToLower(out)
+	if err != nil {
+		msg += " " + strings.ToLower(err.Error())
+	}
+	return strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "no such container") ||
+		strings.Contains(msg, "no such volume") ||
+		strings.Contains(msg, "not found")
 }
 
 func waitForPostgresServer(ctx context.Context, state *postgresServerState) error {
