@@ -355,6 +355,8 @@ export type ObservabilitySignal = {
 
 export type SQLDatabase = {
   name: string
+  source?: string
+  schemas?: Array<{ service: string; schema: string }>
   file_label?: string
   path?: string
   url?: string
@@ -362,19 +364,19 @@ export type SQLDatabase = {
   exists?: boolean
 }
 
-export type SQLiteTable = {
+export type PostgresTable = {
   name: string
   type: string
 }
 
-export type SQLiteColumn = {
+export type PostgresColumn = {
   name: string
   type: string
   not_null: boolean
   primary_key: boolean
 }
 
-export type SQLiteRows = {
+export type PostgresRows = {
   columns: string[]
   rows: unknown[][]
   limit: number

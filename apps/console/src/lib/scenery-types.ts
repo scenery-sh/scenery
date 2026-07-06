@@ -48,23 +48,24 @@ export interface SQLDatabase {
   file_label?: string
   path?: string
   url?: string
+  source?: string
   size_bytes?: number
   exists?: boolean
 }
 
-export interface SQLiteTable {
+export interface PostgresTable {
   name: string
   type: string
 }
 
-export interface SQLiteColumn {
+export interface PostgresColumn {
   name: string
   type: string
   not_null: boolean
   primary_key: boolean
 }
 
-export interface SQLiteRows {
+export interface PostgresRows {
   columns: string[]
   rows: unknown[][]
   limit: number

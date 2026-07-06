@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0097 Postgres-Only Data Platform](0097-postgres-only-data-platform.md)
+  - Status: active
+  - Owner: scenery runtime / database
+  - Created: 2026-07-06
+  - Focus: remove SQLite entirely; Postgres 18 is the only engine with one database per app/worktree, one schema per service, scenery-native tables (auth, durable, seed ledger) in a `scenery` schema, and a single shared durable job store; migrate the onlv client app back to Postgres.
 - [0096 Dev Loop Performance](0096-dev-loop-performance.md)
   - Status: active
   - Owner: scenery runtime / agent DX

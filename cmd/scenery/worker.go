@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,6 +16,8 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/build"
 	durablestore "scenery.sh/internal/durable/store"
+	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/postgresdb"
 )
 
 type workerOptions struct {
@@ -481,11 +482,11 @@ func runWorkerDurableTokenCreate(opts workerDurableTokenCreateOptions, stdout io
 	if err != nil {
 		return err
 	}
-	dbPath, err := durablestore.DurableDBPath(filepath.Join(root, ".scenery", "state"), service)
+	databaseURL, err := durableDatabaseURLForCLI(root, cfg, service)
 	if err != nil {
 		return err
 	}
-	db, err := durablestore.Open(context.Background(), service, dbPath, durablestore.Options{})
+	db, err := durablestore.Open(context.Background(), service, databaseURL, durablestore.Options{})
 	if err != nil {
 		return err
 	}
@@ -513,7 +514,7 @@ func runWorkerDurableTokenCreate(opts workerDurableTokenCreateOptions, stdout io
 	resp := workerDurableTokenCreateResponse{
 		SchemaVersion: "scenery.durable.worker_token.create.v1",
 		Service:       service,
-		DBPath:        filepath.ToSlash(dbPath),
+		DBPath:        postgresdb.RedactURL(databaseURL),
 	}
 	resp.App.Name = cfg.Name
 	resp.App.Root = root
@@ -532,7 +533,7 @@ func runWorkerDurableTokenCreate(opts workerDurableTokenCreateOptions, stdout io
 }
 
 func runWorkerDurableJobs(opts workerDurableJobsOptions, stdout io.Writer) error {
-	root, cfg, db, dbPath, service, err := openWorkerDurableStore(opts.AppRoot, opts.Service)
+	root, cfg, db, databaseURL, service, err := openWorkerDurableStore(opts.AppRoot, opts.Service)
 	if err != nil {
 		return err
 	}
@@ -542,7 +543,7 @@ func runWorkerDurableJobs(opts workerDurableJobsOptions, stdout io.Writer) error
 	resp := workerDurableJobsResponse{
 		SchemaVersion: "scenery.durable.jobs.v1",
 		Service:       service,
-		DBPath:        filepath.ToSlash(dbPath),
+		DBPath:        postgresdb.RedactURL(databaseURL),
 		Action:        opts.Action,
 	}
 	switch opts.Action {
@@ -615,15 +616,36 @@ func openWorkerDurableStore(appRoot, serviceName string) (string, app.Config, *d
 	if err != nil {
 		return "", app.Config{}, nil, "", "", err
 	}
-	dbPath, err := durablestore.DurableDBPath(filepath.Join(root, ".scenery", "state"), service)
+	databaseURL, err := durableDatabaseURLForCLI(root, cfg, service)
 	if err != nil {
 		return "", app.Config{}, nil, "", "", err
 	}
-	db, err := durablestore.Open(context.Background(), service, dbPath, durablestore.Options{})
+	db, err := durablestore.Open(context.Background(), service, databaseURL, durablestore.Options{})
 	if err != nil {
 		return "", app.Config{}, nil, "", "", err
 	}
-	return root, cfg, db, dbPath, service, nil
+	return root, cfg, db, databaseURL, service, nil
+}
+
+func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (string, error) {
+	env, err := appEnvWithDotEnv(envpolicy.Environ(), root)
+	if err != nil {
+		return "", err
+	}
+	if value, _ := lookupEnvValue(env, cfg.DatabaseURLEnv()); strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value), nil
+	}
+	if value, _ := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
+		registry, err := postgresdb.DecodeRegistry(value)
+		if err == nil && strings.TrimSpace(registry.URL) != "" {
+			return registry.URL, nil
+		}
+	}
+	serviceEnv := postgresdb.ServiceDatabaseURLEnv(service)
+	if value, _ := lookupEnvValue(env, serviceEnv); strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value), nil
+	}
+	return "", fmt.Errorf("durable store requires %s for service %s", cfg.DatabaseURLEnv(), service)
 }
 
 func durableJobRecordFromStore(job durablestore.JobDetail) durableJobRecord {

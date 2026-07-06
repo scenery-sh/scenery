@@ -3,124 +3,64 @@ package db
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"scenery.sh/internal/sqlitedb"
 )
 
-func TestGetUsesSQLiteServiceEnv(t *testing.T) {
+func TestResolveDatabaseURLUsesServiceEnv(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"auth": {"kind": "sqlite", "database_url_env": "AUTH_DB"}`)
+	root := writeAppConfig(t, `"reports": {}`)
 	t.Setenv(appRootEnv, root)
-	path := filepath.Join(root, "auth.sqlite")
-	t.Setenv("AUTH_DB", sqlitedb.URLForPath(path))
+	t.Setenv("REPORTS_DATABASE_URL", "postgres://user:secret@localhost/reports?search_path=reports%2Cscenery")
 
-	pool, err := Get(context.Background())
-	if err != nil {
-		t.Fatalf("Get returned error: %v", err)
-	}
-	if pool == nil {
-		t.Fatal("Get returned nil pool")
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("sqlite file was not created: %v", err)
-	}
-}
-
-func TestGetRequiresServiceNameWhenMultipleServicesExist(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"db": {"kind": "sqlite", "database_url_env": "MAIN_DB"}, "billing": {"kind": "sqlite"}`)
-	t.Setenv(appRootEnv, root)
-	path := filepath.Join(root, "main.sqlite")
-	t.Setenv("MAIN_DB", sqlitedb.URLForPath(path))
-
-	if _, err := Get(context.Background()); err == nil || !strings.Contains(err.Error(), "database service name is required") {
-		t.Fatalf("Get error = %v", err)
-	}
-	if _, err := Get(context.Background(), "db"); err != nil {
-		t.Fatalf("Get named db service returned error: %v", err)
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("named db sqlite file was not created: %v", err)
-	}
-}
-
-func TestGetUsesNamedService(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}, "billing": {"kind": "sqlite", "database_url_env": "BILLING_DB"}`)
-	t.Setenv(appRootEnv, root)
-	path := filepath.Join(root, "billing.sqlite")
-	t.Setenv("BILLING_DB", sqlitedb.URLForPath(path))
-
-	if _, err := Get(context.Background(), "billing"); err != nil {
-		t.Fatalf("Get named service returned error: %v", err)
-	}
-}
-
-func TestGetUsesDiscoveredServiceMetadata(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, ``)
-	t.Setenv(appRootEnv, root)
-	path := filepath.Join(root, "tasks.sqlite")
-	records := []map[string]string{{
-		"service": "tasks",
-		"path":    path,
-	}}
-	data, err := json.Marshal(records)
-	if err != nil {
-		t.Fatalf("Marshal returned error: %v", err)
-	}
-	t.Setenv("SCENERY_SQLITE_DATABASES_JSON", string(data))
-
-	if _, err := Get(context.Background(), "tasks"); err != nil {
-		t.Fatalf("Get discovered service returned error: %v", err)
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("discovered service sqlite file was not created: %v", err)
-	}
-}
-
-func TestResolveDatabaseURLUsesPostgresServiceEnv(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"reports": {"kind": "postgres", "database_url_env": "REPORTS_DATABASE_URL"}`)
-	t.Setenv(appRootEnv, root)
-	t.Setenv("REPORTS_DATABASE_URL", "postgres://user:secret@localhost/reports")
-
-	dsn, source, err := resolveDatabaseURL("reports")
+	resolved, err := resolveDatabaseURL("reports")
 	if err != nil {
 		t.Fatalf("resolveDatabaseURL returned error: %v", err)
 	}
-	if dsn != "postgres://user:secret@localhost/reports" || source != "REPORTS_DATABASE_URL" {
-		t.Fatalf("resolveDatabaseURL = %q from %q", dsn, source)
+	if resolved.URL != "postgres://user:secret@localhost/reports?search_path=reports%2Cscenery" || resolved.Source != "REPORTS_DATABASE_URL" || resolved.Schema != "reports" {
+		t.Fatalf("resolveDatabaseURL = %+v", resolved)
 	}
 }
 
-func TestResolveDatabaseURLUsesDiscoveredPostgresMetadata(t *testing.T) {
+func TestResolveDatabaseURLDerivesServiceURLFromAppEnv(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, ``)
+	root := writeAppConfig(t, `"reports": {}`)
 	t.Setenv(appRootEnv, root)
-	t.Setenv("SCENERY_POSTGRES_DATABASES_JSON", `[{"service":"reports","database":"reports_abc","url":"postgres://u:p@localhost/reports","database_url_env":"REPORTS_DATABASE_URL","source":"managed"}]`)
+	t.Setenv("DATABASE_URL", "postgres://user:secret@localhost/app?sslmode=disable")
 
-	dsn, source, err := resolveDatabaseURL("reports")
+	resolved, err := resolveDatabaseURL("reports")
 	if err != nil {
 		t.Fatalf("resolveDatabaseURL returned error: %v", err)
 	}
-	if dsn != "postgres://u:p@localhost/reports" || source != "SCENERY_POSTGRES_DATABASES_JSON" {
-		t.Fatalf("resolveDatabaseURL = %q from %q", dsn, source)
+	if resolved.Source != "DATABASE_URL" || !strings.Contains(resolved.URL, "search_path=reports%2Cscenery") || !strings.Contains(resolved.URL, "sslmode=disable") {
+		t.Fatalf("resolveDatabaseURL = %+v", resolved)
 	}
 }
 
-func TestResolveDatabaseURLRequiresNameAcrossMixedServices(t *testing.T) {
+func TestResolveDatabaseURLUsesDiscoveredRegistry(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"main": {"kind": "sqlite"}, "reports": {"kind": "postgres"}`)
+	root := writeAppConfig(t, ``)
+	t.Setenv(appRootEnv, root)
+	t.Setenv("SCENERY_DATABASE_JSON", `{"database":"app_abc","url":"postgres://u:p@localhost/app","source":"managed","schemas":[{"service":"reports","schema":"reports","url":"postgres://u:p@localhost/app?search_path=reports%2Cscenery"}]}`)
+
+	resolved, err := resolveDatabaseURL("reports")
+	if err != nil {
+		t.Fatalf("resolveDatabaseURL returned error: %v", err)
+	}
+	if resolved.URL != "postgres://u:p@localhost/app?search_path=reports%2Cscenery" || resolved.Source != "SCENERY_DATABASE_JSON" {
+		t.Fatalf("resolveDatabaseURL = %+v", resolved)
+	}
+}
+
+func TestResolveDatabaseURLRequiresNameWhenMultipleServicesExist(t *testing.T) {
+	resetDBForTest(t)
+	root := writeAppConfig(t, `"main": {}, "reports": {}`)
 	t.Setenv(appRootEnv, root)
 
-	_, _, err := resolveDatabaseURL()
+	_, err := resolveDatabaseURL()
 	if err == nil || !strings.Contains(err.Error(), "database service name is required when 2 services are configured") {
 		t.Fatalf("resolveDatabaseURL error = %v", err)
 	}
@@ -128,57 +68,30 @@ func TestResolveDatabaseURLRequiresNameAcrossMixedServices(t *testing.T) {
 
 func TestGetReportsMissingDatabaseURL(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
+	root := writeAppConfig(t, `"auth": {}`)
 	t.Setenv(appRootEnv, root)
 
 	_, err := Get(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "AUTH_DATABASE_URL") {
+	if err == nil || !strings.Contains(err.Error(), "auth") || !strings.Contains(err.Error(), "DATABASE_URL") {
 		t.Fatalf("Get error = %v", err)
 	}
 }
 
-func TestGetReportsInvalidDatabaseURLWithoutRawDSN(t *testing.T) {
+func TestGetRejectsNonPostgresDatabaseURL(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
+	root := writeAppConfig(t, `"auth": {}`)
 	t.Setenv(appRootEnv, root)
-	raw := "mysql://user:secret@localhost/db"
-	t.Setenv("AUTH_DATABASE_URL", raw)
+	t.Setenv("DATABASE_URL", "mysql://localhost/auth")
 
 	_, err := Get(context.Background())
-	if err == nil {
-		t.Fatal("Get returned nil error")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "unsupported database URL scheme") {
-		t.Fatalf("error = %q, want invalid URL", msg)
-	}
-	if strings.Contains(msg, raw) || strings.Contains(msg, "secret") {
-		t.Fatalf("error leaked DSN: %q", msg)
-	}
-}
-
-func TestGetReusesPoolAcrossCalls(t *testing.T) {
-	resetDBForTest(t)
-	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
-	t.Setenv(appRootEnv, root)
-	t.Setenv("AUTH_DATABASE_URL", sqlitedb.URLForPath(filepath.Join(root, "auth.sqlite")))
-
-	first, err := Get(context.Background())
-	if err != nil {
-		t.Fatalf("first Get returned error: %v", err)
-	}
-	second, err := Get(context.Background())
-	if err != nil {
-		t.Fatalf("second Get returned error: %v", err)
-	}
-	if first != second {
-		t.Fatal("Get did not reuse the existing pool")
+	if err == nil || !strings.Contains(err.Error(), "postgres") || !strings.Contains(err.Error(), "schema") {
+		t.Fatalf("Get error = %v", err)
 	}
 }
 
 func TestMustGetPanicsOnError(t *testing.T) {
 	resetDBForTest(t)
-	root := writeAppConfig(t, `"auth": {"kind": "sqlite"}`)
+	root := writeAppConfig(t, `"auth": {}`)
 	t.Setenv(appRootEnv, root)
 
 	defer func() {

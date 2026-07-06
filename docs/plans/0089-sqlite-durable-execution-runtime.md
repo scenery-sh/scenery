@@ -1,5 +1,7 @@
 # 0089 - SQLite Durable Execution Runtime Per Service
 
+> Current contract note (2026-07-06): 0097 supersedes this plan's storage model. Durable execution now uses the app Postgres database's `scenery` schema and a single shared store; the current contract lives in `0097-postgres-only-data-platform.md` and `docs/local-contract.md`.
+
 This ExecPlan is a living document. Update Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective as work proceeds.
 
 ## Purpose / Big Picture

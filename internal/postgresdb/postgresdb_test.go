@@ -9,9 +9,9 @@ import (
 )
 
 func TestDatabaseNameForIsStableAndKeepsHash(t *testing.T) {
-	a := DatabaseNameFor("My App With A Very Very Very Long Name", "reports", "/tmp/worktree-a")
-	b := DatabaseNameFor("My App With A Very Very Very Long Name", "reports", "/tmp/worktree-a")
-	c := DatabaseNameFor("My App With A Very Very Very Long Name", "reports", "/tmp/worktree-b")
+	a := DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-a")
+	b := DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-a")
+	c := DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-b")
 	if a != b {
 		t.Fatalf("DatabaseNameFor not stable: %q != %q", a, b)
 	}
@@ -26,11 +26,19 @@ func TestDatabaseNameForIsStableAndKeepsHash(t *testing.T) {
 	}
 }
 
+func TestSchemaNameForRejectsReservedNames(t *testing.T) {
+	for _, name := range []string{"scenery", "public", "information-schema", "pg_catalog"} {
+		if _, err := SchemaNameFor(name); err == nil {
+			t.Fatalf("SchemaNameFor(%q) returned nil error", name)
+		}
+	}
+}
+
 func TestParseURLAndRedactURL(t *testing.T) {
 	if _, err := ParseURL("postgres://user:secret@localhost:5432/app"); err != nil {
 		t.Fatalf("ParseURL returned error: %v", err)
 	}
-	if _, err := ParseURL("sqlite:///tmp/app.sqlite"); err == nil {
+	if _, err := ParseURL("mysql://localhost/app"); err == nil {
 		t.Fatalf("ParseURL accepted non-postgres URL")
 	}
 	redacted := RedactURL("postgres://user:secret@localhost/app?sslmode=disable")
@@ -40,10 +48,14 @@ func TestParseURLAndRedactURL(t *testing.T) {
 }
 
 func TestEnvAndRegistry(t *testing.T) {
-	services := []Service{{Name: "reports", Database: "reports_abc", URL: "postgres://u:p@localhost/reports", DatabaseURLEnv: "REPORTS_DATABASE_URL", Source: SourceManaged}}
-	envList := Env(services, true)
+	serviceURL, err := ServiceURL("postgres://u:p@localhost/app", "reports")
+	if err != nil {
+		t.Fatalf("ServiceURL returned error: %v", err)
+	}
+	database := Database{Database: "app_abc", URL: "postgres://u:p@localhost/app", Source: SourceManaged, Schemas: []Service{{Name: "reports", Schema: "reports", URL: serviceURL}}}
+	envList := Env(database, "DATABASE_URL")
 	env := strings.Join(envList, "\n")
-	if !strings.Contains(env, "REPORTS_DATABASE_URL=postgres://u:p@localhost/reports") {
+	if !strings.Contains(env, "DATABASE_URL=postgres://u:p@localhost/app") || !strings.Contains(env, "REPORTS_DATABASE_URL="+serviceURL) {
 		t.Fatalf("Env missing service URL: %s", env)
 	}
 	registry := ""
@@ -56,8 +68,18 @@ func TestEnvAndRegistry(t *testing.T) {
 		t.Fatalf("Env missing registry: %s", env)
 	}
 	decoded, err := DecodeRegistry(registry)
-	if err != nil || len(decoded) != 1 || decoded[0].Name != "reports" {
+	if err != nil || decoded.Database != "app_abc" || len(decoded.Schemas) != 1 || decoded.Schemas[0].Name != "reports" {
 		t.Fatalf("DecodeRegistry = %+v err=%v", decoded, err)
+	}
+}
+
+func TestServiceURLUsesSearchPathRuntimeParam(t *testing.T) {
+	got, err := ServiceURL("postgres://user:secret@localhost/app?sslmode=disable", "reports")
+	if err != nil {
+		t.Fatalf("ServiceURL returned error: %v", err)
+	}
+	if !strings.Contains(got, "search_path=reports%2Cscenery") || !strings.Contains(got, "sslmode=disable") {
+		t.Fatalf("ServiceURL = %q", got)
 	}
 }
 

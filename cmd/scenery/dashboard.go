@@ -28,7 +28,6 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/sqlitedb"
 	"scenery.sh/internal/symphony"
 )
 
@@ -815,7 +814,7 @@ func (s *dashboardServer) queryDB(ctx context.Context, req devdash.QueryRequest)
 	if err != nil {
 		return nil, err
 	}
-	db, err := openSQLiteDashboardDB(ctx, status.AppRoot)
+	db, err := openPostgresDashboardDB(ctx, status.AppRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -834,7 +833,7 @@ func (s *dashboardServer) transactionDB(ctx context.Context, req devdash.Transac
 	if err != nil {
 		return nil, err
 	}
-	db, err := openSQLiteDashboardDB(ctx, status.AppRoot)
+	db, err := openPostgresDashboardDB(ctx, status.AppRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -864,16 +863,23 @@ func (s *dashboardServer) transactionDB(ctx context.Context, req devdash.Transac
 	return results, nil
 }
 
-func openSQLiteDashboardDB(ctx context.Context, root string) (*sql.DB, error) {
-	_, cfg, err := app.DiscoverRoot(root)
+func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) {
+	appRoot, cfg, err := app.DiscoverRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	svc, err := sqlitedb.ResolveService(sqlitedb.ResolveRequest{AppRoot: root, Config: cfg, Mode: sqlitedb.ModeLocal}, "")
+	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
 		return nil, err
 	}
-	return sqlitedb.Open(ctx, svc.Path)
+	_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, nil, baseEnv)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(database.URL) == "" {
+		return nil, fmt.Errorf("no postgres database discovered")
+	}
+	return openPostgresDatabase(ctx, database.URL)
 }
 
 func scanRows(rows *sql.Rows, arrayMode bool) ([]any, error) {

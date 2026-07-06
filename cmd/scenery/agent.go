@@ -19,6 +19,7 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/postgresdb"
 )
 
 type agentOptions struct {
@@ -45,16 +46,15 @@ type downOptions struct {
 }
 
 type downResponse struct {
-	SchemaVersion         string   `json:"schema_version"`
-	SessionID             string   `json:"session_id"`
-	AppRoot               string   `json:"app_root,omitempty"`
-	Deleted               bool     `json:"deleted"`
-	RecordPreserved       bool     `json:"record_preserved"`
-	DBCleanup             bool     `json:"db_cleanup"`
-	StateCleanup          bool     `json:"state_cleanup"`
-	StateRootRemoved      string   `json:"state_root_removed,omitempty"`
-	DBBranchPinRemoved    bool     `json:"db_branch_pin_removed"`
-	Messages              []string `json:"messages,omitempty"`
+	SchemaVersion    string   `json:"schema_version"`
+	SessionID        string   `json:"session_id"`
+	AppRoot          string   `json:"app_root,omitempty"`
+	Deleted          bool     `json:"deleted"`
+	RecordPreserved  bool     `json:"record_preserved"`
+	DBCleanup        bool     `json:"db_cleanup"`
+	StateCleanup     bool     `json:"state_cleanup"`
+	StateRootRemoved string   `json:"state_root_removed,omitempty"`
+	Messages         []string `json:"messages,omitempty"`
 }
 
 type pruneOptions struct {
@@ -611,18 +611,6 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		if !opts.JSON {
 			fmt.Fprintln(stdout, stateMessage)
 		}
-		removedPin, err := removeDBWorktreeDBPinForSession(appRoot, deletedSession)
-		if err != nil {
-			return err
-		}
-		if removedPin {
-			resp.DBBranchPinRemoved = true
-			pinMessage := fmt.Sprintf("removed scenery database branch pin for dev runtime %s", runtimeLabel)
-			resp.Messages = append(resp.Messages, pinMessage)
-			if !opts.JSON {
-				fmt.Fprintln(stdout, pinMessage)
-			}
-		}
 	}
 	stopMessage := fmt.Sprintf("stopped scenery dev runtime for %s", runtimeLabel)
 	resp.Messages = append(resp.Messages, stopMessage)
@@ -901,108 +889,19 @@ func dropSessionManagedDatabase(ctx context.Context, client *localagent.Client, 
 	if err != nil {
 		return "", err
 	}
-	if appConfigUsesBranchingSQLite(cfg) {
-		branch, removed, err := removeDBBranchLeaseForSession(appRoot, session)
+	if len(cfg.DatabaseServices()) > 0 {
+		admin, err := managedPostgresAdmin(ctx)
 		if err != nil {
 			return "", err
 		}
-		if !removed {
-			return "no local database branch lease to remove for this dev runtime", nil
+		defer admin.Close()
+		name := postgresdb.DatabaseNameFor(cfg.AppID(), appRoot)
+		if err := postgresdb.DropDatabase(ctx, admin, name); err != nil {
+			return "", err
 		}
-		return fmt.Sprintf("removed local database branch lease %s for this dev runtime", branch), nil
+		return fmt.Sprintf("dropped managed postgres database %s", name), nil
 	}
-	if strings.TrimSpace(session.SessionID) == "" {
-		return "", fmt.Errorf("session id is required to drop managed sqlite databases")
-	}
-	dir := filepath.Join(appRoot, ".scenery", "sessions", session.SessionID, "sqlite")
-	if err := os.RemoveAll(dir); err != nil {
-		return "", err
-	}
-	return "removed managed sqlite databases for this dev runtime", nil
-}
-
-func removeDBWorktreeDBPinForSession(appRoot string, session localagent.Session) (bool, error) {
-	if strings.TrimSpace(appRoot) == "" {
-		return false, nil
-	}
-	_, cfg, err := app.DiscoverRoot(appRoot)
-	if err != nil {
-		if errors.Is(err, app.ErrRootNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	if !appConfigUsesBranchingSQLite(cfg) {
-		return false, nil
-	}
-	path := worktreeDBPinPath(appRoot)
-	pin, ok, err := readWorktreeDBPin(path)
-	if err != nil {
-		return false, err
-	}
-	if !ok {
-		return false, nil
-	}
-	if sessionID := strings.TrimSpace(session.SessionID); sessionID != "" {
-		if strings.TrimSpace(pin.SessionID) != "" {
-			if pin.SessionID != sessionID {
-				return false, nil
-			}
-		} else if firstNonEmpty(strings.TrimSpace(dbSQLiteService(cfg).BranchPolicy), dbBranchDefaultPolicy) == "session" {
-			branch, _, err := deriveDBBranchName(appRoot, cfg, &session)
-			if err != nil {
-				return false, err
-			}
-			expected, err := buildWorktreeDBPinForSession(appRoot, cfg, &session, branch)
-			if err != nil {
-				return false, err
-			}
-			if !sameDBBranchLease(pin, expected) && !sameDBBranch(pin, expected) {
-				return false, nil
-			}
-		}
-	}
-	if err := os.Remove(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-func removeDBBranchLeaseForSession(appRoot string, session localagent.Session) (string, bool, error) {
-	if strings.TrimSpace(appRoot) == "" {
-		return "", false, nil
-	}
-	_, cfg, err := app.DiscoverRoot(appRoot)
-	if err != nil {
-		if errors.Is(err, app.ErrRootNotFound) {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	if !appConfigUsesBranchingSQLite(cfg) {
-		return "", false, nil
-	}
-	pin, ok, err := readWorktreeDBPin(worktreeDBPinPath(appRoot))
-	if err != nil || !ok {
-		return "", false, err
-	}
-	if sessionID := strings.TrimSpace(session.SessionID); sessionID != "" && strings.TrimSpace(pin.SessionID) != "" && pin.SessionID != sessionID {
-		return "", false, nil
-	}
-	branch, removed, err := removeCurrentDBBranchLease(appRoot, cfg)
-	if err != nil || !removed {
-		return branch, removed, err
-	}
-	_ = os.Remove(worktreeDBPinPath(appRoot))
-	return branch, true, nil
-}
-
-func appConfigUsesBranchingSQLite(cfg app.Config) bool {
-	_, svc, ok := managedSQLiteDeclared(cfg)
-	return ok && sqliteServiceUsesBranching(svc)
+	return "no managed database is configured", nil
 }
 
 func resolveStatusAppRoot(value string) (string, error) {

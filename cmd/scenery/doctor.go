@@ -539,7 +539,7 @@ func doctorStorageSizeChecks(ctx context.Context, deps doctorProbeDeps) []doctor
 	home = filepath.Clean(home)
 	return []doctorCheck{
 		doctorPathSizeCheck(ctx, "storage.scenery_home", "Scenery home size", home, "Scenery home"),
-		doctorPathSizeCheck(ctx, "storage.sqlite_database", "SQLite database storage size", filepath.Join(home, "agent", "sqlite"), "SQLite database storage"),
+		doctorPathSizeCheck(ctx, "storage.postgres_database", "Postgres database state size", filepath.Join(home, "agent", "postgres"), "Postgres database state"),
 	}
 }
 

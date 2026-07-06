@@ -138,7 +138,7 @@ export function OverviewPage({
         />
         <MetricCard
           title="Databases"
-          detail="SQLite databases"
+          detail="Postgres databases"
           value={String(databases.length)}
           variant={databases.length > 0 ? 'success' : 'neutral'}
         />

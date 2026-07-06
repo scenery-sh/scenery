@@ -10,6 +10,7 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/symphony"
 )
 
@@ -167,11 +168,35 @@ func (s *dashboardServer) symphonyAppID(ctx context.Context, raw json.RawMessage
 }
 
 func openDashboardSymphonyStore(ctx context.Context) (*symphony.Store, error) {
-	return symphony.Open(ctx, filepath.Join(symphonyCacheRoot(), "symphony.sqlite"))
+	url, err := dashboardSymphonyDatabaseURL(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return symphony.Open(ctx, url)
 }
 
 func (s *dashboardServer) openDashboardSymphonyStore(ctx context.Context) (*symphony.Store, error) {
-	return symphony.Open(ctx, filepath.Join(s.symphonyCacheRoot(), "symphony.sqlite"))
+	url, err := dashboardSymphonyDatabaseURL(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return symphony.Open(ctx, url)
+}
+
+func dashboardSymphonyDatabaseURL(ctx context.Context) (string, error) {
+	server, err := ensureSharedPostgresServer(ctx, "", nil)
+	if err != nil {
+		return "", fmt.Errorf("symphony store requires the managed Postgres server: %w", err)
+	}
+	admin, err := openPostgresAdmin(ctx, server.databaseURL("postgres"))
+	if err != nil {
+		return "", fmt.Errorf("connect managed Postgres server for symphony store: %w", err)
+	}
+	defer admin.Close()
+	if err := postgresdb.EnsureDatabase(ctx, admin, "scenery_symphony"); err != nil {
+		return "", fmt.Errorf("ensure symphony Postgres database: %w", err)
+	}
+	return server.databaseURL("scenery_symphony"), nil
 }
 
 func (s *dashboardServer) symphonyCacheRoot() string {

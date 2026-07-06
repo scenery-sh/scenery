@@ -2,9 +2,7 @@ package runtime
 
 import (
 	"context"
-	"database/sql"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	durablestore "scenery.sh/internal/durable/store"
@@ -15,13 +13,8 @@ func TestDurableRemoteWorkerExecutesJobOverHTTP(t *testing.T) {
 	defer restore()
 	defer setActiveDurableStores(nil)
 
-	root := t.TempDir()
-	stateRoot := filepath.Join(root, ".scenery", "state")
-	path, err := durablestore.DurableDBPath(stateRoot, "maps")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := durablestore.Open(context.Background(), "maps", path, durablestore.Options{Synchronous: "off"})
+	dsn := liveRuntimeDatabaseURL(t)
+	db, err := durablestore.Open(context.Background(), "maps", dsn, durablestore.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,10 +61,7 @@ func TestDurableRemoteWorkerExecutesJobOverHTTP(t *testing.T) {
 		}
 	}()
 
-	sqlDB, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sqlDB := openRuntimeDB(t, dsn)
 	defer sqlDB.Close()
 	waitRuntimeJobState(t, sqlDB, "job-remote-worker", "succeeded")
 }

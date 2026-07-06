@@ -745,7 +745,7 @@ func devConsoleSourceRank(id string) int {
 		return 20
 	case "worker:durable":
 		return 30
-	case "sqlite":
+	case "database":
 		return 40
 	case "build":
 		return 80

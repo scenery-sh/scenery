@@ -1,4 +1,4 @@
-module example.com/postgresbasic
+module example.com/dbbasic
 
 go 1.26.3
 

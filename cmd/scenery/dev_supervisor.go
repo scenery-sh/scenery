@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -30,7 +29,7 @@ import (
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/sqlitedb"
+	"scenery.sh/internal/postgresdb"
 )
 
 type runningApp struct {
@@ -848,11 +847,10 @@ func waitForDatabaseSetupConnection(ctx context.Context, env []string) error {
 }
 
 func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
-	if len(cfg.SQLiteServices()) == 0 && len(cfg.PostgresServices()) == 0 {
+	if len(cfg.DatabaseServices()) == 0 {
 		return nil
 	}
-	keys := sqliteEnvKeys(cfg)
-	keys = append(keys, postgresEnvKeys(cfg)...)
+	keys := databaseEnvKeys(cfg)
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if value := envValueFromList(managedEnv, key); value != "" {
@@ -863,22 +861,11 @@ func managedDatabaseSetupEnv(cfg app.Config, managedEnv []string) []string {
 }
 
 func (s *devSupervisor) managedAppEnv(ctx context.Context, baseEnv []string) ([]string, error) {
-	env, services, err := managedSQLiteEnv(ctx, s.root, s.cfg, s.currentAgentSession())
+	env, database, err := managedDatabaseEnvWithAgent(ctx, s.root, s.cfg, s.currentAgentSession(), s.agent, baseEnv)
 	if err != nil {
 		return nil, err
 	}
-	for _, svc := range services {
-		s.eventSink().Emit(ctx, devdash.DevSource{ID: "sqlite:" + svc.Name, Kind: "substrate", Name: svc.Name, Role: "database", Status: "running"}, "info", "SQLite service database ready", map[string]any{
-			"service": svc.Name,
-			"path":    svc.Path,
-		})
-	}
-	postgresEnv, postgresServices, err := managedPostgresEnvWithAgent(ctx, s.root, s.cfg, s.currentAgentSession(), s.agent, baseEnv)
-	if err != nil {
-		return nil, err
-	}
-	emitPostgresReadyEvents(ctx, s.eventSink(), postgresServices)
-	env = append(env, postgresEnv...)
+	emitPostgresReadyEvents(ctx, s.eventSink(), database)
 	return env, nil
 }
 
@@ -886,12 +873,8 @@ func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string) []string {
 	if s == nil {
 		return baseEnv
 	}
-	if len(s.cfg.SQLiteServices()) > 0 || len(s.cfg.PostgresServices()) > 0 {
-		keys := []string{appDatabaseURLEnv, legacyDatabaseURLEnv, "SCENERY_SQLITE_DATABASES_JSON"}
-		for _, svc := range s.cfg.SQLiteServices() {
-			keys = append(keys, svc.DatabaseURLEnv, svc.DatabasePathEnv)
-		}
-		keys = append(keys, postgresEnvKeys(s.cfg)...)
+	if len(s.cfg.DatabaseServices()) > 0 {
+		keys := append([]string{legacyDatabaseURLEnv}, databaseEnvKeys(s.cfg)...)
 		return envWithoutKeys(baseEnv, keys...)
 	}
 	return baseEnv
@@ -1713,7 +1696,7 @@ func (s *devSupervisor) appStatus() devdash.AppStatus {
 	}
 	s.mu.RUnlock()
 	applySessionStatusToAppStatus(&status, session)
-	status.Meta = s.metadataWithRuntimeSQLiteDatabases(status.Meta, status.AppRoot, status.SessionID)
+	status.Meta = s.metadataWithRuntimePostgresDatabases(status.Meta, status.AppRoot)
 	return status
 }
 
@@ -1815,20 +1798,22 @@ func (s *devSupervisor) statusFor(ctx context.Context, appID string) (devdash.Ap
 		CompileError:  app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, session)
-	status.Meta = s.metadataWithRuntimeSQLiteDatabases(status.Meta, status.AppRoot, status.SessionID)
+	status.Meta = s.metadataWithRuntimePostgresDatabases(status.Meta, status.AppRoot)
 	return status, nil
 }
 
-type dashboardSQLiteDatabase struct {
-	Name      string `json:"name"`
-	FileLabel string `json:"file_label,omitempty"`
-	Path      string `json:"path"`
-	URL       string `json:"url,omitempty"`
-	SizeBytes int64  `json:"size_bytes"`
-	Exists    bool   `json:"exists"`
+type dashboardPostgresDatabase struct {
+	Name    string                    `json:"name"`
+	Source  string                    `json:"source,omitempty"`
+	Schemas []dashboardPostgresSchema `json:"schemas,omitempty"`
 }
 
-func (s *devSupervisor) metadataWithRuntimeSQLiteDatabases(metadata json.RawMessage, appRoot, sessionID string) json.RawMessage {
+type dashboardPostgresSchema struct {
+	Service string `json:"service"`
+	Schema  string `json:"schema"`
+}
+
+func (s *devSupervisor) metadataWithRuntimePostgresDatabases(metadata json.RawMessage, appRoot string) json.RawMessage {
 	if s == nil {
 		return metadata
 	}
@@ -1836,10 +1821,10 @@ func (s *devSupervisor) metadataWithRuntimeSQLiteDatabases(metadata json.RawMess
 	if appRoot == "" {
 		return metadata
 	}
-	return metadataWithRuntimeSQLiteDatabases(metadata, appRoot, sessionID, s.cfg, appRoot == s.root)
+	return metadataWithRuntimePostgresDatabases(metadata, appRoot, s.cfg, appRoot == s.root)
 }
 
-func metadataWithRuntimeSQLiteDatabases(metadata json.RawMessage, appRoot, sessionID string, cfg app.Config, cfgKnown bool) json.RawMessage {
+func metadataWithRuntimePostgresDatabases(metadata json.RawMessage, appRoot string, cfg app.Config, cfgKnown bool) json.RawMessage {
 	appRoot = strings.TrimSpace(appRoot)
 	if appRoot == "" {
 		return metadata
@@ -1853,71 +1838,26 @@ func metadataWithRuntimeSQLiteDatabases(metadata json.RawMessage, appRoot, sessi
 		root = discoveredRoot
 		cfg = discoveredCfg
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	databases := configuredSQLiteDatabases(root, cfg, sessionID)
-	databases = append(databases, discoveredRuntimeSQLiteDatabases(root, sessionID, databases)...)
-	return metadataWithSQLiteDatabases(metadata, databases)
-}
-
-func configuredSQLiteDatabases(root string, cfg app.Config, sessionID string) []dashboardSQLiteDatabase {
-	if len(cfg.SQLiteServices()) == 0 {
+	database := configuredPostgresDatabase(root, cfg)
+	if database.Name == "" {
 		return nil
 	}
-	req := sqlitedb.ResolveRequest{AppRoot: root, Config: cfg, Mode: sqlitedb.ModeLocal}
-	if sessionID != "" {
-		req.Mode = sqlitedb.ModeSession
-		req.SessionID = sessionID
-	}
-	resolved, err := sqlitedb.ResolveServices(req)
-	if err != nil {
-		return nil
-	}
-	databases := make([]dashboardSQLiteDatabase, 0, len(resolved))
-	for _, svc := range resolved {
-		databases = append(databases, sqliteDatabaseRecord(svc.Name, svc.FileLabel, svc.Path, svc.URL))
-	}
-	return databases
+	return metadataWithPostgresDatabases(metadata, []dashboardPostgresDatabase{database})
 }
 
-func discoveredRuntimeSQLiteDatabases(root, sessionID string, existing []dashboardSQLiteDatabase) []dashboardSQLiteDatabase {
-	seen := map[string]bool{}
-	for _, db := range existing {
-		seen[db.Path] = true
+func configuredPostgresDatabase(root string, cfg app.Config) dashboardPostgresDatabase {
+	services := cfg.DatabaseServices()
+	if len(services) == 0 {
+		return dashboardPostgresDatabase{}
 	}
-	var databases []dashboardSQLiteDatabase
-	dir := filepath.Join(root, ".scenery", "sqlite", "local")
-	if sessionID != "" {
-		dir = filepath.Join(root, ".scenery", "sessions", sessionID, "sqlite")
-	}
-	_ = filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || seen[path] || !sqliteFileName(path) {
-			return nil
-		}
-		seen[path] = true
-		name := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".sqlite"), ".db")
-		databases = append(databases, sqliteDatabaseRecord(name, name, path, sqlitedb.URLForPath(path)))
-		return nil
-	})
-	sort.Slice(databases, func(i, j int) bool { return databases[i].Path < databases[j].Path })
-	return databases
-}
-
-func sqliteFileName(path string) bool {
-	name := strings.ToLower(filepath.Base(path))
-	return strings.HasSuffix(name, ".sqlite") || strings.HasSuffix(name, ".db")
-}
-
-func sqliteDatabaseRecord(name, fileLabel, path, url string) dashboardSQLiteDatabase {
-	db := dashboardSQLiteDatabase{Name: name, FileLabel: fileLabel, Path: path, URL: url}
-	info, err := os.Stat(path)
-	if err == nil && !info.IsDir() {
-		db.SizeBytes = info.Size()
-		db.Exists = true
+	db := dashboardPostgresDatabase{Name: postgresdb.DatabaseNameFor(cfg.AppID(), root), Source: "managed"}
+	for _, svc := range services {
+		db.Schemas = append(db.Schemas, dashboardPostgresSchema{Service: svc.Name, Schema: svc.Schema})
 	}
 	return db
 }
 
-func metadataWithSQLiteDatabases(metadata json.RawMessage, databases []dashboardSQLiteDatabase) json.RawMessage {
+func metadataWithPostgresDatabases(metadata json.RawMessage, databases []dashboardPostgresDatabase) json.RawMessage {
 	if len(databases) == 0 {
 		return metadata
 	}

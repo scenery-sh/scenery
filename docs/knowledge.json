@@ -39,6 +39,27 @@
       ]
     },
     {
+      "path": "docs/plans/0097-postgres-only-data-platform.md",
+      "title": "Postgres-Only Data Platform: One Database Per App/Worktree, One Schema Per Service",
+      "owner": "scenery runtime / database",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-06",
+      "review_after": "2026-08-06",
+      "summary": "Active ExecPlan removing SQLite entirely: Postgres 18 becomes the only engine with one database per app/worktree on the shared managed server, one schema per service, scenery-native tables (auth, durable execution, seed ledger) in a scenery schema, a single shared durable job store with SKIP LOCKED leasing, a Postgres-only db CLI (branch and path removed), and end-to-end migration of the onlv client app.",
+      "tags": [
+        "plans",
+        "execplans",
+        "database",
+        "postgres",
+        "durable",
+        "auth",
+        "runtime",
+        "dev-services"
+      ]
+    },
+    {
       "path": "docs/plans/0096-dev-loop-performance.md",
       "title": "Dev Loop Performance",
       "owner": "scenery runtime / agent DX",
@@ -121,7 +142,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, local filesystem storage inspection with offsite S3 replication, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, databases, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -159,7 +180,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, internal dashboard cache artifacts including Symphony SQLite, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -229,7 +250,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -242,13 +263,7 @@
         "docs/schemas/scenery.toolchain.v1.schema.json",
         "docs/schemas/scenery.toolchain.status.v1.schema.json",
         "docs/schemas/scenery.upgrade.v1.schema.json",
-        "docs/schemas/scenery.db.branch.v1.schema.json",
-        "docs/schemas/scenery.db.branch.registry.v2.schema.json",
-        "docs/schemas/scenery.db.branch.status.v1.schema.json",
-        "docs/schemas/scenery.db.branch.list.v1.schema.json",
-        "docs/schemas/scenery.db.branch.restore.v1.schema.json",
-        "docs/schemas/scenery.db.branch.diff.v1.schema.json",
-        "docs/schemas/scenery.db.list.v2.schema.json",
+        "docs/schemas/scenery.db.list.v3.schema.json",
         "docs/schemas/scenery.db.server.status.v1.schema.json",
         "docs/schemas/scenery.worktree.create.v1.schema.json",
         "docs/schemas/scenery.worktree.list.v1.schema.json",
@@ -267,7 +282,7 @@
         "docs/schemas/scenery.harness.ui.v1.schema.json",
         "docs/schemas/scenery.harness.ui.dom.v1.schema.json",
         "docs/schemas/scenery.inspect.validation.v1.schema.json",
-        "docs/schemas/scenery.inspect.durable.v1.schema.json",
+        "docs/schemas/scenery.inspect.durable.v2.schema.json",
         "docs/schemas/scenery.durable.worker_token.create.v1.schema.json",
         "docs/schemas/scenery.durable.jobs.v1.schema.json",
         "docs/schemas/scenery.validation.list.v1.schema.json",
@@ -292,7 +307,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Human reference for scenery-owned environment variables, app-injected process identity, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
+      "summary": "Human reference for scenery-owned environment variables, app-injected process identity, Postgres app database URLs and schema registry env, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
         "env",
@@ -314,7 +329,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-02",
-      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including remote durable worker endpoint/token/service variables.",
+      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including Postgres app database env, service database URL patterns, and remote durable worker endpoint/token/service variables.",
       "tags": [
         "environment",
         "env",
@@ -335,7 +350,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-10",
       "review_after": "2026-07-07",
-      "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, managed SQLite branch self-harness proof, local storage restart durability proof, and doc-gardening rules for review-due and drift handling.",
+      "summary": "Agent validation loop, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, parallel managed Postgres self-harness proof, local storage restart durability proof, and doc-gardening rules for review-due and drift handling.",
       "tags": [
         "harness",
         "agents",
@@ -359,7 +374,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-02",
-      "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, durable workers, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, Postgres database services and schemas, durable workers on the scenery schema, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -841,7 +856,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-27",
       "review_after": "2026-07-27",
-      "summary": "Completed ExecPlan that replaced built-in managed Postgres with per-service SQLite database files across config, runtime env injection, DB CLI, branch lifecycle, standard auth, docs, schemas, and dependency cleanup.",
+      "summary": "Completed historical ExecPlan that replaced built-in managed Postgres with per-service database files across config, runtime env injection, DB CLI, branch lifecycle, standard auth, docs, schemas, and dependency cleanup; its database model is superseded by 0097.",
       "tags": [
         "plans",
         "execplans",
@@ -861,7 +876,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-27",
       "review_after": "2026-07-27",
-      "summary": "Completed ExecPlan that added per-service SQLite durable databases, local and remote durable workers, authenticated long-poll leasing, retries, schedules, steps, signals, job admin, inspection, schemas, docs, and migration guidance without NATS.",
+      "summary": "Completed historical ExecPlan that added per-service durable databases, local and remote durable workers, authenticated long-poll leasing, retries, schedules, steps, signals, job admin, inspection, schemas, docs, and migration guidance without NATS; its storage model is superseded by 0097.",
       "tags": [
         "plans",
         "execplans",
@@ -881,7 +896,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-02",
-      "summary": "Completed ExecPlan that added Postgres as an opt-in first-class dev.services kind: an external DSN via the service's database_url_env always wins; otherwise scenery up manages one shared machine-wide Docker Postgres server with one database per app/worktree/service. SQLite stays the default database model, Atlas + sqlc stay the schema/query toolchain, auth/durable/branching stay SQLite-native, and go test ./... stays Docker-free.",
+      "summary": "Completed historical ExecPlan that added Postgres as an opt-in first-class dev.services kind with one database per app/worktree/service on a shared Docker server; its mixed-engine and per-service database model is superseded by 0097.",
       "tags": [
         "plans",
         "execplans",
@@ -1353,7 +1368,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Operator checklist and SQL template for preserving existing app-owned auth data when moving to scenery standard auth; reviewed against current standard auth schema fields.",
+      "summary": "Operator checklist and Postgres SQL template for preserving existing app-owned auth data when moving to scenery standard auth tables in the scenery schema.",
       "tags": [
         "runbook",
         "auth",

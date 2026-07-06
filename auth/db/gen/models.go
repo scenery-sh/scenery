@@ -9,17 +9,17 @@ import (
 	"time"
 )
 
-type SceneryAuthAuthAttempt struct {
+type ScenerySceneryAuthAuthAttempt struct {
 	ID              UUID      `json:"id"`
 	Purpose         string    `json:"purpose"`
 	NormalizedEmail string    `json:"normalized_email"`
 	IpHash          string    `json:"ip_hash"`
 	WindowStartedAt time.Time `json:"window_started_at"`
-	AttemptCount    int64     `json:"attempt_count"`
+	AttemptCount    int32     `json:"attempt_count"`
 	LastAttemptAt   time.Time `json:"last_attempt_at"`
 }
 
-type SceneryAuthAuthEvent struct {
+type ScenerySceneryAuthAuthEvent struct {
 	ID          UUID      `json:"id"`
 	EventType   string    `json:"event_type"`
 	UserID      UUID      `json:"user_id"`
@@ -32,7 +32,7 @@ type SceneryAuthAuthEvent struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type SceneryAuthAuthIdentity struct {
+type ScenerySceneryAuthAuthIdentity struct {
 	ID              UUID      `json:"id"`
 	UserID          UUID      `json:"user_id"`
 	Provider        string    `json:"provider"`
@@ -44,7 +44,7 @@ type SceneryAuthAuthIdentity struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-type SceneryAuthOauthState struct {
+type ScenerySceneryAuthOauthState struct {
 	ID           UUID         `json:"id"`
 	StateHash    string       `json:"state_hash"`
 	PkceVerifier string       `json:"pkce_verifier"`
@@ -55,7 +55,7 @@ type SceneryAuthOauthState struct {
 	CreatedAt    time.Time    `json:"created_at"`
 }
 
-type SceneryAuthOneTimeToken struct {
+type ScenerySceneryAuthOneTimeToken struct {
 	ID              UUID         `json:"id"`
 	Purpose         string       `json:"purpose"`
 	TokenHash       string       `json:"token_hash"`
@@ -69,7 +69,7 @@ type SceneryAuthOneTimeToken struct {
 	CreatedAt       time.Time    `json:"created_at"`
 }
 
-type SceneryAuthOrganizationMembership struct {
+type ScenerySceneryAuthOrganizationMembership struct {
 	ID              UUID         `json:"id"`
 	TenantID        UUID         `json:"tenant_id"`
 	UserID          UUID         `json:"user_id"`
@@ -81,7 +81,7 @@ type SceneryAuthOrganizationMembership struct {
 	UpdatedAt       time.Time    `json:"updated_at"`
 }
 
-type SceneryAuthRefreshSession struct {
+type ScenerySceneryAuthRefreshSession struct {
 	ID                     UUID         `json:"id"`
 	UserID                 UUID         `json:"user_id"`
 	TokenHash              string       `json:"token_hash"`
@@ -101,7 +101,7 @@ type SceneryAuthRefreshSession struct {
 	UpdatedAt              time.Time    `json:"updated_at"`
 }
 
-type SceneryAuthTenant struct {
+type ScenerySceneryAuthTenant struct {
 	ID        UUID         `json:"id"`
 	Name      string       `json:"name"`
 	DeletedAt sql.NullTime `json:"deleted_at"`
@@ -109,7 +109,7 @@ type SceneryAuthTenant struct {
 	UpdatedAt time.Time    `json:"updated_at"`
 }
 
-type SceneryAuthUser struct {
+type ScenerySceneryAuthUser struct {
 	ID                     UUID         `json:"id"`
 	DisplayName            string       `json:"display_name"`
 	AvatarUrl              string       `json:"avatar_url"`

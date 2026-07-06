@@ -127,28 +127,6 @@ func TestRunHarnessParallelDevStep(t *testing.T) {
 	}
 }
 
-func TestRunHarnessSQLiteBranchStep(t *testing.T) {
-	prev := runHarnessSQLiteBranchCheckFunc
-	t.Cleanup(func() { runHarnessSQLiteBranchCheckFunc = prev })
-	runHarnessSQLiteBranchCheckFunc = func(context.Context) (map[string]any, []checkDiagnostic, error) {
-		return map[string]any{
-			"branches":     2,
-			"leases_after": 1,
-		}, nil, nil
-	}
-
-	step := runHarnessSQLiteBranchStep(context.Background(), t.TempDir())
-	if !step.OK {
-		t.Fatalf("SQLite branch step failed: error=%s diagnostics=%+v summary=%+v", step.Error, step.Diagnostics, step.Summary)
-	}
-	if got, _ := step.Summary["branches"].(int); got != 2 {
-		t.Fatalf("branches summary = %v, want 2", step.Summary["branches"])
-	}
-	if got, _ := step.Summary["leases_after"].(int); got != 1 {
-		t.Fatalf("leases_after summary = %v, want 1", step.Summary["leases_after"])
-	}
-}
-
 func TestSummarizeGoTestFailures(t *testing.T) {
 	output := []byte(strings.Join([]string{
 		`{"Action":"output","Package":"scenery.sh/internal/storage","Test":"TestLease","Output":"=== RUN   TestLease\n"}`,

@@ -21,11 +21,11 @@ import {
   DashboardRPC,
   type ApiCallResponse,
   type AppStatus,
+  type PostgresColumn,
+  type PostgresRows,
+  type PostgresTable,
   type ProcessOutput,
   type SQLDatabase,
-  type SQLiteColumn,
-  type SQLiteRows,
-  type SQLiteTable,
   type StoredRequest,
   type StoredRequestInput,
   type TraceSummary,
@@ -590,28 +590,28 @@ export function DatabasesWorkbenchPage({
   databases: SQLDatabase[]
   selectedDatabase: string
   onDatabaseChange: (value: string) => void
-  tables: SQLiteTable[]
+  tables: PostgresTable[]
   selectedTable: string
   onTableChange: (value: string) => void
-  schema: SQLiteColumn[]
-  rows: SQLiteRows | null
+  schema: PostgresColumn[]
+  rows: PostgresRows | null
   error: string
 }) {
-  const [sql, setSQL] = useState('select name from sqlite_schema where type = "table" order by name;')
+  const [sql, setSQL] = useState('select schemaname, tablename from pg_tables order by schemaname, tablename;')
   const [paramsText, setParamsText] = useState('[]')
   const [arrayMode, setArrayMode] = useState(false)
   const [queryRows, setQueryRows] = useState<unknown[]>([])
   const [queryError, setQueryError] = useState('')
   const [querying, setQuerying] = useState(false)
-  const dataRows = useMemo(() => sqliteDataRows(rows), [rows])
-  const dataColumns = useMemo(() => sqliteDataColumns(rows), [rows])
+  const dataRows = useMemo(() => postgresDataRows(rows), [rows])
+  const dataColumns = useMemo(() => postgresDataColumns(rows), [rows])
   const queryDataRows = useMemo(() => queryRows.map(rowToRecord), [queryRows])
   const queryColumns = useMemo(() => inferColumns(queryRows).map((column) => ({ key: column, header: column, width: proportional(1) })), [queryRows])
 
   if (databases.length === 0) {
     return (
       <VStack gap={4} as="section" data-scenery-ui="ConsoleNextDatabases">
-        <EmptyPanel title="Databases" message="No SQLite databases discovered for this app." />
+        <EmptyPanel title="Databases" message="No Postgres databases discovered for this app." />
       </VStack>
     )
   }
@@ -626,7 +626,7 @@ export function DatabasesWorkbenchPage({
                 <StatusDot variant={database.exists === false ? 'warning' : 'success'} label={database.name} />
                 <Heading level={2} accessibilityLevel={3}>{database.name}</Heading>
               </HStack>
-              <Text type="supporting" color="secondary">{database.file_label ?? database.path ?? 'sqlite database'}</Text>
+              <Text type="supporting" color="secondary">{database.source ?? 'postgres database'}</Text>
             </VStack>
           </Card>
         ))}
@@ -849,7 +849,7 @@ function parseDBParams(text: string): unknown[] {
   return Array.isArray(parsed) ? parsed : []
 }
 
-function sqliteDataRows(rows: SQLiteRows | null): DBRow[] {
+function postgresDataRows(rows: PostgresRows | null): DBRow[] {
   return rows?.rows.map((values, index) => {
     const item: DBRow = { __id: String(index) }
     rows.columns.forEach((column, columnIndex) => {
@@ -859,7 +859,7 @@ function sqliteDataRows(rows: SQLiteRows | null): DBRow[] {
   }) ?? []
 }
 
-function sqliteDataColumns(rows: SQLiteRows | null): TableColumn<DBRow>[] {
+function postgresDataColumns(rows: PostgresRows | null): TableColumn<DBRow>[] {
   return rows?.columns.map((column) => ({ key: column, header: column, width: proportional(1) })) ?? []
 }
 

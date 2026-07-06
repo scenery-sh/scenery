@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/sqlitedb"
 )
 
 func TestParseGenerateArgs(t *testing.T) {
@@ -136,15 +135,26 @@ func TestSQLCGeneratorRejectsPostgresServiceEngineMismatch(t *testing.T) {
 
 	root := t.TempDir()
 	writeSQLCFixture(t, root)
+	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
+sql:
+  - engine: "mysql"
+    schema:
+      - "auth/db/gen/schema.sql"
+    queries:
+      - "auth/db/queries.sql"
+    gen:
+      go:
+        out: "auth/db/gen"
+`)
 	cfg := appcfg.Config{
 		Name: "demo",
 		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"auth": {Kind: "postgres"},
+			"auth": {},
 		}},
 	}
 
 	_, _, err := buildSQLCGeneratorPlan(root, cfg)
-	if err == nil || !strings.Contains(err.Error(), "belongs to postgres service auth") || !strings.Contains(err.Error(), "engine: postgresql") {
+	if err == nil || !strings.Contains(err.Error(), "belongs to database service auth") || !strings.Contains(err.Error(), "plan 0097") {
 		t.Fatalf("buildSQLCGeneratorPlan error = %v", err)
 	}
 }
@@ -168,7 +178,7 @@ sql:
 	cfg := appcfg.Config{
 		Name: "demo",
 		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"auth": {Kind: "postgres"},
+			"auth": {},
 		}},
 	}
 
@@ -237,7 +247,7 @@ func TestRunSQLCGeneratorUsesAtlasAndSQLC(t *testing.T) {
 		Schemas: []sqlcSchemaPlan{{
 			SQLCSchema:  "auth/db/gen/schema.sql",
 			AtlasSource: "auth/db/schema.hcl",
-			AtlasDevURL: "sqlite://dev",
+			AtlasDevURL: "postgres://dev",
 		}},
 	}
 
@@ -412,13 +422,13 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 `)
 	writeTestAppFile(t, root, "reports/db/seed.sql", `insert into reports.events(id) values ('event-1');
 `)
-	authURL := sqlitedb.URLForPath(filepath.Join(root, "auth.sqlite"))
-	reportsURL := "postgres://user:secret@localhost/reports"
+	authURL := "postgres://user:secret@localhost/app?search_path=auth%2Cscenery"
+	reportsURL := "postgres://user:secret@localhost/app?search_path=reports%2Cscenery"
 	cfg := appcfg.Config{
 		Name: "seedapp",
 		Dev: appcfg.DevConfig{Services: map[string]appcfg.DevServiceConfig{
-			"auth":    {Kind: "sqlite", DatabaseURLEnv: "AUTH_DATABASE_URL"},
-			"reports": {Kind: "postgres", DatabaseURLEnv: "REPORTS_DATABASE_URL"},
+			"auth":    {},
+			"reports": {},
 		}},
 	}
 	stores := map[string]*fakeSeedStore{}
@@ -696,18 +706,16 @@ func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
 	}
 }
 
-func TestDBSetupApplyUsesManagedSQLiteDatabaseURL(t *testing.T) {
+func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".env", "DatabaseURL=sqlite:///stale.sqlite\nDATABASE_URL=sqlite:///legacy-poison.sqlite\n")
+	baseURL := "postgres://user:secret@localhost/managedsetup"
+	writeTestAppFile(t, root, ".env", "DatabaseURL=mysql://stale\nDATABASE_URL="+baseURL+"\n")
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "managedsetup",
   "dev": {
     "services": {
-      "main": {
-        "kind": "sqlite",
-        "database": "managedsetup.sqlite"
-      }
+      "main": {}
     }
   },
   "database": {
@@ -725,11 +733,10 @@ func TestDBSetupApplyUsesManagedSQLiteDatabaseURL(t *testing.T) {
 	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks, defaultDBSeedHooks()); err != nil {
 		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
 	}
-	wantURL := sqlitedb.URLForPath(filepath.Join(root, ".scenery", "sqlite", "local", "managedsetup.sqlite"))
-	if !containsEnv(applyEnv, appDatabaseURLEnv+"="+wantURL) || !containsEnv(applyEnv, "MAIN_DATABASE_URL="+wantURL) {
+	if !containsEnv(applyEnv, appDatabaseURLEnv+"="+baseURL) || envValueFromList(applyEnv, "MAIN_DATABASE_URL") == "" {
 		t.Fatalf("apply env missing managed database values: %+v", applyEnv)
 	}
-	if containsEnv(applyEnv, legacyDatabaseURLEnv+"=sqlite:///legacy-poison.sqlite") {
+	if containsEnv(applyEnv, legacyDatabaseURLEnv+"=mysql://legacy-poison") {
 		t.Fatalf("apply env leaked stale %s: %+v", legacyDatabaseURLEnv, applyEnv)
 	}
 }
@@ -856,7 +863,7 @@ func writeSQLCFixture(t *testing.T, root string) {
 	t.Helper()
 	writeTestAppFile(t, root, "sqlc.yaml", `version: "2"
 sql:
-  - engine: "sqlite"
+  - engine: "postgresql"
     schema:
       - "auth/db/gen/schema.sql"
     queries:
@@ -878,8 +885,8 @@ select 1;
 func writeSeedCommandFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp","dev":{"services":{"main":{"kind":"sqlite"}}}}`)
-	writeTestAppFile(t, root, ".env", "DATABASE_URL=sqlite:///poison.sqlite\n")
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp","dev":{"services":{"main":{}}}}`)
+	writeTestAppFile(t, root, ".env", "DATABASE_URL=postgres://user:secret@localhost/seedapp\n")
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 `)
 	return root
@@ -892,7 +899,7 @@ func writeSetupCommandFixture(t *testing.T) string {
   "name": "seedapp",
   "dev": {
     "services": {
-      "main": { "kind": "sqlite" }
+      "main": {}
     }
   },
   "database": {

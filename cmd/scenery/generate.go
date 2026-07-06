@@ -792,15 +792,9 @@ func validateSQLCSchemaEngines(cfg appcfg.Config, schemas []sqlcSchemaPlan) erro
 			continue
 		}
 		engine := normalizeSQLCEngine(schema.Engine)
-		if _, ok := cfg.PostgresService(service); ok {
+		if _, ok := cfg.DatabaseService(service); ok {
 			if engine != "" && engine != "postgres" {
-				return fmt.Errorf("sqlc schema %s belongs to postgres service %s but uses engine %q; set engine: postgresql", schema.SQLCSchema, service, schema.Engine)
-			}
-			continue
-		}
-		if _, ok := cfg.SQLiteService(service); ok {
-			if engine != "" && engine != "sqlite" {
-				return fmt.Errorf("sqlc schema %s belongs to sqlite service %s but uses engine %q; set engine: sqlite", schema.SQLCSchema, service, schema.Engine)
+				return fmt.Errorf("sqlc schema %s belongs to database service %s but uses engine %q; plan 0097 is Postgres-only, set engine: postgresql", schema.SQLCSchema, service, schema.Engine)
 			}
 		}
 	}
@@ -811,8 +805,6 @@ func normalizeSQLCEngine(engine string) string {
 	switch strings.ToLower(strings.TrimSpace(engine)) {
 	case "postgres", "postgresql":
 		return "postgres"
-	case "sqlite", "sqlite3":
-		return "sqlite"
 	default:
 		return strings.ToLower(strings.TrimSpace(engine))
 	}

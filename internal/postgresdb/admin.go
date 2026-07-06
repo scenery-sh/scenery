@@ -59,6 +59,28 @@ func ResetDatabase(ctx context.Context, db *sql.DB, name string) error {
 	return EnsureDatabase(ctx, db, name)
 }
 
+func EnsureSchema(ctx context.Context, db *sql.DB, schema string) error {
+	schema = strings.TrimSpace(schema)
+	if schema == "" {
+		return fmt.Errorf("postgres schema name is required")
+	}
+	_, err := db.ExecContext(ctx, `CREATE SCHEMA IF NOT EXISTS `+quoteIdent(schema))
+	return err
+}
+
+func ResetSchema(ctx context.Context, db *sql.DB, schema string) error {
+	schema = strings.TrimSpace(schema)
+	if schema == "" {
+		return fmt.Errorf("postgres schema name is required")
+	}
+	quoted := quoteIdent(schema)
+	if _, err := db.ExecContext(ctx, `DROP SCHEMA IF EXISTS `+quoted+` CASCADE`); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `CREATE SCHEMA `+quoted)
+	return err
+}
+
 func ListSceneryDatabases(ctx context.Context, db *sql.DB) ([]DatabaseInfo, error) {
 	rows, err := db.QueryContext(ctx, `
 SELECT datname, pg_database_size(datname)

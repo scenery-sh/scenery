@@ -42,16 +42,17 @@ func appProcessEnv(root string, cfg app.Config, logFormat string, envName string
 }
 
 func validateHeadlessPostgresEnv(cfg app.Config, baseEnv []string) error {
-	for _, svc := range cfg.PostgresServices() {
-		if value, _ := lookupEnvValue(baseEnv, svc.DatabaseURLEnv); value != "" {
-			if _, err := postgresdb.ParseURL(value); err != nil {
-				return fmt.Errorf("postgres service %q env %s is invalid: %w", svc.Name, svc.DatabaseURLEnv, err)
-			}
-			continue
-		}
-		return fmt.Errorf("postgres service %q requires %s for `scenery worker`; the managed shared Postgres server is a `scenery up` dev substrate only", svc.Name, svc.DatabaseURLEnv)
+	if len(cfg.DatabaseServices()) == 0 {
+		return nil
 	}
-	return nil
+	envName := cfg.DatabaseURLEnv()
+	if value, _ := lookupEnvValue(baseEnv, envName); value != "" {
+		if _, err := postgresdb.ParseURL(value); err != nil {
+			return fmt.Errorf("app database env %s is invalid for plan 0097: %w", envName, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("app database requires %s for `scenery worker`; the managed shared Postgres server is a `scenery up` dev substrate only", envName)
 }
 
 func envWithOverrides(base []string, overrides ...string) []string {

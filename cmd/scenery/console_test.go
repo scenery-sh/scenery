@@ -13,14 +13,14 @@ func TestRunConsoleSetupOutputFormatsAtlasLines(t *testing.T) {
 	var out bytes.Buffer
 	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", t.TempDir())
 
-	console.SetupOutput("==> Atlas target: sqlite:///tmp/demo.sqlite", "stdout")
+	console.SetupOutput("==> Atlas target: postgres://localhost/demo", "stdout")
 	console.SetupOutput("==> Atlas dry-run: var/atlas/plans/plan.txt", "stdout")
 	console.SetupOutput("Schema is synced, no changes to be made", "stdout")
 	console.SetupOutput("==> No database changes needed", "stdout")
 
 	got := out.String()
 	for _, want := range []string{
-		"  • Atlas target: sqlite:///tmp/demo.sqlite\n",
+		"  • Atlas target: postgres://localhost/demo\n",
 		"  • Atlas dry-run: var/atlas/plans/plan.txt\n",
 		"  ✔ Atlas schema synced\n",
 		"  ✔ No database changes needed\n",
@@ -40,13 +40,13 @@ func TestRunConsoleSetupOutputJSON(t *testing.T) {
 	var out bytes.Buffer
 	console := newRunConsole(&out, &bytes.Buffer{}, false, true, "demo", t.TempDir())
 
-	console.SetupOutput("==> Atlas target: sqlite:///tmp/example.sqlite", "stdout")
+	console.SetupOutput("==> Atlas target: postgres://localhost/example", "stdout")
 
 	var event runEvent
 	if err := json.Unmarshal(out.Bytes(), &event); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
 	}
-	if event.Type != "setup.output" || event.Data["line"] != "==> Atlas target: sqlite:///tmp/example.sqlite" || event.Data["stream"] != "stdout" {
+	if event.Type != "setup.output" || event.Data["line"] != "==> Atlas target: postgres://localhost/example" || event.Data["stream"] != "stdout" {
 		t.Fatalf("event = %+v", event)
 	}
 }
@@ -58,12 +58,12 @@ func TestSetupOutputWriterFlushesPartialLines(t *testing.T) {
 	console := newRunConsole(&out, &bytes.Buffer{}, false, false, "demo", t.TempDir())
 	writer := newSetupOutputWriter(console, "stdout", nil)
 
-	if _, err := writer.Write([]byte("==> Atlas target: sqlite:///tmp/example.sqlite")); err != nil {
+	if _, err := writer.Write([]byte("==> Atlas target: postgres://localhost/example")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	writer.Close()
 
-	if got := out.String(); !strings.Contains(got, "  • Atlas target: sqlite:///tmp/example.sqlite\n") {
+	if got := out.String(); !strings.Contains(got, "  • Atlas target: postgres://localhost/example\n") {
 		t.Fatalf("output = %q", got)
 	}
 }

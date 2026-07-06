@@ -18,7 +18,6 @@ import (
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
-	"scenery.sh/internal/sqlitedb"
 )
 
 type dbSeedOptions struct {
@@ -89,22 +88,14 @@ func (h dbSeedHooks) withDefaults() dbSeedHooks {
 }
 
 func defaultOpenDatabaseSeedStore(ctx context.Context, databaseURL string) (databaseSeedStore, error) {
-	if strings.HasPrefix(strings.TrimSpace(databaseURL), "postgres:") || strings.HasPrefix(strings.TrimSpace(databaseURL), "postgresql:") {
-		db, err := openPostgresDatabase(ctx, databaseURL)
-		if err != nil {
-			return nil, err
-		}
-		return &postgresDatabaseSeedStore{db: db}, nil
+	if !strings.HasPrefix(strings.TrimSpace(databaseURL), "postgres:") && !strings.HasPrefix(strings.TrimSpace(databaseURL), "postgresql:") {
+		return nil, fmt.Errorf("database seed requires a postgres URL")
 	}
-	path, err := sqlitedb.ParseURL(databaseURL)
+	db, err := openPostgresDatabase(ctx, databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	db, err := sqlitedb.Open(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	return &sqliteDatabaseSeedStore{db: db}, nil
+	return &postgresDatabaseSeedStore{db: db}, nil
 }
 
 var openDatabaseSeedStore = defaultOpenDatabaseSeedStore
@@ -650,60 +641,6 @@ func renderDBSeedText(stdout io.Writer, result dbSeedResult) {
 	)
 }
 
-type sqliteDatabaseSeedStore struct {
-	db *sql.DB
-}
-
-func (s *sqliteDatabaseSeedStore) Close(context.Context) error {
-	if s == nil || s.db == nil {
-		return nil
-	}
-	return s.db.Close()
-}
-
-func (s *sqliteDatabaseSeedStore) EnsureLedger(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-create table if not exists scenery_internal_seed_runs (
-  app_id text not null,
-  path text not null,
-  sha256 text not null,
-  applied_at datetime not null default current_timestamp,
-  primary key (app_id, path)
-)`)
-	return err
-}
-
-func (s *sqliteDatabaseSeedStore) LookupSeed(ctx context.Context, appID, path string) (string, bool, error) {
-	var hash string
-	err := s.db.QueryRowContext(ctx, `select sha256 from scenery_internal_seed_runs where app_id = ? and path = ?`, appID, path).Scan(&hash)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return hash, true, nil
-}
-
-func (s *sqliteDatabaseSeedStore) ApplySeed(ctx context.Context, appID, path, hash, script string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-	if strings.TrimSpace(script) != "" {
-		if _, err := tx.ExecContext(ctx, script); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `insert into scenery_internal_seed_runs (app_id, path, sha256) values (?, ?, ?)`, appID, path, hash); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 type postgresDatabaseSeedStore struct {
 	db *sql.DB
 }
@@ -717,8 +654,8 @@ func (s *postgresDatabaseSeedStore) Close(context.Context) error {
 
 func (s *postgresDatabaseSeedStore) EnsureLedger(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `
-create schema if not exists scenery_internal;
-create table if not exists scenery_internal.seed_runs (
+create schema if not exists scenery;
+create table if not exists scenery.seed_runs (
   app_id text not null,
   path text not null,
   sha256 text not null,
@@ -730,7 +667,7 @@ create table if not exists scenery_internal.seed_runs (
 
 func (s *postgresDatabaseSeedStore) LookupSeed(ctx context.Context, appID, path string) (string, bool, error) {
 	var hash string
-	err := s.db.QueryRowContext(ctx, `select sha256 from scenery_internal.seed_runs where app_id = $1 and path = $2`, appID, path).Scan(&hash)
+	err := s.db.QueryRowContext(ctx, `select sha256 from scenery.seed_runs where app_id = $1 and path = $2`, appID, path).Scan(&hash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -753,7 +690,7 @@ func (s *postgresDatabaseSeedStore) ApplySeed(ctx context.Context, appID, path, 
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `insert into scenery_internal.seed_runs (app_id, path, sha256) values ($1, $2, $3)`, appID, path, hash); err != nil {
+	if _, err := tx.ExecContext(ctx, `insert into scenery.seed_runs (app_id, path, sha256) values ($1, $2, $3)`, appID, path, hash); err != nil {
 		return err
 	}
 	return tx.Commit()

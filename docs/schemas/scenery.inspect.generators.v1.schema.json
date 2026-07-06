@@ -55,7 +55,7 @@
         "service": { "type": "string" },
         "engine": {
           "type": "string",
-          "enum": ["sqlite", "postgres"]
+          "enum": ["postgres"]
         },
         "kind": {
           "type": "string",

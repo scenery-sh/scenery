@@ -36,7 +36,7 @@ Common config surfaces:
 - `watch.ignore`: app-root-relative paths ignored by `scenery up` rebuild watching, not by Git.
 - `proxy.frontends`: frontend roots for dev routing and generated web packages.
 - `storage`: Scenery-owned storage stores, access, tenant scoping, and size limits.
-- `dev.services`: managed local dev services such as SQLite.
+- `dev.services`: kind-less Postgres database services; each service maps to one schema in the app/worktree database.
 - `database.apply`: explicit database setup command.
 - `tasks`, `validation`: app-owned task and validation profiles.
 
@@ -305,7 +305,7 @@ Apps consume generated frontend code through an app-owned alias such as `@scener
 
 ## Durable DSL
 
-Use `scenery.sh/durable` for typed durable task declarations, enqueue, schedules, local execution, signals, and step results. Scenery discovers `durable.NewTask` calls, imports their packages into generated main, reconciles declarations into service durable SQLite databases at runtime startup, `durable.Start` writes queued jobs, and `all`/`worker` roles execute registered Go handlers locally with retry scheduling from the task config. `durable.Schedule` records an interval schedule that the API/all runtime materializes into queued jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results; outside a durable job context it just runs the function. `durable.Signal` appends a JSON signal row and event for a durable run. `scenery inspect durable --json` reports declarations, services, DB paths, and whether the durable DB currently exists. The runtime exposes authenticated durable worker HTTP endpoints for lease, heartbeat, complete, and fail with hashed worker tokens and lease-ID fencing.
+Use `scenery.sh/durable` for typed durable task declarations, enqueue, schedules, local execution, signals, and step results. Scenery discovers `durable.NewTask` calls, imports their packages into generated main, reconciles declarations into the app Postgres database's `scenery` schema at runtime startup, `durable.Start` writes queued jobs, and `all`/`worker` roles execute registered Go handlers locally with retry scheduling from the task config. `durable.Schedule` records an interval schedule that the API/all runtime materializes into queued jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results; outside a durable job context it just runs the function. `durable.Signal` appends a JSON signal row and event for a durable run. `scenery inspect durable --json` emits `scenery.inspect.durable.v2` with declarations, service schemas, and redacted app database metadata. The runtime exposes authenticated durable worker HTTP endpoints for lease, heartbeat, complete, and fail with hashed worker tokens and lease-ID fencing.
 
 ```go
 var detectRoof = durable.NewTask[DetectInput, DetectOutput](

@@ -10,6 +10,7 @@ Process environment wins over values loaded from `.env` and `.env.local`. `scene
 
 | Variable | Direction | Description |
 | --- | --- | --- |
+| `HOME` | host input | Host home directory, read as a fallback during browser discovery and default agent-home resolution. Not a scenery configuration surface. |
 | `SCENERY_AGENT_HOME` | user input | Overrides the machine-wide local agent home. Default is `~/.scenery`. |
 | `SCENERY_AGENT_SOCKET` | user input | Overrides the agent Unix control socket path. |
 | `SCENERY_AGENT_ROUTER_ADDR` | user input | Overrides the agent router listen address. Default is `127.0.0.1:9440`. |
@@ -61,15 +62,13 @@ These are injected by scenery into generated app processes. App code may read th
 
 | Variable | Direction | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | user input | Conventional database URL. Managed service databases do not inject this into app, setup, DB setup, or worker environments unless the app explicitly configures that env name. |
-| `DatabaseURL` | user input/injected | Default scenery app-style database URL env and managed app database authority when exactly one SQLite or Postgres service uses that env. Generated model stores and standard auth honor the configured database URL env. |
+| `DATABASE_URL` | user input/injected | App-level Postgres database URL. When set, it wins and Scenery manages no server or database; otherwise Scenery injects the managed app database URL. |
+| `DatabaseURL` | user input | Legacy app-style database URL env fallback for standard auth and older app code. Prefer `DATABASE_URL` in new config. |
 | `SCENERY_AUTH_DATABASE_URL` | user input | Fallback DB URL for standard auth when app-specific envs are unset. |
 | `SCENERY_AUTH_JWT_SECRET` | user input | Fallback JWT signing secret for standard auth when `auth.jwt_secret_env` and `JWT_SECRET` are unset. |
 | `SCENERY_AUTH_EMAIL_FROM` | user input | Fallback sender address for standard auth email flows when `auth.email_from_env` and `AUTH_EMAIL_FROM` are unset. |
-| `SCENERY_MANAGED_DATABASE_NAME` | injected | Name of the managed per-session SQLite database. |
-| `SCENERY_MANAGED_DATABASE_URL` | injected | Managed per-session SQLite URL exposed for tooling/debugging. |
-| `SCENERY_SQLITE_DATABASES_JSON` | injected | JSON array describing managed SQLite services, paths, URLs, and configured env names. |
-| `SCENERY_POSTGRES_DATABASES_JSON` | injected | JSON array describing Postgres services, databases, URLs, configured env names, and source (`managed` or `external`). |
+| `<SERVICE>_DATABASE_URL` | injected | Service schema Postgres URL derived from the app database URL with `search_path=<service>,scenery`. |
+| `SCENERY_DATABASE_JSON` | injected | JSON object describing the app database, source (`managed` or `external`), and service schemas. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
 | `SCENERY_API_BASE_URL` | injected | scenery-prefixed API route exposed to app/frontends. |
 | `SCENERY_API_URL` | injected | Canonical API route URL exposed to app/frontends. |
@@ -141,7 +140,7 @@ scenery also injects standard OpenTelemetry endpoint variables when Victoria sid
 | `SCENERY_BIN` | user input | Target-app helper override for the scenery binary path. |
 | `SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT` | user input | Optional external app root for release-gate smoke validation. |
 | `SCENERY_RELEASE_GATE_LOG_DIR` | user input | Release-gate log directory override. |
-| `SCENERY_TEST_DATABASE_URL` | test input | Legacy database URL override retained for compatibility tests; new managed database tests use SQLite fixtures. |
+| `SCENERY_TEST_DATABASE_URL` | test input secret | Optional live Postgres DSN for gated database integration tests; tests create and drop per-test databases. |
 | `SCENERY_TEST_WATCH_BACKUP_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch backup poll interval in integration tests so missed fsnotify events do not wait on the production fallback delay. |
 | `SCENERY_TEST_WATCH_POLL_MS` | test escape hatch | Overrides `scenery up` file-watch polling interval in integration tests that intentionally exercise polling paths. |
 | `SCENERY_TEST_WATCH_SETTLE_DELAY_MS` | test escape hatch | Overrides `scenery up` file-watch settle delay in integration tests so reload assertions do not wait on production debounce timing. This is intentionally registry-approved because the process under test is production dev code. |

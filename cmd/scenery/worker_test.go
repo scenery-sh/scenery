@@ -3,25 +3,27 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"net/url"
 	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 
 	durablestore "scenery.sh/internal/durable/store"
+	"scenery.sh/internal/postgresdb"
 )
 
 func TestWorkerDurableTokenCreate(t *testing.T) {
-	t.Parallel()
-
+	dsn := liveWorkerDatabaseURL(t)
+	t.Setenv("DATABASE_URL", dsn)
 	root := persistentTestAppRoot(t, "worker-durable-token")
 	preparePersistentTestApp(t, root, map[string]string{
 		".scenery.json": `{"name":"durabletoken","id":"durable-token-id"}`,
 		"go.mod":        "module example.com/durabletoken\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + repoRootForTest(t) + "\n",
 	})
-	if err := os.RemoveAll(filepath.Join(root, ".scenery", "state")); err != nil {
-		t.Fatalf("remove old durable state: %v", err)
-	}
 
 	var out bytes.Buffer
 	err := durableWorkerCommand([]string{"token", "create", "--app-root", root, "--service", "maps", "--name", "maps remote", "--id", "tok-test", "--json"}, &out)
@@ -48,12 +50,11 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	if payload.Token.Secret == "" || payload.Token.TokenHash == "" || payload.Token.Secret == payload.Token.TokenHash {
 		t.Fatalf("token fields = %+v", payload.Token)
 	}
-	wantSuffix := filepath.ToSlash(filepath.Join(".scenery", "state", "db", "maps.durable.sqlite"))
-	if !stringsHasSuffixSlash(payload.DBPath, wantSuffix) {
-		t.Fatalf("db_path = %q, want suffix %q", payload.DBPath, wantSuffix)
+	if payload.DBPath == "" || !strings.Contains(payload.DBPath, "xxxxx") {
+		t.Fatalf("db_path should carry redacted database URL, got %q", payload.DBPath)
 	}
 
-	db, err := durablestore.Open(context.Background(), "maps", filepath.FromSlash(payload.DBPath), durablestore.Options{Synchronous: "off"})
+	db, err := durablestore.Open(context.Background(), "maps", dsn, durablestore.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,8 +119,53 @@ func TestParseWorkerDurableArgs(t *testing.T) {
 	}
 }
 
-func stringsHasSuffixSlash(value, suffix string) bool {
-	value = filepath.ToSlash(value)
-	suffix = filepath.ToSlash(suffix)
-	return len(value) >= len(suffix) && value[len(value)-len(suffix):] == suffix
+func liveWorkerDatabaseURL(t *testing.T) string {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("SCENERY_TEST_DATABASE_URL"))
+	if raw == "" {
+		t.Skip("SCENERY_TEST_DATABASE_URL is not set; skipping live Postgres durable worker CLI test")
+	}
+	adminURL, err := workerAdminDatabaseURL(raw)
+	if err != nil {
+		t.Fatalf("parse SCENERY_TEST_DATABASE_URL: %v", err)
+	}
+	admin, err := postgresdb.Open(context.Background(), adminURL)
+	if err != nil {
+		t.Skipf("SCENERY_TEST_DATABASE_URL is not reachable for live Postgres worker CLI tests: %v", err)
+	}
+	name := "scenery_worker_durable_test_" + randomWorkerHex(t, 8)
+	if _, err := admin.ExecContext(context.Background(), `CREATE DATABASE `+name); err != nil {
+		_ = admin.Close()
+		t.Skipf("SCENERY_TEST_DATABASE_URL cannot create per-test database: %v", err)
+	}
+	u, _ := url.Parse(raw)
+	u.Path = "/" + name
+	t.Cleanup(func() {
+		db, _ := sql.Open(postgresdb.DriverName, adminURL)
+		if db != nil {
+			_, _ = db.ExecContext(context.Background(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
+			_, _ = db.ExecContext(context.Background(), `DROP DATABASE IF EXISTS `+name)
+			_ = db.Close()
+		}
+		_ = admin.Close()
+	})
+	return u.String()
+}
+
+func workerAdminDatabaseURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	u.Path = "/postgres"
+	return u.String(), nil
+}
+
+func randomWorkerHex(t *testing.T, n int) string {
+	t.Helper()
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(buf)
 }

@@ -23,7 +23,7 @@ const (
 
 var allowedDirectGoDeps = map[string]string{
 	"github.com/fsnotify/fsnotify": "file watching for scenery up live rebuilds",
-	"github.com/jackc/pgx/v5":      "database/sql Postgres driver for opt-in postgres dev services",
+	"github.com/jackc/pgx/v5":      "database/sql Postgres driver for the plan 0097 Postgres-only data platform",
 	"github.com/golang-jwt/jwt/v5": "JWT signing and verification for standard auth",
 	"github.com/google/uuid":       "UUID generation and parsing for standard auth database records",
 	"github.com/gorilla/websocket": "dashboard JSON-RPC websocket transport",
@@ -32,7 +32,6 @@ var allowedDirectGoDeps = map[string]string{
 	"golang.org/x/sys":             "portable OS syscalls for doctor disk and memory readiness probes",
 	"golang.org/x/tools":           "Go package loading/parser pipeline",
 	"gopkg.in/yaml.v3":             "SQLC generator graph inspection from sqlc.yaml without shell parsing",
-	"modernc.org/sqlite":           "pure-Go SQLite driver for Scenery-owned per-service durable databases",
 }
 
 var forbiddenSourceImports = map[string]string{

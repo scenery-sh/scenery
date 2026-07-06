@@ -110,7 +110,6 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		resp.Steps = append(resp.Steps,
 			goTestStep,
 			runHarnessParallelDevStep(ctx, repoRoot),
-			runHarnessSQLiteBranchStep(ctx, repoRoot),
 			runHarnessPostgresProbeStep(ctx, repoRoot),
 		)
 		dashboardUIRoot := filepath.Join(repoRoot, filepath.FromSlash(dashboardUIRootRel))
@@ -717,7 +716,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.metrics.labels.v1.schema.json",
 		"docs/schemas/scenery.metrics.query.v1.schema.json",
 		"docs/schemas/scenery.metrics.series.v1.schema.json",
-		"docs/schemas/scenery.db.branch.registry.v2.schema.json",
+		"docs/schemas/scenery.db.list.v3.schema.json",
 		"docs/schemas/scenery.run.event.v1.schema.json",
 		"docs/schemas/scenery.version.v1.schema.json",
 	}

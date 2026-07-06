@@ -1,0 +1,10 @@
+{
+  "name": "db-basic",
+  "id": "db-basic",
+  "dev": {
+    "services": {
+      "reports": {},
+      "cache": {}
+    }
+  }
+}

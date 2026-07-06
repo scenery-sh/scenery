@@ -4,13 +4,12 @@
   "title": "scenery worktree remove result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "ok", "name", "path", "db_pin_removed"],
+  "required": ["schema_version", "ok", "name", "path"],
   "properties": {
     "schema_version": { "const": "scenery.worktree.remove.v1" },
     "ok": { "type": "boolean" },
     "name": { "type": "string" },
     "path": { "type": "string" },
-    "db_pin_removed": { "type": "boolean" },
     "message": { "type": "string" }
   }
 }

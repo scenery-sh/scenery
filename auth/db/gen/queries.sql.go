@@ -12,17 +12,17 @@ import (
 )
 
 const consumeOAuthState = `-- name: ConsumeOAuthState :one
-UPDATE scenery_auth_oauth_states
-SET consumed_at = CURRENT_TIMESTAMP
-WHERE state_hash = ?
+UPDATE scenery.scenery_auth_oauth_states
+SET consumed_at = now()
+WHERE state_hash = $1
   AND consumed_at IS NULL
-  AND expires_at > CURRENT_TIMESTAMP
+  AND expires_at > now()
 RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at
 `
 
-func (q *Queries) ConsumeOAuthState(ctx context.Context, stateHash string) (SceneryAuthOauthState, error) {
+func (q *Queries) ConsumeOAuthState(ctx context.Context, stateHash string) (ScenerySceneryAuthOauthState, error) {
 	row := q.db.QueryRowContext(ctx, consumeOAuthState, stateHash)
-	var i SceneryAuthOauthState
+	var i ScenerySceneryAuthOauthState
 	err := row.Scan(
 		&i.ID,
 		&i.StateHash,
@@ -37,12 +37,12 @@ func (q *Queries) ConsumeOAuthState(ctx context.Context, stateHash string) (Scen
 }
 
 const consumeOneTimeToken = `-- name: ConsumeOneTimeToken :one
-UPDATE scenery_auth_one_time_tokens
-SET consumed_at = CURRENT_TIMESTAMP
-WHERE token_hash = ?
-  AND purpose = ?
+UPDATE scenery.scenery_auth_one_time_tokens
+SET consumed_at = now()
+WHERE token_hash = $1
+  AND purpose = $2
   AND consumed_at IS NULL
-  AND expires_at > CURRENT_TIMESTAMP
+  AND expires_at > now()
 RETURNING id, purpose, token_hash, user_id, tenant_id, email, normalized_email, metadata, expires_at, consumed_at, created_at
 `
 
@@ -51,9 +51,9 @@ type ConsumeOneTimeTokenParams struct {
 	Purpose   string `json:"purpose"`
 }
 
-func (q *Queries) ConsumeOneTimeToken(ctx context.Context, arg ConsumeOneTimeTokenParams) (SceneryAuthOneTimeToken, error) {
+func (q *Queries) ConsumeOneTimeToken(ctx context.Context, arg ConsumeOneTimeTokenParams) (ScenerySceneryAuthOneTimeToken, error) {
 	row := q.db.QueryRowContext(ctx, consumeOneTimeToken, arg.TokenHash, arg.Purpose)
-	var i SceneryAuthOneTimeToken
+	var i ScenerySceneryAuthOneTimeToken
 	err := row.Scan(
 		&i.ID,
 		&i.Purpose,
@@ -72,8 +72,8 @@ func (q *Queries) ConsumeOneTimeToken(ctx context.Context, arg ConsumeOneTimeTok
 
 const countActiveOwners = `-- name: CountActiveOwners :one
 SELECT count(*)
-FROM scenery_auth_organization_memberships
-WHERE tenant_id = ?
+FROM scenery.scenery_auth_organization_memberships
+WHERE tenant_id = $1
   AND role = 'owner'
   AND disabled_at IS NULL
 `
@@ -86,7 +86,7 @@ func (q *Queries) CountActiveOwners(ctx context.Context, tenantID UUID) (int64, 
 }
 
 const createAuthEvent = `-- name: CreateAuthEvent :exec
-INSERT INTO scenery_auth_auth_events (
+INSERT INTO scenery.scenery_auth_auth_events (
   id,
   event_type,
   user_id,
@@ -97,7 +97,7 @@ INSERT INTO scenery_auth_auth_events (
   user_agent,
   metadata
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type CreateAuthEventParams struct {
@@ -128,7 +128,7 @@ func (q *Queries) CreateAuthEvent(ctx context.Context, arg CreateAuthEventParams
 }
 
 const createAuthIdentity = `-- name: CreateAuthIdentity :one
-INSERT INTO scenery_auth_auth_identities (
+INSERT INTO scenery.scenery_auth_auth_identities (
   id,
   user_id,
   provider,
@@ -137,7 +137,7 @@ INSERT INTO scenery_auth_auth_identities (
   normalized_email,
   password_hash
 )
-VALUES (?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 `
 
@@ -151,7 +151,7 @@ type CreateAuthIdentityParams struct {
 	PasswordHash    string `json:"password_hash"`
 }
 
-func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (SceneryAuthAuthIdentity, error) {
+func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (ScenerySceneryAuthAuthIdentity, error) {
 	row := q.db.QueryRowContext(ctx, createAuthIdentity,
 		arg.ID,
 		arg.UserID,
@@ -161,7 +161,7 @@ func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentity
 		arg.NormalizedEmail,
 		arg.PasswordHash,
 	)
-	var i SceneryAuthAuthIdentity
+	var i ScenerySceneryAuthAuthIdentity
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -177,7 +177,7 @@ func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentity
 }
 
 const createOAuthState = `-- name: CreateOAuthState :one
-INSERT INTO scenery_auth_oauth_states (
+INSERT INTO scenery.scenery_auth_oauth_states (
   id,
   state_hash,
   pkce_verifier,
@@ -185,7 +185,7 @@ INSERT INTO scenery_auth_oauth_states (
   redirect_path,
   expires_at
 )
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at
 `
 
@@ -198,7 +198,7 @@ type CreateOAuthStateParams struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
-func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStateParams) (SceneryAuthOauthState, error) {
+func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStateParams) (ScenerySceneryAuthOauthState, error) {
 	row := q.db.QueryRowContext(ctx, createOAuthState,
 		arg.ID,
 		arg.StateHash,
@@ -207,7 +207,7 @@ func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStatePara
 		arg.RedirectPath,
 		arg.ExpiresAt,
 	)
-	var i SceneryAuthOauthState
+	var i ScenerySceneryAuthOauthState
 	err := row.Scan(
 		&i.ID,
 		&i.StateHash,
@@ -222,7 +222,7 @@ func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStatePara
 }
 
 const createOneTimeToken = `-- name: CreateOneTimeToken :one
-INSERT INTO scenery_auth_one_time_tokens (
+INSERT INTO scenery.scenery_auth_one_time_tokens (
   id,
   purpose,
   token_hash,
@@ -233,7 +233,7 @@ INSERT INTO scenery_auth_one_time_tokens (
   metadata,
   expires_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, purpose, token_hash, user_id, tenant_id, email, normalized_email, metadata, expires_at, consumed_at, created_at
 `
 
@@ -249,7 +249,7 @@ type CreateOneTimeTokenParams struct {
 	ExpiresAt       time.Time `json:"expires_at"`
 }
 
-func (q *Queries) CreateOneTimeToken(ctx context.Context, arg CreateOneTimeTokenParams) (SceneryAuthOneTimeToken, error) {
+func (q *Queries) CreateOneTimeToken(ctx context.Context, arg CreateOneTimeTokenParams) (ScenerySceneryAuthOneTimeToken, error) {
 	row := q.db.QueryRowContext(ctx, createOneTimeToken,
 		arg.ID,
 		arg.Purpose,
@@ -261,7 +261,7 @@ func (q *Queries) CreateOneTimeToken(ctx context.Context, arg CreateOneTimeToken
 		arg.Metadata,
 		arg.ExpiresAt,
 	)
-	var i SceneryAuthOneTimeToken
+	var i ScenerySceneryAuthOneTimeToken
 	err := row.Scan(
 		&i.ID,
 		&i.Purpose,
@@ -279,7 +279,7 @@ func (q *Queries) CreateOneTimeToken(ctx context.Context, arg CreateOneTimeToken
 }
 
 const createOrganizationMembership = `-- name: CreateOrganizationMembership :one
-INSERT INTO scenery_auth_organization_memberships (
+INSERT INTO scenery.scenery_auth_organization_memberships (
   id,
   tenant_id,
   user_id,
@@ -287,10 +287,10 @@ INSERT INTO scenery_auth_organization_memberships (
   invited_by_user_id,
   invited_at
 )
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (user_id, tenant_id) WHERE disabled_at IS NULL
 DO UPDATE SET role = EXCLUDED.role,
-              updated_at = CURRENT_TIMESTAMP
+              updated_at = now()
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
 `
 
@@ -303,7 +303,7 @@ type CreateOrganizationMembershipParams struct {
 	InvitedAt       sql.NullTime `json:"invited_at"`
 }
 
-func (q *Queries) CreateOrganizationMembership(ctx context.Context, arg CreateOrganizationMembershipParams) (SceneryAuthOrganizationMembership, error) {
+func (q *Queries) CreateOrganizationMembership(ctx context.Context, arg CreateOrganizationMembershipParams) (ScenerySceneryAuthOrganizationMembership, error) {
 	row := q.db.QueryRowContext(ctx, createOrganizationMembership,
 		arg.ID,
 		arg.TenantID,
@@ -312,7 +312,7 @@ func (q *Queries) CreateOrganizationMembership(ctx context.Context, arg CreateOr
 		arg.InvitedByUserID,
 		arg.InvitedAt,
 	)
-	var i SceneryAuthOrganizationMembership
+	var i ScenerySceneryAuthOrganizationMembership
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -328,7 +328,7 @@ func (q *Queries) CreateOrganizationMembership(ctx context.Context, arg CreateOr
 }
 
 const createRefreshSession = `-- name: CreateRefreshSession :one
-INSERT INTO scenery_auth_refresh_sessions (
+INSERT INTO scenery.scenery_auth_refresh_sessions (
   id,
   user_id,
   token_hash,
@@ -340,7 +340,7 @@ INSERT INTO scenery_auth_refresh_sessions (
   impersonation_id,
   impersonation_reason
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
 `
 
@@ -357,7 +357,7 @@ type CreateRefreshSessionParams struct {
 	ImpersonationReason string    `json:"impersonation_reason"`
 }
 
-func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSessionParams) (SceneryAuthRefreshSession, error) {
+func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSessionParams) (ScenerySceneryAuthRefreshSession, error) {
 	row := q.db.QueryRowContext(ctx, createRefreshSession,
 		arg.ID,
 		arg.UserID,
@@ -370,7 +370,7 @@ func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSes
 		arg.ImpersonationID,
 		arg.ImpersonationReason,
 	)
-	var i SceneryAuthRefreshSession
+	var i ScenerySceneryAuthRefreshSession
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -394,8 +394,8 @@ func (q *Queries) CreateRefreshSession(ctx context.Context, arg CreateRefreshSes
 }
 
 const createTenant = `-- name: CreateTenant :one
-INSERT INTO scenery_auth_tenants (id, name)
-VALUES (?, ?)
+INSERT INTO scenery.scenery_auth_tenants (id, name)
+VALUES ($1, $2)
 RETURNING id, name, deleted_at, created_at, updated_at
 `
 
@@ -404,9 +404,9 @@ type CreateTenantParams struct {
 	Name string `json:"name"`
 }
 
-func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (SceneryAuthTenant, error) {
+func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (ScenerySceneryAuthTenant, error) {
 	row := q.db.QueryRowContext(ctx, createTenant, arg.ID, arg.Name)
-	var i SceneryAuthTenant
+	var i ScenerySceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -418,7 +418,7 @@ func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Sce
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO scenery_auth_users (
+INSERT INTO scenery.scenery_auth_users (
   id,
   display_name,
   avatar_url,
@@ -426,7 +426,7 @@ INSERT INTO scenery_auth_users (
   normalized_primary_email,
   email_verified_at
 )
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
 `
 
@@ -439,7 +439,7 @@ type CreateUserParams struct {
 	EmailVerifiedAt        sql.NullTime `json:"email_verified_at"`
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (SceneryAuthUser, error) {
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (ScenerySceneryAuthUser, error) {
 	row := q.db.QueryRowContext(ctx, createUser,
 		arg.ID,
 		arg.DisplayName,
@@ -448,7 +448,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (Scenery
 		arg.NormalizedPrimaryEmail,
 		arg.EmailVerifiedAt,
 	)
-	var i SceneryAuthUser
+	var i ScenerySceneryAuthUser
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
@@ -465,11 +465,11 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (Scenery
 }
 
 const disableMembership = `-- name: DisableMembership :one
-UPDATE scenery_auth_organization_memberships
-SET disabled_at = COALESCE(disabled_at, CURRENT_TIMESTAMP),
-    updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = ?
-  AND user_id = ?
+UPDATE scenery.scenery_auth_organization_memberships
+SET disabled_at = COALESCE(disabled_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1
+  AND user_id = $2
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
 `
 
@@ -478,9 +478,9 @@ type DisableMembershipParams struct {
 	UserID   UUID `json:"user_id"`
 }
 
-func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipParams) (SceneryAuthOrganizationMembership, error) {
+func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipParams) (ScenerySceneryAuthOrganizationMembership, error) {
 	row := q.db.QueryRowContext(ctx, disableMembership, arg.TenantID, arg.UserID)
-	var i SceneryAuthOrganizationMembership
+	var i ScenerySceneryAuthOrganizationMembership
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -497,9 +497,9 @@ func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipPa
 
 const getActiveMembership = `-- name: GetActiveMembership :one
 SELECT id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
-FROM scenery_auth_organization_memberships
-WHERE user_id = ?
-  AND tenant_id = ?
+FROM scenery.scenery_auth_organization_memberships
+WHERE user_id = $1
+  AND tenant_id = $2
   AND disabled_at IS NULL
 `
 
@@ -508,9 +508,9 @@ type GetActiveMembershipParams struct {
 	TenantID UUID `json:"tenant_id"`
 }
 
-func (q *Queries) GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (SceneryAuthOrganizationMembership, error) {
+func (q *Queries) GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (ScenerySceneryAuthOrganizationMembership, error) {
 	row := q.db.QueryRowContext(ctx, getActiveMembership, arg.UserID, arg.TenantID)
-	var i SceneryAuthOrganizationMembership
+	var i ScenerySceneryAuthOrganizationMembership
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -527,9 +527,9 @@ func (q *Queries) GetActiveMembership(ctx context.Context, arg GetActiveMembersh
 
 const getAuthIdentityByProviderSubject = `-- name: GetAuthIdentityByProviderSubject :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
-FROM scenery_auth_auth_identities
-WHERE provider = ?
-  AND provider_subject = ?
+FROM scenery.scenery_auth_auth_identities
+WHERE provider = $1
+  AND provider_subject = $2
 `
 
 type GetAuthIdentityByProviderSubjectParams struct {
@@ -537,9 +537,9 @@ type GetAuthIdentityByProviderSubjectParams struct {
 	ProviderSubject string `json:"provider_subject"`
 }
 
-func (q *Queries) GetAuthIdentityByProviderSubject(ctx context.Context, arg GetAuthIdentityByProviderSubjectParams) (SceneryAuthAuthIdentity, error) {
+func (q *Queries) GetAuthIdentityByProviderSubject(ctx context.Context, arg GetAuthIdentityByProviderSubjectParams) (ScenerySceneryAuthAuthIdentity, error) {
 	row := q.db.QueryRowContext(ctx, getAuthIdentityByProviderSubject, arg.Provider, arg.ProviderSubject)
-	var i SceneryAuthAuthIdentity
+	var i ScenerySceneryAuthAuthIdentity
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -556,14 +556,14 @@ func (q *Queries) GetAuthIdentityByProviderSubject(ctx context.Context, arg GetA
 
 const getEmailIdentityForLogin = `-- name: GetEmailIdentityForLogin :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
-FROM scenery_auth_auth_identities
+FROM scenery.scenery_auth_auth_identities
 WHERE provider = 'email'
-  AND provider_subject = ?
+  AND provider_subject = $1
 `
 
-func (q *Queries) GetEmailIdentityForLogin(ctx context.Context, providerSubject string) (SceneryAuthAuthIdentity, error) {
+func (q *Queries) GetEmailIdentityForLogin(ctx context.Context, providerSubject string) (ScenerySceneryAuthAuthIdentity, error) {
 	row := q.db.QueryRowContext(ctx, getEmailIdentityForLogin, providerSubject)
-	var i SceneryAuthAuthIdentity
+	var i ScenerySceneryAuthAuthIdentity
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -580,13 +580,13 @@ func (q *Queries) GetEmailIdentityForLogin(ctx context.Context, providerSubject 
 
 const getRefreshSessionByID = `-- name: GetRefreshSessionByID :one
 SELECT id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
-FROM scenery_auth_refresh_sessions
-WHERE id = ?
+FROM scenery.scenery_auth_refresh_sessions
+WHERE id = $1
 `
 
-func (q *Queries) GetRefreshSessionByID(ctx context.Context, id UUID) (SceneryAuthRefreshSession, error) {
+func (q *Queries) GetRefreshSessionByID(ctx context.Context, id UUID) (ScenerySceneryAuthRefreshSession, error) {
 	row := q.db.QueryRowContext(ctx, getRefreshSessionByID, id)
-	var i SceneryAuthRefreshSession
+	var i ScenerySceneryAuthRefreshSession
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -611,13 +611,13 @@ func (q *Queries) GetRefreshSessionByID(ctx context.Context, id UUID) (SceneryAu
 
 const getTenantByID = `-- name: GetTenantByID :one
 SELECT id, name, deleted_at, created_at, updated_at
-FROM scenery_auth_tenants
-WHERE id = ?
+FROM scenery.scenery_auth_tenants
+WHERE id = $1
 `
 
-func (q *Queries) GetTenantByID(ctx context.Context, id UUID) (SceneryAuthTenant, error) {
+func (q *Queries) GetTenantByID(ctx context.Context, id UUID) (ScenerySceneryAuthTenant, error) {
 	row := q.db.QueryRowContext(ctx, getTenantByID, id)
-	var i SceneryAuthTenant
+	var i ScenerySceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -630,13 +630,13 @@ func (q *Queries) GetTenantByID(ctx context.Context, id UUID) (SceneryAuthTenant
 
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
-FROM scenery_auth_users
-WHERE id = ?
+FROM scenery.scenery_auth_users
+WHERE id = $1
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id UUID) (SceneryAuthUser, error) {
+func (q *Queries) GetUserByID(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error) {
 	row := q.db.QueryRowContext(ctx, getUserByID, id)
-	var i SceneryAuthUser
+	var i ScenerySceneryAuthUser
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
@@ -654,13 +654,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id UUID) (SceneryAuthUser, er
 
 const getUserByNormalizedEmail = `-- name: GetUserByNormalizedEmail :one
 SELECT id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
-FROM scenery_auth_users
-WHERE normalized_primary_email = ?
+FROM scenery.scenery_auth_users
+WHERE normalized_primary_email = $1
 `
 
-func (q *Queries) GetUserByNormalizedEmail(ctx context.Context, normalizedPrimaryEmail string) (SceneryAuthUser, error) {
+func (q *Queries) GetUserByNormalizedEmail(ctx context.Context, normalizedPrimaryEmail string) (ScenerySceneryAuthUser, error) {
 	row := q.db.QueryRowContext(ctx, getUserByNormalizedEmail, normalizedPrimaryEmail)
-	var i SceneryAuthUser
+	var i ScenerySceneryAuthUser
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
@@ -691,9 +691,9 @@ SELECT
   u.primary_email,
   u.avatar_url,
   u.disabled_at AS user_disabled_at
-FROM scenery_auth_organization_memberships AS m
-JOIN scenery_auth_users AS u ON u.id = m.user_id
-WHERE m.tenant_id = ?
+FROM scenery.scenery_auth_organization_memberships AS m
+JOIN scenery.scenery_auth_users AS u ON u.id = m.user_id
+WHERE m.tenant_id = $1
 ORDER BY lower(u.display_name), lower(u.primary_email), m.created_at
 `
 
@@ -763,9 +763,9 @@ SELECT
   m.updated_at,
   t.name AS tenant_name,
   t.deleted_at AS tenant_deleted_at
-FROM scenery_auth_organization_memberships AS m
-JOIN scenery_auth_tenants AS t ON t.id = m.tenant_id
-WHERE m.user_id = ?
+FROM scenery.scenery_auth_organization_memberships AS m
+JOIN scenery.scenery_auth_tenants AS t ON t.id = m.tenant_id
+WHERE m.user_id = $1
   AND m.disabled_at IS NULL
   AND t.deleted_at IS NULL
 ORDER BY lower(t.name), t.name, m.tenant_id
@@ -821,16 +821,16 @@ func (q *Queries) ListUserMemberships(ctx context.Context, userID UUID) ([]ListU
 }
 
 const markUserEmailVerified = `-- name: MarkUserEmailVerified :one
-UPDATE scenery_auth_users
-SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP),
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_users
+SET email_verified_at = COALESCE(email_verified_at, now()),
+    updated_at = now()
+WHERE id = $1
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
 `
 
-func (q *Queries) MarkUserEmailVerified(ctx context.Context, id UUID) (SceneryAuthUser, error) {
+func (q *Queries) MarkUserEmailVerified(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error) {
 	row := q.db.QueryRowContext(ctx, markUserEmailVerified, id)
-	var i SceneryAuthUser
+	var i ScenerySceneryAuthUser
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
@@ -847,11 +847,11 @@ func (q *Queries) MarkUserEmailVerified(ctx context.Context, id UUID) (SceneryAu
 }
 
 const revokeRefreshSession = `-- name: RevokeRefreshSession :exec
-UPDATE scenery_auth_refresh_sessions
-SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP),
-    revoked_reason = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_refresh_sessions
+SET revoked_at = COALESCE(revoked_at, now()),
+    revoked_reason = $1,
+    updated_at = now()
+WHERE id = $2
 `
 
 type RevokeRefreshSessionParams struct {
@@ -865,11 +865,11 @@ func (q *Queries) RevokeRefreshSession(ctx context.Context, arg RevokeRefreshSes
 }
 
 const revokeUserRefreshSessions = `-- name: RevokeUserRefreshSessions :exec
-UPDATE scenery_auth_refresh_sessions
-SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP),
-    revoked_reason = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE user_id = ?
+UPDATE scenery.scenery_auth_refresh_sessions
+SET revoked_at = COALESCE(revoked_at, now()),
+    revoked_reason = $1,
+    updated_at = now()
+WHERE user_id = $2
   AND revoked_at IS NULL
 `
 
@@ -884,25 +884,25 @@ func (q *Queries) RevokeUserRefreshSessions(ctx context.Context, arg RevokeUserR
 }
 
 const rotateRefreshSession = `-- name: RotateRefreshSession :one
-UPDATE scenery_auth_refresh_sessions
+UPDATE scenery.scenery_auth_refresh_sessions
 SET previous_token_hash = token_hash,
-    previous_token_expires_at = datetime(CURRENT_TIMESTAMP, '+' || (?2 / 1000) || ' seconds'),
-    token_hash = ?3,
-    rotated_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+    previous_token_expires_at = now() + ($1::bigint * interval '1 millisecond'),
+    token_hash = $2,
+    rotated_at = now(),
+    updated_at = now()
+WHERE id = $3
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
 `
 
 type RotateRefreshSessionParams struct {
-	GraceMs   interface{} `json:"grace_ms"`
-	TokenHash string      `json:"token_hash"`
-	ID        UUID        `json:"id"`
+	GraceMs   int64  `json:"grace_ms"`
+	TokenHash string `json:"token_hash"`
+	ID        UUID   `json:"id"`
 }
 
-func (q *Queries) RotateRefreshSession(ctx context.Context, arg RotateRefreshSessionParams) (SceneryAuthRefreshSession, error) {
+func (q *Queries) RotateRefreshSession(ctx context.Context, arg RotateRefreshSessionParams) (ScenerySceneryAuthRefreshSession, error) {
 	row := q.db.QueryRowContext(ctx, rotateRefreshSession, arg.GraceMs, arg.TokenHash, arg.ID)
-	var i SceneryAuthRefreshSession
+	var i ScenerySceneryAuthRefreshSession
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -926,10 +926,10 @@ func (q *Queries) RotateRefreshSession(ctx context.Context, arg RotateRefreshSes
 }
 
 const setRefreshSessionTenant = `-- name: SetRefreshSessionTenant :one
-UPDATE scenery_auth_refresh_sessions
-SET active_tenant_id = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_refresh_sessions
+SET active_tenant_id = $1,
+    updated_at = now()
+WHERE id = $2
   AND revoked_at IS NULL
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
 `
@@ -939,9 +939,9 @@ type SetRefreshSessionTenantParams struct {
 	ID             UUID `json:"id"`
 }
 
-func (q *Queries) SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSessionTenantParams) (SceneryAuthRefreshSession, error) {
+func (q *Queries) SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSessionTenantParams) (ScenerySceneryAuthRefreshSession, error) {
 	row := q.db.QueryRowContext(ctx, setRefreshSessionTenant, arg.ActiveTenantID, arg.ID)
-	var i SceneryAuthRefreshSession
+	var i ScenerySceneryAuthRefreshSession
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -965,16 +965,16 @@ func (q *Queries) SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSes
 }
 
 const softDeleteTenant = `-- name: SoftDeleteTenant :one
-UPDATE scenery_auth_tenants
-SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_tenants
+SET deleted_at = COALESCE(deleted_at, now()),
+    updated_at = now()
+WHERE id = $1
 RETURNING id, name, deleted_at, created_at, updated_at
 `
 
-func (q *Queries) SoftDeleteTenant(ctx context.Context, id UUID) (SceneryAuthTenant, error) {
+func (q *Queries) SoftDeleteTenant(ctx context.Context, id UUID) (ScenerySceneryAuthTenant, error) {
 	row := q.db.QueryRowContext(ctx, softDeleteTenant, id)
-	var i SceneryAuthTenant
+	var i ScenerySceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -986,10 +986,10 @@ func (q *Queries) SoftDeleteTenant(ctx context.Context, id UUID) (SceneryAuthTen
 }
 
 const updateIdentityPasswordHash = `-- name: UpdateIdentityPasswordHash :one
-UPDATE scenery_auth_auth_identities
-SET password_hash = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_auth_identities
+SET password_hash = $1,
+    updated_at = now()
+WHERE id = $2
 RETURNING id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 `
 
@@ -998,9 +998,9 @@ type UpdateIdentityPasswordHashParams struct {
 	ID           UUID   `json:"id"`
 }
 
-func (q *Queries) UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIdentityPasswordHashParams) (SceneryAuthAuthIdentity, error) {
+func (q *Queries) UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIdentityPasswordHashParams) (ScenerySceneryAuthAuthIdentity, error) {
 	row := q.db.QueryRowContext(ctx, updateIdentityPasswordHash, arg.PasswordHash, arg.ID)
-	var i SceneryAuthAuthIdentity
+	var i ScenerySceneryAuthAuthIdentity
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -1016,11 +1016,11 @@ func (q *Queries) UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIden
 }
 
 const updateMembershipRole = `-- name: UpdateMembershipRole :one
-UPDATE scenery_auth_organization_memberships
-SET role = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = ?
-  AND user_id = ?
+UPDATE scenery.scenery_auth_organization_memberships
+SET role = $1,
+    updated_at = now()
+WHERE tenant_id = $2
+  AND user_id = $3
   AND disabled_at IS NULL
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
 `
@@ -1031,9 +1031,9 @@ type UpdateMembershipRoleParams struct {
 	UserID   UUID   `json:"user_id"`
 }
 
-func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (SceneryAuthOrganizationMembership, error) {
+func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (ScenerySceneryAuthOrganizationMembership, error) {
 	row := q.db.QueryRowContext(ctx, updateMembershipRole, arg.Role, arg.TenantID, arg.UserID)
-	var i SceneryAuthOrganizationMembership
+	var i ScenerySceneryAuthOrganizationMembership
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
@@ -1049,10 +1049,10 @@ func (q *Queries) UpdateMembershipRole(ctx context.Context, arg UpdateMembership
 }
 
 const updateTenantName = `-- name: UpdateTenantName :one
-UPDATE scenery_auth_tenants
-SET name = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_tenants
+SET name = $1,
+    updated_at = now()
+WHERE id = $2
   AND deleted_at IS NULL
 RETURNING id, name, deleted_at, created_at, updated_at
 `
@@ -1062,9 +1062,9 @@ type UpdateTenantNameParams struct {
 	ID   UUID   `json:"id"`
 }
 
-func (q *Queries) UpdateTenantName(ctx context.Context, arg UpdateTenantNameParams) (SceneryAuthTenant, error) {
+func (q *Queries) UpdateTenantName(ctx context.Context, arg UpdateTenantNameParams) (ScenerySceneryAuthTenant, error) {
 	row := q.db.QueryRowContext(ctx, updateTenantName, arg.Name, arg.ID)
-	var i SceneryAuthTenant
+	var i ScenerySceneryAuthTenant
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
@@ -1076,23 +1076,23 @@ func (q *Queries) UpdateTenantName(ctx context.Context, arg UpdateTenantNamePara
 }
 
 const updateUserProfileFromProvider = `-- name: UpdateUserProfileFromProvider :one
-UPDATE scenery_auth_users
-SET display_name = CASE WHEN ?2 <> '' THEN ?2 ELSE display_name END,
-    avatar_url = CASE WHEN ?3 <> '' THEN ?3 ELSE avatar_url END,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_users
+SET display_name = CASE WHEN $2 <> '' THEN $2 ELSE display_name END,
+    avatar_url = CASE WHEN $3 <> '' THEN $3 ELSE avatar_url END,
+    updated_at = now()
+WHERE id = $1
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
 `
 
 type UpdateUserProfileFromProviderParams struct {
+	ID          UUID        `json:"id"`
 	DisplayName interface{} `json:"display_name"`
 	AvatarUrl   interface{} `json:"avatar_url"`
-	ID          UUID        `json:"id"`
 }
 
-func (q *Queries) UpdateUserProfileFromProvider(ctx context.Context, arg UpdateUserProfileFromProviderParams) (SceneryAuthUser, error) {
-	row := q.db.QueryRowContext(ctx, updateUserProfileFromProvider, arg.DisplayName, arg.AvatarUrl, arg.ID)
-	var i SceneryAuthUser
+func (q *Queries) UpdateUserProfileFromProvider(ctx context.Context, arg UpdateUserProfileFromProviderParams) (ScenerySceneryAuthUser, error) {
+	row := q.db.QueryRowContext(ctx, updateUserProfileFromProvider, arg.ID, arg.DisplayName, arg.AvatarUrl)
+	var i ScenerySceneryAuthUser
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
@@ -1109,18 +1109,18 @@ func (q *Queries) UpdateUserProfileFromProvider(ctx context.Context, arg UpdateU
 }
 
 const upsertAuthAttempt = `-- name: UpsertAuthAttempt :one
-INSERT INTO scenery_auth_auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)
-VALUES (?, ?, ?, ?, 1)
+INSERT INTO scenery.scenery_auth_auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)
+VALUES ($1, $2, $3, $4, 1)
 ON CONFLICT (purpose, normalized_email, ip_hash)
 DO UPDATE SET attempt_count = CASE
-                WHEN scenery_auth_auth_attempts.window_started_at < datetime(CURRENT_TIMESTAMP, '-15 minutes') THEN 1
-                ELSE scenery_auth_auth_attempts.attempt_count + 1
+                WHEN scenery.scenery_auth_auth_attempts.window_started_at < now() - interval '15 minutes' THEN 1
+                ELSE scenery.scenery_auth_auth_attempts.attempt_count + 1
               END,
               window_started_at = CASE
-                WHEN scenery_auth_auth_attempts.window_started_at < datetime(CURRENT_TIMESTAMP, '-15 minutes') THEN CURRENT_TIMESTAMP
-                ELSE scenery_auth_auth_attempts.window_started_at
+                WHEN scenery.scenery_auth_auth_attempts.window_started_at < now() - interval '15 minutes' THEN now()
+                ELSE scenery.scenery_auth_auth_attempts.window_started_at
               END,
-              last_attempt_at = CURRENT_TIMESTAMP
+              last_attempt_at = now()
 RETURNING id, purpose, normalized_email, ip_hash, window_started_at, attempt_count, last_attempt_at
 `
 
@@ -1131,14 +1131,14 @@ type UpsertAuthAttemptParams struct {
 	IpHash          string `json:"ip_hash"`
 }
 
-func (q *Queries) UpsertAuthAttempt(ctx context.Context, arg UpsertAuthAttemptParams) (SceneryAuthAuthAttempt, error) {
+func (q *Queries) UpsertAuthAttempt(ctx context.Context, arg UpsertAuthAttemptParams) (ScenerySceneryAuthAuthAttempt, error) {
 	row := q.db.QueryRowContext(ctx, upsertAuthAttempt,
 		arg.ID,
 		arg.Purpose,
 		arg.NormalizedEmail,
 		arg.IpHash,
 	)
-	var i SceneryAuthAuthAttempt
+	var i ScenerySceneryAuthAuthAttempt
 	err := row.Scan(
 		&i.ID,
 		&i.Purpose,

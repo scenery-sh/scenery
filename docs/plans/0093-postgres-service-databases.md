@@ -1,5 +1,7 @@
 # 0093 - First-Class Postgres Service Databases on a Shared Dev Server
 
+> Current contract note (2026-07-06): 0097 supersedes this plan's per-service database and mixed-engine model. Postgres is now the only engine, with one database per app/worktree and one schema per service; the current contract lives in `0097-postgres-only-data-platform.md` and `docs/local-contract.md`.
+
 This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` current as work proceeds.
 
 ## Purpose / Big Picture

@@ -11,6 +11,8 @@ import (
 	goruntime "runtime"
 	"sort"
 	"strings"
+
+	"scenery.sh/internal/postgresdb"
 )
 
 const (
@@ -131,41 +133,23 @@ func (c Config) StorageCellID() string {
 }
 
 func (c Config) DatabaseURLEnv() string {
-	services := c.SQLiteServices()
-	postgresServices := c.PostgresServices()
-	if len(services)+len(postgresServices) == 1 && len(services) == 1 {
-		if envName := strings.TrimSpace(services[0].DatabaseURLEnv); envName != "" {
-			return envName
-		}
+	if envName := strings.TrimSpace(c.Database.URLEnv); envName != "" {
+		return envName
 	}
-	if len(services)+len(postgresServices) == 1 && len(postgresServices) == 1 {
-		if envName := strings.TrimSpace(postgresServices[0].DatabaseURLEnv); envName != "" {
-			return envName
-		}
-	}
-	return "DatabaseURL"
+	return "DATABASE_URL"
 }
 
-func (c Config) SQLiteServices() []SQLiteServiceConfig {
-	out := make([]SQLiteServiceConfig, 0, len(c.Dev.Services))
+func (c Config) DatabaseServices() []DatabaseServiceConfig {
+	out := make([]DatabaseServiceConfig, 0, len(c.Dev.Services))
 	for name, svc := range c.Dev.Services {
-		if strings.TrimSpace(svc.Kind) != "sqlite" {
-			continue
+		schema, err := postgresdb.SchemaNameFor(name)
+		if err != nil {
+			schema = ""
 		}
-		fileLabel := strings.TrimSpace(svc.Database)
-		if fileLabel == "" {
-			fileLabel = name
-		}
-		envName := strings.TrimSpace(svc.DatabaseURLEnv)
-		if envName == "" {
-			envName = upperSnake(name) + "_DATABASE_URL"
-		}
-		out = append(out, SQLiteServiceConfig{
-			Name:            name,
-			FileLabel:       storageSlug(fileLabel),
-			DatabaseURLEnv:  envName,
-			DatabasePathEnv: upperSnake(name) + "_DATABASE_PATH",
-			Raw:             svc,
+		out = append(out, DatabaseServiceConfig{
+			Name:   name,
+			Schema: schema,
+			Raw:    svc,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -174,47 +158,33 @@ func (c Config) SQLiteServices() []SQLiteServiceConfig {
 	return out
 }
 
-func (c Config) SQLiteService(name string) (SQLiteServiceConfig, bool) {
-	for _, svc := range c.SQLiteServices() {
+func (c Config) DatabaseService(name string) (DatabaseServiceConfig, bool) {
+	for _, svc := range c.DatabaseServices() {
 		if svc.Name == name {
 			return svc, true
 		}
 	}
-	return SQLiteServiceConfig{}, false
+	return DatabaseServiceConfig{}, false
 }
 
-type SQLiteServiceConfig struct {
-	Name            string
-	FileLabel       string
-	DatabaseURLEnv  string
-	DatabasePathEnv string
-	Raw             DevServiceConfig
+type DatabaseServiceConfig struct {
+	Name   string
+	Schema string
+	Raw    DevServiceConfig
 }
 
 func (c Config) PostgresServices() []PostgresServiceConfig {
-	out := make([]PostgresServiceConfig, 0, len(c.Dev.Services))
-	for name, svc := range c.Dev.Services {
-		if devServiceKind(name, svc) != "postgres" {
-			continue
-		}
-		label := strings.TrimSpace(svc.Database)
-		if label == "" {
-			label = name
-		}
-		envName := strings.TrimSpace(svc.DatabaseURLEnv)
-		if envName == "" {
-			envName = upperSnake(name) + "_DATABASE_URL"
-		}
+	services := c.DatabaseServices()
+	out := make([]PostgresServiceConfig, 0, len(services))
+	for _, svc := range services {
 		out = append(out, PostgresServiceConfig{
-			Name:           name,
-			DatabaseLabel:  label,
-			DatabaseURLEnv: envName,
-			Raw:            svc,
+			Name:           svc.Name,
+			DatabaseLabel:  svc.Schema,
+			DatabaseURLEnv: postgresdb.ServiceDatabaseURLEnv(svc.Name),
+			Schema:         svc.Schema,
+			Raw:            svc.Raw,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Name < out[j].Name
-	})
 	return out
 }
 
@@ -231,6 +201,7 @@ type PostgresServiceConfig struct {
 	Name           string
 	DatabaseLabel  string
 	DatabaseURLEnv string
+	Schema         string
 	Raw            DevServiceConfig
 }
 
@@ -252,7 +223,7 @@ func upperSnake(value string) string {
 	}
 	out := strings.Trim(b.String(), "_")
 	if out == "" {
-		return "SQLITE"
+		return "DATABASE"
 	}
 	return out
 }
@@ -294,22 +265,26 @@ type DevRoutingConfig struct {
 }
 
 type DevServiceConfig struct {
-	Kind               string            `json:"kind"`
-	Mode               string            `json:"mode"`
-	Version            string            `json:"version"`
-	Isolation          string            `json:"isolation"`
-	Project            string            `json:"project"`
-	ParentBranch       string            `json:"parent_branch"`
-	ParentDatabase     string            `json:"parent_database"`
-	BranchPolicy       string            `json:"branch_policy"`
-	BranchNameTemplate string            `json:"branch_name_template"`
-	TTL                string            `json:"ttl"`
-	Role               string            `json:"role"`
-	DatabaseURLEnv     string            `json:"database_url_env"`
-	Image              string            `json:"image"`
-	Database           string            `json:"database"`
-	Route              string            `json:"route"`
-	Env                map[string]string `json:"env"`
+	// Only Env is a supported field. The remaining fields exist so that
+	// configs carrying pre-0097 service options fail validation with a
+	// pointed error instead of being silently ignored; omitempty keeps them
+	// out of serialized app inspection output for valid configs.
+	Kind               string            `json:"kind,omitempty"`
+	Mode               string            `json:"mode,omitempty"`
+	Version            string            `json:"version,omitempty"`
+	Isolation          string            `json:"isolation,omitempty"`
+	Project            string            `json:"project,omitempty"`
+	ParentBranch       string            `json:"parent_branch,omitempty"`
+	ParentDatabase     string            `json:"parent_database,omitempty"`
+	BranchPolicy       string            `json:"branch_policy,omitempty"`
+	BranchNameTemplate string            `json:"branch_name_template,omitempty"`
+	TTL                string            `json:"ttl,omitempty"`
+	Role               string            `json:"role,omitempty"`
+	DatabaseURLEnv     string            `json:"database_url_env,omitempty"`
+	Image              string            `json:"image,omitempty"`
+	Database           string            `json:"database,omitempty"`
+	Route              string            `json:"route,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
 }
 
 type StorageConfig struct {
@@ -358,8 +333,9 @@ type SQLCGeneratorSchema struct {
 }
 
 type DatabaseConfig struct {
-	Apply DatabaseApplyConfig `json:"apply"`
-	Seed  DatabaseSeedConfig  `json:"seed"`
+	URLEnv string              `json:"url_env"`
+	Apply  DatabaseApplyConfig `json:"apply"`
+	Seed   DatabaseSeedConfig  `json:"seed"`
 }
 
 type DatabaseApplyConfig struct {
@@ -541,50 +517,34 @@ func (c Config) validateWatch() error {
 
 func (c Config) validateDevServices() error {
 	removedSyncKind := "elec" + "tric"
+	schemaOwners := map[string]string{}
 	for name, svc := range c.Dev.Services {
-		kind := devServiceKind(name, svc)
-		if kind == "" {
-			switch name {
-			case removedSyncKind:
-				return errors.New("the removed legacy sync service declaration must be deleted")
-			}
-		}
-		if kind == removedSyncKind {
+		if name == removedSyncKind || strings.TrimSpace(svc.Kind) == removedSyncKind {
 			return fmt.Errorf("dev.services.%s uses a removed legacy sync service kind; delete this service declaration", name)
 		}
-		switch kind {
-		case "", "sqlite", "postgres":
-		default:
-			return fmt.Errorf("dev.services.%s kind %q is not supported", name, kind)
+		if !isStorageIdentifier(name) {
+			return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
 		}
-		switch kind {
-		case "sqlite", "postgres":
-			if !isStorageIdentifier(name) {
-				return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
-			}
-			if label := strings.TrimSpace(svc.Database); label != "" && !isStorageIdentifier(storageSlug(label)) {
-				return fmt.Errorf("dev.services.%s.database %q is invalid", name, label)
-			}
+		schema, err := postgresdb.SchemaNameFor(name)
+		if err != nil {
+			return fmt.Errorf("dev.services.%s name maps to an invalid Postgres schema: %w", name, err)
 		}
-		if kind == "postgres" {
-			for _, field := range postgresLegacyDevServiceFields(svc) {
-				return fmt.Errorf("dev.services.%s.%s is not supported for postgres services; plan 0093 supports only kind, database_url_env, database, and env", name, field)
-			}
+		if previous := schemaOwners[schema]; previous != "" {
+			return fmt.Errorf("dev.services.%s and dev.services.%s both map to Postgres schema %q", previous, name, schema)
+		}
+		schemaOwners[schema] = name
+		for _, field := range plan0097DevServiceFields(svc) {
+			return fmt.Errorf("dev.services.%s.%s is not supported for database services in plan 0097; accepted fields are env only", name, field)
 		}
 	}
 	return nil
 }
 
-func devServiceKind(name string, svc DevServiceConfig) string {
-	kind := strings.TrimSpace(svc.Kind)
-	if kind == "" && name == "postgres" {
-		return "postgres"
-	}
-	return kind
-}
-
-func postgresLegacyDevServiceFields(svc DevServiceConfig) []string {
+func plan0097DevServiceFields(svc DevServiceConfig) []string {
 	var fields []string
+	if strings.TrimSpace(svc.Kind) != "" {
+		fields = append(fields, "kind")
+	}
 	if strings.TrimSpace(svc.Mode) != "" {
 		fields = append(fields, "mode")
 	}
@@ -615,8 +575,14 @@ func postgresLegacyDevServiceFields(svc DevServiceConfig) []string {
 	if strings.TrimSpace(svc.Role) != "" {
 		fields = append(fields, "role")
 	}
+	if strings.TrimSpace(svc.DatabaseURLEnv) != "" {
+		fields = append(fields, "database_url_env")
+	}
 	if strings.TrimSpace(svc.Image) != "" {
 		fields = append(fields, "image")
+	}
+	if strings.TrimSpace(svc.Database) != "" {
+		fields = append(fields, "database")
 	}
 	if strings.TrimSpace(svc.Route) != "" {
 		fields = append(fields, "route")

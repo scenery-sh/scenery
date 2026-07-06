@@ -3,118 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"net/url"
-	"path/filepath"
-	"sort"
 	"strings"
 	"unicode"
 
-	localagent "scenery.sh/internal/agent"
-	"scenery.sh/internal/app"
 	"scenery.sh/internal/identityhash"
-	"scenery.sh/internal/sqlitedb"
+	localagent "scenery.sh/internal/agent"
 )
 
 const (
-	appDatabaseURLEnv    = "DatabaseURL"
-	legacyDatabaseURLEnv = "DATABASE_URL"
+	appDatabaseURLEnv    = "DATABASE_URL"
+	legacyDatabaseURLEnv = "DatabaseURL"
 )
-
-func managedSQLiteEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session) ([]string, []sqlitedb.Service, error) {
-	req := sqlitedb.ResolveRequest{AppRoot: appRoot, Config: cfg, Mode: sqlitedb.ModeLocal}
-	if session != nil && strings.TrimSpace(session.SessionID) != "" {
-		req.Mode = sqlitedb.ModeSession
-		req.SessionID = session.SessionID
-	}
-	services, err := sqlitedb.ResolveServices(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	services = append(services, discoverServiceSQLiteDatabases(appRoot, req.Mode, req.SessionID, services)...)
-	if len(services) == 0 {
-		return nil, nil, nil
-	}
-	if err := sqlitedb.EnsureFiles(ctx, services); err != nil {
-		return nil, nil, err
-	}
-	includeAlias := len(services) == 1 && len(cfg.PostgresServices()) == 0
-	if includeAlias {
-		cfgServices := cfg.SQLiteServices()
-		includeAlias = len(cfgServices) == 1 && strings.TrimSpace(cfgServices[0].Raw.DatabaseURLEnv) == ""
-	}
-	return sqlitedb.Env(services, includeAlias), services, nil
-}
-
-func discoverServiceSQLiteDatabases(appRoot string, mode sqlitedb.Mode, sessionID string, existing []sqlitedb.Service) []sqlitedb.Service {
-	seen := map[string]bool{}
-	for _, svc := range existing {
-		seen[svc.Name] = true
-	}
-	base := filepath.Join(appRoot, ".scenery", "sqlite", "local")
-	if mode == sqlitedb.ModeSession && strings.TrimSpace(sessionID) != "" {
-		base = filepath.Join(appRoot, ".scenery", "sessions", sessionID, "sqlite")
-	}
-	var out []sqlitedb.Service
-	_ = filepath.WalkDir(appRoot, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if entry.IsDir() {
-			switch entry.Name() {
-			case ".git", ".scenery", "node_modules", "var", "x":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Base(path) != "schema.sql" || filepath.Base(filepath.Dir(path)) != "db" {
-			return nil
-		}
-		name := filepath.Base(filepath.Dir(filepath.Dir(path)))
-		if name == "" || seen[name] {
-			return nil
-		}
-		seen[name] = true
-		fileLabel := localagentLabel(name)
-		if fileLabel == "" {
-			fileLabel = name
-		}
-		dbPath := filepath.Join(base, fileLabel+".sqlite")
-		out = append(out, sqlitedb.Service{
-			Name:            name,
-			FileLabel:       fileLabel,
-			Path:            dbPath,
-			URL:             sqlitedb.URLForPath(dbPath),
-			DatabaseURLEnv:  sqliteServiceEnvName(name, "DATABASE_URL"),
-			DatabasePathEnv: sqliteServiceEnvName(name, "DATABASE_PATH"),
-		})
-		return nil
-	})
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
-}
-
-func sqliteServiceEnvName(name, suffix string) string {
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range strings.ToUpper(name) {
-		ok := (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
-		if ok {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	prefix := strings.Trim(b.String(), "_")
-	if prefix == "" {
-		prefix = "SQLITE"
-	}
-	return prefix + "_" + suffix
-}
 
 func shortIdentityHash(value string) string {
 	return identityhash.Short(value)

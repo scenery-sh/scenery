@@ -1,37 +1,33 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/sqlitedb"
 )
 
 func TestDBCommandRejectsMissingOrRemovedSubcommand(t *testing.T) {
 	t.Parallel()
 
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot|diff|branch|server [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|shell|apply|seed|setup|reset|drop|snapshot|diff|server [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
-	for _, cmd := range []string{"vacuum", "psql", "postgres"} {
+	for _, cmd := range []string{"vacuum", "psql", "postgres", "path", "branch"} {
 		if err := dbCommand([]string{cmd}); err == nil || err.Error() != `unknown db command "`+cmd+`"` {
 			t.Fatalf("dbCommand(%s) error = %v", cmd, err)
 		}
 	}
 }
 
-func TestParseSQLiteDBArgs(t *testing.T) {
+func TestParseDBCLIArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseSQLiteDBArgs([]string{"--app-root", "/tmp/app", "--json", "main", ".schema"}, false)
+	opts, err := parseDBCLIArgs([]string{"--app-root", "/tmp/app", "--json", "main", ".schema"}, false)
 	if err != nil {
-		t.Fatalf("parseSQLiteDBArgs returned error: %v", err)
+		t.Fatalf("parseDBCLIArgs returned error: %v", err)
 	}
 	if opts.AppRoot != "/tmp/app" || opts.Service != "main" || !opts.JSON {
 		t.Fatalf("opts = %+v", opts)
@@ -39,7 +35,7 @@ func TestParseSQLiteDBArgs(t *testing.T) {
 	if got := strings.Join(opts.Args, " "); got != ".schema" {
 		t.Fatalf("args = %q", got)
 	}
-	if _, err := parseSQLiteDBArgs([]string{"--app-root"}, false); err == nil || err.Error() != "missing value for --app-root" {
+	if _, err := parseDBCLIArgs([]string{"--app-root"}, false); err == nil || err.Error() != "missing value for --app-root" {
 		t.Fatalf("missing app root error = %v", err)
 	}
 }
@@ -56,52 +52,6 @@ func TestParseDBTargetArgsAllowsYesAfterService(t *testing.T) {
 	}
 	if _, err := parseDBTargetArgs([]string{"reports", "extra"}); err == nil || !strings.Contains(err.Error(), "unexpected argument") {
 		t.Fatalf("extra arg error = %v", err)
-	}
-}
-
-func TestDBTargetResolutionSkipsOtherEngineWhenServiceKnown(t *testing.T) {
-	t.Parallel()
-
-	cfg := app.Config{Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-		"cache":   {Kind: "sqlite"},
-		"reports": {Kind: "postgres"},
-	}}}
-	if shouldResolvePostgresForDBTarget(cfg, "cache") {
-		t.Fatalf("sqlite target should not resolve postgres services")
-	}
-	if shouldResolveSQLiteForDBTarget(cfg, "reports") {
-		t.Fatalf("postgres target should not resolve sqlite services")
-	}
-	if !shouldResolveSQLiteForDBTarget(cfg, "discovered") {
-		t.Fatalf("unknown target may be a discovered sqlite service")
-	}
-}
-
-func TestDBBranchAllowsSQLiteBranchesInMixedDatabaseApp(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"demo","dev":{"services":{"cache":{"kind":"sqlite"},"reports":{"kind":"postgres"}}}}`), 0o644); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	var stdout bytes.Buffer
-	err := runDBBranchCommand(context.Background(), &stdout, []string{"status", "--app-root", root})
-	if err != nil {
-		t.Fatalf("mixed app branch status returned error: %v", err)
-	}
-}
-
-func TestDBBranchRejectsPostgresOnlyApp(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"demo","dev":{"services":{"reports":{"kind":"postgres"}}}}`), 0o644); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	var stdout bytes.Buffer
-	err := runDBBranchCommand(context.Background(), &stdout, []string{"status", "--app-root", root})
-	if err == nil || !strings.Contains(err.Error(), "postgres services are not branchable") {
-		t.Fatalf("postgres-only branch status error = %v", err)
 	}
 }
 
@@ -136,27 +86,33 @@ func TestParseDBSnapshotArgs(t *testing.T) {
 	if _, err := parseDBSnapshotArgs([]string{}); err == nil || !strings.Contains(err.Error(), "scenery db snapshot create|restore") {
 		t.Fatalf("missing action error = %v", err)
 	}
+	for _, name := range []string{"../../x", "bad/name", "Bad", "bad.name", "bad name"} {
+		if _, err := parseDBSnapshotArgs([]string{"create", "--name", name}); err == nil || !strings.Contains(err.Error(), "db snapshot name") {
+			t.Fatalf("unsafe snapshot name %q error = %v", name, err)
+		}
+	}
 }
 
-func TestDatabaseListRecordsIncludeBothEngines(t *testing.T) {
+func TestDatabaseListRecordsIncludesPostgresSchemas(t *testing.T) {
 	t.Parallel()
 
-	records := databaseListRecords(
-		[]sqlitedb.Service{{Name: "cache", FileLabel: "cache", Path: "/tmp/cache.sqlite", URL: "sqlite:///tmp/cache.sqlite", DatabaseURLEnv: "CACHE_DATABASE_URL"}},
-		[]postgresdb.Service{{Name: "reports", Database: "demo_reports_abcd1234", URL: "postgres://user:secret@localhost/reports", DatabaseURLEnv: "REPORTS_DATABASE_URL", Source: postgresdb.SourceManaged}},
-	)
-	if len(records) != 2 {
-		t.Fatalf("records = %+v", records)
+	record := databaseListRecordFromDatabase(context.Background(), postgresdb.Database{
+		Database: "demo_abcd1234",
+		URL:      "postgres://user:secret@localhost/app",
+		Source:   postgresdb.SourceManaged,
+		Schemas: []postgresdb.Service{
+			{Name: "reports", Schema: "reports", URL: "postgres://user:secret@localhost/app?search_path=reports%2Cscenery"},
+		},
+	})
+	if record.Name != "demo_abcd1234" || record.Source != "managed" || len(record.Schemas) != 1 || strings.Contains(record.URL, "secret") {
+		t.Fatalf("postgres record = %+v", record)
 	}
-	if records[0].Engine != "sqlite" || records[0].Service != "cache" || records[0].Path == "" {
-		t.Fatalf("sqlite record = %+v", records[0])
-	}
-	if records[1].Engine != "postgres" || records[1].Service != "reports" || records[1].Database == "" || strings.Contains(records[1].URL, "secret") {
-		t.Fatalf("postgres record = %+v", records[1])
+	if record.Schemas[0].Service != "reports" || record.Schemas[0].Schema != "reports" || strings.Contains(record.Schemas[0].URL, "secret") {
+		t.Fatalf("postgres schema record = %+v", record.Schemas[0])
 	}
 }
 
-func TestResolveDatabaseURLForConfigUsesSQLiteService(t *testing.T) {
+func TestResolveDatabaseURLForConfigUsesAppDatabaseURL(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -164,19 +120,19 @@ func TestResolveDatabaseURLForConfigUsesSQLiteService(t *testing.T) {
 		Name: "demo",
 		ID:   "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"main": {Kind: "sqlite", Database: "demo.sqlite"},
+			"main": {},
 		}},
 	}
+	dsn := "postgres://user:secret@localhost/demo"
 	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, []string{
-		appDatabaseURLEnv + "=sqlite:///stale.sqlite",
-		legacyDatabaseURLEnv + "=sqlite:///poison.sqlite",
+		appDatabaseURLEnv + "=" + dsn,
+		legacyDatabaseURLEnv + "=mysql://poison",
 	}, true)
 	if err != nil {
 		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
 	}
-	wantPath := filepath.Join(root, ".scenery", "sqlite", "local", "demo.sqlite")
-	if got != sqlitedb.URLForPath(wantPath) {
-		t.Fatalf("database URL = %q, want %q", got, sqlitedb.URLForPath(wantPath))
+	if !strings.Contains(got, "search_path=main%2Cscenery") {
+		t.Fatalf("database URL = %q, want main search_path derived from %q", got, dsn)
 	}
 }
 
@@ -187,16 +143,16 @@ func TestResolveDatabaseURLForConfigDefaultsToDBService(t *testing.T) {
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"db":     {Kind: "sqlite", Database: "main", DatabaseURLEnv: appDatabaseURLEnv},
-			"search": {Kind: "sqlite"},
+			"db":     {},
+			"search": {},
 		}},
 	}
-	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, nil, true)
+	dsn := "postgres://user:secret@localhost/demo"
+	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, []string{"DATABASE_URL=" + dsn}, true)
 	if err != nil {
 		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
 	}
-	want := sqlitedb.URLForPath(filepath.Join(root, ".scenery", "sqlite", "local", "main.sqlite"))
-	if got != want {
-		t.Fatalf("database URL = %q, want %q", got, want)
+	if !strings.Contains(got, "search_path=db%2Cscenery") {
+		t.Fatalf("database URL = %q, want db search_path derived from %q", got, dsn)
 	}
 }

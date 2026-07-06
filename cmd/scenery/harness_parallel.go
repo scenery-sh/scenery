@@ -15,7 +15,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/sqlitedb"
+	"scenery.sh/internal/postgresdb"
 )
 
 var runHarnessParallelDevCheckFunc = runHarnessParallelDevCheck
@@ -48,10 +48,31 @@ func runHarnessParallelDevStep(ctx context.Context, repoRoot string) harnessStep
 }
 
 func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []checkDiagnostic, error) {
-	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 	defer cancel()
-	agentHome := filepath.Join(os.TempDir(), "scenery-harness-parallel-"+harnessRandomLabel())
+	label := harnessRandomLabel()
+	agentHome := filepath.Join(os.TempDir(), "scenery-harness-parallel-"+label)
 	defer os.RemoveAll(agentHome)
+	dockerAvailable := harnessDockerAvailable(ctx)
+	var extraDiagnostics []checkDiagnostic
+	if dockerAvailable {
+		serverState, err := seedHarnessPostgresServerState(agentHome, label)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = cleanupPostgresHarnessContainer(cleanupCtx, serverState.Container, serverState.Volume)
+		}()
+	} else {
+		extraDiagnostics = append(extraDiagnostics, checkDiagnostic{
+			Stage:           "parallel worktree runtimes",
+			Severity:        "warning",
+			Message:         "Docker is unavailable; skipped managed Postgres database isolation checks",
+			SuggestedAction: "Start Docker and rerun `scenery harness self --json --write` for live database isolation proof.",
+		})
+	}
 	restoreEnv := patchEnv(map[string]*string{
 		"SCENERY_AGENT_HOME":            stringPtr(agentHome),
 		"SCENERY_DEV_CACHE_DIR":         nil,
@@ -121,13 +142,19 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 	}
 	defer restoreB()
 
-	sqliteEnvA, servicesA, err := managedSQLiteEnv(ctx, rootA, cfgA, sessionA)
-	if err != nil {
-		return nil, nil, err
-	}
-	sqliteEnvB, servicesB, err := managedSQLiteEnv(ctx, rootB, cfgB, sessionB)
-	if err != nil {
-		return nil, nil, err
+	var (
+		databaseEnvA, databaseEnvB []string
+		databaseA, databaseB      postgresdb.Database
+	)
+	if dockerAvailable {
+		databaseEnvA, databaseA, err = managedDatabaseEnv(ctx, rootA, cfgA, sessionA, envpolicy.Environ())
+		if err != nil {
+			return nil, nil, err
+		}
+		databaseEnvB, databaseB, err = managedDatabaseEnv(ctx, rootB, cfgB, sessionB, envpolicy.Environ())
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	supervisorA := &devSupervisor{root: rootA, cfg: cfgA, agent: client, agentSession: sessionA}
@@ -162,10 +189,15 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		return nil, nil, err
 	}
 
-	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, sqliteEnvA, sqliteEnvB, servicesA, servicesB)
+	diagnostics := validateHarnessParallelState(ctx, server, client, store, cfgA.AppID(), sessionA, sessionB, databaseEnvA, databaseEnvB, databaseA, databaseB, dockerAvailable)
+	diagnostics = append(diagnostics, extraDiagnostics...)
+	databaseCount := 0
+	if dockerAvailable {
+		databaseCount = 2
+	}
 	summary := map[string]any{
 		"sessions":        2,
-		"databases":       len(servicesA) + len(servicesB),
+		"databases":       databaseCount,
 		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
 		"frontend_routes": []string{sessionA.Routes["web"], sessionB.Routes["web"]},
 		"diagnostics":     len(diagnostics),
@@ -192,7 +224,7 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 		},
 		Dev: app.DevConfig{
 			Services: map[string]app.DevServiceConfig{
-				"main": {Kind: "sqlite"},
+				"main": {},
 			},
 		},
 	}
@@ -248,7 +280,7 @@ func writeHarnessParallelObservability(ctx context.Context, store *devdash.Store
 	return nil
 }
 
-func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, sqliteEnvA, sqliteEnvB []string, servicesA, servicesB []sqlitedb.Service) []checkDiagnostic {
+func validateHarnessParallelState(ctx context.Context, server *localagent.Server, client *localagent.Client, store *devdash.Store, appID string, sessionA, sessionB *localagent.Session, databaseEnvA, databaseEnvB []string, databaseA, databaseB postgresdb.Database, dockerAvailable bool) []checkDiagnostic {
 	var diagnostics []checkDiagnostic
 	check := func(ok bool, message string) {
 		if ok {
@@ -268,8 +300,10 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends[localagent.RouteAPI].Addr != sessionB.Backends[localagent.RouteAPI].Addr, "API backends must be distinct")
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
 	check(routeIsSessionScoped(sessionA, "web") && routeIsSessionScoped(sessionB, "web") && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
-	check(len(servicesA) == 1 && len(servicesB) == 1 && servicesA[0].Path != "" && servicesB[0].Path != "" && servicesA[0].Path != servicesB[0].Path, "managed SQLite database files must be distinct")
-	check(envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL") != "" && envValueFromList(sqliteEnvA, "MAIN_DATABASE_URL") != envValueFromList(sqliteEnvB, "MAIN_DATABASE_URL"), "managed SQLite database URLs must be distinct")
+	if dockerAvailable {
+		check(databaseA.Database != "" && databaseB.Database != "" && databaseA.Database != databaseB.Database, "managed Postgres app databases must be distinct")
+		check(envValueFromList(databaseEnvA, "DATABASE_URL") != "" && envValueFromList(databaseEnvB, "DATABASE_URL") != "" && envValueFromList(databaseEnvA, "DATABASE_URL") != envValueFromList(databaseEnvB, "DATABASE_URL"), "managed Postgres database URLs must be distinct")
+	}
 	if victoria := (&agentDashboardController{store: store, agent: server}).dashboardVictoria(); victoria == nil || victoria.Endpoint("traces") == "" {
 		check(false, "agent dashboard must read shared Victoria substrate")
 	}

@@ -8,13 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"scenery.sh/internal/sqlitedb"
+	"scenery.sh/internal/postgresdb"
 )
 
 type Store struct {
@@ -147,13 +146,15 @@ const DefaultRunLeaseDuration = time.Minute
 
 var storeLocks sync.Map
 
-func Open(ctx context.Context, path string) (*Store, error) {
-	db, err := sqlitedb.Open(ctx, path)
+func Open(ctx context.Context, databaseURL string) (*Store, error) {
+	if strings.TrimSpace(databaseURL) == "" || !strings.HasPrefix(strings.TrimSpace(databaseURL), "postgres") {
+		return nil, fmt.Errorf("symphony store requires the managed Postgres server database URL")
+	}
+	db, err := postgresdb.Open(ctx, databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	lockAny, _ := storeLocks.LoadOrStore(filepath.Clean(path), &sync.Mutex{})
+	lockAny, _ := storeLocks.LoadOrStore(strings.TrimSpace(databaseURL), &sync.Mutex{})
 	store := &Store{db: db, mu: lockAny.(*sync.Mutex)}
 	if err := store.migrate(ctx); err != nil {
 		_ = db.Close()
@@ -234,7 +235,7 @@ func (s *Store) CreateTask(ctx context.Context, appID string, input TaskInput) (
 	if _, err := tx.ExecContext(ctx, `INSERT INTO symphony_tasks (
 		id, app_id, identifier, title, description, status_key, sort_order, priority, assignee,
 		estimate, branch_name, url, source, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		id, appID, identifier, input.Title, input.Description, input.StatusKey, sortOrder, input.Priority, input.Assignee,
 		input.Estimate, input.BranchName, input.URL, firstNonEmpty(input.Source, "manual"), now, now,
 	); err != nil {
@@ -292,9 +293,9 @@ func (s *Store) UpdateTask(ctx context.Context, appID, id string, input TaskInpu
 		}
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE symphony_tasks SET
-		title = ?, description = ?, status_key = ?, sort_order = ?, priority = ?, assignee = ?,
-		estimate = ?, branch_name = ?, url = ?, source = ?, updated_at = ?
-		WHERE app_id = ? AND id = ? AND deleted_at IS NULL`,
+		title = $1, description = $2, status_key = $3, sort_order = $4, priority = $5, assignee = $6,
+		estimate = $7, branch_name = $8, url = $9, source = $10, updated_at = $11
+		WHERE app_id = $12 AND id = $13 AND deleted_at IS NULL`,
 		input.Title, input.Description, input.StatusKey, sortOrder, input.Priority, input.Assignee,
 		input.Estimate, input.BranchName, input.URL, firstNonEmpty(input.Source, current.Source, "manual"), now, appID, id,
 	)
@@ -382,7 +383,7 @@ func (s *Store) DeleteTask(ctx context.Context, appID, id string) error {
 	if id == "" {
 		return errors.New("task id is required")
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE symphony_tasks SET deleted_at = ?, updated_at = ? WHERE app_id = ? AND id = ? AND deleted_at IS NULL`, nowText(), nowText(), appID, id)
+	res, err := s.db.ExecContext(ctx, `UPDATE symphony_tasks SET deleted_at = $1, updated_at = $2 WHERE app_id = $3 AND id = $4 AND deleted_at IS NULL`, nowText(), nowText(), appID, id)
 	if err != nil {
 		return err
 	}
@@ -397,7 +398,7 @@ func (s *Store) Task(ctx context.Context, appID, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	rows, err := s.db.QueryContext(ctx, taskSelectSQL()+` AND t.id = ?`, appID, id)
+	rows, err := s.db.QueryContext(ctx, taskSelectSQL()+` AND t.id = $2`, appID, id)
 	if err != nil {
 		return Task{}, err
 	}
@@ -450,7 +451,7 @@ func (s *Store) updateStatuses(ctx context.Context, appID string, updates []Stat
 		if sortOrder <= 0 {
 			sortOrder = (i + 1) * 1000
 		}
-		res, err := tx.ExecContext(ctx, `UPDATE symphony_statuses SET sort_order = ?, hidden = ?, updated_at = ? WHERE app_id = ? AND status_key = ?`, sortOrder, boolInt(update.Hidden), now, appID, key)
+		res, err := tx.ExecContext(ctx, `UPDATE symphony_statuses SET sort_order = $1, hidden = $2, updated_at = $3 WHERE app_id = $4 AND status_key = $5`, sortOrder, boolInt(update.Hidden), now, appID, key)
 		if err != nil {
 			return err
 		}
@@ -470,7 +471,7 @@ func (s *Store) Workflow(ctx context.Context, appID string) (Workflow, error) {
 		return Workflow{}, err
 	}
 	var workflow Workflow
-	err = s.db.QueryRowContext(ctx, `SELECT app_id, workflow_markdown, mode, max_concurrency, updated_at FROM symphony_workflows WHERE app_id = ?`, appID).Scan(
+	err = s.db.QueryRowContext(ctx, `SELECT app_id, workflow_markdown, mode, max_concurrency, updated_at FROM symphony_workflows WHERE app_id = $1`, appID).Scan(
 		&workflow.AppID, &workflow.WorkflowMarkdown, &workflow.Mode, &workflow.MaxConcurrency, &workflow.UpdatedAt,
 	)
 	if err == nil {
@@ -503,7 +504,7 @@ func (s *Store) UpdateWorkflow(ctx context.Context, appID string, input Workflow
 	}
 	now := nowText()
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO symphony_workflows (app_id, workflow_markdown, mode, max_concurrency, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT(app_id) DO UPDATE SET workflow_markdown = excluded.workflow_markdown, mode = excluded.mode, max_concurrency = excluded.max_concurrency, updated_at = excluded.updated_at`,
 		appID, input.WorkflowMarkdown, mode, maxConcurrency, now,
 	); err != nil {
@@ -531,22 +532,23 @@ func (s *Store) RunnableTasksWithMaxAttempts(ctx context.Context, appID string, 
 	if len(statusKeys) == 0 {
 		statusKeys = []string{"todo"}
 	}
-	placeholders := strings.TrimRight(strings.Repeat("?,", len(statusKeys)), ",")
 	args := []any{appID}
+	placeholderParts := make([]string, 0, len(statusKeys))
 	for _, key := range statusKeys {
 		args = append(args, key)
+		placeholderParts = append(placeholderParts, fmt.Sprintf("$%d", len(args)))
 	}
 	attemptFilter := ""
 	if maxAttempts > 0 {
+		args = append(args, maxAttempts)
 		attemptFilter = ` AND (
 			SELECT count(*) FROM symphony_runs attempts WHERE attempts.app_id = t.app_id AND attempts.task_id = t.id
-		) < ?`
-		args = append(args, maxAttempts)
+		) < $` + fmt.Sprint(len(args))
 	}
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, taskSelectSQL()+` AND t.status_key IN (`+placeholders+`) AND NOT EXISTS (
+	rows, err := s.db.QueryContext(ctx, taskSelectSQL()+` AND t.status_key IN (`+strings.Join(placeholderParts, ",")+`) AND NOT EXISTS (
 			SELECT 1 FROM symphony_runs r WHERE r.app_id = t.app_id AND r.task_id = t.id AND r.status IN ('queued', 'running')
-		)`+attemptFilter+` ORDER BY st.sort_order, t.sort_order, t.updated_at DESC LIMIT ?`, args...)
+		)`+attemptFilter+` ORDER BY st.sort_order, t.sort_order, t.updated_at DESC LIMIT $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +572,7 @@ func (s *Store) ActiveRunCount(ctx context.Context, appID string) (int, error) {
 		return 0, err
 	}
 	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM symphony_runs WHERE app_id = ? AND status IN ('queued', 'running')`, appID).Scan(&count); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM symphony_runs WHERE app_id = $1 AND status IN ('queued', 'running')`, appID).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -624,7 +626,7 @@ func (s *Store) StartRunWithRepo(ctx context.Context, appID, taskID, workspacePa
 	if _, err := tx.ExecContext(ctx, `INSERT INTO symphony_runs (
 		id, app_id, task_id, attempt, status, repo_root, repo_workspace_path, workspace_path, owner_session_id,
 		owner_started_at, lease_expires_at, created_at, updated_at
-	) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12)`,
 		id, appID, taskID, attempt, repoRoot, repoWorkspace, workspacePath, ownerSessionID, now, leaseExpiresAt, now, now,
 	); err != nil {
 		return Run{}, err
@@ -641,7 +643,7 @@ func (s *Store) StartRunWithRepo(ctx context.Context, appID, taskID, workspacePa
 func (s *Store) MarkRunRunning(ctx context.Context, appID, runID string, processID int, threadID string) (Run, error) {
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
 		leaseExpiresAt := time.Now().UTC().Add(DefaultRunLeaseDuration).Format(time.RFC3339Nano)
-		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'running', process_id = ?, thread_id = ?, lease_expires_at = ?, started_at = coalesce(started_at, ?), updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`,
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'running', process_id = $1, thread_id = $2, lease_expires_at = $3, started_at = coalesce(started_at, $4), updated_at = $5 WHERE app_id = $6 AND id = $7 AND status IN ('queued', 'running')`,
 			processID, strings.TrimSpace(threadID), leaseExpiresAt, now, now, appID, runID,
 		)
 		if err != nil {
@@ -657,7 +659,7 @@ func (s *Store) MarkRunRunning(ctx context.Context, appID, runID string, process
 func (s *Store) MarkRunTurn(ctx context.Context, appID, runID, turnID string) (Run, error) {
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
 		turnID = strings.TrimSpace(turnID)
-		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET turn_id = ?, updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`, turnID, now, appID, runID)
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET turn_id = $1, updated_at = $2 WHERE app_id = $3 AND id = $4 AND status IN ('queued', 'running')`, turnID, now, appID, runID)
 		if err != nil {
 			return err
 		}
@@ -674,7 +676,7 @@ func (s *Store) RenewRunLease(ctx context.Context, appID, runID string, duration
 	}
 	expiresAt := time.Now().UTC().Add(duration).Format(time.RFC3339Nano)
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
-		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET lease_expires_at = ?, updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`, expiresAt, now, appID, runID)
+		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET lease_expires_at = $1, updated_at = $2 WHERE app_id = $3 AND id = $4 AND status IN ('queued', 'running')`, expiresAt, now, appID, runID)
 		return err
 	})
 }
@@ -694,7 +696,7 @@ func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, 
 		return 0, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT id, task_id, coalesce(lease_expires_at, '') FROM symphony_runs WHERE app_id = ? AND status IN ('queued', 'running')`, appID)
+	rows, err := tx.QueryContext(ctx, `SELECT id, task_id, coalesce(lease_expires_at, '') FROM symphony_runs WHERE app_id = $1 AND status IN ('queued', 'running')`, appID)
 	if err != nil {
 		return 0, err
 	}
@@ -733,7 +735,7 @@ func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, 
 	}
 	marked := 0
 	for _, item := range expired {
-		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'stalled', error = ?, ended_at = coalesce(ended_at, ?), updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`,
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = 'stalled', error = $1, ended_at = coalesce(ended_at, $2), updated_at = $3 WHERE app_id = $4 AND id = $5 AND status IN ('queued', 'running')`,
 			item.reason, now, now, appID, item.id,
 		)
 		if err != nil {
@@ -759,7 +761,7 @@ func (s *Store) MarkExpiredRunsStalled(ctx context.Context, appID string) (int, 
 					return 0, err
 				}
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE symphony_tasks SET status_key = 'todo', sort_order = ?, updated_at = ? WHERE app_id = ? AND id = ? AND deleted_at IS NULL`, sortOrder, now, appID, item.taskID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE symphony_tasks SET status_key = 'todo', sort_order = $1, updated_at = $2 WHERE app_id = $3 AND id = $4 AND deleted_at IS NULL`, sortOrder, now, appID, item.taskID); err != nil {
 				return 0, err
 			}
 		}
@@ -779,7 +781,7 @@ func (s *Store) CompleteRun(ctx context.Context, appID, runID, status, summary, 
 		return Run{}, fmt.Errorf("completion status %q is still active", status)
 	}
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
-		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = ?, summary = ?, error = ?, ended_at = coalesce(ended_at, ?), updated_at = ? WHERE app_id = ? AND id = ? AND status IN ('queued', 'running')`,
+		result, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET status = $1, summary = $2, error = $3, ended_at = coalesce(ended_at, $4), updated_at = $5 WHERE app_id = $6 AND id = $7 AND status IN ('queued', 'running')`,
 			status, strings.TrimSpace(summary), strings.TrimSpace(runError), now, now, appID, runID,
 		)
 		if err != nil {
@@ -794,7 +796,7 @@ func (s *Store) CompleteRun(ctx context.Context, appID, runID, status, summary, 
 
 func (s *Store) RecordRunArtifacts(ctx context.Context, appID, runID, diffStat, diff string) (Run, error) {
 	return s.updateRun(ctx, appID, runID, func(ctx context.Context, tx *sql.Tx, now string) error {
-		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET diff_stat = ?, diff = ?, updated_at = ? WHERE app_id = ? AND id = ?`,
+		_, err := tx.ExecContext(ctx, `UPDATE symphony_runs SET diff_stat = $1, diff = $2, updated_at = $3 WHERE app_id = $4 AND id = $5`,
 			strings.TrimSpace(diffStat), strings.TrimSpace(diff), now, appID, runID,
 		)
 		if err != nil {
@@ -840,7 +842,7 @@ func (s *Store) Run(ctx context.Context, appID, runID string) (Run, error) {
 	if runID == "" {
 		return Run{}, errors.New("run id is required")
 	}
-	rows, err := s.db.QueryContext(ctx, runSelectSQL()+` WHERE app_id = ? AND id = ?`, appID, runID)
+	rows, err := s.db.QueryContext(ctx, runSelectSQL()+` WHERE app_id = $1 AND id = $2`, appID, runID)
 	if err != nil {
 		return Run{}, err
 	}
@@ -860,7 +862,7 @@ func (s *Store) RunEvents(ctx context.Context, appID, runID string) ([]RunEvent,
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT app_id, run_id, seq, type, payload_json, created_at FROM symphony_run_events WHERE app_id = ? AND run_id = ? ORDER BY seq`, appID, strings.TrimSpace(runID))
+	rows, err := s.db.QueryContext(ctx, `SELECT app_id, run_id, seq, type, payload_json, created_at FROM symphony_run_events WHERE app_id = $1 AND run_id = $2 ORDER BY seq`, appID, strings.TrimSpace(runID))
 	if err != nil {
 		return nil, err
 	}
@@ -885,7 +887,7 @@ func (s *Store) TerminalWorkspaces(ctx context.Context, appID string) ([]Run, er
 	}
 	rows, err := s.db.QueryContext(ctx, runSelectSQL()+` JOIN symphony_tasks t ON t.app_id = symphony_runs.app_id AND t.id = symphony_runs.task_id
 		JOIN symphony_statuses st ON st.app_id = t.app_id AND st.status_key = t.status_key
-		WHERE symphony_runs.app_id = ? AND st.kind = 'terminal' AND symphony_runs.repo_workspace_path <> ''`, appID)
+		WHERE symphony_runs.app_id = $1 AND st.kind = 'terminal' AND symphony_runs.repo_workspace_path <> ''`, appID)
 	if err != nil {
 		return nil, err
 	}
@@ -1015,8 +1017,6 @@ func (s *Store) migrate(ctx context.Context) error {
 			max_concurrency integer not null default 1,
 			updated_at text not null
 		)`,
-		`INSERT INTO scenery_sqlite_metadata (key, value) VALUES ('symphony_schema_version', '1')
-			ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 	} {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
@@ -1030,7 +1030,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		`ALTER TABLE symphony_runs ADD COLUMN diff_stat text not null default ''`,
 		`ALTER TABLE symphony_runs ADD COLUMN diff text not null default ''`,
 	} {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil && !strings.Contains(err.Error(), "already exists") && !strings.Contains(err.Error(), "duplicate column") {
 			return err
 		}
 	}
@@ -1057,7 +1057,7 @@ func ensureAppTx(ctx context.Context, tx *sql.Tx, appID, now string) error {
 	for _, status := range defaultStatuses {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO symphony_statuses (
 			app_id, status_key, name, kind, sort_order, hidden, color, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(app_id, status_key) DO NOTHING`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT(app_id, status_key) DO NOTHING`,
 			appID, status.Key, status.Name, status.Kind, status.SortOrder, boolInt(status.Hidden), status.Color, now, now,
 		); err != nil {
 			return err
@@ -1068,7 +1068,7 @@ func ensureAppTx(ctx context.Context, tx *sql.Tx, appID, now string) error {
 
 func (s *Store) listStatuses(ctx context.Context, appID string) ([]Status, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT status_key, name, kind, sort_order, hidden, color, created_at, updated_at
-		FROM symphony_statuses WHERE app_id = ? ORDER BY sort_order, status_key`, appID)
+		FROM symphony_statuses WHERE app_id = $1 ORDER BY sort_order, status_key`, appID)
 	if err != nil {
 		return nil, err
 	}
@@ -1110,7 +1110,7 @@ func taskSelectSQL() string {
 		t.priority, t.assignee, t.estimate, t.branch_name, t.url, t.source, t.created_at, t.updated_at
 		FROM symphony_tasks t
 		JOIN symphony_statuses st ON st.app_id = t.app_id AND st.status_key = t.status_key
-		WHERE t.app_id = ? AND t.deleted_at IS NULL`
+		WHERE t.app_id = $1 AND t.deleted_at IS NULL`
 }
 
 func scanTasks(rows *sql.Rows) ([]Task, error) {
@@ -1132,7 +1132,7 @@ func (s *Store) attachLabels(ctx context.Context, appID string, tasks []Task) er
 	if len(tasks) == 0 {
 		return nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT task_id, label FROM symphony_task_labels WHERE app_id = ? ORDER BY label`, appID)
+	rows, err := s.db.QueryContext(ctx, `SELECT task_id, label FROM symphony_task_labels WHERE app_id = $1 ORDER BY label`, appID)
 	if err != nil {
 		return err
 	}
@@ -1169,10 +1169,10 @@ func (s *Store) attachLatestRuns(ctx context.Context, appID string, tasks []Task
 		JOIN (
 			SELECT task_id, max(attempt) AS attempt
 			FROM symphony_runs
-			WHERE app_id = ?
+			WHERE app_id = $1
 			GROUP BY task_id
 		) latest ON latest.task_id = r.task_id AND latest.attempt = r.attempt
-		WHERE r.app_id = ?`, appID, appID)
+		WHERE r.app_id = $2`, appID, appID)
 	if err != nil {
 		return err
 	}
@@ -1276,7 +1276,7 @@ func cleanLabels(values []string) []string {
 
 func statusExistsTx(ctx context.Context, tx *sql.Tx, appID, key string) error {
 	var exists int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_statuses WHERE app_id = ? AND status_key = ?`, appID, key).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_statuses WHERE app_id = $1 AND status_key = $2`, appID, key).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("unknown status %q", key)
 		}
@@ -1289,7 +1289,7 @@ func taskTx(ctx context.Context, tx *sql.Tx, appID, id string) (Task, error) {
 	var task Task
 	err := tx.QueryRowContext(ctx, `SELECT id, app_id, identifier, title, description, status_key, sort_order,
 		priority, assignee, estimate, branch_name, url, source, created_at, updated_at
-		FROM symphony_tasks WHERE app_id = ? AND id = ? AND deleted_at IS NULL`, appID, id).Scan(
+		FROM symphony_tasks WHERE app_id = $1 AND id = $2 AND deleted_at IS NULL`, appID, id).Scan(
 		&task.ID, &task.AppID, &task.Identifier, &task.Title, &task.Description, &task.StatusKey, &task.SortOrder,
 		&task.Priority, &task.Assignee, &task.Estimate, &task.BranchName, &task.URL, &task.Source, &task.CreatedAt, &task.UpdatedAt,
 	)
@@ -1298,7 +1298,7 @@ func taskTx(ctx context.Context, tx *sql.Tx, appID, id string) (Task, error) {
 
 func runExistsTx(ctx context.Context, tx *sql.Tx, appID, runID string) error {
 	var exists int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_runs WHERE app_id = ? AND id = ?`, appID, runID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_runs WHERE app_id = $1 AND id = $2`, appID, runID).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
@@ -1309,7 +1309,7 @@ func runExistsTx(ctx context.Context, tx *sql.Tx, appID, runID string) error {
 
 func noActiveRunTx(ctx context.Context, tx *sql.Tx, appID, taskID string) error {
 	var active int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_runs WHERE app_id = ? AND task_id = ? AND status IN ('queued', 'running') LIMIT 1`, appID, taskID).Scan(&active)
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM symphony_runs WHERE app_id = $1 AND task_id = $2 AND status IN ('queued', 'running') LIMIT 1`, appID, taskID).Scan(&active)
 	if err == nil {
 		return errors.New("task already has an active run")
 	}
@@ -1321,7 +1321,7 @@ func noActiveRunTx(ctx context.Context, tx *sql.Tx, appID, taskID string) error 
 
 func nextRunAttemptTx(ctx context.Context, tx *sql.Tx, appID, taskID string) (int, error) {
 	var attempt int
-	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(attempt), 0) + 1 FROM symphony_runs WHERE app_id = ? AND task_id = ?`, appID, taskID).Scan(&attempt); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(attempt), 0) + 1 FROM symphony_runs WHERE app_id = $1 AND task_id = $2`, appID, taskID).Scan(&attempt); err != nil {
 		return 0, err
 	}
 	return attempt, nil
@@ -1337,10 +1337,10 @@ func appendRunEventTx(ctx context.Context, tx *sql.Tx, appID, runID, eventType s
 		return err
 	}
 	var seq int
-	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(seq), 0) + 1 FROM symphony_run_events WHERE app_id = ? AND run_id = ?`, appID, runID).Scan(&seq); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(seq), 0) + 1 FROM symphony_run_events WHERE app_id = $1 AND run_id = $2`, appID, runID).Scan(&seq); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO symphony_run_events (app_id, run_id, seq, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err = tx.ExecContext(ctx, `INSERT INTO symphony_run_events (app_id, run_id, seq, type, payload_json, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
 		appID, runID, seq, eventType, string(payloadJSON), now,
 	)
 	return err
@@ -1349,8 +1349,8 @@ func appendRunEventTx(ctx context.Context, tx *sql.Tx, appID, runID, eventType s
 func nextIdentifierTx(ctx context.Context, tx *sql.Tx, appID, now string) (string, error) {
 	var next int
 	err := tx.QueryRowContext(ctx, `INSERT INTO symphony_app_counters (app_id, counter_key, next_value, updated_at)
-		VALUES (?, 'task', 2, ?)
-		ON CONFLICT(app_id, counter_key) DO UPDATE SET next_value = next_value + 1, updated_at = excluded.updated_at
+		VALUES ($1, 'task', 2, $2)
+		ON CONFLICT(app_id, counter_key) DO UPDATE SET next_value = symphony_app_counters.next_value + 1, updated_at = excluded.updated_at
 		RETURNING next_value - 1`, appID, now).Scan(&next)
 	if err != nil {
 		return "", err
@@ -1360,18 +1360,18 @@ func nextIdentifierTx(ctx context.Context, tx *sql.Tx, appID, now string) (strin
 
 func nextSortOrderTx(ctx context.Context, tx *sql.Tx, appID, statusKey string) (int, error) {
 	var order int
-	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(sort_order), 0) + 1000 FROM symphony_tasks WHERE app_id = ? AND status_key = ? AND deleted_at IS NULL`, appID, statusKey).Scan(&order); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(sort_order), 0) + 1000 FROM symphony_tasks WHERE app_id = $1 AND status_key = $2 AND deleted_at IS NULL`, appID, statusKey).Scan(&order); err != nil {
 		return 0, err
 	}
 	return order, nil
 }
 
 func replaceLabelsTx(ctx context.Context, tx *sql.Tx, appID, taskID string, labels []string) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM symphony_task_labels WHERE app_id = ? AND task_id = ?`, appID, taskID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM symphony_task_labels WHERE app_id = $1 AND task_id = $2`, appID, taskID); err != nil {
 		return err
 	}
 	for _, label := range cleanLabels(labels) {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO symphony_task_labels (app_id, task_id, label) VALUES (?, ?, ?)`, appID, taskID, label); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO symphony_task_labels (app_id, task_id, label) VALUES ($1, $2, $3)`, appID, taskID, label); err != nil {
 			return err
 		}
 	}
@@ -1379,7 +1379,7 @@ func replaceLabelsTx(ctx context.Context, tx *sql.Tx, appID, taskID string, labe
 }
 
 func taskIDsForStatusTx(ctx context.Context, tx *sql.Tx, appID, statusKey, excludeID string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM symphony_tasks WHERE app_id = ? AND status_key = ? AND deleted_at IS NULL AND id <> ? ORDER BY sort_order, updated_at DESC`, appID, statusKey, excludeID)
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM symphony_tasks WHERE app_id = $1 AND status_key = $2 AND deleted_at IS NULL AND id <> $3 ORDER BY sort_order, updated_at DESC`, appID, statusKey, excludeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1397,7 +1397,7 @@ func taskIDsForStatusTx(ctx context.Context, tx *sql.Tx, appID, statusKey, exclu
 
 func renumberStatusTx(ctx context.Context, tx *sql.Tx, appID, statusKey string, ids []string, now string) error {
 	for i, id := range ids {
-		if _, err := tx.ExecContext(ctx, `UPDATE symphony_tasks SET status_key = ?, sort_order = ?, updated_at = ? WHERE app_id = ? AND id = ? AND deleted_at IS NULL`, statusKey, (i+1)*1000, now, appID, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE symphony_tasks SET status_key = $1, sort_order = $2, updated_at = $3 WHERE app_id = $4 AND id = $5 AND deleted_at IS NULL`, statusKey, (i+1)*1000, now, appID, id); err != nil {
 			return err
 		}
 	}

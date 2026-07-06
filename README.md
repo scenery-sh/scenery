@@ -252,8 +252,7 @@ scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--s
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 scenery db list [--app-root <path>] [--json]
-scenery db path [--app-root <path>] [--service <name>]
-scenery db shell [--app-root <path>] [--service <name>] [sqlite|psql args...]
+scenery db shell [--app-root <path>] [--service <name>] [psql args...]
 scenery db apply [--app-root <path>] [--json]
 scenery db seed [--app-root <path>] [--dry-run] [--json]
 scenery db setup [--app-root <path>] [--json]
@@ -261,23 +260,16 @@ scenery db reset [--app-root <path>] [--service <name>] [--yes]
 scenery db drop [--app-root <path>] [--service <name>] [--yes]
 scenery db snapshot create|restore <name> [--app-root <path>] [--yes]
 scenery db server status|start|stop|logs [--json] [--yes]
-scenery db branch status|list [--app-root <path>] [--json]
-scenery db branch checkout <name> [--app-root <path>] [--json]
-scenery db branch reset [--app-root <path>] [--yes]
-scenery db branch delete <name> [--app-root <path>] [--force]
-scenery db branch restore --at <timestamp-or-lsn> [--app-root <path>] [--yes]
-scenery db branch diff <branch> [--app-root <path>] [--json]
-scenery db branch expire [<name>] --after <duration> [--app-root <path>] [--json]
-scenery db branch prune [--older-than <duration>] [--app-root <path>] [--json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [--json]
 scenery worktree list [--app-root <path>] [--json]
 scenery worktree remove <name> [--app-root <path>] [--db] [--json]
 ```
 
-`scenery db list --json` reports SQLite and Postgres service databases. SQLite
-services are file-backed; Postgres services use an explicit external DSN when
-their `database_url_env` is set, otherwise `scenery up` creates an isolated
-per-worktree database on the shared local Postgres dev server.
+`scenery db list --json` reports the app's Postgres database and service schemas.
+An explicit app-level `DATABASE_URL` wins and makes the database external;
+otherwise `scenery up` creates one isolated database per app root/worktree on the
+shared local Postgres dev server, with one schema per configured service plus
+the `scenery` schema for framework state.
 
 See [docs/local-contract.md](docs/local-contract.md) for the full command contract and JSON schema list.
 
@@ -285,13 +277,13 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 
 - `scenery.sh` exposes app metadata and current request metadata.
 - `scenery.sh/auth` exposes request auth state helpers.
-- Standard auth owns its tenant tables under `scenery_auth`; app-local `tenants` services or tables are product-domain concerns.
+- Standard auth owns its tenant tables under the app database's `scenery` schema; app-local `tenants` services or tables are product-domain concerns.
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping.
 - `scenery.sh/middleware` exposes middleware request/response types.
 - `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary, including generated CRUD action policy, existing table bindings, collection page projections, and static page filter/sort/display metadata, for inspection and generators.
 - `scenery.sh/durable` exposes typed durable task declarations, startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, authenticated durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin CLI, and `scenery inspect durable --json`.
 - `scenery.sh/cron` exposes cron job declarations.
-- `scenery.sh/db` exposes the app's shared default service `*sql.DB` for SQLite or Postgres services and sqlc.
+- `scenery.sh/db` exposes Postgres `*sql.DB` pools pinned to a service schema for app code and sqlc.
 - `scenery.sh/et` exposes endpoint/service mocking helpers for tests.
 
 ## TypeScript Client Generation
@@ -307,15 +299,18 @@ The generated client understands the app's route model.
 
 Apps can also configure `generators.clients` and use `scenery generate client` or `scenery generate --dry-run --json` to inspect and run configured generators. `scenery generate sqlc` is for generated source artifacts; it must not apply database schema or seed data.
 
-The DB lifecycle split uses `scenery db apply` for schema/app database mutation, `scenery db seed` for initial data such as `SERVICE/db/seed.sql`, and `scenery db setup` for apply then seed. Seed files apply to their matching service database and fail closed when previously-applied content changes or destructive SQL is detected.
+The DB lifecycle split uses `scenery db apply` for schema/app database mutation, `scenery db seed` for initial data such as `SERVICE/db/seed.sql`, and `scenery db setup` for apply then seed. Seed files apply to their matching service schema and fail closed when previously-applied content changes or destructive SQL is detected.
 
 `scenery up` runs the setup lifecycle before app startup when DB setup inputs exist, using the same managed service database env values that the app receives. Rebuilds skip setup until the apply config or seed file hashes change.
 
-`scenery db branch status --json` inspects the worktree branch pin at `.scenery/worktree-db.json`, and `scenery db branch list --json` lists Scenery-owned local SQLite branch leases in `branches.json` under `~/.scenery/agent/sqlite/` or the `SCENERY_AGENT_HOME` equivalent. Branch status and list distinguish missing, expired, protected parent, and ready local leases. Ready leases expose redacted SQLite file metadata rather than raw connection URLs.
+Worktree database isolation is automatic: the managed database name includes a
+hash of the app root, so `scenery worktree create <name> --json` only creates the
+Git worktree. `scenery db reset <service>` drops and recreates only that service
+schema; full-database save/restore uses `scenery db snapshot create|restore`.
 
-SQLite branch creation is implemented for `dev.services.<name>.kind: "sqlite"` by copying the parent database file into branch-local state. Postgres services are not branchable because worktree isolation is automatic through per-worktree database names. `scenery db branch checkout <name> --json` writes the local pin, ensures the parent database exists, creates or reuses the branch database file, and records a ready endpoint. `reset` recopies from the parent, `delete` removes the branch file and lease, `expire` updates lease metadata, and `prune` removes expired non-current branch files. `scenery worktree create <name> --json` creates a Git worktree and writes the target SQLite branch pin, rolling the worktree back if pin creation or branch ensure fails. `scenery up`, `scenery db shell`, DB setup, and sync consume ready branch endpoints.
-
-The default self-harness includes the live SQLite branch lifecycle proof and a Postgres service probe when Docker is reachable.
+The default self-harness includes a Docker-gated Postgres probe for the shared
+server, one app database, service schemas, durable state, auth bootstrap,
+worktree isolation, and service-schema reset.
 
 ## Managed Toolchain
 

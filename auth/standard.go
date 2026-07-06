@@ -13,7 +13,7 @@ import (
 
 	authdb "scenery.sh/auth/db/gen"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/sqlitedb"
+	"scenery.sh/internal/postgresdb"
 	"scenery.sh/runtime"
 )
 
@@ -184,12 +184,12 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 			standardAuthState.err = fmt.Errorf("standard auth database URL is not configured (%s)", cfg.DatabaseURLEnv)
 			return
 		}
-		path, err := sqlitedb.ParseURL(databaseURL)
+		authURL, err := postgresdb.ServiceURL(databaseURL, "scenery")
 		if err != nil {
-			standardAuthState.err = fmt.Errorf("standard auth database URL must be sqlite:///absolute/path")
+			standardAuthState.err = fmt.Errorf("standard auth database URL must be postgres:// or postgresql://: %w", err)
 			return
 		}
-		pool, err := sqlitedb.Open(ctx, path)
+		pool, err := postgresdb.Open(ctx, authURL)
 		if err != nil {
 			standardAuthState.err = fmt.Errorf("connect standard auth database: %w", err)
 			return
@@ -336,17 +336,25 @@ func bootstrapStandardAuthSchema(ctx context.Context, pool *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("read standard auth schema: %w", err)
 	}
-	sql := string(data)
-	sql = strings.ReplaceAll(sql, "CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
-	sql = strings.ReplaceAll(sql, "CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
-	sql = strings.ReplaceAll(sql, "CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
-	for _, statement := range splitSQLStatements(sql) {
+	tx, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin standard auth schema bootstrap: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('scenery.standard.auth', 0))`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("lock standard auth schema bootstrap: %w", err)
+	}
+	for _, statement := range splitSQLStatements(string(data)) {
 		if strings.TrimSpace(statement) == "" || strings.HasPrefix(strings.TrimSpace(statement), "--") {
 			continue
 		}
-		if _, err := pool.ExecContext(ctx, statement); err != nil {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			_ = tx.Rollback()
 			return clarifyStandardAuthTenantError(fmt.Errorf("bootstrap standard auth schema: %w", err))
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit standard auth schema bootstrap: %w", err)
 	}
 	return nil
 }
@@ -356,8 +364,8 @@ func clarifyStandardAuthTenantError(err error) error {
 		return nil
 	}
 	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "scenery_auth_tenants") {
-		return fmt.Errorf("%w (standard auth owns framework tenant state in SQLite table scenery_auth_tenants; this is standard auth state, not an app-local tenants service)", err)
+	if strings.Contains(message, "scenery_auth_tenants") || strings.Contains(message, "scenery_auth_tenant") {
+		return fmt.Errorf("%w (standard auth owns framework tenant state in Postgres table scenery.scenery_auth_tenants; this is standard auth state, not an app-local tenants service)", err)
 	}
 	return err
 }

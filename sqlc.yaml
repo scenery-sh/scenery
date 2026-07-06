@@ -1,6 +1,6 @@
 version: "2"
 sql:
-  - engine: "sqlite"
+  - engine: "postgresql"
     schema:
       - "auth/db/gen/schema.sql"
     queries:

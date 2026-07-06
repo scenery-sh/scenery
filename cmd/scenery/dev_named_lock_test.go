@@ -14,7 +14,7 @@ func TestDevNamedLockSecondProcessTimesOutWithNamedError(t *testing.T) {
 	root := t.TempDir()
 	restore := setDevLockTestTiming(io.Discard)
 	defer restore()
-	unlock, err := lockDBBranchRegistry(root)
+	unlock, err := lockManagedSubstrateRoot(root, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,9 +28,8 @@ func TestDevNamedLockSecondProcessTimesOutWithNamedError(t *testing.T) {
 	}
 	got := string(output)
 	for _, want := range []string{
-		"waiting for database branch registry lock at",
-		"timed out waiting for database branch registry lock",
-		dbBranchRegistryLockPath(root),
+		"waiting for shared substrate postgres lock at",
+		"timed out waiting for shared substrate postgres lock",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("subprocess output missing %q:\n%s", want, got)
@@ -49,7 +48,7 @@ func TestDevNamedLockSubprocessAcquireTimeout(t *testing.T) {
 	root := os.Args[len(os.Args)-1]
 	restore := setDevLockTestTiming(os.Stdout)
 	defer restore()
-	unlock, err := lockDBBranchRegistry(root)
+	unlock, err := lockManagedSubstrateRoot(root, "postgres")
 	if err == nil {
 		unlock()
 		os.Exit(0)
@@ -58,44 +57,22 @@ func TestDevNamedLockSubprocessAcquireTimeout(t *testing.T) {
 	os.Exit(2)
 }
 
-func TestDevNamedLockRejectsSubstrateAcquireWhileRegistryHeld(t *testing.T) {
+func TestDevNamedLockRejectsSameProcessReacquisition(t *testing.T) {
 	restore := setDevLockTestTiming(io.Discard)
 	defer restore()
 	root := t.TempDir()
-	unlock, err := lockDBBranchRegistry(root)
+	unlock, err := lockManagedSubstrateRoot(root, "postgres")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	substrateUnlock, err := lockManagedSubstrateRoot(root, "sqlite")
+	second, err := lockManagedSubstrateRoot(root, "postgres")
 	if err == nil {
-		substrateUnlock()
-		t.Fatal("substrate lock succeeded while registry lock was held")
+		second()
+		t.Fatal("substrate lock re-acquisition succeeded in the same process")
 	}
 	if !strings.Contains(err.Error(), "lock ordering violation") ||
-		!strings.Contains(err.Error(), "database branch registry") ||
-		!strings.Contains(err.Error(), "shared substrate sqlite") {
-		t.Fatalf("ordering error = %v", err)
-	}
-}
-
-func TestDevNamedLockRejectsBranchOperationAcquireWhileRegistryHeld(t *testing.T) {
-	restore := setDevLockTestTiming(io.Discard)
-	defer restore()
-	root := t.TempDir()
-	unlock, err := lockDBBranchRegistry(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unlock()
-	operationUnlock, err := lockDBBranchOperation(root, "demo")
-	if err == nil {
-		operationUnlock()
-		t.Fatal("branch operation lock succeeded while registry lock was held")
-	}
-	if !strings.Contains(err.Error(), "lock ordering violation") ||
-		!strings.Contains(err.Error(), "database branch registry") ||
-		!strings.Contains(err.Error(), "database branch operation demo") {
+		!strings.Contains(err.Error(), "shared substrate postgres") {
 		t.Fatalf("ordering error = %v", err)
 	}
 }

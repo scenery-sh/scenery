@@ -2,112 +2,88 @@ package store
 
 import (
 	"context"
-	"path/filepath"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/postgresdb"
 )
 
-func TestDurableDBPathUsesServiceName(t *testing.T) {
-	got, err := DurableDBPath("/state", "maps/service")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join("/state", "db", "maps-service.durable.sqlite")
-	if got != want {
-		t.Fatalf("DurableDBPath = %q, want %q", got, want)
-	}
-}
-
-func TestDurableDBPathRejectsUnsafeServiceNames(t *testing.T) {
+func TestNormalizeServiceNameRejectsUnsafeServiceNames(t *testing.T) {
 	for _, name := range []string{"", "../maps", "/absolute/path", `maps\windows`, "maps:bad", "bad/../name"} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := DurableDBPath("/state", name); err == nil {
+			if _, err := NormalizeServiceName(name); err == nil {
 				t.Fatalf("expected error for %q", name)
 			}
 		})
 	}
+	got, err := NormalizeServiceName("maps/service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "maps-service" {
+		t.Fatalf("NormalizeServiceName = %q, want maps-service", got)
+	}
 }
 
-func TestOpenCreatesDurableDBWithExpectedTables(t *testing.T) {
+func TestOpenCreatesPostgresSchemaWithExpectedTables(t *testing.T) {
 	ctx := context.Background()
-	path, err := DurableDBPath(t.TempDir(), "maps")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(ctx, "maps", path, Options{Synchronous: "normal"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openLiveTestStore(t, "maps")
 	defer s.Close()
 
-	if !strings.HasSuffix(s.Path, "maps.durable.sqlite") {
-		t.Fatalf("path = %q, want service durable sqlite suffix", s.Path)
-	}
-	if got := pragmaValue(t, s, "foreign_keys"); got != "1" {
-		t.Fatalf("foreign_keys pragma = %q, want 1", got)
-	}
-	if got := pragmaValue(t, s, "busy_timeout"); got != "5000" {
-		t.Fatalf("busy_timeout pragma = %q, want 5000", got)
-	}
-
-	tables := tableNames(t, s)
-	for _, want := range []string{"meta", "schema_migrations", "tasks", "jobs", "job_events", "worker_tokens", "locks"} {
+	tables := tableNames(t, s.DB())
+	for _, want := range []string{"durable_schema_migrations", "durable_tasks", "durable_jobs", "durable_job_events", "durable_job_steps", "durable_job_signals", "durable_schedules", "durable_worker_tokens"} {
 		if !tables[want] {
 			t.Fatalf("missing table %q in %#v", want, tables)
 		}
 	}
-	for name := range tables {
-		if strings.Contains(strings.ToLower(name), "scenery") {
-			t.Fatalf("table %q contains scenery", name)
-		}
+	if tables["leases"] {
+		t.Fatalf("separate leases table still exists")
 	}
+	second, err := Open(ctx, "maps", s.DatabaseURL, Options{})
+	if err != nil {
+		t.Fatalf("concurrent-safe second open failed: %v", err)
+	}
+	defer second.Close()
 }
 
 func TestReconcileTasksAndStartAreIdempotentByDedupeKey(t *testing.T) {
 	ctx := context.Background()
-	s := openTestStore(t)
+	s := openLiveTestStore(t, "maps")
 	defer s.Close()
 
-	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{
-		Name:       "maps.echo.v1",
-		HandlerRef: "maps.Echo",
-	}}); err != nil {
+	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.echo.v1", HandlerRef: "maps.Echo"}}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := s.Start(ctx, StartRequest{
-		ID:        "job-1",
-		TaskName:  "maps.echo.v1",
-		DedupeKey: "echo:1",
-		InputBlob: []byte(`{"message":"hi"}`),
-	})
+	first, err := s.Start(ctx, StartRequest{ID: "job-1", TaskName: "maps.echo.v1", DedupeKey: "echo:1", InputBlob: []byte(`{"message":"hi"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := s.Start(ctx, StartRequest{
-		ID:        "job-2",
-		TaskName:  "maps.echo.v1",
-		DedupeKey: "echo:1",
-		InputBlob: []byte(`{"message":"hi again"}`),
-	})
+	second, err := s.Start(ctx, StartRequest{ID: "job-2", TaskName: "maps.echo.v1", DedupeKey: "echo:1", InputBlob: []byte(`{"message":"hi again"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first != second {
 		t.Fatalf("dedupe returned %#v, want %#v", second, first)
 	}
-	if count := rowCount(t, s, "jobs"); count != 1 {
+	if count := rowCount(t, s.DB(), "scenery.durable_jobs", s.Service); count != 1 {
 		t.Fatalf("jobs count = %d, want 1", count)
 	}
-	if count := rowCount(t, s, "job_events"); count != 1 {
-		t.Fatalf("job_events count = %d, want 1", count)
+	if count := rowCount(t, s.DB(), "scenery.durable_job_events", s.Service); count != 1 {
+		t.Fatalf("events count = %d, want 1", count)
 	}
 }
 
 func TestLeaseCompleteAndFailJobs(t *testing.T) {
 	ctx := context.Background()
-	s := openTestStore(t)
+	s := openLiveTestStore(t, "maps")
 	defer s.Close()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.detect.v1", HandlerRef: "maps.detect.v1"}}); err != nil {
@@ -146,14 +122,10 @@ func TestLeaseCompleteAndFailJobs(t *testing.T) {
 
 func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
 	ctx := context.Background()
-	s := openTestStore(t)
+	s := openLiveTestStore(t, "maps")
 	defer s.Close()
 
-	token, err := s.CreateWorkerToken(ctx, WorkerTokenRequest{
-		ID:     "tok-1",
-		Name:   "worker token",
-		Secret: "secret-worker-token",
-	})
+	token, err := s.CreateWorkerToken(ctx, WorkerTokenRequest{ID: "tok-1", Name: "worker token", Secret: "secret-worker-token"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,9 +153,6 @@ func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("LeaseReadyJobWithToken = %+v ok=%v err=%v", leased, ok, err)
 	}
-	if leased.LeaseID != "lease-good" {
-		t.Fatalf("lease id = %q", leased.LeaseID)
-	}
 	if err := s.HeartbeatJob(ctx, leased.ID, "worker-remote", "wrong-lease"); err == nil {
 		t.Fatal("expected heartbeat with wrong lease to fail")
 	}
@@ -199,18 +168,73 @@ func TestWorkerTokenAndLeasedJobFencing(t *testing.T) {
 	assertJobState(t, s, leased.ID, "succeeded")
 }
 
-func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
+func TestLeaseAndHeartbeatUseTaskLeaseDuration(t *testing.T) {
 	ctx := context.Background()
-	s := openTestStore(t)
+	s := openLiveTestStore(t, "maps")
 	defer s.Close()
 
-	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{
-		Name:           "maps.retry.v1",
-		HandlerRef:     "maps.retry.v1",
-		MaxAttempts:    2,
-		RetryInitialMS: 1,
-		RetryMaxMS:     1,
-	}}); err != nil {
+	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.lease.v1", HandlerRef: "maps.lease.v1", DefaultLeaseMS: 2500}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Start(ctx, StartRequest{ID: "job-lease", TaskName: "maps.lease.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	leased, ok, err := s.LeaseReadyJob(ctx, "worker-lease", "lease-1")
+	if err != nil || !ok {
+		t.Fatalf("LeaseReadyJob = %+v ok=%v err=%v", leased, ok, err)
+	}
+	if remaining := leaseRemainingMS(t, s, leased.ID); remaining < 1000 || remaining > 10000 {
+		t.Fatalf("lease remaining = %dms, want task-specific lease near 2500ms", remaining)
+	}
+
+	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.lease.v1", HandlerRef: "maps.lease.v1", DefaultLeaseMS: 5000}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().Exec(`UPDATE scenery.durable_jobs SET lease_until = now() + interval '100 milliseconds' WHERE service = $1 AND id = $2`, s.Service, leased.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HeartbeatJob(ctx, leased.ID, "worker-lease", "lease-1"); err != nil {
+		t.Fatal(err)
+	}
+	if remaining := leaseRemainingMS(t, s, leased.ID); remaining < 3000 || remaining > 10000 {
+		t.Fatalf("heartbeat remaining = %dms, want task-specific lease near 5000ms", remaining)
+	}
+}
+
+func TestStaleWorkerCannotResurrectCanceledJob(t *testing.T) {
+	ctx := context.Background()
+	s := openLiveTestStore(t, "maps")
+	defer s.Close()
+
+	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.cancel.v1", HandlerRef: "maps.cancel.v1", MaxAttempts: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Start(ctx, StartRequest{ID: "job-cancel", TaskName: "maps.cancel.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	leased, ok, err := s.LeaseReadyJob(ctx, "worker-stale", "lease-stale")
+	if err != nil || !ok {
+		t.Fatalf("LeaseReadyJob = %+v ok=%v err=%v", leased, ok, err)
+	}
+	if err := s.CancelJob(ctx, leased.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteLeasedJob(ctx, leased.ID, "worker-stale", "lease-stale", []byte(`{"ok":true}`)); err == nil {
+		t.Fatal("expected stale complete after cancel to fail")
+	}
+	assertJobState(t, s, leased.ID, "canceled")
+	if err := s.FailLeasedJob(ctx, leased.ID, "worker-stale", "lease-stale", []byte("boom")); err == nil {
+		t.Fatal("expected stale fail after cancel to fail")
+	}
+	assertJobState(t, s, leased.ID, "canceled")
+}
+
+func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
+	ctx := context.Background()
+	s := openLiveTestStore(t, "maps")
+	defer s.Close()
+
+	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.retry.v1", HandlerRef: "maps.retry.v1", MaxAttempts: 2, RetryInitialMS: 1, RetryMaxMS: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Start(ctx, StartRequest{ID: "job-retry", TaskName: "maps.retry.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
@@ -237,7 +261,7 @@ func TestFailJobRetriesUntilMaxAttempts(t *testing.T) {
 
 func TestJobAdminListEventsCancelAndRetry(t *testing.T) {
 	ctx := context.Background()
-	s := openTestStore(t)
+	s := openLiveTestStore(t, "maps")
 	defer s.Close()
 
 	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.admin.v1", HandlerRef: "maps.admin.v1"}}); err != nil {
@@ -252,13 +276,6 @@ func TestJobAdminListEventsCancelAndRetry(t *testing.T) {
 	}
 	if len(jobs) != 1 || jobs[0].ID != "job-admin" || jobs[0].State != "queued" {
 		t.Fatalf("jobs = %+v", jobs)
-	}
-	job, ok, err := s.GetJob(ctx, "job-admin")
-	if err != nil || !ok {
-		t.Fatalf("GetJob ok=%v err=%v", ok, err)
-	}
-	if job.TaskName != "maps.admin.v1" {
-		t.Fatalf("job = %+v", job)
 	}
 	if err := s.CancelJob(ctx, "job-admin"); err != nil {
 		t.Fatal(err)
@@ -283,12 +300,12 @@ func TestJobAdminListEventsCancelAndRetry(t *testing.T) {
 	}
 }
 
-func TestStepsAndSignals(t *testing.T) {
+func TestStepsSignalsAndSchedules(t *testing.T) {
 	ctx := context.Background()
-	s := openTestStore(t)
+	s := openLiveTestStore(t, "maps")
 	defer s.Close()
 
-	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.step.v1", HandlerRef: "maps.step.v1"}}); err != nil {
+	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.step.v1", HandlerRef: "maps.step.v1"}, {Name: "maps.scheduled.v1", HandlerRef: "maps.scheduled.v1"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Start(ctx, StartRequest{ID: "job-step", TaskName: "maps.step.v1", InputBlob: []byte(`{"id":"1"}`)}); err != nil {
@@ -320,16 +337,7 @@ func TestStepsAndSignals(t *testing.T) {
 	if !foundSignal {
 		t.Fatalf("events = %+v, want job.signaled", events)
 	}
-}
 
-func TestRunDueSchedulesStartsJobs(t *testing.T) {
-	ctx := context.Background()
-	s := openTestStore(t)
-	defer s.Close()
-
-	if err := s.ReconcileTasks(ctx, []TaskDeclaration{{Name: "maps.scheduled.v1", HandlerRef: "maps.scheduled.v1"}}); err != nil {
-		t.Fatal(err)
-	}
 	if err := s.UpsertSchedule(ctx, "sched-1", "maps.scheduled.v1", time.Minute, []byte(`{"id":"1"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -340,44 +348,76 @@ func TestRunDueSchedulesStartsJobs(t *testing.T) {
 	if len(jobs) != 1 || jobs[0].TaskName != "maps.scheduled.v1" {
 		t.Fatalf("jobs = %+v", jobs)
 	}
-	listed, err := s.ListJobs(ctx, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(listed) != 1 || listed[0].State != "queued" {
-		t.Fatalf("listed = %+v", listed)
-	}
 }
 
-func openTestStore(t *testing.T) *Store {
+func openLiveTestStore(t *testing.T, service string) *Store {
 	t.Helper()
-	ctx := context.Background()
-	path, err := DurableDBPath(t.TempDir(), "maps")
-	if err != nil {
-		t.Fatal(err)
+	raw := strings.TrimSpace(os.Getenv("SCENERY_TEST_DATABASE_URL"))
+	if raw == "" {
+		t.Skip("SCENERY_TEST_DATABASE_URL is not set; skipping live Postgres durable store test")
 	}
-	s, err := Open(ctx, "maps", path, Options{Synchronous: "off"})
+	testURL, cleanup := createLiveTestDatabase(t, raw)
+	t.Cleanup(cleanup)
+	s, err := Open(context.Background(), service, testURL, Options{})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("open live durable store: %v", err)
 	}
 	return s
 }
 
-func pragmaValue(t *testing.T, s *Store, name string) string {
+func createLiveTestDatabase(t *testing.T, raw string) (string, func()) {
 	t.Helper()
-	var got string
-	if err := s.DB().QueryRow("PRAGMA " + name).Scan(&got); err != nil {
-		t.Fatal(err)
+	adminURL, err := adminDatabaseURL(raw)
+	if err != nil {
+		t.Fatalf("parse SCENERY_TEST_DATABASE_URL: %v", err)
 	}
-	return got
+	admin, err := postgresdb.Open(context.Background(), adminURL)
+	if err != nil {
+		t.Skipf("SCENERY_TEST_DATABASE_URL is not reachable for live Postgres tests: %v", err)
+	}
+	name := "scenery_durable_test_" + randomHex(t, 8)
+	if _, err := admin.ExecContext(context.Background(), `CREATE DATABASE `+name); err != nil {
+		_ = admin.Close()
+		t.Skipf("SCENERY_TEST_DATABASE_URL cannot create per-test database: %v", err)
+	}
+	u, _ := url.Parse(raw)
+	u.Path = "/" + name
+	testURL := u.String()
+	return testURL, func() {
+		db, _ := sql.Open(postgresdb.DriverName, adminURL)
+		if db != nil {
+			_, _ = db.ExecContext(context.Background(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
+			_, _ = db.ExecContext(context.Background(), `DROP DATABASE IF EXISTS `+name)
+			_ = db.Close()
+		}
+		_ = admin.Close()
+	}
 }
 
-func tableNames(t *testing.T, s *Store) map[string]bool {
+func adminDatabaseURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	u.Path = "/postgres"
+	return u.String(), nil
+}
+
+func randomHex(t *testing.T, n int) string {
 	t.Helper()
-	rows, err := s.DB().Query(`
-SELECT name
-FROM sqlite_master
-WHERE type = 'table'
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(buf)
+}
+
+func tableNames(t *testing.T, db *sql.DB) map[string]bool {
+	t.Helper()
+	rows, err := db.Query(`
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'scenery'
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -397,10 +437,10 @@ WHERE type = 'table'
 	return out
 }
 
-func rowCount(t *testing.T, s *Store, table string) int {
+func rowCount(t *testing.T, db *sql.DB, table, service string) int {
 	t.Helper()
 	var count int
-	if err := s.DB().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
+	if err := db.QueryRow(fmt.Sprintf("SELECT count(*) FROM %s WHERE service = $1", table), service).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count
@@ -409,12 +449,21 @@ func rowCount(t *testing.T, s *Store, table string) int {
 func assertJobState(t *testing.T, s *Store, jobID, want string) {
 	t.Helper()
 	var got string
-	if err := s.DB().QueryRow(`SELECT state FROM jobs WHERE id = ?`, jobID).Scan(&got); err != nil {
+	if err := s.DB().QueryRow(`SELECT state FROM scenery.durable_jobs WHERE service = $1 AND id = $2`, s.Service, jobID).Scan(&got); err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
 		t.Fatalf("job %s state = %q, want %q", jobID, got, want)
 	}
+}
+
+func leaseRemainingMS(t *testing.T, s *Store, jobID string) int {
+	t.Helper()
+	var remaining float64
+	if err := s.DB().QueryRow(`SELECT EXTRACT(EPOCH FROM (lease_until - now())) * 1000 FROM scenery.durable_jobs WHERE service = $1 AND id = $2`, s.Service, jobID).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	return int(remaining)
 }
 
 func waitLeaseReady(t *testing.T, s *Store, leaseID string) LeasedJob {

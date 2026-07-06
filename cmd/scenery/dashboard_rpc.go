@@ -181,24 +181,24 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return s.traceEventsForSpan(ctx, dashboardStoreAppID(status), status.SessionID, params.TraceID, params.SpanID)
-	case "sqlite/tables":
-		var params dashboardSQLiteRequest
+	case "postgres/tables":
+		var params dashboardPostgresRequest
 		if err := json.Unmarshal(raw, &params); err != nil {
 			return nil, err
 		}
-		return s.sqliteTables(ctx, params)
-	case "sqlite/schema":
-		var params dashboardSQLiteRequest
+		return s.postgresTables(ctx, params)
+	case "postgres/schema":
+		var params dashboardPostgresRequest
 		if err := json.Unmarshal(raw, &params); err != nil {
 			return nil, err
 		}
-		return s.sqliteSchema(ctx, params)
-	case "sqlite/rows":
-		var params dashboardSQLiteRowsRequest
+		return s.postgresSchema(ctx, params)
+	case "postgres/rows":
+		var params dashboardPostgresRowsRequest
 		if err := json.Unmarshal(raw, &params); err != nil {
 			return nil, err
 		}
-		return s.sqliteRows(ctx, params)
+		return s.postgresRows(ctx, params)
 	case "api-call":
 		var params devdash.APICallRequest
 		if err := json.Unmarshal(raw, &params); err != nil {

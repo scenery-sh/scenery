@@ -16,10 +16,9 @@ import (
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/sqlitedb"
 )
 
-type sqliteDBOptions struct {
+type dbCLIOptions struct {
 	AppRoot string
 	Service string
 	Args    []string
@@ -29,13 +28,11 @@ type sqliteDBOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot|diff|branch|server [--app-root <path>]")
+		return fmt.Errorf("usage: scenery db list|shell|apply|seed|setup|reset|drop|snapshot|diff|server [--app-root <path>]")
 	}
 	switch args[0] {
 	case "list":
 		return dbListCommand(args[1:])
-	case "path":
-		return dbPathCommand(args[1:])
 	case "shell":
 		return dbShellCommand(args[1:])
 	case "apply":
@@ -52,8 +49,6 @@ func dbCommand(args []string) error {
 		return dbSnapshotCommand(args[1:])
 	case "diff":
 		return runDBGeneratedDiff(os.Stdout, args[1:])
-	case "branch":
-		return dbBranchCommand(args[1:])
 	case "server":
 		return dbServerCommand(args[1:])
 	default:
@@ -196,7 +191,7 @@ func runDatabaseApplyCommandWithEnvIOHooks(ctx context.Context, appRoot string, 
 }
 
 func dbListCommand(args []string) error {
-	opts, err := parseSQLiteDBArgs(args, false)
+	opts, err := parseDBCLIArgs(args, false)
 	if err != nil {
 		return err
 	}
@@ -205,54 +200,26 @@ func dbListCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	sqliteServices, err := resolveSQLiteServicesForCLIOptional(ctx, appRoot, cfg)
+	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
 	if err != nil {
 		return err
 	}
-	postgresServices, err := resolvePostgresServicesForCLI(ctx, appRoot, cfg)
-	if err != nil {
-		return err
-	}
-	if len(sqliteServices)+len(postgresServices) == 0 {
+	if strings.TrimSpace(database.Database) == "" {
 		return fmt.Errorf("no database dev.services are configured")
 	}
-	records := databaseListRecords(sqliteServices, postgresServices)
+	record := databaseListRecordFromDatabase(ctx, database)
 	if opts.JSON {
-		return writeInspectJSON(os.Stdout, databaseListResponse{SchemaVersion: "scenery.db.list.v2", Databases: records})
+		return writeInspectJSON(os.Stdout, databaseListResponse{SchemaVersion: "scenery.db.list.v3", Database: record})
 	}
-	for _, db := range records {
-		target := db.Path
-		if target == "" {
-			target = db.URL
-		}
-		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", db.Service, db.Engine, target)
+	fmt.Fprintf(os.Stdout, "%s\t%s\t%s\n", record.Name, record.Source, record.URL)
+	for _, schema := range record.Schemas {
+		fmt.Fprintf(os.Stdout, "schema\t%s\t%s\n", schema.Service, schema.Schema)
 	}
-	return nil
-}
-
-func dbPathCommand(args []string) error {
-	opts, err := parseSQLiteDBArgs(args, true)
-	if err != nil {
-		return err
-	}
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	postgresServices := cfg.PostgresServices()
-	if _, ok := cfg.PostgresService(opts.Service); ok || opts.Service == "" && len(postgresServices) == 1 && len(cfg.SQLiteServices()) == 0 {
-		return fmt.Errorf("postgres services have no file path; use `scenery db list --json` or `scenery db shell`")
-	}
-	svc, err := resolveSQLiteServiceForCLI(context.Background(), appRoot, cfg, opts.Service)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(os.Stdout, svc.Path)
 	return nil
 }
 
 func dbShellCommand(args []string) error {
-	opts, err := parseSQLiteDBArgs(args, true)
+	opts, err := parseDBCLIArgs(args, true)
 	if err != nil {
 		return err
 	}
@@ -260,32 +227,22 @@ func dbShellCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if svc, ok, err := resolvePostgresServiceForCLI(context.Background(), appRoot, cfg, opts.Service); err != nil {
-		return err
-	} else if ok {
-		program, err := exec.LookPath("psql")
-		if err != nil {
-			return fmt.Errorf("psql not found in PATH; cannot open postgres database %s", svc.Database)
-		}
-		cmd := exec.Command(program, append([]string{svc.URL}, opts.Args...)...)
-		cmd.Dir = appRoot
-		cmd.Env = envpolicy.Environ()
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
-	}
-	svc, err := resolveSQLiteServiceForCLI(context.Background(), appRoot, cfg, opts.Service)
+	database, err := resolvePostgresDatabaseForCLI(context.Background(), appRoot, cfg)
 	if err != nil {
 		return err
 	}
-	program, err := exec.LookPath("sqlite3")
+	program, err := exec.LookPath("psql")
 	if err != nil {
-		return fmt.Errorf("sqlite3 not found in PATH")
+		return fmt.Errorf("psql not found in PATH; cannot open postgres database %s", database.Database)
 	}
-	cmd := exec.Command(program, append([]string{svc.Path}, opts.Args...)...)
+	cmd := exec.Command(program, append([]string{database.URL}, opts.Args...)...)
 	cmd.Dir = appRoot
 	cmd.Env = envpolicy.Environ()
+	if schema, ok := databaseSchemaByService(database, opts.Service); ok {
+		cmd.Env = overlayEnv(cmd.Env, map[string]string{"PGOPTIONS": "-c search_path=" + schema + ",scenery"})
+	} else if strings.TrimSpace(opts.Service) != "" {
+		return fmt.Errorf("database service %q is not configured", opts.Service)
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -302,34 +259,17 @@ func dbDropCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	var services []sqlitedb.Service
-	if shouldResolveSQLiteForDBTarget(cfg, opts.Service) {
-		services, err = resolveSQLiteServicesForCLIOptional(ctx, appRoot, cfg)
-		if err != nil {
-			return err
-		}
-	}
-	var postgresServices []postgresdb.Service
-	if shouldResolvePostgresForDBTarget(cfg, opts.Service) {
-		postgresServices, err = resolvePostgresServicesForCLI(ctx, appRoot, cfg)
-		if err != nil {
-			return err
-		}
-	}
-	sqliteTargets := filterSQLiteServices(services, opts.Service)
-	postgresTargets := filterPostgresServices(postgresServices, opts.Service)
-	if strings.TrimSpace(opts.Service) != "" && len(sqliteTargets)+len(postgresTargets) == 0 {
-		return fmt.Errorf("database service %q is not configured", opts.Service)
-	}
-	for _, svc := range sqliteTargets {
-		if err := os.Remove(svc.Path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	if err := dropPostgresServices(ctx, postgresTargets, opts); err != nil {
+	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stdout, "dropped scenery database services")
+	if strings.TrimSpace(opts.Service) != "" {
+		return fmt.Errorf("database service %q is not configured", opts.Service)
+	}
+	if err := dropPostgresDatabase(ctx, database, opts); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stdout, "dropped scenery database")
 	return nil
 }
 
@@ -343,37 +283,14 @@ func dbResetCommand(args []string) error {
 		return err
 	}
 	ctx := context.Background()
-	var services []sqlitedb.Service
-	if shouldResolveSQLiteForDBTarget(cfg, opts.Service) {
-		services, err = resolveSQLiteServicesForCLIOptional(ctx, appRoot, cfg)
-		if err != nil {
-			return err
-		}
-	}
-	var postgresServices []postgresdb.Service
-	if shouldResolvePostgresForDBTarget(cfg, opts.Service) {
-		postgresServices, err = resolvePostgresServicesForCLI(ctx, appRoot, cfg)
-		if err != nil {
-			return err
-		}
-	}
-	sqliteTargets := filterSQLiteServices(services, opts.Service)
-	postgresTargets := filterPostgresServices(postgresServices, opts.Service)
-	if strings.TrimSpace(opts.Service) != "" && len(sqliteTargets)+len(postgresTargets) == 0 {
-		return fmt.Errorf("database service %q is not configured", opts.Service)
-	}
-	for _, svc := range sqliteTargets {
-		if err := os.Remove(svc.Path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err := sqlitedb.EnsureFiles(ctx, []sqlitedb.Service{svc}); err != nil {
-			return err
-		}
-	}
-	if err := resetPostgresServices(ctx, postgresTargets, opts); err != nil {
+	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stdout, "reset scenery database services")
+	if err := resetPostgresDatabase(ctx, database, opts); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stdout, "reset scenery database")
 	return nil
 }
 
@@ -386,38 +303,22 @@ func dbSnapshotCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	sqliteServices, err := resolveSQLiteServicesForCLIOptional(context.Background(), appRoot, cfg)
-	if err != nil {
-		return err
-	}
-	postgresServices, err := resolvePostgresServicesForCLI(context.Background(), appRoot, cfg)
+	database, err := resolvePostgresDatabaseForCLI(context.Background(), appRoot, cfg)
 	if err != nil {
 		return err
 	}
 	dir := filepath.Join(appRoot, ".scenery", "db", "snapshots", opts.Name)
 	switch opts.Action {
 	case "create":
-		if err := sqlitedb.Snapshot(context.Background(), sqliteServices, dir); err != nil {
-			return err
-		}
-		if err := snapshotPostgresServices(context.Background(), postgresServices, dir); err != nil {
+		if err := snapshotPostgresDatabase(context.Background(), database, dir); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stdout, "created scenery database snapshot %s at %s\n", opts.Name, dir)
 	case "restore":
-		if len(postgresServices) > 0 && !opts.Yes {
+		if !opts.Yes {
 			return fmt.Errorf("postgres snapshot restore requires --yes")
 		}
-		for _, svc := range sqliteServices {
-			source := filepath.Join(dir, filepath.Base(svc.Path))
-			if _, err := os.Stat(source); err != nil {
-				return err
-			}
-			if err := sqlitedb.Backup(context.Background(), source, svc.Path); err != nil {
-				return err
-			}
-		}
-		if err := restorePostgresServices(context.Background(), postgresServices, dir); err != nil {
+		if err := restorePostgresDatabase(context.Background(), database, dir); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stdout, "restored scenery database snapshot %s from %s\n", opts.Name, dir)
@@ -581,255 +482,122 @@ func resolveDatabaseURLForConfig(ctx context.Context, appRoot string, cfg appcfg
 }
 
 func resolveDatabaseURLForConfigFromEnv(cfg appcfg.Config, env []string) (string, error) {
-	if svc, ok := cfg.PostgresService("db"); ok {
-		return databaseURLFromEnvList(env, svc.DatabaseURLEnv, "postgres", svc.Name)
+	if svc, ok := cfg.DatabaseService("db"); ok {
+		return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresdb.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 	}
-	if svc, ok := cfg.SQLiteService("db"); ok {
-		return databaseURLFromEnvList(env, svc.DatabaseURLEnv, "sqlite", svc.Name)
+	services := cfg.DatabaseServices()
+	if len(services) != 1 {
+		return "", fmt.Errorf("database service name is required when %d services are configured", len(services))
 	}
-	sqliteServices := cfg.SQLiteServices()
-	postgresServices := cfg.PostgresServices()
-	total := len(sqliteServices) + len(postgresServices)
-	if total != 1 {
-		return "", fmt.Errorf("database service name is required when %d services are configured", total)
-	}
-	if len(postgresServices) == 1 {
-		return databaseURLFromEnvList(env, postgresServices[0].DatabaseURLEnv, "postgres", postgresServices[0].Name)
-	}
-	return databaseURLFromEnvList(env, sqliteServices[0].DatabaseURLEnv, "sqlite", sqliteServices[0].Name)
+	return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresdb.ServiceDatabaseURLEnv(services[0].Name), "postgres", services[0].Name)
 }
 
 func resolveDatabaseURLForServiceFromEnv(cfg appcfg.Config, env []string, service string) (string, error) {
 	service = strings.TrimSpace(service)
 	if service != "" && service != "." {
-		if svc, ok := cfg.PostgresService(service); ok {
-			return databaseURLFromEnvList(env, svc.DatabaseURLEnv, "postgres", svc.Name)
+		if svc, ok := cfg.DatabaseService(service); ok {
+			return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresdb.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 		}
-		if svc, ok := cfg.SQLiteService(service); ok {
-			return databaseURLFromEnvList(env, svc.DatabaseURLEnv, "sqlite", svc.Name)
-		}
-		if len(cfg.SQLiteServices())+len(cfg.PostgresServices()) > 1 {
+		if len(cfg.DatabaseServices()) > 1 {
 			return "", fmt.Errorf("seed service %q has no matching database service; configure dev.services.%s or use a single database service", service, service)
 		}
 	}
 	return resolveDatabaseURLForConfigFromEnv(cfg, env)
 }
 
-func databaseURLFromEnvList(env []string, envName, engine, service string) (string, error) {
-	for _, key := range []string{envName, appDatabaseURLEnv} {
+func databaseURLFromEnvList(env []string, appEnvName, serviceEnvName, engine, service string) (string, error) {
+	for _, key := range []string{serviceEnvName, appEnvName} {
 		if value, _ := lookupEnvValue(env, key); value != "" {
 			return value, nil
 		}
 	}
-	return "", fmt.Errorf("%s service %q database URL is not configured; set %s", engine, service, envName)
+	return "", fmt.Errorf("%s service %q database URL is not configured; set %s", engine, service, appEnvName)
 }
 
 func managedDatabaseLifecycleEnv(ctx context.Context, appRoot string, cfg appcfg.Config, baseEnv []string) ([]string, error) {
-	env, _, err := managedSQLiteEnv(ctx, appRoot, cfg, nil)
+	env, _, err := managedDatabaseEnv(ctx, appRoot, cfg, nil, baseEnv)
 	if err != nil {
 		return nil, err
 	}
-	postgresEnv, _, err := managedPostgresEnv(ctx, appRoot, cfg, nil, baseEnv)
-	if err != nil {
-		return nil, err
-	}
-	env = append(env, postgresEnv...)
 	if len(env) == 0 {
 		return baseEnv, nil
 	}
-	keys := append(sqliteEnvKeys(cfg), postgresEnvKeys(cfg)...)
+	keys := databaseEnvKeys(cfg)
 	return overlayEnv(envWithoutKeys(baseEnv, keys...), envMap(env)), nil
 }
 
-func resolveSQLiteServicesForCLI(ctx context.Context, appRoot string, cfg appcfg.Config) ([]sqlitedb.Service, error) {
-	services, err := resolveSQLiteServicesForCLIOptional(ctx, appRoot, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if len(services) == 0 {
-		return nil, fmt.Errorf("no sqlite dev.services are configured")
-	}
-	return services, nil
-}
-
-func resolveSQLiteServicesForCLIOptional(ctx context.Context, appRoot string, cfg appcfg.Config) ([]sqlitedb.Service, error) {
-	services, err := sqlitedb.ResolveServices(sqlitedb.ResolveRequest{AppRoot: appRoot, Config: cfg, Mode: sqlitedb.ModeLocal})
-	if err != nil {
-		return nil, err
-	}
-	if err := sqlitedb.EnsureFiles(ctx, services); err != nil {
-		return nil, err
-	}
-	return services, nil
-}
-
-func resolvePostgresServicesForCLI(ctx context.Context, appRoot string, cfg appcfg.Config) ([]postgresdb.Service, error) {
-	if len(cfg.PostgresServices()) == 0 {
-		return nil, nil
+func resolvePostgresDatabaseForCLI(ctx context.Context, appRoot string, cfg appcfg.Config) (postgresdb.Database, error) {
+	if len(cfg.DatabaseServices()) == 0 {
+		return postgresdb.Database{}, nil
 	}
 	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
-		return nil, err
+		return postgresdb.Database{}, err
 	}
-	_, services, err := managedPostgresEnv(ctx, appRoot, cfg, nil, baseEnv)
-	return services, err
+	_, database, err := managedDatabaseEnv(ctx, appRoot, cfg, nil, baseEnv)
+	return database, err
 }
 
-func resolvePostgresServiceForCLI(ctx context.Context, appRoot string, cfg appcfg.Config, name string) (postgresdb.Service, bool, error) {
-	services, err := resolvePostgresServicesForCLI(ctx, appRoot, cfg)
-	if err != nil {
-		return postgresdb.Service{}, false, err
+func databaseSchemaByService(database postgresdb.Database, service string) (string, bool) {
+	service = strings.TrimSpace(service)
+	if service == "" {
+		return "", false
 	}
-	if name == "" && len(services) == 1 && len(cfg.SQLiteServices()) == 0 {
-		return services[0], true, nil
-	}
-	for _, svc := range services {
-		if svc.Name == name {
-			return svc, true, nil
+	for _, schema := range database.Schemas {
+		if schema.Name == service {
+			return schema.Schema, true
 		}
 	}
-	return postgresdb.Service{}, false, nil
+	return "", false
 }
 
-func resolveSQLiteServiceForCLI(ctx context.Context, appRoot string, cfg appcfg.Config, name string) (sqlitedb.Service, error) {
-	services, err := resolveSQLiteServicesForCLI(ctx, appRoot, cfg)
-	if err != nil {
-		return sqlitedb.Service{}, err
-	}
-	if name == "" && len(services) == 1 {
-		return services[0], nil
-	}
-	for _, svc := range services {
-		if svc.Name == name {
-			return svc, nil
-		}
-	}
-	if name == "" {
-		return sqlitedb.Service{}, fmt.Errorf("sqlite service name is required")
-	}
-	return sqlitedb.Service{}, fmt.Errorf("sqlite service %q is not configured", name)
-}
-
-func filterSQLiteServices(services []sqlitedb.Service, name string) []sqlitedb.Service {
-	if strings.TrimSpace(name) == "" {
-		return services
-	}
-	for _, svc := range services {
-		if svc.Name == name {
-			return []sqlitedb.Service{svc}
-		}
-	}
-	return nil
-}
-
-func filterPostgresServices(services []postgresdb.Service, name string) []postgresdb.Service {
-	if strings.TrimSpace(name) == "" {
-		return services
-	}
-	for _, svc := range services {
-		if svc.Name == name {
-			return []postgresdb.Service{svc}
-		}
-	}
-	return nil
-}
-
-func shouldResolveSQLiteForDBTarget(cfg appcfg.Config, name string) bool {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return true
-	}
-	if _, ok := cfg.PostgresService(name); ok {
-		return false
-	}
-	return true
-}
-
-func shouldResolvePostgresForDBTarget(cfg appcfg.Config, name string) bool {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return len(cfg.PostgresServices()) > 0
-	}
-	_, ok := cfg.PostgresService(name)
-	return ok
-}
-
-func databaseListRecords(sqliteServices []sqlitedb.Service, postgresServices []postgresdb.Service) []databaseListRecord {
-	records := make([]databaseListRecord, 0, len(sqliteServices)+len(postgresServices))
-	for _, svc := range sqliteServices {
-		records = append(records, databaseListRecord{
-			Engine:         "sqlite",
-			Service:        svc.Name,
-			Path:           svc.Path,
-			FileLabel:      svc.FileLabel,
-			URL:            svc.URL,
-			DatabaseURLEnv: svc.DatabaseURLEnv,
-			Source:         "managed",
-		})
-	}
-	for _, svc := range postgresServices {
-		records = append(records, databaseListRecord{
-			Engine:         "postgres",
-			Service:        svc.Name,
-			Database:       svc.Database,
-			URL:            postgresdb.RedactURL(svc.URL),
-			DatabaseURLEnv: svc.DatabaseURLEnv,
-			Source:         string(svc.Source),
-		})
-	}
-	return records
-}
-
-func resetPostgresServices(ctx context.Context, services []postgresdb.Service, opts sqliteDBOptions) error {
-	targets := filterPostgresServices(services, opts.Service)
-	if len(targets) == 0 {
+func resetPostgresDatabase(ctx context.Context, database postgresdb.Database, opts dbCLIOptions) error {
+	if strings.TrimSpace(database.Database) == "" {
 		return nil
 	}
-	if len(targets) > 1 && !opts.Yes {
-		return fmt.Errorf("resetting multiple postgres services requires --yes")
+	if database.Source == postgresdb.SourceExternal {
+		return fmt.Errorf("refusing to reset external postgres database")
+	}
+	if strings.TrimSpace(opts.Service) != "" {
+		schema, ok := databaseSchemaByService(database, opts.Service)
+		if !ok {
+			return fmt.Errorf("database service %q is not configured", opts.Service)
+		}
+		db, err := openPostgresDatabase(ctx, database.URL)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		return postgresdb.ResetSchema(ctx, db, schema)
+	}
+	if !opts.Yes {
+		return fmt.Errorf("resetting the managed postgres app database requires --yes")
 	}
 	admin, err := managedPostgresAdmin(ctx)
 	if err != nil {
 		return err
 	}
 	defer admin.Close()
-	for _, svc := range targets {
-		if svc.Source == postgresdb.SourceExternal {
-			return fmt.Errorf("refusing to reset external postgres service %s from %s", svc.Name, svc.DatabaseURLEnv)
-		}
-		if err := postgresdb.ResetDatabase(ctx, admin, svc.Database); err != nil {
-			return err
-		}
-	}
-	return nil
+	return postgresdb.ResetDatabase(ctx, admin, database.Database)
 }
 
-func dropPostgresServices(ctx context.Context, services []postgresdb.Service, opts sqliteDBOptions) error {
-	targets := filterPostgresServices(services, opts.Service)
-	if len(targets) == 0 {
+func dropPostgresDatabase(ctx context.Context, database postgresdb.Database, opts dbCLIOptions) error {
+	if strings.TrimSpace(database.Database) == "" {
 		return nil
 	}
-	if len(targets) > 1 && !opts.Yes {
-		return fmt.Errorf("dropping multiple postgres services requires --yes")
+	if database.Source == postgresdb.SourceExternal {
+		return fmt.Errorf("refusing to drop external postgres database")
 	}
 	admin, err := managedPostgresAdmin(ctx)
 	if err != nil {
 		return err
 	}
 	defer admin.Close()
-	for _, svc := range targets {
-		if svc.Source == postgresdb.SourceExternal {
-			return fmt.Errorf("refusing to drop external postgres service %s from %s", svc.Name, svc.DatabaseURLEnv)
-		}
-		if err := postgresdb.DropDatabase(ctx, admin, svc.Database); err != nil {
-			return err
-		}
-	}
-	return nil
+	return postgresdb.DropDatabase(ctx, admin, database.Database)
 }
 
-func snapshotPostgresServices(ctx context.Context, services []postgresdb.Service, dir string) error {
-	if len(services) == 0 {
+func snapshotPostgresDatabase(ctx context.Context, database postgresdb.Database, dir string) error {
+	if strings.TrimSpace(database.Database) == "" {
 		return nil
 	}
 	program, err := exec.LookPath("pg_dump")
@@ -839,36 +607,32 @@ func snapshotPostgresServices(ctx context.Context, services []postgresdb.Service
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	for _, svc := range services {
-		cmd := exec.CommandContext(ctx, program, "-Fc", "-f", filepath.Join(dir, svc.Name+".postgres.dump"), svc.URL)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return err
-		}
+	cmd := exec.CommandContext(ctx, program, "-Fc", "-f", filepath.Join(dir, database.Database+".postgres.dump"), database.URL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
 	}
 	return nil
 }
 
-func restorePostgresServices(ctx context.Context, services []postgresdb.Service, dir string) error {
-	if len(services) == 0 {
+func restorePostgresDatabase(ctx context.Context, database postgresdb.Database, dir string) error {
+	if strings.TrimSpace(database.Database) == "" {
 		return nil
 	}
 	program, err := exec.LookPath("pg_restore")
 	if err != nil {
 		return fmt.Errorf("pg_restore not found in PATH; cannot restore postgres services")
 	}
-	for _, svc := range services {
-		source := filepath.Join(dir, svc.Name+".postgres.dump")
-		if _, err := os.Stat(source); err != nil {
-			return err
-		}
-		cmd := exec.CommandContext(ctx, program, "--clean", "--if-exists", "-d", svc.URL, source)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return err
-		}
+	source := filepath.Join(dir, database.Database+".postgres.dump")
+	if _, err := os.Stat(source); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, program, "--clean", "--if-exists", "-d", database.URL, source)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -889,21 +653,15 @@ func managedPostgresAdmin(ctx context.Context) (*sql.DB, error) {
 	return openPostgresAdmin(ctx, state.databaseURL("postgres"))
 }
 
-func sqliteEnvKeys(cfg appcfg.Config) []string {
-	keys := []string{appDatabaseURLEnv, legacyDatabaseURLEnv, "SCENERY_SQLITE_DATABASES_JSON"}
-	for _, svc := range cfg.SQLiteServices() {
-		keys = append(keys, svc.DatabaseURLEnv, svc.DatabasePathEnv)
+func databaseEnvKeys(cfg appcfg.Config) []string {
+	keys := []string{appDatabaseURLEnv, cfg.DatabaseURLEnv(), postgresdb.RegistryEnv}
+	for _, svc := range cfg.DatabaseServices() {
+		keys = append(keys, postgresdb.ServiceDatabaseURLEnv(svc.Name))
 	}
 	return keys
 }
 
-func postgresEnvKeys(cfg appcfg.Config) []string {
-	keys := []string{postgresdb.RegistryEnv}
-	for _, svc := range cfg.PostgresServices() {
-		keys = append(keys, svc.DatabaseURLEnv)
-	}
-	return keys
-}
+func postgresEnvKeys(cfg appcfg.Config) []string { return databaseEnvKeys(cfg) }
 
 func envMap(env []string) map[string]string {
 	out := map[string]string{}
@@ -928,29 +686,52 @@ type dbSnapshotOptions struct {
 }
 
 type databaseListResponse struct {
-	SchemaVersion string               `json:"schema_version"`
-	Databases     []databaseListRecord `json:"databases"`
+	SchemaVersion string             `json:"schema_version"`
+	Database      databaseListRecord `json:"database"`
 }
 
 type databaseListRecord struct {
-	Engine         string `json:"engine"`
-	Service        string `json:"service"`
-	Path           string `json:"path,omitempty"`
-	FileLabel      string `json:"file_label,omitempty"`
-	Database       string `json:"database,omitempty"`
-	URL            string `json:"url,omitempty"`
-	DatabaseURLEnv string `json:"database_url_env"`
-	Source         string `json:"source,omitempty"`
+	Name      string                     `json:"name"`
+	URL       string                     `json:"url"`
+	Source    string                     `json:"source"`
+	SizeBytes int64                      `json:"size_bytes,omitempty"`
+	Schemas   []databaseListSchemaRecord `json:"schemas"`
 }
 
-func parseSQLiteDBArgs(args []string, serviceRequired bool) (sqliteDBOptions, error) {
-	var opts sqliteDBOptions
+type databaseListSchemaRecord struct {
+	Service string `json:"service"`
+	Schema  string `json:"schema"`
+	URL     string `json:"url,omitempty"`
+}
+
+func databaseListRecordFromDatabase(ctx context.Context, database postgresdb.Database) databaseListRecord {
+	record := databaseListRecord{
+		Name:   database.Database,
+		URL:    postgresdb.RedactURL(database.URL),
+		Source: string(database.Source),
+	}
+	for _, schema := range database.Schemas {
+		record.Schemas = append(record.Schemas, databaseListSchemaRecord{
+			Service: schema.Name,
+			Schema:  schema.Schema,
+			URL:     postgresdb.RedactURL(schema.URL),
+		})
+	}
+	if db, err := openPostgresDatabase(ctx, database.URL); err == nil {
+		_ = db.QueryRowContext(ctx, `select pg_database_size(current_database())`).Scan(&record.SizeBytes)
+		_ = db.Close()
+	}
+	return record
+}
+
+func parseDBCLIArgs(args []string, serviceRequired bool) (dbCLIOptions, error) {
+	var opts dbCLIOptions
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--app-root":
 			i++
 			if i >= len(args) {
-				return sqliteDBOptions{}, fmt.Errorf("missing value for --app-root")
+				return dbCLIOptions{}, fmt.Errorf("missing value for --app-root")
 			}
 			opts.AppRoot = args[i]
 		case "--json":
@@ -964,7 +745,7 @@ func parseSQLiteDBArgs(args []string, serviceRequired bool) (sqliteDBOptions, er
 				i = len(args)
 				break
 			}
-			return sqliteDBOptions{}, fmt.Errorf("unknown argument %q", args[i])
+			return dbCLIOptions{}, fmt.Errorf("unknown argument %q", args[i])
 		}
 	}
 	if serviceRequired && opts.Service == "" {
@@ -973,24 +754,24 @@ func parseSQLiteDBArgs(args []string, serviceRequired bool) (sqliteDBOptions, er
 	return opts, nil
 }
 
-func parseDBTargetArgs(args []string) (sqliteDBOptions, error) {
-	var opts sqliteDBOptions
+func parseDBTargetArgs(args []string) (dbCLIOptions, error) {
+	var opts dbCLIOptions
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--app-root":
 			i++
 			if i >= len(args) {
-				return sqliteDBOptions{}, fmt.Errorf("missing value for --app-root")
+				return dbCLIOptions{}, fmt.Errorf("missing value for --app-root")
 			}
 			opts.AppRoot = args[i]
 		case "--yes":
 			opts.Yes = true
 		default:
 			if strings.HasPrefix(args[i], "-") {
-				return sqliteDBOptions{}, fmt.Errorf("unknown flag %q", args[i])
+				return dbCLIOptions{}, fmt.Errorf("unknown flag %q", args[i])
 			}
 			if opts.Service != "" {
-				return sqliteDBOptions{}, fmt.Errorf("unexpected argument %q", args[i])
+				return dbCLIOptions{}, fmt.Errorf("unexpected argument %q", args[i])
 			}
 			opts.Service = args[i]
 		}
@@ -1058,14 +839,37 @@ func parseDBSnapshotArgs(args []string) (dbSnapshotOptions, error) {
 		case "--yes":
 			opts.Yes = true
 		default:
-			return dbSnapshotOptions{}, fmt.Errorf("unknown flag %q", args[i])
+			if strings.HasPrefix(args[i], "-") {
+				return dbSnapshotOptions{}, fmt.Errorf("unknown flag %q", args[i])
+			}
+			if opts.Name != "" {
+				return dbSnapshotOptions{}, fmt.Errorf("unexpected argument %q", args[i])
+			}
+			opts.Name = args[i]
 		}
 	}
 	if opts.Action == "" {
 		return dbSnapshotOptions{}, fmt.Errorf("usage: scenery db snapshot create|restore --name <name> [--app-root <path>]")
 	}
-	if strings.TrimSpace(opts.Name) == "" {
+	opts.Name = strings.TrimSpace(opts.Name)
+	if opts.Name == "" {
 		return dbSnapshotOptions{}, fmt.Errorf("db snapshot requires --name")
 	}
+	if !validDBSnapshotName(opts.Name) {
+		return dbSnapshotOptions{}, fmt.Errorf("db snapshot name %q is invalid; use lowercase letters, numbers, dashes, or underscores", opts.Name)
+	}
 	return opts, nil
+}
+
+func validDBSnapshotName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }

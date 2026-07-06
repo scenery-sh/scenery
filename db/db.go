@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/sqlitedb"
 	sceneryruntime "scenery.sh/runtime"
 )
 
@@ -32,36 +30,25 @@ func Get(ctx context.Context, service ...string) (*sql.DB, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	dsn, source, err := resolveDatabaseURL(service...)
+	resolved, err := resolveDatabaseURL(service...)
 	if err != nil {
 		return nil, err
 	}
 
 	poolsMu.Lock()
 	defer poolsMu.Unlock()
-	if pool := pools[dsn]; pool != nil {
+	if pool := pools[resolved.URL]; pool != nil {
 		return pool, nil
 	}
 	var pool *sql.DB
-	switch databaseEngine(dsn) {
-	case "sqlite":
-		path, err := sqlitedb.ParseURL(dsn)
-		if err != nil {
-			return nil, fmt.Errorf("scenery db: invalid SQLite database URL in %s", source)
-		}
-		pool, err = sqlitedb.Open(ctx, path)
-		if err != nil {
-			return nil, fmt.Errorf("scenery db: open SQLite database from %s: %w", source, err)
-		}
-	case "postgres":
-		pool, err = postgresdb.Open(ctx, dsn)
-		if err != nil {
-			return nil, fmt.Errorf("scenery db: open Postgres database from %s: %w", source, err)
-		}
-	default:
-		return nil, fmt.Errorf("scenery db: unsupported database URL scheme in %s", source)
+	if _, err := postgresdb.ParseURL(resolved.URL); err != nil {
+		return nil, fmt.Errorf("scenery db: service %q schema %q must use a postgres:// or postgresql:// URL from %s or DATABASE_URL: %w", resolved.Service, resolved.Schema, resolved.Source, err)
 	}
-	pools[dsn] = pool
+	pool, err = postgresdb.Open(ctx, resolved.URL)
+	if err != nil {
+		return nil, fmt.Errorf("scenery db: open Postgres database for service %q schema %q from %s: %w", resolved.Service, resolved.Schema, resolved.Source, err)
+	}
+	pools[resolved.URL] = pool
 	return pool, nil
 }
 
@@ -74,135 +61,86 @@ func MustGet(ctx context.Context, service ...string) *sql.DB {
 }
 
 func Close(service ...string) error {
-	dsn, _, err := resolveDatabaseURL(service...)
+	resolved, err := resolveDatabaseURL(service...)
 	if err != nil {
 		return err
 	}
 	poolsMu.Lock()
 	defer poolsMu.Unlock()
-	pool := pools[dsn]
-	delete(pools, dsn)
+	pool := pools[resolved.URL]
+	delete(pools, resolved.URL)
 	if pool == nil {
 		return nil
 	}
 	return pool.Close()
 }
 
-func resolveDatabaseURL(service ...string) (dsn string, source string, err error) {
+type resolvedDatabaseURL struct {
+	Service string
+	Schema  string
+	URL     string
+	Source  string
+}
+
+func resolveDatabaseURL(service ...string) (resolvedDatabaseURL, error) {
 	if err := loadDotEnv(); err != nil {
-		return "", "", fmt.Errorf("scenery db: load .env: %w", err)
+		return resolvedDatabaseURL{}, fmt.Errorf("scenery db: load .env: %w", err)
 	}
 	cfg, err := discoverAppConfig()
 	if err != nil {
-		return "", "", err
+		return resolvedDatabaseURL{}, err
 	}
 	name := ""
 	if len(service) > 0 {
 		name = strings.TrimSpace(service[0])
 	}
 	if name == "" {
-		sqliteServices := cfg.SQLiteServices()
-		postgresServices := cfg.PostgresServices()
-		total := len(sqliteServices) + len(postgresServices)
-		if total != 1 {
-			return "", "", fmt.Errorf("scenery db: database service name is required when %d services are configured", total)
+		services := cfg.DatabaseServices()
+		if len(services) != 1 {
+			return resolvedDatabaseURL{}, fmt.Errorf("scenery db: database service name is required when %d services are configured", len(services))
 		}
-		if len(postgresServices) == 1 {
-			return databaseURLForPostgresService(postgresServices[0])
-		}
-		return databaseURLForSQLiteService(sqliteServices[0])
+		name = services[0].Name
 	}
-	if svc, ok := cfg.PostgresService(name); ok {
-		return databaseURLForPostgresService(svc)
+	if resolved, ok, err := databaseURLForConfiguredService(cfg, name); err != nil || ok {
+		return resolved, err
 	}
-	if svc, ok := cfg.SQLiteService(name); ok {
-		return databaseURLForSQLiteService(svc)
+	if resolved, ok := databaseURLForDiscoveredService(name); ok {
+		return resolved, nil
 	}
-	if dsn, source := databaseURLForDiscoveredPostgresService(name); dsn != "" {
-		return dsn, source, nil
-	}
-	if dsn, source := databaseURLForDiscoveredSQLiteService(name); dsn != "" {
-		return dsn, source, nil
-	}
-	return "", "", fmt.Errorf("scenery db: database service %q is not configured", name)
+	return resolvedDatabaseURL{}, fmt.Errorf("scenery db: database service %q is not configured", name)
 }
 
-func databaseURLForPostgresService(svc app.PostgresServiceConfig) (dsn string, source string, err error) {
-	for _, envName := range []string{svc.DatabaseURLEnv, "DatabaseURL"} {
-		if dsn := strings.TrimSpace(getEnv(envName)); dsn != "" {
-			return dsn, envName, nil
-		}
+func databaseURLForConfiguredService(cfg app.Config, name string) (resolvedDatabaseURL, bool, error) {
+	svc, ok := cfg.DatabaseService(name)
+	if !ok {
+		return resolvedDatabaseURL{}, false, nil
 	}
-	return "", "", fmt.Errorf("scenery db: postgres service %q database URL is not configured; set %s or run under `scenery up`", svc.Name, svc.DatabaseURLEnv)
+	serviceEnv := postgresdb.ServiceDatabaseURLEnv(svc.Name)
+	if dsn := strings.TrimSpace(getEnv(serviceEnv)); dsn != "" {
+		return resolvedDatabaseURL{Service: svc.Name, Schema: svc.Schema, URL: dsn, Source: serviceEnv}, true, nil
+	}
+	appEnv := cfg.DatabaseURLEnv()
+	if dsn := strings.TrimSpace(getEnv(appEnv)); dsn != "" {
+		serviceURL, err := postgresdb.ServiceURL(dsn, svc.Schema)
+		if err != nil {
+			return resolvedDatabaseURL{}, true, fmt.Errorf("scenery db: service %q schema %q could not derive URL from %s/DATABASE_URL: %w", svc.Name, svc.Schema, appEnv, err)
+		}
+		return resolvedDatabaseURL{Service: svc.Name, Schema: svc.Schema, URL: serviceURL, Source: appEnv}, true, nil
+	}
+	return resolvedDatabaseURL{}, true, fmt.Errorf("scenery db: service %q schema %q database URL is not configured; set %s or %s", svc.Name, svc.Schema, serviceEnv, appEnv)
 }
 
-func databaseURLForSQLiteService(svc app.SQLiteServiceConfig) (dsn string, source string, err error) {
-	for _, envName := range []string{svc.DatabaseURLEnv, "DatabaseURL"} {
-		if dsn := strings.TrimSpace(getEnv(envName)); dsn != "" {
-			return dsn, envName, nil
-		}
-	}
-	return "", "", fmt.Errorf("scenery db: sqlite service %q database URL is not configured; set %s or run under `scenery up`", svc.Name, svc.DatabaseURLEnv)
-}
-
-func databaseURLForDiscoveredPostgresService(name string) (string, string) {
-	services, err := postgresdb.DecodeRegistry(getEnv(postgresdb.RegistryEnv))
+func databaseURLForDiscoveredService(name string) (resolvedDatabaseURL, bool) {
+	database, err := postgresdb.DecodeRegistry(getEnv(postgresdb.RegistryEnv))
 	if err != nil {
-		return "", ""
+		return resolvedDatabaseURL{}, false
 	}
-	for _, svc := range services {
-		if svc.Name == name && strings.HasPrefix(strings.TrimSpace(svc.URL), "postgres") {
-			return svc.URL, postgresdb.RegistryEnv
+	for _, svc := range database.Schemas {
+		if svc.Name == name && strings.TrimSpace(svc.URL) != "" {
+			return resolvedDatabaseURL{Service: svc.Name, Schema: svc.Schema, URL: svc.URL, Source: postgresdb.RegistryEnv}, true
 		}
 	}
-	return "", ""
-}
-
-func databaseURLForDiscoveredSQLiteService(name string) (string, string) {
-	raw := strings.TrimSpace(getEnv("SCENERY_SQLITE_DATABASES_JSON"))
-	if raw == "" {
-		return "", ""
-	}
-	var records []map[string]any
-	if err := json.Unmarshal([]byte(raw), &records); err != nil {
-		return "", ""
-	}
-	for _, record := range records {
-		recordName := strings.TrimSpace(fmt.Sprint(firstNonNil(record["service"], record["name"])))
-		if recordName != name {
-			continue
-		}
-		for _, key := range []string{"url", "database_url", "dsn"} {
-			if value := strings.TrimSpace(fmt.Sprint(record[key])); strings.HasPrefix(value, "sqlite:") {
-				return value, "SCENERY_SQLITE_DATABASES_JSON"
-			}
-		}
-		if value := strings.TrimSpace(fmt.Sprint(record["path"])); strings.HasPrefix(value, "/") {
-			return sqlitedb.URLForPath(value), "SCENERY_SQLITE_DATABASES_JSON"
-		}
-	}
-	return "", ""
-}
-
-func databaseEngine(dsn string) string {
-	dsn = strings.TrimSpace(dsn)
-	switch {
-	case strings.HasPrefix(dsn, "sqlite:"):
-		return "sqlite"
-	case strings.HasPrefix(dsn, "postgres:"), strings.HasPrefix(dsn, "postgresql:"):
-		return "postgres"
-	default:
-		return ""
-	}
-}
-
-func firstNonNil(values ...any) any {
-	for _, value := range values {
-		if value != nil {
-			return value
-		}
-	}
-	return ""
+	return resolvedDatabaseURL{}, false
 }
 
 func discoverAppConfig() (app.Config, error) {

@@ -8,13 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"scenery.sh/internal/durable/store"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/postgresdb"
 )
 
 type durableContextKey string
@@ -72,24 +72,31 @@ func startDurableRuntime(ctx context.Context, cfg AppConfig) (func(context.Conte
 		}
 		return startDurableRemoteWorkers(ctx, handlers, remoteCfg), nil
 	}
-	stateRoot, err := durableStateRoot()
+	databaseURL, err := durableDatabaseURL()
 	if err != nil {
 		return nil, err
 	}
 	var opened []*store.Store
+	var base *store.Store
 	for service, declarations := range byService {
-		path, err := store.DurableDBPath(stateRoot, service)
-		if err != nil {
-			closeDurableStores(opened)
-			return nil, err
+		var db *store.Store
+		if base == nil {
+			db, err = store.Open(ctx, service, databaseURL, store.Options{})
+			base = db
+		} else {
+			db, err = base.ForService(service)
 		}
-		db, err := store.Open(ctx, service, path, store.Options{})
 		if err != nil {
+			if base != nil {
+				_ = base.Close()
+			}
 			closeDurableStores(opened)
 			return nil, err
 		}
 		if err := db.ReconcileTasks(ctx, declarations); err != nil {
-			_ = db.Close()
+			if base != nil {
+				_ = base.Close()
+			}
 			closeDurableStores(opened)
 			return nil, err
 		}
@@ -271,17 +278,17 @@ func runDurableLocalWorker(ctx context.Context, db *store.Store, workerID string
 		}
 		handler := handlers[job.TaskName]
 		if handler == nil {
-			_ = db.FailJob(ctx, job.ID, []byte("missing durable task handler"))
+			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte("missing durable task handler"))
 			continue
 		}
 		jobCtx := context.WithValue(ctx, durableContextStore, db)
 		jobCtx = context.WithValue(jobCtx, durableContextJobID, job.ID)
 		result, err := handler(jobCtx, job.InputBlob)
 		if err != nil {
-			_ = db.FailJob(ctx, job.ID, []byte(err.Error()))
+			_ = db.FailLeasedJob(ctx, job.ID, workerID, leaseID, []byte(err.Error()))
 			continue
 		}
-		if err := db.CompleteJob(ctx, job.ID, result); err != nil {
+		if err := db.CompleteLeasedJob(ctx, job.ID, workerID, leaseID, result); err != nil {
 			sleepDurableWorker(ctx)
 		}
 	}
@@ -296,12 +303,15 @@ func sleepDurableWorker(ctx context.Context) {
 	}
 }
 
-func durableStateRoot() (string, error) {
-	appRoot := strings.TrimSpace(envpolicy.Get("SCENERY_APP_ROOT"))
-	if appRoot == "" {
-		return "", errors.New("runtime: durable tasks require SCENERY_APP_ROOT")
+func durableDatabaseURL() (string, error) {
+	if dsn := strings.TrimSpace(envpolicy.Get("DATABASE_URL")); dsn != "" {
+		return dsn, nil
 	}
-	return filepath.Join(appRoot, ".scenery", "state"), nil
+	registry, err := postgresdb.DecodeRegistry(envpolicy.Get(postgresdb.RegistryEnv))
+	if err == nil && strings.TrimSpace(registry.URL) != "" {
+		return registry.URL, nil
+	}
+	return "", errors.New("runtime: durable tasks require DATABASE_URL")
 }
 
 func durableStoreTaskDeclaration(task *DurableTask) store.TaskDeclaration {

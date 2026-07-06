@@ -46,7 +46,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { SceneryRpcClient } from '@/lib/scenery-rpc'
-import type { AppStatus, AppSummary, DashboardNotification, DevLogEntry, SQLDatabase, SQLiteColumn, SQLiteRows, SQLiteTable, TraceEvent, TraceSummary } from '@/lib/scenery-types'
+import type { AppStatus, AppSummary, DashboardNotification, DevLogEntry, PostgresColumn, PostgresRows, PostgresTable, SQLDatabase, TraceEvent, TraceSummary } from '@/lib/scenery-types'
 import { cn } from '@/lib/utils'
 
 type Page = 'Overview' | 'Services' | 'Logs' | 'Traces' | 'Deployments'
@@ -106,11 +106,11 @@ function routeLabel(name: string): string {
 }
 
 function databaseLabel(database: SQLDatabase): string {
-  return database.file_label || database.name
+  return database.name
 }
 
 function databaseKey(database: SQLDatabase): string {
-  return database.path || database.file_label || database.name
+  return database.name
 }
 
 function renderCellValue(value: unknown): string {
@@ -296,8 +296,8 @@ function App() {
     return [...routes, ...aliases]
   }, [status])
 
-  const sqliteDatabases = status?.meta?.sql_databases ?? []
-  const selectedDatabase = sqliteDatabases.find((database) => databaseKey(database) === selectedDatabaseKey) ?? null
+  const postgresDatabases = status?.meta?.sql_databases ?? []
+  const selectedDatabase = postgresDatabases.find((database) => databaseKey(database) === selectedDatabaseKey) ?? null
 
   const activity = logs.length > 0
     ? logs.slice(-5).reverse().map((item) => ({
@@ -461,16 +461,16 @@ function App() {
 
             <Card>
               <CardHeader>
-                <CardTitle>SQLite Databases</CardTitle>
+                <CardTitle>Postgres Databases</CardTitle>
                 <CardDescription>
-                  {sqliteDatabases.length} database{sqliteDatabases.length === 1 ? '' : 's'}
+                  {postgresDatabases.length} database{postgresDatabases.length === 1 ? '' : 's'}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {sqliteDatabases.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No SQLite databases discovered.</div>
+                {postgresDatabases.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No Postgres databases discovered.</div>
                 ) : (
-                  sqliteDatabases.map((database) => (
+                  postgresDatabases.map((database) => (
                     <button
                       key={`${database.name}:${database.path ?? ''}`}
                       type="button"
@@ -485,9 +485,7 @@ function App() {
                           <Database className="size-4 shrink-0 text-muted-foreground" />
                           {databaseLabel(database)}
                         </div>
-                        {database.path ? (
-                          <div className="truncate text-xs text-muted-foreground">{database.path}</div>
-                        ) : null}
+                        <div className="truncate text-xs text-muted-foreground">{database.source ?? 'postgres database'}</div>
                       </div>
                       <Badge variant={database.exists === false ? 'outline' : 'secondary'}>
                         {database.exists === false ? 'missing' : formatMegabytes(database.size_bytes)}
@@ -499,7 +497,7 @@ function App() {
             </Card>
 
             {selectedDatabase ? (
-              <SQLiteBrowser activeApp={activeApp} rpc={rpc} database={selectedDatabase} />
+              <PostgresBrowser activeApp={activeApp} rpc={rpc} database={selectedDatabase} />
             ) : null}
 
             <Card>
@@ -563,7 +561,7 @@ function App() {
   )
 }
 
-function SQLiteBrowser({
+function PostgresBrowser({
   activeApp,
   rpc,
   database,
@@ -572,10 +570,10 @@ function SQLiteBrowser({
   rpc: SceneryRpcClient
   database: SQLDatabase
 }) {
-  const [tables, setTables] = useState<SQLiteTable[]>([])
+  const [tables, setTables] = useState<PostgresTable[]>([])
   const [selectedTable, setSelectedTable] = useState('')
-  const [schema, setSchema] = useState<SQLiteColumn[]>([])
-  const [rows, setRows] = useState<SQLiteRows | null>(null)
+  const [schema, setSchema] = useState<PostgresColumn[]>([])
+  const [rows, setRows] = useState<PostgresRows | null>(null)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(false)
   const [dbError, setDBError] = useState('')
@@ -592,12 +590,12 @@ function SQLiteBrowser({
     setOffset(nextOffset)
     try {
       const [nextSchema, nextRows] = await Promise.all([
-        rpc.request<SQLiteColumn[]>('sqlite/schema', {
+        rpc.request<PostgresColumn[]>('postgres/schema', {
           app_id: appID,
           database: databaseID,
           table,
         }),
-        rpc.request<SQLiteRows>('sqlite/rows', {
+        rpc.request<PostgresRows>('postgres/rows', {
           app_id: appID,
           database: databaseID,
           table,
@@ -627,7 +625,7 @@ function SQLiteBrowser({
     setOffset(0)
     setDBError('')
     setLoading(true)
-    rpc.request<SQLiteTable[]>('sqlite/tables', {
+    rpc.request<PostgresTable[]>('postgres/tables', {
       app_id: appID,
       database: databaseID,
     }).then((nextTables) => {
@@ -646,7 +644,7 @@ function SQLiteBrowser({
     <Card>
       <CardHeader>
         <CardTitle>{databaseLabel(database)}</CardTitle>
-        <CardDescription>{database.path}</CardDescription>
+        <CardDescription>{database.source ?? 'postgres database'}</CardDescription>
         <CardAction>
           <Badge variant="outline">read-only</Badge>
         </CardAction>

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/devdash"
+	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/symphony"
 )
 
@@ -650,12 +653,47 @@ func newSymphonyDashboardTestServer(t *testing.T, symphonyStores ...*symphony.St
 
 func newSymphonyStore(t *testing.T) *symphony.Store {
 	t.Helper()
-	store, err := symphony.Open(context.Background(), filepath.Join(t.TempDir(), "symphony.sqlite"))
+	testURL, cleanup := createSymphonyDashboardTestDatabase(t)
+	t.Cleanup(cleanup)
+	store, err := symphony.Open(context.Background(), testURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
+}
+
+func createSymphonyDashboardTestDatabase(t *testing.T) (string, func()) {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("SCENERY_TEST_DATABASE_URL"))
+	if raw == "" {
+		t.Skip("SCENERY_TEST_DATABASE_URL is not set; skipping live Postgres symphony dashboard test")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse SCENERY_TEST_DATABASE_URL: %v", err)
+	}
+	adminURL := *u
+	adminURL.Path = "/postgres"
+	admin, err := postgresdb.Open(context.Background(), adminURL.String())
+	if err != nil {
+		t.Skipf("SCENERY_TEST_DATABASE_URL is not reachable for live Postgres tests: %v", err)
+	}
+	name := "scenery_symphony_dashboard_test_" + harnessRandomLabel()
+	if _, err := admin.ExecContext(context.Background(), `CREATE DATABASE `+name); err != nil {
+		_ = admin.Close()
+		t.Skipf("SCENERY_TEST_DATABASE_URL cannot create per-test database: %v", err)
+	}
+	u.Path = "/" + name
+	return u.String(), func() {
+		db, _ := sql.Open(postgresdb.DriverName, adminURL.String())
+		if db != nil {
+			_, _ = db.ExecContext(context.Background(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
+			_, _ = db.ExecContext(context.Background(), `DROP DATABASE IF EXISTS `+name)
+			_ = db.Close()
+		}
+		_ = admin.Close()
+	}
 }
 
 func newSymphonyGitFixture(t *testing.T, workflow string) (string, string) {

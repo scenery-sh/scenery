@@ -17,10 +17,11 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
-	durablestore "scenery.sh/internal/durable/store"
+	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/postgresdb"
 )
 
 var inspectAppModelCache = struct {
@@ -92,27 +93,31 @@ type inspectDurableResponse struct {
 }
 
 type inspectDurableRecord struct {
-	StateRoot    string `json:"state_root"`
-	TaskCount    int    `json:"task_count"`
-	ServiceCount int    `json:"service_count"`
+	Database     inspectDurableDatabase `json:"database"`
+	Schema       string                 `json:"schema"`
+	TaskCount    int                    `json:"task_count"`
+	ServiceCount int                    `json:"service_count"`
+}
+
+type inspectDurableDatabase struct {
+	Name string `json:"name,omitempty"`
+	URL  string `json:"url,omitempty"`
 }
 
 type durableDeclaration struct {
-	Kind     string `json:"kind"`
-	Name     string `json:"name"`
-	Service  string `json:"service"`
-	DBPath   string `json:"db_path,omitempty"`
-	DBExists bool   `json:"db_exists"`
-	File     string `json:"file"`
-	Line     int    `json:"line"`
-	Input    string `json:"input,omitempty"`
-	Output   string `json:"output,omitempty"`
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+	Service string `json:"service"`
+	Schema  string `json:"schema"`
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Input   string `json:"input,omitempty"`
+	Output  string `json:"output,omitempty"`
 }
 
 type durableServiceRecord struct {
-	Name     string `json:"name"`
-	DBPath   string `json:"db_path"`
-	DBExists bool   `json:"db_exists"`
+	Name   string `json:"name"`
+	Schema string `json:"schema"`
 }
 
 type inspectStorageResponse struct {
@@ -635,14 +640,18 @@ func storageStoreUsage(root string) (int, int64) {
 }
 
 func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, appModel *model.App) inspectDurableResponse {
-	stateRoot := filepath.Join(appRoot, ".scenery", "state")
-	declarations := durableDeclarations(appRoot, stateRoot, appModel)
+	databaseURL := durableDatabaseURLForInspect(appRoot, cfg)
+	declarations := durableDeclarations(appRoot, cfg, appModel)
 	services := durableServices(declarations)
 	return inspectDurableResponse{
-		SchemaVersion: "scenery.inspect.durable.v1",
+		SchemaVersion: "scenery.inspect.durable.v2",
 		App:           inspectAppInfo(appRoot, cfg, appModel),
 		Durable: inspectDurableRecord{
-			StateRoot:    filepath.ToSlash(stateRoot),
+			Database: inspectDurableDatabase{
+				Name: postgresdb.DatabaseNameFromURL(databaseURL),
+				URL:  postgresdb.RedactURL(databaseURL),
+			},
+			Schema:       "scenery",
 			TaskCount:    len(declarations),
 			ServiceCount: len(services),
 		},
@@ -651,7 +660,7 @@ func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, appModel *mo
 	}
 }
 
-func durableDeclarations(appRoot, stateRoot string, appModel *model.App) []durableDeclaration {
+func durableDeclarations(appRoot string, cfg appcfg.Config, appModel *model.App) []durableDeclaration {
 	if appModel == nil {
 		return nil
 	}
@@ -661,26 +670,19 @@ func durableDeclarations(appRoot, stateRoot string, appModel *model.App) []durab
 			continue
 		}
 		position := decl.Package.GoPkg.Fset.Position(decl.TokenPos)
-		dbPath := ""
-		dbExists := false
-		if decl.ServiceName != "" {
-			if path, err := durablestore.DurableDBPath(stateRoot, decl.ServiceName); err == nil {
-				dbPath = filepath.ToSlash(path)
-				if _, statErr := os.Stat(path); statErr == nil {
-					dbExists = true
-				}
-			}
+		schema := decl.ServiceName
+		if svc, ok := cfg.DatabaseService(decl.ServiceName); ok {
+			schema = svc.Schema
 		}
 		out = append(out, durableDeclaration{
-			Kind:     string(decl.Kind),
-			Name:     decl.Name,
-			Service:  decl.ServiceName,
-			DBPath:   dbPath,
-			DBExists: dbExists,
-			File:     normalizeDiagnosticFile(appRoot, position.Filename),
-			Line:     position.Line,
-			Input:    decl.InputType,
-			Output:   decl.OutputType,
+			Kind:    string(decl.Kind),
+			Name:    decl.Name,
+			Service: decl.ServiceName,
+			Schema:  schema,
+			File:    normalizeDiagnosticFile(appRoot, position.Filename),
+			Line:    position.Line,
+			Input:   decl.InputType,
+			Output:  decl.OutputType,
 		})
 	}
 	return out
@@ -693,9 +695,8 @@ func durableServices(declarations []durableDeclaration) []durableServiceRecord {
 			continue
 		}
 		byName[decl.Service] = durableServiceRecord{
-			Name:     decl.Service,
-			DBPath:   decl.DBPath,
-			DBExists: decl.DBExists,
+			Name:   decl.Service,
+			Schema: decl.Schema,
 		}
 	}
 	names := make([]string, 0, len(byName))
@@ -708,6 +709,23 @@ func durableServices(declarations []durableDeclaration) []durableServiceRecord {
 		out = append(out, byName[name])
 	}
 	return out
+}
+
+func durableDatabaseURLForInspect(appRoot string, cfg appcfg.Config) string {
+	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
+	if err != nil {
+		env = envpolicy.Environ()
+	}
+	if value, _ := lookupEnvValue(env, cfg.DatabaseURLEnv()); strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	if value, _ := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
+		registry, err := postgresdb.DecodeRegistry(value)
+		if err == nil {
+			return strings.TrimSpace(registry.URL)
+		}
+	}
+	return ""
 }
 
 func inspectAppInfo(appRoot string, cfg appcfg.Config, app *model.App) inspectdata.AppRef {

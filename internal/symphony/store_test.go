@@ -2,10 +2,15 @@ package symphony
 
 import (
 	"context"
-	"path/filepath"
+	"database/sql"
+	"net/url"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/postgresdb"
 )
 
 func TestStorePersistsBoardCRUD(t *testing.T) {
@@ -253,7 +258,7 @@ func TestStoreLatestRunUsesAttemptNotCreatedAt(t *testing.T) {
 	if _, err := store.CompleteRun(ctx, "demo", second.ID, "succeeded", "done", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE symphony_runs SET created_at = CASE id WHEN ? THEN '2026-01-01T00:00:00Z' WHEN ? THEN '2026-01-01T00:00:00.5Z' ELSE created_at END`, first.ID, second.ID); err != nil {
+	if _, err := store.db.ExecContext(ctx, `UPDATE symphony_runs SET created_at = CASE id WHEN $1 THEN '2026-01-01T00:00:00Z' WHEN $2 THEN '2026-01-01T00:00:00.5Z' ELSE created_at END`, first.ID, second.ID); err != nil {
 		t.Fatal(err)
 	}
 	state, err := store.State(ctx, "demo")
@@ -292,13 +297,14 @@ func TestStoreConcurrentCreatesUseUniqueIdentifiers(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "symphony.sqlite")
-	a, err := Open(ctx, path)
+	testURL, cleanup := createLiveTestDatabase(t)
+	t.Cleanup(cleanup)
+	a, err := Open(ctx, testURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
-	b, err := Open(ctx, path)
+	b, err := Open(ctx, testURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,10 +350,56 @@ func TestStoreConcurrentCreatesUseUniqueIdentifiers(t *testing.T) {
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "symphony.sqlite"))
+	testURL, cleanup := createLiveTestDatabase(t)
+	t.Cleanup(cleanup)
+	store, err := Open(context.Background(), testURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
+}
+
+func createLiveTestDatabase(t *testing.T) (string, func()) {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("SCENERY_TEST_DATABASE_URL"))
+	if raw == "" {
+		t.Skip("SCENERY_TEST_DATABASE_URL is not set; skipping live Postgres symphony store test")
+	}
+	adminURL, err := adminDatabaseURL(raw)
+	if err != nil {
+		t.Fatalf("parse SCENERY_TEST_DATABASE_URL: %v", err)
+	}
+	admin, err := postgresdb.Open(context.Background(), adminURL)
+	if err != nil {
+		t.Skipf("SCENERY_TEST_DATABASE_URL is not reachable for live Postgres tests: %v", err)
+	}
+	name, err := randomID("scenery_symphony_test")
+	if err != nil {
+		t.Fatalf("random database name: %v", err)
+	}
+	if _, err := admin.ExecContext(context.Background(), `CREATE DATABASE `+name); err != nil {
+		_ = admin.Close()
+		t.Skipf("SCENERY_TEST_DATABASE_URL cannot create per-test database: %v", err)
+	}
+	u, _ := url.Parse(raw)
+	u.Path = "/" + name
+	return u.String(), func() {
+		db, _ := sql.Open(postgresdb.DriverName, adminURL)
+		if db != nil {
+			_, _ = db.ExecContext(context.Background(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
+			_, _ = db.ExecContext(context.Background(), `DROP DATABASE IF EXISTS `+name)
+			_ = db.Close()
+		}
+		_ = admin.Close()
+	}
+}
+
+func adminDatabaseURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	u.Path = "/postgres"
+	return u.String(), nil
 }

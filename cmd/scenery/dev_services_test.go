@@ -3,109 +3,55 @@ package main
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/postgresdb"
-	"scenery.sh/internal/sqlitedb"
 )
 
-func TestManagedSQLiteEnvExposesServiceAndAlias(t *testing.T) {
+func TestManagedDatabaseEnvUsesExternalDSN(t *testing.T) {
 	root := t.TempDir()
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"main": {Kind: "sqlite"},
+			"reports": {},
 		}},
 	}
-	env, services, err := managedSQLiteEnv(t.Context(), root, cfg, nil)
+	dsn := "postgres://user:secret@localhost/app"
+	env, database, err := managedDatabaseEnv(t.Context(), root, cfg, nil, []string{"DATABASE_URL=" + dsn})
 	if err != nil {
-		t.Fatalf("managedSQLiteEnv returned error: %v", err)
+		t.Fatalf("managedDatabaseEnv returned error: %v", err)
 	}
-	wantPath := filepath.Join(root, ".scenery", "sqlite", "local", "main.sqlite")
-	wantURL := sqlitedb.URLForPath(wantPath)
-	for _, want := range []string{
-		"MAIN_DATABASE_URL=" + wantURL,
-		"MAIN_DATABASE_PATH=" + wantPath,
-		appDatabaseURLEnv + "=" + wantURL,
-	} {
-		if !containsString(env, want) {
-			t.Fatalf("env missing %q: %+v", want, env)
-		}
-	}
-	if len(services) != 1 || services[0].Path != wantPath {
-		t.Fatalf("services = %+v", services)
-	}
-}
-
-func TestManagedSQLiteEnvSkipsAliasForExplicitDatabaseURLEnv(t *testing.T) {
-	root := t.TempDir()
-	cfg := app.Config{
-		Name: "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"main": {Kind: "sqlite", DatabaseURLEnv: "APP_DATABASE_URL"},
-		}},
-	}
-	env, _, err := managedSQLiteEnv(t.Context(), root, cfg, nil)
-	if err != nil {
-		t.Fatalf("managedSQLiteEnv returned error: %v", err)
-	}
-	if envValueFromList(env, "APP_DATABASE_URL") == "" {
-		t.Fatalf("env missing APP_DATABASE_URL: %+v", env)
-	}
-	if envValueFromList(env, appDatabaseURLEnv) != "" {
-		t.Fatalf("env should not include DatabaseURL alias: %+v", env)
-	}
-}
-
-func TestManagedSQLiteEnvSkipsAliasWhenPostgresServiceExists(t *testing.T) {
-	root := t.TempDir()
-	cfg := app.Config{
-		Name: "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"cache":   {Kind: "sqlite"},
-			"reports": {Kind: "postgres"},
-		}},
-	}
-	env, _, err := managedSQLiteEnv(t.Context(), root, cfg, nil)
-	if err != nil {
-		t.Fatalf("managedSQLiteEnv returned error: %v", err)
-	}
-	if envValueFromList(env, appDatabaseURLEnv) != "" {
-		t.Fatalf("env should not include DatabaseURL alias for mixed engines: %+v", env)
-	}
-}
-
-func TestManagedPostgresEnvUsesExternalDSNAndAlias(t *testing.T) {
-	root := t.TempDir()
-	cfg := app.Config{
-		Name: "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"reports": {Kind: "postgres"},
-		}},
-	}
-	dsn := "postgres://user:secret@localhost/reports"
-	env, services, err := managedPostgresEnv(t.Context(), root, cfg, nil, []string{"REPORTS_DATABASE_URL=" + dsn})
-	if err != nil {
-		t.Fatalf("managedPostgresEnv returned error: %v", err)
-	}
-	for _, want := range []string{
-		"REPORTS_DATABASE_URL=" + dsn,
-		appDatabaseURLEnv + "=" + dsn,
-	} {
-		if !containsString(env, want) {
-			t.Fatalf("env missing %q: %+v", want, env)
-		}
+	serviceURL := envValueFromList(env, "REPORTS_DATABASE_URL")
+	if envValueFromList(env, "DATABASE_URL") != dsn || !strings.Contains(serviceURL, "search_path=reports%2Cscenery") {
+		t.Fatalf("env = %+v", env)
 	}
 	if registry := envValueFromList(env, postgresdb.RegistryEnv); !strings.Contains(registry, `"source":"external"`) {
 		t.Fatalf("registry = %q", registry)
 	}
-	if len(services) != 1 || services[0].Source != postgresdb.SourceExternal || services[0].URL != dsn {
-		t.Fatalf("services = %+v", services)
+	if len(database.Schemas) != 1 || database.Schemas[0].Name != "reports" || database.Schemas[0].Schema != "reports" {
+		t.Fatalf("database = %+v", database)
+	}
+}
+
+func TestManagedDatabaseEnvUsesConfiguredAppURLEnv(t *testing.T) {
+	root := t.TempDir()
+	cfg := app.Config{
+		Name:     "demo",
+		Database: app.DatabaseConfig{URLEnv: "APP_DATABASE_URL"},
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
+			"reports": {},
+		}},
+	}
+	dsn := "postgres://user:secret@localhost/app"
+	env, _, err := managedDatabaseEnv(t.Context(), root, cfg, nil, []string{"APP_DATABASE_URL=" + dsn})
+	if err != nil {
+		t.Fatalf("managedDatabaseEnv returned error: %v", err)
+	}
+	if envValueFromList(env, "APP_DATABASE_URL") != dsn || envValueFromList(env, "REPORTS_DATABASE_URL") == "" {
+		t.Fatalf("env = %+v", env)
 	}
 }
 
@@ -143,12 +89,12 @@ func TestCleanupPostgresHarnessContainerRemovesContainerAndVolume(t *testing.T) 
 	}}
 	postgresDocker = fake
 
-	if err := cleanupPostgresHarnessContainer(context.Background()); err != nil {
+	if err := cleanupPostgresHarnessContainer(context.Background(), "scenery-postgres-harness-test", "scenery-postgres-harness-test-data"); err != nil {
 		t.Fatalf("cleanupPostgresHarnessContainer returned error: %v", err)
 	}
 	want := [][]string{
-		{"rm", "-f", postgresServerContainer},
-		{"volume", "rm", postgresServerVolume},
+		{"rm", "-f", "scenery-postgres-harness-test"},
+		{"volume", "rm", "scenery-postgres-harness-test-data"},
 	}
 	if len(fake.calls) != len(want) {
 		t.Fatalf("docker calls = %#v, want %#v", fake.calls, want)
@@ -200,44 +146,14 @@ func TestValidateHeadlessPostgresEnvRequiresExplicitDSN(t *testing.T) {
 	cfg := app.Config{
 		Name: "demo",
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"reports": {Kind: "postgres"},
+			"reports": {},
 		}},
 	}
 	err := validateHeadlessPostgresEnv(cfg, nil)
-	if err == nil || !strings.Contains(err.Error(), "REPORTS_DATABASE_URL") || !strings.Contains(err.Error(), "scenery up") {
+	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") || !strings.Contains(err.Error(), "scenery up") {
 		t.Fatalf("validateHeadlessPostgresEnv error = %v", err)
 	}
-	if err := validateHeadlessPostgresEnv(cfg, []string{"REPORTS_DATABASE_URL=postgres://user:secret@localhost/reports"}); err != nil {
+	if err := validateHeadlessPostgresEnv(cfg, []string{"DATABASE_URL=postgres://user:secret@localhost/reports"}); err != nil {
 		t.Fatalf("validateHeadlessPostgresEnv rejected explicit DSN: %v", err)
-	}
-}
-
-func TestManagedSQLiteEnvDiscoversSchemaBackedServiceDatabases(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "tasks", "db"), 0o755); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "tasks", "db", "schema.sql"), []byte("CREATE TABLE tasks(id TEXT);"), 0o644); err != nil {
-		t.Fatalf("WriteFile returned error: %v", err)
-	}
-	cfg := app.Config{
-		Name: "demo",
-		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-			"db": {Kind: "sqlite", DatabaseURLEnv: appDatabaseURLEnv},
-		}},
-	}
-	env, services, err := managedSQLiteEnv(t.Context(), root, cfg, nil)
-	if err != nil {
-		t.Fatalf("managedSQLiteEnv returned error: %v", err)
-	}
-	wantPath := filepath.Join(root, ".scenery", "sqlite", "local", "tasks.sqlite")
-	if envValueFromList(env, "TASKS_DATABASE_URL") != sqlitedb.URLForPath(wantPath) {
-		t.Fatalf("TASKS_DATABASE_URL missing from env: %+v", env)
-	}
-	if _, err := os.Stat(wantPath); err != nil {
-		t.Fatalf("tasks database was not created: %v", err)
-	}
-	if len(services) != 2 {
-		t.Fatalf("services = %+v, want db and tasks", services)
 	}
 }

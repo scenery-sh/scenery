@@ -1,5 +1,5 @@
 -- name: CreateUser :one
-INSERT INTO scenery_auth_users (
+INSERT INTO scenery.scenery_auth_users (
   id,
   display_name,
   avatar_url,
@@ -7,36 +7,36 @@ INSERT INTO scenery_auth_users (
   normalized_primary_email,
   email_verified_at
 )
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
 
 -- name: GetUserByID :one
 SELECT id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
-FROM scenery_auth_users
-WHERE id = ?;
+FROM scenery.scenery_auth_users
+WHERE id = sqlc.arg(id);
 
 -- name: GetUserByNormalizedEmail :one
 SELECT id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
-FROM scenery_auth_users
-WHERE normalized_primary_email = ?;
+FROM scenery.scenery_auth_users
+WHERE normalized_primary_email = $1;
 
 -- name: MarkUserEmailVerified :one
-UPDATE scenery_auth_users
-SET email_verified_at = COALESCE(email_verified_at, CURRENT_TIMESTAMP),
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_users
+SET email_verified_at = COALESCE(email_verified_at, now()),
+    updated_at = now()
+WHERE id = $1
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
 
 -- name: UpdateUserProfileFromProvider :one
-UPDATE scenery_auth_users
+UPDATE scenery.scenery_auth_users
 SET display_name = CASE WHEN sqlc.arg(display_name) <> '' THEN sqlc.arg(display_name) ELSE display_name END,
     avatar_url = CASE WHEN sqlc.arg(avatar_url) <> '' THEN sqlc.arg(avatar_url) ELSE avatar_url END,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+    updated_at = now()
+WHERE id = $1
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
 
 -- name: CreateAuthIdentity :one
-INSERT INTO scenery_auth_auth_identities (
+INSERT INTO scenery.scenery_auth_auth_identities (
   id,
   user_id,
   provider,
@@ -45,55 +45,55 @@ INSERT INTO scenery_auth_auth_identities (
   normalized_email,
   password_hash
 )
-VALUES (?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at;
 
 -- name: GetAuthIdentityByProviderSubject :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
-FROM scenery_auth_auth_identities
-WHERE provider = ?
-  AND provider_subject = ?;
+FROM scenery.scenery_auth_auth_identities
+WHERE provider = $1
+  AND provider_subject = $2;
 
 -- name: GetEmailIdentityForLogin :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
-FROM scenery_auth_auth_identities
+FROM scenery.scenery_auth_auth_identities
 WHERE provider = 'email'
-  AND provider_subject = ?;
+  AND provider_subject = $1;
 
 -- name: UpdateIdentityPasswordHash :one
-UPDATE scenery_auth_auth_identities
-SET password_hash = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_auth_identities
+SET password_hash = $1,
+    updated_at = now()
+WHERE id = $2
 RETURNING id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at;
 
 -- name: CreateTenant :one
-INSERT INTO scenery_auth_tenants (id, name)
-VALUES (?, ?)
+INSERT INTO scenery.scenery_auth_tenants (id, name)
+VALUES ($1, $2)
 RETURNING id, name, deleted_at, created_at, updated_at;
 
 -- name: GetTenantByID :one
 SELECT id, name, deleted_at, created_at, updated_at
-FROM scenery_auth_tenants
-WHERE id = ?;
+FROM scenery.scenery_auth_tenants
+WHERE id = $1;
 
 -- name: UpdateTenantName :one
-UPDATE scenery_auth_tenants
-SET name = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_tenants
+SET name = $1,
+    updated_at = now()
+WHERE id = $2
   AND deleted_at IS NULL
 RETURNING id, name, deleted_at, created_at, updated_at;
 
 -- name: SoftDeleteTenant :one
-UPDATE scenery_auth_tenants
-SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_tenants
+SET deleted_at = COALESCE(deleted_at, now()),
+    updated_at = now()
+WHERE id = $1
 RETURNING id, name, deleted_at, created_at, updated_at;
 
 -- name: CreateOrganizationMembership :one
-INSERT INTO scenery_auth_organization_memberships (
+INSERT INTO scenery.scenery_auth_organization_memberships (
   id,
   tenant_id,
   user_id,
@@ -101,17 +101,17 @@ INSERT INTO scenery_auth_organization_memberships (
   invited_by_user_id,
   invited_at
 )
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (user_id, tenant_id) WHERE disabled_at IS NULL
 DO UPDATE SET role = EXCLUDED.role,
-              updated_at = CURRENT_TIMESTAMP
+              updated_at = now()
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at;
 
 -- name: GetActiveMembership :one
 SELECT id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
-FROM scenery_auth_organization_memberships
-WHERE user_id = ?
-  AND tenant_id = ?
+FROM scenery.scenery_auth_organization_memberships
+WHERE user_id = $1
+  AND tenant_id = $2
   AND disabled_at IS NULL;
 
 -- name: ListUserMemberships :many
@@ -127,9 +127,9 @@ SELECT
   m.updated_at,
   t.name AS tenant_name,
   t.deleted_at AS tenant_deleted_at
-FROM scenery_auth_organization_memberships AS m
-JOIN scenery_auth_tenants AS t ON t.id = m.tenant_id
-WHERE m.user_id = ?
+FROM scenery.scenery_auth_organization_memberships AS m
+JOIN scenery.scenery_auth_tenants AS t ON t.id = m.tenant_id
+WHERE m.user_id = $1
   AND m.disabled_at IS NULL
   AND t.deleted_at IS NULL
 ORDER BY lower(t.name), t.name, m.tenant_id;
@@ -149,37 +149,37 @@ SELECT
   u.primary_email,
   u.avatar_url,
   u.disabled_at AS user_disabled_at
-FROM scenery_auth_organization_memberships AS m
-JOIN scenery_auth_users AS u ON u.id = m.user_id
-WHERE m.tenant_id = ?
+FROM scenery.scenery_auth_organization_memberships AS m
+JOIN scenery.scenery_auth_users AS u ON u.id = m.user_id
+WHERE m.tenant_id = $1
 ORDER BY lower(u.display_name), lower(u.primary_email), m.created_at;
 
 -- name: CountActiveOwners :one
 SELECT count(*)
-FROM scenery_auth_organization_memberships
-WHERE tenant_id = ?
+FROM scenery.scenery_auth_organization_memberships
+WHERE tenant_id = $1
   AND role = 'owner'
   AND disabled_at IS NULL;
 
 -- name: UpdateMembershipRole :one
-UPDATE scenery_auth_organization_memberships
-SET role = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = ?
-  AND user_id = ?
+UPDATE scenery.scenery_auth_organization_memberships
+SET role = $1,
+    updated_at = now()
+WHERE tenant_id = $2
+  AND user_id = $3
   AND disabled_at IS NULL
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at;
 
 -- name: DisableMembership :one
-UPDATE scenery_auth_organization_memberships
-SET disabled_at = COALESCE(disabled_at, CURRENT_TIMESTAMP),
-    updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = ?
-  AND user_id = ?
+UPDATE scenery.scenery_auth_organization_memberships
+SET disabled_at = COALESCE(disabled_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1
+  AND user_id = $2
 RETURNING id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at;
 
 -- name: CreateRefreshSession :one
-INSERT INTO scenery_auth_refresh_sessions (
+INSERT INTO scenery.scenery_auth_refresh_sessions (
   id,
   user_id,
   token_hash,
@@ -191,49 +191,49 @@ INSERT INTO scenery_auth_refresh_sessions (
   impersonation_id,
   impersonation_reason
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at;
 
 -- name: GetRefreshSessionByID :one
 SELECT id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at
-FROM scenery_auth_refresh_sessions
-WHERE id = ?;
+FROM scenery.scenery_auth_refresh_sessions
+WHERE id = $1;
 
 -- name: RotateRefreshSession :one
-UPDATE scenery_auth_refresh_sessions
+UPDATE scenery.scenery_auth_refresh_sessions
 SET previous_token_hash = token_hash,
-    previous_token_expires_at = datetime(CURRENT_TIMESTAMP, '+' || (sqlc.arg(grace_ms) / 1000) || ' seconds'),
+    previous_token_expires_at = now() + (sqlc.arg(grace_ms)::bigint * interval '1 millisecond'),
     token_hash = sqlc.arg(token_hash),
-    rotated_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+    rotated_at = now(),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at;
 
 -- name: SetRefreshSessionTenant :one
-UPDATE scenery_auth_refresh_sessions
-SET active_tenant_id = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
+UPDATE scenery.scenery_auth_refresh_sessions
+SET active_tenant_id = $1,
+    updated_at = now()
+WHERE id = $2
   AND revoked_at IS NULL
 RETURNING id, user_id, token_hash, previous_token_hash, previous_token_expires_at, active_tenant_id, expires_at, rotated_at, revoked_at, revoked_reason, user_agent, ip_hash, actor_user_id, impersonation_id, impersonation_reason, created_at, updated_at;
 
 -- name: RevokeRefreshSession :exec
-UPDATE scenery_auth_refresh_sessions
-SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP),
-    revoked_reason = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?;
+UPDATE scenery.scenery_auth_refresh_sessions
+SET revoked_at = COALESCE(revoked_at, now()),
+    revoked_reason = $1,
+    updated_at = now()
+WHERE id = $2;
 
 -- name: RevokeUserRefreshSessions :exec
-UPDATE scenery_auth_refresh_sessions
-SET revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP),
-    revoked_reason = ?,
-    updated_at = CURRENT_TIMESTAMP
-WHERE user_id = ?
+UPDATE scenery.scenery_auth_refresh_sessions
+SET revoked_at = COALESCE(revoked_at, now()),
+    revoked_reason = $1,
+    updated_at = now()
+WHERE user_id = $2
   AND revoked_at IS NULL;
 
 -- name: CreateOneTimeToken :one
-INSERT INTO scenery_auth_one_time_tokens (
+INSERT INTO scenery.scenery_auth_one_time_tokens (
   id,
   purpose,
   token_hash,
@@ -244,20 +244,20 @@ INSERT INTO scenery_auth_one_time_tokens (
   metadata,
   expires_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id, purpose, token_hash, user_id, tenant_id, email, normalized_email, metadata, expires_at, consumed_at, created_at;
 
 -- name: ConsumeOneTimeToken :one
-UPDATE scenery_auth_one_time_tokens
-SET consumed_at = CURRENT_TIMESTAMP
-WHERE token_hash = ?
-  AND purpose = ?
+UPDATE scenery.scenery_auth_one_time_tokens
+SET consumed_at = now()
+WHERE token_hash = $1
+  AND purpose = $2
   AND consumed_at IS NULL
-  AND expires_at > CURRENT_TIMESTAMP
+  AND expires_at > now()
 RETURNING id, purpose, token_hash, user_id, tenant_id, email, normalized_email, metadata, expires_at, consumed_at, created_at;
 
 -- name: CreateOAuthState :one
-INSERT INTO scenery_auth_oauth_states (
+INSERT INTO scenery.scenery_auth_oauth_states (
   id,
   state_hash,
   pkce_verifier,
@@ -265,34 +265,34 @@ INSERT INTO scenery_auth_oauth_states (
   redirect_path,
   expires_at
 )
-VALUES (?, ?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at;
 
 -- name: ConsumeOAuthState :one
-UPDATE scenery_auth_oauth_states
-SET consumed_at = CURRENT_TIMESTAMP
-WHERE state_hash = ?
+UPDATE scenery.scenery_auth_oauth_states
+SET consumed_at = now()
+WHERE state_hash = $1
   AND consumed_at IS NULL
-  AND expires_at > CURRENT_TIMESTAMP
+  AND expires_at > now()
 RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at;
 
 -- name: UpsertAuthAttempt :one
-INSERT INTO scenery_auth_auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)
-VALUES (?, ?, ?, ?, 1)
+INSERT INTO scenery.scenery_auth_auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)
+VALUES ($1, $2, $3, $4, 1)
 ON CONFLICT (purpose, normalized_email, ip_hash)
 DO UPDATE SET attempt_count = CASE
-                WHEN scenery_auth_auth_attempts.window_started_at < datetime(CURRENT_TIMESTAMP, '-15 minutes') THEN 1
-                ELSE scenery_auth_auth_attempts.attempt_count + 1
+                WHEN scenery.scenery_auth_auth_attempts.window_started_at < now() - interval '15 minutes' THEN 1
+                ELSE scenery.scenery_auth_auth_attempts.attempt_count + 1
               END,
               window_started_at = CASE
-                WHEN scenery_auth_auth_attempts.window_started_at < datetime(CURRENT_TIMESTAMP, '-15 minutes') THEN CURRENT_TIMESTAMP
-                ELSE scenery_auth_auth_attempts.window_started_at
+                WHEN scenery.scenery_auth_auth_attempts.window_started_at < now() - interval '15 minutes' THEN now()
+                ELSE scenery.scenery_auth_auth_attempts.window_started_at
               END,
-              last_attempt_at = CURRENT_TIMESTAMP
+              last_attempt_at = now()
 RETURNING id, purpose, normalized_email, ip_hash, window_started_at, attempt_count, last_attempt_at;
 
 -- name: CreateAuthEvent :exec
-INSERT INTO scenery_auth_auth_events (
+INSERT INTO scenery.scenery_auth_auth_events (
   id,
   event_type,
   user_id,
@@ -303,4 +303,4 @@ INSERT INTO scenery_auth_auth_events (
   user_agent,
   metadata
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);

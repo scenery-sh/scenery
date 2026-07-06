@@ -18,10 +18,10 @@ import {
   type DashboardEvent,
   type DevLogEntry,
   type ProcessOutput,
+  type PostgresColumn,
+  type PostgresRows,
+  type PostgresTable,
   type SQLDatabase,
-  type SQLiteColumn,
-  type SQLiteRows,
-  type SQLiteTable,
   type TraceSummary,
 } from './scenery'
 import { LogsPage, OverviewPage } from './dashboard-ui'
@@ -123,9 +123,9 @@ function App() {
   const [events, setEvents] = useState<DashboardEvent[]>([])
   const [selectedDatabase, setSelectedDatabase] = useState('')
   const [selectedTable, setSelectedTable] = useState('')
-  const [sqliteTables, setSQLiteTables] = useState<SQLiteTable[]>([])
-  const [sqliteSchema, setSQLiteSchema] = useState<SQLiteColumn[]>([])
-  const [sqliteRows, setSQLiteRows] = useState<SQLiteRows | null>(null)
+  const [postgresTables, setPostgresTables] = useState<PostgresTable[]>([])
+  const [postgresSchema, setPostgresSchema] = useState<PostgresColumn[]>([])
+  const [postgresRows, setPostgresRows] = useState<PostgresRows | null>(null)
   const [databaseError, setDatabaseError] = useState('')
   const navRef = useRef<HTMLElement | null>(null)
 
@@ -300,17 +300,17 @@ function App() {
     if (selectedDatabase === '' || !databases.some((database) => database.name === selectedDatabase)) {
       setSelectedDatabase(fallback)
       setSelectedTable('')
-      setSQLiteRows(null)
-      setSQLiteSchema([])
+      setPostgresRows(null)
+      setPostgresSchema([])
     }
   }, [databases, selectedDatabase])
 
   useEffect(() => {
     let active = true
-    setSQLiteTables([])
+    setPostgresTables([])
     setSelectedTable('')
-    setSQLiteRows(null)
-    setSQLiteSchema([])
+    setPostgresRows(null)
+    setPostgresSchema([])
     setDatabaseError('')
     if (selectedAppID === '' || selectedDatabase === '') {
       return () => {
@@ -318,7 +318,7 @@ function App() {
       }
     }
     rpc
-      .call<SQLiteTable[]>('sqlite/tables', {
+      .call<PostgresTable[]>('postgres/tables', {
         app_id: selectedAppID,
         database: selectedDatabase,
       })
@@ -326,7 +326,7 @@ function App() {
         if (!active) {
           return
         }
-        setSQLiteTables(tables)
+        setPostgresTables(tables)
         setSelectedTable(tables[0]?.name ?? '')
       })
       .catch((nextError) => {
@@ -341,8 +341,8 @@ function App() {
 
   useEffect(() => {
     let active = true
-    setSQLiteRows(null)
-    setSQLiteSchema([])
+    setPostgresRows(null)
+    setPostgresSchema([])
     setDatabaseError('')
     if (selectedAppID === '' || selectedDatabase === '' || selectedTable === '') {
       return () => {
@@ -350,12 +350,12 @@ function App() {
       }
     }
     Promise.all([
-      rpc.call<SQLiteColumn[]>('sqlite/schema', {
+      rpc.call<PostgresColumn[]>('postgres/schema', {
         app_id: selectedAppID,
         database: selectedDatabase,
         table: selectedTable,
       }),
-      rpc.call<SQLiteRows>('sqlite/rows', {
+      rpc.call<PostgresRows>('postgres/rows', {
         app_id: selectedAppID,
         database: selectedDatabase,
         table: selectedTable,
@@ -367,8 +367,8 @@ function App() {
         if (!active) {
           return
         }
-        setSQLiteSchema(schema)
-        setSQLiteRows(rows)
+        setPostgresSchema(schema)
+        setPostgresRows(rows)
       })
       .catch((nextError) => {
         if (active) {
@@ -495,11 +495,11 @@ function App() {
                 setSelectedDatabase(value)
                 setSelectedTable('')
               }}
-              tables={sqliteTables}
+              tables={postgresTables}
               selectedTable={selectedTable}
               onTableChange={setSelectedTable}
-              schema={sqliteSchema}
-              rows={sqliteRows}
+              schema={postgresSchema}
+              rows={postgresRows}
               error={databaseError}
             />
           ) : null}

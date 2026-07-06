@@ -21,7 +21,7 @@ Fresh local/dev databases do not need this. They can let scenery bootstrap the s
 
 ## Target Schema
 
-scenery standard auth owns managed SQLite tables with the `scenery_auth_` prefix:
+scenery standard auth owns managed Postgres tables in the `scenery` schema with the `scenery_auth_` prefix:
 
 ```text
 scenery_auth_tenants
@@ -60,7 +60,7 @@ Usually do not preserve:
 5. Bootstrap the target schema on a copy of production first:
 
    ```sh
-   sqlite3 "$SQLITE_DATABASE_PATH" < auth/db/gen/schema.sql
+   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f auth/db/gen/schema.sql
    ```
 
 6. Confirm the target schema exists:
@@ -68,7 +68,8 @@ Usually do not preserve:
    ```sql
    select table_schema, table_name
    from information_schema.tables
-   where table_schema = 'scenery_auth'
+   where table_schema = 'scenery'
+     and table_name like 'scenery_auth_%'
    order by table_name;
    ```
 
@@ -216,15 +217,15 @@ Run the copy in one transaction. Keep the order: tenants, users, identities, mem
 ```sql
 begin;
 
-insert into scenery_auth.tenants (id, name, deleted_at, created_at, updated_at)
+insert into scenery.scenery_auth_tenants (id, name, deleted_at, created_at, updated_at)
 select id, name, deleted_at, created_at, updated_at
 from auth_migration_legacy.tenants
 on conflict (id) do update set
   name = excluded.name,
   deleted_at = excluded.deleted_at,
-  updated_at = greatest(scenery_auth.tenants.updated_at, excluded.updated_at);
+  updated_at = greatest(scenery.scenery_auth_tenants.updated_at, excluded.updated_at);
 
-insert into scenery_auth.users (
+insert into scenery.scenery_auth_users (
   id,
   display_name,
   avatar_url,
@@ -256,9 +257,9 @@ on conflict (id) do update set
   email_verified_at = excluded.email_verified_at,
   disabled_at = excluded.disabled_at,
   can_impersonate_users = excluded.can_impersonate_users,
-  updated_at = greatest(scenery_auth.users.updated_at, excluded.updated_at);
+  updated_at = greatest(scenery.scenery_auth_users.updated_at, excluded.updated_at);
 
-insert into scenery_auth.auth_identities (
+insert into scenery.scenery_auth_auth_identities (
   id,
   user_id,
   provider,
@@ -285,9 +286,9 @@ on conflict (provider, provider_subject) do update set
   email = excluded.email,
   normalized_email = excluded.normalized_email,
   password_hash = excluded.password_hash,
-  updated_at = greatest(scenery_auth.auth_identities.updated_at, excluded.updated_at);
+  updated_at = greatest(scenery.scenery_auth_auth_identities.updated_at, excluded.updated_at);
 
-insert into scenery_auth.organization_memberships (
+insert into scenery.scenery_auth_organization_memberships (
   id,
   tenant_id,
   user_id,
@@ -316,9 +317,9 @@ on conflict (id) do update set
   disabled_at = excluded.disabled_at,
   invited_by_user_id = excluded.invited_by_user_id,
   invited_at = excluded.invited_at,
-  updated_at = greatest(scenery_auth.organization_memberships.updated_at, excluded.updated_at);
+  updated_at = greatest(scenery.scenery_auth_organization_memberships.updated_at, excluded.updated_at);
 
-insert into scenery_auth.refresh_sessions (
+insert into scenery.scenery_auth_refresh_sessions (
   id,
   user_id,
   token_hash,
@@ -366,9 +367,9 @@ on conflict (id) do update set
   rotated_at = excluded.rotated_at,
   revoked_at = excluded.revoked_at,
   revoked_reason = excluded.revoked_reason,
-  updated_at = greatest(scenery_auth.refresh_sessions.updated_at, excluded.updated_at);
+  updated_at = greatest(scenery.scenery_auth_refresh_sessions.updated_at, excluded.updated_at);
 
-insert into scenery_auth.one_time_tokens (
+insert into scenery.scenery_auth_one_time_tokens (
   id,
   purpose,
   token_hash,
@@ -397,7 +398,7 @@ from auth_migration_legacy.one_time_tokens
 where expires_at > now()
 on conflict (token_hash) do nothing;
 
-insert into scenery_auth.auth_events (
+insert into scenery.scenery_auth_auth_events (
   id,
   event_type,
   user_id,
@@ -436,34 +437,34 @@ Compare source and target counts:
 ```sql
 select 'users' as table_name,
   (select count(*) from auth_migration_legacy.users) as source_count,
-  (select count(*) from scenery_auth.users) as target_count
+  (select count(*) from scenery.scenery_auth_users) as target_count
 union all select 'tenants',
   (select count(*) from auth_migration_legacy.tenants),
-  (select count(*) from scenery_auth.tenants)
+  (select count(*) from scenery.scenery_auth_tenants)
 union all select 'auth_identities',
   (select count(*) from auth_migration_legacy.auth_identities),
-  (select count(*) from scenery_auth.auth_identities)
+  (select count(*) from scenery.scenery_auth_auth_identities)
 union all select 'organization_memberships',
   (select count(*) from auth_migration_legacy.organization_memberships),
-  (select count(*) from scenery_auth.organization_memberships);
+  (select count(*) from scenery.scenery_auth_organization_memberships);
 ```
 
 Validate foreign keys and active membership invariants:
 
 ```sql
 select count(*) as identities_without_users
-from scenery_auth.auth_identities i
-left join scenery_auth.users u on u.id = i.user_id
+from scenery.scenery_auth_auth_identities i
+left join scenery.scenery_auth_users u on u.id = i.user_id
 where u.id is null;
 
 select count(*) as memberships_without_users
-from scenery_auth.organization_memberships m
-left join scenery_auth.users u on u.id = m.user_id
+from scenery.scenery_auth_organization_memberships m
+left join scenery.scenery_auth_users u on u.id = m.user_id
 where u.id is null;
 
 select count(*) as memberships_without_tenants
-from scenery_auth.organization_memberships m
-left join scenery_auth.tenants t on t.id = m.tenant_id
+from scenery.scenery_auth_organization_memberships m
+left join scenery.scenery_auth_tenants t on t.id = m.tenant_id
 where t.id is null;
 ```
 
@@ -503,9 +504,9 @@ If verification fails before cutover, roll back the transaction and keep the old
 If cutover fails after traffic moves:
 
 1. Route traffic back to the old app.
-2. Keep the `scenery_auth` schema for investigation; do not drop it immediately.
-3. Compare `scenery_auth.auth_events` and app logs to find the failing surface.
-4. Fix staging views or config, then rerun the migration from a restored copy or after truncating only the `scenery_auth` tables in dependency order.
+2. Keep the `scenery.scenery_auth_*` tables for investigation; do not drop them immediately.
+3. Compare `scenery.scenery_auth_auth_events` and app logs to find the failing surface.
+4. Fix staging views or config, then rerun the migration from a restored copy or after truncating only the `scenery.scenery_auth_*` tables in dependency order.
 
 ## Notes
 

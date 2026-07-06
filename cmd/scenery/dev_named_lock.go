@@ -10,25 +10,13 @@ import (
 	"time"
 )
 
-const (
-	devLockOrderSubstrate       = 10
-	devLockOrderBranchOperation = 15
-	devLockOrderRegistry        = 20
-)
+const devLockOrderSubstrate = 10
 
-// Lock ordering invariant:
-//  1. Substrate locks serialize slow shared substrate startup.
-//  2. Branch operation locks serialize shared database DDL.
-//  3. Registry locks protect short branch-registry reads/writes only.
-//
-// Do not hold branches.lock while acquiring a substrate lock or starting a
-// substrate. Long startup must happen under the substrate lock alone, database
-// DDL under a branch operation lock, and branch lease metadata under a short
-// registry lock. The process-local held-lock set below rejects same-process
-// re-acquisition and lower-order inversions before the OS lock can block
-// forever. Keep lock acquisition paths non-overlapping inside one process; the
-// in-process ordering guard is intentionally conservative because the durable
-// cross-process boundary is the OS file lock.
+// Substrate locks serialize slow shared substrate startup (for example the
+// managed Postgres server ensure path). The process-local held-lock set below
+// rejects same-process re-acquisition and lower-order inversions before the
+// OS lock can block forever. Keep lock acquisition paths non-overlapping
+// inside one process; the durable cross-process boundary is the OS file lock.
 var (
 	devLockRetryInterval = 50 * time.Millisecond
 	devLockWarnAfter     = 2 * time.Second
@@ -99,13 +87,6 @@ func acquireDevNamedLock(root, name, kind string, order int) (func(), error) {
 	}
 }
 
-func lockDBBranchOperation(root, database string) (func(), error) {
-	database = firstNonEmpty(database, "unknown")
-	name := "branches-" + safeLockName(database) + ".operation.lock"
-	kind := "database branch operation " + database
-	return acquireDevNamedLock(root, name, kind, devLockOrderBranchOperation)
-}
-
 func checkDevLockOrder(path, kind string, order int) error {
 	devHeldLocks.Lock()
 	defer devHeldLocks.Unlock()
@@ -130,10 +111,6 @@ func unmarkDevLockHeld(path string) {
 	devHeldLocks.Lock()
 	defer devHeldLocks.Unlock()
 	delete(devHeldLocks.byPath, path)
-}
-
-func dbBranchRegistryLockPath(root string) string {
-	return filepath.Join(root, "branches.lock")
 }
 
 func safeLockName(value string) string {

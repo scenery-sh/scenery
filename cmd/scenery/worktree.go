@@ -9,8 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	appcfg "scenery.sh/internal/app"
+	"unicode"
 )
 
 const worktreeListSchemaVersion = "scenery.worktree.list.v1"
@@ -34,15 +33,14 @@ type worktreeRecord struct {
 }
 
 type worktreeCreateResult struct {
-	SchemaVersion string         `json:"schema_version"`
-	OK            bool           `json:"ok"`
-	Name          string         `json:"name"`
-	Path          string         `json:"path"`
-	Branch        string         `json:"branch"`
-	From          string         `json:"from,omitempty"`
-	DBPin         *worktreeDBPin `json:"db_pin,omitempty"`
-	NextCommand   string         `json:"next_command"`
-	Message       string         `json:"message,omitempty"`
+	SchemaVersion string `json:"schema_version"`
+	OK            bool   `json:"ok"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	Branch        string `json:"branch"`
+	From          string `json:"from,omitempty"`
+	NextCommand   string `json:"next_command"`
+	Message       string `json:"message,omitempty"`
 }
 
 type worktreeListResult struct {
@@ -57,12 +55,7 @@ type worktreeRemoveResult struct {
 	OK            bool   `json:"ok"`
 	Name          string `json:"name"`
 	Path          string `json:"path"`
-	DBPinRemoved  bool   `json:"db_pin_removed"`
 	Message       string `json:"message,omitempty"`
-}
-
-var ensureDBBranchForWorktreeCreateFn = func(ctx context.Context, cfg appcfg.Config, pin worktreeDBPin) (dbBranchBackendStatus, error) {
-	return (sqliteBranchProvider{cfg: cfg}).EnsureBranch(ctx, pin)
 }
 
 func worktreeCommand(args []string) error {
@@ -132,27 +125,15 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 }
 
 func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptions) error {
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
+	appRoot, _, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	name := sanitizeDBBranchSegment(opts.Name)
+	name := sanitizeWorktreeName(opts.Name)
 	if name == "" {
 		return fmt.Errorf("worktree name is empty after sanitization")
 	}
 	target := defaultWorktreePath(appRoot, name)
-	autoPin := false
-	pinTemplate := ""
-	if _, svc, ok := managedSQLiteDeclared(cfg); ok && sqliteServiceUsesBranching(svc) {
-		policy := firstNonEmpty(strings.TrimSpace(svc.BranchPolicy), dbBranchDefaultPolicy)
-		if policy != "manual" {
-			autoPin = true
-			pinTemplate = firstNonEmpty(strings.TrimSpace(svc.BranchNameTemplate), dbBranchDefaultNameTemplate)
-			if policy == "session" && strings.TrimSpace(svc.BranchNameTemplate) == "" {
-				pinTemplate = "{app}/{session}"
-			}
-		}
-	}
 	args := []string{"-C", appRoot, "worktree", "add", "-b", name, target}
 	if strings.TrimSpace(opts.From) != "" {
 		args = append(args, opts.From)
@@ -169,41 +150,11 @@ func runWorktreeCreate(ctx context.Context, stdout io.Writer, opts worktreeOptio
 		From:          strings.TrimSpace(opts.From),
 		NextCommand:   "cd " + target + " && scenery up",
 	}
-	if autoPin {
-		targetRoot, targetCfg, err := appcfg.DiscoverRoot(target)
-		if err != nil {
-			rollbackCreatedWorktree(ctx, appRoot, target)
-			return err
-		}
-		pin, err := buildWorktreeDBPinForSession(targetRoot, targetCfg, nil, renderDBBranchTemplate(pinTemplate, targetRoot, targetCfg, nil))
-		if err != nil {
-			rollbackCreatedWorktree(ctx, appRoot, target)
-			return err
-		}
-		if err := writeWorktreeDBPin(targetRoot, pin); err != nil {
-			rollbackCreatedWorktree(ctx, appRoot, target)
-			return err
-		}
-		backendStatus, err := ensureDBBranchForWorktreeCreateFn(ctx, targetCfg, pin)
-		if err != nil {
-			rollbackCreatedWorktree(ctx, appRoot, target)
-			return err
-		}
-		result.DBPin = &pin
-		result.Message = "Git worktree created and local database branch pin written. SQLite branch provider ensure ran; connection becomes usable when backend_status is ready."
-		if backendStatus.Status == "ready" {
-			result.Message = "Git worktree created and local database branch pin written. Backend SQLite branch is ready."
-		}
-	} else {
-		result.Message = "Git worktree created."
-	}
+	result.Message = "Git worktree created."
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
 	fmt.Fprintf(stdout, "created worktree %s at %s\n", name, target)
-	if result.DBPin != nil {
-		fmt.Fprintf(stdout, "pinned db branch %s\n", result.DBPin.Branch)
-	}
 	fmt.Fprintf(stdout, "next: %s\n", result.NextCommand)
 	return nil
 }
@@ -244,20 +195,14 @@ func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	result := worktreeRemoveResult{
 		SchemaVersion: worktreeRemoveSchemaVersion,
 		OK:            true,
-		Name:          sanitizeDBBranchSegment(opts.Name),
+		Name:          sanitizeWorktreeName(opts.Name),
 		Path:          target,
 	}
-	var dbPinPresent bool
 	var dbStateBackup string
 	if opts.DB {
 		stateDir := filepath.Join(target, ".scenery")
-		if _, err := os.Stat(worktreeDBPinPath(target)); err == nil {
-			dbPinPresent = true
-		} else if err != nil && !os.IsNotExist(err) {
-			return err
-		}
 		if _, err := os.Stat(stateDir); err == nil {
-			backupRoot, err := os.MkdirTemp(filepath.Dir(target), ".scenery-worktree-db-*")
+			backupRoot, err := os.MkdirTemp(filepath.Dir(target), ".scenery-worktree-state-*")
 			if err != nil {
 				return err
 			}
@@ -280,10 +225,7 @@ func runWorktreeRemove(ctx context.Context, stdout io.Writer, opts worktreeOptio
 	if dbStateBackup != "" {
 		_ = os.RemoveAll(filepath.Dir(dbStateBackup))
 	}
-	if opts.DB {
-		result.DBPinRemoved = dbPinPresent
-	}
-	result.Message = "Git worktree removed. Backend SQLite branch deletion is not implemented yet."
+	result.Message = "Git worktree removed."
 	if opts.JSON {
 		return writeInspectJSON(stdout, result)
 	}
@@ -296,7 +238,7 @@ func defaultWorktreePath(appRoot, name string) string {
 }
 
 func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string) (string, error) {
-	cleanName := sanitizeDBBranchSegment(name)
+	cleanName := sanitizeWorktreeName(name)
 	if cleanName == "" {
 		return "", fmt.Errorf("worktree name is empty after sanitization")
 	}
@@ -380,4 +322,24 @@ func gitCommandOutput(ctx context.Context, appRoot string, args ...string) (stri
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(all, " "), err, strings.TrimSpace(string(output)))
 	}
 	return string(output), nil
+}
+
+func sanitizeWorktreeName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	dash := false
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			dash = false
+			continue
+		}
+		if r == '-' || r == '_' || r == '.' || unicode.IsSpace(r) {
+			if !dash && b.Len() > 0 {
+				b.WriteByte('-')
+				dash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }

@@ -1,17 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scenery.sh/schemas/scenery.inspect.durable.v1.schema.json",
-  "title": "scenery.inspect.durable.v1",
+  "$id": "https://scenery.sh/schemas/scenery.inspect.durable.v2.schema.json",
+  "title": "scenery.inspect.durable.v2",
   "type": "object",
   "required": ["schema_version", "app", "durable", "declarations", "services"],
   "properties": {
-    "schema_version": { "const": "scenery.inspect.durable.v1" },
+    "schema_version": { "const": "scenery.inspect.durable.v2" },
     "app": { "$ref": "#/$defs/appRef" },
     "durable": {
       "type": "object",
-      "required": ["state_root", "task_count", "service_count"],
+      "required": ["database", "schema", "task_count", "service_count"],
       "properties": {
-        "state_root": { "type": "string" },
+        "database": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "url": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "schema": { "const": "scenery" },
         "task_count": { "type": "integer", "minimum": 0 },
         "service_count": { "type": "integer", "minimum": 0 }
       },
@@ -21,13 +29,12 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["kind", "name", "service", "db_exists", "file", "line"],
+        "required": ["kind", "name", "service", "schema", "file", "line"],
         "properties": {
           "kind": { "const": "durable_task" },
           "name": { "type": "string" },
           "service": { "type": "string" },
-          "db_path": { "type": "string" },
-          "db_exists": { "type": "boolean" },
+          "schema": { "type": "string" },
           "file": { "type": "string" },
           "line": { "type": "integer", "minimum": 0 },
           "input": { "type": "string" },
@@ -40,11 +47,10 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "db_path", "db_exists"],
+        "required": ["name", "schema"],
         "properties": {
           "name": { "type": "string" },
-          "db_path": { "type": "string" },
-          "db_exists": { "type": "boolean" }
+          "schema": { "type": "string" }
         },
         "additionalProperties": false
       }

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,11 +32,21 @@ const (
 type postgresServerState struct {
 	SchemaVersion string    `json:"schema_version"`
 	Container     string    `json:"container"`
+	Volume        string    `json:"volume,omitempty"`
 	Image         string    `json:"image"`
 	Port          int       `json:"port"`
 	User          string    `json:"user"`
 	Password      string    `json:"password"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (s *postgresServerState) normalize() {
+	if strings.TrimSpace(s.Container) == "" {
+		s.Container = postgresServerContainer
+	}
+	if strings.TrimSpace(s.Volume) == "" {
+		s.Volume = postgresServerVolume
+	}
 }
 
 type postgresDockerRunner interface {
@@ -75,49 +85,89 @@ var (
 )
 
 func managedPostgresEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, baseEnv []string) ([]string, []postgresdb.Service, error) {
-	return managedPostgresEnvWithAgent(ctx, appRoot, cfg, session, nil, baseEnv)
+	env, database, err := managedDatabaseEnv(ctx, appRoot, cfg, session, baseEnv)
+	return env, database.Schemas, err
 }
 
 func managedPostgresEnvWithAgent(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, agent *localagent.Client, baseEnv []string) ([]string, []postgresdb.Service, error) {
-	cfgs := cfg.PostgresServices()
+	env, database, err := managedDatabaseEnvWithAgent(ctx, appRoot, cfg, session, agent, baseEnv)
+	return env, database.Schemas, err
+}
+
+func managedDatabaseEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, baseEnv []string) ([]string, postgresdb.Database, error) {
+	return managedDatabaseEnvWithAgent(ctx, appRoot, cfg, session, nil, baseEnv)
+}
+
+func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, agent *localagent.Client, baseEnv []string) ([]string, postgresdb.Database, error) {
+	cfgs := cfg.DatabaseServices()
 	if len(cfgs) == 0 {
-		return nil, nil, nil
+		return nil, postgresdb.Database{}, nil
 	}
 	services := make([]postgresdb.Service, 0, len(cfgs))
-	var server *postgresServerState
-	var admin *sql.DB
-	defer func() {
-		if admin != nil {
-			_ = admin.Close()
+	databaseEnv := cfg.DatabaseURLEnv()
+	if value, _ := lookupEnvValue(baseEnv, databaseEnv); value != "" {
+		if _, err := postgresdb.ParseURL(value); err != nil {
+			return nil, postgresdb.Database{}, fmt.Errorf("%s must be a postgres URL for plan 0097: %w", databaseEnv, err)
 		}
-	}()
-	for _, svc := range cfgs {
-		if value, _ := lookupEnvValue(baseEnv, svc.DatabaseURLEnv); value != "" {
-			if _, err := postgresdb.ParseURL(value); err != nil {
-				return nil, nil, fmt.Errorf("dev.services.%s %s must be a postgres URL: %w", svc.Name, svc.DatabaseURLEnv, err)
-			}
-			services = append(services, postgresdb.Service{Name: svc.Name, Database: strings.TrimSpace(svc.DatabaseLabel), URL: value, DatabaseURLEnv: svc.DatabaseURLEnv, Source: postgresdb.SourceExternal})
-			continue
-		}
-		if server == nil {
-			var err error
-			server, err = ensureSharedPostgresServerWithAgent(ctx, appRoot, session, agent)
+		for _, svc := range cfgs {
+			serviceURL, err := postgresdb.ServiceURL(value, svc.Schema)
 			if err != nil {
-				return nil, nil, err
+				return nil, postgresdb.Database{}, fmt.Errorf("derive postgres URL for service %s schema %s: %w", svc.Name, svc.Schema, err)
 			}
-			admin, err = openPostgresAdmin(ctx, server.databaseURL("postgres"))
-			if err != nil {
-				return nil, nil, fmt.Errorf("connect to managed postgres server: %w", err)
-			}
+			services = append(services, postgresdb.Service{
+				Name:           svc.Name,
+				Schema:         svc.Schema,
+				URL:            serviceURL,
+				Database:       postgresdb.DatabaseNameFromURL(value),
+				DatabaseURLEnv: postgresdb.ServiceDatabaseURLEnv(svc.Name),
+				Source:         postgresdb.SourceExternal,
+			})
 		}
-		dbName := postgresdb.DatabaseNameFor(cfg.AppID(), svc.Name, appRoot)
-		if err := postgresdb.EnsureDatabase(ctx, admin, dbName); err != nil {
-			return nil, nil, fmt.Errorf("ensure postgres database %s: %w", dbName, err)
-		}
-		services = append(services, postgresdb.Service{Name: svc.Name, Database: dbName, URL: server.databaseURL(dbName), DatabaseURLEnv: svc.DatabaseURLEnv, Source: postgresdb.SourceManaged})
+		database := postgresdb.Database{Database: postgresdb.DatabaseNameFromURL(value), URL: value, Source: postgresdb.SourceExternal, Schemas: services}
+		return postgresdb.Env(database, databaseEnv), database, nil
 	}
-	includeAlias := len(cfg.SQLiteServices()) == 0 && len(cfgs) == 1 && strings.TrimSpace(cfgs[0].Raw.DatabaseURLEnv) == ""
-	return postgresdb.Env(services, includeAlias), services, nil
+
+	server, err := ensureSharedPostgresServerWithAgent(ctx, appRoot, session, agent)
+	if err != nil {
+		return nil, postgresdb.Database{}, err
+	}
+	admin, err := openPostgresAdmin(ctx, server.databaseURL("postgres"))
+	if err != nil {
+		return nil, postgresdb.Database{}, fmt.Errorf("connect to managed postgres server: %w", err)
+	}
+	defer admin.Close()
+	dbName := postgresdb.DatabaseNameFor(cfg.AppID(), appRoot)
+	if err := postgresdb.EnsureDatabase(ctx, admin, dbName); err != nil {
+		return nil, postgresdb.Database{}, fmt.Errorf("ensure postgres database %s: %w", dbName, err)
+	}
+	baseURL := server.databaseURL(dbName)
+	appDB, err := openPostgresDatabase(ctx, baseURL)
+	if err != nil {
+		return nil, postgresdb.Database{}, fmt.Errorf("connect to managed postgres database %s: %w", dbName, err)
+	}
+	defer appDB.Close()
+	if err := postgresdb.EnsureSchema(ctx, appDB, "scenery"); err != nil {
+		return nil, postgresdb.Database{}, fmt.Errorf("ensure postgres schema scenery: %w", err)
+	}
+	for _, svc := range cfgs {
+		if err := postgresdb.EnsureSchema(ctx, appDB, svc.Schema); err != nil {
+			return nil, postgresdb.Database{}, fmt.Errorf("ensure postgres schema %s for service %s: %w", svc.Schema, svc.Name, err)
+		}
+		serviceURL, err := postgresdb.ServiceURL(baseURL, svc.Schema)
+		if err != nil {
+			return nil, postgresdb.Database{}, fmt.Errorf("derive postgres URL for service %s schema %s: %w", svc.Name, svc.Schema, err)
+		}
+		services = append(services, postgresdb.Service{
+			Name:           svc.Name,
+			Schema:         svc.Schema,
+			URL:            serviceURL,
+			Database:       dbName,
+			DatabaseURLEnv: postgresdb.ServiceDatabaseURLEnv(svc.Name),
+			Source:         postgresdb.SourceManaged,
+		})
+	}
+	database := postgresdb.Database{Database: dbName, URL: baseURL, Source: postgresdb.SourceManaged, Schemas: services}
+	return postgresdb.Env(database, databaseEnv), database, nil
 }
 
 func ensureSharedPostgresServer(ctx context.Context, appRoot string, session *localagent.Session) (*postgresServerState, error) {
@@ -161,6 +211,7 @@ func loadOrCreatePostgresServerState(paths localagent.Paths) (*postgresServerSta
 			return nil, err
 		}
 		if state.SchemaVersion == postgresServerSchemaVersion && state.Port > 0 && state.Password != "" {
+			state.normalize()
 			return &state, nil
 		}
 	}
@@ -178,6 +229,7 @@ func loadOrCreatePostgresServerState(paths localagent.Paths) (*postgresServerSta
 	state := postgresServerState{
 		SchemaVersion: postgresServerSchemaVersion,
 		Container:     postgresServerContainer,
+		Volume:        postgresServerVolume,
 		Image:         postgresServerImage,
 		Port:          port,
 		User:          postgresServerUser,
@@ -212,7 +264,7 @@ func ensurePostgresDockerContainer(ctx context.Context, state *postgresServerSta
 			"-p", fmt.Sprintf("127.0.0.1:%d:5432", state.Port),
 			// postgres:18+ images require the volume at /var/lib/postgresql;
 			// mounting the data subdirectory makes the entrypoint refuse to start.
-			"-v", postgresServerVolume+":/var/lib/postgresql",
+			"-v", state.Volume+":/var/lib/postgresql",
 			"-e", "POSTGRES_USER="+state.User,
 			"-e", "POSTGRES_PASSWORD="+state.Password,
 			state.Image,
@@ -274,7 +326,22 @@ func waitForPostgresServer(ctx context.Context, state *postgresServerState) erro
 			}
 		}
 	}
+	if published, err := postgresContainerPublishedPort(ctx, state.Container); err == nil && published > 0 && published != state.Port {
+		return fmt.Errorf("managed postgres container %q publishes port %d but the server state file expects port %d; the container was created from a different agent home or stale state — remove it with `docker rm -f %s` (data volume %q is preserved) and rerun, or restore the original agent home state: %w", state.Container, published, state.Port, state.Container, state.Volume, lastErr)
+	}
 	return fmt.Errorf("managed postgres server did not become ready: %w", lastErr)
+}
+
+func postgresContainerPublishedPort(ctx context.Context, container string) (int, error) {
+	out, err := postgresDocker.Run(ctx, "container", "inspect", container, "--format", `{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}`)
+	if err != nil {
+		return 0, err
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, err
+	}
+	return port, nil
 }
 
 func upsertPostgresSubstrate(ctx context.Context, state *postgresServerState, appRoot string, session *localagent.Session) error {
@@ -358,15 +425,17 @@ func randomPostgresPassword() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
-func emitPostgresReadyEvents(ctx context.Context, sink *devEventSink, services []postgresdb.Service) {
+func emitPostgresReadyEvents(ctx context.Context, sink *devEventSink, database postgresdb.Database) {
 	if sink == nil {
 		return
 	}
-	for _, svc := range services {
+	for _, svc := range database.Schemas {
 		sink.Emit(ctx, devdash.DevSource{ID: "postgres:" + svc.Name, Kind: "substrate", Name: svc.Name, Role: "database", Status: "running"}, "info", "Postgres service database ready", map[string]any{
 			"service":  svc.Name,
-			"database": svc.Database,
-			"source":   string(svc.Source),
+			"engine":   "postgres",
+			"database": database.Database,
+			"schema":   svc.Schema,
+			"source":   string(database.Source),
 		})
 	}
 }

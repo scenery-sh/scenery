@@ -1,25 +1,23 @@
 package postgresdb
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"scenery.sh/internal/identityhash"
 )
 
-func DatabaseNameFor(appID, service, appRoot string) string {
+func DatabaseNameFor(appID, appRoot string) string {
 	root, err := filepath.Abs(strings.TrimSpace(appRoot))
 	if err != nil {
 		root = strings.TrimSpace(appRoot)
 	}
 	hash := identityhash.Short(root)
 	if hash == "" {
-		hash = identityhash.Short(appID + "/" + service)
+		hash = identityhash.Short(appID)
 	}
-	base := sanitizePG(appID) + "_" + sanitizePG(service)
-	if base == "_" {
-		base = "app_db"
-	}
+	base := sanitizePG(appID)
 	suffix := "_" + hash
 	name := base + suffix
 	if len(name) <= 63 {
@@ -30,6 +28,22 @@ func DatabaseNameFor(appID, service, appRoot string) string {
 		return strings.TrimPrefix(suffix, "_")
 	}
 	return strings.TrimRight(name[:keep], "_") + suffix
+}
+
+func SchemaNameFor(service string) (string, error) {
+	schema := sanitizePG(service)
+	if schema == "" || schema == "app" {
+		return "", fmt.Errorf("postgres schema name is required")
+	}
+	if SchemaNameReserved(schema) {
+		return "", fmt.Errorf("postgres schema %q is reserved by plan 0097", schema)
+	}
+	return schema, nil
+}
+
+func SchemaNameReserved(schema string) bool {
+	schema = strings.ToLower(strings.TrimSpace(schema))
+	return schema == "scenery" || schema == "public" || schema == "information_schema" || strings.HasPrefix(schema, "pg_")
 }
 
 func sanitizePG(value string) string {

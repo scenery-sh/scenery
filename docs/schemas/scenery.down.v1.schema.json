@@ -10,8 +10,7 @@
     "deleted",
     "record_preserved",
     "db_cleanup",
-    "state_cleanup",
-    "db_branch_pin_removed"
+    "state_cleanup"
   ],
   "properties": {
     "schema_version": { "const": "scenery.down.v1" },
@@ -22,7 +21,6 @@
     "db_cleanup": { "type": "boolean" },
     "state_cleanup": { "type": "boolean" },
     "state_root_removed": { "type": "string" },
-    "db_branch_pin_removed": { "type": "boolean" },
     "messages": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }

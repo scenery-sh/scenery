@@ -12,25 +12,6 @@
     "path": { "type": "string" },
     "branch": { "type": "string" },
     "from": { "type": "string" },
-    "db_pin": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["schema_version", "provider", "project", "parent_branch", "branch", "branch_id", "database", "role", "created_by"],
-      "properties": {
-        "schema_version": { "const": "scenery.db.branch.v1" },
-        "provider": { "const": "sqlite" },
-        "project": { "type": "string" },
-        "parent_branch": { "type": "string" },
-        "branch": { "type": "string" },
-        "branch_id": { "type": "string" },
-        "database": { "type": "string" },
-        "role": { "type": "string" },
-        "session_id": { "type": "string" },
-        "worktree_root": { "type": "string" },
-        "created_by": { "type": "string" },
-        "ttl": { "type": "string" }
-      }
-    },
     "next_command": { "type": "string" },
     "message": { "type": "string" }
   }

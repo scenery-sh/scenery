@@ -3,11 +3,9 @@ package runtime
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	durablestore "scenery.sh/internal/durable/store"
@@ -18,13 +16,8 @@ func TestDurableWorkerHTTPLeaseHeartbeatAndComplete(t *testing.T) {
 	defer restore()
 	defer setActiveDurableStores(nil)
 
-	root := t.TempDir()
-	stateRoot := filepath.Join(root, ".scenery", "state")
-	path, err := durablestore.DurableDBPath(stateRoot, "maps")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := durablestore.Open(context.Background(), "maps", path, durablestore.Options{Synchronous: "off"})
+	dsn := liveRuntimeDatabaseURL(t)
+	db, err := durablestore.Open(context.Background(), "maps", dsn, durablestore.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,13 +58,8 @@ func TestDurableWorkerHTTPLeaseHeartbeatAndComplete(t *testing.T) {
 	doDurableRequest(t, server, http.MethodPost, "/__scenery/durable/v1/maps/jobs/job-http/heartbeat", "secret-token", `{"worker_id":"w1","lease_id":"lease-http"}`, http.StatusOK, nil)
 	doDurableRequest(t, server, http.MethodPost, "/__scenery/durable/v1/maps/jobs/job-http/complete", "secret-token", `{"worker_id":"w1","lease_id":"lease-http","result":{"ok":true}}`, http.StatusOK, nil)
 
-	sqlDB, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sqlDB.Close()
 	var state string
-	if err := sqlDB.QueryRow(`SELECT state FROM jobs WHERE id = 'job-http'`).Scan(&state); err != nil {
+	if err := db.DB().QueryRow(`SELECT state FROM scenery.durable_jobs WHERE service = 'maps' AND id = 'job-http'`).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	if state != "succeeded" {

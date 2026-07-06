@@ -231,7 +231,7 @@ func appRecordStatus(app devdash.AppRecord) devdash.AppStatus {
 		CompileError:        app.CompileError,
 	}
 	applySessionStatusToAppStatus(&status, nil)
-	status.Meta = metadataWithRuntimeSQLiteDatabases(status.Meta, status.AppRoot, status.SessionID, appcfg.Config{}, false)
+	status.Meta = metadataWithRuntimePostgresDatabases(status.Meta, status.AppRoot, appcfg.Config{}, false)
 	return status
 }
 

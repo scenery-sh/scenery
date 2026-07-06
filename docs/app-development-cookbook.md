@@ -267,7 +267,7 @@ curl -X POST http://localhost:4001/api/users/dev-bootstrap
 
 Common failure: `DatabaseURL` is missing. Put it in process env or an app-root `.env.local` for local development.
 
-Standard auth owns its tenant state in `scenery_auth.tenants`. You do not need an app-local `tenants` service or table to use standard auth; create one only for product-domain tenant APIs or schema.
+Standard auth owns its tenant state in `scenery.scenery_auth_tenants`. You do not need an app-local `tenants` service or table to use standard auth; create one only for product-domain tenant APIs or schema.
 
 ## Private Endpoint Call
 
@@ -434,7 +434,7 @@ Common failure: relying on wall-clock behavior in unit tests. Keep cron tests de
 
 ## Database Helper
 
-For the default app database, prefer `scenery.sh/db` so services share one `*sql.DB` selected by the configured service's `database_url_env`:
+For the default app database, prefer `scenery.sh/db` so services share one `*sql.DB` pinned to the configured service schema:
 
 ```go
 package api
@@ -461,21 +461,23 @@ func initService(ctx context.Context) (*Service, error) {
 }
 ```
 
-`scenery.sh/db` is intentionally scoped to configured Scenery service databases. It opens SQLite service URLs with the SQLite driver and Postgres service URLs with the pgx database/sql driver; pass an explicit service name when the app has more than one database service.
+`scenery.sh/db` is intentionally scoped to configured Scenery database services. It opens Postgres URLs with the pgx database/sql driver and pins each pool to the service schema; pass an explicit service name when the app has more than one database service.
 
-For a Postgres service on the shared dev server:
+For database services and schemas on the shared dev server:
 
 ```json
 {
+  "database": { "url_env": "DATABASE_URL" },
   "dev": {
     "services": {
-      "reports": { "kind": "postgres" }
+      "reports": {},
+      "cache": {}
     }
   }
 }
 ```
 
-During `scenery up`, Scenery creates a per-worktree database on the shared local Postgres server and injects `REPORTS_DATABASE_URL`. For production, standalone `scenery worker`, or bring-your-own local Postgres, set that same env var to a `postgres://` or `postgresql://` URL; explicit DSNs always win and Scenery does not manage the server in that mode.
+During `scenery up`, Scenery creates one per-worktree database on the shared local Postgres server, creates `reports`, `cache`, and `scenery` schemas, and injects `DATABASE_URL`, `REPORTS_DATABASE_URL`, `CACHE_DATABASE_URL`, and `SCENERY_DATABASE_JSON`. For production, standalone `scenery worker`, or bring-your-own local Postgres, set `DATABASE_URL` to a `postgres://` or `postgresql://` URL; explicit DSNs always win and Scenery does not manage the server or database in that mode.
 
 Validate:
 
@@ -616,21 +618,17 @@ scenery db setup
 scenery db list --json
 scenery db shell
 scenery db server status --json
-scenery db branch status --json
-scenery db branch checkout feature/my-branch --json
-scenery db branch list --json
-scenery db branch expire feature/my-branch --after 24h --json
-scenery db branch prune --older-than 336h --json
 scenery worktree create feature-my-branch --from main --json
+scenery db snapshot create before-refactor --json
 ```
 
-`scenery db apply` mutates schema or app-owned database setup only. It does not run SQLC generation or seed files. `scenery db seed` applies initial data such as `SERVICE/db/seed.sql` to the matching service database, records successful runs in a small internal ledger, skips unchanged seeds, and fails closed if a previously-applied seed changes or if seed SQL contains destructive setup patterns such as `DROP`, `TRUNCATE`, or broad `DELETE`. `scenery db setup` runs apply, then seed.
+`scenery db apply` mutates schema or app-owned database setup only. It does not run SQLC generation or seed files. `scenery db seed` applies initial data such as `SERVICE/db/seed.sql` to the matching service schema, records successful runs in `scenery.seed_runs`, skips unchanged seeds, and fails closed if a previously-applied seed changes or if seed SQL contains destructive setup patterns such as `DROP`, `TRUNCATE`, or broad `DELETE`. `scenery db setup` runs apply, then seed.
 
 During `scenery up`, the supervisor runs this DB setup lifecycle before starting the app when `database.apply` or seed files are present. It reuses the runtime-managed service database env values and skips setup on ordinary rebuilds until the `database.apply` config or seed file hashes change.
 
 `SERVICE/db/seed.sql` is data, not Atlas schema input and not SQLC input. The first seed implementation fails closed when a previously-applied seed changes or destructive seed SQL is detected, rather than offering force or reseed escape hatches.
 
-For managed branch configs, app config declares `dev.services.<name>.kind: "sqlite"`. `scenery db branch checkout <name> --json` writes `.scenery/worktree-db.json`, ensures the parent database file exists, creates or reuses the branch database file, and records redacted endpoint metadata. `scenery db branch list --json` reads Scenery-owned local leases from `branches.json`, and `scenery db branch status --json` can report missing, expired, protected, or ready local leases. A ready lease may expose redacted endpoint metadata so `scenery up`, `scenery db shell`, DB setup, and sync can synthesize process-local database env values. Missing, expired, protected, or endpoint-less leases fail explicitly. `reset` recopies from the parent, `delete` drops the branch database and removes the lease, `expire` updates local registry metadata, `prune` removes expired non-current branch databases, `scenery down --state` removes the local worktree pin, and `scenery worktree create <name> --json` creates a Git worktree, writes the target pin, and runs branch-provider ensure. The default `scenery harness self --json --write` path includes the live SQLite branch lifecycle proof; use `--quick` when that live proof is intentionally out of scope.
+Worktree isolation is the database branching model: each app root/worktree gets a distinct managed database name, and every service is a schema inside that database. `scenery worktree create <name> --json` creates only the Git worktree; the next `scenery up` or DB command ensures its app database. `scenery db reset <service>` drops and recreates only that service schema, leaving other service schemas and the `scenery` schema intact. Durable tasks, cron schedules, auth, and the seed ledger live in the shared `scenery` schema, so they are included in `scenery db snapshot create|restore` with the rest of the app database.
 
 ## sync Txid Observation
 
@@ -758,7 +756,7 @@ scenery harness ui --json
 - Missing app config: create `.scenery.json` or `.config.json` at the app root, or pass `--app-root`.
 - Stale generated client: rerun `scenery generate client` or configured `scenery generate client`.
 - Auth endpoint returns unauthorized: inspect standard auth bootstrap and bearer token.
-- `tenants` migration or runtime error: if the relation is `scenery_auth.tenants`, it is framework-owned standard auth state; an unqualified app `tenants` relation is app-domain schema drift.
+- `tenants` migration or runtime error: if the relation is `scenery.scenery_auth_tenants`, it is framework-owned standard auth state; an unqualified app `tenants` relation is app-domain schema drift.
 - Private endpoint exposed over HTTP: change to public/auth only when it should be externally reachable.
 - No traces: confirm the app is running under scenery and uses scenery-aware wrappers for DB/client work.
 - Proxy upstream unavailable: confirm the child app process is listening on the API URL printed by `scenery up`.

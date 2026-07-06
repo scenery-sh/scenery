@@ -109,9 +109,9 @@
       "name": "DATABASE_URL",
       "match": "exact",
       "scope": "runtime",
-      "direction": "internal",
-      "category": "app.services.auth",
-      "stability": "stable",
+      "direction": "input+injected",
+      "category": "app.services.database",
+      "stability": "beta",
       "secret": true,
       "allowed_in": [
         "code",
@@ -119,7 +119,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Conventional database URL. Managed service databases do not inject this unless the app explicitly configures that env name.",
+      "rationale": "App-level Postgres database URL. User-provided values make the app database external; otherwise Scenery injects the managed app database URL.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -153,7 +153,7 @@
       "name": "HOME",
       "match": "exact",
       "scope": "internal",
-      "direction": "internal",
+      "direction": "input+injected",
       "category": "host",
       "stability": "internal",
       "secret": false,
@@ -166,7 +166,9 @@
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
-      "docs": []
+      "docs": [
+        "docs/environment.md"
+      ]
     },
     {
       "name": "JWT_SECRET",
@@ -1238,52 +1240,8 @@
       ]
     },
     {
-      "name": "SCENERY_MANAGED_DATABASE_NAME",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "app.services.auth",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Name of the managed per-session SQLite database",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_MANAGED_DATABASE_URL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "app.services.auth",
-      "stability": "injected",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Managed per-session SQLite URL exposed for tooling/debugging",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_SQLITE_DATABASES_JSON",
-      "match": "exact",
+      "name": "*_DATABASE_URL",
+      "match": "glob",
       "scope": "runtime",
       "direction": "injected",
       "category": "app.services.database",
@@ -1295,7 +1253,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Machine-readable registry of managed SQLite service database paths, URLs, and configured env names",
+      "rationale": "Per-service Postgres URL derived from the app database URL with a service-schema search_path",
       "preferred_surface": ".scenery.json dev.services entries",
       "replacement": "",
       "sunset": "",
@@ -1304,7 +1262,7 @@
       ]
     },
     {
-      "name": "SCENERY_POSTGRES_DATABASES_JSON",
+      "name": "SCENERY_DATABASE_JSON",
       "match": "exact",
       "scope": "runtime",
       "direction": "injected",
@@ -1317,7 +1275,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Machine-readable registry of Postgres service database URLs, configured env names, database names, and managed/external source",
+      "rationale": "Machine-readable registry of the app database, source, and service schemas",
       "preferred_surface": ".scenery.json dev.services entries",
       "replacement": "",
       "sunset": "",
@@ -1799,7 +1757,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Legacy test database URL override retained only for compatibility tests; new managed database tests use SQLite fixtures.",
+      "rationale": "Optional live Postgres DSN for gated database integration tests. Durable store tests create and drop per-test databases from this URL.",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",

@@ -3,21 +3,18 @@ package store
 const schemaVersion = 1
 
 const initSchemaSQL = `
-CREATE TABLE IF NOT EXISTS meta (
-  key TEXT PRIMARY KEY,
-  value TEXT NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+CREATE SCHEMA IF NOT EXISTS scenery;
 
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS scenery.durable_schema_migrations (
   version INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   checksum TEXT NOT NULL,
-  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS tasks (
-  name TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS scenery.durable_tasks (
+  service TEXT NOT NULL,
+  name TEXT NOT NULL,
   version INTEGER NOT NULL DEFAULT 1,
   handler_ref TEXT NOT NULL,
   input_codec TEXT NOT NULL DEFAULT 'json',
@@ -29,200 +26,139 @@ CREATE TABLE IF NOT EXISTS tasks (
   retry_max_ms INTEGER NOT NULL DEFAULT 60000,
   retry_backoff REAL NOT NULL DEFAULT 2.0,
   retry_jitter REAL NOT NULL DEFAULT 0.1,
-  requirements_json TEXT NOT NULL DEFAULT '{}',
-  enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  requirements_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (service, name)
 );
 
-CREATE TABLE IF NOT EXISTS jobs (
-  id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS scenery.durable_jobs (
+  service TEXT NOT NULL,
+  id TEXT NOT NULL,
   task_name TEXT NOT NULL,
   task_version INTEGER NOT NULL DEFAULT 1,
-  state TEXT NOT NULL CHECK (
-    state IN (
-      'queued',
-      'running',
-      'sleeping',
-      'waiting',
-      'succeeded',
-      'failed',
-      'canceled'
-    )
-  ),
-  dedupe_key TEXT UNIQUE,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
+  dedupe_key TEXT,
   priority INTEGER NOT NULL DEFAULT 0,
-  run_after TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  run_after TIMESTAMPTZ NOT NULL DEFAULT now(),
   attempt INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 1,
-  timeout_at TEXT,
-  deadline_at TEXT,
+  timeout_at TIMESTAMPTZ,
+  deadline_at TIMESTAMPTZ,
   lease_id TEXT,
   lease_owner TEXT,
   lease_token_hash TEXT,
-  lease_until TEXT,
+  lease_until TIMESTAMPTZ,
   input_codec TEXT NOT NULL DEFAULT 'json',
-  input_blob BLOB NOT NULL,
+  input_blob BYTEA NOT NULL,
   result_codec TEXT,
-  result_blob BLOB,
+  result_blob BYTEA,
   error_codec TEXT,
-  error_blob BLOB,
-  requirements_json TEXT NOT NULL DEFAULT '{}',
-  labels_json TEXT NOT NULL DEFAULT '{}',
-  memo_json TEXT NOT NULL DEFAULT '{}',
+  error_blob BYTEA,
+  requirements_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  labels_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  memo_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_by TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  completed_at TEXT,
-  FOREIGN KEY (task_name) REFERENCES tasks(name)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  PRIMARY KEY (service, id),
+  FOREIGN KEY (service, task_name) REFERENCES scenery.durable_tasks(service, name)
 );
 
-CREATE INDEX IF NOT EXISTS jobs_ready_idx
-ON jobs(state, run_after, priority, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS durable_jobs_dedupe_idx
+ON scenery.durable_jobs(service, task_name, dedupe_key)
+WHERE dedupe_key IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS jobs_task_state_idx
-ON jobs(task_name, state, created_at);
+CREATE INDEX IF NOT EXISTS durable_jobs_ready_idx
+ON scenery.durable_jobs(service, state, run_after, priority DESC, created_at, id);
 
-CREATE INDEX IF NOT EXISTS jobs_lease_idx
-ON jobs(lease_owner, lease_until);
+CREATE INDEX IF NOT EXISTS durable_jobs_task_state_idx
+ON scenery.durable_jobs(service, task_name, state, created_at);
 
-CREATE INDEX IF NOT EXISTS jobs_dedupe_idx
-ON jobs(dedupe_key);
+CREATE INDEX IF NOT EXISTS durable_jobs_lease_idx
+ON scenery.durable_jobs(service, lease_owner, lease_until);
 
-CREATE TABLE IF NOT EXISTS job_attempts (
-  job_id TEXT NOT NULL,
-  attempt INTEGER NOT NULL,
-  worker_id TEXT,
-  lease_id TEXT,
-  started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  heartbeat_at TEXT,
-  finished_at TEXT,
-  state TEXT NOT NULL CHECK (
-    state IN ('running', 'succeeded', 'failed', 'expired', 'canceled')
-  ),
-  error_codec TEXT,
-  error_blob BLOB,
-  PRIMARY KEY (job_id, attempt),
-  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS job_events (
-  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS scenery.durable_job_events (
+  seq BIGSERIAL PRIMARY KEY,
+  service TEXT NOT NULL,
   job_id TEXT NOT NULL,
   attempt INTEGER,
   event_type TEXT NOT NULL,
   payload_codec TEXT NOT NULL DEFAULT 'json',
-  payload_blob BLOB,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+  payload_blob BYTEA,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (service, job_id) REFERENCES scenery.durable_jobs(service, id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS job_events_job_seq_idx
-ON job_events(job_id, seq);
+CREATE INDEX IF NOT EXISTS durable_job_events_job_seq_idx
+ON scenery.durable_job_events(service, job_id, seq);
 
-CREATE INDEX IF NOT EXISTS job_events_type_idx
-ON job_events(event_type, created_at);
+CREATE INDEX IF NOT EXISTS durable_job_events_type_idx
+ON scenery.durable_job_events(service, event_type, created_at);
 
-CREATE TABLE IF NOT EXISTS job_steps (
+CREATE TABLE IF NOT EXISTS scenery.durable_job_steps (
+  service TEXT NOT NULL,
   job_id TEXT NOT NULL,
   step_key TEXT NOT NULL,
   step_version INTEGER NOT NULL DEFAULT 1,
-  state TEXT NOT NULL CHECK (
-    state IN ('started', 'succeeded', 'failed', 'skipped')
-  ),
+  state TEXT NOT NULL CHECK (state IN ('started', 'succeeded', 'failed', 'skipped')),
   attempt INTEGER NOT NULL DEFAULT 0,
   input_hash TEXT,
   idempotency_key TEXT NOT NULL,
   result_codec TEXT,
-  result_blob BLOB,
+  result_blob BYTEA,
   error_codec TEXT,
-  error_blob BLOB,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (job_id, step_key),
-  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+  error_blob BYTEA,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (service, job_id, step_key),
+  FOREIGN KEY (service, job_id) REFERENCES scenery.durable_jobs(service, id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS job_signals (
+CREATE TABLE IF NOT EXISTS scenery.durable_job_signals (
+  service TEXT NOT NULL,
   job_id TEXT NOT NULL,
   name TEXT NOT NULL,
   dedupe_key TEXT NOT NULL,
   payload_codec TEXT NOT NULL DEFAULT 'json',
-  payload_blob BLOB NOT NULL,
-  consumed_at TEXT,
-  received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (job_id, name, dedupe_key),
-  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+  payload_blob BYTEA NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (service, job_id, name, dedupe_key),
+  FOREIGN KEY (service, job_id) REFERENCES scenery.durable_jobs(service, id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS schedules (
-  id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS scenery.durable_schedules (
+  service TEXT NOT NULL,
+  id TEXT NOT NULL,
   task_name TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT true,
   spec_codec TEXT NOT NULL DEFAULT 'json',
-  spec_blob BLOB NOT NULL,
-  overlap_policy TEXT NOT NULL CHECK (
-    overlap_policy IN (
-      'skip',
-      'buffer_one',
-      'buffer_all',
-      'allow_all'
-    )
-  ) DEFAULT 'skip',
+  spec_blob BYTEA NOT NULL,
+  overlap_policy TEXT NOT NULL CHECK (overlap_policy IN ('skip', 'buffer_one', 'buffer_all', 'allow_all')) DEFAULT 'skip',
   catchup_window_ms INTEGER NOT NULL DEFAULT 60000,
-  next_fire_at TEXT,
-  last_fire_at TEXT,
+  next_fire_at TIMESTAMPTZ,
+  last_fire_at TIMESTAMPTZ,
   input_codec TEXT NOT NULL DEFAULT 'json',
-  input_blob BLOB NOT NULL DEFAULT x'7b7d',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (task_name) REFERENCES tasks(name)
+  input_blob BYTEA NOT NULL DEFAULT '{}'::bytea,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (service, id),
+  FOREIGN KEY (service, task_name) REFERENCES scenery.durable_tasks(service, name)
 );
 
-CREATE TABLE IF NOT EXISTS workers (
-  id TEXT PRIMARY KEY,
-  token_id TEXT,
-  deployment_id TEXT,
-  build_id TEXT,
-  hostname TEXT,
-  pid INTEGER,
-  region TEXT,
-  labels_json TEXT NOT NULL DEFAULT '{}',
-  subscriptions_json TEXT NOT NULL DEFAULT '[]',
-  first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  disabled_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS worker_tokens (
-  id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS scenery.durable_worker_tokens (
+  service TEXT NOT NULL,
+  id TEXT NOT NULL,
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL,
-  scopes_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  expires_at TEXT,
-  disabled_at TEXT,
-  last_used_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS leases (
-  id TEXT PRIMARY KEY,
-  job_id TEXT NOT NULL,
-  worker_id TEXT NOT NULL,
-  token_hash TEXT NOT NULL,
-  acquired_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  expires_at TEXT NOT NULL,
-  released_at TEXT,
-  state TEXT NOT NULL CHECK (
-    state IN ('active', 'completed', 'failed', 'expired', 'canceled')
-  ),
-  FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS locks (
-  name TEXT PRIMARY KEY,
-  owner TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  scopes_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ,
+  disabled_at TIMESTAMPTZ,
+  last_used_at TIMESTAMPTZ,
+  PRIMARY KEY (service, id)
 );
 `

@@ -15,7 +15,7 @@ func TestScanWatchedFilesSkipsGitignoredPaths(t *testing.T) {
 
 	root := t.TempDir()
 	writeWatchFile(t, root, ".gitignore", "/ignored/\n.env\n")
-	writeWatchFile(t, root, ".env", "DatabaseURL=sqlite:///tmp/watch.sqlite\n")
+	writeWatchFile(t, root, ".env", "DatabaseURL=postgres://localhost/watch\n")
 	writeWatchFile(t, root, "kept/api.go", "package kept\n")
 	writeWatchFile(t, root, "ignored/api.go", "package ignored\n")
 

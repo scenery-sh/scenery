@@ -47,7 +47,7 @@ func TestRegistryRedactsSecretValues(t *testing.T) {
 	if got := registry.RedactValue("SCENERY_AUTH_JWT_SECRET", "secret"); got != RedactedValue {
 		t.Fatalf("RedactValue(secret) = %q", got)
 	}
-	if got := registry.RedactValue("DATABASE_URL", "sqlite:///tmp/app.sqlite"); got != RedactedValue {
+	if got := registry.RedactValue("DATABASE_URL", "postgres://user:secret@localhost/app"); got != RedactedValue {
 		t.Fatalf("RedactValue(database url) = %q", got)
 	}
 	if got := registry.RedactValue("SCENERY_APP_ID", "app"); got != "app" {

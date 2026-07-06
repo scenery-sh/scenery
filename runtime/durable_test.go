@@ -2,18 +2,24 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
-	"path/filepath"
+	"encoding/hex"
+	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/postgresdb"
 )
 
 func TestStartDurableRuntimeReconcilesTasks(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
+	dsn := liveRuntimeDatabaseURL(t)
+	t.Setenv("DATABASE_URL", dsn)
 
-	root := t.TempDir()
-	t.Setenv("SCENERY_APP_ROOT", root)
 	RegisterDurableTask(&DurableTask{
 		Name:           "maps.detect.v1",
 		Service:        "maps",
@@ -35,18 +41,14 @@ func TestStartDurableRuntimeReconcilesTasks(t *testing.T) {
 		}
 	}()
 
-	path := filepath.Join(root, ".scenery", "state", "db", "maps.durable.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatalf("open durable db: %v", err)
-	}
+	db := openRuntimeDB(t, dsn)
 	defer db.Close()
 	var timeoutMS, attempts, retryInitialMS, retryMaxMS int
 	var retryBackoff float64
 	err = db.QueryRow(`
 SELECT default_timeout_ms, max_attempts, retry_initial_ms, retry_max_ms, retry_backoff
-FROM tasks
-WHERE name = 'maps.detect.v1'
+FROM scenery.durable_tasks
+WHERE service = 'maps' AND name = 'maps.detect.v1'
 `).Scan(&timeoutMS, &attempts, &retryInitialMS, &retryMaxMS, &retryBackoff)
 	if err != nil {
 		t.Fatalf("query task row: %v", err)
@@ -69,7 +71,7 @@ WHERE name = 'maps.detect.v1'
 		t.Fatalf("run = %+v", run)
 	}
 	var state string
-	err = db.QueryRow(`SELECT state FROM jobs WHERE id = 'job-test'`).Scan(&state)
+	err = db.QueryRow(`SELECT state FROM scenery.durable_jobs WHERE service = 'maps' AND id = 'job-test'`).Scan(&state)
 	if err != nil {
 		t.Fatalf("query job row: %v", err)
 	}
@@ -81,9 +83,9 @@ WHERE name = 'maps.detect.v1'
 func TestDurableLocalWorkerExecutesQueuedJob(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
+	dsn := liveRuntimeDatabaseURL(t)
+	t.Setenv("DATABASE_URL", dsn)
 
-	root := t.TempDir()
-	t.Setenv("SCENERY_APP_ROOT", root)
 	RegisterDurableTask(&DurableTask{
 		Name:    "maps.echo.v1",
 		Service: "maps",
@@ -117,36 +119,33 @@ func TestDurableLocalWorkerExecutesQueuedJob(t *testing.T) {
 		t.Fatalf("run state = %q", run.State)
 	}
 
-	path := filepath.Join(root, ".scenery", "state", "db", "maps.durable.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatalf("open durable db: %v", err)
-	}
+	db := openRuntimeDB(t, dsn)
 	defer db.Close()
 	waitRuntimeJobState(t, db, "job-worker", "succeeded")
 }
 
-func TestStartDurableRuntimeRequiresAppRootForTasks(t *testing.T) {
+func TestStartDurableRuntimeRequiresDatabaseURLForTasks(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 
-	t.Setenv("SCENERY_APP_ROOT", "")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv(postgresdb.RegistryEnv, "")
 	RegisterDurableTask(&DurableTask{
 		Name:    "maps.detect.v1",
 		Service: "maps",
 		Handler: func(context.Context, []byte) ([]byte, error) { return []byte(`{}`), nil },
 	})
 	if _, err := startDurableRuntime(context.Background(), AppConfig{Name: "demo"}); err == nil {
-		t.Fatal("expected missing app root error")
+		t.Fatal("expected missing DATABASE_URL error")
 	}
 }
 
 func TestDurableScheduleEnqueuesAndRuns(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
+	dsn := liveRuntimeDatabaseURL(t)
+	t.Setenv("DATABASE_URL", dsn)
 
-	root := t.TempDir()
-	t.Setenv("SCENERY_APP_ROOT", root)
 	RegisterDurableTask(&DurableTask{
 		Name:    "maps.scheduled.v1",
 		Service: "maps",
@@ -171,13 +170,69 @@ func TestDurableScheduleEnqueuesAndRuns(t *testing.T) {
 	if err := DurableSchedule(context.Background(), "maps", "maps.scheduled.v1", "sched-runtime", 10*time.Millisecond, []byte(`{"id":"1"}`)); err != nil {
 		t.Fatalf("DurableSchedule: %v", err)
 	}
-	path := filepath.Join(root, ".scenery", "state", "db", "maps.durable.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatalf("open durable db: %v", err)
-	}
+	db := openRuntimeDB(t, dsn)
 	defer db.Close()
 	waitRuntimeAnyJobState(t, db, "maps.scheduled.v1", "succeeded")
+}
+
+func liveRuntimeDatabaseURL(t *testing.T) string {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("SCENERY_TEST_DATABASE_URL"))
+	if raw == "" {
+		t.Skip("SCENERY_TEST_DATABASE_URL is not set; skipping live Postgres runtime durable test")
+	}
+	adminURL, err := runtimeAdminDatabaseURL(raw)
+	if err != nil {
+		t.Fatalf("parse SCENERY_TEST_DATABASE_URL: %v", err)
+	}
+	admin, err := postgresdb.Open(context.Background(), adminURL)
+	if err != nil {
+		t.Skipf("SCENERY_TEST_DATABASE_URL is not reachable for live Postgres runtime tests: %v", err)
+	}
+	name := "scenery_runtime_durable_test_" + randomRuntimeHex(t, 8)
+	if _, err := admin.ExecContext(context.Background(), `CREATE DATABASE `+name); err != nil {
+		_ = admin.Close()
+		t.Skipf("SCENERY_TEST_DATABASE_URL cannot create per-test database: %v", err)
+	}
+	u, _ := url.Parse(raw)
+	u.Path = "/" + name
+	t.Cleanup(func() {
+		db, _ := sql.Open(postgresdb.DriverName, adminURL)
+		if db != nil {
+			_, _ = db.ExecContext(context.Background(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
+			_, _ = db.ExecContext(context.Background(), `DROP DATABASE IF EXISTS `+name)
+			_ = db.Close()
+		}
+		_ = admin.Close()
+	})
+	return u.String()
+}
+
+func runtimeAdminDatabaseURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	u.Path = "/postgres"
+	return u.String(), nil
+}
+
+func randomRuntimeHex(t *testing.T, n int) string {
+	t.Helper()
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(buf)
+}
+
+func openRuntimeDB(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	db, err := postgresdb.Open(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
 }
 
 func waitRuntimeJobState(t *testing.T, db *sql.DB, jobID, want string) {
@@ -185,13 +240,13 @@ func waitRuntimeJobState(t *testing.T, db *sql.DB, jobID, want string) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var got string
-		if err := db.QueryRow(`SELECT state FROM jobs WHERE id = ?`, jobID).Scan(&got); err == nil && got == want {
+		if err := db.QueryRow(`SELECT state FROM scenery.durable_jobs WHERE id = $1`, jobID).Scan(&got); err == nil && got == want {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	var got string
-	_ = db.QueryRow(`SELECT state FROM jobs WHERE id = ?`, jobID).Scan(&got)
+	_ = db.QueryRow(`SELECT state FROM scenery.durable_jobs WHERE id = $1`, jobID).Scan(&got)
 	t.Fatalf("job %s state = %q, want %q", jobID, got, want)
 }
 
@@ -200,12 +255,12 @@ func waitRuntimeAnyJobState(t *testing.T, db *sql.DB, taskName, want string) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		var got string
-		if err := db.QueryRow(`SELECT state FROM jobs WHERE task_name = ? ORDER BY created_at DESC LIMIT 1`, taskName).Scan(&got); err == nil && got == want {
+		if err := db.QueryRow(`SELECT state FROM scenery.durable_jobs WHERE task_name = $1 ORDER BY created_at DESC LIMIT 1`, taskName).Scan(&got); err == nil && got == want {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	var got string
-	_ = db.QueryRow(`SELECT state FROM jobs WHERE task_name = ? ORDER BY created_at DESC LIMIT 1`, taskName).Scan(&got)
+	_ = db.QueryRow(`SELECT state FROM scenery.durable_jobs WHERE task_name = $1 ORDER BY created_at DESC LIMIT 1`, taskName).Scan(&got)
 	t.Fatalf("latest job for task %s state = %q, want %q", taskName, got, want)
 }

@@ -846,10 +846,6 @@ func harnessStepEffects(step harnessStep) []string {
 		set["ports"] = true
 		set["agent-socket"] = true
 		set["tempdir"] = true
-	case "sqlite branch lifecycle":
-		set["external-binary"] = true
-		set["filesystem-write"] = true
-		set["tempdir"] = true
 	case "postgres service probe":
 		set["external-binary"] = true
 		set["loopback-network"] = true

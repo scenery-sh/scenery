@@ -8,20 +8,17 @@ import (
 	"testing"
 )
 
-func TestDiscoverRootAcceptsSQLiteServices(t *testing.T) {
+func TestDiscoverRootAcceptsDatabaseServices(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
-		"name": "sqliteapp",
+		"name": "dbapp",
+		"database": {
+			"url_env": "APP_DATABASE_URL"
+		},
 		"dev": {
 			"services": {
-				"auth": {
-					"kind": "sqlite"
-				},
-				"billing": {
-					"kind": "sqlite",
-					"database": "billing-data",
-					"database_url_env": "BILLING_DB"
-				}
+				"auth": {},
+				"billing-data": {}
 			}
 		}
 	}`)
@@ -30,51 +27,20 @@ func TestDiscoverRootAcceptsSQLiteServices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRoot returned error: %v", err)
 	}
-	services := cfg.SQLiteServices()
+	services := cfg.DatabaseServices()
 	if len(services) != 2 {
-		t.Fatalf("SQLiteServices count = %d, want 2", len(services))
+		t.Fatalf("DatabaseServices count = %d, want 2", len(services))
 	}
-	auth, ok := cfg.SQLiteService("auth")
-	if !ok || auth.DatabaseURLEnv != "AUTH_DATABASE_URL" || auth.DatabasePathEnv != "AUTH_DATABASE_PATH" || auth.FileLabel != "auth" {
+	auth, ok := cfg.DatabaseService("auth")
+	if !ok || auth.Schema != "auth" {
 		t.Fatalf("auth service = %+v ok=%v", auth, ok)
 	}
-	billing, ok := cfg.SQLiteService("billing")
-	if !ok || billing.DatabaseURLEnv != "BILLING_DB" || billing.DatabasePathEnv != "BILLING_DATABASE_PATH" || billing.FileLabel != "billing-data" {
+	billing, ok := cfg.DatabaseService("billing-data")
+	if !ok || billing.Schema != "billing_data" {
 		t.Fatalf("billing service = %+v ok=%v", billing, ok)
 	}
-}
-
-func TestDiscoverRootAcceptsPostgresServices(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".scenery.json", `{
-		"name": "pgapp",
-		"dev": {
-			"services": {
-				"reports": {
-					"kind": "postgres",
-					"database": "reports-db",
-					"database_url_env": "REPORTS_DSN"
-				},
-				"postgres": {}
-			}
-		}
-	}`)
-
-	_, cfg, err := DiscoverRoot(root)
-	if err != nil {
-		t.Fatalf("DiscoverRoot returned error: %v", err)
-	}
-	services := cfg.PostgresServices()
-	if len(services) != 2 {
-		t.Fatalf("PostgresServices count = %d, want 2", len(services))
-	}
-	reports, ok := cfg.PostgresService("reports")
-	if !ok || reports.DatabaseURLEnv != "REPORTS_DSN" || reports.DatabaseLabel != "reports-db" {
-		t.Fatalf("reports service = %+v ok=%v", reports, ok)
-	}
-	postgres, ok := cfg.PostgresService("postgres")
-	if !ok || postgres.DatabaseURLEnv != "POSTGRES_DATABASE_URL" || postgres.DatabaseLabel != "postgres" {
-		t.Fatalf("postgres service = %+v ok=%v", postgres, ok)
+	if got := cfg.DatabaseURLEnv(); got != "APP_DATABASE_URL" {
+		t.Fatalf("DatabaseURLEnv = %q, want APP_DATABASE_URL", got)
 	}
 }
 
@@ -215,21 +181,12 @@ func TestDiscoverRootRejectsRemovedSyncDevService(t *testing.T) {
 func TestConfigDatabaseURLEnv(t *testing.T) {
 	t.Parallel()
 
-	if got := (Config{}).DatabaseURLEnv(); got != "DatabaseURL" {
-		t.Fatalf("default database URL env = %q, want DatabaseURL", got)
+	if got := (Config{}).DatabaseURLEnv(); got != "DATABASE_URL" {
+		t.Fatalf("default database URL env = %q, want DATABASE_URL", got)
 	}
-	cfg := Config{Dev: DevConfig{Services: map[string]DevServiceConfig{
-		"auth": {Kind: "sqlite", DatabaseURLEnv: "AppDB"},
-	}}}
-	if got := cfg.DatabaseURLEnv(); got != "AppDB" {
-		t.Fatalf("configured database URL env = %q, want AppDB", got)
-	}
-	cfg = Config{Dev: DevConfig{Services: map[string]DevServiceConfig{
-		"auth":    {Kind: "sqlite", DatabaseURLEnv: "AuthDB"},
-		"billing": {Kind: "sqlite", DatabaseURLEnv: "BillingDB"},
-	}}}
-	if got := cfg.DatabaseURLEnv(); got != "DatabaseURL" {
-		t.Fatalf("ambiguous database URL env = %q, want DatabaseURL", got)
+	cfg := Config{Database: DatabaseConfig{URLEnv: "APP_DATABASE_URL"}}
+	if got := cfg.DatabaseURLEnv(); got != "APP_DATABASE_URL" {
+		t.Fatalf("configured database URL env = %q, want APP_DATABASE_URL", got)
 	}
 }
 
@@ -325,23 +282,41 @@ func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 	}
 }
 
-func TestDiscoverRootRejectsLegacyPostgresFields(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".scenery.json", `{
-		"name": "pgapp",
-		"dev": {
-			"services": {
-				"main": {
-					"kind": "postgres",
-					"project": "legacy"
-				}
-			}
+func TestDiscoverRootRejectsLegacyDatabaseServiceFields(t *testing.T) {
+	for _, field := range []string{"kind", "database", "database_url_env", "mode"} {
+		root := t.TempDir()
+		value := `"legacy"`
+		if field == "kind" {
+			value = `"postgres"`
 		}
-	}`)
+		writeAppTestFile(t, root, ".scenery.json", `{"name":"pgapp","dev":{"services":{"main":{`+strconv.Quote(field)+`:`+value+`}}}}`)
+
+		_, _, err := DiscoverRoot(root)
+		if err == nil || !strings.Contains(err.Error(), "plan 0097") || !strings.Contains(err.Error(), "dev.services.main."+field) {
+			t.Fatalf("DiscoverRoot legacy %s error = %v", field, err)
+		}
+	}
+}
+
+func TestDiscoverRootRejectsReservedDatabaseServiceNames(t *testing.T) {
+	for _, name := range []string{"scenery", "public", "information-schema", "pg-users"} {
+		root := t.TempDir()
+		writeAppTestFile(t, root, ".scenery.json", `{"name":"pgapp","dev":{"services":{`+strconv.Quote(name)+`:{}}}}`)
+
+		_, _, err := DiscoverRoot(root)
+		if err == nil || !strings.Contains(err.Error(), "plan 0097") {
+			t.Fatalf("DiscoverRoot reserved %s error = %v", name, err)
+		}
+	}
+}
+
+func TestDiscoverRootRejectsDatabaseServiceSchemaCollisions(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{"name":"pgapp","dev":{"services":{"foo-bar":{},"foo_bar":{}}}}`)
 
 	_, _, err := DiscoverRoot(root)
-	if err == nil || !strings.Contains(err.Error(), "dev.services.main.project is not supported for postgres services") {
-		t.Fatalf("DiscoverRoot legacy postgres field error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "foo-bar") || !strings.Contains(err.Error(), "foo_bar") || !strings.Contains(err.Error(), `Postgres schema "foo_bar"`) {
+		t.Fatalf("DiscoverRoot schema collision error = %v", err)
 	}
 }
 

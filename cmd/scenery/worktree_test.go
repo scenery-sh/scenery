@@ -2,26 +2,13 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	appcfg "scenery.sh/internal/app"
 )
-
-func useFakeWorktreeBranchEnsure(t *testing.T) {
-	t.Helper()
-	prev := ensureDBBranchForWorktreeCreateFn
-	ensureDBBranchForWorktreeCreateFn = func(context.Context, appcfg.Config, worktreeDBPin) (dbBranchBackendStatus, error) {
-		return dbBranchBackendStatus{Status: "ready", Message: "test branch ready"}, nil
-	}
-	t.Cleanup(func() { ensureDBBranchForWorktreeCreateFn = prev })
-}
 
 func TestParseWorktreeArgs(t *testing.T) {
 	t.Parallel()
@@ -38,27 +25,14 @@ func TestParseWorktreeArgs(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateListAndRemoveWithSQLiteBranchPin(t *testing.T) {
-	useFakeWorktreeBranchEnsure(t)
+func TestWorktreeCreateListAndRemoveWithoutDBPin(t *testing.T) {
 	agentHome := t.TempDir()
 	t.Setenv("SCENERY_AGENT_HOME", agentHome)
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{
-		"name": "demo",
-		"dev": {
-			"services": {
-				"main": {
-					"kind": "sqlite",
-					"project": "demo",
-					"branch_name_template": "{app}/{git_branch}",
-					"database": "demo.sqlite"
-				}
-			}
-		}
-	}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
@@ -73,14 +47,14 @@ func TestWorktreeCreateListAndRemoveWithSQLiteBranchPin(t *testing.T) {
 	if err := json.Unmarshal(createAOut.Bytes(), &createdA); err != nil {
 		t.Fatalf("decode create A JSON: %v\n%s", err, createAOut.String())
 	}
-	if !createdA.OK || createdA.DBPin == nil || createdA.DBPin.Branch != "demo/pricing-agent" {
+	if !createdA.OK {
 		t.Fatalf("created A = %+v", createdA)
 	}
 	if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.create.v1.schema.json"), createdA); len(diagnostics) != 0 {
 		t.Fatalf("create A schema diagnostics = %+v", diagnostics)
 	}
-	if _, err := os.Stat(filepath.Join(createdA.Path, ".scenery", "worktree-db.json")); err != nil {
-		t.Fatalf("target A pin missing: %v", err)
+	if _, err := os.Stat(filepath.Join(createdA.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
+		t.Fatalf("target A pin exists err=%v", err)
 	}
 
 	var createBOut bytes.Buffer
@@ -91,14 +65,14 @@ func TestWorktreeCreateListAndRemoveWithSQLiteBranchPin(t *testing.T) {
 	if err := json.Unmarshal(createBOut.Bytes(), &createdB); err != nil {
 		t.Fatalf("decode create B JSON: %v\n%s", err, createBOut.String())
 	}
-	if !createdB.OK || createdB.DBPin == nil || createdB.DBPin.Branch != "demo/content-agent" {
+	if !createdB.OK {
 		t.Fatalf("created B = %+v", createdB)
 	}
-	if createdA.Path == createdB.Path || createdA.DBPin.BranchID == createdB.DBPin.BranchID || createdA.DBPin.Branch == createdB.DBPin.Branch {
+	if createdA.Path == createdB.Path {
 		t.Fatalf("created worktrees are not isolated: A=%+v B=%+v", createdA, createdB)
 	}
-	if _, err := os.Stat(filepath.Join(createdB.Path, ".scenery", "worktree-db.json")); err != nil {
-		t.Fatalf("target B pin missing: %v", err)
+	if _, err := os.Stat(filepath.Join(createdB.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
+		t.Fatalf("target B pin exists err=%v", err)
 	}
 	var listOut bytes.Buffer
 	if err := runWorktreeCommand(t.Context(), &listOut, []string{"list", "--app-root", root, "--json"}); err != nil {
@@ -126,14 +100,14 @@ func TestWorktreeCreateListAndRemoveWithSQLiteBranchPin(t *testing.T) {
 
 	for _, name := range []string{"pricing-agent", "content-agent"} {
 		var removeOut bytes.Buffer
-		if err := runWorktreeCommand(t.Context(), &removeOut, []string{"remove", name, "--app-root", root, "--db", "--json"}); err != nil {
+		if err := runWorktreeCommand(t.Context(), &removeOut, []string{"remove", name, "--app-root", root, "--json"}); err != nil {
 			t.Fatalf("runWorktreeCommand remove %s returned error: %v", name, err)
 		}
 		var removed worktreeRemoveResult
 		if err := json.Unmarshal(removeOut.Bytes(), &removed); err != nil {
 			t.Fatalf("decode remove %s JSON: %v\n%s", name, err, removeOut.String())
 		}
-		if !removed.OK || !removed.DBPinRemoved {
+		if !removed.OK {
 			t.Fatalf("removed %s = %+v", name, removed)
 		}
 		if diagnostics := validateHarnessJSONSchemaFile(filepath.Join(repoRootForTest(t), "docs", "schemas", "scenery.worktree.remove.v1.schema.json"), removed); len(diagnostics) != 0 {
@@ -148,18 +122,13 @@ func TestWorktreeCreateListAndRemoveWithSQLiteBranchPin(t *testing.T) {
 	}
 }
 
-func TestWorktreeCreateRollsBackWhenSQLiteBranchEnsureFails(t *testing.T) {
-	prev := ensureDBBranchForWorktreeCreateFn
-	ensureDBBranchForWorktreeCreateFn = func(context.Context, appcfg.Config, worktreeDBPin) (dbBranchBackendStatus, error) {
-		return dbBranchBackendStatus{}, errors.New("branch ensure failed")
-	}
-	t.Cleanup(func() { ensureDBBranchForWorktreeCreateFn = prev })
+func TestWorktreeCreateDoesNotEnsureDatabaseBranch(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{"kind":"sqlite","mode":"local","project":"demo","branch_name_template":"{app}/{git_branch}","database":"demo.sqlite"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
@@ -168,30 +137,32 @@ func TestWorktreeCreateRollsBackWhenSQLiteBranchEnsureFails(t *testing.T) {
 
 	target := defaultWorktreePath(root, "collision")
 	err := runWorktreeCommand(t.Context(), &bytes.Buffer{}, []string{"create", "collision", "--from", "main", "--app-root", root, "--json"})
-	if err == nil || !strings.Contains(err.Error(), "branch ensure failed") {
+	if err != nil {
 		t.Fatalf("create error = %v", err)
 	}
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		t.Fatalf("rolled-back worktree still exists, stat err=%v", err)
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("worktree missing after create, stat err=%v", err)
 	}
 	worktrees, err := listGitWorktrees(t.Context(), root)
 	if err != nil {
 		t.Fatalf("list worktrees: %v", err)
 	}
+	resolvedTarget := evalPathForTestAllowMissing(t, target)
 	for _, wt := range worktrees {
-		if evalPathForTestAllowMissing(t, wt.Path) == target {
-			t.Fatalf("rolled-back worktree still registered: %+v", worktrees)
+		if evalPathForTestAllowMissing(t, wt.Path) == resolvedTarget {
+			return
 		}
 	}
+	t.Fatalf("created worktree not registered: %+v", worktrees)
 }
 
-func TestWorktreeCreateSkipsSQLiteBranchPinForManualBranchPolicy(t *testing.T) {
+func TestWorktreeCreateSkipsDBPinForManualBranchPolicy(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{"kind":"sqlite","project":"demo","branch_policy":"manual","database":"demo.sqlite"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
@@ -206,22 +177,18 @@ func TestWorktreeCreateSkipsSQLiteBranchPinForManualBranchPolicy(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &created); err != nil {
 		t.Fatalf("decode create JSON: %v\n%s", err, out.String())
 	}
-	if created.DBPin != nil {
-		t.Fatalf("manual policy should not auto-pin db branch: %+v", created.DBPin)
-	}
-	if _, err := os.Stat(worktreeDBPinPath(created.Path)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(created.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
 		t.Fatalf("manual policy wrote db pin, stat err=%v", err)
 	}
 }
 
 func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFails(t *testing.T) {
-	useFakeWorktreeBranchEnsure(t)
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := filepath.Join(t.TempDir(), "demo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{"kind":"sqlite","project":"demo","branch_name_template":"{app}/{git_branch}","database":"demo.sqlite"}}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo","dev":{"services":{"main":{}}}}`)
 	runGitForTest(t, root, "init", "-b", "main")
 	runGitForTest(t, root, "config", "user.email", "test@example.com")
 	runGitForTest(t, root, "config", "user.name", "Test User")
@@ -241,8 +208,8 @@ func TestWorktreeRemoveRestoresDBStateWhenGitRemoveFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("remove should fail for dirty worktree")
 	}
-	if _, err := os.Stat(worktreeDBPinPath(created.Path)); err != nil {
-		t.Fatalf("db state was not restored after failed remove: %v", err)
+	if _, err := os.Stat(filepath.Join(created.Path, ".scenery", "worktree-db.json")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected db state after failed remove: %v", err)
 	}
 }
 
