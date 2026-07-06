@@ -3,23 +3,13 @@
   "$id": "https://scenery.sh/schemas/scenery.inspect.endpoints.v1.schema.json",
   "title": "scenery.inspect.endpoints.v1",
   "type": "object",
-  "required": ["schema_version", "app", "endpoints", "wire"],
+  "required": ["schema_version", "app", "endpoints"],
   "properties": {
     "schema_version": { "const": "scenery.inspect.endpoints.v1" },
     "app": { "$ref": "#/$defs/appRef" },
     "endpoints": {
       "type": "array",
       "items": { "$ref": "#/$defs/endpoint" }
-    },
-    "wire": {
-      "type": "object",
-      "required": ["wire_schema_hash", "available", "unsupported"],
-      "properties": {
-        "wire_schema_hash": { "type": "string" },
-        "available": { "type": "integer", "minimum": 0 },
-        "unsupported": { "type": "integer", "minimum": 0 }
-      },
-      "additionalProperties": false
     }
   },
   "additionalProperties": false,
@@ -38,7 +28,7 @@
     },
     "endpoint": {
       "type": "object",
-      "required": ["id", "service", "endpoint", "access", "raw", "path", "methods", "has_payload", "wire"],
+      "required": ["id", "service", "endpoint", "access", "raw", "path", "methods", "has_payload"],
       "properties": {
         "id": { "type": "string" },
         "service": { "type": "string" },
@@ -51,19 +41,7 @@
           "items": { "type": "string" }
         },
         "generated": { "type": "boolean" },
-        "has_payload": { "type": "boolean" },
-        "wire": { "$ref": "#/$defs/wireInfo" }
-      },
-      "additionalProperties": false
-    },
-    "wireInfo": {
-      "type": "object",
-      "required": ["available"],
-      "properties": {
-        "available": { "type": "boolean" },
-        "unsupported_reason": { "type": "string" },
-        "schema_hash": { "type": "string" },
-        "path": { "type": "string" }
+        "has_payload": { "type": "boolean" }
       },
       "additionalProperties": false
     }

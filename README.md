@@ -11,19 +11,18 @@ scenery is used in production. The stable v0 surface is intentionally small and 
 ## Why scenery?
 
 - **Go source is the app model.** Services, APIs, auth handlers, middleware, durable tasks, cron jobs, and beta static model/page IR are discovered from Go code.
-- **One local app server.** `scenery serve` builds once and starts a headless, production-like HTTP server.
 - **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, and optional HTTPS local domains.
 - **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
 - **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
 - **Inspectable by tools and agents.** `scenery inspect`, `scenery check`, `scenery logs`, `scenery harness`, and `scenery validate` expose machine-readable JSON contracts.
-- **Generated clients.** scenery can generate a TypeScript client with JSON and local wire-format support.
+- **Generated clients.** scenery can generate a TypeScript client for typed routes.
 
 ## Status
 
 Available now:
 
 - `.scenery.json` root discovery, with `.config.json` accepted as an alias
-- `scenery up`, `scenery serve`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
+- `scenery up`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
 - typed and raw HTTP endpoints
 - public, auth, and private endpoints
 - auth handlers and request auth helpers
@@ -39,7 +38,7 @@ Available now:
 - configured generators, SQLC refresh, database lifecycle commands, and repo task commands
 - app-local code tasks
 - TypeScript client generation
-- JSON/wire benchmark fixture
+- benchmark fixture
 
 Stable v0 API details live in [docs/local-contract.md](docs/local-contract.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -142,13 +141,13 @@ Run it:
 
 ```sh
 scenery check --json
-scenery serve
+scenery up --detach
 ```
 
-Call it:
+Call it (use `scenery ps --json` to discover the base URL):
 
 ```sh
-curl http://127.0.0.1:4000/hello/world
+curl http://localhost:4001/api/hello/world
 ```
 
 ## Local Development
@@ -218,7 +217,6 @@ scenery help <command>|all|--json
 scenery ps [--json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--db] [--state] [--all] [--json]
 scenery prune --older-than <duration> [--app-root <path>] [--json]
-scenery serve [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] --json
@@ -245,7 +243,7 @@ scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [
 scenery harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|durable --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|models|views|build|paths|generators|durable --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]
@@ -300,11 +298,10 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 
 ```sh
 scenery inspect endpoints --json
-scenery inspect wire --json
 scenery generate client --lang typescript --output ./src/scenery-client.ts
 ```
 
-The generated client understands the app's route model and local wire capabilities. The benchmark fixture in [benchmarks/json-wire](benchmarks/json-wire) compares JSON, wire JSON, binary wire, and automatic wire modes.
+The generated client understands the app's route model.
 
 `WithMeta` methods also expose parsed `txid` metadata from `X-Txid`/`X-TXID`. sync-backed write flows can use `observeAPIResponseTxid` to report later sync observation failures as sync/substrate failures after a committed mutation, rather than as API mutation failures.
 
@@ -377,12 +374,6 @@ scenery harness self --json --write
 
 Self-harness Go test steps use the Go test result cache by default; add
 `--fresh-tests` when you need a fresh `-count=1` run.
-
-Run the JSON/wire benchmark:
-
-```sh
-benchmarks/json-wire/run.sh
-```
 
 ## Contributing
 

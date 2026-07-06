@@ -6,8 +6,6 @@ export interface CatalogEndpointSummary {
   serviceName: string;
   rpcName: string;
   accessType: string;
-  wireAvailable: boolean;
-  wireReason?: string;
   path: string;
   methods: string[];
   requestSchema?: unknown;
@@ -52,8 +50,6 @@ export function summarizeEndpoint(service: ServiceMeta, rpc: ServiceRPC): Catalo
     serviceName: service.name,
     rpcName: rpc.name,
     accessType: rpc.access_type,
-    wireAvailable: rpc.wire?.available ?? false,
-    wireReason: rpc.wire?.unsupported_reason,
     path: renderMetadataPath(rpc.path),
     methods: rpc.http_methods ?? [],
     requestSchema: rpc.request_schema,

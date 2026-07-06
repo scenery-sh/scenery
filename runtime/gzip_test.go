@@ -8,23 +8,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"scenery.sh/internal/wire"
 )
 
 func TestServerGzipCompressesAcceptedResponses(t *testing.T) {
-	restore := replaceGlobalRegistryForTest()
-	defer restore()
-
-	httpServer, err := newServer("127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("newServer() error = %v", err)
-	}
-
+	handler := withGzip(jsonTestHandler())
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, wire.CapabilitiesPath, nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
-	httpServer.Handler.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -37,35 +28,35 @@ func TestServerGzipCompressesAcceptedResponses(t *testing.T) {
 	}
 
 	body := gunzipResponseBody(t, rec.Body)
-	var caps wire.Capabilities
-	if err := json.Unmarshal(body, &caps); err != nil {
-		t.Fatalf("decode capabilities: %v", err)
+	var payload map[string]string
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode JSON: %v", err)
 	}
-	if caps.SchemaVersion != "scenery.wire.capabilities.v1" {
-		t.Fatalf("schema_version = %q", caps.SchemaVersion)
+	if payload["ok"] != "true" {
+		t.Fatalf("payload = %#v", payload)
 	}
 }
 
 func TestServerLeavesResponsesUncompressedWithoutAcceptEncoding(t *testing.T) {
-	restore := replaceGlobalRegistryForTest()
-	defer restore()
-
-	httpServer, err := newServer("127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("newServer() error = %v", err)
-	}
-
+	handler := withGzip(jsonTestHandler())
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, wire.CapabilitiesPath, nil)
-	httpServer.Handler.ServeHTTP(rec, req)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	handler.ServeHTTP(rec, req)
 
 	if got := rec.Header().Get("Content-Encoding"); got != "" {
 		t.Fatalf("content-encoding = %q, want empty", got)
 	}
-	var caps wire.Capabilities
-	if err := json.Unmarshal(rec.Body.Bytes(), &caps); err != nil {
-		t.Fatalf("decode capabilities: %v", err)
+	var payload map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode JSON: %v", err)
 	}
+}
+
+func jsonTestHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":"true"}`))
+	})
 }
 
 func TestGzipSkipsNoBodyResponses(t *testing.T) {

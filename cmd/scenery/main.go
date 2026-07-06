@@ -44,8 +44,6 @@ func run(args []string) error {
 		return statusCommand(args[1:])
 	case "console":
 		return consoleCommand(args[1:])
-	case "serve":
-		return serveCommand(args[1:])
 	case "down":
 		return downCommand(args[1:])
 	case "prune":
@@ -107,6 +105,11 @@ func (e *silentCLIError) Error() string {
 	}
 	return e.err.Error()
 }
+
+var (
+	runWithWatchFunc   = runWithWatch
+	runDetachedDevFunc = runDetachedDev
+)
 
 func upCommand(args []string) error {
 	opts, err := parseDevArgs(args)

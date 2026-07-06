@@ -500,7 +500,7 @@ export function ServiceCatalogPage({
             </Section>
             <Section padding={4}>
               <VStack gap={3} as="section">
-                <SectionHeading title="Schemas" description={selected.rpc?.wire?.available ? 'wire available' : selected.rpc?.wire?.unsupported_reason ?? 'JSON'} />
+                <SectionHeading title="Schemas" description="JSON" />
                 <CodeBlock title="Request" code={formatJSON(selected.rpc?.request_schema ?? { type: 'empty' })} language="json" width="100%" maxHeight={260} />
                 <CodeBlock title="Response" code={formatJSON(selected.rpc?.response_schema ?? { type: 'empty' })} language="json" width="100%" maxHeight={260} />
               </VStack>

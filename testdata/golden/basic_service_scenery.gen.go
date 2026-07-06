@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	sceneryruntime "scenery.sh/runtime"
 	"sync"
@@ -157,18 +156,15 @@ func init() {
 	})
 	sceneryruntime.RegisterEndpointFunc(AuthEcho, "service", "AuthEcho")
 	sceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{
-		Service:        "service",
-		Name:           "AuthEcho",
-		Access:         sceneryruntime.Auth,
-		Raw:            false,
-		Path:           "/service.AuthEcho",
-		Methods:        []string{"GET", "POST"},
-		PathParams:     nil,
-		PayloadType:    nil,
-		ResponseType:   sceneryruntime.TypeOf[*AuthEchoResponse](),
-		WireID:         "service.AuthEcho",
-		WireSchemaHash: "20fd6ec3879a6e2ac2ab2e049730900cee7f2f72ff19daf06e5af85bf4d5fc88",
-		WireAvailable:  true,
+		Service:      "service",
+		Name:         "AuthEcho",
+		Access:       sceneryruntime.Auth,
+		Raw:          false,
+		Path:         "/service.AuthEcho",
+		Methods:      []string{"GET", "POST"},
+		PathParams:   nil,
+		PayloadType:  nil,
+		ResponseType: sceneryruntime.TypeOf[*AuthEchoResponse](),
 		Invoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {
 			svc, err := sceneryInternalGetService()
 			if err != nil {
@@ -183,18 +179,15 @@ func init() {
 	})
 	sceneryruntime.RegisterEndpointFunc(CallPrivate, "service", "CallPrivate")
 	sceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{
-		Service:        "service",
-		Name:           "CallPrivate",
-		Access:         sceneryruntime.Public,
-		Raw:            false,
-		Path:           "/service.CallPrivate",
-		Methods:        []string{"GET", "POST"},
-		PathParams:     nil,
-		PayloadType:    nil,
-		ResponseType:   sceneryruntime.TypeOf[*EchoResponse](),
-		WireID:         "service.CallPrivate",
-		WireSchemaHash: "5af6529089150ef71d5f99a43495bac787fad6686999186bc00501eee1006811",
-		WireAvailable:  true,
+		Service:      "service",
+		Name:         "CallPrivate",
+		Access:       sceneryruntime.Public,
+		Raw:          false,
+		Path:         "/service.CallPrivate",
+		Methods:      []string{"GET", "POST"},
+		PathParams:   nil,
+		PayloadType:  nil,
+		ResponseType: sceneryruntime.TypeOf[*EchoResponse](),
 		Invoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {
 			svc, err := sceneryInternalGetService()
 			if err != nil {
@@ -209,18 +202,15 @@ func init() {
 	})
 	sceneryruntime.RegisterEndpointFunc(CustomStatus, "service", "CustomStatus")
 	sceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{
-		Service:        "service",
-		Name:           "CustomStatus",
-		Access:         sceneryruntime.Public,
-		Raw:            false,
-		Path:           "/service.CustomStatus",
-		Methods:        []string{"GET", "POST"},
-		PathParams:     nil,
-		PayloadType:    nil,
-		ResponseType:   sceneryruntime.TypeOf[*StatusResponse](),
-		WireID:         "service.CustomStatus",
-		WireSchemaHash: "d6103dd46362cd5fae4e9fad30faea5efc48aca4707b82fbc8758debfff2c1c2",
-		WireAvailable:  true,
+		Service:      "service",
+		Name:         "CustomStatus",
+		Access:       sceneryruntime.Public,
+		Raw:          false,
+		Path:         "/service.CustomStatus",
+		Methods:      []string{"GET", "POST"},
+		PathParams:   nil,
+		PayloadType:  nil,
+		ResponseType: sceneryruntime.TypeOf[*StatusResponse](),
 		Invoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {
 			svc, err := sceneryInternalGetService()
 			if err != nil {
@@ -235,18 +225,15 @@ func init() {
 	})
 	sceneryruntime.RegisterEndpointFunc(Echo, "service", "Echo")
 	sceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{
-		Service:        "service",
-		Name:           "Echo",
-		Access:         sceneryruntime.Public,
-		Raw:            false,
-		Path:           "/echo/:name",
-		Methods:        []string{"GET", "POST"},
-		PathParams:     []sceneryruntime.ParamSpec{sceneryruntime.ParamSpec{Name: "name", Kind: sceneryruntime.ParamString}},
-		PayloadType:    sceneryruntime.TypeOf[*EchoRequest](),
-		ResponseType:   sceneryruntime.TypeOf[*EchoResponse](),
-		WireID:         "service.Echo",
-		WireSchemaHash: "37f11f8e50ad4dc2fb4c6a14a2e4c4d56aeb1702705bed8bdeddc8def8d6fbf7",
-		WireAvailable:  true,
+		Service:      "service",
+		Name:         "Echo",
+		Access:       sceneryruntime.Public,
+		Raw:          false,
+		Path:         "/echo/:name",
+		Methods:      []string{"GET", "POST"},
+		PathParams:   []sceneryruntime.ParamSpec{sceneryruntime.ParamSpec{Name: "name", Kind: sceneryruntime.ParamString}},
+		PayloadType:  sceneryruntime.TypeOf[*EchoRequest](),
+		ResponseType: sceneryruntime.TypeOf[*EchoResponse](),
 		Invoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {
 			svc, err := sceneryInternalGetService()
 			if err != nil {
@@ -258,58 +245,18 @@ func init() {
 			}
 			return resp, nil
 		},
-		WireInvoke: func(ctx context.Context, pathArgs []any, payloadJSON []byte) (any, error) {
-			svc, err := sceneryInternalGetService()
-			if err != nil {
-				return nil, err
-			}
-			var payload *EchoRequest
-			if len(payloadJSON) != 0 {
-				if err := json.Unmarshal(payloadJSON, &payload); err != nil {
-					return nil, err
-				}
-			}
-			sceneryruntime.SetCurrentRequestPayload(ctx, payload)
-			resp, err := svc.sceneryInternalImplEcho(ctx, pathArgs[0].(string), payload)
-			if err != nil {
-				return nil, err
-			}
-			return resp, nil
-		},
-		WireInvokeJSON: func(ctx context.Context, pathArgs []any, payloadJSON []byte) ([]byte, error) {
-			svc, err := sceneryInternalGetService()
-			if err != nil {
-				return nil, err
-			}
-			var payload *EchoRequest
-			if len(payloadJSON) != 0 {
-				if err := json.Unmarshal(payloadJSON, &payload); err != nil {
-					return nil, err
-				}
-			}
-			sceneryruntime.SetCurrentRequestPayload(ctx, payload)
-			resp, err := svc.sceneryInternalImplEcho(ctx, pathArgs[0].(string), payload)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(resp)
-		},
 	})
 	sceneryruntime.RegisterEndpointFunc(Raw, "service", "Raw")
 	sceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{
-		Service:               "service",
-		Name:                  "Raw",
-		Access:                sceneryruntime.Public,
-		Raw:                   true,
-		Path:                  "/raw/*rest",
-		Methods:               []string{"*"},
-		PathParams:            nil,
-		PayloadType:           nil,
-		ResponseType:          nil,
-		WireID:                "service.Raw",
-		WireSchemaHash:        "",
-		WireAvailable:         false,
-		WireUnsupportedReason: "raw endpoint",
+		Service:      "service",
+		Name:         "Raw",
+		Access:       sceneryruntime.Public,
+		Raw:          true,
+		Path:         "/raw/*rest",
+		Methods:      []string{"*"},
+		PathParams:   nil,
+		PayloadType:  nil,
+		ResponseType: nil,
 		RawHandler: func(w http.ResponseWriter, req *http.Request) {
 			svc, err := sceneryInternalGetService()
 			if err != nil {
@@ -320,19 +267,15 @@ func init() {
 	})
 	sceneryruntime.RegisterEndpointFunc(Secret, "service", "Secret")
 	sceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{
-		Service:               "service",
-		Name:                  "Secret",
-		Access:                sceneryruntime.Private,
-		Raw:                   false,
-		Path:                  "/service.Secret",
-		Methods:               []string{"GET", "POST"},
-		PathParams:            nil,
-		PayloadType:           nil,
-		ResponseType:          sceneryruntime.TypeOf[*EchoResponse](),
-		WireID:                "service.Secret",
-		WireSchemaHash:        "",
-		WireAvailable:         false,
-		WireUnsupportedReason: "private endpoint",
+		Service:      "service",
+		Name:         "Secret",
+		Access:       sceneryruntime.Private,
+		Raw:          false,
+		Path:         "/service.Secret",
+		Methods:      []string{"GET", "POST"},
+		PathParams:   nil,
+		PayloadType:  nil,
+		ResponseType: sceneryruntime.TypeOf[*EchoResponse](),
 		Invoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {
 			svc, err := sceneryInternalGetService()
 			if err != nil {

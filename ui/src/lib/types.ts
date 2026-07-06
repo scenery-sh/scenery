@@ -95,19 +95,11 @@ export interface ServiceRPC {
   name: string;
   access_type: string;
   proto: string;
-  wire?: WireInfo;
   path: MetadataPath;
   loc?: SourceLoc;
   http_methods: string[];
   request_schema?: unknown;
   response_schema?: unknown;
-}
-
-export interface WireInfo {
-  available: boolean;
-  unsupported_reason?: string;
-  schema_hash?: string;
-  path?: string;
 }
 
 export interface SourceLoc {

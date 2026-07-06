@@ -4,7 +4,7 @@ This page is the human reference for scenery-owned environment variables. The ma
 
 Prefer `.scenery.json` for stable app configuration. Use environment variables for local overrides, secrets, process identity, or explicit escape hatches. New production env names must be added to the registry with rationale, docs, and tests; otherwise self-harness fails.
 
-Process environment wins over values loaded from `.env` and `.env.local`. `scenery up`, local `scenery serve`, local `scenery task run`, and local `scenery worker` require an app-root `.env`; `.env.local` is optional.
+Process environment wins over values loaded from `.env` and `.env.local`. `scenery up`, local `scenery task run`, and local `scenery worker` require an app-root `.env`; `.env.local` is optional.
 
 ## Agent And Dev Routing
 
@@ -150,5 +150,3 @@ scenery also injects standard OpenTelemetry endpoint variables when Victoria sid
 | `SCENERY_SHADCN_OVERWRITE` | user input | `1` permits overwrite operations in the dashboard shadcn wrapper. |
 
 Variables named `SCENERY_TEST_*` that appear only inside tests are not part of the user-facing contract.
-
-Generated TypeScript clients also contain constants named `SCENERY_WIRE_SCHEMA_HASH`, `SCENERY_WIRE_CONTENT_TYPE`, and `SCENERY_WIRE_JSON_CONTENT_TYPE`. Those are generated code constants, not process environment variables.

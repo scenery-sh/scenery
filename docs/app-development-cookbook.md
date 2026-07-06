@@ -55,8 +55,9 @@ Validate:
 
 ```sh
 scenery check --json
-scenery serve
-curl http://127.0.0.1:4000/hello/world
+scenery up --detach
+# discover the base URL with `scenery ps --json`, then:
+curl http://localhost:4001/api/hello/world
 ```
 
 Common failure: `scenery check` cannot find the app. Run it from the app root or pass `--app-root`.
@@ -117,7 +118,7 @@ object metadata. It needs no managed process, toolchain artifact, or dev-service
 declaration: declaring `storage.stores` is enough, and `scenery up` serves the
 stores from the local backend over a session-local proxy.
 
-For a headless `scenery serve` or standalone `scenery worker`, set an explicit
+For a standalone `scenery worker` or an operator-run generated binary, set an explicit
 `SCENERY_STORAGE_CONFIG` whose stores use either `kind: "local"` with an absolute
 `root`, or `kind: "proxy"` with a `proxy_socket` pointing at an operator-owned
 storage runtime. Headless runtimes fail closed when storage is declared but the
@@ -259,8 +260,9 @@ Validate:
 
 ```sh
 scenery check --json
-scenery serve
-curl -X POST http://127.0.0.1:4000/users/dev-bootstrap
+scenery up --detach
+# discover the base URL with `scenery ps --json`, then:
+curl -X POST http://localhost:4001/api/users/dev-bootstrap
 ```
 
 Common failure: `DatabaseURL` is missing. Put it in process env or an app-root `.env.local` for local development.
@@ -473,7 +475,7 @@ For a Postgres service on the shared dev server:
 }
 ```
 
-During `scenery up`, Scenery creates a per-worktree database on the shared local Postgres server and injects `REPORTS_DATABASE_URL`. For production, headless `scenery serve`, headless `scenery worker`, or bring-your-own local Postgres, set that same env var to a `postgres://` or `postgresql://` URL; explicit DSNs always win and Scenery does not manage the server in that mode.
+During `scenery up`, Scenery creates a per-worktree database on the shared local Postgres server and injects `REPORTS_DATABASE_URL`. For production, standalone `scenery worker`, or bring-your-own local Postgres, set that same env var to a `postgres://` or `postgresql://` URL; explicit DSNs always win and Scenery does not manage the server in that mode.
 
 Validate:
 
@@ -499,12 +501,6 @@ If app config declares `generators.clients`, inspect and run the configured grap
 scenery inspect generators --json
 scenery generate --dry-run --json
 scenery generate client
-```
-
-Inspect wire support:
-
-```sh
-scenery inspect wire --json
 ```
 
 Common failure: committing generated clients without regenerating after endpoint changes.

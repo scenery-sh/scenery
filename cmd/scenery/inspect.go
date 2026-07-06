@@ -21,7 +21,6 @@ import (
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
-	"scenery.sh/internal/wiremodel"
 )
 
 var inspectAppModelCache = struct {
@@ -263,17 +262,6 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 			return err
 		}
 		return writeInspectJSON(stdout, inspectdata.BuildViewsResponse(appRoot, cfg, model))
-	case "wire":
-		if payload, ok, err := inspectdata.ReadGeneratedWireCapabilities(appRoot); err != nil {
-			return err
-		} else if ok {
-			return writeInspectJSON(stdout, payload)
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, wiremodel.AppCapabilities(model))
 	case "build":
 		resp, err := buildInspectBuildResponse(appRoot, cfg)
 		if err != nil {

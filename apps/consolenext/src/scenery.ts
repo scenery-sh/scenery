@@ -308,12 +308,6 @@ export type ServiceRPC = {
   name: string
   access_type?: string
   proto?: string
-  wire?: {
-    available?: boolean
-    unsupported_reason?: string
-    schema_hash?: string
-    path?: string
-  }
   path?: MetadataPath
   loc?: {
     pkg_path?: string

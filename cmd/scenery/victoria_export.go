@@ -569,8 +569,8 @@ func protoDouble(field int, value float64) []byte {
 	return protoFixed64(field, math.Float64bits(value))
 }
 
-func protoKey(field int, wireType uint64) []byte {
-	return protoRawVarint(uint64(field)<<3 | wireType)
+func protoKey(field int, kind uint64) []byte {
+	return protoRawVarint(uint64(field)<<3 | kind)
 }
 
 func protoRawVarint(value uint64) []byte {

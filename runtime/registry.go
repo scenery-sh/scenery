@@ -51,24 +51,18 @@ type AuthInfo struct {
 }
 
 type Endpoint struct {
-	Service               string
-	Name                  string
-	Access                Access
-	Raw                   bool
-	Path                  string
-	Methods               []string
-	MiddlewareIDs         []string
-	PathParams            []ParamSpec
-	PayloadType           reflect.Type
-	ResponseType          reflect.Type
-	WireID                string
-	WireSchemaHash        string
-	WireAvailable         bool
-	WireUnsupportedReason string
-	Invoke                func(context.Context, []any, any) (any, error)
-	WireInvoke            func(context.Context, []any, []byte) (any, error)
-	WireInvokeJSON        func(context.Context, []any, []byte) ([]byte, error)
-	RawHandler            func(http.ResponseWriter, *http.Request)
+	Service       string
+	Name          string
+	Access        Access
+	Raw           bool
+	Path          string
+	Methods       []string
+	MiddlewareIDs []string
+	PathParams    []ParamSpec
+	PayloadType   reflect.Type
+	ResponseType  reflect.Type
+	Invoke        func(context.Context, []any, any) (any, error)
+	RawHandler    func(http.ResponseWriter, *http.Request)
 }
 
 type Middleware struct {
@@ -223,9 +217,6 @@ func RegisterEndpoint(ep *Endpoint) {
 	}
 	if len(ep.Methods) == 0 {
 		panic(fmt.Sprintf("runtime: endpoint %s missing methods", key))
-	}
-	if strings.TrimSpace(ep.WireID) == "" {
-		ep.WireID = key
 	}
 	global.endpoints[key] = ep
 }

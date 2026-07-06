@@ -26,7 +26,6 @@ scenery inspect routes --json
 scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
-scenery inspect wire --json
 scenery inspect durable --json
 scenery inspect storage --json
 scenery system toolchain verify --json
@@ -37,7 +36,7 @@ scenery harness --json --write
 scenery validate quick --json --write
 ```
 
-Prefer JSON output for agent decisions. Prefer `scenery up` for local development. Use `scenery serve` for headless API execution. Use `scenery task` for configured and code tasks. Use `scenery validate` for app-owned quality gates. Use `scenery worker` for worker-only durable and cron execution.
+Prefer JSON output for agent decisions. Prefer `scenery up` for local development. Use `scenery task` for configured and code tasks. Use `scenery validate` for app-owned quality gates. Use `scenery worker` for worker-only durable and cron execution.
 
 Run `scenery doctor --json` before deep app debugging when local readiness is in doubt. It is read-only and reports host resources, Go version, Docker engine reachability/details, optional tools, and app-sensitive dependency hints without building or starting services.
 
@@ -50,8 +49,7 @@ Run `scenery doctor --json` before deep app debugging when local readiness is in
 - App-owned non-runtime trees that should remain Git-tracked but stay out of `scenery up` rebuilds belong in app config `watch.ignore`, for example `["reference/"]`.
 - Go source is the app model.
 - `scenery up` starts the supervised local platform: app process, rebuild/restart loop, dashboard, API Explorer, logs, traces, metrics, managed dev services when configured, and optional frontend routing through the local agent. Default local routing is path mode: one app root/worktree gets one base URL such as `http://localhost:4001`, and dashboard/API/frontends live under `/consolenext/`, `/api/`, `/<frontend>/`, and `/runtime/`; use `scenery ps --json` to discover the base URL and route manifest.
-- Storage is a Scenery-owned app capability when app config declares `storage`. Stores use `kind: "local"` (empty defaults to `local`): a Scenery-owned directory tree with atomic temp-file+rename writes, checked fsync, and sidecar object metadata. Declaring `storage.stores` is enough; there is no managed storage process, toolchain artifact, or `dev.services` storage entry. `scenery up` serves the stores from the local backend over a session-local proxy socket; app code uses `scenery.sh/storage` and should not inspect proxy sockets or object directories. Headless `scenery serve` and standalone `scenery worker` require an explicit `SCENERY_STORAGE_CONFIG` and fail closed when storage is declared but the config is missing or empty; each store uses `kind: "local"` with an absolute `root` or `kind: "proxy"` with a `proxy_socket`. Private stores are internal-only: external storage routes deny them, while app/runtime helpers and Scenery's private route table may use them. Tenant-scoped stores keep caller-visible keys unchanged, derive tenants from standard auth on external routes, and require `storage.WithTenantID(ctx, tenantID)` or standard-auth context for private/internal calls. `PutOptions.ContentType` and `PutOptions.Metadata` are returned by `Head`, `Get`, and `List`; browser/proxy routes carry metadata through `X-Scenery-Storage-Meta-*` headers. `scenery inspect storage --json` and `scenery storage status --json` report the storage-cell path and per-store object counts/bytes; `scenery storage cleanup --json` reports the cell and removes it only with `--yes`. Offsite durability is an operator concern — replicate the storage-cell object directories (objects plus `__scenery/metadata/` sidecars) to S3 with `rclone`/`restic`.
-- `scenery serve` starts a headless API-role server and does not start dashboard, proxy, or watch mode.
+- Storage is a Scenery-owned app capability when app config declares `storage`. Stores use `kind: "local"` (empty defaults to `local`): a Scenery-owned directory tree with atomic temp-file+rename writes, checked fsync, and sidecar object metadata. Declaring `storage.stores` is enough; there is no managed storage process, toolchain artifact, or `dev.services` storage entry. `scenery up` serves the stores from the local backend over a session-local proxy socket; app code uses `scenery.sh/storage` and should not inspect proxy sockets or object directories. A standalone `scenery worker` requires an explicit `SCENERY_STORAGE_CONFIG` and fails closed when storage is declared but the config is missing or empty; each store uses `kind: "local"` with an absolute `root` or `kind: "proxy"` with a `proxy_socket`. Private stores are internal-only: external storage routes deny them, while app/runtime helpers and Scenery's private route table may use them. Tenant-scoped stores keep caller-visible keys unchanged, derive tenants from standard auth on external routes, and require `storage.WithTenantID(ctx, tenantID)` or standard-auth context for private/internal calls. `PutOptions.ContentType` and `PutOptions.Metadata` are returned by `Head`, `Get`, and `List`; browser/proxy routes carry metadata through `X-Scenery-Storage-Meta-*` headers. `scenery inspect storage --json` and `scenery storage status --json` report the storage-cell path and per-store object counts/bytes; `scenery storage cleanup --json` reports the cell and removes it only with `--yes`. Offsite durability is an operator concern — replicate the storage-cell object directories (objects plus `__scenery/metadata/` sidecars) to S3 with `rclone`/`restic`.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and called through generated helpers.
 - Typed endpoints decode path, query, header, cookie, and JSON body inputs into Go values.
 - Generated internal calls preserve routing, private access, auth context, tracing, and error semantics.
@@ -87,8 +85,9 @@ func Hello(ctx context.Context, name string) (*HelloResponse, error) {
 
 ```sh
 scenery check --json
-scenery serve
-curl http://127.0.0.1:4000/hello/world
+scenery up --detach
+# discover the base URL with `scenery ps --json`, then:
+curl http://localhost:4001/api/hello/world
 ```
 
 ## Directives
@@ -145,7 +144,7 @@ scenery down
 
 Use `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, then `scenery system edge trust` when a browser needs trusted wildcard local HTTPS on `127.0.0.1:443`. The DNS command owns wildcard `local.dev` resolution through managed dnsmasq; the privileged helper owns only the default HTTPS loopback listener and forwards raw TCP to user-owned Caddy on an unprivileged loopback port. Do not run Caddy, the agent router, or `scenery system edge install` as root. `scenery system edge` uses managed dnsmasq and Caddy from the toolchain. `scenery system edge trust` uses a temporary admin-only Caddy process and does not require the port-443 edge to already be running.
 
-For service databases, app processes, setup commands, DB setup, and workers receive the configured service URL env. SQLite services are file-backed. Postgres services are opt-in: an existing service `database_url_env` wins as an external DSN; otherwise `scenery up` uses the shared managed Postgres dev server and creates one database per app root/worktree/service. `DatabaseURL` is injected only when exactly one database service of any engine exists and that service did not explicitly set `database_url_env`. Treat `SCENERY_MANAGED_DATABASE_URL` as SQLite tooling/debug metadata and do not depend on `DATABASE_URL` unless the app config explicitly chooses that env name. Headless `scenery serve` and `scenery worker` require explicit Postgres DSNs; they do not start the managed dev server.
+For service databases, app processes, setup commands, DB setup, and workers receive the configured service URL env. SQLite services are file-backed. Postgres services are opt-in: an existing service `database_url_env` wins as an external DSN; otherwise `scenery up` uses the shared managed Postgres dev server and creates one database per app root/worktree/service. `DatabaseURL` is injected only when exactly one database service of any engine exists and that service did not explicitly set `database_url_env`. Treat `SCENERY_MANAGED_DATABASE_URL` as SQLite tooling/debug metadata and do not depend on `DATABASE_URL` unless the app config explicitly chooses that env name. A standalone `scenery worker` requires explicit Postgres DSNs; it does not start the managed dev server.
 
 For sync-backed frontend writes, generated TypeScript `WithMeta` methods include parsed `txid` metadata. Use `observeAPIResponseTxid` around the app's sync/TanStack observer so a post-commit sync timeout is reported as `SyncObservationError` instead of an API mutation failure.
 
@@ -194,11 +193,10 @@ Do not introduce new scenery-owned production environment variables by default. 
 scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
-scenery inspect wire --json
 scenery generate client --lang typescript --output ./src/scenery-client.ts
 ```
 
-Regenerate committed clients after endpoint, request/response, auth, or wire-capability changes.
+Regenerate committed clients after endpoint, request/response, or auth changes.
 Generated model CRUD endpoints are beta and appear in `scenery inspect endpoints --json`
 with `"generated": true`; generated stores use the configured app database URL
 env, defaulting to `DatabaseURL`, or Scenery's managed database env and target
@@ -268,7 +266,6 @@ scenery system edge install|trust|status|restart|uninstall|dns|privileged [--jso
 scenery help <command>|all|--json
 scenery ps [--json] [--app-root <path>] [--watch]
 scenery down [--app-root <path>] [--json]
-scenery serve [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker [--app-root <path>] [--env <name>]
 scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>]
 scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] --json
@@ -302,7 +299,7 @@ scenery storage put <store> <key> <file> [--app-root <path>] --json
 scenery storage get <store> <key> --output <file> [--app-root <path>] --json
 scenery storage rm <store> <key> [--recursive] [--app-root <path>] --json
 scenery storage cleanup [--yes] [--app-root <path>] --json
-scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|durable|storage|observability --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|models|views|build|paths|generators|durable|storage|observability --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]

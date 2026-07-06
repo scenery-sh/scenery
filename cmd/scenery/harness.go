@@ -114,7 +114,7 @@ func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) err
 		resp.OK = false
 	}
 
-	for _, subject := range []string{"app", "routes", "services", "endpoints", "models", "views", "wire", "build", "paths"} {
+	for _, subject := range []string{"app", "routes", "services", "endpoints", "models", "views", "build", "paths"} {
 		step := runHarnessInspect(subject, appRoot, artifactCtx)
 		resp.Steps = append(resp.Steps, step)
 		if !step.OK {
@@ -351,13 +351,6 @@ func summarizeHarnessInspect(subject string, payload map[string]any) map[string]
 		if items, ok := payload["endpoints"].([]any); ok {
 			summary["endpoints"] = len(items)
 		}
-		if wire, ok := payload["wire"].(map[string]any); ok {
-			summary["wire"] = wire
-		}
-	case "wire":
-		if tools, ok := payload["tools"].([]any); ok {
-			summary["tools"] = len(tools)
-		}
 	case "build":
 		if buildInfo, ok := payload["build"].(map[string]any); ok {
 			for _, key := range []string{"workspace_dir", "binary_path", "latest_manifest_path", "compiled"} {
@@ -416,7 +409,6 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 		"docs/schemas/scenery.metrics.query.v1.schema.json",
 		"docs/schemas/scenery.metrics.labels.v1.schema.json",
 		"docs/schemas/scenery.metrics.series.v1.schema.json",
-		"docs/schemas/scenery.wire.capabilities.v1.schema.json",
 		"docs/schemas/scenery.inspect.build.v1.schema.json",
 		"docs/schemas/scenery.inspect.paths.v1.schema.json",
 	}
@@ -446,7 +438,6 @@ func buildHarnessArtifacts(appRoot string, harnessWillExist bool) []harnessArtif
 		{Name: "endpoints", Path: ".scenery/gen/endpoints.json", SchemaVersion: "scenery.inspect.endpoints.v1"},
 		{Name: "models", Path: ".scenery/gen/models.json", SchemaVersion: "scenery.inspect.models.v1"},
 		{Name: "views", Path: ".scenery/gen/views.json", SchemaVersion: "scenery.inspect.views.v1"},
-		{Name: "wire", Path: ".scenery/gen/wire/capabilities.json", SchemaVersion: "scenery.wire.capabilities.v1"},
 		{Name: "gen-manifest", Path: ".scenery/gen/manifest.json", SchemaVersion: "scenery.gen.manifest.v1"},
 		{Name: "latest-build", Path: ".scenery/build/latest.json", SchemaVersion: "scenery.build.latest.v1"},
 		{Name: "latest-harness", Path: ".scenery/harness/latest.json", SchemaVersion: "scenery.harness.result.v1"},

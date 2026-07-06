@@ -220,9 +220,6 @@ func cachedCheckResult(appRoot string, cfg appcfg.Config, graphFingerprint strin
 	if _, ok, err := inspectdata.ReadGeneratedEndpoints(appRoot); err != nil || !ok {
 		return false, inspectdata.AppRef{}, err
 	}
-	if _, ok, err := inspectdata.ReadGeneratedWireCapabilities(appRoot); err != nil || !ok {
-		return false, inspectdata.AppRef{}, err
-	}
 	return true, app.App, nil
 }
 

@@ -11,8 +11,6 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/standardauthmeta"
-	"scenery.sh/internal/wire"
-	"scenery.sh/internal/wiremodel"
 )
 
 type AppRef struct {
@@ -85,7 +83,6 @@ type EndpointsResponse struct {
 	SchemaVersion string           `json:"schema_version"`
 	App           AppRef           `json:"app"`
 	Endpoints     []EndpointRecord `json:"endpoints"`
-	Wire          WireSummary      `json:"wire"`
 }
 
 type ModelsResponse struct {
@@ -179,12 +176,6 @@ type ViewSlotRecord struct {
 	Name string `json:"name"`
 }
 
-type WireSummary struct {
-	SchemaHash  string `json:"wire_schema_hash"`
-	Available   int    `json:"available"`
-	Unsupported int    `json:"unsupported"`
-}
-
 type RouteRecord struct {
 	ID         string   `json:"id"`
 	Service    string   `json:"service"`
@@ -199,7 +190,6 @@ type RouteRecord struct {
 	Receiver   string   `json:"receiver,omitempty"`
 	Generated  bool     `json:"generated,omitempty"`
 	HasPayload bool     `json:"has_payload"`
-	Wire       WireInfo `json:"wire"`
 }
 
 type EndpointRecord struct {
@@ -212,14 +202,6 @@ type EndpointRecord struct {
 	Methods    []string `json:"methods"`
 	Generated  bool     `json:"generated,omitempty"`
 	HasPayload bool     `json:"has_payload"`
-	Wire       WireInfo `json:"wire"`
-}
-
-type WireInfo struct {
-	Available         bool   `json:"available"`
-	UnsupportedReason string `json:"unsupported_reason,omitempty"`
-	SchemaHash        string `json:"schema_hash,omitempty"`
-	Path              string `json:"path,omitempty"`
 }
 
 func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResponse {
@@ -331,13 +313,6 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 				Methods:    append([]string(nil), ep.Methods...),
 				HasPayload: ep.Payload != nil,
 			}
-			wireInfo := wiremodel.Endpoint(ep)
-			item.Wire = WireInfo{
-				Available:         wireInfo.Available,
-				UnsupportedReason: wireInfo.UnsupportedReason,
-				SchemaHash:        wireInfo.SchemaHash,
-				Path:              wireInfo.WirePath,
-			}
 			if len(ep.Tags) > 0 {
 				item.Tags = slices.Clone(ep.Tags)
 				sort.Strings(item.Tags)
@@ -360,7 +335,6 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 				Methods:    append([]string(nil), ep.Methods...),
 				Generated:  true,
 				HasPayload: ep.HasPayload,
-				Wire:       WireInfo{Available: false, UnsupportedReason: "generated model endpoints do not publish wire contracts yet"},
 			})
 		}
 	}
@@ -377,7 +351,6 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 				Path:       ep.Path,
 				Methods:    append([]string(nil), ep.Methods...),
 				HasPayload: ep.HasPayload,
-				Wire:       WireInfo{Available: false, UnsupportedReason: "standard auth endpoints use JSON transport"},
 			})
 		}
 	}
@@ -398,18 +371,9 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 }
 
 func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) EndpointsResponse {
-	capabilities := wiremodel.AppCapabilities(app)
 	endpoints := make([]EndpointRecord, 0)
-	var available int
-	var unsupported int
 	for _, svc := range filteredModelServices(app.Services) {
 		for _, ep := range svc.Endpoints {
-			wireInfo := wiremodel.Endpoint(ep)
-			if wireInfo.Available {
-				available++
-			} else {
-				unsupported++
-			}
 			endpoints = append(endpoints, EndpointRecord{
 				ID:         svc.Name + "." + ep.Name,
 				Service:    svc.Name,
@@ -419,16 +383,9 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 				Path:       ep.Path,
 				Methods:    append([]string(nil), ep.Methods...),
 				HasPayload: ep.Payload != nil,
-				Wire: WireInfo{
-					Available:         wireInfo.Available,
-					UnsupportedReason: wireInfo.UnsupportedReason,
-					SchemaHash:        wireInfo.SchemaHash,
-					Path:              wireInfo.WirePath,
-				},
 			})
 		}
 		for _, ep := range svc.Generated {
-			unsupported++
 			endpoints = append(endpoints, EndpointRecord{
 				ID:         svc.Name + "." + ep.Name,
 				Service:    svc.Name,
@@ -439,13 +396,11 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 				Methods:    append([]string(nil), ep.Methods...),
 				Generated:  true,
 				HasPayload: ep.HasPayload,
-				Wire:       WireInfo{Available: false, UnsupportedReason: "generated model endpoints do not publish wire contracts yet"},
 			})
 		}
 	}
 	if cfg.Auth.Enabled {
 		for _, ep := range standardauthmeta.Endpoints() {
-			unsupported++
 			endpoints = append(endpoints, EndpointRecord{
 				ID:         ep.Service + "." + ep.Name,
 				Service:    ep.Service,
@@ -455,7 +410,6 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 				Path:       ep.Path,
 				Methods:    append([]string(nil), ep.Methods...),
 				HasPayload: ep.HasPayload,
-				Wire:       WireInfo{Available: false, UnsupportedReason: "standard auth endpoints use JSON transport"},
 			})
 		}
 	}
@@ -469,11 +423,6 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 		SchemaVersion: "scenery.inspect.endpoints.v1",
 		App:           appInfo(appRoot, cfg, app),
 		Endpoints:     endpoints,
-		Wire: WireSummary{
-			SchemaHash:  capabilities.SchemaHash,
-			Available:   available,
-			Unsupported: unsupported,
-		},
 	}
 }
 
@@ -669,10 +618,6 @@ func GeneratedViewsPath(appRoot string) string {
 	return filepath.Join(appRoot, ".scenery", "gen", "views.json")
 }
 
-func GeneratedWireCapabilitiesPath(appRoot string) string {
-	return filepath.Join(appRoot, ".scenery", "gen", "wire", "capabilities.json")
-}
-
 func ReadGeneratedApp(appRoot string) (*AppResponse, bool, error) {
 	var payload AppResponse
 	ok, err := readJSONFile(GeneratedAppPath(appRoot), &payload)
@@ -730,15 +675,6 @@ func ReadGeneratedModels(appRoot string) (*ModelsResponse, bool, error) {
 func ReadGeneratedViews(appRoot string) (*ViewsResponse, bool, error) {
 	var payload ViewsResponse
 	ok, err := readJSONFile(GeneratedViewsPath(appRoot), &payload)
-	if err != nil || !ok {
-		return nil, ok, err
-	}
-	return &payload, true, nil
-}
-
-func ReadGeneratedWireCapabilities(appRoot string) (*wire.Capabilities, bool, error) {
-	var payload wire.Capabilities
-	ok, err := readJSONFile(GeneratedWireCapabilitiesPath(appRoot), &payload)
 	if err != nil || !ok {
 		return nil, ok, err
 	}

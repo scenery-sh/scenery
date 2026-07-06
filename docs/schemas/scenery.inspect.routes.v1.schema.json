@@ -11,7 +11,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "service", "endpoint", "package", "file", "access", "raw", "path", "methods", "has_payload", "wire"],
+        "required": ["id", "service", "endpoint", "package", "file", "access", "raw", "path", "methods", "has_payload"],
         "properties": {
           "id": { "type": "string" },
           "service": { "type": "string" },
@@ -31,8 +31,7 @@
           },
           "receiver": { "type": "string" },
           "generated": { "type": "boolean" },
-          "has_payload": { "type": "boolean" },
-          "wire": { "$ref": "#/$defs/wireInfo" }
+          "has_payload": { "type": "boolean" }
         },
         "additionalProperties": false
       }
@@ -49,17 +48,6 @@
         "root": { "type": "string" },
         "config_path": { "type": "string" },
         "module_path": { "type": "string" }
-      },
-      "additionalProperties": false
-    },
-    "wireInfo": {
-      "type": "object",
-      "required": ["available"],
-      "properties": {
-        "available": { "type": "boolean" },
-        "unsupported_reason": { "type": "string" },
-        "schema_hash": { "type": "string" },
-        "path": { "type": "string" }
       },
       "additionalProperties": false
     }

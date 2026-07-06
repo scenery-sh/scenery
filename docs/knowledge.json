@@ -191,7 +191,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, updated for current scenery up/serve command naming.",
+      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, updated for current scenery up command naming.",
       "tags": [
         "architecture",
         "agents",
@@ -1249,7 +1249,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-07",
       "review_after": "2026-07-07",
-      "summary": "Completed historical ExecPlan for splitting development supervisor behavior from headless runtime execution; current local startup is scenery up and headless runtime execution is scenery serve.",
+      "summary": "Completed historical ExecPlan for splitting development supervisor behavior from headless runtime execution; the old headless CLI path was later removed and scenery up is the current local runtime path.",
       "tags": [
         "plans",
         "execplans",

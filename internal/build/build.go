@@ -28,7 +28,6 @@ import (
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
-	"scenery.sh/internal/wiremodel"
 )
 
 type Result struct {
@@ -101,52 +100,47 @@ type GeneratedManifest struct {
 }
 
 type GeneratedManifestPaths struct {
-	App              string `json:"app"`
-	Routes           string `json:"routes"`
-	Services         string `json:"services"`
-	Endpoints        string `json:"endpoints"`
-	Models           string `json:"models,omitempty"`
-	Views            string `json:"views,omitempty"`
-	WireCapabilities string `json:"wire_capabilities"`
-	BuildLatest      string `json:"build_latest"`
+	App         string `json:"app"`
+	Routes      string `json:"routes"`
+	Services    string `json:"services"`
+	Endpoints   string `json:"endpoints"`
+	Models      string `json:"models,omitempty"`
+	Views       string `json:"views,omitempty"`
+	BuildLatest string `json:"build_latest"`
 }
 
 type GeneratedManifestSchema struct {
-	App              string `json:"app"`
-	Routes           string `json:"routes"`
-	Services         string `json:"services"`
-	Endpoints        string `json:"endpoints"`
-	Models           string `json:"models,omitempty"`
-	Views            string `json:"views,omitempty"`
-	WireCapabilities string `json:"wire_capabilities"`
-	BuildLatest      string `json:"build_latest"`
+	App         string `json:"app"`
+	Routes      string `json:"routes"`
+	Services    string `json:"services"`
+	Endpoints   string `json:"endpoints"`
+	Models      string `json:"models,omitempty"`
+	Views       string `json:"views,omitempty"`
+	BuildLatest string `json:"build_latest"`
 }
 
 type GeneratedManifestHashes struct {
-	App              string `json:"app"`
-	Routes           string `json:"routes"`
-	Services         string `json:"services"`
-	Endpoints        string `json:"endpoints"`
-	Models           string `json:"models,omitempty"`
-	Views            string `json:"views,omitempty"`
-	WireCapabilities string `json:"wire_capabilities"`
+	App       string `json:"app"`
+	Routes    string `json:"routes"`
+	Services  string `json:"services"`
+	Endpoints string `json:"endpoints"`
+	Models    string `json:"models,omitempty"`
+	Views     string `json:"views,omitempty"`
 }
 
 type generatedInspectArtifacts struct {
-	App                  inspectdata.AppResponse
-	Routes               inspectdata.RoutesResponse
-	Services             inspectdata.ServicesResponse
-	Endpoints            inspectdata.EndpointsResponse
-	Models               inspectdata.ModelsResponse
-	Views                inspectdata.ViewsResponse
-	WireCapabilities     any
-	AppJSON              []byte
-	RoutesJSON           []byte
-	ServicesJSON         []byte
-	EndpointsJSON        []byte
-	ModelsJSON           []byte
-	ViewsJSON            []byte
-	WireCapabilitiesJSON []byte
+	App           inspectdata.AppResponse
+	Routes        inspectdata.RoutesResponse
+	Services      inspectdata.ServicesResponse
+	Endpoints     inspectdata.EndpointsResponse
+	Models        inspectdata.ModelsResponse
+	Views         inspectdata.ViewsResponse
+	AppJSON       []byte
+	RoutesJSON    []byte
+	ServicesJSON  []byte
+	EndpointsJSON []byte
+	ModelsJSON    []byte
+	ViewsJSON     []byte
 }
 
 type LatestBuildManifest struct {
@@ -349,32 +343,29 @@ func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) 
 
 func writeGeneratedInspectArtifacts(appRoot string, cfg app.Config, appModel *model.App) (*generatedInspectArtifacts, error) {
 	artifacts := &generatedInspectArtifacts{
-		App:              inspectdata.BuildAppResponse(appRoot, cfg, appModel),
-		Routes:           inspectdata.BuildRoutesResponse(appRoot, cfg, appModel),
-		Services:         inspectdata.BuildServicesResponse(appRoot, cfg, appModel),
-		Endpoints:        inspectdata.BuildEndpointsResponse(appRoot, cfg, appModel),
-		Models:           inspectdata.BuildModelsResponse(appRoot, cfg, appModel),
-		Views:            inspectdata.BuildViewsResponse(appRoot, cfg, appModel),
-		WireCapabilities: wiremodel.AppCapabilities(appModel),
+		App:       inspectdata.BuildAppResponse(appRoot, cfg, appModel),
+		Routes:    inspectdata.BuildRoutesResponse(appRoot, cfg, appModel),
+		Services:  inspectdata.BuildServicesResponse(appRoot, cfg, appModel),
+		Endpoints: inspectdata.BuildEndpointsResponse(appRoot, cfg, appModel),
+		Models:    inspectdata.BuildModelsResponse(appRoot, cfg, appModel),
+		Views:     inspectdata.BuildViewsResponse(appRoot, cfg, appModel),
 	}
 	genDir := filepath.Join(appRoot, ".scenery", "gen")
 	files := map[string]*[]byte{
-		"app.json":               &artifacts.AppJSON,
-		"routes.json":            &artifacts.RoutesJSON,
-		"services.json":          &artifacts.ServicesJSON,
-		"endpoints.json":         &artifacts.EndpointsJSON,
-		"models.json":            &artifacts.ModelsJSON,
-		"views.json":             &artifacts.ViewsJSON,
-		"wire/capabilities.json": &artifacts.WireCapabilitiesJSON,
+		"app.json":       &artifacts.AppJSON,
+		"routes.json":    &artifacts.RoutesJSON,
+		"services.json":  &artifacts.ServicesJSON,
+		"endpoints.json": &artifacts.EndpointsJSON,
+		"models.json":    &artifacts.ModelsJSON,
+		"views.json":     &artifacts.ViewsJSON,
 	}
 	payloads := map[string]any{
-		"app.json":               artifacts.App,
-		"routes.json":            artifacts.Routes,
-		"services.json":          artifacts.Services,
-		"endpoints.json":         artifacts.Endpoints,
-		"models.json":            artifacts.Models,
-		"views.json":             artifacts.Views,
-		"wire/capabilities.json": artifacts.WireCapabilities,
+		"app.json":       artifacts.App,
+		"routes.json":    artifacts.Routes,
+		"services.json":  artifacts.Services,
+		"endpoints.json": artifacts.Endpoints,
+		"models.json":    artifacts.Models,
+		"views.json":     artifacts.Views,
 	}
 	for name, target := range files {
 		data, err := json.MarshalIndent(payloads[name], "", "  ")
@@ -399,33 +390,30 @@ func writeGeneratedManifest(appRoot string, artifacts *generatedInspectArtifacts
 		App:           artifacts.App.App,
 		Counts:        artifacts.App.Counts,
 		Artifacts: GeneratedManifestPaths{
-			App:              ".scenery/gen/app.json",
-			Routes:           ".scenery/gen/routes.json",
-			Services:         ".scenery/gen/services.json",
-			Endpoints:        ".scenery/gen/endpoints.json",
-			Models:           ".scenery/gen/models.json",
-			Views:            ".scenery/gen/views.json",
-			WireCapabilities: ".scenery/gen/wire/capabilities.json",
-			BuildLatest:      ".scenery/build/latest.json",
+			App:         ".scenery/gen/app.json",
+			Routes:      ".scenery/gen/routes.json",
+			Services:    ".scenery/gen/services.json",
+			Endpoints:   ".scenery/gen/endpoints.json",
+			Models:      ".scenery/gen/models.json",
+			Views:       ".scenery/gen/views.json",
+			BuildLatest: ".scenery/build/latest.json",
 		},
 		Schemas: GeneratedManifestSchema{
-			App:              artifacts.App.SchemaVersion,
-			Routes:           artifacts.Routes.SchemaVersion,
-			Services:         artifacts.Services.SchemaVersion,
-			Endpoints:        artifacts.Endpoints.SchemaVersion,
-			Models:           artifacts.Models.SchemaVersion,
-			Views:            artifacts.Views.SchemaVersion,
-			WireCapabilities: "scenery.wire.capabilities.v1",
-			BuildLatest:      "scenery.build.latest.v1",
+			App:         artifacts.App.SchemaVersion,
+			Routes:      artifacts.Routes.SchemaVersion,
+			Services:    artifacts.Services.SchemaVersion,
+			Endpoints:   artifacts.Endpoints.SchemaVersion,
+			Models:      artifacts.Models.SchemaVersion,
+			Views:       artifacts.Views.SchemaVersion,
+			BuildLatest: "scenery.build.latest.v1",
 		},
 		Hashes: GeneratedManifestHashes{
-			App:              sha256Hex(artifacts.AppJSON),
-			Routes:           sha256Hex(artifacts.RoutesJSON),
-			Services:         sha256Hex(artifacts.ServicesJSON),
-			Endpoints:        sha256Hex(artifacts.EndpointsJSON),
-			Models:           sha256Hex(artifacts.ModelsJSON),
-			Views:            sha256Hex(artifacts.ViewsJSON),
-			WireCapabilities: sha256Hex(artifacts.WireCapabilitiesJSON),
+			App:       sha256Hex(artifacts.AppJSON),
+			Routes:    sha256Hex(artifacts.RoutesJSON),
+			Services:  sha256Hex(artifacts.ServicesJSON),
+			Endpoints: sha256Hex(artifacts.EndpointsJSON),
+			Models:    sha256Hex(artifacts.ModelsJSON),
+			Views:     sha256Hex(artifacts.ViewsJSON),
 		},
 	}
 	data, err := json.MarshalIndent(manifest, "", "  ")
@@ -878,8 +866,6 @@ func generatorFingerprintPaths() []string {
 		"internal/standardauthmeta",
 		"internal/stdlog",
 		"internal/termstyle",
-		"internal/wire",
-		"internal/wiremodel",
 		"middleware",
 		"rlog",
 		"runtime",

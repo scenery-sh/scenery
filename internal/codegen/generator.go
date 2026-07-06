@@ -16,7 +16,6 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/runtimeapi"
-	"scenery.sh/internal/wiremodel"
 )
 
 type Output struct {
@@ -996,7 +995,6 @@ func writeRegistrations(buf *strings.Builder, im *imports, endpoints []*model.En
 }
 
 func writeEndpointRegistration(buf *strings.Builder, im *imports, ep *model.Endpoint, ss *model.ServiceStruct) {
-	wireInfo := wiremodel.Endpoint(ep)
 	fmt.Fprintf(buf, "\tsceneryruntime.RegisterEndpoint(&sceneryruntime.Endpoint{\n")
 	fmt.Fprintf(buf, "\t\tService: %q,\n", ep.Service.Name)
 	fmt.Fprintf(buf, "\t\tName: %q,\n", ep.Name)
@@ -1018,12 +1016,6 @@ func writeEndpointRegistration(buf *strings.Builder, im *imports, ep *model.Endp
 	} else {
 		buf.WriteString("\t\tResponseType: nil,\n")
 	}
-	fmt.Fprintf(buf, "\t\tWireID: %q,\n", wireInfo.ID)
-	fmt.Fprintf(buf, "\t\tWireSchemaHash: %q,\n", wireInfo.SchemaHash)
-	fmt.Fprintf(buf, "\t\tWireAvailable: %t,\n", wireInfo.Available)
-	if wireInfo.UnsupportedReason != "" {
-		fmt.Fprintf(buf, "\t\tWireUnsupportedReason: %q,\n", wireInfo.UnsupportedReason)
-	}
 	if ep.Raw {
 		fmt.Fprintf(buf, "\t\tRawHandler: func(w http.ResponseWriter, req *http.Request) {\n")
 		if ep.Receiver != nil && ss != nil {
@@ -1039,18 +1031,6 @@ func writeEndpointRegistration(buf *strings.Builder, im *imports, ep *model.Endp
 		call := renderInvokeCall(im, ep, ss)
 		buf.WriteString(call)
 		buf.WriteString("\t\t},\n")
-		if ep.Access == runtimeapi.Public && ep.Payload != nil {
-			fmt.Fprintf(buf, "\t\tWireInvoke: func(ctx context.Context, pathArgs []any, payloadJSON []byte) (any, error) {\n")
-			wireCall := renderWireInvokeCall(im, ep, ss)
-			buf.WriteString(wireCall)
-			buf.WriteString("\t\t},\n")
-			if ep.Response != nil {
-				fmt.Fprintf(buf, "\t\tWireInvokeJSON: func(ctx context.Context, pathArgs []any, payloadJSON []byte) ([]byte, error) {\n")
-				wireJSONCall := renderWireInvokeJSONCall(im, ep, ss)
-				buf.WriteString(wireJSONCall)
-				buf.WriteString("\t\t},\n")
-			}
-		}
 	}
 	buf.WriteString("\t})\n")
 }
@@ -1082,8 +1062,6 @@ func writeGeneratedModelEndpointRegistration(buf *strings.Builder, ep *model.Gen
 	default:
 		fmt.Fprintf(buf, "\t\tResponseType: sceneryruntime.TypeOf[%s](),\n", ep.Entity.Name)
 	}
-	buf.WriteString("\t\tWireAvailable: false,\n")
-	buf.WriteString("\t\tWireUnsupportedReason: \"generated model endpoints do not publish wire contracts yet\",\n")
 	buf.WriteString("\t\tInvoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {\n")
 	switch ep.Action {
 	case model.EntityCRUDList:
@@ -1206,80 +1184,6 @@ func renderInvokeCall(im *imports, ep *model.Endpoint, ss *model.ServiceStruct) 
 		buf.WriteString("\t\t\tif callErr != nil {\n\t\t\t\treturn nil, callErr\n\t\t\t}\n")
 		buf.WriteString("\t\t\treturn nil, nil\n")
 	}
-	return buf.String()
-}
-
-func renderWireInvokeCall(im *imports, ep *model.Endpoint, ss *model.ServiceStruct) string {
-	var buf strings.Builder
-	target := ep.ImplName
-	if ep.Receiver != nil && ss != nil {
-		fmt.Fprintf(&buf, "\t\t\tsvc, err := %s()\n", ss.GetterName)
-		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n")
-		target = "svc." + ep.ImplName
-	}
-
-	args := []string{"ctx"}
-	for i, path := range ep.PathParams {
-		_ = path
-		field := ep.Params[i+1]
-		args = append(args, fmt.Sprintf("pathArgs[%d].(%s)", i, im.typeExpr(field.Type)))
-	}
-	if ep.Payload != nil {
-		jsonPkg := im.use("json", "encoding/json")
-		payloadType := im.typeExpr(ep.Payload.Type)
-		buf.WriteString("\t\t\tvar payload " + payloadType + "\n")
-		buf.WriteString("\t\t\tif len(payloadJSON) != 0 {\n")
-		fmt.Fprintf(&buf, "\t\t\t\tif err := %s.Unmarshal(payloadJSON, &payload); err != nil {\n", jsonPkg)
-		buf.WriteString("\t\t\t\t\treturn nil, err\n")
-		buf.WriteString("\t\t\t\t}\n")
-		buf.WriteString("\t\t\t}\n")
-		buf.WriteString("\t\t\tsceneryruntime.SetCurrentRequestPayload(ctx, payload)\n")
-		args = append(args, "payload")
-	}
-
-	if ep.Response != nil {
-		fmt.Fprintf(&buf, "\t\t\tresp, err := %s(%s)\n", target, strings.Join(args, ", "))
-		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n")
-		buf.WriteString("\t\t\treturn resp, nil\n")
-	} else {
-		fmt.Fprintf(&buf, "\t\t\tcallErr := %s(%s)\n", target, strings.Join(args, ", "))
-		buf.WriteString("\t\t\tif callErr != nil {\n\t\t\t\treturn nil, callErr\n\t\t\t}\n")
-		buf.WriteString("\t\t\treturn nil, nil\n")
-	}
-	return buf.String()
-}
-
-func renderWireInvokeJSONCall(im *imports, ep *model.Endpoint, ss *model.ServiceStruct) string {
-	var buf strings.Builder
-	jsonPkg := im.use("json", "encoding/json")
-	target := ep.ImplName
-	if ep.Receiver != nil && ss != nil {
-		fmt.Fprintf(&buf, "\t\t\tsvc, err := %s()\n", ss.GetterName)
-		buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n")
-		target = "svc." + ep.ImplName
-	}
-
-	args := []string{"ctx"}
-	for i, path := range ep.PathParams {
-		_ = path
-		field := ep.Params[i+1]
-		args = append(args, fmt.Sprintf("pathArgs[%d].(%s)", i, im.typeExpr(field.Type)))
-	}
-	if ep.Payload != nil {
-		payloadType := im.typeExpr(ep.Payload.Type)
-		buf.WriteString("\t\t\tvar payload " + payloadType + "\n")
-		buf.WriteString("\t\t\tif len(payloadJSON) != 0 {\n")
-		fmt.Fprintf(&buf, "\t\t\t\tif err := %s.Unmarshal(payloadJSON, &payload); err != nil {\n", jsonPkg)
-		buf.WriteString("\t\t\t\t\treturn nil, err\n")
-		buf.WriteString("\t\t\t\t}\n")
-		buf.WriteString("\t\t\t}\n")
-		buf.WriteString("\t\t\tsceneryruntime.SetCurrentRequestPayload(ctx, payload)\n")
-		args = append(args, "payload")
-	}
-
-	fmt.Fprintf(&buf, "\t\t\tresp, err := %s(%s)\n", target, strings.Join(args, ", "))
-	buf.WriteString("\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n")
-	fmt.Fprintf(&buf, "\t\t\treturn %s.Marshal(resp)\n", jsonPkg)
 	return buf.String()
 }
 

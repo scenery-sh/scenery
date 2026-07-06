@@ -30,7 +30,6 @@ scenery inspect routes --json
 scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
-scenery inspect wire --json
 scenery system toolchain verify --json
 ```
 
@@ -164,7 +163,6 @@ Prefer JSON when output will feed another tool or decision.
 | Inspect app/root/config | `scenery inspect app --json` |
 | Inspect routes/endpoints/services | `scenery inspect routes --json`, `scenery inspect endpoints --json`, `scenery inspect services --json` |
 | Inspect static model/view IR | `scenery inspect models --json`, `scenery inspect views --json` |
-| Inspect generated client/wire | `scenery inspect wire --json` |
 | Inspect build/cache paths | `scenery inspect build --json`, `scenery inspect paths --json` |
 | Inspect generator graph | `scenery inspect generators --json` |
 | Inspect storage capability | `scenery inspect storage --json` |
@@ -244,9 +242,8 @@ Use non-JSON output only for human inspection.
 - Use `dev.routing.mode = "host"` plus `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when the browser needs trusted wildcard local HTTPS on `127.0.0.1:443`; dnsmasq owns wildcard local DNS, the privileged helper owns that port, forwards raw TCP to user-owned Caddy, and the edge syncs managed dnsmasq/Caddy as needed. In host mode, an app that configures `proxy.route_base_domain` requires that edge path and fails loudly with DNS, privileged listener, Caddy, and router diagnostics instead of publishing internal `:9440` router URLs as user-facing session routes.
 - Use `scenery logs --follow` to follow the current app root's detached or agent-backed runtime.
 - Use `scenery down` to stop the current app root's dev runtime; add `--db`, `--state`, or `--all` only when destructive cleanup is intended.
-- Use `scenery serve` for headless API-role execution. Do not expect dashboard, proxy, watch mode, or dev/admin endpoints.
 - Use `scenery worker` for worker-role execution of durable tasks and cron.
-- For headless `scenery serve` or `scenery worker`, Postgres services require explicit service DSNs in their configured `database_url_env`; the managed shared Postgres server is a `scenery up` dev substrate only.
+- For a standalone `scenery worker`, Postgres services require explicit service DSNs in their configured `database_url_env`; the managed shared Postgres server is a `scenery up` dev substrate only.
 - Use `scenery build` for a deployable binary artifact.
 - Use `scenery generate` for configured file-producing generators. `scenery generate sqlc` is generated-source work only; it must not apply schema or seed data. `scenery generate data --dry-run --json` writes desired static-model Atlas HCL under `.scenery/gen/db/<service>/schema.hcl`, seed SQL under `.scenery/gen/db/<service>/seed.sql`, and beta generated frontend packages under `.scenery/gen/web/<frontend>/`, including page projection records and default page/route exports, without mutating databases. Generated model DB artifacts use the app-owned `<service>` schema and schema-qualified tables consistently across HCL, seed SQL, CRUD SQL, and sync shape metadata; generated Atlas resource labels are also schema-qualified so app-owned schemas can coexist with handwritten multi-schema HCL. Entities declared with `model.ExistingTable(schema, table)` consume an app-owned existing schema/table and still generate read-only frontend and list/get code against the explicit qualified table, but they do not emit generated schema or seed artifacts. Generated list endpoints are bounded by default (`limit=100`, maximum `limit=500`, non-negative `offset`); generated create/patch payloads accept response field names such as `CreatedAt` as well as DB-column JSON names such as `created_at`; malformed `time.Time` timestamps fail JSON decoding. Use `scenery db diff --generated --json` to compare generated schema with app-owned `SERVICE/db/schema.hcl`.
 - In handwritten services that use sqlc against the default app database, call `scenery.sh/db.Get(ctx)` during service initialization and pass the returned `*sql.DB` to the generated `Queries` constructor.
@@ -268,7 +265,6 @@ scenery inspect services --json
 scenery inspect endpoints --json
 scenery inspect models --json
 scenery inspect views --json
-scenery inspect wire --json
 scenery inspect build --json
 scenery inspect storage --json
 scenery harness --json
@@ -287,7 +283,6 @@ Generated repo-local files may exist after inspect/build/harness commands produc
     routes.json
     services.json
     endpoints.json
-    wire/capabilities.json
     manifest.json
   build/latest.json
   harness/latest.json
@@ -306,11 +301,10 @@ Recommended workflow:
 
 ```sh
 scenery inspect endpoints --json
-scenery inspect wire --json
 scenery generate client --lang typescript --output <frontend-or-package-path>/scenery-client.ts
 ```
 
-Client apps should commit generated clients only if that is their established workflow. If committed, app-local `AGENTS.md` must state the output path and require regeneration after endpoint or wire changes.
+Client apps should commit generated clients only if that is their established workflow. If committed, app-local `AGENTS.md` must state the output path and require regeneration after endpoint changes.
 
 Generated TypeScript `WithMeta` methods expose response headers, status, the raw `Response`, and parsed `txid` metadata from `X-Txid`/`X-TXID`. For sync-backed mutations, keep the phases separate: first handle the successful API response as the committed mutation, then call `observeAPIResponseTxid(response, collection.utils.awaitTxId, context)` or an equivalent app-local observer. If the observer fails or times out, the generated client throws `SyncObservationError` with `kind: "sync_observation_failure"` and `mutation_committed: true`, so UI and agents do not report the committed mutation itself as rolled back.
 
@@ -345,9 +339,9 @@ Generated clients are the application-code integration surface. Agents should us
 - List required environment names in docs; never include values.
 - Do not add new scenery-owned production env vars unless the user explicitly asks for one or an active ExecPlan records the exception. Prefer app config, CLI flags, or checked-in manifests, and update `docs/environment.registry.json` when env is truly required.
 - Process environment wins over local files.
-- Local startup expects app-root `.env` for `scenery up`, local `scenery serve`, local `scenery task run`, and local `scenery worker`.
+- Local startup expects app-root `.env` for `scenery up`, local `scenery task run`, and local `scenery worker`.
 - `.env.local` is optional and overrides `.env` only when the parent process did not already define a key.
-- `scenery serve --env production` can use process environment without a `.env` file.
+- With `--env production`, `scenery worker` can use process environment without a `.env` file; operator-run generated binaries likewise use process environment directly.
 - Secret-bearing files are not copied into build workspaces.
 
 ## Debugging Playbooks
@@ -415,7 +409,6 @@ Generated client mismatch:
 
 ```sh
 scenery inspect endpoints --json
-scenery inspect wire --json
 scenery generate client --lang typescript --output <expected-output>
 ```
 

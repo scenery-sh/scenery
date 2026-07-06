@@ -56,11 +56,11 @@ parser-derived decisions downstream when the model can represent them once.
 
 This is the CLI entrypoint and orchestration layer. `main`, `run`, and the
 command-specific functions parse flags and connect internal packages into user
-commands such as `up`, `serve`, `worker`, `build`, `check`, `inspect`,
+commands such as `up`, `worker`, `build`, `check`, `inspect`,
 `harness`, `logs`, `console`, `db`, `task`, and `generate`.
 
-`scenery serve` is the headless app execution path. `scenery up` starts the local
-app session around that runtime: dashboard, agent routing, live rebuild behavior,
+`scenery up` starts the local
+app session around the app runtime: dashboard, agent routing, live rebuild behavior,
 logs, traces, metrics, managed dev services, optional frontend routing, and
 process supervision.
 
@@ -102,7 +102,7 @@ runtime or codegen.
 ### `internal/model`
 
 `internal/model` is the shared vocabulary between parser, inspector, codegen,
-wire modeling, and build. Important types include `App`, `Service`, `Package`,
+and build. Important types include `App`, `Service`, `Package`,
 `Endpoint`, `Middleware`, `AuthHandler`, `ServiceStruct`, `Entity`, and `View`.
 
 Architecture invariant: the model is an in-memory description of a parsed app,
@@ -113,7 +113,7 @@ not a runtime registry and not a JSON schema. Public JSON responses live in
 
 `internal/codegen` turns the model into rewritten source files, per-package
 generated files, endpoint wrappers, service struct wiring, middleware/auth
-registration, wire metadata, and a synthetic `main`.
+registration, and a synthetic `main`.
 
 Architecture invariant: generated code should be boring Go. Prefer explicit
 wrappers and registration over runtime reflection when the parser already knows
@@ -122,7 +122,7 @@ the shape of the app.
 Architecture invariant: endpoint-to-endpoint calls should go through generated
 scenery call helpers when scenery semantics matter. Direct user function calls must
 not bypass auth context, private access rules, routing metadata, or internal
-transport behavior.
+routing behavior.
 
 ### `internal/build`
 
@@ -142,7 +142,7 @@ agents and humans to diagnose drift without scraping terminal output.
 
 `runtime` is linked into generated app binaries. It registers generated
 endpoints, service initializers, middleware, auth handlers, durable workers,
-cron jobs, and wire endpoints, then starts one local HTTP server.
+and cron jobs, then starts one local HTTP server.
 
 Important runtime concerns include route matching, request decode/encode, auth
 context, current request metadata, structured error responses, middleware,
@@ -180,20 +180,13 @@ Architecture invariant: public packages may delegate inward to runtime internals
 when necessary, but they should not pull in CLI, dashboard, parser, build, or
 codegen concerns.
 
-### `internal/inspect`, `internal/wire`, and `internal/wiremodel`
+### `internal/inspect`
 
 `internal/inspect` renders app, route, service, endpoint, build, path, trace,
 metric, and docs information as stable JSON responses.
 
-`internal/wire` defines the local binary wire format and capability protocol.
-`internal/wiremodel` derives wire endpoint availability and schema hashes from
-the parsed app model.
-
-Architecture invariant: inspect and wire outputs are contracts. If the shape
+Architecture invariant: inspect outputs are contracts. If the shape
 changes, update the corresponding schema and tests in the same change.
-
-Architecture invariant: wire compatibility is data-driven. Endpoint IDs, schema
-hashes, fallback behavior, and unsupported reasons should be deterministic.
 
 ### `internal/devdash` and `internal/localproxy`
 
@@ -206,8 +199,8 @@ surface local logs, traces, and metrics. The dashboard server and UI embedding
 are orchestrated from `cmd/scenery`.
 
 Architecture invariant: development services should be optional around the app
-runtime. They can improve local ergonomics, but `scenery serve` must remain a
-headless execution path.
+runtime. They can improve local ergonomics, but the generated app binary must
+remain runnable as a headless execution path.
 
 ### `ui`
 

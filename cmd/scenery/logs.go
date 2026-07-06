@@ -165,7 +165,7 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 
 	record, sessionRecord, err := devdashAppRecordForRuntime(ctx, store, appID, sessionID, appRoot)
 	if err != nil {
-		return fmt.Errorf("no local logs found for %q; run `scenery up` or `scenery serve` first", appID)
+		return fmt.Errorf("no local logs found for %q; run `scenery up` first", appID)
 	}
 	if sessionID == "" && sessionRecord {
 		sessionID = strings.TrimSpace(record.SessionID)

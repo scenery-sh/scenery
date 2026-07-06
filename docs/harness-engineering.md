@@ -5,7 +5,7 @@ scenery treats agent support as a runtime feature, not as prompt folklore.
 The harness contract gives Codex and other agents a short feedback loop:
 
 1. discover the app through stable inspect command output
-2. compile the generated runtime exactly like `scenery serve` would
+2. compile the generated runtime exactly like `scenery up` and `scenery build` would
 3. report diagnostics as structured JSON
 4. expose inspect outputs and artifact paths without scraping terminal text
 5. persist the latest harness result when requested
@@ -70,7 +70,6 @@ The command runs:
 - `scenery inspect routes --json`
 - `scenery inspect services --json`
 - `scenery inspect endpoints --json`
-- `scenery inspect wire --json`
 - `scenery inspect build --json`
 - `scenery inspect paths --json`
 - `scenery traces list --json`

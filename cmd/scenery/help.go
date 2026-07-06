@@ -52,7 +52,6 @@ var rootHelpGroups = []helpRootGroup{
 		{Command: "prune", Summary: "Remove old stopped dev state"},
 	}},
 	{Name: "Build and runtime", Entries: []helpRootEntry{
-		{Command: "serve", Summary: "Run the API server once"},
 		{Command: "worker", Summary: "Run app workers"},
 		{Command: "build", Summary: "Build the deployable binary"},
 		{Command: "check", Summary: "Check the app model"},
@@ -153,7 +152,6 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery symphony auto",
 	}},
 	{Name: "Runtime", Commands: []string{
-		"scenery serve",
 		"scenery worker",
 		"scenery worker durable",
 		"scenery worker durable jobs",
@@ -176,7 +174,6 @@ var helpReferenceGroups = []helpReferenceGroup{
 		"scenery inspect endpoints",
 		"scenery inspect models",
 		"scenery inspect views",
-		"scenery inspect wire",
 		"scenery inspect build",
 		"scenery inspect paths",
 		"scenery inspect generators",
@@ -366,14 +363,6 @@ var helpCommands = []helpCommandEntry{
 		Stability:   "stable",
 	},
 	{
-		Command:   "serve",
-		Group:     "Runtime",
-		Summary:   "Run the API server once.",
-		Usage:     []string{"scenery serve [--port <n>] [--listen <addr>] [--app-root <path>] [--env <name>] [--log-format text|json]"},
-		Flags:     []string{"--port <n>", "--listen <addr>", "--app-root <path>", "--env <name>", "--log-format text|json"},
-		Stability: "stable",
-	},
-	{
 		Command: "worker",
 		Group:   "Runtime",
 		Summary: "Run workers.",
@@ -428,11 +417,11 @@ var helpCommands = []helpCommandEntry{
 		Group:   "Inspection",
 		Summary: "Inspect app model and diagnostics as JSON.",
 		Usage: []string{
-			"scenery inspect app|routes|services|endpoints|models|views|wire|build|paths|generators|durable|storage|observability|validation --json [--app-root <path>]",
+			"scenery inspect app|routes|services|endpoints|models|views|build|paths|generators|durable|storage|observability|validation --json [--app-root <path>]",
 			"scenery inspect docs --json [--repo-root <path>]",
 			"scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]",
 		},
-		Subcommands: []string{"app", "routes", "services", "endpoints", "models", "views", "wire", "build", "paths", "generators", "durable", "observability", "validation", "docs", "harness"},
+		Subcommands: []string{"app", "routes", "services", "endpoints", "models", "views", "build", "paths", "generators", "durable", "observability", "validation", "docs", "harness"},
 		Flags:       []string{"--json", "--app-root <path>", "--repo-root <path>"},
 		JSON:        true,
 		Stability:   "stable",

@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"scenery.sh/internal/wire"
-	"scenery.sh/internal/wiremodel"
 )
 
 func (g *tsGenerator) render() ([]byte, error) {
@@ -33,11 +30,8 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("    return Environment(`pr${pr}`)\n")
 	buf.WriteString("}\n\n")
 	buf.WriteString(`const BROWSER = typeof globalThis === "object" && ("window" in globalThis)` + "\n\n")
-	capabilities := wiremodel.AppCapabilities(g.app)
-	buf.WriteString(fmt.Sprintf("const SCENERY_WIRE_SCHEMA_HASH = %q\n", capabilities.SchemaHash))
 	buf.WriteString(fmt.Sprintf("const CLIENT_APP_SLUG = %q\n", slug))
-	buf.WriteString(fmt.Sprintf("const SCENERY_WIRE_CONTENT_TYPE = %q\n", wire.ContentType))
-	buf.WriteString(fmt.Sprintf("const SCENERY_WIRE_JSON_CONTENT_TYPE = %q\n\n", wire.JSONContentType))
+	buf.WriteString("\n")
 
 	serviceNames := make([]string, 0, len(g.namespaces))
 	serviceNames = append(serviceNames, namespaceNamesWithMethods(g.namespaces)...)
@@ -82,9 +76,6 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("    fetcher?: Fetcher\n")
 	buf.WriteString(`    requestInit?: Omit<RequestInit, "headers"> & { headers?: Record<string, string> }` + "\n")
 	buf.WriteString("    auth?: string | AuthDataGenerator\n")
-	buf.WriteString("    transport?: SceneryTransport\n")
-	buf.WriteString("    disableCapabilityPreflight?: boolean\n")
-	buf.WriteString("    wireRecovery?: boolean\n")
 	buf.WriteString("}\n\n")
 
 	namespaceNames := make([]string, 0, len(g.namespaces))
@@ -211,7 +202,6 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("    txid: Txid | null\n")
 	buf.WriteString("}\n\n")
 	buf.WriteString("export type Txid = number\n\n")
-	buf.WriteString("export type SceneryTransport = \"auto\" | \"json\" | \"binary\" | \"binary-strict\" | \"wire-json\" | \"wire-json-strict\"\n\n")
 	buf.WriteString("export type AuthDataGenerator = () =>\n")
 	buf.WriteString("  | string\n")
 	buf.WriteString("  | Promise<string | undefined>\n")
@@ -224,11 +214,6 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("    readonly headers: Record<string, string>\n")
 	buf.WriteString(`    readonly requestInit: Omit<RequestInit, "headers"> & { headers?: Record<string, string> }` + "\n")
 	buf.WriteString("    readonly authGenerator?: AuthDataGenerator\n\n")
-	buf.WriteString("    readonly transport: SceneryTransport\n")
-	buf.WriteString("    readonly disableCapabilityPreflight: boolean\n")
-	buf.WriteString("    readonly wireRecovery: boolean\n")
-	buf.WriteString("    private capabilitiesPromise?: Promise<WireCapabilities | null>\n")
-	buf.WriteString("    private readonly wireEndpointCache = new Map<string, boolean>()\n\n")
 	buf.WriteString("    constructor(baseURL: string, options: ClientOptions) {\n")
 	buf.WriteString("        this.baseURL = baseURL\n")
 	buf.WriteString("        this.headers = {}\n")
@@ -237,9 +222,6 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("        }\n")
 	buf.WriteString("        this.requestInit = options.requestInit ?? {}\n")
 	buf.WriteString("        this.fetcher = options.fetcher ?? boundFetch\n")
-	buf.WriteString("        this.transport = options.transport ?? \"auto\"\n")
-	buf.WriteString("        this.disableCapabilityPreflight = options.disableCapabilityPreflight ?? false\n")
-	buf.WriteString("        this.wireRecovery = options.wireRecovery ?? false\n")
 	buf.WriteString("        if (options.auth !== undefined) {\n")
 	buf.WriteString("            const auth = options.auth\n")
 	buf.WriteString("            if (typeof auth === \"function\") {\n")
@@ -265,239 +247,10 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("        return { headers: { Authorization: \"Bearer \" + authData } }\n")
 	buf.WriteString("    }\n\n")
 	buf.WriteString("    public async callTypedEndpoint(spec: TypedEndpointCall): Promise<Response | unknown> {\n")
-	buf.WriteString("        if (this.transport === \"json\" || !spec.binaryAvailable) {\n")
-	buf.WriteString("            if (this.transport === \"binary-strict\" && !spec.binaryAvailable) {\n")
-	buf.WriteString("                throw new SceneryWireFallbackError(`wire transport unavailable for ${spec.endpointID}`)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            return this.callTypedAPI(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (this.transport === \"wire-json-strict\") {\n")
-	buf.WriteString("            return await this.callWireJSONAPI(spec)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if ((this.transport === \"auto\" || this.transport === \"binary\") && !this.disableCapabilityPreflight) {\n")
-	buf.WriteString("            let endpointAvailable = this.wireEndpointCache.get(spec.endpointID)\n")
-	buf.WriteString("            if (endpointAvailable === undefined) {\n")
-	buf.WriteString("                const capabilities = await this.getWireCapabilities()\n")
-	buf.WriteString("                const endpoint = capabilities?.endpoints?.[spec.endpointID]\n")
-	buf.WriteString("                endpointAvailable = !!capabilities && capabilities.wire_schema_hash === SCENERY_WIRE_SCHEMA_HASH && !!endpoint?.available && endpoint.schema_hash === spec.schemaHash\n")
-	buf.WriteString("                this.wireEndpointCache.set(spec.endpointID, endpointAvailable)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (!endpointAvailable) {\n")
-	buf.WriteString("                return this.callTypedAPI(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        try {\n")
-	buf.WriteString("            if (this.transport === \"wire-json\") {\n")
-	buf.WriteString("                return await this.callWireJSONAPI(spec)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            return await this.callWireAPI(spec)\n")
-	buf.WriteString("        } catch (err) {\n")
-	buf.WriteString("            if (err instanceof APIError) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (this.transport !== \"binary-strict\" && !(err instanceof SceneryWireFallbackError)) {\n")
-	buf.WriteString("                return this.callTypedAPI(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (this.transport !== \"binary-strict\" && err instanceof SceneryWireFallbackError && spec.safeJSONRetry) {\n")
-	buf.WriteString("                return this.callTypedAPI(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            throw err\n")
-	buf.WriteString("        }\n")
+	buf.WriteString("        return this.callTypedAPI(spec.method, spec.path, spec.jsonBody, spec.params)\n")
 	buf.WriteString("    }\n\n")
 	buf.WriteString("    public async callTypedEndpointWithMeta(spec: TypedEndpointCall): Promise<TypedEndpointResultWithMeta> {\n")
-	buf.WriteString("        if (this.transport === \"json\" || !spec.binaryAvailable) {\n")
-	buf.WriteString("            if (this.transport === \"binary-strict\" && !spec.binaryAvailable) {\n")
-	buf.WriteString("                throw new SceneryWireFallbackError(`wire transport unavailable for ${spec.endpointID}`)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            return this.callTypedAPIWithMeta(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (this.transport === \"wire-json-strict\") {\n")
-	buf.WriteString("            return await this.callWireJSONAPIWithMeta(spec)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if ((this.transport === \"auto\" || this.transport === \"binary\") && !this.disableCapabilityPreflight) {\n")
-	buf.WriteString("            let endpointAvailable = this.wireEndpointCache.get(spec.endpointID)\n")
-	buf.WriteString("            if (endpointAvailable === undefined) {\n")
-	buf.WriteString("                const capabilities = await this.getWireCapabilities()\n")
-	buf.WriteString("                const endpoint = capabilities?.endpoints?.[spec.endpointID]\n")
-	buf.WriteString("                endpointAvailable = !!capabilities && capabilities.wire_schema_hash === SCENERY_WIRE_SCHEMA_HASH && !!endpoint?.available && endpoint.schema_hash === spec.schemaHash\n")
-	buf.WriteString("                this.wireEndpointCache.set(spec.endpointID, endpointAvailable)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (!endpointAvailable) {\n")
-	buf.WriteString("                return this.callTypedAPIWithMeta(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        try {\n")
-	buf.WriteString("            if (this.transport === \"wire-json\") {\n")
-	buf.WriteString("                return await this.callWireJSONAPIWithMeta(spec)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            return await this.callWireAPIWithMeta(spec)\n")
-	buf.WriteString("        } catch (err) {\n")
-	buf.WriteString("            if (err instanceof APIError) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (this.transport !== \"binary-strict\" && !(err instanceof SceneryWireFallbackError)) {\n")
-	buf.WriteString("                return this.callTypedAPIWithMeta(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (this.transport !== \"binary-strict\" && err instanceof SceneryWireFallbackError && spec.safeJSONRetry) {\n")
-	buf.WriteString("                return this.callTypedAPIWithMeta(spec.method, spec.path, spec.jsonBody, spec.params)\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            throw err\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("    }\n\n")
-	buf.WriteString("    private async callWireJSONAPI(spec: TypedEndpointCall): Promise<unknown> {\n")
-	buf.WriteString("        const body = spec.payloadJSON ?? \"null\"\n")
-	buf.WriteString("        const wireHeaders: Record<string, string> = {\n")
-	buf.WriteString("            ...spec.params?.headers,\n")
-	buf.WriteString("            \"Content-Type\": SCENERY_WIRE_JSON_CONTENT_TYPE,\n")
-	buf.WriteString("            \"X-Scenery-Wire-Schema-Hash\": spec.schemaHash,\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (spec.pathParams !== undefined) {\n")
-	buf.WriteString("            wireHeaders[\"X-Scenery-Wire-Path-Params\"] = JSON.stringify(spec.pathParams)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        const response = await this.callAPI(\"POST\", spec.wirePath, body, {\n")
-	buf.WriteString("            ...spec.params,\n")
-	buf.WriteString("            headers: wireHeaders,\n")
-	buf.WriteString("        })\n")
-	buf.WriteString("        return await response.json()\n")
-	buf.WriteString("    }\n\n")
-	buf.WriteString("    private async callWireJSONAPIWithMeta(spec: TypedEndpointCall): Promise<TypedEndpointResultWithMeta> {\n")
-	buf.WriteString("        const body = spec.payloadJSON ?? \"null\"\n")
-	buf.WriteString("        const wireHeaders: Record<string, string> = {\n")
-	buf.WriteString("            ...spec.params?.headers,\n")
-	buf.WriteString("            \"Content-Type\": SCENERY_WIRE_JSON_CONTENT_TYPE,\n")
-	buf.WriteString("            \"X-Scenery-Wire-Schema-Hash\": spec.schemaHash,\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (spec.pathParams !== undefined) {\n")
-	buf.WriteString("            wireHeaders[\"X-Scenery-Wire-Path-Params\"] = JSON.stringify(spec.pathParams)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        const response = await this.callAPI(\"POST\", spec.wirePath, body, {\n")
-	buf.WriteString("            ...spec.params,\n")
-	buf.WriteString("            headers: wireHeaders,\n")
-	buf.WriteString("        })\n")
-	buf.WriteString("        return {\n")
-	buf.WriteString("            body: await response.json(),\n")
-	buf.WriteString("            headers: response.headers,\n")
-	buf.WriteString("            status: response.status,\n")
-	buf.WriteString("            response,\n")
-	buf.WriteString("            txid: txidFromHeaders(response.headers),\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("    }\n\n")
-	buf.WriteString("    private async callWireAPI(spec: TypedEndpointCall): Promise<unknown> {\n")
-	buf.WriteString("        const callID = this.wireRecovery ? makeSceneryCallID() : \"\"\n")
-	buf.WriteString("        const payload = encodeSceneryWireRequest(spec)\n")
-	buf.WriteString("        const wireHeaders: Record<string, string> = {\n")
-	buf.WriteString("            ...spec.params?.headers,\n")
-	buf.WriteString("            \"Content-Type\": SCENERY_WIRE_CONTENT_TYPE,\n")
-	buf.WriteString("            \"X-Scenery-Wire-Schema-Hash\": spec.schemaHash,\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (callID !== \"\") {\n")
-	buf.WriteString("            wireHeaders[\"X-Scenery-Call-ID\"] = callID\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        const wireParams: CallParameters = {\n")
-	buf.WriteString("            ...spec.params,\n")
-	buf.WriteString("            headers: wireHeaders,\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        let response: Response\n")
-	buf.WriteString("        try {\n")
-	buf.WriteString("            response = await this.callAPI(\"POST\", spec.wirePath, payload as BodyInit, wireParams)\n")
-	buf.WriteString("        } catch (err) {\n")
-	buf.WriteString("            if (err instanceof APIError) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            throw err\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        try {\n")
-	buf.WriteString("            return await response.json()\n")
-	buf.WriteString("        } catch (err) {\n")
-	buf.WriteString("            if (err instanceof APIError) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (callID !== \"\") {\n")
-	buf.WriteString("                const recovered = await this.recoverWireCall(callID)\n")
-	buf.WriteString("                if (recovered) {\n")
-	buf.WriteString("                    return resultFromRecoveredWire(recovered)\n")
-	buf.WriteString("                }\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (spec.safeJSONRetry) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            throw new SceneryWireFallbackError(`wire response decode failed for ${spec.endpointID}: ${String(err)}`)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("    }\n\n")
-	buf.WriteString("    private async callWireAPIWithMeta(spec: TypedEndpointCall): Promise<TypedEndpointResultWithMeta> {\n")
-	buf.WriteString("        const callID = this.wireRecovery ? makeSceneryCallID() : \"\"\n")
-	buf.WriteString("        const payload = encodeSceneryWireRequest(spec)\n")
-	buf.WriteString("        const wireHeaders: Record<string, string> = {\n")
-	buf.WriteString("            ...spec.params?.headers,\n")
-	buf.WriteString("            \"Content-Type\": SCENERY_WIRE_CONTENT_TYPE,\n")
-	buf.WriteString("            \"X-Scenery-Wire-Schema-Hash\": spec.schemaHash,\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        if (callID !== \"\") {\n")
-	buf.WriteString("            wireHeaders[\"X-Scenery-Call-ID\"] = callID\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        const wireParams: CallParameters = {\n")
-	buf.WriteString("            ...spec.params,\n")
-	buf.WriteString("            headers: wireHeaders,\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        let response: Response\n")
-	buf.WriteString("        try {\n")
-	buf.WriteString("            response = await this.callAPI(\"POST\", spec.wirePath, payload as BodyInit, wireParams)\n")
-	buf.WriteString("        } catch (err) {\n")
-	buf.WriteString("            if (err instanceof APIError) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            throw err\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        try {\n")
-	buf.WriteString("            return {\n")
-	buf.WriteString("                body: await response.json(),\n")
-	buf.WriteString("                headers: response.headers,\n")
-	buf.WriteString("                status: response.status,\n")
-	buf.WriteString("                response,\n")
-	buf.WriteString("                txid: txidFromHeaders(response.headers),\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("        } catch (err) {\n")
-	buf.WriteString("            if (err instanceof APIError) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (callID !== \"\") {\n")
-	buf.WriteString("                const recovered = await this.recoverWireCall(callID)\n")
-	buf.WriteString("                if (recovered) {\n")
-	buf.WriteString("                    return {\n")
-	buf.WriteString("                        body: resultFromRecoveredWire(recovered),\n")
-	buf.WriteString("                        headers: response.headers,\n")
-	buf.WriteString("                        status: response.status,\n")
-	buf.WriteString("                        response,\n")
-	buf.WriteString("                        txid: txidFromHeaders(response.headers),\n")
-	buf.WriteString("                    }\n")
-	buf.WriteString("                }\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            if (spec.safeJSONRetry) {\n")
-	buf.WriteString("                throw err\n")
-	buf.WriteString("            }\n")
-	buf.WriteString("            throw new SceneryWireFallbackError(`wire response decode failed for ${spec.endpointID}: ${String(err)}`)\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("    }\n\n")
-	buf.WriteString("    private async getWireCapabilities(): Promise<WireCapabilities | null> {\n")
-	buf.WriteString("        if (!this.capabilitiesPromise) {\n")
-	buf.WriteString("            this.capabilitiesPromise = (async () => {\n")
-	buf.WriteString("                try {\n")
-	buf.WriteString("                    const response = await this.callAPI(\"GET\", \"/_wire/capabilities\")\n")
-	buf.WriteString("                    return await response.json() as WireCapabilities\n")
-	buf.WriteString("                } catch {\n")
-	buf.WriteString("                    return null\n")
-	buf.WriteString("                }\n")
-	buf.WriteString("            })()\n")
-	buf.WriteString("        }\n")
-	buf.WriteString("        return this.capabilitiesPromise\n")
-	buf.WriteString("    }\n\n")
-	buf.WriteString("    private async recoverWireCall(callID: string): Promise<RecoveredWireResponse | null> {\n")
-	buf.WriteString("        try {\n")
-	buf.WriteString("            const response = await this.callAPI(\"GET\", `/_wire/recover/${encodeURIComponent(callID)}`)\n")
-	buf.WriteString("            return await response.json() as RecoveredWireResponse\n")
-	buf.WriteString("        } catch {\n")
-	buf.WriteString("            return null\n")
-	buf.WriteString("        }\n")
+	buf.WriteString("        return this.callTypedAPIWithMeta(spec.method, spec.path, spec.jsonBody, spec.params)\n")
 	buf.WriteString("    }\n\n")
 	buf.WriteString("    public async callTypedAPI(method: string, path: string, body?: RequestInit[\"body\"], params?: CallParameters): Promise<Response> {\n")
 	buf.WriteString("        return this.callAPI(method, path, body, {\n")
@@ -561,32 +314,11 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("    }\n")
 	buf.WriteString("}\n\n")
 	buf.WriteString(`interface TypedEndpointCall {
-    endpointID: string
-    wirePath: string
-    schemaHash: string
-    binaryAvailable: boolean
-    safeJSONRetry: boolean
     method: string
     path: string
-    pathParams?: Record<string, unknown>
     payload?: unknown
     jsonBody?: RequestInit["body"]
-    payloadJSON?: string
     params?: CallParameters
-}
-
-interface WireCapabilities {
-    wire_schema_hash: string
-    endpoints: Record<string, {
-        available: boolean
-        schema_hash?: string
-    }>
-}
-
-interface RecoveredWireResponse {
-    status: number
-    result?: unknown
-    error?: APIErrorResponse
 }
 
 interface TypedEndpointResultWithMeta {
@@ -627,22 +359,6 @@ export interface SyncObservationDiagnostic {
     observer_error?: {
         name?: string
         message: string
-    }
-}
-
-export class SceneryWireFallbackError extends Error {
-    constructor(message: string) {
-        super(message)
-        Object.defineProperty(this, "name", {
-            value: "SceneryWireFallbackError",
-            enumerable: false,
-            configurable: true,
-        })
-        if ((Object as any).setPrototypeOf === undefined) {
-            ;(this as any).__proto__ = SceneryWireFallbackError.prototype
-        } else {
-            Object.setPrototypeOf(this, SceneryWireFallbackError.prototype)
-        }
     }
 }
 
@@ -799,19 +515,6 @@ function formatSyncObservationMessage(diagnostic: SyncObservationDiagnostic): st
     return parts.join("; ")
 }
 
-function makeSceneryCallID(): string {
-    const random = new Uint8Array(16)
-    const cryptoObj = (globalThis as any).crypto
-    if (cryptoObj?.getRandomValues) {
-        cryptoObj.getRandomValues(random)
-    } else {
-        for (let i = 0; i < random.length; i++) {
-            random[i] = Math.floor(Math.random() * 256)
-        }
-    }
-    return Array.from(random).map((b) => b.toString(16).padStart(2, "0")).join("")
-}
-
 async function decodeTypedResponse(value: Response | unknown): Promise<unknown> {
     if (value instanceof Response) {
         return await value.json()
@@ -856,360 +559,9 @@ function mergeCallParameters(base?: CallParameters, generated?: CallParameters):
     }
 }
 
-function resultFromRecoveredWire(recovered: RecoveredWireResponse): unknown {
-    if (recovered.error) {
-        throw new APIError(recovered.status || 500, recovered.error)
-    }
-    return recovered.result ?? null
-}
-
-function resultFromWireEnvelope(envelope: any): unknown {
-    if (!envelope || typeof envelope !== "object") {
-        throw new Error("invalid wire response envelope")
-    }
-    const status = typeof envelope.status === "number" ? envelope.status : 200
-    if (envelope.ok === false) {
-        throw new APIError(status, normalizeAPIErrorResponse(envelope.error, status))
-    }
-    if (typeof envelope.result_json === "string") {
-        return JSON.parse(envelope.result_json)
-    }
-    return envelope.result ?? null
-}
-
-function resultFromWireFrame(value: unknown): unknown {
-    if (!isSceneryWireFrameResponse(value)) {
-        return resultFromWireEnvelope(value)
-    }
-    const status = value.status || 200
-    const payload = value.payloadJSON === "" ? null : JSON.parse(value.payloadJSON)
-    if (value.error) {
-        throw new APIError(status, normalizeAPIErrorResponse(payload, status))
-    }
-    return payload
-}
-
-function normalizeAPIErrorResponse(value: any, status: number): APIErrorResponse {
-    if (isAPIErrorResponse(value)) {
-        return value
-    }
-    return { code: ErrCode.Unknown, message: ` + "`request failed: status ${status}`" + ` }
-}
-
-const sceneryWireTextEncoder = new TextEncoder()
-const sceneryWireTextDecoder = new TextDecoder()
-const sceneryWireMagic = new Uint8Array([80, 87, 66, 49])
-const sceneryWireFrameMagic = new Uint8Array([80, 87, 66, 50])
-const sceneryWireEmptyBytes = new Uint8Array(0)
-const sceneryWireStringCache = new Map<string, Uint8Array>()
-
-void encodeSceneryWire
-void decodeSceneryWireResponse
-void resultFromWireFrame
 void decodeTypedAPIResponse
 void typedVoidAPIResponse
 void mergeCallParameters
-
-interface SceneryWireFrameResponse {
-    __sceneryWireFrame: true
-    status: number
-    error: boolean
-    payloadJSON: string
-}
-
-function isSceneryWireFrameResponse(value: unknown): value is SceneryWireFrameResponse {
-    return !!value && typeof value === "object" && (value as any).__sceneryWireFrame === true
-}
-
-function encodeSceneryWireRequest(spec: TypedEndpointCall): Uint8Array {
-    const schema = sceneryWireEmptyBytes
-    const pathParams = spec.pathParams === undefined ? sceneryWireEmptyBytes : encodeSceneryWireString(JSON.stringify(spec.pathParams))
-    const payload = spec.payloadJSON === undefined ? sceneryWireEmptyBytes : encodeSceneryWireString(spec.payloadJSON)
-    const writer = new SceneryWireWriter(sceneryWireFrameMagic.length + schema.length + pathParams.length + payload.length + 30)
-    writer.bytes(sceneryWireFrameMagic)
-    writer.sizedBytes(schema)
-    writer.sizedBytes(pathParams)
-    writer.sizedBytes(payload)
-    return writer.finish()
-}
-
-function encodeSceneryWire(value: unknown): Uint8Array {
-    const writer = new SceneryWireWriter()
-    writer.bytes(sceneryWireMagic)
-    writeSceneryWireValue(writer, value)
-    return writer.finish()
-}
-
-async function decodeSceneryWireResponse(response: Response): Promise<unknown> {
-    const data = new Uint8Array(await response.arrayBuffer())
-    if (hasSceneryWireMagic(data, sceneryWireFrameMagic)) {
-        return decodeSceneryWireFrame(data)
-    }
-    return decodeSceneryWire(data)
-}
-
-function decodeSceneryWire(data: Uint8Array): unknown {
-    if (!hasSceneryWireMagic(data, sceneryWireMagic)) {
-        throw new Error("invalid wire payload")
-    }
-    const reader = new SceneryWireReader(data.subarray(sceneryWireMagic.length))
-    const value = reader.value()
-    if (!reader.done()) {
-        throw new Error("trailing wire payload")
-    }
-    return value
-}
-
-function decodeSceneryWireFrame(data: Uint8Array): SceneryWireFrameResponse {
-    const reader = new SceneryWireReader(data.subarray(sceneryWireFrameMagic.length))
-    const status = reader.uvarint()
-    const flags = reader.byte()
-    const payloadJSON = sceneryWireTextDecoder.decode(reader.sizedBytes())
-    if (!reader.done()) {
-        throw new Error("trailing wire frame payload")
-    }
-    return {
-        __sceneryWireFrame: true,
-        status,
-        error: (flags & 1) !== 0,
-        payloadJSON,
-    }
-}
-
-function hasSceneryWireMagic(data: Uint8Array, magic: Uint8Array): boolean {
-    if (data.length < magic.length) {
-        return false
-    }
-    for (let i = 0; i < magic.length; i++) {
-        if (data[i] !== magic[i]) {
-            return false
-        }
-    }
-    return true
-}
-
-function writeSceneryWireValue(writer: SceneryWireWriter, value: unknown): void {
-    if (value === undefined || value === null) {
-        writer.byte(0)
-        return
-    }
-    if (typeof value === "boolean") {
-        writer.byte(value ? 2 : 1)
-        return
-    }
-    if (typeof value === "number") {
-        if (!Number.isFinite(value)) {
-            throw new Error("non-finite numbers cannot be encoded")
-        }
-        writer.byte(3)
-        writer.float64(value)
-        return
-    }
-    if (typeof value === "string") {
-        writer.byte(4)
-        writer.string(value)
-        return
-    }
-    if (Array.isArray(value)) {
-        writer.byte(5)
-        writer.uvarint(value.length)
-        for (const item of value) {
-            writeSceneryWireValue(writer, item)
-        }
-        return
-    }
-    if (value instanceof Date) {
-        writer.byte(4)
-        writer.string(value.toISOString())
-        return
-    }
-    if (typeof value === "object") {
-        const record = value as Record<string, unknown>
-        const keys = Object.keys(record).filter((key) => record[key] !== undefined)
-        writer.byte(6)
-        writer.uvarint(keys.length)
-        for (const key of keys) {
-            writer.string(key)
-            writeSceneryWireValue(writer, record[key])
-        }
-        return
-    }
-    throw new Error(` + "`unsupported wire value: ${typeof value}`" + `)
-}
-
-class SceneryWireWriter {
-    private data: Uint8Array
-    private view: DataView
-    private offset = 0
-
-    constructor(size = 1024) {
-        this.data = new Uint8Array(size)
-        this.view = new DataView(this.data.buffer)
-    }
-
-    byte(value: number): void {
-        this.reserve(1)
-        this.data[this.offset++] = value & 0xff
-    }
-
-    bytes(value: Uint8Array): void {
-        this.reserve(value.length)
-        this.data.set(value, this.offset)
-        this.offset += value.length
-    }
-
-    string(value: string): void {
-        this.sizedBytes(encodeSceneryWireString(value))
-    }
-
-    sizedBytes(value: Uint8Array): void {
-        this.uvarint(value.length)
-        this.bytes(value)
-    }
-
-    uvarint(value: number): void {
-        let v = Math.trunc(value)
-        while (v >= 0x80) {
-            this.byte((v & 0x7f) | 0x80)
-            v = Math.floor(v / 128)
-        }
-        this.byte(v)
-    }
-
-    float64(value: number): void {
-        this.reserve(8)
-        this.view.setFloat64(this.offset, value, true)
-        this.offset += 8
-    }
-
-    finish(): Uint8Array {
-        return this.data.subarray(0, this.offset)
-    }
-
-    private reserve(extra: number): void {
-        const required = this.offset + extra
-        if (required <= this.data.length) {
-            return
-        }
-        let nextSize = this.data.length
-        while (nextSize < required) {
-            nextSize *= 2
-        }
-        const next = new Uint8Array(nextSize)
-        next.set(this.data)
-        this.data = next
-        this.view = new DataView(this.data.buffer)
-    }
-}
-
-function encodeSceneryWireString(value: string): Uint8Array {
-    if (value.length <= 8192) {
-        const cached = sceneryWireStringCache.get(value)
-        if (cached !== undefined) {
-            return cached
-        }
-        const encoded = sceneryWireTextEncoder.encode(value)
-        if (sceneryWireStringCache.size < 1024) {
-            sceneryWireStringCache.set(value, encoded)
-        }
-        return encoded
-    }
-    return sceneryWireTextEncoder.encode(value)
-}
-
-class SceneryWireReader {
-    private offset = 0
-    private readonly view: DataView
-
-    constructor(private readonly data: Uint8Array) {
-        this.view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-    }
-
-    done(): boolean {
-        return this.offset === this.data.length
-    }
-
-    value(): unknown {
-        const tag = this.byte()
-        switch (tag) {
-            case 0:
-                return null
-            case 1:
-                return false
-            case 2:
-                return true
-            case 3:
-                return this.float64()
-            case 4:
-                return this.string()
-            case 5: {
-                const count = this.uvarint()
-                const items: unknown[] = []
-                for (let i = 0; i < count; i++) {
-                    items.push(this.value())
-                }
-                return items
-            }
-            case 6: {
-                const count = this.uvarint()
-                const obj: Record<string, unknown> = {}
-                for (let i = 0; i < count; i++) {
-                    const key = this.string()
-                    obj[key] = this.value()
-                }
-                return obj
-            }
-            default:
-                throw new Error(` + "`unknown wire tag ${tag}`" + `)
-        }
-    }
-
-    byte(): number {
-        if (this.offset >= this.data.length) {
-            throw new Error("truncated wire payload")
-        }
-        return this.data[this.offset++]
-    }
-
-    uvarint(): number {
-        let value = 0
-        let shift = 0
-        for (;;) {
-            const b = this.byte()
-            value += (b & 0x7f) * Math.pow(2, shift)
-            if ((b & 0x80) === 0) {
-                return value
-            }
-            shift += 7
-            if (shift > 63) {
-                throw new Error("invalid wire length")
-            }
-        }
-    }
-
-    sizedBytes(): Uint8Array {
-        const length = this.uvarint()
-        if (this.offset + length > this.data.length) {
-            throw new Error("truncated wire bytes")
-        }
-        const out = this.data.subarray(this.offset, this.offset + length)
-        this.offset += length
-        return out
-    }
-
-    string(): string {
-        return sceneryWireTextDecoder.decode(this.sizedBytes())
-    }
-
-    float64(): number {
-        if (this.offset + 8 > this.data.length) {
-            throw new Error("truncated wire number")
-        }
-        const value = this.view.getFloat64(this.offset, true)
-        this.offset += 8
-        return value
-    }
-}
 
 `)
 	buf.WriteString("interface APIErrorResponse {\n")

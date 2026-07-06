@@ -14,7 +14,7 @@ func TestStorePersistsBoardCRUD(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t)
 	task, err := store.CreateTask(ctx, "demo", TaskInput{
-		Title:       "Wire Symphony board",
+		Title:       "Demo Symphony board",
 		Description: "Persist the first task",
 		StatusKey:   "backlog",
 		Labels:      []string{"dashboard", " dashboard "},
@@ -26,7 +26,7 @@ func TestStorePersistsBoardCRUD(t *testing.T) {
 		t.Fatalf("created task = %+v", task)
 	}
 	updated, err := store.UpdateTask(ctx, "demo", task.ID, TaskInput{
-		Title:       "Wire Symphony board",
+		Title:       "Demo Symphony board",
 		Description: "Updated body",
 		StatusKey:   "todo",
 		Priority:    "high",

@@ -33,7 +33,7 @@
     },
     "artifacts": {
       "type": "object",
-      "required": ["app", "routes", "services", "endpoints", "models", "views", "wire_capabilities", "build_latest"],
+      "required": ["app", "routes", "services", "endpoints", "models", "views", "build_latest"],
       "properties": {
         "app": { "type": "string" },
         "routes": { "type": "string" },
@@ -41,14 +41,13 @@
         "endpoints": { "type": "string" },
         "models": { "type": "string" },
         "views": { "type": "string" },
-        "wire_capabilities": { "type": "string" },
         "build_latest": { "type": "string" }
       },
       "additionalProperties": false
     },
     "schemas": {
       "type": "object",
-      "required": ["app", "routes", "services", "endpoints", "models", "views", "wire_capabilities", "build_latest"],
+      "required": ["app", "routes", "services", "endpoints", "models", "views", "build_latest"],
       "properties": {
         "app": { "type": "string" },
         "routes": { "type": "string" },
@@ -56,22 +55,20 @@
         "endpoints": { "type": "string" },
         "models": { "type": "string" },
         "views": { "type": "string" },
-        "wire_capabilities": { "type": "string" },
         "build_latest": { "type": "string" }
       },
       "additionalProperties": false
     },
     "hashes": {
       "type": "object",
-      "required": ["app", "routes", "services", "endpoints", "models", "views", "wire_capabilities"],
+      "required": ["app", "routes", "services", "endpoints", "models", "views"],
       "properties": {
         "app": { "type": "string" },
         "routes": { "type": "string" },
         "services": { "type": "string" },
         "endpoints": { "type": "string" },
         "models": { "type": "string" },
-        "views": { "type": "string" },
-        "wire_capabilities": { "type": "string" }
+        "views": { "type": "string" }
       },
       "additionalProperties": false
     }

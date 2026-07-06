@@ -11,20 +11,15 @@ import (
 	"sync"
 
 	"scenery.sh/errs"
-	"scenery.sh/internal/wire"
 	"scenery.sh/runtime/shared"
 )
 
 type server struct {
-	public         *routeTable
-	private        *routeTable
-	http           *http.Server
-	wireEndpoints  map[string]*Endpoint
-	wireCaps       wire.Capabilities
-	wireRecoveryMu sync.Mutex
-	wireRecovery   map[string]wireRecoveryRecord
-	drainOnce      sync.Once
-	drainCh        chan struct{}
+	public    *routeTable
+	private   *routeTable
+	http      *http.Server
+	drainOnce sync.Once
+	drainCh   chan struct{}
 }
 
 // beginDrain cancels the contexts of in-flight streaming raw requests so
@@ -39,10 +34,9 @@ func (s *server) beginDrain() {
 
 func newServer(listenAddr string) (*http.Server, error) {
 	s := &server{
-		public:        newRouteTable(),
-		private:       newRouteTable(),
-		wireEndpoints: make(map[string]*Endpoint),
-		drainCh:       make(chan struct{}),
+		public:  newRouteTable(),
+		private: newRouteTable(),
+		drainCh: make(chan struct{}),
 	}
 	s.public.GlobalOPTIONS = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		applyCORSHeaders(w.Header(), req)
@@ -60,15 +54,12 @@ func newServer(listenAddr string) (*http.Server, error) {
 
 	endpoints := listEndpoints()
 	for _, ep := range endpoints {
-		s.wireEndpoints[endpointWireID(ep)] = ep
 		if ep.Raw {
 			s.registerRaw(ep)
 			continue
 		}
 		s.registerTyped(ep)
 	}
-	s.wireCaps = buildWireCapabilities(endpoints)
-	s.registerWire()
 	if storageHTTPConfigured() {
 		s.registerStorageRoutes()
 	}
