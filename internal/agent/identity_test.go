@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -114,5 +117,12 @@ func TestOldAgentHealthWithoutIdentityTriggersReplace(t *testing.T) {
 	current := Identity{Version: "dev", Commit: "abc123", BuiltAt: "2026-07-03T12:00:00Z"}
 	if !ShouldReplaceAgent(current, health.Identity) {
 		t.Fatalf("expected old agent without identity to trigger replace")
+	}
+}
+
+func TestReplaceRunningAgentRefusesCurrentProcess(t *testing.T) {
+	err := replaceRunningAgent(context.Background(), nil, Paths{}, HealthResponse{PID: os.Getpid()})
+	if err == nil || !strings.Contains(err.Error(), "current process") {
+		t.Fatalf("replaceRunningAgent current process error = %v, want refusal", err)
 	}
 }

@@ -107,6 +107,9 @@ func Ensure(ctx context.Context, current Identity) (*Client, error) {
 // replacement once; it never re-checks identity, so it cannot loop.
 func replaceRunningAgent(ctx context.Context, client *Client, paths Paths, health HealthResponse) error {
 	if health.PID > 0 {
+		if health.PID == os.Getpid() {
+			return fmt.Errorf("refusing to restart scenery agent pid %d because it is the current process", health.PID)
+		}
 		if err := terminateProcess(health.PID); err != nil {
 			return fmt.Errorf("stop scenery agent pid %d: %w", health.PID, err)
 		}

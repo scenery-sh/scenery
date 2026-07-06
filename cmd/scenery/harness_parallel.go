@@ -68,6 +68,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 			Network: "tcp",
 			Addr:    "127.0.0.1:9",
 		},
+		Identity: cliBuildIdentity(),
 	})
 	if err != nil {
 		return nil, nil, err
