@@ -73,6 +73,10 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 	if err != nil {
 		return nil, err
 	}
+	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(workspaceDir)
+	if err != nil {
+		return nil, err
+	}
 	needsTidy := state.DependencyFingerprint != depFingerprint
 	buildFingerprint, err := workspaceBuildFingerprint(workspaceDir, goBuildFlags, sourceFiles, generatedFiles)
 	if err != nil {
@@ -89,9 +93,10 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 		DependencyFingerprint:     depFingerprint,
 		SourceFingerprint:         sourceFingerprint,
 		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		FrameworkFingerprint:      frameworkFingerprint,
 		GeneratorFingerprint:      generatorFingerprint,
 		BuildFingerprint:          buildFingerprint,
-		ReuseCompiled:             buildFingerprint != "" && pathExists(binary),
+		ReuseCompiled:             buildFingerprint != "" && pathExists(binary) && state.FrameworkFingerprint == frameworkFingerprint,
 		SourceFiles:               sourceFiles,
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,

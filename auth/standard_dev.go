@@ -11,6 +11,7 @@ import (
 )
 
 const maxDevBootstrapClaimLength = 200
+const defaultDevBootstrapTenantName = "Development Workspace"
 
 type AuthResponse struct {
 	Token string `json:"token"`
@@ -75,7 +76,7 @@ func resolveDevBootstrapEmailDefault(ctx context.Context, email string, preferre
 	user, err := svc.query.GetUserByNormalizedEmail(ctx, normalizedEmail)
 	if err != nil {
 		if isNoRows(err) {
-			return "", "", errs.B().Code(errs.NotFound).Msg("default user email not found").Err()
+			return createDevBootstrapEmailDefault(ctx, svc, email, normalizedEmail, preferredTenantID)
 		}
 		return "", "", err
 	}
@@ -106,6 +107,65 @@ func resolveDevBootstrapEmailDefault(ctx context.Context, email string, preferre
 		return "", "", failedPrecondition("default user has no active tenant memberships")
 	}
 	return uuidString(user.ID), uuidString(memberships[0].TenantID), nil
+}
+
+func createDevBootstrapEmailDefault(ctx context.Context, svc *Service, email string, normalizedEmail string, preferredTenantID string) (string, string, error) {
+	tenantID, err := parseUUID(preferredTenantID)
+	if err != nil {
+		return "", "", errs.B().Code(errs.InvalidArgument).Msg("tenant_id is invalid").Err()
+	}
+	tx, q, err := svc.beginTx(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	tenant, err := q.EnsureDevBootstrapTenant(ctx, authdb.EnsureDevBootstrapTenantParams{
+		ID:   tenantID,
+		Name: defaultDevBootstrapTenantName,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if tenant.DeletedAt.Valid {
+		return "", "", failedPrecondition("default tenant is deleted")
+	}
+
+	userID, err := newUUID()
+	if err != nil {
+		return "", "", err
+	}
+	user, err := q.EnsureDevBootstrapUser(ctx, authdb.EnsureDevBootstrapUserParams{
+		ID:                     userID,
+		DisplayName:            defaultDisplayName(normalizedEmail, ""),
+		PrimaryEmail:           displayEmail(email),
+		NormalizedPrimaryEmail: normalizedEmail,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if user.DisabledAt.Valid {
+		return "", "", permissionDenied("default user is disabled")
+	}
+
+	membershipID, err := newUUID()
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := q.CreateOrganizationMembership(ctx, authdb.CreateOrganizationMembershipParams{
+		ID:       membershipID,
+		TenantID: tenant.ID,
+		UserID:   user.ID,
+		Role:     roleOwner,
+	}); err != nil {
+		return "", "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", "", err
+	}
+	return uuidString(user.ID), uuidString(tenant.ID), nil
 }
 
 func firstNonEmpty(values ...string) string {

@@ -182,7 +182,7 @@ Retrospective notes:
 - The machine-global container name vs per-agent-home state mismatch was the one real architecture flaw found post-implementation; state-owned container/volume names fixed it.
 - An independent review pass (gpt-5.5) caught a genuine blocker (generated model CRUD still sqlite-shaped) that all wave-level testing missed because no fixture exercised generated CRUD against live Postgres.
 
-Follow-up candidates: `scenery down --db` currently requires a live runtime to drop the database (use `scenery db drop` otherwise); dev-bootstrap default auth user is created lazily rather than at `scenery up`; a template-database branching story remains explicitly out of scope.
+Follow-up candidates: post-plan fixes resolved the live-runtime dependency for `scenery down --db` and made dev-bootstrap create the configured default auth user/tenant on first local bootstrap when missing. A template-database branching story remains explicitly out of scope.
 
 ## Context and Orientation
 

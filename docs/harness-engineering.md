@@ -53,8 +53,9 @@ For dashboard route or UI behavior changes, also run:
 scenery harness ui --json --write
 ```
 
-For managed SQLite branch-provider changes, the default self-harness runs the
-live SQLite branch proof:
+For managed database changes, the default self-harness runs the live
+Postgres service probe when Docker is reachable (and records an explicit
+skip when it is not):
 
 ```text
 scenery harness self --json --write
@@ -174,9 +175,9 @@ The self harness validates the local scenery development loop:
 - `scenery inspect docs --json`
 - docs review-due and stale summaries from `scenery inspect docs --json`
 - architecture checks for dependency policy, package boundaries, generated-file hygiene, and oversized source files
-- parallel dev-session safety plus managed SQLite branch lifecycle,
-  branch pin/lease lifecycle safety, branch isolation, reset, restore, diff,
-  delete, and prune coverage outside `--quick`
+- parallel dev-session safety plus managed Postgres database isolation
+  (distinct per-worktree databases and database URLs) when Docker is
+  reachable
 - dashboard UI typecheck and build
 - dashboard build freshness
 - worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`

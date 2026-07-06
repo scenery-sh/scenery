@@ -229,7 +229,11 @@ Enable standard auth in app config:
   "auth": {
     "enabled": true,
     "database_url_env": "DatabaseURL",
-    "dev_bootstrap": { "enabled": true }
+    "dev_bootstrap": {
+      "enabled": true,
+      "default_user_email": "owner@example.test",
+      "default_tenant_id": "00000000-0000-0000-0000-000000000001"
+    }
   }
 }
 ```
@@ -264,6 +268,10 @@ scenery up --detach
 # discover the base URL with `scenery ps --json`, then:
 curl -X POST http://localhost:4001/api/users/dev-bootstrap
 ```
+
+When `default_user_email` is configured, the first local dev bootstrap creates
+that verified user, the configured default tenant, and an owner membership when
+they are missing.
 
 Common failure: `DatabaseURL` is missing. Put it in process env or an app-root `.env.local` for local development.
 

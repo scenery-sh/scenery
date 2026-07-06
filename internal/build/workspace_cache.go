@@ -149,6 +149,7 @@ func LoadCachedGraph(appRoot string, cfg app.Config, graphFingerprint string) (*
 		DependencyFingerprint:     state.DependencyFingerprint,
 		SourceFingerprint:         state.SourceFingerprint,
 		SourceMetadataFingerprint: state.SourceMetadataFingerprint,
+		FrameworkFingerprint:      state.FrameworkFingerprint,
 		GeneratorFingerprint:      state.GeneratorFingerprint,
 		BuildFingerprint:          state.BuildFingerprint,
 		GraphFingerprint:          state.GraphFingerprint,
@@ -198,6 +199,12 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	if err := seedSceneryGoSum(result.Dir, app.RepoRoot()); err != nil {
 		return false, err
 	}
+	previousFrameworkFingerprint := result.FrameworkFingerprint
+	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(result.Dir)
+	if err != nil {
+		return false, err
+	}
+	result.FrameworkFingerprint = frameworkFingerprint
 	depFingerprint, err := dependencyFingerprintFromWorkspace(result.Dir)
 	if err != nil {
 		return false, err
@@ -210,7 +217,7 @@ func RefreshCachedWorkspaceWithSnapshot(appRoot string, result *Result, snapshot
 	}
 	result.BuildFingerprint = buildFingerprint
 	result.Binary = filepath.Join(result.Dir, workspaceBinaryName(appRoot, buildFingerprint))
-	result.ReuseCompiled = pathExists(result.Binary)
+	result.ReuseCompiled = pathExists(result.Binary) && previousFrameworkFingerprint == frameworkFingerprint
 	return true, nil
 }
 

@@ -10,6 +10,19 @@ INSERT INTO scenery.scenery_auth_users (
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
 
+-- name: EnsureDevBootstrapUser :one
+INSERT INTO scenery.scenery_auth_users (
+  id,
+  display_name,
+  primary_email,
+  normalized_primary_email,
+  email_verified_at
+)
+VALUES ($1, $2, $3, $4, now())
+ON CONFLICT (normalized_primary_email) WHERE normalized_primary_email <> ''
+DO UPDATE SET normalized_primary_email = scenery.scenery_auth_users.normalized_primary_email
+RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at;
+
 -- name: GetUserByID :one
 SELECT id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
 FROM scenery.scenery_auth_users
@@ -70,6 +83,12 @@ RETURNING id, user_id, provider, provider_subject, email, normalized_email, pass
 -- name: CreateTenant :one
 INSERT INTO scenery.scenery_auth_tenants (id, name)
 VALUES ($1, $2)
+RETURNING id, name, deleted_at, created_at, updated_at;
+
+-- name: EnsureDevBootstrapTenant :one
+INSERT INTO scenery.scenery_auth_tenants (id, name)
+VALUES ($1, $2)
+ON CONFLICT (id) DO UPDATE SET name = scenery.scenery_auth_tenants.name
 RETURNING id, name, deleted_at, created_at, updated_at;
 
 -- name: GetTenantByID :one

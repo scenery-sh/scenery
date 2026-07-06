@@ -19,7 +19,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/postgresdb"
 )
 
 type agentOptions struct {
@@ -554,17 +553,51 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		return err
 	}
 	ctx := context.Background()
-	session, err := resolveDownSession(ctx, client, opts)
-	if err != nil {
-		return err
-	}
 	if opts.All {
 		opts.DB = true
 		opts.State = true
 	}
+	session, runtimeMissing, err := resolveDownSession(ctx, client, opts)
+	if err != nil {
+		return err
+	}
 	appRoot := session.AppRoot
 	if strings.TrimSpace(appRoot) == "" {
 		appRoot, _ = resolveStatusAppRoot(opts.AppRoot)
+	}
+	if runtimeMissing {
+		resp := downResponse{
+			SchemaVersion: "scenery.down.v1",
+			AppRoot:       appRoot,
+			DBCleanup:     opts.DB,
+			StateCleanup:  opts.State,
+		}
+		message := fmt.Sprintf("no scenery dev runtime found for app root %s; runtime stop skipped", appRoot)
+		resp.Messages = append(resp.Messages, message)
+		if !opts.JSON {
+			fmt.Fprintln(stdout, message)
+		}
+		if opts.DB {
+			dbMessage, err := dropSessionManagedDatabase(ctx, appRoot)
+			if err != nil {
+				return err
+			}
+			resp.Messages = append(resp.Messages, dbMessage)
+			if !opts.JSON {
+				fmt.Fprintln(stdout, dbMessage)
+			}
+		}
+		if opts.State {
+			stateMessage := "no scenery dev runtime state found to remove"
+			resp.Messages = append(resp.Messages, stateMessage)
+			if !opts.JSON {
+				fmt.Fprintln(stdout, stateMessage)
+			}
+		}
+		if opts.JSON {
+			return writeDownJSON(stdout, resp)
+		}
+		return nil
 	}
 	if err := stopDeletedSessionProcesses(ctx, session); err != nil {
 		return err
@@ -592,7 +625,7 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 		return nil
 	}
 	if opts.DB {
-		message, err := dropSessionManagedDatabase(ctx, client, appRoot, deletedSession)
+		message, err := dropSessionManagedDatabase(ctx, appRoot)
 		if err != nil {
 			return err
 		}
@@ -683,19 +716,26 @@ func stopDeletedSessionProcesses(ctx context.Context, session localagent.Session
 	return errors.Join(errs...)
 }
 
-func resolveDownSession(ctx context.Context, client *localagent.Client, opts downOptions) (localagent.Session, error) {
+func resolveDownSession(ctx context.Context, client *localagent.Client, opts downOptions) (localagent.Session, bool, error) {
 	appRoot, err := resolveStatusAppRoot(opts.AppRoot)
 	if err != nil {
-		return localagent.Session{}, err
+		return localagent.Session{}, false, err
 	}
 	sessions, err := client.List(ctx, appRoot)
 	if err != nil {
-		return localagent.Session{}, err
+		return localagent.Session{}, false, err
 	}
+	return resolveDownSessionFromList(appRoot, sessions, opts)
+}
+
+func resolveDownSessionFromList(appRoot string, sessions []localagent.Session, opts downOptions) (localagent.Session, bool, error) {
 	if len(sessions) == 0 {
-		return localagent.Session{}, fmt.Errorf("no scenery dev runtime found for app root %s", appRoot)
+		if opts.DB {
+			return localagent.Session{AppRoot: appRoot}, true, nil
+		}
+		return localagent.Session{}, false, fmt.Errorf("no scenery dev runtime found for app root %s", appRoot)
 	}
-	return sessions[0], nil
+	return sessions[0], false, nil
 }
 
 func parseDownArgs(args []string) (downOptions, error) {
@@ -881,27 +921,25 @@ func pruneSessionEligible(session localagent.Session, cutoff time.Time) bool {
 	return true
 }
 
-func dropSessionManagedDatabase(ctx context.Context, client *localagent.Client, appRoot string, session localagent.Session) (string, error) {
+func dropSessionManagedDatabase(ctx context.Context, appRoot string) (string, error) {
 	if strings.TrimSpace(appRoot) == "" {
 		return "", fmt.Errorf("app root is required to drop a managed database")
 	}
-	_, cfg, err := app.DiscoverRoot(appRoot)
+	appRoot, cfg, err := discoverConfiguredApp(appRoot)
 	if err != nil {
 		return "", err
 	}
-	if len(cfg.DatabaseServices()) > 0 {
-		admin, err := managedPostgresAdmin(ctx)
-		if err != nil {
-			return "", err
-		}
-		defer admin.Close()
-		name := postgresdb.DatabaseNameFor(cfg.AppID(), appRoot)
-		if err := postgresdb.DropDatabase(ctx, admin, name); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("dropped managed postgres database %s", name), nil
+	database, err := resolvePostgresDatabaseForCLI(ctx, appRoot, cfg)
+	if err != nil {
+		return "", err
 	}
-	return "no managed database is configured", nil
+	if strings.TrimSpace(database.Database) == "" {
+		return "no managed database is configured", nil
+	}
+	if err := dropPostgresDatabase(ctx, database, dbCLIOptions{}); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("dropped managed postgres database %s", database.Database), nil
 }
 
 func resolveStatusAppRoot(value string) (string, error) {

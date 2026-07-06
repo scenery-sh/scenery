@@ -85,6 +85,7 @@ type StateInfo struct {
 	DependencyFingerprint     string
 	SourceFingerprint         string
 	SourceMetadataFingerprint string
+	FrameworkFingerprint      string
 	GeneratorFingerprint      string
 	GraphFingerprint          string
 	MetadataPresent           bool
@@ -115,6 +116,7 @@ func ReadStateInfo(appRoot, appName string) (*StateInfo, error) {
 	info.DependencyFingerprint = state.DependencyFingerprint
 	info.SourceFingerprint = state.SourceFingerprint
 	info.SourceMetadataFingerprint = state.SourceMetadataFingerprint
+	info.FrameworkFingerprint = state.FrameworkFingerprint
 	info.GeneratorFingerprint = state.GeneratorFingerprint
 	info.GraphFingerprint = state.GraphFingerprint
 	info.MetadataPresent = len(state.Metadata) > 0
@@ -174,6 +176,7 @@ func WriteLatestBuildManifest(result *Result, phase string) error {
 			BuildStateExists:      state.Exists,
 			BuildStateVersion:     state.Version,
 			DependencyFingerprint: state.DependencyFingerprint,
+			FrameworkFingerprint:  state.FrameworkFingerprint,
 			GraphFingerprint:      state.GraphFingerprint,
 			MetadataPresent:       state.MetadataPresent,
 			APIEncodingPresent:    state.APIEncodingPresent,

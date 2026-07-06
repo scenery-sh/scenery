@@ -495,6 +495,75 @@ func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipPa
 	return i, err
 }
 
+const ensureDevBootstrapTenant = `-- name: EnsureDevBootstrapTenant :one
+INSERT INTO scenery.scenery_auth_tenants (id, name)
+VALUES ($1, $2)
+ON CONFLICT (id) DO UPDATE SET name = scenery.scenery_auth_tenants.name
+RETURNING id, name, deleted_at, created_at, updated_at
+`
+
+type EnsureDevBootstrapTenantParams struct {
+	ID   UUID   `json:"id"`
+	Name string `json:"name"`
+}
+
+func (q *Queries) EnsureDevBootstrapTenant(ctx context.Context, arg EnsureDevBootstrapTenantParams) (ScenerySceneryAuthTenant, error) {
+	row := q.db.QueryRowContext(ctx, ensureDevBootstrapTenant, arg.ID, arg.Name)
+	var i ScenerySceneryAuthTenant
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const ensureDevBootstrapUser = `-- name: EnsureDevBootstrapUser :one
+INSERT INTO scenery.scenery_auth_users (
+  id,
+  display_name,
+  primary_email,
+  normalized_primary_email,
+  email_verified_at
+)
+VALUES ($1, $2, $3, $4, now())
+ON CONFLICT (normalized_primary_email) WHERE normalized_primary_email <> ''
+DO UPDATE SET normalized_primary_email = scenery.scenery_auth_users.normalized_primary_email
+RETURNING id, display_name, avatar_url, primary_email, normalized_primary_email, email_verified_at, disabled_at, can_impersonate_users, created_at, updated_at
+`
+
+type EnsureDevBootstrapUserParams struct {
+	ID                     UUID   `json:"id"`
+	DisplayName            string `json:"display_name"`
+	PrimaryEmail           string `json:"primary_email"`
+	NormalizedPrimaryEmail string `json:"normalized_primary_email"`
+}
+
+func (q *Queries) EnsureDevBootstrapUser(ctx context.Context, arg EnsureDevBootstrapUserParams) (ScenerySceneryAuthUser, error) {
+	row := q.db.QueryRowContext(ctx, ensureDevBootstrapUser,
+		arg.ID,
+		arg.DisplayName,
+		arg.PrimaryEmail,
+		arg.NormalizedPrimaryEmail,
+	)
+	var i ScenerySceneryAuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.AvatarUrl,
+		&i.PrimaryEmail,
+		&i.NormalizedPrimaryEmail,
+		&i.EmailVerifiedAt,
+		&i.DisabledAt,
+		&i.CanImpersonateUsers,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getActiveMembership = `-- name: GetActiveMembership :one
 SELECT id, tenant_id, user_id, role, disabled_at, invited_by_user_id, invited_at, created_at, updated_at
 FROM scenery.scenery_auth_organization_memberships

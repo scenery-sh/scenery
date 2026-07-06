@@ -47,6 +47,7 @@ func savePrimedWorkspace(result *Result) error {
 		DependencyFingerprint:     result.DependencyFingerprint,
 		SourceFingerprint:         result.SourceFingerprint,
 		SourceMetadataFingerprint: result.SourceMetadataFingerprint,
+		FrameworkFingerprint:      result.FrameworkFingerprint,
 		GeneratorFingerprint:      result.GeneratorFingerprint,
 		BuildFingerprint:          result.BuildFingerprint,
 		GraphFingerprint:          result.GraphFingerprint,

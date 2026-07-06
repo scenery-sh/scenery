@@ -22,6 +22,7 @@ type Result struct {
 	DependencyFingerprint     string
 	SourceFingerprint         string
 	SourceMetadataFingerprint string
+	FrameworkFingerprint      string
 	GeneratorFingerprint      string
 	BuildFingerprint          string
 	GraphFingerprint          string
@@ -63,6 +64,7 @@ type buildState struct {
 	DependencyFingerprint     string                 `json:"dependency_fingerprint"`
 	SourceFingerprint         string                 `json:"source_fingerprint,omitempty"`
 	SourceMetadataFingerprint string                 `json:"source_metadata_fingerprint,omitempty"`
+	FrameworkFingerprint      string                 `json:"framework_fingerprint,omitempty"`
 	GeneratorFingerprint      string                 `json:"generator_fingerprint,omitempty"`
 	BuildFingerprint          string                 `json:"build_fingerprint,omitempty"`
 	GraphFingerprint          string                 `json:"graph_fingerprint,omitempty"`
@@ -160,6 +162,7 @@ type LatestBuildManifestRecord struct {
 	BuildStateExists      bool   `json:"build_state_exists"`
 	BuildStateVersion     string `json:"build_state_version,omitempty"`
 	DependencyFingerprint string `json:"dependency_fingerprint,omitempty"`
+	FrameworkFingerprint  string `json:"framework_fingerprint,omitempty"`
 	GraphFingerprint      string `json:"graph_fingerprint,omitempty"`
 	MetadataPresent       bool   `json:"metadata_present"`
 	APIEncodingPresent    bool   `json:"api_encoding_present"`
@@ -221,6 +224,13 @@ func LoadReusableBinaryWithSnapshot(appRoot string, cfg app.Config, snapshot *So
 		!slices.Equal(state.GoBuildFlags, goBuildFlags) {
 		return nil, false, nil
 	}
+	frameworkFingerprint, hasLocalFramework, err := currentFrameworkFingerprintFromWorkspace(workspaceDir)
+	if err != nil {
+		return nil, false, err
+	}
+	if hasLocalFramework && (state.FrameworkFingerprint == "" || state.FrameworkFingerprint != frameworkFingerprint) {
+		return nil, false, nil
+	}
 	binary := filepath.Join(workspaceDir, workspaceBinaryName(appRoot, state.BuildFingerprint))
 	if !pathExists(binary) {
 		return nil, false, nil
@@ -238,6 +248,7 @@ func LoadReusableBinaryWithSnapshot(appRoot string, cfg app.Config, snapshot *So
 		DependencyFingerprint:     state.DependencyFingerprint,
 		SourceFingerprint:         state.SourceFingerprint,
 		SourceMetadataFingerprint: state.SourceMetadataFingerprint,
+		FrameworkFingerprint:      state.FrameworkFingerprint,
 		GeneratorFingerprint:      state.GeneratorFingerprint,
 		BuildFingerprint:          state.BuildFingerprint,
 		GraphFingerprint:          state.GraphFingerprint,
@@ -268,6 +279,7 @@ func latestBuildManifestMatchesReusableBinary(appRoot string, cfg app.Config, wo
 		!manifest.Build.BinaryExists ||
 		manifest.Build.BuildStateVersion != buildStateVersion ||
 		manifest.Build.DependencyFingerprint != state.DependencyFingerprint ||
+		manifest.Build.FrameworkFingerprint != state.FrameworkFingerprint ||
 		manifest.Build.GraphFingerprint != state.GraphFingerprint {
 		return false, nil
 	}

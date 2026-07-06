@@ -87,11 +87,13 @@ Validation per phase: `go build ./...`, `go test ./...`, `scenery harness self -
 
 - The self-harness test-timing artifact only covers the last run's affected packages in quick mode; full-suite timing needs a dedicated `-count=1 -json` audit run.
 - `scripts/testtimes` is no longer a hotspot (~0.002s package time); earlier 6.3s readings were full-suite contention.
+- 2026-07-07: The warm reusable-binary fast path only fingerprinted app-root sources even though generated app workspaces patch `go.mod` with `replace scenery.sh => <repo root>`. Local framework edits could therefore keep serving stale app binaries across `scenery down/up` and build-cache deletions until the agent-dashboard app binary was manually removed.
 
 ## Decision Log
 
 - 2026-07-06: Keep `internal/testlimit`; A/B on `internal/build` showed capped GOMAXPROCS=4 faster (1.909s) than uncapped 24 (2.097s) with much lower system CPU.
 - 2026-07-06: Implementation delegated to Codex (gpt-5.5) agents in phases with disjoint file sets; Claude reviews diffs and runs verification.
+- 2026-07-07: Reusable-binary metadata now stores a framework fingerprint only for generated workspaces whose `go.mod` has a local `scenery.sh` replace. The fingerprint scans the local framework module's Go/module/embed inputs and uses a persistent mtime/size cache so unchanged warm starts do not reread source contents; workspaces using a published module version skip the framework scan.
 
 ## Outcomes & Retrospective
 

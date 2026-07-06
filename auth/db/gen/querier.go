@@ -21,6 +21,8 @@ type Querier interface {
 	CreateTenant(ctx context.Context, arg CreateTenantParams) (ScenerySceneryAuthTenant, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (ScenerySceneryAuthUser, error)
 	DisableMembership(ctx context.Context, arg DisableMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)
+	EnsureDevBootstrapTenant(ctx context.Context, arg EnsureDevBootstrapTenantParams) (ScenerySceneryAuthTenant, error)
+	EnsureDevBootstrapUser(ctx context.Context, arg EnsureDevBootstrapUserParams) (ScenerySceneryAuthUser, error)
 	GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)
 	GetAuthIdentityByProviderSubject(ctx context.Context, arg GetAuthIdentityByProviderSubjectParams) (ScenerySceneryAuthAuthIdentity, error)
 	GetEmailIdentityForLogin(ctx context.Context, providerSubject string) (ScenerySceneryAuthAuthIdentity, error)

@@ -136,6 +136,11 @@ func Hello(ctx context.Context) error { return nil }
 
 func newReusableBinaryBuildTestWorkspace(t *testing.T, cfg appcfg.Config) (string, *Result) {
 	t.Helper()
+	return newReusableBinaryBuildTestWorkspaceWithFrameworkRoot(t, cfg, repoRoot(t))
+}
+
+func newReusableBinaryBuildTestWorkspaceWithFrameworkRoot(t *testing.T, cfg appcfg.Config, frameworkRoot string) (string, *Result) {
+	t.Helper()
 	if cfg.Name == "" {
 		cfg.Name = "buildtest"
 	}
@@ -153,6 +158,12 @@ func newReusableBinaryBuildTestWorkspace(t *testing.T, cfg appcfg.Config) (strin
 		if err != nil {
 			t.Fatal(err)
 		}
+		if rel == "go.mod" {
+			data, err = patchGoModData(data, frameworkRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 		writeBuildTestFile(t, workspace, rel, string(data))
 	}
 	generatedFiles := []string{"scenery_internal_main/main.go", "svc/scenery.gen.go"}
@@ -164,6 +175,10 @@ func newReusableBinaryBuildTestWorkspace(t *testing.T, cfg appcfg.Config) (strin
 		t.Fatal(err)
 	}
 	depFingerprint, err := dependencyFingerprintFromWorkspace(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,6 +214,7 @@ func newReusableBinaryBuildTestWorkspace(t *testing.T, cfg appcfg.Config) (strin
 		DependencyFingerprint:     depFingerprint,
 		SourceFingerprint:         sourceFingerprint,
 		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		FrameworkFingerprint:      frameworkFingerprint,
 		GeneratorFingerprint:      generatorFingerprint,
 		BuildFingerprint:          buildFingerprint,
 		Metadata:                  json.RawMessage(`{"ok":true}`),
@@ -214,6 +230,7 @@ func newReusableBinaryBuildTestWorkspace(t *testing.T, cfg appcfg.Config) (strin
 		DependencyFingerprint:     depFingerprint,
 		SourceFingerprint:         sourceFingerprint,
 		SourceMetadataFingerprint: sourceMetadataFingerprint,
+		FrameworkFingerprint:      frameworkFingerprint,
 		GeneratorFingerprint:      generatorFingerprint,
 		BuildFingerprint:          buildFingerprint,
 		Metadata:                  append([]byte(nil), result.Metadata...),
