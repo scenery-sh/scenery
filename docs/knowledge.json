@@ -59,6 +59,26 @@
       ]
     },
     {
+      "path": "docs/plans/0100-snapshot-save-load.md",
+      "title": "Snapshot Save/Load: Portable Full-App Backups of the Postgres Database and Storage Cell",
+      "owner": "scenery runtime / data platform",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-07",
+      "review_after": "2026-08-06",
+      "summary": "Active ExecPlan adding a top-level scenery snapshot save|load command: one portable zip with a scenery.snapshot.manifest.v1 manifest, a pg_dump -Fc dump of the whole app database, and verbatim storage-cell store trees; explicit --db/--storage selection, --mode overwrite|merge with atomic merge-or-fail semantics, docker-exec pg_dump/pg_restore inside the managed scenery-postgres container (host fallback for external DSNs), and removal of scenery db snapshot.",
+      "tags": [
+        "plans",
+        "execplans",
+        "postgres",
+        "storage",
+        "backup",
+        "snapshot",
+        "cli"
+      ]
+    },
+    {
       "path": "docs/plans/0095-symphony-hardening.md",
       "title": "Symphony Hardening",
       "owner": "scenery dashboard / agent DX",

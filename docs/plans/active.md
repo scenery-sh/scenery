@@ -7,6 +7,11 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
+- [0100 Snapshot Save/Load](0100-snapshot-save-load.md)
+  - Status: active
+  - Owner: scenery runtime / data platform
+  - Created: 2026-07-07
+  - Focus: new top-level `scenery snapshot save|load` producing one portable zip (manifest + `pg_dump -Fc` of the app database + verbatim storage-cell store trees) with explicit `--db`/`--storage` selection, `--mode overwrite|merge` (atomic merge-or-fail), docker-exec pg tooling for the managed server, and retirement of `scenery db snapshot`.
 - [0098 Google Social Login](0098-google-social-login.md)
   - Status: active
   - Owner: scenery auth / ONLV integration
