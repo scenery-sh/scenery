@@ -525,11 +525,15 @@ func managedFrontendDevScript(root string) (string, error) {
 }
 
 func managedFrontendLocalBin(root, name string) string {
-	bin := filepath.Join(root, "node_modules", ".bin", name)
-	if info, err := os.Stat(bin); err == nil && !info.IsDir() {
-		return bin
+	for dir := filepath.Clean(root); ; dir = filepath.Dir(dir) {
+		bin := filepath.Join(dir, "node_modules", ".bin", name)
+		if info, err := os.Stat(bin); err == nil && !info.IsDir() {
+			return bin
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return ""
+		}
 	}
-	return ""
 }
 
 func managedFrontendPackageManager(root string) string {

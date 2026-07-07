@@ -38,7 +38,18 @@ func TestLocalPathRouterRewriteJSRootRefs(t *testing.T) {
 
 	body := []byte(`import "/@vite/client";import { injectIntoGlobalHook } from "/@react-refresh";import("/src/main.tsx");const logo="/logo.png";const home="/";const api="/api/healthy";const path="/Users/me/app"`)
 	got := string(localPathRouterRewriteJSRootRefs(body, "/blog"))
-	want := `import "/blog/@vite/client";import { injectIntoGlobalHook } from "/blog/@react-refresh";import("/blog/src/main.tsx");const logo="/blog/logo.png";const home="/blog/";const api="/api/healthy";const path="/Users/me/app"`
+	want := `import "/blog/@vite/client";import { injectIntoGlobalHook } from "/blog/@react-refresh";import("/blog/src/main.tsx");const logo="/blog/logo.png";const home="/";const api="/api/healthy";const path="/Users/me/app"`
+	if got != want {
+		t.Fatalf("rewrite = %q, want %q", got, want)
+	}
+}
+
+func TestLocalPathRouterRewriteJSRootRefsPreservesRouterInternals(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`return path === "/" ? path : path.replace(/^\/{1,}/, "");const result = cleanPath(baseSegments.join("/")) || "/"`)
+	got := string(localPathRouterRewriteJSRootRefs(body, "/blog"))
+	want := string(body)
 	if got != want {
 		t.Fatalf("rewrite = %q, want %q", got, want)
 	}

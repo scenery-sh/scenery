@@ -28,7 +28,7 @@ const localPathRouterStorageAssetCacheKey = "scenery_path=storage_v2"
 var localPathRouterHTMLRootRefRE = regexp.MustCompile(`\b(src|href)="(/[^"]*)"`)
 var localPathRouterHTMLDevRootRefRE = regexp.MustCompile(`"(/(?:@fs/|@id/|@react-refresh|@vite/|node_modules/|src/)[^"]*)"`)
 var localPathRouterJSRootImportRE = regexp.MustCompile(`((?:from|import)\s*(?:\(\s*)?["'])(/(?:@fs/|@id/|@react-refresh|@vite/|node_modules/|src/)[^"']*)(["'])`)
-var localPathRouterJSRootAssetRefRE = regexp.MustCompile(`(["'])(/(?:[^"'\\]*\.(?:avif|gif|ico|jpe?g|png|svg|webp)|))(["'])`)
+var localPathRouterJSRootAssetRefRE = regexp.MustCompile(`(["'])(/[^"'\\]*\.(?:avif|gif|ico|jpe?g|png|svg|webp))(["'])`)
 var localPathRouterStorageAssetRefRE = regexp.MustCompile(`\b(src|href)="(/storage/assets/[^"?]+\.(?:js|css))"`)
 
 type localPathRouterState struct {

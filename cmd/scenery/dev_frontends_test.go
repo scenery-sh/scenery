@@ -35,6 +35,26 @@ func TestManagedFrontendCommandUsesViteLocalBin(t *testing.T) {
 	}
 }
 
+func TestManagedFrontendCommandUsesHoistedViteLocalBin(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "apps", "web")
+	writeFrontendPackage(t, appRoot, `{"scripts":{"dev":"vite"}}`)
+	bin := writeFrontendBin(t, root, "vite")
+	cmd, args, err := managedFrontendCommand(appRoot, "49231", "", "/web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd != bin {
+		t.Fatalf("command = %q, want %q", cmd, bin)
+	}
+	wantArgs := []string{"--host", "127.0.0.1", "--port", "49231", "--base", "/web/"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestManagedFrontendCommandUsesAstroLocalBin(t *testing.T) {
 	t.Parallel()
 
