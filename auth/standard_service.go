@@ -297,7 +297,7 @@ func refreshCookie(value string, expiresAt time.Time) string {
 	cookie := (&http.Cookie{
 		Name:     refreshCookieName,
 		Value:    strings.TrimSpace(value),
-		Path:     "/auth",
+		Path:     refreshCookiePath(requestHeaders()),
 		Expires:  expiresAt,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 		HttpOnly: true,
@@ -314,7 +314,7 @@ func clearRefreshCookie() string {
 	cookie := (&http.Cookie{
 		Name:     refreshCookieName,
 		Value:    "",
-		Path:     "/auth",
+		Path:     refreshCookiePath(requestHeaders()),
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
@@ -325,6 +325,24 @@ func clearRefreshCookie() string {
 		cookie += "; Domain=" + domain
 	}
 	return cookie
+}
+
+func refreshCookiePath(headers http.Header) string {
+	prefix := ""
+	if headers != nil {
+		prefix = firstForwardedValue(headers.Get("X-Forwarded-Prefix"))
+		if prefix == "" {
+			prefix = firstForwardedValue(headers.Get("X-Scenery-Route-Prefix"))
+		}
+	}
+	if prefix == "" {
+		prefix = configuredAPIPathPrefix()
+	}
+	prefix = "/" + strings.Trim(prefix, "/")
+	if prefix == "/" {
+		return "/auth"
+	}
+	return prefix + "/auth"
 }
 
 func refreshCookieSecure(localRuntime bool, headers http.Header, apiBaseURL string) bool {

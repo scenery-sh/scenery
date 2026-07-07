@@ -156,7 +156,7 @@ func (s *devSupervisor) managedFrontendConfig(name string) (localproxy.FrontendC
 	if s == nil || name == "" {
 		return localproxy.FrontendConfig{}, false
 	}
-	for _, frontend := range localProxyFrontends(s.cfg.Proxy.Frontends) {
+	for _, frontend := range configuredFrontends(s.cfg.Frontends) {
 		frontend.Name = localagentLabel(frontend.Name)
 		if frontend.Name == name {
 			return frontend, true

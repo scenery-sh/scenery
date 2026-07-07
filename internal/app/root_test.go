@@ -70,9 +70,9 @@ func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
 			"domain": "onlv.dev",
 			"root": "web"
 		},
-		"proxy": {
-			"frontends": {
-				"web": { "host": "web" }
+		"frontends": {
+			"web": {
+				"root": "web"
 			}
 		}
 	}`)
@@ -277,6 +277,16 @@ func TestDiscoverRootRejectsUnknownBuildField(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootRejectsRemovedProxyConfig(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{"name":"proxyapp","proxy":{"frontends":{"web":{"root":"web"}}}}`)
+
+	_, _, err := DiscoverRoot(root)
+	if err == nil || !strings.Contains(err.Error(), `unknown .scenery.json field "proxy"`) {
+		t.Fatalf("DiscoverRoot proxy error = %v", err)
+	}
+}
+
 func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -364,11 +374,6 @@ func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
 			name:   "ip",
 			config: `{"name":"deployapp","deploy":{"domain":"192.168.1.10"}}`,
 			want:   "deploy.domain must not be an IP address",
-		},
-		{
-			name:   "local route base",
-			config: `{"name":"deployapp","proxy":{"route_base_domain":"dev.local"},"deploy":{"domain":"api.dev.local"}}`,
-			want:   `deploy.domain "api.dev.local" must not use the local route base domain "dev.local"`,
 		},
 		{
 			name:   "bad fqdn",

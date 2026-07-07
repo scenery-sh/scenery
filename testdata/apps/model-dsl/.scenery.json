@@ -1,1 +1,1 @@
-{"name":"modeldsl","id":"modeldsl-dev","proxy":{"frontends":{"web":{"root":"web"}}},"auth":{"enabled":true,"dev_bootstrap":{"enabled":true}}}
+{"name":"modeldsl","id":"modeldsl-dev","frontends":{"web":{"root":"web"}},"auth":{"enabled":true,"dev_bootstrap":{"enabled":true}}}

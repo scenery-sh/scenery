@@ -24,45 +24,45 @@ const (
 var ErrRootNotFound = errors.New("no .scenery.json or .config.json found in current directory or any parent")
 
 type Config struct {
-	ConfigPath    string                `json:"-"`
-	Name          string                `json:"name"`
-	ID            string                `json:"id"`
-	Build         BuildConfig           `json:"build"`
-	Proxy         ProxyConfig           `json:"proxy"`
-	Watch         WatchConfig           `json:"watch"`
-	Dev           DevConfig             `json:"dev"`
-	Deploy        DeployConfig          `json:"deploy"`
-	Storage       StorageConfig         `json:"storage"`
-	Generators    GeneratorsConfig      `json:"generators"`
-	Database      DatabaseConfig        `json:"database"`
-	Tasks         map[string]TaskConfig `json:"tasks"`
-	Validation    ValidationConfig      `json:"validation"`
-	Auth          AuthConfig            `json:"auth"`
-	Observability ObservabilityConfig   `json:"observability"`
+	ConfigPath    string                    `json:"-"`
+	Name          string                    `json:"name"`
+	ID            string                    `json:"id"`
+	Build         BuildConfig               `json:"build"`
+	Frontends     map[string]FrontendConfig `json:"frontends"`
+	Watch         WatchConfig               `json:"watch"`
+	Dev           DevConfig                 `json:"dev"`
+	Deploy        DeployConfig              `json:"deploy"`
+	Storage       StorageConfig             `json:"storage"`
+	Generators    GeneratorsConfig          `json:"generators"`
+	Database      DatabaseConfig            `json:"database"`
+	Tasks         map[string]TaskConfig     `json:"tasks"`
+	Validation    ValidationConfig          `json:"validation"`
+	Auth          AuthConfig                `json:"auth"`
+	Observability ObservabilityConfig       `json:"observability"`
 }
 
 func (c Config) MarshalJSON() ([]byte, error) {
 	type configJSON struct {
-		Name          string                `json:"name"`
-		ID            string                `json:"id"`
-		Build         BuildConfig           `json:"build"`
-		Proxy         ProxyConfig           `json:"proxy"`
-		Watch         WatchConfig           `json:"watch"`
-		Dev           DevConfig             `json:"dev"`
-		Deploy        *DeployConfig         `json:"deploy,omitempty"`
-		Storage       *StorageConfig        `json:"storage,omitempty"`
-		Generators    GeneratorsConfig      `json:"generators"`
-		Database      DatabaseConfig        `json:"database"`
-		Tasks         map[string]TaskConfig `json:"tasks"`
-		Validation    ValidationConfig      `json:"validation"`
-		Auth          AuthConfig            `json:"auth"`
-		Observability ObservabilityConfig   `json:"observability"`
+		Name          string                    `json:"name"`
+		ID            string                    `json:"id"`
+		Build         BuildConfig               `json:"build"`
+		Frontends     map[string]FrontendConfig `json:"frontends"`
+		Watch         WatchConfig               `json:"watch"`
+		Dev           DevConfig                 `json:"dev"`
+		Deploy        *DeployConfig             `json:"deploy,omitempty"`
+		Storage       *StorageConfig            `json:"storage,omitempty"`
+		Generators    GeneratorsConfig          `json:"generators"`
+		Database      DatabaseConfig            `json:"database"`
+		Tasks         map[string]TaskConfig     `json:"tasks"`
+		Validation    ValidationConfig          `json:"validation"`
+		Auth          AuthConfig                `json:"auth"`
+		Observability ObservabilityConfig       `json:"observability"`
 	}
 	out := configJSON{
 		Name:          c.Name,
 		ID:            c.ID,
 		Build:         c.Build,
-		Proxy:         c.Proxy,
+		Frontends:     c.Frontends,
 		Watch:         c.Watch,
 		Dev:           c.Dev,
 		Generators:    c.Generators,
@@ -243,16 +243,7 @@ type WatchConfig struct {
 	Ignore []string `json:"ignore"`
 }
 
-type ProxyConfig struct {
-	Workspace       string                    `json:"workspace"`
-	RouteBaseDomain string                    `json:"route_base_domain"`
-	APIHost         string                    `json:"api_host"`
-	ConsoleHost     string                    `json:"console_host"`
-	Frontends       map[string]FrontendConfig `json:"frontends"`
-}
-
 type FrontendConfig struct {
-	Host                string `json:"host"`
 	Root                string `json:"root"`
 	Upstream            string `json:"upstream"`
 	AllowSharedUpstream bool   `json:"allow_shared_upstream"`
@@ -615,7 +606,7 @@ func (c Config) validateDeploy() error {
 		if domain != strings.ToLower(domain) {
 			return errors.New("deploy.domain must be lowercase")
 		}
-		if err := validateDeployDomain(domain, c.Proxy.RouteBaseDomain); err != nil {
+		if err := validateDeployDomain(domain); err != nil {
 			return err
 		}
 	}
@@ -629,13 +620,13 @@ func (c Config) validateDeploy() error {
 	case "api":
 		return nil
 	}
-	if _, ok := c.Proxy.Frontends[root]; ok {
+	if _, ok := c.Frontends[root]; ok {
 		return nil
 	}
 	return fmt.Errorf("deploy.root %q must be \"api\" or a configured frontend", root)
 }
 
-func validateDeployDomain(domain, localBase string) error {
+func validateDeployDomain(domain string) error {
 	if domain == "localhost" {
 		return errors.New("deploy.domain must not be localhost")
 	}
@@ -645,10 +636,7 @@ func validateDeployDomain(domain, localBase string) error {
 	if !validDeployFQDN(domain) {
 		return fmt.Errorf("deploy.domain %q must be a valid lowercase FQDN", domain)
 	}
-	base := normalizeConfigHost(localBase)
-	if base == "" {
-		base = "local.dev"
-	}
+	base := "local.dev"
 	if domain == base || strings.HasSuffix(domain, "."+base) {
 		return fmt.Errorf("deploy.domain %q must not use the local route base domain %q", domain, base)
 	}
@@ -862,15 +850,7 @@ func rejectUnknownFieldsValue(value any, typ reflect.Type, path []string, config
 
 func unknownConfigFieldError(path []string, configName string) error {
 	jsonPath := strings.Join(path, ".")
-	removedProxyHostPath := "proxy." + removedProxyHostField()
-	if jsonPath == removedProxyHostPath {
-		return fmt.Errorf("unknown %s field %q; %s was removed and has no compatibility behavior; remove it and use dev session routes or proxy.api_host/proxy.console_host/proxy.frontends for local routing", configName, jsonPath, removedProxyHostPath)
-	}
 	return fmt.Errorf("unknown %s field %q", configName, jsonPath)
-}
-
-func removedProxyHostField() string {
-	return "m" + "cp_host"
 }
 
 func jsonStructFields(typ reflect.Type) map[string]reflect.StructField {

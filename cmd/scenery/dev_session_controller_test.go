@@ -55,9 +55,9 @@ func TestPrepareDevAgentSessionRegistersOnceWithFrontendBackends(t *testing.T) {
 
 	prepared, err := prepareDevAgentSessionDetailed(ctx, t.TempDir(), app.Config{
 		Name: "demo",
-		Proxy: app.ProxyConfig{Frontends: map[string]app.FrontendConfig{
+		Frontends: map[string]app.FrontendConfig{
 			"web": {Root: "apps/web"},
-		}},
+		},
 	}, devListenRequest{}, nil)
 	if err != nil {
 		t.Fatal(err)

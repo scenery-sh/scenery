@@ -142,12 +142,10 @@ func TestManagedFrontendBackendsRequiresExplicitSharedUpstream(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := app.Config{
-		Proxy: app.ProxyConfig{
-			Frontends: map[string]app.FrontendConfig{
-				"web": {
-					Root:     "apps/web",
-					Upstream: "127.0.0.1:5173",
-				},
+		Frontends: map[string]app.FrontendConfig{
+			"web": {
+				Root:     "apps/web",
+				Upstream: "127.0.0.1:5173",
 			},
 		},
 	}
@@ -168,13 +166,11 @@ func TestManagedFrontendBackendsAllowsExplicitSharedUpstream(t *testing.T) {
 
 	root := t.TempDir()
 	cfg := app.Config{
-		Proxy: app.ProxyConfig{
-			Frontends: map[string]app.FrontendConfig{
-				"web": {
-					Root:                "apps/web",
-					Upstream:            "127.0.0.1:5173",
-					AllowSharedUpstream: true,
-				},
+		Frontends: map[string]app.FrontendConfig{
+			"web": {
+				Root:                "apps/web",
+				Upstream:            "127.0.0.1:5173",
+				AllowSharedUpstream: true,
 			},
 		},
 	}
@@ -202,10 +198,8 @@ func TestManagedFrontendFailsFastWhenChildExitsBeforeReady(t *testing.T) {
 	start := time.Now()
 	_, _, err := managedFrontendBackendsForSessionWithStarter(context.Background(), appRoot, app.Config{
 		Name: "demo",
-		Proxy: app.ProxyConfig{
-			Frontends: map[string]app.FrontendConfig{
-				"web": {Root: "apps/web"},
-			},
+		Frontends: map[string]app.FrontendConfig{
+			"web": {Root: "apps/web"},
 		},
 	}, nil, localagent.Session{
 		SessionID: "main-test",
@@ -236,11 +230,9 @@ func TestManagedFrontendBackendsStartsFrontendsConcurrently(t *testing.T) {
 	appRoot := filepath.Join(root, "app")
 	cfg := app.Config{
 		Name: "demo",
-		Proxy: app.ProxyConfig{
-			Frontends: map[string]app.FrontendConfig{
-				"alpha": {Root: "apps/alpha"},
-				"beta":  {Root: "apps/beta"},
-			},
+		Frontends: map[string]app.FrontendConfig{
+			"alpha": {Root: "apps/alpha"},
+			"beta":  {Root: "apps/beta"},
 		},
 	}
 	addrs := map[string]string{
@@ -342,10 +334,8 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 SCENERY_FRONTEND_TEST_READY_FILE="$SCENERY
 `)
 	cfg := app.Config{
 		Name: "demo",
-		Proxy: app.ProxyConfig{
-			Frontends: map[string]app.FrontendConfig{
-				"web": {Root: "apps/web"},
-			},
+		Frontends: map[string]app.FrontendConfig{
+			"web": {Root: "apps/web"},
 		},
 	}
 	baseEnv := []string{
@@ -425,10 +415,8 @@ SCENERY_FRONTEND_TEST_SERVER_HELPER=1 exec "$SCENERY_FRONTEND_TEST_SERVER" -test
 `)
 	cfg := app.Config{
 		Name: "demo",
-		Proxy: app.ProxyConfig{
-			Frontends: map[string]app.FrontendConfig{
-				"web": {Root: "apps/web"},
-			},
+		Frontends: map[string]app.FrontendConfig{
+			"web": {Root: "apps/web"},
 		},
 	}
 	session, err := agentClient.Register(ctx, localagent.RegisterRequest{

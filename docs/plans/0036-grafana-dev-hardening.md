@@ -358,19 +358,7 @@ trace -> Open in Grafana link
 logs -> Open in Grafana Explore link
 ```
 
-Companion app note for `/Users/petrbrazdil/Repos/onlv`: if local proxy Grafana is part of the expected development workflow, consider making the proxy host explicit in `.scenery.json`:
-
-```json
-{
-  "proxy": {
-    "workspace": "onlv",
-    "api_host": "api.onlv.localhost",
-    "console_host": "console.onlv.localhost",
-    "legacy_agent_transport_host": "removed-agent-transport.onlv.localhost",
-    "grafana_host": "grafana.onlv.localhost"
-  }
-}
-```
+Current contract note: app configs no longer declare proxy hosts. Use `scenery ps --json` for local runtime URLs and `frontends` for frontend roots.
 
 Suggested ONLV Just targets, if they fit that repository's current workflow:
 

@@ -1456,7 +1456,7 @@ func (s *devSupervisor) dashboardURL() string {
 
 func (s *devSupervisor) frontendURLs() map[string]string {
 	if session := s.currentAgentSession(); session != nil {
-		return frontendURLsFromAgentRoutes(session.Routes, s.cfg.Proxy.Frontends)
+		return frontendURLsFromAgentRoutes(session.Routes, s.cfg.Frontends)
 	}
 	return nil
 }

@@ -582,10 +582,8 @@ func writeDeployTestApp(t *testing.T, name, domain, frontend string) string {
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "`+name+`",
 		"deploy": { "domain": "`+domain+`" },
-		"proxy": {
-			"frontends": {
-				"`+frontend+`": { "host": "`+frontend+`" }
-			}
+		"frontends": {
+			"`+frontend+`": { "root": "`+frontend+`" }
 		}
 	}`)
 	return root

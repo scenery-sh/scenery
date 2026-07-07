@@ -144,7 +144,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 
 	var (
 		databaseEnvA, databaseEnvB []string
-		databaseA, databaseB      postgresdb.Database
+		databaseA, databaseB       postgresdb.Database
 	)
 	if dockerAvailable {
 		databaseEnvA, databaseA, err = managedDatabaseEnv(ctx, rootA, cfgA, sessionA, envpolicy.Environ())
@@ -212,14 +212,11 @@ func harnessParallelConfig(frontendAddr string) app.Config {
 	return app.Config{
 		Name: "parallel",
 		ID:   "parallel-app",
-		Proxy: app.ProxyConfig{
-			Frontends: map[string]app.FrontendConfig{
-				"web": {
-					Host:                "web.parallel.localhost",
-					Root:                "apps/web",
-					Upstream:            frontendAddr,
-					AllowSharedUpstream: true,
-				},
+		Frontends: map[string]app.FrontendConfig{
+			"web": {
+				Root:                "apps/web",
+				Upstream:            frontendAddr,
+				AllowSharedUpstream: true,
 			},
 		},
 		Dev: app.DevConfig{

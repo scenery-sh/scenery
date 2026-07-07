@@ -13,20 +13,10 @@
     "build": {
       "$ref": "#/$defs/build"
     },
-    "proxy": {
-      "type": "object",
-      "description": "Local proxy and dev route configuration. The removed legacy proxy host key is intentionally unsupported; use dev session routes, api_host, console_host, and frontends instead.",
-      "properties": {
-        "workspace": { "type": "string" },
-        "route_base_domain": { "type": "string" },
-        "api_host": { "type": "string" },
-        "console_host": { "type": "string" },
-        "frontends": {
-          "type": ["object", "null"],
-          "additionalProperties": { "$ref": "#/$defs/frontend" }
-        }
-      },
-      "additionalProperties": false
+    "frontends": {
+      "type": ["object", "null"],
+      "description": "Configured frontend roots for dev routing and generated web packages.",
+      "additionalProperties": { "$ref": "#/$defs/frontend" }
     },
     "watch": {
       "type": "object",
@@ -177,12 +167,10 @@
     "frontend": {
       "type": "object",
       "properties": {
-        "host": { "type": "string" },
         "root": { "type": "string" },
         "upstream": { "type": "string" },
         "allow_shared_upstream": { "type": "boolean" }
       },
-      "required": ["host"],
       "additionalProperties": false
     },
     "devService": {

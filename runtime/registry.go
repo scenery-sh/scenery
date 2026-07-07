@@ -107,20 +107,10 @@ type DurableTask struct {
 }
 
 type AppConfig struct {
-	Name             string
-	Workspace        string
-	ListenAddr       string
-	ProxyAPIHost     string
-	ProxyConsoleHost string
-	ProxyFrontends   map[string]ProxyFrontendConfig
-	Observability    ObservabilityConfig
-	Role             string
-}
-
-type ProxyFrontendConfig struct {
-	Host     string
-	Root     string
-	Upstream string
+	Name          string
+	ListenAddr    string
+	Observability ObservabilityConfig
+	Role          string
 }
 
 type serviceShutdown struct {

@@ -107,7 +107,7 @@ func runDetachedDev(args []string, opts devOptions) error {
 
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
 	defer waitCancel()
-	session, err := waitForDetachedDevSession(waitCtx, client, root, cmd.Process.Pid, waitMode, detachedDevExpectedFrontendRoutes(cfg.Proxy.Frontends))
+	session, err := waitForDetachedDevSession(waitCtx, client, root, cmd.Process.Pid, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
 	if err != nil {
 		_ = interruptProcessTree(cmd)
 		_ = cmd.Process.Release()
@@ -253,7 +253,7 @@ func normalizeDetachedDevWaitMode(value string) (string, error) {
 }
 
 func detachedDevExpectedFrontendRoutes(frontends map[string]app.FrontendConfig) []string {
-	configured := localProxyFrontends(frontends)
+	configured := configuredFrontends(frontends)
 	names := make([]string, 0, len(configured))
 	for _, frontend := range configured {
 		if name := localagentLabel(frontend.Name); name != "" {

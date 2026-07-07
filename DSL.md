@@ -20,10 +20,8 @@ An app root is marked by `.scenery.json`. `.config.json` is accepted as an alias
   "auth": { "enabled": true },
   "build": { "go_flags": ["-tags=roofmapnet_native"] },
   "watch": { "ignore": ["reference/"] },
-  "proxy": {
-    "frontends": {
-      "web": { "root": "web" }
-    }
+  "frontends": {
+    "web": { "root": "web" }
   }
 }
 ```
@@ -34,7 +32,7 @@ Common config surfaces:
 - `auth.enabled`: enables built-in standard auth and auth endpoints.
 - `build.go_flags`: literal Go build args used by Scenery-owned builds.
 - `watch.ignore`: app-root-relative paths ignored by `scenery up` rebuild watching, not by Git.
-- `proxy.frontends`: frontend roots for dev routing and generated web packages.
+- `frontends`: frontend roots for dev routing and generated web packages.
 - `storage`: Scenery-owned storage stores, access, tenant scoping, and size limits.
 - `dev.services`: kind-less Postgres database services; each service maps to one schema in the app/worktree database.
 - `database.apply`: explicit database setup command.

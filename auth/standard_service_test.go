@@ -58,3 +58,9 @@ func TestRefreshCookieSecureUsesSecureCookieForLocalHTTPSOrigin(t *testing.T) {
 		t.Fatalf("secure = false, want true")
 	}
 }
+
+func TestRefreshCookiePathIncludesForwardedAPIPrefix(t *testing.T) {
+	if got, want := refreshCookiePath(http.Header{"X-Forwarded-Prefix": []string{"/api"}}), "/api/auth"; got != want {
+		t.Fatalf("refresh cookie path = %q, want %q", got, want)
+	}
+}

@@ -596,11 +596,11 @@ func deployRootService(cfg appcfg.Config) string {
 	if root := strings.TrimSpace(cfg.Deploy.Root); root != "" {
 		return root
 	}
-	if len(cfg.Proxy.Frontends) != 1 {
+	if len(cfg.Frontends) != 1 {
 		return ""
 	}
-	names := make([]string, 0, len(cfg.Proxy.Frontends))
-	for name := range cfg.Proxy.Frontends {
+	names := make([]string, 0, len(cfg.Frontends))
+	for name := range cfg.Frontends {
 		names = append(names, name)
 	}
 	sort.Strings(names)

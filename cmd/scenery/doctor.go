@@ -732,7 +732,7 @@ func doctorFeatures(cfg appcfg.Config, app *doctorAppInfo) doctorAppFeatures {
 		return doctorAppFeatures{}
 	}
 	features := doctorAppFeatures{}
-	features.FrontendConfigured = len(cfg.Proxy.Frontends) > 0
+	features.FrontendConfigured = len(cfg.Frontends) > 0
 	features.SQLCConfigured = sqlcGeneratorConfigured(cfg.Generators.SQLC)
 	features.AtlasRelevant = sqlcUsesAtlas(cfg.Generators.SQLC)
 	features.DatabaseApplyCommand = strings.TrimSpace(cfg.Database.Apply.Command) != ""

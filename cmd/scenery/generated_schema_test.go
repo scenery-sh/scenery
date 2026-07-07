@@ -307,7 +307,7 @@ func TestRunSceneryCheckReportsGeneratedSchemaDrift(t *testing.T) {
 func writeModelDSLAppFixture(t *testing.T, schemaHCL string) string {
 	t.Helper()
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"modeldsl","id":"modeldsl-dev","dev":{"services":{"main":{}}},"proxy":{"frontends":{"web":{"root":"web"}}},"auth":{"enabled":true,"dev_bootstrap":{"enabled":true}}}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"modeldsl","id":"modeldsl-dev","dev":{"services":{"main":{}}},"frontends":{"web":{"root":"web"}},"auth":{"enabled":true,"dev_bootstrap":{"enabled":true}}}`)
 	writeTestAppFile(t, root, "go.mod", "module example.com/modeldsl\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRootForTest(t)+"\n")
 	source, err := os.ReadFile(filepath.Join(repoRootForTest(t), "testdata", "apps", "model-dsl", "tasks", "model.go"))
 	if err != nil {

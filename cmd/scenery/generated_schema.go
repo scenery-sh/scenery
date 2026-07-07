@@ -60,7 +60,7 @@ func buildDataGeneratorPlan(appRoot string, cfg appcfg.Config, appModel *model.A
 	if err != nil {
 		return nil, false, err
 	}
-	web, err := webgen.Build(appRoot, appModel, cfg.Proxy.Frontends)
+	web, err := webgen.Build(appRoot, appModel, cfg.Frontends)
 	if err != nil {
 		return nil, false, err
 	}

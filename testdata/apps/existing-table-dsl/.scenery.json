@@ -1,1 +1,1 @@
-{"name":"existingtabledsl","id":"existingtabledsl-dev","proxy":{"frontends":{"web":{"root":"web"}}},"auth":{"enabled":true,"dev_bootstrap":{"enabled":true}}}
+{"name":"existingtabledsl","id":"existingtabledsl-dev","frontends":{"web":{"root":"web"}},"auth":{"enabled":true,"dev_bootstrap":{"enabled":true}}}

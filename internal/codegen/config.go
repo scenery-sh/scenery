@@ -3,8 +3,6 @@ package codegen
 import (
 	"fmt"
 	"go/format"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
@@ -34,7 +32,7 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 		buf.WriteString("\t\tos.Exit(1)\n")
 		buf.WriteString("\t}\n")
 	}
-	fmt.Fprintf(&buf, "\tif err := sceneryruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel, cfg))
+	fmt.Fprintf(&buf, "\tif err := sceneryruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel.Name, cfg))
 	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")
 	buf.WriteString("\t\tos.Exit(1)\n")
 	buf.WriteString("\t}\n")
@@ -114,56 +112,15 @@ func authDevBootstrapConfigLiteral(cfg appcfg.AuthDevBootstrap) string {
 	return "sceneryauth.DevBootstrapConfig{" + strings.Join(fields, ", ") + "}"
 }
 
-func appConfigLiteral(appModel *model.App, cfg appcfg.Config) string {
-	workspace := cfg.Proxy.Workspace
-	if workspace == "" {
-		workspace = filepath.Base(appModel.Root)
-	}
+func appConfigLiteral(appName string, cfg appcfg.Config) string {
 	fields := []string{
-		fmt.Sprintf("Name: %q", appModel.Name),
-		fmt.Sprintf("Workspace: %q", workspace),
+		fmt.Sprintf("Name: %q", appName),
 		"ListenAddr: sceneryruntime.ListenAddrFromEnv()",
-	}
-	if cfg.Proxy.APIHost != "" {
-		fields = append(fields, fmt.Sprintf("ProxyAPIHost: %q", cfg.Proxy.APIHost))
-	}
-	if cfg.Proxy.ConsoleHost != "" {
-		fields = append(fields, fmt.Sprintf("ProxyConsoleHost: %q", cfg.Proxy.ConsoleHost))
-	}
-	if literal := proxyFrontendsLiteral(cfg.Proxy.Frontends); literal != "" {
-		fields = append(fields, "ProxyFrontends: "+literal)
 	}
 	if literal := observabilityConfigLiteral(cfg.Observability); literal != "" {
 		fields = append(fields, "Observability: "+literal)
 	}
 	return "sceneryruntime.AppConfig{" + strings.Join(fields, ", ") + "}"
-}
-
-func proxyFrontendsLiteral(frontends map[string]appcfg.FrontendConfig) string {
-	if len(frontends) == 0 {
-		return ""
-	}
-	names := make([]string, 0, len(frontends))
-	for name := range frontends {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	entries := make([]string, 0, len(names))
-	for _, name := range names {
-		frontend := frontends[name]
-		fields := []string{}
-		if frontend.Host != "" {
-			fields = append(fields, fmt.Sprintf("Host: %q", frontend.Host))
-		}
-		if frontend.Root != "" {
-			fields = append(fields, fmt.Sprintf("Root: %q", frontend.Root))
-		}
-		if frontend.Upstream != "" {
-			fields = append(fields, fmt.Sprintf("Upstream: %q", frontend.Upstream))
-		}
-		entries = append(entries, fmt.Sprintf("%q: {%s}", name, strings.Join(fields, ", ")))
-	}
-	return "map[string]sceneryruntime.ProxyFrontendConfig{" + strings.Join(entries, ", ") + "}"
 }
 
 func observabilityConfigLiteral(cfg appcfg.ObservabilityConfig) string {

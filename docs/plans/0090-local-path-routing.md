@@ -943,18 +943,15 @@ Candidate config:
 }
 ```
 
-Compatibility with existing config:
+Current contract note:
 
-Existing `proxy.route_base_domain`, `proxy.api_host`, `proxy.console_host`, and frontend `host` should continue to mean host/domain mode. ONLV currently uses these fields.
+App configs no longer carry proxy hosts. Frontend roots live under top-level `frontends`; local URLs come from the dev runtime route manifest.
 
 Defaulting:
 
 * If `dev.routing.mode` is absent, use `path`.
-* If legacy `proxy.route_base_domain` / `proxy.*_host` exists, do not force host mode by default. Instead:
-
-  * default local dev still path mode,
-  * preserve host-mode fields for optional `dev.routing.mode = "host"` or `scenery up --routing host`.
-* Provide a transitional warning only if users expected domain mode but did not install DNS/edge.
+* Default local dev stays path mode.
+* `dev.routing.mode = "host"` uses the default `local.dev` edge path.
 
 CLI overrides:
 

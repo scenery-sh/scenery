@@ -131,7 +131,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	}
 	if localagent.DisabledByEnv() {
 		if requiresPortlessEdge {
-			return prepared, fmt.Errorf("proxy.route_base_domain %q requires the scenery agent and local edge; unset SCENERY_AGENT_DISABLE or remove proxy.route_base_domain", routeNamespace.BaseDomain)
+			return prepared, fmt.Errorf("host routing for %q requires the scenery agent and local edge; unset SCENERY_AGENT_DISABLE or use dev.routing.mode \"path\"", routeNamespace.BaseDomain)
 		}
 		prepared.Backend = fallback
 		return prepared, nil
@@ -154,7 +154,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		client, err = localagent.Ensure(ctx, cliBuildIdentity())
 		if err != nil {
 			if requiresPortlessEdge {
-				return fmt.Errorf("proxy.route_base_domain %q requires the scenery agent and local edge; agent unavailable: %w", routeNamespace.BaseDomain, err)
+				return fmt.Errorf("host routing for %q requires the scenery agent and local edge; agent unavailable: %w", routeNamespace.BaseDomain, err)
 			}
 			fmt.Fprintf(os.Stderr, "scenery: agent unavailable; continuing without routed app URLs: %v\n", err)
 			agentUnavailable = true
@@ -162,7 +162,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 		}
 		if err := ensureDevAgentDashboardBackend(ctx, client); err != nil {
 			if requiresPortlessEdge {
-				return fmt.Errorf("proxy.route_base_domain %q requires the scenery agent dashboard for edge probing; dashboard unavailable: %w", routeNamespace.BaseDomain, err)
+				return fmt.Errorf("host routing for %q requires the scenery agent dashboard for edge probing; dashboard unavailable: %w", routeNamespace.BaseDomain, err)
 			}
 			fmt.Fprintf(os.Stderr, "scenery: agent dashboard unavailable; continuing without routed app URLs: %v\n", err)
 			agentUnavailable = true
@@ -238,7 +238,7 @@ func (c *DevSessionController) Prepare(ctx context.Context) (*PreparedDevSession
 	var frontendBackends map[string]localagent.Backend
 	var frontendProcesses []*managedFrontendProcess
 	var frontendReady <-chan error
-	if len(localProxyFrontends(cfg.Proxy.Frontends)) > 0 {
+	if len(configuredFrontends(cfg.Frontends)) > 0 {
 		if err := c.runPhase("Starting frontend dev servers", func() error {
 			var wait func(context.Context) error
 			var err error

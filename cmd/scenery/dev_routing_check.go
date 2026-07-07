@@ -30,8 +30,8 @@ func devRouteConfigDiagnostics(cfg app.Config) []checkDiagnostic {
 		"__scenery": "the legacy internal Scenery route prefix",
 	}
 	seen := map[string]string{}
-	names := make([]string, 0, len(cfg.Proxy.Frontends))
-	for name := range cfg.Proxy.Frontends {
+	names := make([]string, 0, len(cfg.Frontends))
+	for name := range cfg.Frontends {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -42,7 +42,7 @@ func devRouteConfigDiagnostics(cfg app.Config) []checkDiagnostic {
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "config",
 				Severity:        "error",
-				Message:         fmt.Sprintf("proxy.frontends.%s has no valid route name after normalization", name),
+				Message:         fmt.Sprintf("frontends.%s has no valid route name after normalization", name),
 				SuggestedAction: "Rename the frontend with letters or digits.",
 			})
 			continue
@@ -51,7 +51,7 @@ func devRouteConfigDiagnostics(cfg app.Config) []checkDiagnostic {
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "config",
 				Severity:        "error",
-				Message:         fmt.Sprintf("proxy.frontends.%s normalizes to reserved path route %q used by %s", name, route, reason),
+				Message:         fmt.Sprintf("frontends.%s normalizes to reserved path route %q used by %s", name, route, reason),
 				SuggestedAction: "Rename the frontend or use dev.routing.mode \"host\".",
 			})
 			continue
@@ -60,7 +60,7 @@ func devRouteConfigDiagnostics(cfg app.Config) []checkDiagnostic {
 			diagnostics = append(diagnostics, checkDiagnostic{
 				Stage:           "config",
 				Severity:        "error",
-				Message:         fmt.Sprintf("proxy.frontends.%s and proxy.frontends.%s both normalize to path route %q", previous, name, route),
+				Message:         fmt.Sprintf("frontends.%s and frontends.%s both normalize to path route %q", previous, name, route),
 				SuggestedAction: "Rename one frontend so path-mode routes are unique.",
 			})
 			continue

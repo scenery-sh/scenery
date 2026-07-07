@@ -184,35 +184,9 @@ func watchDurationFromEnv(name string, fallback time.Duration) time.Duration {
 }
 
 func routeNamespaceForConfig(cfg app.Config) localagent.RouteNamespace {
-	hosts := map[string]string{}
-	addHost := func(route, host string) {
-		route = sanitizeRouteLabel(route)
-		host = normalizeRouteNamespaceHost(host)
-		if route == "" || host == "" {
-			return
-		}
-		hosts[route] = host
-	}
-	addHost(localagent.RouteAPI, cfg.Proxy.APIHost)
-	addHost("console", cfg.Proxy.ConsoleHost)
-	for name, frontend := range cfg.Proxy.Frontends {
-		addHost(name, frontend.Host)
-	}
-	if len(hosts) == 0 {
-		hosts = nil
-	}
-	workspace := sanitizeRouteLabel(cfg.Proxy.Workspace)
-	if workspace == "" && len(hosts) == 0 {
-		workspace = sanitizeRouteLabel(cfg.AppID())
-	}
-	baseDomain := normalizeRouteNamespaceHost(cfg.Proxy.RouteBaseDomain)
-	if baseDomain == "" {
-		baseDomain = localagent.DefaultRouteBaseDomain
-	}
 	return localagent.RouteNamespace{
-		Workspace:  workspace,
-		BaseDomain: baseDomain,
-		Hosts:      hosts,
+		Workspace:  sanitizeRouteLabel(cfg.AppID()),
+		BaseDomain: localagent.DefaultRouteBaseDomain,
 	}
 }
 

@@ -97,7 +97,7 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 // GoogleCallback completes the Google OAuth flow, sets the refresh cookie, and redirects to the app.
 func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 	if oauthErr := strings.TrimSpace(req.URL.Query().Get("error")); oauthErr != "" {
-		http.Redirect(w, req, appRedirectURL("/sign-in?error=google_oauth"), http.StatusFound)
+		http.Redirect(w, req, appRedirectURL(req, "/sign-in?error=google_oauth"), http.StatusFound)
 		return
 	}
 	state := strings.TrimSpace(req.URL.Query().Get("state"))
@@ -146,11 +146,11 @@ func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.Header().Add("Set-Cookie", response.SetCookie)
-	http.Redirect(w, req, appRedirectURL(oauthState.RedirectPath), http.StatusFound)
+	http.Redirect(w, req, appRedirectURL(req, oauthState.RedirectPath), http.StatusFound)
 }
 
 func redirectGoogleCallbackError(w http.ResponseWriter, req *http.Request, code string) {
-	http.Redirect(w, req, appRedirectURL("/sign-in?error="+url.QueryEscape(code)), http.StatusFound)
+	http.Redirect(w, req, appRedirectURL(req, "/sign-in?error="+url.QueryEscape(code)), http.StatusFound)
 }
 
 func newRuntimeService(ctx context.Context) (*Service, error) {
@@ -430,27 +430,81 @@ func (s *Service) finishGoogleSignIn(ctx context.Context, claims *googleIDClaims
 }
 
 func googleRedirectURI(req *http.Request) string {
-	base := strings.TrimRight(strings.TrimSpace(secrets.APIBaseURL), "/")
-	if base == "" && req != nil {
-		scheme := strings.TrimSpace(req.Header.Get("X-Forwarded-Proto"))
-		if scheme == "" {
-			scheme = "https"
-			if isLocalRuntime() {
-				scheme = "http"
-			}
-		}
-		host := strings.TrimSpace(req.Host)
-		if host != "" {
-			base = scheme + "://" + host
-		}
+	if base := requestBaseURL(req); base != "" {
+		return base + "/auth/google/callback"
 	}
+	base := strings.TrimRight(strings.TrimSpace(secrets.APIBaseURL), "/")
 	if base == "" {
 		base = "https://api.scenery.localhost"
 	}
 	return base + "/auth/google/callback"
 }
 
-func appRedirectURL(path string) string {
+func requestBaseURL(req *http.Request) string {
+	base := requestOriginURL(req)
+	if base == "" {
+		return ""
+	}
+	prefix := firstForwardedValue(req.Header.Get("X-Forwarded-Prefix"))
+	if prefix == "" {
+		prefix = firstForwardedValue(req.Header.Get("X-Scenery-Route-Prefix"))
+	}
+	if prefix == "" {
+		prefix = configuredAPIPathPrefix()
+	}
+	prefix = "/" + strings.Trim(prefix, "/")
+	if prefix != "/" {
+		base += prefix
+	}
+	return base
+}
+
+func requestOriginURL(req *http.Request) string {
+	if req == nil {
+		return ""
+	}
+	host := firstForwardedValue(req.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(req.Host)
+	}
+	if host == "" {
+		return ""
+	}
+
+	scheme := firstForwardedValue(req.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" && req.URL != nil {
+		scheme = strings.TrimSpace(req.URL.Scheme)
+	}
+	if scheme == "" {
+		scheme = "https"
+		if isLocalRuntime() {
+			scheme = "http"
+		}
+	}
+	return scheme + "://" + host
+}
+
+func configuredAPIPathPrefix() string {
+	raw := strings.TrimSpace(secrets.APIBaseURL)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimRight(parsed.EscapedPath(), "/")
+}
+
+func firstForwardedValue(value string) string {
+	first, _, _ := strings.Cut(value, ",")
+	return strings.TrimSpace(first)
+}
+
+func appRedirectURL(req *http.Request, path string) string {
+	if base := requestOriginURL(req); base != "" {
+		return base + safeRedirectPath(path)
+	}
 	base := strings.TrimRight(strings.TrimSpace(secrets.PublicAppURL), "/")
 	if base == "" {
 		base = "https://app.scenery.localhost"

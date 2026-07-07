@@ -245,20 +245,40 @@ func TestVerifyGoogleIDTokenCachesJWKSAndRefetchesUnknownKID(t *testing.T) {
 	}
 }
 
-func TestRedirectGoogleCallbackErrorUsesAppSignInURL(t *testing.T) {
+func TestGoogleAppRedirectUsesRequestOriginBeforeConfiguredPublicAppURL(t *testing.T) {
 	oldSecrets := secrets
 	t.Cleanup(func() { secrets = oldSecrets })
-	secrets.PublicAppURL = "https://app.example.test"
+	secrets.PublicAppURL = "https://blog.example.test"
 
-	req := httptest.NewRequest(http.MethodGet, "/auth/google/callback", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://local.clean.tech/api/auth/google/callback", nil)
+	req.Host = "local.clean.tech"
+	req.Header.Set("X-Forwarded-Proto", "https")
 	rec := httptest.NewRecorder()
 	redirectGoogleCallbackError(rec, req, "google_token")
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
 	}
-	if got, want := rec.Header().Get("Location"), "https://app.example.test/sign-in?error=google_token"; got != want {
+	if got, want := rec.Header().Get("Location"), "https://local.clean.tech/sign-in?error=google_token"; got != want {
 		t.Fatalf("location = %q, want %q", got, want)
+	}
+	if got, want := appRedirectURL(req, "/next/"), "https://local.clean.tech/next/"; got != want {
+		t.Fatalf("app redirect URL = %q, want %q", got, want)
+	}
+}
+
+func TestGoogleRedirectURIUsesRequestHostBeforeConfiguredPathModeURL(t *testing.T) {
+	oldSecrets := secrets
+	t.Cleanup(func() { secrets = oldSecrets })
+	secrets.APIBaseURL = "http://localhost:4747/api"
+
+	req := httptest.NewRequest(http.MethodGet, "http://local.clean.tech/api/auth/google/start", nil)
+	req.Host = "local.clean.tech"
+	req.Header.Set("X-Forwarded-Prefix", "/api")
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	if got, want := googleRedirectURI(req), "https://local.clean.tech/api/auth/google/callback"; got != want {
+		t.Fatalf("redirect URI = %q, want %q", got, want)
 	}
 }
 

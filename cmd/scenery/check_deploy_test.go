@@ -14,11 +14,9 @@ func TestRunSceneryCheckReportsDeployRootInfo(t *testing.T) {
 	writeTestAppFile(t, root, ".scenery.json", `{
 		"name": "deploycheck",
 		"deploy": { "domain": "onlv.dev" },
-		"proxy": {
-			"frontends": {
-				"web": { "host": "web" },
-				"admin": { "host": "admin" }
-			}
+		"frontends": {
+			"web": { "root": "web" },
+			"admin": { "root": "admin" }
 		}
 	}`)
 	writeTestAppFile(t, root, "go.mod", "module example.com/deploycheck\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+filepath.ToSlash(repoRootForTest(t))+"\n")

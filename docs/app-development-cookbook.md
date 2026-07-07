@@ -675,7 +675,7 @@ For sync-backed writes, call generated TypeScript `WithMeta` methods so the resp
 
 ## Agent Routes And Frontends
 
-Use app config proxy settings:
+Use app config frontend settings:
 
 ```json
 {
@@ -685,12 +685,9 @@ Use app config proxy settings:
       "mode": "path"
     }
   },
-  "proxy": {
-    "workspace": "acme",
-    "frontends": {
-      "app": {
-        "root": "apps/app"
-      }
+  "frontends": {
+    "app": {
+      "root": "apps/app"
     }
   }
 }
@@ -705,7 +702,7 @@ scenery ps
 
 Default local dev routing is path mode. The app root's live runtime gets one base URL such as `http://localhost:4001`; API routes live under `/api/`, the Scenery dashboard under `/consolenext/`, frontends under `/<frontend>/`, and Scenery runtime surfaces under `/runtime/`. The URLs in `route_manifest.routes` and compatibility `routes` are canonical for the current runtime. Direct browser API calls should use the generated API route.
 
-Use host mode only when you intentionally need domain-style local routes:
+Use host mode only when you intentionally need default `local.dev` domain-style local routes:
 
 ```json
 {
@@ -713,9 +710,6 @@ Use host mode only when you intentionally need domain-style local routes:
     "routing": {
       "mode": "host"
     }
-  },
-  "proxy": {
-    "route_base_domain": "local.dev"
   }
 }
 ```

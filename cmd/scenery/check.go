@@ -148,7 +148,7 @@ func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagn
 	if strings.TrimSpace(cfg.Deploy.Domain) == "" || strings.TrimSpace(cfg.Deploy.Root) != "" {
 		return nil
 	}
-	frontends := len(cfg.Proxy.Frontends)
+	frontends := len(cfg.Frontends)
 	if frontends == 1 {
 		return nil
 	}

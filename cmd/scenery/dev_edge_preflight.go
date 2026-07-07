@@ -19,7 +19,8 @@ var checkConfiguredEdgeReadiness configuredEdgeReadinessChecker = defaultConfigu
 var probeConfiguredEdgeRoute configuredEdgeRouteProber = defaultConfiguredEdgeRouteProbe
 
 func configRequiresPortlessEdge(cfg app.Config) bool {
-	return strings.TrimSpace(cfg.Proxy.RouteBaseDomain) != ""
+	_ = cfg
+	return false
 }
 
 func defaultConfiguredEdgeReadinessCheck(ctx context.Context, client *localagent.Client, baseDomain string) (edgeStatusResult, error) {

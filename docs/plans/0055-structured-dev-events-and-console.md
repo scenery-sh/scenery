@@ -390,7 +390,7 @@ scenery console --source worker:typescript
 scenery status --watch --json
 ```
 
-The UI should expose why a source exists when that is known. Examples: "generated TypeScript legacy async runtime activity worker", "managed sync sync service from dev.services.sync", "shared legacy async runtime dev server", or "frontend route from proxy.frontends.web".
+The UI should expose why a source exists when that is known. Examples: "generated TypeScript legacy async runtime activity worker", "managed sync sync service from dev.services.sync", "shared legacy async runtime dev server", or "frontend route from frontends.web".
 
 ## Interfaces and Dependencies
 
