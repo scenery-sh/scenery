@@ -186,8 +186,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-06-07",
-      "review_after": "2026-07-07",
+      "last_reviewed": "2026-07-07",
+      "review_after": "2026-08-06",
       "summary": "Machine-readable docs metadata for agents and harness validation, including active ExecPlan entries until deterministic plan indexing exists.",
       "tags": [
         "docs",
@@ -462,7 +462,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-02",
-      "summary": "Practical recipes for building scenery apps, app config including watch.ignore, endpoints, storage objects, auth, middleware, Postgres database services and schemas, durable workers on the scenery schema, cron, configured generators, code tasks, generated clients, proxy config, scoped observability debugging, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, app config including top-level frontends and watch.ignore, endpoints, storage objects, auth, middleware, Postgres database services and schemas, durable workers on the scenery schema, cron, configured generators, code tasks, generated clients, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -1173,8 +1173,8 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-06-07",
-      "review_after": "2026-07-07",
+      "last_reviewed": "2026-07-07",
+      "review_after": "2026-08-06",
       "summary": "Active ExecPlan for source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, setup policy, and Scenery-owned parallel runtime validation.",
       "tags": [
         "plans",
