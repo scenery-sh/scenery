@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	localagent "scenery.sh/internal/agent"
 )
 
 func TestParseUpgradeArgs(t *testing.T) {
@@ -190,6 +192,91 @@ func TestRunUpgradeRejectsChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as the fake downloaded binary")
+	}
+	tag := "v9.9.9"
+	assetName := upgradeArchiveName(tag)
+	archiveData := buildUpgradeArchive(t, []byte("#!/bin/sh\necho fake scenery\n"))
+	sum := sha256.Sum256(archiveData)
+	server := newUpgradeReleaseServer(t, tag, map[string][]byte{
+		assetName:       archiveData,
+		"checksums.txt": []byte(hex.EncodeToString(sum[:]) + "  " + assetName + "\n"),
+	})
+	restore := overrideUpgradeGlobals(t, server, "v0.2.0")
+	oldNotice := upgradeDeployNoticeFunc
+	defer func() {
+		upgradeDeployNoticeFunc = oldNotice
+		restore()
+	}()
+	upgradeDeployNoticeFunc = func(targetVersion string) *deployHelperDrift {
+		return &deployHelperDrift{
+			HelperInstalled: true,
+			ActionRequired:  true,
+			HelperVersion:   "v0.2.0",
+			CurrentVersion:  targetVersion,
+			TargetSchema:    "scenery.edge.target.old",
+			ExpectedSchema:  deployHelperContractVersion,
+			Message:         "edge target metadata is scenery.edge.target.old; current binary expects " + deployHelperContractVersion,
+			SuggestedAction: "Run `scenery deploy setup` to update the privileged listener (asks for sudo).",
+		}
+	}
+
+	target := filepath.Join(t.TempDir(), "scenery")
+	var out bytes.Buffer
+	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain"}); err != nil {
+		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "deploy helper: Run `scenery deploy setup` to update the privileged listener (asks for sudo).") {
+		t.Fatalf("upgrade output missing deploy notice:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--force", "--skip-toolchain", "--json"}); err != nil {
+		t.Fatalf("runUpgrade json error = %v\n%s", err, out.String())
+	}
+	var payload upgradeResponse
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	}
+	if payload.Deploy == nil || !payload.Deploy.ActionRequired || payload.Deploy.ExpectedSchema != deployHelperContractVersion {
+		t.Fatalf("deploy notice = %+v", payload.Deploy)
+	}
+}
+
+func TestDeployHelperDriftRequiresSetupOnlyForContractDrift(t *testing.T) {
+	paths := localagent.PathsForHome(t.TempDir())
+	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, localagent.EdgeTargetState{
+		SchemaVersion: "scenery.edge.target.old",
+		Kind:          localagent.EdgeKindCaddy,
+		TargetAddr:    "127.0.0.1:19443",
+	}); err != nil {
+		t.Fatalf("WriteEdgeTargetState: %v", err)
+	}
+	helper := edgeStatusPrivilegedListener{
+		Installed:  true,
+		Version:    "v1.0.0",
+		TargetPath: paths.EdgeTargetPath,
+	}
+	drift := deployHelperDriftFor(paths, helper, "v2.0.0")
+	if !drift.ActionRequired || !strings.Contains(drift.SuggestedAction, "deploy setup") {
+		t.Fatalf("contract drift = %+v", drift)
+	}
+
+	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, localagent.EdgeTargetState{
+		SchemaVersion: deployHelperContractVersion,
+		Kind:          localagent.EdgeKindCaddy,
+		TargetAddr:    "127.0.0.1:19443",
+	}); err != nil {
+		t.Fatalf("WriteEdgeTargetState current: %v", err)
+	}
+	drift = deployHelperDriftFor(paths, helper, "v2.0.0")
+	if drift.ActionRequired || !strings.Contains(drift.Message, "helper is v1.0.0") {
+		t.Fatalf("version-only drift = %+v", drift)
+	}
+}
+
 func buildUpgradeArchive(t *testing.T, binary []byte) []byte {
 	t.Helper()
 	name := "scenery"
@@ -277,13 +364,16 @@ func overrideUpgradeGlobals(t *testing.T, server *httptest.Server, currentVersio
 	oldBase := upgradeAPIBaseURL
 	oldClient := upgradeHTTPClient
 	oldVersion := upgradeCurrentVersionFn
+	oldNotice := upgradeDeployNoticeFunc
 	upgradeAPIBaseURL = server.URL + "/repos/scenery-sh/scenery"
 	upgradeHTTPClient = server.Client()
 	upgradeCurrentVersionFn = func() string { return currentVersion }
+	upgradeDeployNoticeFunc = func(targetVersion string) *deployHelperDrift { return nil }
 	return func() {
 		upgradeAPIBaseURL = oldBase
 		upgradeHTTPClient = oldClient
 		upgradeCurrentVersionFn = oldVersion
+		upgradeDeployNoticeFunc = oldNotice
 		server.Close()
 	}
 }

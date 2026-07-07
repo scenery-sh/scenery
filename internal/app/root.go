@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -30,6 +31,7 @@ type Config struct {
 	Proxy         ProxyConfig           `json:"proxy"`
 	Watch         WatchConfig           `json:"watch"`
 	Dev           DevConfig             `json:"dev"`
+	Deploy        DeployConfig          `json:"deploy"`
 	Storage       StorageConfig         `json:"storage"`
 	Generators    GeneratorsConfig      `json:"generators"`
 	Database      DatabaseConfig        `json:"database"`
@@ -47,6 +49,7 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		Proxy         ProxyConfig           `json:"proxy"`
 		Watch         WatchConfig           `json:"watch"`
 		Dev           DevConfig             `json:"dev"`
+		Deploy        *DeployConfig         `json:"deploy,omitempty"`
 		Storage       *StorageConfig        `json:"storage,omitempty"`
 		Generators    GeneratorsConfig      `json:"generators"`
 		Database      DatabaseConfig        `json:"database"`
@@ -75,6 +78,10 @@ func (c Config) MarshalJSON() ([]byte, error) {
 			storage.Stores = map[string]StorageStoreConfig{}
 		}
 		out.Storage = &storage
+	}
+	if !c.Deploy.IsZero() {
+		deploy := c.Deploy
+		out.Deploy = &deploy
 	}
 	return json.Marshal(out)
 }
@@ -262,6 +269,15 @@ type DevRoutingConfig struct {
 	Port      int    `json:"port"`
 	PortStart int    `json:"port_start"`
 	PortEnd   int    `json:"port_end"`
+}
+
+type DeployConfig struct {
+	Domain string `json:"domain,omitempty"`
+	Root   string `json:"root,omitempty"`
+}
+
+func (c DeployConfig) IsZero() bool {
+	return c.Domain == "" && c.Root == ""
 }
 
 type DevServiceConfig struct {
@@ -495,6 +511,9 @@ func (c Config) Validate() error {
 	if err := c.validateDevServices(); err != nil {
 		return err
 	}
+	if err := c.validateDeploy(); err != nil {
+		return err
+	}
 	return c.validateStorage()
 }
 
@@ -588,6 +607,84 @@ func plan0097DevServiceFields(svc DevServiceConfig) []string {
 		fields = append(fields, "route")
 	}
 	return fields
+}
+
+func (c Config) validateDeploy() error {
+	domain := strings.TrimSpace(c.Deploy.Domain)
+	if domain != "" {
+		if domain != strings.ToLower(domain) {
+			return errors.New("deploy.domain must be lowercase")
+		}
+		if err := validateDeployDomain(domain, c.Proxy.RouteBaseDomain); err != nil {
+			return err
+		}
+	}
+	root := strings.TrimSpace(c.Deploy.Root)
+	if root == "" {
+		return nil
+	}
+	switch root {
+	case "console", "dashboard", "runtime", "sync", "__scenery":
+		return fmt.Errorf("deploy.root %q is reserved by Scenery", root)
+	case "api":
+		return nil
+	}
+	if _, ok := c.Proxy.Frontends[root]; ok {
+		return nil
+	}
+	return fmt.Errorf("deploy.root %q must be \"api\" or a configured frontend", root)
+}
+
+func validateDeployDomain(domain, localBase string) error {
+	if domain == "localhost" {
+		return errors.New("deploy.domain must not be localhost")
+	}
+	if ip := net.ParseIP(strings.Trim(domain, "[]")); ip != nil {
+		return errors.New("deploy.domain must not be an IP address")
+	}
+	if !validDeployFQDN(domain) {
+		return fmt.Errorf("deploy.domain %q must be a valid lowercase FQDN", domain)
+	}
+	base := normalizeConfigHost(localBase)
+	if base == "" {
+		base = "local.dev"
+	}
+	if domain == base || strings.HasSuffix(domain, "."+base) {
+		return fmt.Errorf("deploy.domain %q must not use the local route base domain %q", domain, base)
+	}
+	return nil
+}
+
+func validDeployFQDN(domain string) bool {
+	if len(domain) > 253 || !strings.Contains(domain, ".") || strings.HasSuffix(domain, ".") {
+		return false
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if len(label) == 0 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for _, r := range label {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeConfigHost(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if scheme := strings.Index(value, "://"); scheme >= 0 {
+		value = value[scheme+3:]
+	}
+	if slash := strings.IndexByte(value, '/'); slash >= 0 {
+		value = value[:slash]
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+	return strings.Trim(value, "[]")
 }
 
 func (c Config) validateStorage() error {

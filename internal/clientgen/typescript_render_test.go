@@ -79,3 +79,33 @@ func TestTypeScriptClientIncludesStorageHelpers(t *testing.T) {
 		}
 	}
 }
+
+func TestTypeScriptClientGatesStandardAuthGoogleMethods(t *testing.T) {
+	t.Parallel()
+
+	out, err := GenerateTypeScript(&model.App{Name: "pulse"}, TypeScriptOptions{
+		AppSlug:      "pulse",
+		StandardAuth: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateTypeScript() error = %v", err)
+	}
+	if strings.Contains(string(out), "GoogleStart") || strings.Contains(string(out), "/auth/google/start") {
+		t.Fatalf("disabled Google OAuth methods leaked into generated client:\n%s", out)
+	}
+
+	out, err = GenerateTypeScript(&model.App{Name: "pulse"}, TypeScriptOptions{
+		AppSlug:            "pulse",
+		StandardAuth:       true,
+		StandardAuthGoogle: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateTypeScript() error = %v", err)
+	}
+	got := string(out)
+	for _, want := range []string{"GoogleStart", "/auth/google/start", "GoogleCallback", "/auth/google/callback"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("enabled Google OAuth client missing %q:\n%s", want, got)
+		}
+	}
+}

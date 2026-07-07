@@ -22,19 +22,21 @@ const (
 )
 
 type Paths struct {
-	Home           string
-	RunDir         string
-	AgentDir       string
-	EdgeDir        string
-	SocketPath     string
-	StatePath      string
-	EdgeStatePath  string
-	EdgeTokenPath  string
-	EdgeTargetPath string
-	EdgeConfigPath string
-	EdgeLogPath    string
-	RegistryPath   string
-	LogPath        string
+	Home                string
+	RunDir              string
+	AgentDir            string
+	EdgeDir             string
+	SocketPath          string
+	StatePath           string
+	EdgeStatePath       string
+	EdgeTokenPath       string
+	EdgeTargetPath      string
+	EdgeConfigPath      string
+	EdgeLogPath         string
+	DeployPath          string
+	DeployResumeLogPath string
+	RegistryPath        string
+	LogPath             string
 }
 
 func DefaultPaths() (Paths, error) {
@@ -65,19 +67,21 @@ func PathsForHome(home string) Paths {
 		}
 	}
 	return Paths{
-		Home:           home,
-		RunDir:         runDir,
-		AgentDir:       agentDir,
-		EdgeDir:        edgeDir,
-		SocketPath:     filepath.Clean(socketPath),
-		StatePath:      filepath.Join(runDir, "agent.json"),
-		EdgeStatePath:  filepath.Join(runDir, "edge.json"),
-		EdgeTargetPath: filepath.Join(runDir, "edge-target.json"),
-		EdgeTokenPath:  filepath.Join(edgeDir, "edge-token"),
-		EdgeConfigPath: filepath.Join(edgeDir, "Caddyfile"),
-		EdgeLogPath:    filepath.Join(edgeDir, "caddy.log"),
-		RegistryPath:   filepath.Join(agentDir, "sessions.json"),
-		LogPath:        filepath.Join(agentDir, "agent.log"),
+		Home:                home,
+		RunDir:              runDir,
+		AgentDir:            agentDir,
+		EdgeDir:             edgeDir,
+		SocketPath:          filepath.Clean(socketPath),
+		StatePath:           filepath.Join(runDir, "agent.json"),
+		EdgeStatePath:       filepath.Join(runDir, "edge.json"),
+		EdgeTargetPath:      filepath.Join(runDir, "edge-target.json"),
+		EdgeTokenPath:       filepath.Join(edgeDir, "edge-token"),
+		EdgeConfigPath:      filepath.Join(edgeDir, "Caddyfile"),
+		EdgeLogPath:         filepath.Join(edgeDir, "caddy.log"),
+		DeployPath:          filepath.Join(agentDir, "deploy.json"),
+		DeployResumeLogPath: filepath.Join(agentDir, "deploy-resume.log"),
+		RegistryPath:        filepath.Join(agentDir, "sessions.json"),
+		LogPath:             filepath.Join(agentDir, "agent.log"),
 	}
 }
 

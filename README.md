@@ -34,6 +34,7 @@ Available now:
 - native local observability
 - durable task and cron local runtime support
 - local HTTPS edge and frontend routing with optional trust-store installation
+- beta public deploy edge for serving a live local app on your own domain
 - dashboard and API explorer
 - configured generators, SQLC refresh, database lifecycle commands, and repo task commands
 - app-local code tasks
@@ -79,6 +80,25 @@ scenery upgrade
 ```
 
 `scenery upgrade` verifies the selected release archive against `checksums.txt`, replaces the current local binary, and then syncs managed toolchain entries already present in the local store. Use `scenery upgrade --toolchain all` when you intentionally want every frozen tool and image from the upgraded binary pulled immediately.
+
+## Public Deploy Edge
+
+`scenery deploy` is a beta operator surface for serving a live local app on a public domain from a macOS machine. Add a public domain to the app config:
+
+```json
+{"name":"hello","deploy":{"domain":"hello.example.com","root":"app"}}
+```
+
+Then configure the machine once, enable the app, and keep a live dev runtime running:
+
+```sh
+scenery deploy setup --acme-ca staging --acme-email ops@example.com
+scenery deploy enable --app-root /path/to/app
+scenery up --detach --app-root /path/to/app
+scenery deploy status --json
+```
+
+Point DNS A/AAAA records at the reported public IP and forward router TCP 80/443 to the reported LAN IP. `scenery deploy status --json` reports listener, DNS, reachability, sleep, firewall, and certificate diagnostics. Switch to `--acme-ca production` after staging works.
 
 ## Agent Skill
 
@@ -223,6 +243,7 @@ scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> 
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] --json
 scenery version [--json]
 scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
+scenery deploy enable|disable|status|setup|resume|teardown [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--images]
 scenery system toolchain sync [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]

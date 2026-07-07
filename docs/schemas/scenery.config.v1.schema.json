@@ -75,6 +75,9 @@
       },
       "additionalProperties": false
     },
+    "deploy": {
+      "$ref": "#/$defs/deploy"
+    },
     "storage": {
       "$ref": "#/$defs/storage"
     },
@@ -189,6 +192,22 @@
           "type": ["object", "null"],
           "description": "Reserved service environment metadata. Database services are kind-less in plan 0097.",
           "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "deploy": {
+      "type": "object",
+      "description": "Beta public deploy configuration. One app may claim one public domain; deploy.root optionally names the service that owns / on that domain.",
+      "properties": {
+        "domain": {
+          "type": "string",
+          "description": "Lowercase public FQDN claimed by scenery deploy enable. Must not be localhost, an IP address, or the local route base domain.",
+          "pattern": "^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "root": {
+          "type": "string",
+          "description": "Optional public / owner: api or a configured frontend name."
         }
       },
       "additionalProperties": false

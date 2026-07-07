@@ -14,12 +14,16 @@ Observable end state:
 
 ## Progress
 
-- [ ] Milestone 1: `google_oauth.enabled` honored end to end (runtime registration, app model, standardauthmeta, TypeScript client)
-- [ ] Milestone 2: flow hardening (JWKS cache, expired oauth-state cleanup, consistent error redirects)
-- [ ] Milestone 3: fake-Google test suite for the full flow and abuse cases
-- [ ] Milestone 4: docs, environment registry, `scenery check` diagnostic, ONLV integration notes
+- [x] Milestone 1: `google_oauth.enabled` honored end to end (runtime registration, app model, standardauthmeta, TypeScript client)
+- [x] Milestone 2: flow hardening (JWKS cache, expired oauth-state cleanup, consistent error redirects)
+- [x] Milestone 3: fake-Google test suite for the full flow and abuse cases
+- [x] Milestone 4: docs, environment registry, `scenery check` diagnostic, ONLV integration notes
 
 (2026-07-07) Plan created. No implementation started.
+(2026-07-07) Milestone 1 implemented in the runtime endpoint registration, standard auth metadata, inspect responses, and TypeScript client generation. Added focused tests in `internal/standardauthmeta`, `internal/inspect`, and `internal/clientgen`; verified the disabled standard-auth fixture reports zero `/auth/google/*` endpoints and an enabled throwaway fixture reports two.
+(2026-07-07) Milestone 2 implemented: Google JWKS keys are cached for one hour with a forced refresh on unknown `kid`, callback failures redirect to `/sign-in?error=...`, and expired OAuth state rows are deleted opportunistically before new state creation. Added auth unit tests for JWKS cache/refetch behavior and callback error redirect URLs.
+(2026-07-07) Milestone 3 completed: added a fake-Google server scaffold and live-Postgres browser-flow test covering start redirect, fake authorization, code exchange/JWKS, callback refresh cookie, refresh validation, verified email/password account linking, refusal to link unverified email/password accounts, state replay rejection, nonce mismatch rejection, and `email_verified=false` rejection. Verified it passes against local test Postgres with `SCENERY_TEST_DATABASE_URL=postgres://test:test@127.0.0.1:5433/test?sslmode=disable`.
+(2026-07-07) Milestone 4 implemented: `scenery check --json` now returns an `auth` warning when `auth.google_oauth.enabled` is true but the configured client ID/secret env vars are unresolved from process env or `.env`, with a focused `cmd/scenery` test. Updated `docs/local-contract.md`, `docs/app-development-cookbook.md`, `docs/environment.md`, and `docs/environment.registry.json` for the conditional endpoint contract, Google OAuth setup, ONLV integration note, and env registry entries.
 
 ## Surprises & Discoveries
 
@@ -34,7 +38,23 @@ Observable end state:
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed on 2026-07-07.
+
+Shipped:
+
+- `auth.google_oauth.enabled` now controls Google sign-in endpoint registration, inspect metadata, and generated TypeScript client methods. Disabled apps expose no `/auth/google/*` runtime routes, model entries, or client methods.
+- Google callback failures now redirect back to the app sign-in page with explicit error codes; Google JWKS are cached with one forced refresh on unknown `kid`; expired OAuth state rows are cleaned up opportunistically.
+- The fake-Google live-Postgres test covers the full browser flow, refresh cookie validation through `/auth/me`, verified email account linking, unverified account refusal, replay rejection, nonce mismatch, and `email_verified=false`.
+- Docs, environment registry entries, ONLV setup notes, and `scenery check` missing-credential warnings are updated.
+
+Validation:
+
+- `go test ./auth ./cmd/scenery`
+- `go test ./...`
+- `SCENERY_TEST_DATABASE_URL=postgres://test:test@127.0.0.1:5433/test?sslmode=disable go test -v ./auth -run TestGoogleOAuthBrowserFlowWithFakeGoogle -count=1`
+- `scenery check`, `scenery inspect endpoints`, and `scenery generate client` on disabled and enabled standard-auth fixtures
+- Runtime HTTP proof: enabled fixture served `/auth/google/start` and `/auth/google/callback`; disabled fixture returned 404 for both paths.
+- `scenery harness self --summary --write` passed with warnings only: due knowledge-review warnings, a generated sqlc large-file warning, and test timing warnings.
 
 ## Context and Orientation
 

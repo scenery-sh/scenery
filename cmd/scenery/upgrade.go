@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/toolchain"
 )
@@ -32,6 +33,7 @@ var (
 	upgradeHTTPClient       = http.DefaultClient
 	upgradeCommandContext   = exec.CommandContext
 	upgradeCurrentVersionFn = func() string { return buildVersionResponse().Version }
+	upgradeDeployNoticeFunc = defaultUpgradeDeployNotice
 )
 
 type upgradeOptions struct {
@@ -58,6 +60,7 @@ type upgradeResponse struct {
 	DryRun         bool                    `json:"dry_run"`
 	Reason         string                  `json:"reason,omitempty"`
 	Toolchain      *upgradeToolchainResult `json:"toolchain,omitempty"`
+	Deploy         *deployHelperDrift      `json:"deploy,omitempty"`
 	Error          string                  `json:"error,omitempty"`
 }
 
@@ -228,6 +231,7 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 			resp.Error = err.Error()
 			return resp, err
 		}
+		attachUpgradeDeployNotice(&resp)
 		return resp, nil
 	}
 	if opts.DryRun {
@@ -274,7 +278,31 @@ func performUpgrade(ctx context.Context, opts upgradeOptions) (upgradeResponse, 
 		return resp, err
 	}
 	resp.OK = true
+	attachUpgradeDeployNotice(&resp)
 	return resp, nil
+}
+
+func attachUpgradeDeployNotice(resp *upgradeResponse) {
+	if resp == nil || !resp.OK || resp.DryRun {
+		return
+	}
+	resp.Deploy = upgradeDeployNoticeFunc(resp.TargetVersion)
+}
+
+func defaultUpgradeDeployNotice(targetVersion string) *deployHelperDrift {
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		return nil
+	}
+	helper := privilegedListenerStatus(paths)
+	if !helper.Installed {
+		return nil
+	}
+	drift := deployHelperDriftFor(paths, helper, targetVersion)
+	if !drift.ActionRequired {
+		return nil
+	}
+	return &drift
 }
 
 func upgradeTargetPath(explicit string) (string, error) {
@@ -617,6 +645,9 @@ func renderUpgrade(stdout io.Writer, resp upgradeResponse) error {
 			fmt.Fprintf(stdout, ", skipped %d", len(resp.Toolchain.Skipped))
 		}
 		fmt.Fprintln(stdout)
+	}
+	if resp.Deploy != nil && resp.Deploy.ActionRequired {
+		fmt.Fprintf(stdout, "deploy helper: %s\n", resp.Deploy.SuggestedAction)
 	}
 	return nil
 }

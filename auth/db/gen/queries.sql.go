@@ -464,6 +464,16 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (Scenery
 	return i, err
 }
 
+const deleteExpiredOAuthStates = `-- name: DeleteExpiredOAuthStates :exec
+DELETE FROM scenery.scenery_auth_oauth_states
+WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredOAuthStates(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredOAuthStates)
+	return err
+}
+
 const disableMembership = `-- name: DisableMembership :one
 UPDATE scenery.scenery_auth_organization_memberships
 SET disabled_at = COALESCE(disabled_at, now()),

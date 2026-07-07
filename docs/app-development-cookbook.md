@@ -275,6 +275,37 @@ they are missing.
 
 Common failure: `DatabaseURL` is missing. Put it in process env or an app-root `.env.local` for local development.
 
+To enable Google sign-in, opt in explicitly and provide credentials through env:
+
+```json
+{
+  "auth": {
+    "enabled": true,
+    "google_oauth": {
+      "enabled": true,
+      "client_id_env": "GoogleOAuthClientID",
+      "client_secret_env": "GoogleOAuthClientSecret"
+    }
+  }
+}
+```
+
+In Google Cloud Console, create a Web application OAuth client and add this redirect URI for each environment:
+
+```text
+${APIBaseURL}/auth/google/callback
+```
+
+For local development, put the client ID and secret in the app-root `.env` or process environment. The sign-in button should navigate the browser to:
+
+```text
+GET /auth/google/start?redirect_path=/
+```
+
+When `google_oauth.enabled` is false or absent, `/auth/google/start` and `/auth/google/callback` are not registered, do not appear in `scenery inspect endpoints --json`, and are omitted from generated TypeScript clients. When Google OAuth is enabled but credentials are missing, `scenery check --json` reports an `auth` warning.
+
+ONLV should enable `auth.google_oauth.enabled`, keep `GoogleOAuthClientID` and `GoogleOAuthClientSecret` in its local app-root env, register the redirect URI for its Scenery API base URL, and point its sign-in button at `/auth/google/start?redirect_path=/`.
+
 Standard auth owns its tenant state in `scenery.scenery_auth_tenants`. You do not need an app-local `tenants` service or table to use standard auth; create one only for product-domain tenant APIs or schema.
 
 ## Private Endpoint Call
@@ -703,6 +734,44 @@ Host-mode configured hosts appear as friendly aliases only for the live app root
 Common host-mode failure: trying to bind the agent router or Caddy itself to `127.0.0.1:443` as a normal user. The default-port HTTPS path is managed DNS plus the privileged loopback helper on `127.0.0.1:443`, forwarding raw TCP to user-owned Caddy on a high loopback port, with the agent router kept on its internal loopback upstream. Run `scenery system edge dns install` and `scenery system edge privileged install` once as the normal user, then `scenery system edge install` to prepare user-owned Caddy. Do not run `sudo scenery system edge install`. `scenery system edge trust` trusts the local Caddy CA through a temporary admin-only Caddy process, so it does not require the port-443 edge to already be running. Trusting the local Caddy CA should be a one-time setup unless the CA changes.
 
 The managed edge Caddy config flushes proxied responses immediately so sync and other SSE streams stay live. Do not disable upstream caching globally; sync uses cache headers for request collapsing.
+
+## Serve A Live App On Your Domain
+
+`scenery deploy` is beta and intentionally operator-driven. It serves an enabled live `scenery up` session through the machine public edge; it does not configure your router or DNS provider.
+
+Declare the domain in app config:
+
+```json
+{
+  "name": "hello",
+  "deploy": {
+    "domain": "hello.example.com",
+    "root": "app"
+  }
+}
+```
+
+Configure the machine once, starting with Let's Encrypt staging:
+
+```sh
+scenery deploy setup --acme-ca staging --acme-email ops@example.com
+scenery deploy enable --app-root /path/to/app
+scenery up --detach --app-root /path/to/app
+scenery deploy status --json
+```
+
+Use `scenery deploy status --json` as the checklist. It reports the LAN IP for router forwarding, the discovered public IP for DNS, wildcard 80/443 listener state, DNS A/AAAA mismatches, power sleep, macOS firewall, Caddy cert expiry, and whether the enabled app root has a live session. Configure the router to forward public TCP 80/443 to the reported LAN IP, and point the domain's A/AAAA records at the reported public IP. If LAN probes work but public probes fail, check router forwarding and whether the ISP is using CGNAT.
+
+Verification ladder:
+
+```sh
+curl -I http://hello.example.com/
+curl -kI https://hello.example.com/
+curl https://hello.example.com/api/health
+scenery deploy status --json
+```
+
+After staging works, rerun setup with `--acme-ca production`. `scenery deploy teardown` removes public binding and the resume LaunchAgent while keeping the registry and Caddy certificates. Public deploy never exposes `/runtime`, `/consolenext`, `/__scenery`, or other Scenery control paths.
 
 ## Debugging With Inspect, Logs, Traces, Metrics
 

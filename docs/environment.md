@@ -67,6 +67,10 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_AUTH_DATABASE_URL` | user input | Fallback DB URL for standard auth when app-specific envs are unset. |
 | `SCENERY_AUTH_JWT_SECRET` | user input | Fallback JWT signing secret for standard auth when `auth.jwt_secret_env` and `JWT_SECRET` are unset. |
 | `SCENERY_AUTH_EMAIL_FROM` | user input | Fallback sender address for standard auth email flows when `auth.email_from_env` and `AUTH_EMAIL_FROM` are unset. |
+| `GoogleOAuthClientID` | user input | Default app-style Google OAuth client ID env when `auth.google_oauth.enabled` is true and `client_id_env` is omitted. |
+| `GoogleOAuthClientSecret` | user input secret | Default app-style Google OAuth client secret env when `auth.google_oauth.enabled` is true and `client_secret_env` is omitted. |
+| `GOOGLE_OAUTH_CLIENT_ID` | user input | Conventional fallback Google OAuth client ID when the app-style env is unset. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | user input secret | Conventional fallback Google OAuth client secret when the app-style env is unset. |
 | `<SERVICE>_DATABASE_URL` | injected | Service schema Postgres URL derived from the app database URL with `search_path=<service>,scenery`. |
 | `SCENERY_DATABASE_JSON` | injected | JSON object describing the app database, source (`managed` or `external`), and service schemas. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
@@ -80,7 +84,7 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
 | `SCENERY_AUTH_COOKIE_DOMAIN` | injected | Auth cookie domain; empty in default local agent dev. |
 
-App-defined auth env names such as `JWTSecret`, `GoogleOAuthClientID`, `GoogleOAuthClientSecret`, `AuthCookieDomain`, `PublicAppURL`, `APIBaseURL`, and `AuthEmailFrom` come from `.scenery.json` and are target-app inputs, not fixed scenery global names.
+App-defined auth env names such as `JWTSecret`, `GoogleOAuthClientID`, `GoogleOAuthClientSecret`, `AuthCookieDomain`, `PublicAppURL`, `APIBaseURL`, and `AuthEmailFrom` come from `.scenery.json` and are target-app inputs, not fixed scenery global names. `scenery check --json` warns when Google OAuth is enabled but the configured client ID or secret env cannot be resolved.
 
 ## Toolchain Store
 

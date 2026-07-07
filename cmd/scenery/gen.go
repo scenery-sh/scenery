@@ -39,8 +39,9 @@ func writeTypeScriptClient(appRoot string, cfg app.Config, target, outputPath st
 		return "", err
 	}
 	output, err := clientgen.GenerateTypeScript(model, clientgen.TypeScriptOptions{
-		AppSlug:      firstNonEmpty(cfg.ID, cfg.Name),
-		StandardAuth: cfg.Auth.Enabled,
+		AppSlug:            firstNonEmpty(cfg.ID, cfg.Name),
+		StandardAuth:       cfg.Auth.Enabled,
+		StandardAuthGoogle: cfg.Auth.GoogleOAuth.Enabled,
 	})
 	if err != nil {
 		return "", err

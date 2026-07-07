@@ -26,13 +26,14 @@ import (
 )
 
 const (
-	defaultEdgePublicAddr = "127.0.0.1:443"
-	defaultEdgeTargetAddr = "127.0.0.1:19443"
-	defaultEdgeDNSDomain  = localagent.DefaultRouteBaseDomain
-	defaultEdgeDNSListen  = "127.0.0.1:53535"
-	defaultEdgeDNSAddress = "127.0.0.1"
-	edgeHighPortMin       = 19000
-	edgeHighPortMax       = 19999
+	defaultEdgePublicAddr     = "127.0.0.1:443"
+	defaultEdgeTargetAddr     = "127.0.0.1:19443"
+	defaultEdgeHTTPTargetAddr = "127.0.0.1:19080"
+	defaultEdgeDNSDomain      = localagent.DefaultRouteBaseDomain
+	defaultEdgeDNSListen      = "127.0.0.1:53535"
+	defaultEdgeDNSAddress     = "127.0.0.1"
+	edgeHighPortMin           = 19000
+	edgeHighPortMax           = 19999
 
 	edgeHelperLabel      = "dev.scenery.edge-helper"
 	edgeHelperBinaryPath = "/usr/local/libexec/scenery-edge-helper"
@@ -52,11 +53,13 @@ var (
 	edgeHelperLaunchStatusFunc       = edgeHelperLaunchStatus
 	edgeHelperPlistOptionsFunc       = installedEdgeHelperOptions
 	edgePortReachableFunc            = edgePortReachable
+	reloadCaddyEdgeConfigFunc        = reloadCaddyEdgeConfig
 )
 
 type edgeOptions struct {
 	JSON   bool
 	Domain string
+	Deploy bool
 }
 
 func edgeCommand(args []string) error {
@@ -144,6 +147,7 @@ func edgeRestart(opts edgeOptions) error {
 	ctx := context.Background()
 	publicAddr := defaultEdgePublicAddr
 	targetAddr := defaultEdgeTargetAddr
+	httpTargetAddr := defaultEdgeHTTPTargetAddr
 	if os.Geteuid() == 0 {
 		return fmt.Errorf("do not run `sudo scenery system edge install`; run `scenery system edge privileged install` for the privileged listener")
 	}
@@ -164,14 +168,10 @@ func edgeRestart(opts edgeOptions) error {
 	}
 	upstreamAddr := localagent.RouterAddrFromEnv()
 	adminSocket := filepath.Join(paths.RunDir, "caddy-admin.sock")
-	config := caddyEdgeConfig(caddyEdgeConfigOptions{
-		ListenAddr:  targetAddr,
-		PublicPort:  "443",
-		Upstream:    upstreamAddr,
-		AskURL:      "http://" + upstreamAddr + "/v1/tls/allow",
-		AdminSocket: adminSocket,
-		Token:       token,
-	})
+	config, err := caddyEdgeConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(paths.EdgeConfigPath), 0o700); err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func edgeRestart(opts edgeOptions) error {
 	if err := stopEdge(paths, 2*time.Second); err != nil {
 		return err
 	}
-	if err := startCaddyEdge(caddyBin, paths, publicAddr, targetAddr, adminSocket, upstreamAddr); err != nil {
+	if err := startCaddyEdge(caddyBin, paths, publicAddr, targetAddr, httpTargetAddr, adminSocket, upstreamAddr); err != nil {
 		_ = localagent.WriteEdgeState(paths.EdgeStatePath, localagent.EdgeState{
 			Kind:         localagent.EdgeKindCaddy,
 			Status:       localagent.EdgeStatusStopped,
@@ -254,10 +254,17 @@ func edgeRestart(opts edgeOptions) error {
 	}
 	fmt.Fprintln(os.Stdout, "scenery system edge Caddy is prepared, but the privileged port 443 listener is not installed or healthy.")
 	fmt.Fprintln(os.Stdout, "Run:")
-	fmt.Fprintln(os.Stdout, "  scenery system edge privileged install")
+	fmt.Fprintf(os.Stdout, "  %s\n", edgePrivilegedInstallCommand(opts.Deploy))
 	fmt.Fprintln(os.Stdout, "Do not run:")
 	fmt.Fprintln(os.Stdout, "  sudo scenery system edge install")
 	return fmt.Errorf("scenery system edge privileged listener is required for browser HTTPS on 127.0.0.1:443")
+}
+
+func edgePrivilegedInstallCommand(deploy bool) string {
+	if deploy {
+		return "scenery deploy setup"
+	}
+	return "scenery system edge privileged install"
 }
 
 func edgeStatus(opts edgeOptions) error {
@@ -1418,7 +1425,6 @@ func stopStaleEdgeAgentProcesses(socketPath, routerAddr string, skipPID int, tim
 
 func edgeAgentCommandMatches(command, socketPath, routerAddr string) bool {
 	return strings.Contains(command, "scenery system agent") &&
-		strings.Contains(command, "--socket "+socketPath) &&
 		strings.Contains(command, "--router-listen "+routerAddr)
 }
 
@@ -1442,12 +1448,21 @@ func waitForTCPAddrFree(ctx context.Context, addr string) error {
 }
 
 type caddyEdgeConfigOptions struct {
-	ListenAddr  string
-	PublicPort  string
-	Upstream    string
-	AskURL      string
-	AdminSocket string
-	Token       string
+	ListenAddr     string
+	PublicPort     string
+	Upstream       string
+	AskURL         string
+	AdminSocket    string
+	Token          string
+	PublicDomains  []publicDomainSite
+	ACMEEmail      string
+	ACMECA         string
+	StorageDir     string
+	HTTPListenPort string
+}
+
+type publicDomainSite struct {
+	Domain string
 }
 
 func caddyEdgeConfig(opts caddyEdgeConfigOptions) string {
@@ -1462,21 +1477,44 @@ func caddyEdgeConfig(opts caddyEdgeConfigOptions) string {
 	if publicPort == "" {
 		publicPort = "443"
 	}
+	httpPort := strings.TrimSpace(opts.HTTPListenPort)
+	if httpPort == "" {
+		httpPort = "19080"
+	}
 	site := "https://:" + listenPort
-	return fmt.Sprintf(`{
+	publicDomains := normalizedPublicDomainSites(opts.PublicDomains)
+	var b strings.Builder
+	fmt.Fprintf(&b, `{
 	default_bind %s
 	auto_https disable_redirects
-	local_certs
-	on_demand_tls {
+`, host)
+	if len(publicDomains) == 0 {
+		b.WriteString("	local_certs\n")
+	}
+	if opts.AskURL != "" {
+		fmt.Fprintf(&b, `	on_demand_tls {
 		ask %s
 	}
-	admin unix//%s
-	servers {
+`, opts.AskURL)
+	}
+	fmt.Fprintf(&b, "	admin unix//%s\n", opts.AdminSocket)
+	if storage := strings.TrimSpace(opts.StorageDir); storage != "" {
+		fmt.Fprintf(&b, "	storage file_system %s\n", storage)
+	}
+	if email := strings.TrimSpace(opts.ACMEEmail); email != "" {
+		fmt.Fprintf(&b, "	email %s\n", email)
+	}
+	if len(publicDomains) > 0 {
+		fmt.Fprintf(&b, "	http_port %s\n", httpPort)
+		fmt.Fprintf(&b, "	https_port %s\n", listenPort)
+	}
+	b.WriteString(`	servers {
 		strict_sni_host on
 	}
 }
 
-%s {
+`)
+	fmt.Fprintf(&b, `%s {
 	tls internal {
 		on_demand
 	}
@@ -1488,10 +1526,97 @@ func caddyEdgeConfig(opts caddyEdgeConfigOptions) string {
 		header_up X-Scenery-Edge-Token %s
 	}
 }
-`, host, opts.AskURL, opts.AdminSocket, site, opts.Upstream, publicPort, opts.Token)
+`, site, opts.Upstream, publicPort, opts.Token)
+	for _, site := range publicDomains {
+		fmt.Fprintf(&b, `
+%s:%s {
+	tls {
+		issuer acme%s
+	}
+	reverse_proxy %s {
+		flush_interval -1
+		header_up Host {host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Port 443
+		header_up X-Scenery-Edge-Token %s
+		header_up X-Scenery-Public-Edge 1
+	}
 }
 
-func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetAddr, adminSocket, upstreamAddr string) error {
+http://%s:%s {
+	redir https://{host}{uri} 308
+}
+`, site.Domain, listenPort, caddyACMEIssuerOptions(opts.ACMECA), opts.Upstream, opts.Token, site.Domain, httpPort)
+	}
+	return b.String()
+}
+
+func caddyEdgeConfigForRegistry(paths localagent.Paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token string) (string, error) {
+	deployRegistry, err := localagent.LoadDeployRegistry(paths.DeployPath)
+	if err != nil {
+		return "", err
+	}
+	publicDomains := publicDomainSitesForDeployRegistry(deployRegistry)
+	_, httpPort := splitHostPort(httpTargetAddr)
+	storageDir := ""
+	if len(publicDomains) > 0 {
+		storageDir = filepath.Join(paths.EdgeDir, "caddy-data")
+	}
+	return caddyEdgeConfig(caddyEdgeConfigOptions{
+		ListenAddr:     targetAddr,
+		PublicPort:     "443",
+		Upstream:       upstreamAddr,
+		AskURL:         "http://" + upstreamAddr + "/v1/tls/allow",
+		AdminSocket:    adminSocket,
+		Token:          token,
+		PublicDomains:  publicDomains,
+		ACMEEmail:      deployRegistry.ACMEEmail,
+		ACMECA:         deployRegistry.ACMECA,
+		StorageDir:     storageDir,
+		HTTPListenPort: httpPort,
+	}), nil
+}
+
+func normalizedPublicDomainSites(sites []publicDomainSite) []publicDomainSite {
+	seen := map[string]bool{}
+	out := make([]publicDomainSite, 0, len(sites))
+	for _, site := range sites {
+		domain := strings.ToLower(strings.TrimSpace(site.Domain))
+		if domain == "" || seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		out = append(out, publicDomainSite{Domain: domain})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Domain < out[j].Domain
+	})
+	return out
+}
+
+func publicDomainSitesForDeployRegistry(registry localagent.DeployRegistry) []publicDomainSite {
+	sites := make([]publicDomainSite, 0, len(registry.Targets))
+	for _, target := range registry.Targets {
+		if !target.Enabled {
+			continue
+		}
+		sites = append(sites, publicDomainSite{Domain: target.Domain})
+	}
+	return normalizedPublicDomainSites(sites)
+}
+
+func caddyACMEIssuerOptions(ca string) string {
+	switch strings.TrimSpace(ca) {
+	case "staging":
+		return ` {
+			ca https://acme-staging-v02.api.letsencrypt.org/directory
+		}`
+	default:
+		return ""
+	}
+}
+
+func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetAddr, httpTargetAddr, adminSocket, upstreamAddr string) error {
 	logOffset := fileSize(paths.EdgeLogPath)
 	logFile, err := os.OpenFile(paths.EdgeLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -1518,14 +1643,15 @@ func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetA
 	}
 	startedAt, _ := processStartTime(cmd.Process.Pid)
 	target := localagent.EdgeTargetState{
-		Kind:         localagent.EdgeKindCaddy,
-		TargetAddr:   targetAddr,
-		PID:          cmd.Process.Pid,
-		OwnerUID:     os.Getuid(),
-		OwnerGID:     os.Getgid(),
-		ProcessStart: startedAt,
-		Executable:   caddyBin,
-		UpdatedAt:    time.Now().UTC(),
+		Kind:           localagent.EdgeKindCaddy,
+		TargetAddr:     targetAddr,
+		HTTPTargetAddr: httpTargetAddr,
+		PID:            cmd.Process.Pid,
+		OwnerUID:       os.Getuid(),
+		OwnerGID:       os.Getgid(),
+		ProcessStart:   startedAt,
+		Executable:     caddyBin,
+		UpdatedAt:      time.Now().UTC(),
 	}
 	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, target); err != nil {
 		_ = signalPID(cmd.Process.Pid, syscall.SIGTERM)
@@ -1552,6 +1678,80 @@ func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetA
 	}
 	_ = logFile.Close()
 	return nil
+}
+
+func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) error {
+	caddyBin, err := resolveCaddyBinary(context.Background(), paths, true)
+	if err != nil {
+		return err
+	}
+	token, err := ensureEdgeToken(paths.EdgeTokenPath)
+	if err != nil {
+		return err
+	}
+	targetAddr := firstNonEmpty(state.HTTPSListen, defaultEdgeTargetAddr)
+	httpTargetAddr := defaultEdgeHTTPTargetAddr
+	upstreamAddr := firstNonEmpty(state.UpstreamAddr, localagent.RouterAddrFromEnv())
+	adminSocket := firstNonEmpty(state.AdminSocket, filepath.Join(paths.RunDir, "caddy-admin.sock"))
+	config, err := caddyEdgeConfigForRegistry(paths, targetAddr, httpTargetAddr, upstreamAddr, adminSocket, token)
+	if err != nil {
+		return err
+	}
+	nextPath := paths.EdgeConfigPath + ".next"
+	if err := os.MkdirAll(filepath.Dir(nextPath), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(nextPath, []byte(config), 0o600); err != nil {
+		return err
+	}
+	if err := reloadCaddyEdgeConfigFunc(caddyBin, nextPath, adminSocket); err != nil {
+		_ = os.Remove(nextPath)
+		return edgeRestart(edgeOptions{})
+	}
+	if err := os.Rename(nextPath, paths.EdgeConfigPath); err != nil {
+		return err
+	}
+	return refreshEdgeTargetMetadata(paths, state, targetAddr, httpTargetAddr)
+}
+
+func reloadCaddyEdgeConfig(caddyBin, configPath, adminSocket string) error {
+	cmd := exec.Command(caddyBin, caddyReloadArgs(configPath, adminSocket)...)
+	cmd.Env = envpolicy.Environ()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("caddy reload: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func caddyReloadArgs(configPath, adminSocket string) []string {
+	return []string{"reload", "--config", configPath, "--adapter", "caddyfile", "--address", "unix//" + adminSocket}
+}
+
+func refreshEdgeTargetMetadata(paths localagent.Paths, state localagent.EdgeState, targetAddr, httpTargetAddr string) error {
+	target, _ := localagent.LoadEdgeTargetState(paths.EdgeTargetPath)
+	if target.Kind == "" {
+		target.Kind = localagent.EdgeKindCaddy
+	}
+	if target.PID == 0 {
+		target.PID = state.PID
+	}
+	if target.OwnerUID == 0 {
+		target.OwnerUID = os.Getuid()
+	}
+	if target.OwnerGID == 0 {
+		target.OwnerGID = os.Getgid()
+	}
+	if target.ProcessStart == "" && target.PID > 0 {
+		target.ProcessStart, _ = processStartTime(target.PID)
+	}
+	target.TargetAddr = targetAddr
+	target.HTTPTargetAddr = httpTargetAddr
+	target.UpdatedAt = time.Now().UTC()
+	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, target); err != nil {
+		return err
+	}
+	return publishEdgeTargetForHelper(paths, target)
 }
 
 func edgePrivilegedCommand(args []string) error {
@@ -1653,6 +1853,13 @@ type edgeHelperOptions struct {
 	OwnerHome         string
 	HelperTargetState string
 	RouterAddr        string
+	Public            bool
+	HelperVersion     string
+}
+
+type edgeHelperListenSpec struct {
+	Addr       string
+	HTTPPort80 bool
 }
 
 func edgePrivilegedHelperCommand(args []string) error {
@@ -1725,6 +1932,14 @@ func parseEdgeHelperArgs(args []string) (edgeHelperOptions, error) {
 				return edgeHelperOptions{}, err
 			}
 			opts.RouterAddr = raw
+		case "--public":
+			opts.Public = true
+		case "--helper-version":
+			raw, err := value(args[i])
+			if err != nil {
+				return edgeHelperOptions{}, err
+			}
+			opts.HelperVersion = raw
 		default:
 			return edgeHelperOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -1812,38 +2027,70 @@ func edgePrivilegedHelperRun(opts edgeHelperOptions) error {
 	if err := requireEdgeHelperOwnerOptions(opts); err != nil {
 		return err
 	}
-	listeners := make([]net.Listener, 0, 2)
-	for _, addr := range []string{"127.0.0.1:443", "[::1]:443"} {
-		ln, err := net.Listen("tcp", addr)
+	specs := edgeHelperListenSpecs(opts)
+	listeners := make([]net.Listener, 0, len(specs))
+	for _, spec := range specs {
+		ln, err := listenEdgeHelperSpec(spec)
 		if err != nil {
 			for _, existing := range listeners {
 				_ = existing.Close()
 			}
-			return fmt.Errorf("listen %s: %w", addr, err)
+			return fmt.Errorf("listen %s: %w", spec.Addr, err)
 		}
 		listeners = append(listeners, ln)
 	}
 	errCh := make(chan error, len(listeners))
-	for _, ln := range listeners {
-		go acceptEdgeHelperLoop(ln, opts, errCh)
+	for i, ln := range listeners {
+		go acceptEdgeHelperLoop(ln, opts, specs[i], errCh)
 	}
 	return <-errCh
 }
 
-func acceptEdgeHelperLoop(ln net.Listener, opts edgeHelperOptions, errCh chan<- error) {
+func listenEdgeHelperSpec(spec edgeHelperListenSpec) (net.Listener, error) {
+	listener := net.ListenConfig{}
+	network := "tcp"
+	if strings.HasPrefix(spec.Addr, "[") && !strings.HasPrefix(spec.Addr, "[::]:") {
+		network = "tcp6"
+		listener.Control = func(network, address string, conn syscall.RawConn) error {
+			var sockErr error
+			if err := conn.Control(func(fd uintptr) {
+				sockErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 1)
+			}); err != nil {
+				return err
+			}
+			return sockErr
+		}
+	}
+	return listener.Listen(context.Background(), network, spec.Addr)
+}
+
+func edgeHelperListenSpecs(opts edgeHelperOptions) []edgeHelperListenSpec {
+	if opts.Public {
+		return []edgeHelperListenSpec{
+			{Addr: "[::]:443"},
+			{Addr: "[::]:80", HTTPPort80: true},
+		}
+	}
+	return []edgeHelperListenSpec{
+		{Addr: "127.0.0.1:443"},
+		{Addr: "[::1]:443"},
+	}
+}
+
+func acceptEdgeHelperLoop(ln net.Listener, opts edgeHelperOptions, spec edgeHelperListenSpec, errCh chan<- error) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			errCh <- err
 			return
 		}
-		go handleEdgeHelperConn(conn, opts)
+		go handleEdgeHelperConn(conn, opts, spec)
 	}
 }
 
-func handleEdgeHelperConn(client net.Conn, opts edgeHelperOptions) {
+func handleEdgeHelperConn(client net.Conn, opts edgeHelperOptions, spec edgeHelperListenSpec) {
 	defer client.Close()
-	targetAddr, err := validateEdgeTarget(opts.HelperTargetState, opts.OwnerUID, opts.OwnerGID)
+	targetAddr, err := validateEdgeTargetForPort(opts.HelperTargetState, opts.OwnerUID, opts.OwnerGID, spec.HTTPPort80)
 	if err != nil {
 		return
 	}
@@ -1867,6 +2114,10 @@ func handleEdgeHelperConn(client net.Conn, opts edgeHelperOptions) {
 }
 
 func validateEdgeTarget(path string, ownerUID, ownerGID int) (string, error) {
+	return validateEdgeTargetForPort(path, ownerUID, ownerGID, false)
+}
+
+func validateEdgeTargetForPort(path string, ownerUID, ownerGID int, httpPort80 bool) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", err
@@ -1884,9 +2135,13 @@ func validateEdgeTarget(path string, ownerUID, ownerGID int) (string, error) {
 	if state.SchemaVersion != localagent.EdgeTargetSchemaVersion || state.Kind != localagent.EdgeKindCaddy {
 		return "", fmt.Errorf("edge target metadata has unexpected kind")
 	}
-	host, portRaw, err := net.SplitHostPort(state.TargetAddr)
+	targetAddr, err := edgeTargetAddrForPort(state, httpPort80)
 	if err != nil {
-		return "", fmt.Errorf("edge target address %q is invalid: %w", state.TargetAddr, err)
+		return "", err
+	}
+	host, portRaw, err := net.SplitHostPort(targetAddr)
+	if err != nil {
+		return "", fmt.Errorf("edge target address %q is invalid: %w", targetAddr, err)
 	}
 	if !isLoopbackHost(host) {
 		return "", fmt.Errorf("edge target address must be loopback")
@@ -1917,7 +2172,17 @@ func validateEdgeTarget(path string, ownerUID, ownerGID int) (string, error) {
 			return "", fmt.Errorf("edge target pid %d is not the managed Caddy process", state.PID)
 		}
 	}
-	return state.TargetAddr, nil
+	return targetAddr, nil
+}
+
+func edgeTargetAddrForPort(state localagent.EdgeTargetState, httpPort80 bool) (string, error) {
+	if httpPort80 {
+		if strings.TrimSpace(state.HTTPTargetAddr) == "" {
+			return "", fmt.Errorf("edge target metadata has no HTTP target")
+		}
+		return strings.TrimSpace(state.HTTPTargetAddr), nil
+	}
+	return strings.TrimSpace(state.TargetAddr), nil
 }
 
 func isLoopbackHost(host string) bool {
@@ -1957,6 +2222,30 @@ func copyRootHelperBinary(src, dst string) error {
 }
 
 func edgeHelperPlist(opts edgeHelperOptions) string {
+	args := []string{
+		edgeHelperBinaryPath,
+		"system",
+		"edge",
+		"privileged-helper",
+		"run",
+	}
+	if opts.Public {
+		args = append(args, "--public")
+	}
+	if strings.TrimSpace(opts.HelperVersion) != "" {
+		args = append(args, "--helper-version", strings.TrimSpace(opts.HelperVersion))
+	}
+	args = append(args,
+		"--owner-uid", strconv.Itoa(opts.OwnerUID),
+		"--owner-gid", strconv.Itoa(opts.OwnerGID),
+		"--owner-home", opts.OwnerHome,
+		"--helper-target-state", opts.HelperTargetState,
+		"--router-addr", firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()),
+	)
+	var argLines strings.Builder
+	for _, arg := range args {
+		fmt.Fprintf(&argLines, "\t\t<string>%s</string>\n", escapePlistString(arg))
+	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1965,21 +2254,7 @@ func edgeHelperPlist(opts edgeHelperOptions) string {
 	<string>%s</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>%s</string>
-		<string>system</string>
-		<string>edge</string>
-		<string>privileged-helper</string>
-		<string>run</string>
-		<string>--owner-uid</string>
-		<string>%d</string>
-		<string>--owner-gid</string>
-		<string>%d</string>
-		<string>--owner-home</string>
-		<string>%s</string>
-		<string>--helper-target-state</string>
-		<string>%s</string>
-		<string>--router-addr</string>
-		<string>%s</string>
+%s
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -1991,7 +2266,7 @@ func edgeHelperPlist(opts edgeHelperOptions) string {
 	<string>%s</string>
 </dict>
 </plist>
-`, escapePlistString(edgeHelperLabel), escapePlistString(edgeHelperBinaryPath), opts.OwnerUID, opts.OwnerGID, escapePlistString(opts.OwnerHome), escapePlistString(opts.HelperTargetState), escapePlistString(firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv())), escapePlistString(edgeHelperLogPath), escapePlistString(edgeHelperLogPath))
+`, escapePlistString(edgeHelperLabel), strings.TrimRight(argLines.String(), "\n"), escapePlistString(edgeHelperLogPath), escapePlistString(edgeHelperLogPath))
 }
 
 func escapePlistString(value string) string {
@@ -2023,6 +2298,10 @@ func privilegedListenerStatus(paths localagent.Paths) edgeStatusPrivilegedListen
 	}
 	targetPath := paths.EdgeTargetPath
 	helperOpts, helperOptsErr := edgeHelperPlistOptionsFunc()
+	if helperOptsErr == nil {
+		status.Listen = edgeHelperListenAddrs(edgeHelperListenSpecs(helperOpts))
+		status.Version = strings.TrimSpace(helperOpts.HelperVersion)
+	}
 	if helperOptsErr == nil && strings.TrimSpace(helperOpts.HelperTargetState) != "" {
 		targetPath = filepath.Clean(helperOpts.HelperTargetState)
 	}
@@ -2058,6 +2337,13 @@ func privilegedListenerStatus(paths localagent.Paths) edgeStatusPrivilegedListen
 			status.Message = fmt.Sprintf("privileged helper target metadata %s is not healthy: %v", targetPath, err)
 			return status
 		}
+		if helperOpts.Public {
+			if _, err := validateEdgeTargetForPort(targetPath, helperOpts.OwnerUID, helperOpts.OwnerGID, true); err != nil {
+				status.State = "unhealthy"
+				status.Message = fmt.Sprintf("privileged helper HTTP target metadata %s is not healthy: %v", targetPath, err)
+				return status
+			}
+		}
 	}
 	if status.State == "running" && edgePortReachableFunc("127.0.0.1:443") {
 		status.State = "running"
@@ -2065,6 +2351,14 @@ func privilegedListenerStatus(paths localagent.Paths) edgeStatusPrivilegedListen
 		status.State = "unhealthy"
 	}
 	return status
+}
+
+func edgeHelperListenAddrs(specs []edgeHelperListenSpec) []string {
+	addrs := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		addrs = append(addrs, spec.Addr)
+	}
+	return addrs
 }
 
 func edgeHelperLaunchStatus() (string, int, error) {
@@ -2196,253 +2490,4 @@ func removePublishedEdgeTargetForHelper(paths localagent.Paths, state localagent
 	if target.PID == state.PID && target.TargetAddr == state.HTTPSListen {
 		_ = os.Remove(helperTargetPath)
 	}
-}
-
-func stopStaleRootCaddyEdge(ownerHome string, timeout time.Duration) error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("stale root Caddy cleanup must run as root")
-	}
-	configPath := filepath.Join(ownerHome, "agent", "edge", "Caddyfile")
-	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
-	if err != nil {
-		return err
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		pid, pidErr := strconv.Atoi(fields[0])
-		uid, uidErr := strconv.Atoi(fields[1])
-		command := strings.Join(fields[2:], " ")
-		if pidErr != nil || uidErr != nil || uid != 0 || pid <= 0 {
-			continue
-		}
-		if !strings.Contains(command, "caddy run") || !strings.Contains(command, "--config "+configPath) {
-			continue
-		}
-		if err := signalPID(pid, syscall.SIGTERM); err != nil {
-			return fmt.Errorf("stop stale root Caddy edge pid %d: %w", pid, err)
-		}
-		deadline := time.Now().Add(timeout)
-		for time.Now().Before(deadline) {
-			if !processAliveForEdge(pid) {
-				return nil
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-		if err := signalPID(pid, syscall.SIGKILL); err != nil {
-			return fmt.Errorf("kill stale root Caddy edge pid %d: %w", pid, err)
-		}
-		return nil
-	}
-	return nil
-}
-
-func stopStaleRootSceneryEdgeAgent(ownerHome, routerAddr string, timeout time.Duration) error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("stale root agent cleanup must run as root")
-	}
-	socketPath := filepath.Join(ownerHome, "run", "agent.sock")
-	routerAddr = strings.TrimSpace(routerAddr)
-	if routerAddr == "" {
-		routerAddr = localagent.RouterAddrFromEnv()
-	}
-	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
-	if err != nil {
-		return err
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		pid, pidErr := strconv.Atoi(fields[0])
-		uid, uidErr := strconv.Atoi(fields[1])
-		command := strings.Join(fields[2:], " ")
-		if pidErr != nil || uidErr != nil || uid != 0 || pid <= 0 {
-			continue
-		}
-		if !edgeAgentCommandMatches(command, socketPath, routerAddr) {
-			continue
-		}
-		if err := signalPID(pid, syscall.SIGTERM); err != nil {
-			return fmt.Errorf("stop stale root scenery system edge agent pid %d: %w", pid, err)
-		}
-		deadline := time.Now().Add(timeout)
-		for processAliveForEdge(pid) && time.Now().Before(deadline) {
-			time.Sleep(50 * time.Millisecond)
-		}
-		if processAliveForEdge(pid) {
-			if err := signalPID(pid, syscall.SIGKILL); err != nil {
-				return fmt.Errorf("kill stale root scenery system edge agent pid %d: %w", pid, err)
-			}
-		}
-	}
-	return nil
-}
-
-func edgePortReachable(addr string) bool {
-	conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
-}
-
-func waitForCaddyEdgeStartup(exitCh <-chan error, logPath string, logOffset int64, settle time.Duration) error {
-	timer := time.NewTimer(settle)
-	defer timer.Stop()
-	select {
-	case err := <-exitCh:
-		tail := tailFileFromOffset(logPath, logOffset, 4096)
-		if tail != "" {
-			return fmt.Errorf("Caddy edge exited during startup: %s", tail)
-		}
-		if err != nil {
-			return fmt.Errorf("Caddy edge exited during startup: %w", err)
-		}
-		return fmt.Errorf("Caddy edge exited during startup")
-	case <-timer.C:
-		return nil
-	}
-}
-
-func stopEdge(paths localagent.Paths, timeout time.Duration) error {
-	state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
-	if err != nil {
-		return err
-	}
-	if state.PID <= 0 || !processAliveForEdge(state.PID) {
-		return nil
-	}
-	if err := signalPID(state.PID, syscall.SIGTERM); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if !processAliveForEdge(state.PID) {
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return fmt.Errorf("timed out waiting for Caddy edge pid %d to stop", state.PID)
-}
-
-func signalPID(pid int, signal os.Signal) error {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	if err := proc.Signal(signal); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
-		return err
-	}
-	return nil
-}
-
-func processAliveForEdge(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if proc.Signal(syscall.Signal(0)) != nil {
-		return false
-	}
-	return !processZombieForEdge(pid)
-}
-
-func processZombieForEdge(pid int) bool {
-	switch runtime.GOOS {
-	case "darwin", "linux":
-	default:
-		return false
-	}
-	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
-}
-
-func processUID(pid int) (int, error) {
-	if pid <= 0 {
-		return 0, fmt.Errorf("pid must be positive")
-	}
-	out, err := exec.Command("ps", "-o", "uid=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return 0, err
-	}
-	return strconv.Atoi(strings.TrimSpace(string(out)))
-}
-
-func processStartTime(pid int) (string, error) {
-	if pid <= 0 {
-		return "", fmt.Errorf("pid must be positive")
-	}
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func processCommand(pid int) (string, error) {
-	if pid <= 0 {
-		return "", fmt.Errorf("pid must be positive")
-	}
-	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func tailFile(path string, limit int64) string {
-	return tailFileFromOffset(path, 0, limit)
-}
-
-func tailFileFromOffset(path string, offset, limit int64) string {
-	file, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err == nil {
-		if offset < 0 {
-			offset = 0
-		}
-		if offset > info.Size() {
-			offset = info.Size()
-		}
-		if info.Size()-offset > limit {
-			offset = info.Size() - limit
-		}
-		_, _ = file.Seek(offset, io.SeekStart)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, limit))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
-func splitHostPort(addr string) (string, string) {
-	host, port, err := net.SplitHostPort(strings.TrimSpace(addr))
-	if err != nil {
-		return "", ""
-	}
-	return host, port
 }

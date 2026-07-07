@@ -62,6 +62,30 @@ func TestDiscoverRootAcceptsBuildGoFlags(t *testing.T) {
 	}
 }
 
+func TestDiscoverRootAcceptsDeployConfig(t *testing.T) {
+	root := t.TempDir()
+	writeAppTestFile(t, root, ".scenery.json", `{
+		"name": "deployapp",
+		"deploy": {
+			"domain": "onlv.dev",
+			"root": "web"
+		},
+		"proxy": {
+			"frontends": {
+				"web": { "host": "web" }
+			}
+		}
+	}`)
+
+	_, cfg, err := DiscoverRoot(root)
+	if err != nil {
+		t.Fatalf("DiscoverRoot returned error: %v", err)
+	}
+	if cfg.Deploy.Domain != "onlv.dev" || cfg.Deploy.Root != "web" {
+		t.Fatalf("Deploy = %+v", cfg.Deploy)
+	}
+}
+
 func TestDiscoverRootAcceptsWatchIgnoreConfig(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
@@ -317,6 +341,61 @@ func TestDiscoverRootRejectsDatabaseServiceSchemaCollisions(t *testing.T) {
 	_, _, err := DiscoverRoot(root)
 	if err == nil || !strings.Contains(err.Error(), "foo-bar") || !strings.Contains(err.Error(), "foo_bar") || !strings.Contains(err.Error(), `Postgres schema "foo_bar"`) {
 		t.Fatalf("DiscoverRoot schema collision error = %v", err)
+	}
+}
+
+func TestDiscoverRootRejectsInvalidDeployConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		config string
+		want   string
+	}{
+		{
+			name:   "uppercase domain",
+			config: `{"name":"deployapp","deploy":{"domain":"Onlv.dev"}}`,
+			want:   "deploy.domain must be lowercase",
+		},
+		{
+			name:   "localhost",
+			config: `{"name":"deployapp","deploy":{"domain":"localhost"}}`,
+			want:   "deploy.domain must not be localhost",
+		},
+		{
+			name:   "ip",
+			config: `{"name":"deployapp","deploy":{"domain":"192.168.1.10"}}`,
+			want:   "deploy.domain must not be an IP address",
+		},
+		{
+			name:   "local route base",
+			config: `{"name":"deployapp","proxy":{"route_base_domain":"dev.local"},"deploy":{"domain":"api.dev.local"}}`,
+			want:   `deploy.domain "api.dev.local" must not use the local route base domain "dev.local"`,
+		},
+		{
+			name:   "bad fqdn",
+			config: `{"name":"deployapp","deploy":{"domain":"notadomain"}}`,
+			want:   `deploy.domain "notadomain" must be a valid lowercase FQDN`,
+		},
+		{
+			name:   "reserved root",
+			config: `{"name":"deployapp","deploy":{"domain":"onlv.dev","root":"runtime"}}`,
+			want:   `deploy.root "runtime" is reserved by Scenery`,
+		},
+		{
+			name:   "unknown root",
+			config: `{"name":"deployapp","deploy":{"domain":"onlv.dev","root":"web"}}`,
+			want:   `deploy.root "web" must be "api" or a configured frontend`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeAppTestFile(t, root, ".scenery.json", tt.config)
+
+			_, _, err := DiscoverRoot(root)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("DiscoverRoot error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

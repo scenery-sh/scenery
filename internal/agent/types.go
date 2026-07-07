@@ -10,6 +10,7 @@ const (
 
 	RouteAPI       = "api"
 	RouteDashboard = "dashboard"
+	RoutePublic    = "public"
 
 	PathModeDashboardPrefix = "/consolenext"
 	PathModeRuntimePrefix   = "/runtime"
@@ -256,13 +257,14 @@ type EdgeState struct {
 }
 
 type EdgeTargetState struct {
-	SchemaVersion string    `json:"schema_version"`
-	Kind          string    `json:"kind"`
-	TargetAddr    string    `json:"target_addr"`
-	PID           int       `json:"pid"`
-	OwnerUID      int       `json:"owner_uid"`
-	OwnerGID      int       `json:"owner_gid"`
-	ProcessStart  string    `json:"process_start"`
-	Executable    string    `json:"executable"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	SchemaVersion  string    `json:"schema_version"`
+	Kind           string    `json:"kind"`
+	TargetAddr     string    `json:"target_addr"`
+	HTTPTargetAddr string    `json:"http_target_addr,omitempty"`
+	PID            int       `json:"pid"`
+	OwnerUID       int       `json:"owner_uid"`
+	OwnerGID       int       `json:"owner_gid"`
+	ProcessStart   string    `json:"process_start"`
+	Executable     string    `json:"executable"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }

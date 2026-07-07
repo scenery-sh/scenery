@@ -110,6 +110,8 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "help", schemaRel: "docs/schemas/scenery.help.v1.schema.json", payload: helpPayload},
 		{name: "version", schemaRel: "docs/schemas/scenery.version.v1.schema.json", payload: versionPayload},
 		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.v1.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
+		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.v1.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
+		{name: "deploy.status", schemaRel: "docs/schemas/scenery.deploy.status.v1.schema.json", payload: buildHarnessDeployStatusSchemaPayload()},
 		{name: "inspect.docs", schemaRel: "docs/schemas/scenery.inspect.docs.v1.schema.json", payload: inspectDocsPayload},
 		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.v1.schema.json", payload: inspectHarnessPayload},
 		{name: "harness.artifact", schemaRel: "docs/schemas/scenery.harness.artifact.v1.schema.json", payload: artifactEvidencePayload},
@@ -207,6 +209,97 @@ func buildHarnessDoctorSchemaPayload(versionPayload versionResponse) doctorRespo
 	}
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
 	return resp
+}
+
+func buildHarnessDeployRegistrySchemaPayload() map[string]any {
+	return map[string]any{
+		"schema_version": "scenery.deploy.registry.v1",
+		"acme_email":     "ops@example.com",
+		"acme_ca":        "staging",
+		"targets": []map[string]any{{
+			"domain":       "example.com",
+			"app_root":     "/tmp/scenery-deploy-fixture",
+			"root_service": "web",
+			"enabled":      true,
+			"created_at":   "2026-07-07T00:00:00Z",
+			"updated_at":   "2026-07-07T00:00:00Z",
+		}},
+	}
+}
+
+func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
+	return deployStatusResponse{
+		SchemaVersion: "scenery.deploy.status.v1",
+		Ready:         true,
+		RegistryPath:  "/tmp/scenery/agent/deploy.json",
+		PrivilegedListener: edgeStatusPrivilegedListener{
+			Strategy:                 "helper",
+			Installed:                true,
+			State:                    "running",
+			PID:                      101,
+			Listen:                   []string{"0.0.0.0:80", "[::]:80", "0.0.0.0:443", "[::]:443"},
+			Target:                   "127.0.0.1:19443",
+			TargetPath:               "/tmp/scenery/run/edge-target.json",
+			TargetPID:                202,
+			OwnerUID:                 501,
+			OwnerGID:                 20,
+			Version:                  "v1.2.3",
+			RequiredForPortlessHTTPS: true,
+			InstallCommand:           "scenery deploy setup",
+		},
+		HelperPublic: true,
+		Edge: edgeStatusCaddy{
+			Kind:        "caddy",
+			State:       "running",
+			PID:         303,
+			UID:         501,
+			HTTPSListen: "127.0.0.1:19443",
+			Upstream:    "127.0.0.1:9440",
+			AgentRouter: "127.0.0.1:9440",
+			Admin:       "unix//tmp/scenery/caddy-admin.sock",
+			ConfigPath:  "/tmp/scenery/edge/Caddyfile",
+			LogPath:     "/tmp/scenery/edge/caddy.log",
+		},
+		Agent: deployAgentStatus{
+			State:      "running",
+			PID:        404,
+			StatePath:  "/tmp/scenery/agent/state.json",
+			SocketPath: "/tmp/scenery/agent/agent.sock",
+			RouterAddr: "127.0.0.1:9440",
+		},
+		LaunchAgent: deployLaunchAgentStatus{
+			Installed: true,
+			Path:      "/Users/example/Library/LaunchAgents/dev.scenery.deploy-resume.plist",
+		},
+		ACME: deployACMEStatus{
+			Email: "ops@example.com",
+			CA:    "staging",
+		},
+		Targets: []deployTargetStatus{{
+			Domain:       "example.com",
+			AppRoot:      "/tmp/scenery-deploy-fixture",
+			RootService:  "web",
+			Enabled:      true,
+			LiveSession:  true,
+			SessionID:    "example",
+			CertPresent:  true,
+			CertNotAfter: "2026-10-07T00:00:00Z",
+		}},
+		DiagnosticsDetail: &deployDiagnosticReport{
+			LANIP:    "192.168.1.20",
+			PublicIP: "203.0.113.10",
+			Checks: []deployDiagnosticCheck{{
+				ID:      "deploy.dns.example.com",
+				Status:  "ok",
+				Message: "DNS for example.com resolves to this public IP",
+				Observed: map[string]any{
+					"domain":    "example.com",
+					"public_ip": "203.0.113.10",
+					"ips":       []string{"203.0.113.10"},
+				},
+			}},
+		},
+	}
 }
 
 func harnessInspectDocsPayload(repoRoot string) (map[string]any, error) {

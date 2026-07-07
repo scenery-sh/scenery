@@ -155,6 +155,10 @@ Current shape:
       }
     }
   },
+  "deploy": {
+    "domain": "app.example.com",
+    "root": "app"
+  },
   "watch": {
     "ignore": ["reference/"]
   },
@@ -268,7 +272,7 @@ Rules:
 - `proxy` is optional.
 - `build.go_flags` is an optional array of literal Go argv entries used for Scenery-owned app compilation. Values are not shell-split; write one argument per item, for example `["-tags=roofmapnet_native"]`. Scenery passes these flags to generated app `go build` invocations and generated-workspace `scenery test` `go test` invocations, while process `GOFLAGS` still applies for local one-off overrides. The normalized flag list participates in the build fingerprint/cache key.
 - `watch.ignore` is an optional array of app-root-relative exclusion patterns for `scenery up`. Directory patterns such as `reference/` skip that subtree during watcher setup and rebuild fingerprint scans while leaving Git tracking untouched. `watch.ignore` is exclusion-only; use `.gitignore` for Git behavior.
-- `auth` is optional. When `auth.enabled` is true, scenery registers the built-in standard auth handler and auth endpoints.
+- `auth` is optional. When `auth.enabled` is true, scenery registers the built-in standard auth handler and standard auth endpoints. Google OAuth endpoints are registered only when `auth.google_oauth.enabled` is true.
 - `observability` is optional.
 - Unknown fields are rejected. Runtime diagnostics include the config file path, active config filename, and JSON field path, for example `/repo/app/.config.json: unknown .config.json field "proxy.extra"`.
 - The removed legacy proxy host key has no compatibility behavior. Remove it from app config; use dev runtime routes or `proxy.api_host`, `proxy.console_host`, and `proxy.frontends` for local routing.
@@ -299,8 +303,8 @@ Rules:
 - Declaring `storage.stores` is sufficient for `scenery up`; there is no managed storage process. Scenery creates the shared storage-cell object directories under the agent storage root (`<agent-home>/agent/storage/<cell-id>/objects/<store>/`) and, in agent-backed dev sessions, starts an in-process storage proxy over a session-local Unix socket that serves those directories through the `scenery.sh/storage` capability boundary. The proxy backs each store with the local filesystem backend (atomic temp-file+rename writes, checked object and directory fsync, sidecar metadata under `__scenery/metadata/`). App code receives capability metadata through `SCENERY_STORAGE_CONFIG` and never a raw object-root path. Objects are plain files on disk: on-disk bytes track object bytes plus small sidecars, with no cache layer or write amplification. There is no managed toolchain artifact, encryption password, 9P socket, Web UI, substrate record, or lease for storage. Durability across a crash comes from fsync; offsite durability is an operator concern — replicate the storage-cell object directories (objects plus sidecars) to S3 with `rclone`/`restic`, as described in `docs/app-development-cookbook.md`.
 - Standard auth uses the `scenery.sh/auth` top surface and stores DB-backed auth state in the app Postgres database's `scenery` schema.
 - Standard auth owns its framework tenant tables, including `scenery.scenery_auth_tenants`. Apps do not need an app-local `tenants` service, package, or table for standard auth; app-local tenant services are product-domain APIs and schema only.
-- Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, Google OAuth raw endpoints, and local `/users/dev-bootstrap`.
-- Standard auth endpoints appear in `scenery inspect routes|services|endpoints --json` and in generated TypeScript clients.
+- Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, and local `/users/dev-bootstrap`. When `auth.google_oauth.enabled` is true, it also registers raw `GET /auth/google/start` and `GET /auth/google/callback`.
+- Standard auth endpoints appear in `scenery inspect routes|services|endpoints --json` and in generated TypeScript clients. Disabled Google OAuth endpoints are absent from inspect output and generated clients. When Google OAuth is enabled but the configured client ID or secret env is missing, `scenery check --json` returns an `auth` warning.
 - `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
 - Generated binaries accept `SCENERY_ROLE=all|api|worker`. `scenery up` uses the default combined role. `scenery worker` uses `worker`.
 - Packages that declare `scenery.sh/durable` tasks with `durable.NewTask` are imported into the generated main so their declarations register at startup; `durable.TaskConfig.Service` is required for static literal configs. Runtime startup requires `DATABASE_URL` and reconciles declarations into the app Postgres database's `scenery` schema: `durable_jobs` is keyed by `service` with inline lease columns, and satellite tables store tasks, events, steps, signals, schedules, and worker tokens. `durable.Start` writes queued JSON-input jobs into the shared durable store. Generated `all` and `worker` roles run a local durable worker loop for registered Go handlers; failed attempts requeue until `MaxAttempts` using `Retry.InitialInterval`, `Retry.MaxInterval`, and `Retry.BackoffFactor`; `api` does not execute durable jobs. `durable.Schedule` records an interval schedule that API/all roles materialize into queued jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. The API role exposes `/__scenery/durable/v1/<service>/lease`, `/__scenery/durable/v1/<service>/jobs/<job>/heartbeat`, `/complete`, and `/fail` as JSON POST endpoints for remote workers. Those endpoints require bearer tokens stored only as hashes and fence heartbeat/complete/fail with `worker_id` plus `lease_id`. `scenery inspect durable --json` emits `scenery.inspect.durable.v2` with durable task declarations, service schemas, and redacted app database metadata.
@@ -331,6 +335,12 @@ scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> 
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] --json
 scenery version [--json]
 scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
+scenery deploy enable [--app-root <path>] [--json]
+scenery deploy disable [--app-root <path>] [--json]
+scenery deploy status [--json]
+scenery deploy setup [--acme-email <email>] [--acme-ca production|staging] [--json]
+scenery deploy resume [--json]
+scenery deploy teardown [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain sync [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
@@ -419,6 +429,15 @@ Doctor rules:
 - Doctor reports local state size through informational `storage.scenery_home` checks. `storage.scenery_home` walks the resolved Scenery agent home (`~/.scenery` by default or `SCENERY_AGENT_HOME` when set).
 - Optional missing tools such as `bun`, `atlas`, `sqlc`, `git`, and Postgres client tools warn by default. `psql` and `pg_dump` are relevant only when app config declares Postgres services. App configuration can make messages more specific, but the initial doctor contract does not make optional tools fatal. Doctor reports Docker through `docker.context` and `docker.engine` checks instead of a generic host `tool.docker` line. `docker.context` reports the selected Docker context from `docker context show`. `docker.engine` warns when the Docker CLI is missing or the engine is unreachable, and when reachable it probes with `docker info --format '{{json .}}'` and reports engine details such as server version, OS/type, architecture, CPU/memory, root dir, storage driver, cgroup version, kernel version, and engine name when available. When Postgres services are configured, `db.postgres_server` is a required readiness check for the managed dev server path and points users to Docker or explicit external DSNs.
 - `--app-root` tunes app-sensitive diagnostics from the app config. If omitted, doctor tries current-directory app discovery and silently continues with environment-only checks when no app is found.
+- When the deploy registry exists, `scenery doctor --json` includes a `deploy` section summarizing `scenery deploy status` diagnostics. Deploy doctor checks may perform explicit reachability/DNS probes only because `doctor` is an operator-invoked diagnostic command.
+
+Deploy rules:
+- `deploy.domain` in app config is a beta public FQDN claim for `scenery deploy enable`. It must be lowercase, must not be localhost or an IP address, and must not use the local route-base domain. `deploy.root` optionally names the frontend/service that owns `/` on that domain; when omitted, Scenery can infer it only if exactly one frontend is configured.
+- `scenery deploy enable|disable --json` records intent in the machine deploy registry at `<agent home>/agent/deploy.json` and emits `scenery.deploy.target.v1`. Enabling rejects a domain already enabled for another app root.
+- `scenery deploy setup` is macOS-only, must run as the normal user, asks sudo only for the privileged helper install, configures the helper for wildcard TCP 80/443, records ACME email/CA, installs the login resume LaunchAgent, and restarts the user-owned edge. `scenery deploy teardown` reinstalls the helper in loopback-only mode, removes the resume LaunchAgent, restarts the edge, and keeps the registry plus Caddy certificates.
+- `scenery deploy resume` starts the agent and edge, then starts missing enabled app roots with `scenery up --detach --app-root <root>` while leaving already-running roots alone. It appends JSON lines to `<agent home>/deploy-resume.log`.
+- `scenery deploy status --json` emits `scenery.deploy.status.v1`. It reports helper state/version, wildcard listener truth for 80/443, edge/agent/LaunchAgent state, ACME settings, target live-session/cert state, and structured diagnostics for LAN/public reachability, DNS A/AAAA mismatch, Cloudflare-proxied DNS, power sleep, macOS firewall, and helper contract drift. Public IP discovery and DNS lookups happen only inside `scenery deploy status` or deploy-aware `scenery doctor`.
+- Public deploy routing is strict: public edge requests require the trusted edge token plus `X-Scenery-Public-Edge: 1`, exact host match against an enabled registry target, and a live session for that target app root. Public dispatch serves `/`, `/api/`, `/sync/`, and configured frontend prefixes, returns 503 for enabled-but-down apps, and does not expose Scenery runtime/dashboard/control paths.
 
 Inspect rules:
 - `scenery inspect` requires a subject.
@@ -449,6 +468,7 @@ Toolchain rules:
 - `scenery version --json` includes `toolchain_manifest.schema_version`, `sha256`, `artifact_count`, and `source_lock_count` for the bundled manifest.
 - `scenery upgrade --json` emits `scenery.upgrade.v1`. It fetches the latest GitHub release by default, selects the release asset for the current `GOOS/GOARCH`, verifies it against the release `checksums.txt`, and replaces the current executable path unless `--target <path>` is set. If the current version already matches the selected release, it skips binary replacement unless `--force` is set. `--dry-run` reports the selected release and target path without downloading the archive or mutating the binary.
 - After a successful binary upgrade, `scenery upgrade` runs the upgraded binary's bundled toolchain sync unless `--toolchain none` or `--skip-toolchain` is set. The default `--toolchain installed` syncs manifest entries already present in the local managed store. `--toolchain all` runs `scenery system toolchain sync --images --json` with the upgraded binary, so every manifest binary artifact and image is pulled or built from the upgraded manifest.
+- When the public deploy helper is installed and its target metadata schema no longer matches the current helper contract, successful `scenery upgrade` output includes a `deploy` notice and the human text tells the operator to run `scenery deploy setup` to refresh the privileged listener. Helper version drift alone is informational; re-setup is required only for helper-contract drift.
 - The default local store is `.scenery/toolchain/` under the app/repo root. Machine-level edge tools use `~/.scenery/toolchain/` under the local agent home. `SCENERY_TOOLCHAIN_DIR` overrides both store roots.
 - `SCENERY_TOOLCHAIN_DOWNLOAD=0` disables automatic managed binary downloads. Per-tool download disable variables such as `SCENERY_DEV_VICTORIA_DOWNLOAD=0` still apply to their startup paths.
 - Managed Caddy resolves from the managed store or manifest-driven download. Managed Victoria binaries resolve from explicit env overrides, the managed store, or manifest-driven download. They do not use implicit system `PATH` binaries.
@@ -802,6 +822,8 @@ Implemented now:
 - [scenery.logs.event.v1.schema.json](schemas/scenery.logs.event.v1.schema.json)
 - [scenery.version.v1.schema.json](schemas/scenery.version.v1.schema.json)
 - [scenery.doctor.result.v1.schema.json](schemas/scenery.doctor.result.v1.schema.json)
+- [scenery.deploy.registry.v1.schema.json](schemas/scenery.deploy.registry.v1.schema.json)
+- [scenery.deploy.status.v1.schema.json](schemas/scenery.deploy.status.v1.schema.json)
 - [scenery.toolchain.v1.schema.json](schemas/scenery.toolchain.v1.schema.json)
 - [scenery.toolchain.status.v1.schema.json](schemas/scenery.toolchain.status.v1.schema.json)
 - [scenery.storage.inspect.v1.schema.json](schemas/scenery.storage.inspect.v1.schema.json)

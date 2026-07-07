@@ -225,7 +225,7 @@ func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResp
 		}
 	}
 	if cfg.Auth.Enabled {
-		resp.Services, resp.Counts.Services, resp.Counts.Endpoints = appendStandardAuthSummary(resp.Services, resp.Counts.Services, resp.Counts.Endpoints)
+		resp.Services, resp.Counts.Services, resp.Counts.Endpoints = appendStandardAuthSummary(resp.Services, resp.Counts.Services, resp.Counts.Endpoints, cfg.Auth.GoogleOAuth.Enabled)
 		resp.Counts.AuthHandler = 1
 		resp.AuthHandler = &AuthBriefInfo{Service: "auth", Name: "AuthHandler"}
 	}
@@ -284,7 +284,7 @@ func BuildServicesResponse(appRoot string, cfg appcfg.Config, app *model.App) Se
 		services = append(services, item)
 	}
 	if cfg.Auth.Enabled {
-		services = append(services, standardAuthServiceDetails()...)
+		services = append(services, standardAuthServiceDetails(cfg.Auth.GoogleOAuth.Enabled)...)
 	}
 	sort.Slice(services, func(i, j int) bool {
 		return services[i].Name < services[j].Name
@@ -339,7 +339,7 @@ func BuildRoutesResponse(appRoot string, cfg appcfg.Config, app *model.App) Rout
 		}
 	}
 	if cfg.Auth.Enabled {
-		for _, ep := range standardauthmeta.Endpoints() {
+		for _, ep := range standardauthmeta.Endpoints(cfg.Auth.GoogleOAuth.Enabled) {
 			routes = append(routes, RouteRecord{
 				ID:         ep.Service + "." + ep.Name,
 				Service:    ep.Service,
@@ -400,7 +400,7 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 		}
 	}
 	if cfg.Auth.Enabled {
-		for _, ep := range standardauthmeta.Endpoints() {
+		for _, ep := range standardauthmeta.Endpoints(cfg.Auth.GoogleOAuth.Enabled) {
 			endpoints = append(endpoints, EndpointRecord{
 				ID:         ep.Service + "." + ep.Name,
 				Service:    ep.Service,
@@ -522,7 +522,7 @@ func BuildViewsResponse(appRoot string, cfg appcfg.Config, app *model.App) Views
 	}
 }
 
-func appendStandardAuthSummary(services []string, serviceCount int, endpointCount int) ([]string, int, int) {
+func appendStandardAuthSummary(services []string, serviceCount int, endpointCount int, includeGoogle bool) ([]string, int, int) {
 	seen := make(map[string]bool, len(services)+2)
 	for _, service := range services {
 		seen[service] = true
@@ -533,11 +533,11 @@ func appendStandardAuthSummary(services []string, serviceCount int, endpointCoun
 			serviceCount++
 		}
 	}
-	endpointCount += len(standardauthmeta.Endpoints())
+	endpointCount += len(standardauthmeta.Endpoints(includeGoogle))
 	return services, serviceCount, endpointCount
 }
 
-func standardAuthServiceDetails() []ServiceDetails {
+func standardAuthServiceDetails(includeGoogle bool) []ServiceDetails {
 	byService := map[string]*ServiceDetails{
 		"auth": {
 			Name:       "auth",
@@ -561,7 +561,7 @@ func standardAuthServiceDetails() []ServiceDetails {
 			Middleware: []string{},
 		},
 	}
-	for _, ep := range standardauthmeta.Endpoints() {
+	for _, ep := range standardauthmeta.Endpoints(includeGoogle) {
 		item := byService[ep.Service]
 		item.Endpoints = append(item.Endpoints, ep.Name)
 	}

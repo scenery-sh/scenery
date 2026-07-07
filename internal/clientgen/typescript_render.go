@@ -122,7 +122,7 @@ func (g *tsGenerator) render() ([]byte, error) {
 		buf.WriteString("}\n\n")
 	}
 	if g.opts.StandardAuth {
-		writeStandardAuthNamespaces(&buf)
+		writeStandardAuthNamespaces(&buf, g.opts.StandardAuthGoogle)
 	}
 
 	writeStorageClient(&buf)

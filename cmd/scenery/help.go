@@ -76,6 +76,7 @@ var rootHelpGroups = []helpRootGroup{
 	}},
 	{Name: "System", Entries: []helpRootEntry{
 		{Command: "doctor", Summary: "Check host and app readiness"},
+		{Command: "deploy", Summary: "Manage public deploy intent"},
 		{Command: "version", Summary: "Print version information"},
 		{Command: "upgrade", Summary: "Upgrade the local Scenery binary"},
 		{Command: "system", Summary: "Manage agent, edge, trust, and toolchain"},
@@ -186,6 +187,7 @@ var helpReferenceGroups = []helpReferenceGroup{
 	}},
 	{Name: "System", Commands: []string{
 		"scenery doctor",
+		"scenery deploy",
 		"scenery version",
 		"scenery upgrade",
 		"scenery system agent",
@@ -443,6 +445,17 @@ var helpCommands = []helpCommandEntry{
 		Flags:     []string{"--app-root <path>", "--json"},
 		JSON:      true,
 		Stability: "stable",
+	},
+	{
+		Command:     "deploy",
+		Group:       "System",
+		Summary:     "Manage public deploy intent.",
+		Usage:       []string{"scenery deploy enable [--app-root <path>] [--json]", "scenery deploy disable [--app-root <path>] [--json]", "scenery deploy status [--json]", "scenery deploy setup [--acme-email <email>] [--acme-ca production|staging] [--json]", "scenery deploy resume [--json]", "scenery deploy teardown [--json]"},
+		Subcommands: []string{"enable", "disable", "status", "setup", "resume", "teardown"},
+		Flags:       []string{"--app-root <path>", "--json", "--acme-email <email>", "--acme-ca production|staging"},
+		Notes:       []string{"`enable`, `disable`, `status`, `setup`, `resume`, and `teardown` are implemented in beta."},
+		JSON:        true,
+		Stability:   "beta",
 	},
 	{
 		Command:   "version",

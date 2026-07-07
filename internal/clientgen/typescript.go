@@ -15,8 +15,9 @@ import (
 )
 
 type TypeScriptOptions struct {
-	AppSlug      string
-	StandardAuth bool
+	AppSlug            string
+	StandardAuth       bool
+	StandardAuthGoogle bool
 }
 
 type tsGenerator struct {

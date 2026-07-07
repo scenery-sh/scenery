@@ -70,6 +70,7 @@ func LoadEdgeTargetState(path string) (EdgeTargetState, error) {
 	}
 	state.Kind = sanitizeLabel(state.Kind)
 	state.TargetAddr = strings.TrimSpace(state.TargetAddr)
+	state.HTTPTargetAddr = strings.TrimSpace(state.HTTPTargetAddr)
 	state.ProcessStart = strings.TrimSpace(state.ProcessStart)
 	state.Executable = strings.TrimSpace(state.Executable)
 	return state, nil

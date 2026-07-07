@@ -12,6 +12,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -24,6 +25,10 @@ func (s *Server) routerMux() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if cleanRequestPath(req.URL.Path) == "/v1/tls/allow" {
 			s.handleTLSAllow(w, req)
+			return
+		}
+		if s.trustedPublicEdgeRequest(req) {
+			s.handlePublicEdgeRoute(w, req)
 			return
 		}
 		if s.trustedLocalPathRequest(req) {
@@ -90,6 +95,136 @@ func sessionOwnerVerifies(session Session) bool {
 		owner.PID = ownerPID
 	}
 	return VerifyOwner(owner) == nil
+}
+
+func (s *Server) handlePublicEdgeRoute(w http.ResponseWriter, req *http.Request) {
+	target, ok := s.deployTargetForHost(requestHost(req))
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+	session, ok := s.runningSessionForDeployTarget(target)
+	if !ok {
+		http.Error(w, "app is not running", http.StatusServiceUnavailable)
+		return
+	}
+	s.handlePublicPathRoute(w, req, session, target)
+}
+
+func (s *Server) deployTargetForHost(host string) (DeployTarget, bool) {
+	host = normalizeRouteRequestHost(host)
+	if host == "" || s == nil {
+		return DeployTarget{}, false
+	}
+	registry, err := LoadDeployRegistry(s.paths.DeployPath)
+	if err != nil {
+		return DeployTarget{}, false
+	}
+	for _, target := range registry.Targets {
+		if target.Enabled && normalizeRouteRequestHost(target.Domain) == host {
+			return target, true
+		}
+	}
+	return DeployTarget{}, false
+}
+
+func (s *Server) runningSessionForDeployTarget(target DeployTarget) (Session, bool) {
+	if s == nil || s.registry == nil {
+		return Session{}, false
+	}
+	for _, session := range s.registry.FindByAppRoot(target.AppRoot) {
+		if session.Status == "running" && filepath.Clean(session.AppRoot) == filepath.Clean(target.AppRoot) && sessionOwnerVerifies(session) {
+			return session, true
+		}
+	}
+	return Session{}, false
+}
+
+func (s *Server) handlePublicPathRoute(w http.ResponseWriter, req *http.Request, session Session, target DeployTarget) {
+	requestPath := cleanRequestPath(req.URL.Path)
+	if isPublicRouteBlockedPath(requestPath) {
+		http.NotFound(w, req)
+		return
+	}
+	manifest := publicRouteManifest(session, target)
+	record, ok := routeForPath(manifest, requestPath)
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+	backend, ok := session.Backends[record.Backend]
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+	if isFrontendSessionBackend(record.Backend) {
+		if shouldRedirectPathPrefix(req, record) {
+			http.Redirect(w, req, record.Path, http.StatusMovedPermanently)
+			return
+		}
+		if isProtectedFrontendPath(strings.TrimPrefix(requestPath, strings.TrimSuffix(record.Path, "/"))) {
+			http.NotFound(w, req)
+			return
+		}
+		s.proxyBackendWithOptions(w, req, backend, pathProxyOptions(sessionWithRouteManifest(session, manifest), record).withSPAFallback(shouldUseSPAFallback(req)))
+		return
+	}
+	s.proxyBackendWithOptions(w, req, backend, pathProxyOptions(sessionWithRouteManifest(session, manifest), record))
+}
+
+func isPublicRouteBlockedPath(value string) bool {
+	value = cleanRequestPath(value)
+	for _, prefix := range []string{PathModeRuntimePrefix, PathModeDashboardPrefix, "/__scenery"} {
+		if value == prefix || strings.HasPrefix(value, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func publicRouteManifest(session Session, target DeployTarget) RouteManifest {
+	baseURL := "https://" + strings.ToLower(strings.TrimSpace(target.Domain))
+	records := map[string]RouteRecord{}
+	root := normalizeRouteName(target.RootService)
+	if root != "" && root != RouteDashboard {
+		if _, ok := session.Backends[root]; ok {
+			records["root"] = RouteRecord{Name: "root", Kind: publicRouteKind(root), URL: joinRouteURL(baseURL, "/"), Path: "/", Backend: root}
+		}
+	}
+	if _, ok := session.Backends[RouteAPI]; ok {
+		records[RouteAPI] = RouteRecord{Name: RouteAPI, Kind: RouteAPI, URL: joinRouteURL(baseURL, "/api/"), Path: "/api/", StripPrefix: "/api", Backend: RouteAPI}
+	}
+	if _, ok := session.Backends["sync"]; ok {
+		records["sync"] = RouteRecord{Name: "sync", Kind: "sync", URL: joinRouteURL(baseURL, "/sync/"), Path: "/sync/", StripPrefix: "/sync", Backend: "sync"}
+	}
+	for name := range session.Backends {
+		name = normalizeRouteName(name)
+		if !isFrontendRouteName(name) {
+			continue
+		}
+		routePath := "/" + name + "/"
+		records[name] = RouteRecord{Name: name, Kind: "frontend", URL: joinRouteURL(baseURL, routePath), Path: routePath, StripPrefix: strings.TrimSuffix(routePath, "/"), Backend: name}
+	}
+	return RouteManifest{
+		SchemaVersion: RouteManifestVersion,
+		Mode:          RouteModePath,
+		BaseURL:       baseURL,
+		Root:          root,
+		Worktree:      session.RouteManifest.Worktree,
+		Routes:        normalizeRouteRecords(records),
+	}
+}
+
+func publicRouteKind(backend string) string {
+	if isFrontendRouteName(backend) {
+		return "frontend"
+	}
+	return backend
+}
+
+func sessionWithRouteManifest(session Session, manifest RouteManifest) Session {
+	session.RouteManifest = manifest
+	return session
 }
 
 func (s *Server) handleFrontendRoute(w http.ResponseWriter, req *http.Request, session Session, backend Backend) {
@@ -353,6 +488,10 @@ func (s *Server) trustedEdgeRequest(req *http.Request) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func (s *Server) trustedPublicEdgeRequest(req *http.Request) bool {
+	return s.trustedEdgeRequest(req) && strings.TrimSpace(req.Header.Get("X-Scenery-Public-Edge")) == "1"
 }
 
 func (s *Server) trustedLocalPathRequest(req *http.Request) bool {

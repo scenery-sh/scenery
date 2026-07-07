@@ -17,8 +17,8 @@ type standardTSMethod struct {
 	Raw       bool
 }
 
-func writeStandardAuthNamespaces(buf *bytes.Buffer) {
-	writeStandardAuthNamespace(buf, "auth", standardAuthMethods())
+func writeStandardAuthNamespaces(buf *bytes.Buffer, includeGoogle bool) {
+	writeStandardAuthNamespace(buf, "auth", standardAuthMethods(includeGoogle))
 	writeStandardAuthNamespace(buf, "users", standardUsersMethods())
 }
 
@@ -107,16 +107,22 @@ func renderStandardTSMethod(method standardTSMethod, withMeta bool) string {
 	return b.String()
 }
 
-func standardAuthMethods() []standardTSMethod {
-	return []standardTSMethod{
+func standardAuthMethods(includeGoogle bool) []standardTSMethod {
+	methods := []standardTSMethod{
 		{Name: "AcceptInvite", Method: "POST", Path: "`/auth/invites/accept`", Payload: "AcceptInviteParams", Response: "AuthBootstrapResponse"},
 		{Name: "ConfirmEmailVerification", Method: "POST", Path: "`/auth/email-verification/confirm`", Payload: "EmailVerificationConfirmParams", Response: "AuthSessionResponse"},
 		{Name: "ConfirmPasswordReset", Method: "POST", Path: "`/auth/password-reset/confirm`", Payload: "PasswordResetConfirmParams", Response: "AuthSessionResponse"},
 		{Name: "CreateOrganization", Method: "POST", Path: "`/auth/organizations`", Payload: "CreateOrganizationParams", Response: "AuthBootstrapResponse"},
 		{Name: "DeleteOrganization", Method: "DELETE", Path: "(`/auth/organizations/${encodeURIComponent(String(tenantID))}`)", Params: []string{"tenantID: string"}, Response: "AuthBootstrapResponse"},
 		{Name: "DisableOrganizationMember", Method: "POST", Path: "(`/auth/organizations/${encodeURIComponent(String(tenantID))}/members/disable`)", Params: []string{"tenantID: string"}, Payload: "DisableMemberParams", Response: "ListOrganizationMembersResponse"},
-		{Name: "GoogleCallback", Method: "GET", Path: "`/auth/google/callback`", Raw: true},
-		{Name: "GoogleStart", Method: "GET", Path: "`/auth/google/start`", Raw: true},
+	}
+	if includeGoogle {
+		methods = append(methods,
+			standardTSMethod{Name: "GoogleCallback", Method: "GET", Path: "`/auth/google/callback`", Raw: true},
+			standardTSMethod{Name: "GoogleStart", Method: "GET", Path: "`/auth/google/start`", Raw: true},
+		)
+	}
+	methods = append(methods, []standardTSMethod{
 		{Name: "InviteOrganizationMember", Method: "POST", Path: "(`/auth/organizations/${encodeURIComponent(String(tenantID))}/invites`)", Params: []string{"tenantID: string"}, Payload: "InviteMemberParams", Response: "InviteMemberResponse"},
 		{Name: "ListOrganizationMembers", Method: "GET", Path: "(`/auth/organizations/${encodeURIComponent(String(tenantID))}/members`)", Params: []string{"tenantID: string"}, Response: "ListOrganizationMembersResponse"},
 		{Name: "ListOrganizations", Method: "GET", Path: "`/auth/organizations`", Response: "ListOrganizationsResponse"},
@@ -132,7 +138,8 @@ func standardAuthMethods() []standardTSMethod {
 		{Name: "SwitchOrganization", Method: "POST", Path: "`/auth/organizations/switch`", Payload: "SwitchOrganizationParams", Response: "AuthBootstrapResponse"},
 		{Name: "UpdateOrganization", Method: "PATCH", Path: "(`/auth/organizations/${encodeURIComponent(String(tenantID))}`)", Params: []string{"tenantID: string"}, Payload: "UpdateOrganizationParams", Response: "AuthBootstrapResponse"},
 		{Name: "UpdateOrganizationMemberRole", Method: "PATCH", Path: "(`/auth/organizations/${encodeURIComponent(String(tenantID))}/members/${encodeURIComponent(String(userID))}`)", Params: []string{"tenantID: string", "userID: string"}, Payload: "UpdateMemberRoleParams", Response: "ListOrganizationMembersResponse"},
-	}
+	}...)
+	return methods
 }
 
 func standardUsersMethods() []standardTSMethod {

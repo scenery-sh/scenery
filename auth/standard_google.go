@@ -12,15 +12,24 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	authdb "scenery.sh/auth/db/gen"
+	"scenery.sh/errs"
 )
 
-const (
+var (
 	googleAuthEndpoint  = "https://accounts.google.com/o/oauth2/v2/auth"
 	googleTokenEndpoint = "https://oauth2.googleapis.com/token"
 	googleJWKSURL       = "https://www.googleapis.com/oauth2/v3/certs"
+	googleJWKSCache     struct {
+		mu        sync.Mutex
+		url       string
+		fetchedAt time.Time
+		keys      map[string]*rsa.PublicKey
+	}
 )
 
 // GoogleStart starts the Google OAuth Authorization Code + PKCE flow.
@@ -34,6 +43,7 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "auth service unavailable", http.StatusInternalServerError)
 		return
 	}
+	_ = svc.query.DeleteExpiredOAuthStates(req.Context())
 
 	state, err := newRandomToken(32)
 	if err != nil {
@@ -93,46 +103,54 @@ func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 	state := strings.TrimSpace(req.URL.Query().Get("state"))
 	code := strings.TrimSpace(req.URL.Query().Get("code"))
 	if state == "" || code == "" {
-		http.Error(w, "missing oauth callback parameters", http.StatusBadRequest)
+		redirectGoogleCallbackError(w, req, "oauth_state")
 		return
 	}
 
 	svc, err := newRuntimeService(req.Context())
 	if err != nil {
-		http.Error(w, "auth service unavailable", http.StatusInternalServerError)
+		redirectGoogleCallbackError(w, req, "google_internal")
 		return
 	}
 	oauthState, err := svc.query.ConsumeOAuthState(req.Context(), tokenHash(state))
 	if err != nil {
-		http.Error(w, "oauth state is invalid or expired", http.StatusBadRequest)
+		redirectGoogleCallbackError(w, req, "oauth_state")
 		return
 	}
 	tokenResponse, err := exchangeGoogleCode(req.Context(), code, oauthState.PkceVerifier, googleRedirectURI(req))
 	if err != nil {
-		http.Error(w, "failed to exchange google code", http.StatusBadGateway)
+		redirectGoogleCallbackError(w, req, "google_token")
 		return
 	}
 	claims, err := verifyGoogleIDToken(req.Context(), tokenResponse.IDToken)
 	if err != nil {
-		http.Error(w, "google id token is invalid", http.StatusUnauthorized)
+		redirectGoogleCallbackError(w, req, "google_id_token")
 		return
 	}
 	if !claims.EmailVerified {
-		http.Error(w, "google email is not verified", http.StatusForbidden)
+		redirectGoogleCallbackError(w, req, "google_email_unverified")
 		return
 	}
 	if oauthState.NonceHash != "" && tokenHash(claims.Nonce) != oauthState.NonceHash {
-		http.Error(w, "google nonce mismatch", http.StatusUnauthorized)
+		redirectGoogleCallbackError(w, req, "google_id_token")
 		return
 	}
 
 	response, err := svc.finishGoogleSignIn(req.Context(), claims)
 	if err != nil {
-		http.Error(w, "failed to finish google sign-in", http.StatusInternalServerError)
+		if errs.Code(err) == errs.FailedPrecondition {
+			redirectGoogleCallbackError(w, req, "google_link_precondition")
+			return
+		}
+		redirectGoogleCallbackError(w, req, "google_internal")
 		return
 	}
 	w.Header().Add("Set-Cookie", response.SetCookie)
 	http.Redirect(w, req, appRedirectURL(oauthState.RedirectPath), http.StatusFound)
+}
+
+func redirectGoogleCallbackError(w http.ResponseWriter, req *http.Request, code string) {
+	http.Redirect(w, req, appRedirectURL("/sign-in?error="+url.QueryEscape(code)), http.StatusFound)
 }
 
 func newRuntimeService(ctx context.Context) (*Service, error) {
@@ -187,9 +205,19 @@ type googleIDClaims struct {
 }
 
 func verifyGoogleIDToken(ctx context.Context, rawIDToken string) (*googleIDClaims, error) {
-	keys, err := fetchGoogleKeys(ctx)
+	kid, err := googleTokenKID(rawIDToken)
 	if err != nil {
 		return nil, err
+	}
+	keys, err := cachedGoogleKeys(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(kid) != "" && keys[strings.TrimSpace(kid)] == nil {
+		keys, err = cachedGoogleKeys(ctx, true)
+		if err != nil {
+			return nil, err
+		}
 	}
 	claims := &googleIDClaims{}
 	token, err := jwt.ParseWithClaims(
@@ -223,6 +251,15 @@ func verifyGoogleIDToken(ctx context.Context, rawIDToken string) (*googleIDClaim
 		return nil, fmt.Errorf("google subject missing")
 	}
 	return claims, nil
+}
+
+func googleTokenKID(rawIDToken string) (string, error) {
+	token, _, err := jwt.NewParser().ParseUnverified(rawIDToken, jwt.MapClaims{})
+	if err != nil {
+		return "", err
+	}
+	kid, _ := token.Header["kid"].(string)
+	return strings.TrimSpace(kid), nil
 }
 
 type jwksResponse struct {
@@ -281,6 +318,27 @@ func fetchGoogleKeys(ctx context.Context) (map[string]*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("no google keys")
 	}
 	return out, nil
+}
+
+func cachedGoogleKeys(ctx context.Context, force bool) (map[string]*rsa.PublicKey, error) {
+	googleJWKSCache.mu.Lock()
+	defer googleJWKSCache.mu.Unlock()
+
+	now := time.Now()
+	if !force &&
+		googleJWKSCache.url == googleJWKSURL &&
+		len(googleJWKSCache.keys) > 0 &&
+		now.Sub(googleJWKSCache.fetchedAt) < googleJWKSCacheTTL {
+		return googleJWKSCache.keys, nil
+	}
+	keys, err := fetchGoogleKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	googleJWKSCache.url = googleJWKSURL
+	googleJWKSCache.fetchedAt = now
+	googleJWKSCache.keys = keys
+	return keys, nil
 }
 
 func (s *Service) finishGoogleSignIn(ctx context.Context, claims *googleIDClaims) (*AuthSessionResponse, error) {

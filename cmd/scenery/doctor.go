@@ -53,6 +53,7 @@ type doctorResponse struct {
 	Scenery       versionResponse   `json:"scenery"`
 	App           *doctorAppInfo    `json:"app,omitempty"`
 	Environment   doctorEnvironment `json:"environment"`
+	Deploy        *doctorDeployInfo `json:"deploy,omitempty"`
 	Checks        []doctorCheck     `json:"checks"`
 }
 
@@ -83,6 +84,14 @@ type doctorPathReport struct {
 	Path       string `json:"path"`
 	FreeBytes  uint64 `json:"free_bytes,omitempty"`
 	TotalBytes uint64 `json:"total_bytes,omitempty"`
+}
+
+type doctorDeployInfo struct {
+	SchemaVersion string                 `json:"schema_version"`
+	Ready         bool                   `json:"ready"`
+	RegistryPath  string                 `json:"registry_path"`
+	Targets       []deployTargetStatus   `json:"targets"`
+	Diagnostics   deployDiagnosticReport `json:"diagnostics"`
 }
 
 type doctorCheck struct {
@@ -330,6 +339,10 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
 	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
 	resp.Checks = append(resp.Checks, doctorPostgresServerCheck(ctx, deps, features))
+	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {
+		resp.Deploy = deployInfo
+		resp.Checks = append(resp.Checks, deployChecks...)
+	}
 
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
 	resp.OK = resp.Summary.Errors == 0
@@ -360,6 +373,105 @@ func fillDoctorProbeDeps(deps doctorProbeDeps) doctorProbeDeps {
 		deps.DiscoverApp = defaults.DiscoverApp
 	}
 	return deps
+}
+
+func doctorDeployDiagnostics(ctx context.Context, deps doctorProbeDeps) (*doctorDeployInfo, []doctorCheck) {
+	home, err := deps.AgentHome()
+	if err != nil {
+		message := "deploy registry path could not be resolved: " + err.Error()
+		info := &doctorDeployInfo{
+			SchemaVersion: "scenery.doctor.deploy.v1",
+			RegistryPath:  "",
+			Diagnostics: deployDiagnosticReport{Checks: []deployDiagnosticCheck{{
+				ID:      "deploy.registry",
+				Status:  doctorStatusSkipped,
+				Message: message,
+			}}},
+		}
+		checks := []doctorCheck{{
+			ID:              "deploy.registry",
+			Category:        "deploy",
+			Name:            "Deploy registry",
+			Status:          doctorStatusSkipped,
+			Severity:        doctorSeverityInformational,
+			Message:         message,
+			SuggestedAction: "Run `scenery deploy status --json` for deploy-specific diagnostics.",
+		}}
+		return info, checks
+	}
+	paths := localagent.PathsForHome(home)
+	registry, err := localagent.LoadDeployRegistry(paths.DeployPath)
+	if err != nil {
+		info := &doctorDeployInfo{
+			SchemaVersion: "scenery.doctor.deploy.v1",
+			RegistryPath:  paths.DeployPath,
+			Diagnostics: deployDiagnosticReport{Checks: []deployDiagnosticCheck{{
+				ID:      "deploy.registry",
+				Status:  doctorStatusWarn,
+				Message: "deploy registry could not be read: " + err.Error(),
+			}}},
+		}
+		return info, []doctorCheck{{
+			ID:              "deploy.registry",
+			Category:        "deploy",
+			Name:            "Deploy registry",
+			Status:          doctorStatusWarn,
+			Severity:        doctorSeverityOptional,
+			Message:         "deploy registry could not be read: " + err.Error(),
+			SuggestedAction: "Inspect or remove the registry at " + paths.DeployPath + ".",
+		}}
+	}
+	if len(registry.Targets) == 0 {
+		if _, err := os.Stat(paths.DeployPath); errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+	}
+	status := buildDeployStatusWithContext(ctx, paths, registry)
+	diagnostics := deployDiagnosticReport{}
+	if status.DiagnosticsDetail != nil {
+		diagnostics = *status.DiagnosticsDetail
+	}
+	info := &doctorDeployInfo{
+		SchemaVersion: "scenery.doctor.deploy.v1",
+		Ready:         status.Ready,
+		RegistryPath:  status.RegistryPath,
+		Targets:       status.Targets,
+		Diagnostics:   diagnostics,
+	}
+	checks := make([]doctorCheck, 0, len(diagnostics.Checks))
+	for _, check := range diagnostics.Checks {
+		checks = append(checks, deployDiagnosticDoctorCheck(check))
+	}
+	return info, checks
+}
+
+func deployDiagnosticDoctorCheck(check deployDiagnosticCheck) doctorCheck {
+	status := check.Status
+	switch status {
+	case doctorStatusOK, doctorStatusWarn, doctorStatusError, doctorStatusSkipped:
+	default:
+		status = doctorStatusWarn
+	}
+	return doctorCheck{
+		ID:              check.ID,
+		Category:        "deploy",
+		Name:            deployDiagnosticName(check.ID),
+		Status:          status,
+		Severity:        doctorSeverityOptional,
+		Message:         check.Message,
+		SuggestedAction: check.SuggestedAction,
+		Observed:        check.Observed,
+	}
+}
+
+func deployDiagnosticName(id string) string {
+	id = strings.TrimPrefix(id, "deploy.")
+	id = strings.ReplaceAll(id, "_", " ")
+	id = strings.ReplaceAll(id, ".", " ")
+	if id == "" {
+		return "Deploy"
+	}
+	return "Deploy " + id
 }
 
 func doctorRuntimeCheck(info doctorRuntimeInfo) doctorCheck {

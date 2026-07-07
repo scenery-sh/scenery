@@ -21,12 +21,12 @@
       "path": "docs/plans/0098-google-social-login.md",
       "title": "Google Social Login: Enable/Disable Contract, Hardening, and Tests",
       "owner": "scenery auth / ONLV integration",
-      "status": "active",
+      "status": "completed",
       "quality": "B",
       "freshness": "current",
       "last_reviewed": "2026-07-07",
       "review_after": "2026-08-06",
-      "summary": "Active ExecPlan completing Google sign-in in standard auth: honor auth.google_oauth.enabled across runtime registration, standardauthmeta, app model, and generated TypeScript client; JWKS caching, callback error redirects, expired oauth-state cleanup; fake-Google flow tests; docs, environment registry, and scenery check diagnostics.",
+      "summary": "Completed ExecPlan for Google sign-in in standard auth: auth.google_oauth.enabled controls runtime routes, inspect metadata, and generated TypeScript client methods; JWKS caching, callback error redirects, expired oauth-state cleanup, fake-Google live-Postgres tests, docs, environment registry, and scenery check diagnostics are implemented.",
       "tags": [
         "plans",
         "execplans",
@@ -46,7 +46,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-07",
       "review_after": "2026-08-06",
-      "summary": "Active ExecPlan (blocked on 0098) adding per-user Google connections to standard auth: encrypted offline refresh-token storage, single-flight cross-process refresh, transient-vs-permanent error taxonomy with reauth_required status, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV (sync, drafts, durable send outbox).",
+      "summary": "Active ExecPlan adding per-user Google connections to standard auth: encrypted offline refresh-token storage, single-flight cross-process refresh, transient-vs-permanent error taxonomy with reauth_required status, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV (sync, drafts, durable send outbox).",
       "tags": [
         "plans",
         "execplans",
@@ -225,13 +225,14 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, beta public deploy status/setup commands, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
         "onboarding",
         "toolchain",
-        "storage"
+        "storage",
+        "deploy"
       ]
     },
     {
@@ -263,14 +264,15 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, beta public deploy readiness commands, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
         "apps",
         "client-integration",
         "toolchain",
-        "storage"
+        "storage",
+        "deploy"
       ]
     },
     {
@@ -333,19 +335,22 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing and watch.ignore, runtime capabilities, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, watch.ignore, deploy.domain/root, runtime capabilities, beta public deploy registry/status schemas, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
         "agents",
         "schemas",
         "toolchain",
-        "storage"
+        "storage",
+        "deploy"
       ],
       "schema_refs": [
         "docs/schemas/scenery.toolchain.v1.schema.json",
         "docs/schemas/scenery.toolchain.status.v1.schema.json",
         "docs/schemas/scenery.upgrade.v1.schema.json",
+        "docs/schemas/scenery.deploy.registry.v1.schema.json",
+        "docs/schemas/scenery.deploy.status.v1.schema.json",
         "docs/schemas/scenery.db.list.v3.schema.json",
         "docs/schemas/scenery.db.server.status.v1.schema.json",
         "docs/schemas/scenery.worktree.create.v1.schema.json",

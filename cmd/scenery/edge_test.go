@@ -69,6 +69,132 @@ func TestCaddyEdgeConfigUsesPrivateListenPortAndPublicForwardedPort(t *testing.T
 	}
 }
 
+func TestCaddyEdgeConfigAddsPublicACMESites(t *testing.T) {
+	t.Parallel()
+
+	config := caddyEdgeConfig(caddyEdgeConfigOptions{
+		ListenAddr:     "127.0.0.1:19443",
+		PublicPort:     "443",
+		Upstream:       "127.0.0.1:9440",
+		AskURL:         "http://127.0.0.1:9440/v1/tls/allow",
+		AdminSocket:    "/tmp/scenery-caddy.sock",
+		Token:          "secret-token",
+		PublicDomains:  []publicDomainSite{{Domain: "z.onlv.dev"}, {Domain: "onlv.dev"}, {Domain: "onlv.dev"}},
+		ACMEEmail:      "ops@example.com",
+		ACMECA:         "staging",
+		StorageDir:     "/tmp/scenery-caddy-data",
+		HTTPListenPort: "19080",
+	})
+	for _, want := range []string{
+		"storage file_system /tmp/scenery-caddy-data",
+		"email ops@example.com",
+		"http_port 19080",
+		"https_port 19443",
+		"onlv.dev:19443 {",
+		"z.onlv.dev:19443 {",
+		"issuer acme {",
+		"ca https://acme-staging-v02.api.letsencrypt.org/directory",
+		"header_up X-Scenery-Public-Edge 1",
+		"http://onlv.dev:19080 {",
+		"redir https://{host}{uri} 308",
+	} {
+		if !strings.Contains(config, want) {
+			t.Fatalf("public Caddy config missing %q:\n%s", want, config)
+		}
+	}
+	if strings.Contains(config, "local_certs") {
+		t.Fatalf("public Caddy config should keep internal issuer per-site, not global local_certs:\n%s", config)
+	}
+	if strings.Count(config, "\nonlv.dev:19443 {") != 1 {
+		t.Fatalf("public Caddy config should de-duplicate domains:\n%s", config)
+	}
+	if strings.Index(config, "onlv.dev:19443 {") > strings.Index(config, "z.onlv.dev:19443 {") {
+		t.Fatalf("public Caddy domains should be sorted:\n%s", config)
+	}
+}
+
+func TestPublicDomainSitesForDeployRegistryUsesEnabledTargets(t *testing.T) {
+	t.Parallel()
+
+	sites := publicDomainSitesForDeployRegistry(localagent.DeployRegistry{
+		Targets: []localagent.DeployTarget{
+			{Domain: "z.onlv.dev", Enabled: true},
+			{Domain: "off.onlv.dev", Enabled: false},
+			{Domain: "onlv.dev", Enabled: true},
+			{Domain: "onlv.dev", Enabled: true},
+		},
+	})
+	if len(sites) != 2 || sites[0].Domain != "onlv.dev" || sites[1].Domain != "z.onlv.dev" {
+		t.Fatalf("sites = %+v", sites)
+	}
+}
+
+func TestCaddyEdgeConfigForRegistryUsesDeployTargets(t *testing.T) {
+	t.Parallel()
+
+	paths := localagent.PathsForHome(t.TempDir())
+	registry := localagent.EmptyDeployRegistry()
+	registry.ACMEEmail = "ops@example.com"
+	registry.ACMECA = "staging"
+	registry.Targets = []localagent.DeployTarget{
+		{Domain: "onlv.dev", Enabled: true},
+		{Domain: "off.onlv.dev", Enabled: false},
+	}
+	if err := localagent.WriteDeployRegistry(paths.DeployPath, registry); err != nil {
+		t.Fatal(err)
+	}
+	config, err := caddyEdgeConfigForRegistry(paths, defaultEdgeTargetAddr, defaultEdgeHTTPTargetAddr, "127.0.0.1:9440", "/tmp/scenery-caddy.sock", "secret-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"storage file_system " + filepath.Join(paths.EdgeDir, "caddy-data"),
+		"email ops@example.com",
+		"onlv.dev:19443 {",
+		"http://onlv.dev:19080 {",
+	} {
+		if !strings.Contains(config, want) {
+			t.Fatalf("registry Caddy config missing %q:\n%s", want, config)
+		}
+	}
+	if strings.Contains(config, "off.onlv.dev") {
+		t.Fatalf("registry Caddy config included disabled target:\n%s", config)
+	}
+}
+
+func TestCaddyReloadArgsUseAdminSocket(t *testing.T) {
+	t.Parallel()
+
+	args := caddyReloadArgs("/tmp/Caddyfile.next", "/tmp/caddy-admin.sock")
+	want := strings.Join([]string{"reload", "--config", "/tmp/Caddyfile.next", "--adapter", "caddyfile", "--address", "unix///tmp/caddy-admin.sock"}, "\n")
+	if got := strings.Join(args, "\n"); got != want {
+		t.Fatalf("reload args = %#v", args)
+	}
+}
+
+func TestReloadCaddyEdgeConfigInvokesCaddyReload(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	argsPath := filepath.Join(t.TempDir(), "args.txt")
+	t.Setenv("SCENERY_TEST_RELOAD_ARGS", argsPath)
+	caddy := filepath.Join(t.TempDir(), "caddy")
+	if err := os.WriteFile(caddy, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$SCENERY_TEST_RELOAD_ARGS\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := reloadCaddyEdgeConfig(caddy, "/tmp/Caddyfile.next", "/tmp/caddy-admin.sock"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join(caddyReloadArgs("/tmp/Caddyfile.next", "/tmp/caddy-admin.sock"), "\n") + "\n"
+	if string(data) != want {
+		t.Fatalf("reload args file = %q, want %q", string(data), want)
+	}
+}
+
 func TestParseEdgeArgsRejectsPublicAddrOverride(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +260,80 @@ func TestEdgeHelperPlistUsesSystemEdgeRoute(t *testing.T) {
 	}
 }
 
+func TestParseEdgeHelperArgsAcceptsPublicAndVersion(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseEdgeHelperArgs([]string{
+		"--public",
+		"--helper-version", "1.2.3",
+		"--owner-uid", "501",
+		"--owner-gid", "20",
+		"--owner-home", "/Users/test/.scenery",
+		"--helper-target-state", "/Users/test/.scenery/run/edge-target.json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.Public || opts.HelperVersion != "1.2.3" || opts.OwnerUID != 501 || opts.OwnerGID != 20 {
+		t.Fatalf("opts = %+v", opts)
+	}
+}
+
+func TestEdgeHelperListenSpecsSwitchToPublicPorts(t *testing.T) {
+	t.Parallel()
+
+	local := edgeHelperListenSpecs(edgeHelperOptions{})
+	if got := strings.Join(edgeHelperListenAddrs(local), ","); got != "127.0.0.1:443,[::1]:443" {
+		t.Fatalf("local listen = %s", got)
+	}
+	public := edgeHelperListenSpecs(edgeHelperOptions{Public: true})
+	if got := strings.Join(edgeHelperListenAddrs(public), ","); got != "[::]:443,[::]:80" {
+		t.Fatalf("public listen = %s", got)
+	}
+	if !public[1].HTTPPort80 {
+		t.Fatalf("port 80 specs should use HTTP target: %+v", public)
+	}
+}
+
+func TestListenEdgeHelperPublicWildcardAcceptsIPv4(t *testing.T) {
+	t.Parallel()
+
+	ln, err := listenEdgeHelperSpec(edgeHelperListenSpec{Addr: "[::]:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			_ = conn.Close()
+		}
+		close(done)
+	}()
+	conn, err := net.Dial("tcp4", "127.0.0.1:"+port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	<-done
+}
+
+func TestEdgePrivilegedInstallCommandUsesDeploySetupForDeploy(t *testing.T) {
+	t.Parallel()
+
+	if got := edgePrivilegedInstallCommand(false); got != "scenery system edge privileged install" {
+		t.Fatalf("local command = %q", got)
+	}
+	if got := edgePrivilegedInstallCommand(true); got != "scenery deploy setup" {
+		t.Fatalf("deploy command = %q", got)
+	}
+}
+
 func TestParseEdgeHelperPlistOptionsExtractsProgramArguments(t *testing.T) {
 	t.Parallel()
 
@@ -143,13 +343,34 @@ func TestParseEdgeHelperPlistOptionsExtractsProgramArguments(t *testing.T) {
 		OwnerHome:         "/Users/test/Scenery & Dev",
 		HelperTargetState: "/Users/test/Scenery & Dev/run/edge-target.json",
 		RouterAddr:        "127.0.0.1:9440",
+		Public:            true,
+		HelperVersion:     "1.2.3",
 	})
 	opts, err := parseEdgeHelperPlistOptions([]byte(plist))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.OwnerUID != 501 || opts.OwnerGID != 20 || opts.OwnerHome != "/Users/test/Scenery & Dev" || opts.HelperTargetState != "/Users/test/Scenery & Dev/run/edge-target.json" || opts.RouterAddr != "127.0.0.1:9440" {
+	if opts.OwnerUID != 501 || opts.OwnerGID != 20 || opts.OwnerHome != "/Users/test/Scenery & Dev" || opts.HelperTargetState != "/Users/test/Scenery & Dev/run/edge-target.json" || opts.RouterAddr != "127.0.0.1:9440" || !opts.Public || opts.HelperVersion != "1.2.3" {
 		t.Fatalf("parseEdgeHelperPlistOptions() = %+v", opts)
+	}
+}
+
+func TestEdgeTargetAddrForPortUsesHTTPMetadata(t *testing.T) {
+	t.Parallel()
+
+	state := localagent.EdgeTargetState{
+		TargetAddr:     "127.0.0.1:19443",
+		HTTPTargetAddr: "127.0.0.1:19080",
+	}
+	if got, err := edgeTargetAddrForPort(state, false); err != nil || got != "127.0.0.1:19443" {
+		t.Fatalf("https target = %q, %v", got, err)
+	}
+	if got, err := edgeTargetAddrForPort(state, true); err != nil || got != "127.0.0.1:19080" {
+		t.Fatalf("http target = %q, %v", got, err)
+	}
+	state.HTTPTargetAddr = ""
+	if _, err := edgeTargetAddrForPort(state, true); err == nil || !strings.Contains(err.Error(), "no HTTP target") {
+		t.Fatalf("missing HTTP target err = %v", err)
 	}
 }
 
@@ -217,15 +438,15 @@ func TestValidateEdgeAgentHealthRejectsFallbackRouterAddr(t *testing.T) {
 	}
 }
 
-func TestEdgeAgentCommandMatchesSameSocketAndRouterOnly(t *testing.T) {
+func TestEdgeAgentCommandMatchesSameRouter(t *testing.T) {
 	t.Parallel()
 
 	command := "/Users/petrbrazdil/go/bin/scenery system agent --socket /Users/petrbrazdil/.scenery/run/agent.sock --router-listen 127.0.0.1:9440 --router-http"
 	if !edgeAgentCommandMatches(command, "/Users/petrbrazdil/.scenery/run/agent.sock", "127.0.0.1:9440") {
 		t.Fatal("expected exact edge agent command to match")
 	}
-	if edgeAgentCommandMatches(command, "/tmp/other.sock", "127.0.0.1:9440") {
-		t.Fatal("different socket should not match")
+	if !edgeAgentCommandMatches(command, "/tmp/other.sock", "127.0.0.1:9440") {
+		t.Fatal("same router should match even when a stale process has another socket")
 	}
 	if edgeAgentCommandMatches(command, "/Users/petrbrazdil/.scenery/run/agent.sock", "127.0.0.1:9555") {
 		t.Fatal("different router should not match")
@@ -578,7 +799,7 @@ func TestStartCaddyEdgeReportsFastStartupExit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = startCaddyEdge(caddy, paths, defaultEdgePublicAddr, defaultEdgeTargetAddr, filepath.Join(paths.RunDir, "caddy-admin.sock"), "127.0.0.1:9440")
+	err = startCaddyEdge(caddy, paths, defaultEdgePublicAddr, defaultEdgeTargetAddr, defaultEdgeHTTPTargetAddr, filepath.Join(paths.RunDir, "caddy-admin.sock"), "127.0.0.1:9440")
 	if err == nil || !strings.Contains(err.Error(), "Caddy edge exited during startup") || !strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("startCaddyEdge() err = %v, want startup exit with log tail", err)
 	}
@@ -617,7 +838,7 @@ func TestStartCaddyEdgeWritesRunningStateAndStopsProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	adminSocket := filepath.Join(paths.RunDir, "caddy-admin.sock")
-	if err := startCaddyEdge(caddy, paths, defaultEdgePublicAddr, defaultEdgeTargetAddr, adminSocket, "127.0.0.1:9440"); err != nil {
+	if err := startCaddyEdge(caddy, paths, defaultEdgePublicAddr, defaultEdgeTargetAddr, defaultEdgeHTTPTargetAddr, adminSocket, "127.0.0.1:9440"); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = stopEdge(paths, 2*time.Second) }()
@@ -638,7 +859,7 @@ func TestStartCaddyEdgeWritesRunningStateAndStopsProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target.TargetAddr != defaultEdgeTargetAddr || target.PID != state.PID || target.OwnerUID != os.Getuid() {
+	if target.TargetAddr != defaultEdgeTargetAddr || target.HTTPTargetAddr != defaultEdgeHTTPTargetAddr || target.PID != state.PID || target.OwnerUID != os.Getuid() {
 		t.Fatalf("edge target state = %+v", target)
 	}
 	if err := stopEdge(paths, 2*time.Second); err != nil {

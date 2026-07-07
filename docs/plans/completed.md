@@ -6,6 +6,25 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Google Social Login
+
+- Status: completed
+- Owner: scenery auth / ONLV integration
+- Completed: 2026-07-07
+- Quality: B
+- ExecPlan: [0098 Google Social Login](0098-google-social-login.md)
+
+Shipped:
+
+- Made Google standard-auth login opt-in through `auth.google_oauth.enabled`; disabled apps expose no `/auth/google/*` runtime routes, inspect endpoints, or generated TypeScript client methods.
+- Added Google OAuth hardening: cached JWKS with one forced refresh on unknown `kid`, browser-friendly callback error redirects, and expired OAuth state cleanup.
+- Added fake-Google live-Postgres coverage for the browser sign-in round trip, `/auth/me` bootstrap from the issued session, verified email account linking, unverified account refusal, replay rejection, nonce mismatch, and `email_verified=false`.
+- Added docs, environment registry entries, ONLV setup notes, and `scenery check` warnings for missing Google OAuth credentials.
+
+Validation:
+
+- Passed `go test ./auth ./cmd/scenery`, `go test ./...`, the live fake-Google flow test with `SCENERY_TEST_DATABASE_URL`, enabled/disabled inspect/client/runtime probes, and `scenery harness self --summary --write` with warning-class findings only.
+
 ## Postgres-Only Data Platform
 
 - Status: completed

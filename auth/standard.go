@@ -103,7 +103,7 @@ func RegisterStandard(config StandardConfig) error {
 			return runtime.AuthInfo{UID: string(uid), Data: data}, nil
 		},
 	})
-	registerStandardAuthEndpoints()
+	registerStandardAuthEndpoints(config)
 	return nil
 }
 
@@ -209,7 +209,7 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 	return standardAuthState.svc, standardAuthState.err
 }
 
-func registerStandardAuthEndpoints() {
+func registerStandardAuthEndpoints(config StandardConfig) {
 	registerStandardTyped("auth", "SignupEmail", runtime.Public, "/auth/signup/email", []string{http.MethodPost}, (*EmailSignupParams)(nil), (*EmailSignupResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
 		return svc.SignupEmail(ctx, payload.(*EmailSignupParams))
 	})
@@ -242,24 +242,26 @@ func registerStandardAuthEndpoints() {
 	registerStandardNoServiceTyped("users", "DevBootstrap", runtime.Public, "/users/dev-bootstrap", []string{http.MethodPost}, (*DevBootstrapParams)(nil), (*AuthResponse)(nil), func(ctx context.Context, _ []any, payload any) (any, error) {
 		return DevBootstrap(ctx, payload.(*DevBootstrapParams))
 	})
-	runtime.RegisterEndpoint(&runtime.Endpoint{
-		Service:    "auth",
-		Name:       "GoogleStart",
-		Access:     runtime.Public,
-		Raw:        true,
-		Path:       "/auth/google/start",
-		Methods:    []string{http.MethodGet},
-		RawHandler: GoogleStart,
-	})
-	runtime.RegisterEndpoint(&runtime.Endpoint{
-		Service:    "auth",
-		Name:       "GoogleCallback",
-		Access:     runtime.Public,
-		Raw:        true,
-		Path:       "/auth/google/callback",
-		Methods:    []string{http.MethodGet},
-		RawHandler: GoogleCallback,
-	})
+	if config.GoogleOAuth.Enabled {
+		runtime.RegisterEndpoint(&runtime.Endpoint{
+			Service:    "auth",
+			Name:       "GoogleStart",
+			Access:     runtime.Public,
+			Raw:        true,
+			Path:       "/auth/google/start",
+			Methods:    []string{http.MethodGet},
+			RawHandler: GoogleStart,
+		})
+		runtime.RegisterEndpoint(&runtime.Endpoint{
+			Service:    "auth",
+			Name:       "GoogleCallback",
+			Access:     runtime.Public,
+			Raw:        true,
+			Path:       "/auth/google/callback",
+			Methods:    []string{http.MethodGet},
+			RawHandler: GoogleCallback,
+		})
+	}
 }
 
 func registerStandardTyped(service string, name string, access runtime.Access, path string, methods []string, payload any, response any, invoke func(context.Context, *Service, []any, any) (any, error)) {

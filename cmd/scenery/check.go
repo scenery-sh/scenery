@@ -15,6 +15,7 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/build"
+	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/schemagen"
@@ -71,6 +72,10 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 	if diagnostics := devRouteConfigDiagnostics(cfg); len(diagnostics) > 0 {
 		return renderCheckDiagnostics(stdout, opts.JSON, appInfo, diagnostics)
 	}
+	warnings, err := checkWarningDiagnostics(appRoot, cfg)
+	if err != nil {
+		return renderCheckFailure(stdout, opts.JSON, appInfo, "env", err)
+	}
 
 	model, err := parse.App(appRoot, cfg.Name)
 	if err != nil {
@@ -99,7 +104,7 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 			if cachedApp.ModulePath != "" {
 				appInfo.ModulePath = cachedApp.ModulePath
 			}
-			return renderCheckSuccess(stdout, opts.JSON, appInfo)
+			return renderCheckSuccess(stdout, opts.JSON, appInfo, warnings)
 		}
 	}
 
@@ -113,7 +118,71 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 	if err := build.CompileContext(ctx, result); err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "compile", err)
 	}
-	return renderCheckSuccess(stdout, opts.JSON, appInfo)
+	return renderCheckSuccess(stdout, opts.JSON, appInfo, warnings)
+}
+
+func checkWarningDiagnostics(appRoot string, cfg appcfg.Config) ([]checkDiagnostic, error) {
+	diagnostics := deployConfigInfoDiagnostics(appRoot, cfg)
+	if !cfg.Auth.Enabled || !cfg.Auth.GoogleOAuth.Enabled {
+		return diagnostics, nil
+	}
+	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
+	if err != nil {
+		return nil, err
+	}
+	missing := missingGoogleOAuthEnv(cfg.Auth.GoogleOAuth, env)
+	if len(missing) == 0 {
+		return diagnostics, nil
+	}
+	diagnostics = append(diagnostics, checkDiagnostic{
+		Stage:           "auth",
+		Severity:        "warning",
+		File:            cfg.SourcePath(appRoot),
+		Message:         "Google OAuth is enabled but credentials are missing: " + strings.Join(missing, ", "),
+		SuggestedAction: "Set the missing env vars in the app environment or disable auth.google_oauth.enabled.",
+	})
+	return diagnostics, nil
+}
+
+func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagnostic {
+	if strings.TrimSpace(cfg.Deploy.Domain) == "" || strings.TrimSpace(cfg.Deploy.Root) != "" {
+		return nil
+	}
+	frontends := len(cfg.Proxy.Frontends)
+	if frontends == 1 {
+		return nil
+	}
+	reason := "no frontends are configured"
+	if frontends > 1 {
+		reason = "multiple frontends are configured"
+	}
+	return []checkDiagnostic{{
+		Stage:           "config",
+		Severity:        "info",
+		File:            cfg.SourcePath(appRoot),
+		Message:         "deploy.domain is set but deploy.root is unset; public / will serve a minimal page because " + reason,
+		SuggestedAction: "Set deploy.root to \"api\" or the frontend that should own / on the public domain.",
+	}}
+}
+
+func missingGoogleOAuthEnv(cfg appcfg.AuthGoogleConfig, env []string) []string {
+	var missing []string
+	if !hasAnyEnvValue(env, firstNonEmpty(cfg.ClientIDEnv, "GoogleOAuthClientID"), "GOOGLE_OAUTH_CLIENT_ID") {
+		missing = append(missing, firstNonEmpty(cfg.ClientIDEnv, "GoogleOAuthClientID"))
+	}
+	if !hasAnyEnvValue(env, firstNonEmpty(cfg.ClientSecretEnv, "GoogleOAuthClientSecret"), "GOOGLE_OAUTH_CLIENT_SECRET") {
+		missing = append(missing, firstNonEmpty(cfg.ClientSecretEnv, "GoogleOAuthClientSecret"))
+	}
+	return missing
+}
+
+func hasAnyEnvValue(env []string, names ...string) bool {
+	for _, name := range names {
+		if value, _ := lookupEnvValue(env, name); value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func renderCheckGeneratedSchemaDrift(stdout io.Writer, jsonMode bool, app inspectdata.AppRef, drift []schemagen.Drift) error {
@@ -164,14 +233,17 @@ func renderCheckDiagnostics(stdout io.Writer, jsonMode bool, app inspectdata.App
 	return &silentCLIError{err: err}
 }
 
-func renderCheckSuccess(stdout io.Writer, jsonMode bool, appInfo inspectdata.AppRef) error {
+func renderCheckSuccess(stdout io.Writer, jsonMode bool, appInfo inspectdata.AppRef, diagnostics []checkDiagnostic) error {
 	if jsonMode {
 		return writeCheckJSON(stdout, checkResponse{
 			SchemaVersion: "scenery.check.result.v1",
 			OK:            true,
 			App:           appInfo,
-			Diagnostics:   []checkDiagnostic{},
+			Diagnostics:   diagnostics,
 		})
+	}
+	for _, diagnostic := range diagnostics {
+		_, _ = fmt.Fprintf(stdout, "warning: %s\n", diagnostic.Message)
 	}
 	_, _ = fmt.Fprintln(stdout, "scenery: check ok")
 	return nil

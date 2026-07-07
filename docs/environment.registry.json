@@ -150,6 +150,94 @@
       ]
     },
     {
+      "name": "GOOGLE_OAUTH_CLIENT_ID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input_injected",
+      "category": "app.services.auth",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Conventional Google OAuth client ID fallback for standard auth when `auth.google_oauth.client_id_env` is unset or empty.",
+      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth credentials",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "GOOGLE_OAUTH_CLIENT_SECRET",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input_injected",
+      "category": "app.services.auth",
+      "stability": "secret",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Conventional Google OAuth client secret fallback for standard auth when `auth.google_oauth.client_secret_env` is unset or empty.",
+      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth secrets",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "GoogleOAuthClientID",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input_injected",
+      "category": "app.services.auth",
+      "stability": "stable",
+      "secret": false,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Default app-style Google OAuth client ID env used when `auth.google_oauth.client_id_env` is omitted.",
+      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth credentials",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
+      "name": "GoogleOAuthClientSecret",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input_injected",
+      "category": "app.services.auth",
+      "stability": "secret",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Default app-style Google OAuth client secret env used when `auth.google_oauth.client_secret_env` is omitted.",
+      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth secrets",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "HOME",
       "match": "exact",
       "scope": "internal",

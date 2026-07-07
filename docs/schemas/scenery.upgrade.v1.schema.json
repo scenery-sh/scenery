@@ -35,6 +35,21 @@
         }
       },
       "additionalProperties": false
+    },
+    "deploy": {
+      "type": "object",
+      "required": ["helper_installed", "action_required", "expected_schema"],
+      "properties": {
+        "helper_installed": { "type": "boolean" },
+        "action_required": { "type": "boolean" },
+        "helper_version": { "type": "string" },
+        "current_version": { "type": "string" },
+        "target_schema": { "type": "string" },
+        "expected_schema": { "type": "string" },
+        "message": { "type": "string" },
+        "suggested_action": { "type": "string" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

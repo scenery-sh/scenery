@@ -20,6 +20,7 @@ type Querier interface {
 	CreateRefreshSession(ctx context.Context, arg CreateRefreshSessionParams) (ScenerySceneryAuthRefreshSession, error)
 	CreateTenant(ctx context.Context, arg CreateTenantParams) (ScenerySceneryAuthTenant, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (ScenerySceneryAuthUser, error)
+	DeleteExpiredOAuthStates(ctx context.Context) error
 	DisableMembership(ctx context.Context, arg DisableMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)
 	EnsureDevBootstrapTenant(ctx context.Context, arg EnsureDevBootstrapTenantParams) (ScenerySceneryAuthTenant, error)
 	EnsureDevBootstrapUser(ctx context.Context, arg EnsureDevBootstrapUserParams) (ScenerySceneryAuthUser, error)

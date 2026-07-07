@@ -34,6 +34,7 @@ scenery inspect observability --json
 scenery logs query --json --since 15m --query 'error OR panic'
 scenery harness --json --write
 scenery validate quick --json --write
+scenery deploy status --json
 ```
 
 Prefer JSON output for agent decisions. Prefer `scenery up` for local development. Use `scenery task` for configured and code tasks. Use `scenery validate` for app-owned quality gates. Use `scenery worker` for worker-only durable and cron execution.
@@ -47,6 +48,7 @@ Run `scenery doctor --json` before deep app debugging when local readiness is in
 - `.scenery.json` marks the app root; `.config.json` is accepted as an alias when `.scenery.json` is absent.
 - App-required Go build tags or build-time flags belong in app config as `build.go_flags`, for example `["-tags=roofmapnet_native"]`; Scenery applies them to app builds and generated-workspace tests.
 - App-owned non-runtime trees that should remain Git-tracked but stay out of `scenery up` rebuilds belong in app config `watch.ignore`, for example `["reference/"]`.
+- Public deploy is beta. `deploy.domain` claims one public FQDN for `scenery deploy enable`; `deploy.root` optionally names the frontend/service that owns `/`. `scenery deploy setup` configures the macOS privileged helper with sudo for public 80/443, while `scenery deploy status --json` reports DNS, reachability, sleep, firewall, helper, and certificate diagnostics.
 - Go source is the app model.
 - `scenery up` starts the supervised local platform: app process, rebuild/restart loop, dashboard, API Explorer, logs, traces, metrics, managed dev services when configured, and optional frontend routing through the local agent. Default local routing is path mode: one app root/worktree gets one base URL such as `http://localhost:4001`, and dashboard/API/frontends live under `/consolenext/`, `/api/`, `/<frontend>/`, and `/runtime/`; use `scenery ps --json` to discover the base URL and route manifest.
 - Storage is a Scenery-owned app capability when app config declares `storage`. Stores use `kind: "local"` (empty defaults to `local`): a Scenery-owned directory tree with atomic temp-file+rename writes, checked fsync, and sidecar object metadata. Declaring `storage.stores` is enough; there is no managed storage process, toolchain artifact, or `dev.services` storage entry. `scenery up` serves the stores from the local backend over a session-local proxy socket; app code uses `scenery.sh/storage` and should not inspect proxy sockets or object directories. A standalone `scenery worker` requires an explicit `SCENERY_STORAGE_CONFIG` and fails closed when storage is declared but the config is missing or empty; each store uses `kind: "local"` with an absolute `root` or `kind: "proxy"` with a `proxy_socket`. Private stores are internal-only: external storage routes deny them, while app/runtime helpers and Scenery's private route table may use them. Tenant-scoped stores keep caller-visible keys unchanged, derive tenants from standard auth on external routes, and require `storage.WithTenantID(ctx, tenantID)` or standard-auth context for private/internal calls. `PutOptions.ContentType` and `PutOptions.Metadata` are returned by `Head`, `Get`, and `List`; browser/proxy routes carry metadata through `X-Scenery-Storage-Meta-*` headers. `scenery inspect storage --json` and `scenery storage status --json` report the storage-cell path and per-store object counts/bytes; `scenery storage cleanup --json` reports the cell and removes it only with `--yes`. Offsite durability is an operator concern — replicate the storage-cell object directories (objects plus `__scenery/metadata/` sidecars) to S3 with `rclone`/`restic`.
@@ -272,6 +274,12 @@ scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> 
 scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] --json
 scenery version --json
 scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
+scenery deploy enable [--app-root <path>] [--json]
+scenery deploy disable [--app-root <path>] [--json]
+scenery deploy status [--json]
+scenery deploy setup [--acme-email <email>] [--acme-ca production|staging] [--json]
+scenery deploy resume [--json]
+scenery deploy teardown [--json]
 scenery system toolchain list [--json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain sync [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
 scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]

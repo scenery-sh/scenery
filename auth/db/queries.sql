@@ -287,6 +287,10 @@ INSERT INTO scenery.scenery_auth_oauth_states (
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at;
 
+-- name: DeleteExpiredOAuthStates :exec
+DELETE FROM scenery.scenery_auth_oauth_states
+WHERE expires_at <= now();
+
 -- name: ConsumeOAuthState :one
 UPDATE scenery.scenery_auth_oauth_states
 SET consumed_at = now()

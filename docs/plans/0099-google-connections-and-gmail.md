@@ -22,6 +22,7 @@ Observable end state:
 - [ ] Milestone 5 (optional, separate decision): worker cron proactive refresh; ONLV end-to-end acceptance
 
 (2026-07-07) Plan created. No implementation started. Depends on plan 0098 (Google social login enable/disable + fake-Google test scaffolding) landing first.
+(2026-07-07) Plan 0098 completed in this changeset, so this plan is unblocked once the changeset lands.
 
 ## Surprises & Discoveries
 
@@ -106,7 +107,7 @@ Schema changes are additive (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EX
 
 ## Interfaces and Dependencies
 
-- Depends on plan 0098 landing first (conditional registration, callback error-redirect convention, fake-Google scaffolding, endpoint-URL override vars).
+- Builds on completed plan 0098 (conditional registration, callback error-redirect convention, fake-Google scaffolding, endpoint-URL override vars).
 - New public surface (all conditional on `auth.google_oauth.enabled`): `POST /auth/google/connect/start`, `GET /auth/google/connect/callback`, `GET /auth/google/connection`, `POST /auth/google/connection/disconnect`; Go API `auth.GoogleAccessToken` / `auth.GoogleAccessTokenForUser`; config `auth.google_oauth.allowed_scopes`, `auth.google_oauth.token_cipher_key_env`; env `AuthTokenCipherKey`; error codes `google_reauth_required`, `google_scope_missing`.
 - Schema: new table `scenery.scenery_auth_google_connections`; `scenery_auth_oauth_states` gains nullable `user_id`, `purpose`.
 - No new Go module dependencies (stdlib crypto, existing `golang-jwt`, `httptest` fakes).
