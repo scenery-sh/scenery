@@ -59,6 +59,28 @@
       ]
     },
     {
+      "path": "docs/plans/0101-public-deploy-edge.md",
+      "title": "Public Deploy Edge: Internet-Facing 80/443 Routing to Scenery Apps",
+      "owner": "scenery runtime / edge",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-07",
+      "review_after": "2026-08-06",
+      "summary": "Active ExecPlan adding a scenery deploy CLI surface: the existing privileged edge helper LaunchDaemon binds 0.0.0.0:80/443, one managed Caddy terminates public ACME TLS alongside local internal certs, and the agent routes public domains (deploy.domain in app config, one per app) to the enabled app root's live dev session with path dispatch; login-time resume LaunchAgent, reachability/DNS/power diagnostics, and helper version-drift handling across scenery upgrade.",
+      "tags": [
+        "plans",
+        "execplans",
+        "edge",
+        "deploy",
+        "caddy",
+        "acme",
+        "launchd",
+        "routing",
+        "cli"
+      ]
+    },
+    {
       "path": "docs/plans/0100-snapshot-save-load.md",
       "title": "Snapshot Save/Load: Portable Full-App Backups of the Postgres Database and Storage Cell",
       "owner": "scenery runtime / data platform",
