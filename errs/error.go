@@ -12,24 +12,26 @@ import (
 type ErrCode string
 
 const (
-	OK                 ErrCode = "ok"
-	Canceled           ErrCode = "canceled"
-	Unknown            ErrCode = "unknown"
-	InvalidArgument    ErrCode = "invalid_argument"
-	DeadlineExceeded   ErrCode = "deadline_exceeded"
-	NotFound           ErrCode = "not_found"
-	AlreadyExists      ErrCode = "already_exists"
-	PermissionDenied   ErrCode = "permission_denied"
-	ResourceExhausted  ErrCode = "resource_exhausted"
-	FailedPrecondition ErrCode = "failed_precondition"
-	Aborted            ErrCode = "aborted"
-	OutOfRange         ErrCode = "out_of_range"
-	Unimplemented      ErrCode = "unimplemented"
-	Internal           ErrCode = "internal"
-	Unavailable        ErrCode = "unavailable"
-	DataLoss           ErrCode = "data_loss"
-	Unauthenticated    ErrCode = "unauthenticated"
-	Conflict           ErrCode = "conflict"
+	OK                   ErrCode = "ok"
+	Canceled             ErrCode = "canceled"
+	Unknown              ErrCode = "unknown"
+	InvalidArgument      ErrCode = "invalid_argument"
+	DeadlineExceeded     ErrCode = "deadline_exceeded"
+	NotFound             ErrCode = "not_found"
+	AlreadyExists        ErrCode = "already_exists"
+	PermissionDenied     ErrCode = "permission_denied"
+	ResourceExhausted    ErrCode = "resource_exhausted"
+	FailedPrecondition   ErrCode = "failed_precondition"
+	Aborted              ErrCode = "aborted"
+	OutOfRange           ErrCode = "out_of_range"
+	Unimplemented        ErrCode = "unimplemented"
+	Internal             ErrCode = "internal"
+	Unavailable          ErrCode = "unavailable"
+	DataLoss             ErrCode = "data_loss"
+	Unauthenticated      ErrCode = "unauthenticated"
+	Conflict             ErrCode = "conflict"
+	GoogleReauthRequired ErrCode = "google_reauth_required"
+	GoogleScopeMissing   ErrCode = "google_scope_missing"
 )
 
 type Metadata map[string]any
@@ -245,7 +247,7 @@ func HTTPStatus(err error) int {
 		return http.StatusOK
 	case Canceled:
 		return 499
-	case InvalidArgument, FailedPrecondition, OutOfRange:
+	case InvalidArgument, FailedPrecondition, OutOfRange, GoogleReauthRequired, GoogleScopeMissing:
 		return http.StatusBadRequest
 	case DeadlineExceeded:
 		return http.StatusGatewayTimeout

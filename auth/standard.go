@@ -35,9 +35,11 @@ type StandardConfig struct {
 }
 
 type GoogleOAuthConfig struct {
-	Enabled         bool
-	ClientIDEnv     string
-	ClientSecretEnv string
+	Enabled           bool
+	ClientIDEnv       string
+	ClientSecretEnv   string
+	AllowedScopes     []string
+	TokenCipherKeyEnv string
 }
 
 type DevBootstrapConfig struct {
@@ -73,6 +75,12 @@ var standardAuthState struct {
 	svc  *Service
 	once sync.Once
 	err  error
+}
+
+func currentStandardConfig() StandardConfig {
+	standardAuthState.mu.Lock()
+	defer standardAuthState.mu.Unlock()
+	return standardAuthState.cfg
 }
 
 func RegisterStandard(config StandardConfig) error {
@@ -134,6 +142,9 @@ func normalizeStandardConfig(config StandardConfig) StandardConfig {
 	}
 	if strings.TrimSpace(config.GoogleOAuth.ClientSecretEnv) == "" {
 		config.GoogleOAuth.ClientSecretEnv = "GoogleOAuthClientSecret"
+	}
+	if strings.TrimSpace(config.GoogleOAuth.TokenCipherKeyEnv) == "" {
+		config.GoogleOAuth.TokenCipherKeyEnv = "AuthTokenCipherKey"
 	}
 	if strings.TrimSpace(config.DevBootstrap.DefaultUserID) == "" {
 		config.DevBootstrap.DefaultUserID = "dev-user"
@@ -243,6 +254,15 @@ func registerStandardAuthEndpoints(config StandardConfig) {
 		return DevBootstrap(ctx, payload.(*DevBootstrapParams))
 	})
 	if config.GoogleOAuth.Enabled {
+		registerStandardTyped("auth", "GoogleConnectStart", runtime.Auth, "/auth/google/connect/start", []string{http.MethodPost}, (*GoogleConnectStartParams)(nil), (*GoogleConnectStartResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
+			return svc.GoogleConnectStart(ctx, payload.(*GoogleConnectStartParams))
+		})
+		registerStandardTyped("auth", "GetGoogleConnection", runtime.Auth, "/auth/google/connection", []string{http.MethodGet}, nil, (*GoogleConnectionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, _ any) (any, error) {
+			return svc.GetGoogleConnection(ctx)
+		})
+		registerStandardTyped("auth", "DisconnectGoogleConnection", runtime.Auth, "/auth/google/connection/disconnect", []string{http.MethodPost}, nil, (*GoogleConnectionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, _ any) (any, error) {
+			return svc.DisconnectGoogleConnection(ctx)
+		})
 		runtime.RegisterEndpoint(&runtime.Endpoint{
 			Service:    "auth",
 			Name:       "GoogleStart",
@@ -260,6 +280,15 @@ func registerStandardAuthEndpoints(config StandardConfig) {
 			Path:       "/auth/google/callback",
 			Methods:    []string{http.MethodGet},
 			RawHandler: GoogleCallback,
+		})
+		runtime.RegisterEndpoint(&runtime.Endpoint{
+			Service:    "auth",
+			Name:       "GoogleConnectCallback",
+			Access:     runtime.Public,
+			Raw:        true,
+			Path:       "/auth/google/connect/callback",
+			Methods:    []string{http.MethodGet},
+			RawHandler: GoogleConnectCallback,
 		})
 	}
 }

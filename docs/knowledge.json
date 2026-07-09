@@ -46,7 +46,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-07",
       "review_after": "2026-08-06",
-      "summary": "Active ExecPlan adding per-user Google connections to standard auth: encrypted offline refresh-token storage, single-flight cross-process refresh, transient-vs-permanent error taxonomy with reauth_required status, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV (sync, drafts, durable send outbox).",
+      "summary": "Active ExecPlan for per-user Google connections in standard auth: encrypted offline refresh-token storage, single-flight cross-process refresh, reauth_required and google_scope_missing error taxonomy, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV (sync, drafts, durable send outbox).",
       "tags": [
         "plans",
         "execplans",
@@ -225,7 +225,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, beta public deploy status/setup commands, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, standard auth Google sign-in and Google connection endpoints, beta public deploy status/setup commands, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -264,7 +264,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, beta public deploy readiness commands, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, standard auth Google connections for Gmail-style integrations, beta public deploy readiness commands, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -335,7 +335,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-23",
       "review_after": "2026-07-23",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, watch.ignore, deploy.domain/root, runtime capabilities, beta public deploy registry/status schemas, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, watch.ignore, deploy.domain/root, runtime capabilities, standard auth Google connection endpoints and encrypted token storage, beta public deploy registry/status schemas, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -395,7 +395,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Human reference for scenery-owned environment variables, app-injected process identity, Postgres app database URLs and schema registry env, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
+      "summary": "Human reference for scenery-owned environment variables, app-injected process identity, Postgres app database URLs and schema registry env, standard auth Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
         "env",
@@ -417,7 +417,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-02",
-      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including Postgres app database env, service database URL patterns, and remote durable worker endpoint/token/service variables.",
+      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including Postgres app database env, service database URL patterns, standard auth Google OAuth and AuthTokenCipherKey secrets, and remote durable worker endpoint/token/service variables.",
       "tags": [
         "environment",
         "env",
@@ -462,7 +462,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-02",
       "review_after": "2026-08-02",
-      "summary": "Practical recipes for building scenery apps, app config including top-level frontends and watch.ignore, endpoints, storage objects, auth, middleware, Postgres database services and schemas, durable workers on the scenery schema, cron, configured generators, code tasks, generated clients, scoped observability debugging, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, app config including top-level frontends and watch.ignore, endpoints, storage objects, auth, Google Gmail connections via standard auth, middleware, Postgres database services and schemas, durable workers on the scenery schema, cron, configured generators, code tasks, generated clients, scoped observability debugging, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",

@@ -118,7 +118,11 @@ func standardAuthMethods(includeGoogle bool) []standardTSMethod {
 	}
 	if includeGoogle {
 		methods = append(methods,
+			standardTSMethod{Name: "DisconnectGoogleConnection", Method: "POST", Path: "`/auth/google/connection/disconnect`", Response: "GoogleConnectionResponse"},
+			standardTSMethod{Name: "GetGoogleConnection", Method: "GET", Path: "`/auth/google/connection`", Response: "GoogleConnectionResponse"},
 			standardTSMethod{Name: "GoogleCallback", Method: "GET", Path: "`/auth/google/callback`", Raw: true},
+			standardTSMethod{Name: "GoogleConnectCallback", Method: "GET", Path: "`/auth/google/connect/callback`", Raw: true},
+			standardTSMethod{Name: "GoogleConnectStart", Method: "POST", Path: "`/auth/google/connect/start`", Payload: "GoogleConnectStartParams", Response: "GoogleConnectStartResponse"},
 			standardTSMethod{Name: "GoogleStart", Method: "GET", Path: "`/auth/google/start`", Raw: true},
 		)
 	}
@@ -214,6 +218,10 @@ func standardAuthTypes(namespace string) string {
     export interface UpdateMemberRoleParams { role: string }
     export interface DisableMemberParams { user_id: string }
     export interface StartImpersonationParams { target_user_id: string; tenant_id?: string; reason: string }
+    export interface GoogleConnectStartParams { scopes: string[]; redirect_path?: string }
+    export interface GoogleConnectStartResponse { authorize_url: string }
+    export type GoogleConnectionStatus = "active" | "reauth_required" | "disconnected"
+    export interface GoogleConnectionResponse { status: GoogleConnectionStatus; email?: string; scopes?: string[]; connected_at?: string; last_refresh_at?: string; reauth_reason?: string }
 
 `
 }

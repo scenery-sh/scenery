@@ -21,10 +21,11 @@ import (
 )
 
 var (
-	googleAuthEndpoint  = "https://accounts.google.com/o/oauth2/v2/auth"
-	googleTokenEndpoint = "https://oauth2.googleapis.com/token"
-	googleJWKSURL       = "https://www.googleapis.com/oauth2/v3/certs"
-	googleJWKSCache     struct {
+	googleAuthEndpoint   = "https://accounts.google.com/o/oauth2/v2/auth"
+	googleTokenEndpoint  = "https://oauth2.googleapis.com/token"
+	googleRevokeEndpoint = "https://oauth2.googleapis.com/revoke"
+	googleJWKSURL        = "https://www.googleapis.com/oauth2/v3/certs"
+	googleJWKSCache      struct {
 		mu        sync.Mutex
 		url       string
 		fetchedAt time.Time
@@ -78,7 +79,6 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	challengeSum := sha256.Sum256([]byte(verifier))
 	authURL, _ := url.Parse(googleAuthEndpoint)
 	query := authURL.Query()
 	query.Set("client_id", strings.TrimSpace(secrets.GoogleOAuthClientID))
@@ -87,7 +87,7 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 	query.Set("scope", "openid email profile")
 	query.Set("state", state)
 	query.Set("nonce", nonce)
-	query.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challengeSum[:]))
+	query.Set("code_challenge", googlePKCEChallenge(verifier))
 	query.Set("code_challenge_method", "S256")
 	query.Set("prompt", "select_account")
 	authURL.RawQuery = query.Encode()
@@ -97,6 +97,10 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 // GoogleCallback completes the Google OAuth flow, sets the refresh cookie, and redirects to the app.
 func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 	if oauthErr := strings.TrimSpace(req.URL.Query().Get("error")); oauthErr != "" {
+		if redirectPath, ok := consumeGoogleConnectionErrorRedirectPath(req); ok {
+			redirectGoogleConnectionCallbackError(w, req, redirectPath, "google_oauth")
+			return
+		}
 		http.Redirect(w, req, appRedirectURL(req, "/sign-in?error=google_oauth"), http.StatusFound)
 		return
 	}
@@ -115,6 +119,10 @@ func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 	oauthState, err := svc.query.ConsumeOAuthState(req.Context(), tokenHash(state))
 	if err != nil {
 		redirectGoogleCallbackError(w, req, "oauth_state")
+		return
+	}
+	if strings.TrimSpace(oauthState.Purpose) == googleConnectionOAuthPurpose {
+		finishGoogleConnectionCallback(w, req, svc, oauthState, code, googleRedirectURI(req))
 		return
 	}
 	tokenResponse, err := exchangeGoogleCode(req.Context(), code, oauthState.PkceVerifier, googleRedirectURI(req))
@@ -158,7 +166,11 @@ func newRuntimeService(ctx context.Context) (*Service, error) {
 }
 
 type googleTokenResponse struct {
-	IDToken string `json:"id_token"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int64  `json:"expires_in"`
+	IDToken      string `json:"id_token"`
+	Scope        string `json:"scope"`
 }
 
 func exchangeGoogleCode(ctx context.Context, code string, verifier string, redirectURI string) (googleTokenResponse, error) {
@@ -193,6 +205,11 @@ func exchangeGoogleCode(ctx context.Context, code string, verifier string, redir
 		return googleTokenResponse{}, fmt.Errorf("google id_token missing")
 	}
 	return out, nil
+}
+
+func googlePKCEChallenge(verifier string) string {
+	challengeSum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(challengeSum[:])
 }
 
 type googleIDClaims struct {
@@ -440,6 +457,21 @@ func googleRedirectURI(req *http.Request) string {
 	return base + "/auth/google/callback"
 }
 
+func googleConnectionRedirectURI(req *http.Request) string {
+	return googleRedirectURI(req)
+}
+
+func googleConnectCallbackRedirectURI(req *http.Request) string {
+	if base := requestBaseURL(req); base != "" {
+		return base + "/auth/google/connect/callback"
+	}
+	base := strings.TrimRight(strings.TrimSpace(secrets.APIBaseURL), "/")
+	if base == "" {
+		base = "https://api.scenery.localhost"
+	}
+	return base + "/auth/google/connect/callback"
+}
+
 func requestBaseURL(req *http.Request) string {
 	base := requestOriginURL(req)
 	if base == "" {
@@ -502,7 +534,7 @@ func firstForwardedValue(value string) string {
 }
 
 func appRedirectURL(req *http.Request, path string) string {
-	if base := requestOriginURL(req); base != "" {
+	if base := requestAppOriginURL(req); base != "" {
 		return base + safeRedirectPath(path)
 	}
 	base := strings.TrimRight(strings.TrimSpace(secrets.PublicAppURL), "/")
@@ -510,4 +542,17 @@ func appRedirectURL(req *http.Request, path string) string {
 		base = "https://app.scenery.localhost"
 	}
 	return base + safeRedirectPath(path)
+}
+
+func requestAppOriginURL(req *http.Request) string {
+	if req == nil {
+		return ""
+	}
+	if strings.TrimSpace(req.Header.Get("X-Forwarded-Proto")) == "" &&
+		strings.TrimSpace(req.Header.Get("X-Forwarded-Host")) == "" &&
+		strings.TrimSpace(req.Header.Get("X-Forwarded-Prefix")) == "" &&
+		strings.TrimSpace(req.Header.Get("X-Scenery-Route-Prefix")) == "" {
+		return ""
+	}
+	return requestOriginURL(req)
 }

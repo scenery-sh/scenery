@@ -17,7 +17,7 @@ SET consumed_at = now()
 WHERE state_hash = $1
   AND consumed_at IS NULL
   AND expires_at > now()
-RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at
+RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at
 `
 
 func (q *Queries) ConsumeOAuthState(ctx context.Context, stateHash string) (ScenerySceneryAuthOauthState, error) {
@@ -28,6 +28,8 @@ func (q *Queries) ConsumeOAuthState(ctx context.Context, stateHash string) (Scen
 		&i.StateHash,
 		&i.PkceVerifier,
 		&i.NonceHash,
+		&i.UserID,
+		&i.Purpose,
 		&i.RedirectPath,
 		&i.ExpiresAt,
 		&i.ConsumedAt,
@@ -176,6 +178,57 @@ func (q *Queries) CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentity
 	return i, err
 }
 
+const createGoogleConnectionOAuthState = `-- name: CreateGoogleConnectionOAuthState :one
+INSERT INTO scenery.scenery_auth_oauth_states (
+  id,
+  state_hash,
+  pkce_verifier,
+  nonce_hash,
+  user_id,
+  purpose,
+  redirect_path,
+  expires_at
+)
+VALUES ($1, $2, $3, $4, $5, 'google_connection', $6, $7)
+RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at
+`
+
+type CreateGoogleConnectionOAuthStateParams struct {
+	ID           UUID      `json:"id"`
+	StateHash    string    `json:"state_hash"`
+	PkceVerifier string    `json:"pkce_verifier"`
+	NonceHash    string    `json:"nonce_hash"`
+	UserID       UUID      `json:"user_id"`
+	RedirectPath string    `json:"redirect_path"`
+	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+func (q *Queries) CreateGoogleConnectionOAuthState(ctx context.Context, arg CreateGoogleConnectionOAuthStateParams) (ScenerySceneryAuthOauthState, error) {
+	row := q.db.QueryRowContext(ctx, createGoogleConnectionOAuthState,
+		arg.ID,
+		arg.StateHash,
+		arg.PkceVerifier,
+		arg.NonceHash,
+		arg.UserID,
+		arg.RedirectPath,
+		arg.ExpiresAt,
+	)
+	var i ScenerySceneryAuthOauthState
+	err := row.Scan(
+		&i.ID,
+		&i.StateHash,
+		&i.PkceVerifier,
+		&i.NonceHash,
+		&i.UserID,
+		&i.Purpose,
+		&i.RedirectPath,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createOAuthState = `-- name: CreateOAuthState :one
 INSERT INTO scenery.scenery_auth_oauth_states (
   id,
@@ -186,7 +239,7 @@ INSERT INTO scenery.scenery_auth_oauth_states (
   expires_at
 )
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at
+RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at
 `
 
 type CreateOAuthStateParams struct {
@@ -213,6 +266,8 @@ func (q *Queries) CreateOAuthState(ctx context.Context, arg CreateOAuthStatePara
 		&i.StateHash,
 		&i.PkceVerifier,
 		&i.NonceHash,
+		&i.UserID,
+		&i.Purpose,
 		&i.RedirectPath,
 		&i.ExpiresAt,
 		&i.ConsumedAt,
@@ -505,6 +560,42 @@ func (q *Queries) DisableMembership(ctx context.Context, arg DisableMembershipPa
 	return i, err
 }
 
+const disconnectGoogleConnection = `-- name: DisconnectGoogleConnection :one
+UPDATE scenery.scenery_auth_google_connections
+SET status = 'disconnected',
+    refresh_token_ciphertext = NULL,
+    access_token_ciphertext = NULL,
+    access_token_expires_at = NULL,
+    last_refresh_error = '',
+    disconnected_at = now(),
+    updated_at = now()
+WHERE user_id = $1
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+`
+
+func (q *Queries) DisconnectGoogleConnection(ctx context.Context, userID UUID) (ScenerySceneryAuthGoogleConnection, error) {
+	row := q.db.QueryRowContext(ctx, disconnectGoogleConnection, userID)
+	var i ScenerySceneryAuthGoogleConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ProviderSubject,
+		&i.Email,
+		&i.Scopes,
+		&i.RefreshTokenCiphertext,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.Status,
+		&i.LastRefreshAt,
+		&i.LastRefreshError,
+		&i.ConnectedAt,
+		&i.DisconnectedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const ensureDevBootstrapTenant = `-- name: EnsureDevBootstrapTenant :one
 INSERT INTO scenery.scenery_auth_tenants (id, name)
 VALUES ($1, $2)
@@ -633,6 +724,35 @@ func (q *Queries) GetAuthIdentityByProviderSubject(ctx context.Context, arg GetA
 	return i, err
 }
 
+const getAuthIdentityByUserProvider = `-- name: GetAuthIdentityByUserProvider :one
+SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
+FROM scenery.scenery_auth_auth_identities
+WHERE user_id = $1
+  AND provider = $2
+`
+
+type GetAuthIdentityByUserProviderParams struct {
+	UserID   UUID   `json:"user_id"`
+	Provider string `json:"provider"`
+}
+
+func (q *Queries) GetAuthIdentityByUserProvider(ctx context.Context, arg GetAuthIdentityByUserProviderParams) (ScenerySceneryAuthAuthIdentity, error) {
+	row := q.db.QueryRowContext(ctx, getAuthIdentityByUserProvider, arg.UserID, arg.Provider)
+	var i ScenerySceneryAuthAuthIdentity
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Provider,
+		&i.ProviderSubject,
+		&i.Email,
+		&i.NormalizedEmail,
+		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getEmailIdentityForLogin = `-- name: GetEmailIdentityForLogin :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 FROM scenery.scenery_auth_auth_identities
@@ -651,6 +771,65 @@ func (q *Queries) GetEmailIdentityForLogin(ctx context.Context, providerSubject 
 		&i.Email,
 		&i.NormalizedEmail,
 		&i.PasswordHash,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getGoogleConnectionByUser = `-- name: GetGoogleConnectionByUser :one
+SELECT id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+FROM scenery.scenery_auth_google_connections
+WHERE user_id = $1
+`
+
+func (q *Queries) GetGoogleConnectionByUser(ctx context.Context, userID UUID) (ScenerySceneryAuthGoogleConnection, error) {
+	row := q.db.QueryRowContext(ctx, getGoogleConnectionByUser, userID)
+	var i ScenerySceneryAuthGoogleConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ProviderSubject,
+		&i.Email,
+		&i.Scopes,
+		&i.RefreshTokenCiphertext,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.Status,
+		&i.LastRefreshAt,
+		&i.LastRefreshError,
+		&i.ConnectedAt,
+		&i.DisconnectedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getGoogleConnectionByUserForUpdate = `-- name: GetGoogleConnectionByUserForUpdate :one
+SELECT id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+FROM scenery.scenery_auth_google_connections
+WHERE user_id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetGoogleConnectionByUserForUpdate(ctx context.Context, userID UUID) (ScenerySceneryAuthGoogleConnection, error) {
+	row := q.db.QueryRowContext(ctx, getGoogleConnectionByUserForUpdate, userID)
+	var i ScenerySceneryAuthGoogleConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ProviderSubject,
+		&i.Email,
+		&i.Scopes,
+		&i.RefreshTokenCiphertext,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.Status,
+		&i.LastRefreshAt,
+		&i.LastRefreshError,
+		&i.ConnectedAt,
+		&i.DisconnectedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -899,6 +1078,45 @@ func (q *Queries) ListUserMemberships(ctx context.Context, userID UUID) ([]ListU
 	return items, nil
 }
 
+const markGoogleConnectionReauthRequired = `-- name: MarkGoogleConnectionReauthRequired :one
+UPDATE scenery.scenery_auth_google_connections
+SET status = 'reauth_required',
+    access_token_ciphertext = NULL,
+    access_token_expires_at = NULL,
+    last_refresh_error = $2,
+    updated_at = now()
+WHERE user_id = $1
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+`
+
+type MarkGoogleConnectionReauthRequiredParams struct {
+	UserID           UUID   `json:"user_id"`
+	LastRefreshError string `json:"last_refresh_error"`
+}
+
+func (q *Queries) MarkGoogleConnectionReauthRequired(ctx context.Context, arg MarkGoogleConnectionReauthRequiredParams) (ScenerySceneryAuthGoogleConnection, error) {
+	row := q.db.QueryRowContext(ctx, markGoogleConnectionReauthRequired, arg.UserID, arg.LastRefreshError)
+	var i ScenerySceneryAuthGoogleConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ProviderSubject,
+		&i.Email,
+		&i.Scopes,
+		&i.RefreshTokenCiphertext,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.Status,
+		&i.LastRefreshAt,
+		&i.LastRefreshError,
+		&i.ConnectedAt,
+		&i.DisconnectedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const markUserEmailVerified = `-- name: MarkUserEmailVerified :one
 UPDATE scenery.scenery_auth_users
 SET email_verified_at = COALESCE(email_verified_at, now()),
@@ -1058,6 +1276,57 @@ func (q *Queries) SoftDeleteTenant(ctx context.Context, id UUID) (SceneryScenery
 		&i.ID,
 		&i.Name,
 		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateGoogleConnectionTokens = `-- name: UpdateGoogleConnectionTokens :one
+UPDATE scenery.scenery_auth_google_connections
+SET scopes = $2,
+    refresh_token_ciphertext = $3,
+    access_token_ciphertext = $4,
+    access_token_expires_at = $5,
+    status = 'active',
+    last_refresh_at = now(),
+    last_refresh_error = '',
+    updated_at = now()
+WHERE user_id = $1
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+`
+
+type UpdateGoogleConnectionTokensParams struct {
+	UserID                 UUID         `json:"user_id"`
+	Scopes                 string       `json:"scopes"`
+	RefreshTokenCiphertext []byte       `json:"refresh_token_ciphertext"`
+	AccessTokenCiphertext  []byte       `json:"access_token_ciphertext"`
+	AccessTokenExpiresAt   sql.NullTime `json:"access_token_expires_at"`
+}
+
+func (q *Queries) UpdateGoogleConnectionTokens(ctx context.Context, arg UpdateGoogleConnectionTokensParams) (ScenerySceneryAuthGoogleConnection, error) {
+	row := q.db.QueryRowContext(ctx, updateGoogleConnectionTokens,
+		arg.UserID,
+		arg.Scopes,
+		arg.RefreshTokenCiphertext,
+		arg.AccessTokenCiphertext,
+		arg.AccessTokenExpiresAt,
+	)
+	var i ScenerySceneryAuthGoogleConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ProviderSubject,
+		&i.Email,
+		&i.Scopes,
+		&i.RefreshTokenCiphertext,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.Status,
+		&i.LastRefreshAt,
+		&i.LastRefreshError,
+		&i.ConnectedAt,
+		&i.DisconnectedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1226,6 +1495,80 @@ func (q *Queries) UpsertAuthAttempt(ctx context.Context, arg UpsertAuthAttemptPa
 		&i.WindowStartedAt,
 		&i.AttemptCount,
 		&i.LastAttemptAt,
+	)
+	return i, err
+}
+
+const upsertGoogleConnection = `-- name: UpsertGoogleConnection :one
+INSERT INTO scenery.scenery_auth_google_connections (
+  id,
+  user_id,
+  provider_subject,
+  email,
+  scopes,
+  refresh_token_ciphertext,
+  access_token_ciphertext,
+  access_token_expires_at,
+  status,
+  last_refresh_error,
+  connected_at,
+  disconnected_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', '', now(), NULL)
+ON CONFLICT (user_id)
+DO UPDATE SET provider_subject = EXCLUDED.provider_subject,
+              email = EXCLUDED.email,
+              scopes = EXCLUDED.scopes,
+              refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+              access_token_ciphertext = EXCLUDED.access_token_ciphertext,
+              access_token_expires_at = EXCLUDED.access_token_expires_at,
+              status = 'active',
+              last_refresh_error = '',
+              connected_at = now(),
+              disconnected_at = NULL,
+              updated_at = now()
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+`
+
+type UpsertGoogleConnectionParams struct {
+	ID                     UUID         `json:"id"`
+	UserID                 UUID         `json:"user_id"`
+	ProviderSubject        string       `json:"provider_subject"`
+	Email                  string       `json:"email"`
+	Scopes                 string       `json:"scopes"`
+	RefreshTokenCiphertext []byte       `json:"refresh_token_ciphertext"`
+	AccessTokenCiphertext  []byte       `json:"access_token_ciphertext"`
+	AccessTokenExpiresAt   sql.NullTime `json:"access_token_expires_at"`
+}
+
+func (q *Queries) UpsertGoogleConnection(ctx context.Context, arg UpsertGoogleConnectionParams) (ScenerySceneryAuthGoogleConnection, error) {
+	row := q.db.QueryRowContext(ctx, upsertGoogleConnection,
+		arg.ID,
+		arg.UserID,
+		arg.ProviderSubject,
+		arg.Email,
+		arg.Scopes,
+		arg.RefreshTokenCiphertext,
+		arg.AccessTokenCiphertext,
+		arg.AccessTokenExpiresAt,
+	)
+	var i ScenerySceneryAuthGoogleConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ProviderSubject,
+		&i.Email,
+		&i.Scopes,
+		&i.RefreshTokenCiphertext,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.Status,
+		&i.LastRefreshAt,
+		&i.LastRefreshError,
+		&i.ConnectedAt,
+		&i.DisconnectedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

@@ -27,7 +27,11 @@ func Endpoints(includeGoogle bool) []Endpoint {
 	}
 	if includeGoogle {
 		endpoints = append(endpoints,
+			Endpoint{"auth", "DisconnectGoogleConnection", runtimeapi.Auth, false, "/auth/google/connection/disconnect", []string{http.MethodPost}, false},
+			Endpoint{"auth", "GetGoogleConnection", runtimeapi.Auth, false, "/auth/google/connection", []string{http.MethodGet}, false},
 			Endpoint{"auth", "GoogleCallback", runtimeapi.Public, true, "/auth/google/callback", []string{http.MethodGet}, false},
+			Endpoint{"auth", "GoogleConnectCallback", runtimeapi.Public, true, "/auth/google/connect/callback", []string{http.MethodGet}, false},
+			Endpoint{"auth", "GoogleConnectStart", runtimeapi.Auth, false, "/auth/google/connect/start", []string{http.MethodPost}, true},
 			Endpoint{"auth", "GoogleStart", runtimeapi.Public, true, "/auth/google/start", []string{http.MethodGet}, false},
 		)
 	}

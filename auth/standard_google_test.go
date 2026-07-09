@@ -18,8 +18,12 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	authdb "scenery.sh/auth/db/gen"
+	"scenery.sh/errs"
 	"scenery.sh/runtime"
 )
+
+const gmailModifyScope = "https://www.googleapis.com/auth/gmail.modify"
+const calendarEventsScope = "https://www.googleapis.com/auth/calendar.events"
 
 func TestGoogleOAuthBrowserFlowWithFakeGoogle(t *testing.T) {
 	ctx := t.Context()
@@ -282,6 +286,354 @@ func TestGoogleRedirectURIUsesRequestHostBeforeConfiguredPathModeURL(t *testing.
 	}
 }
 
+func TestGoogleConnectionStartFallsBackToConfiguredAPIBaseURL(t *testing.T) {
+	svc, fake, authData := setupGoogleConnectionTest(t)
+	_ = svc
+
+	resp, err := runtime.CallEndpoint(
+		WithContext(t.Context(), UID(authData.UserID), authData),
+		"auth",
+		"GoogleConnectStart",
+		nil,
+		&GoogleConnectStartParams{Scopes: []string{gmailModifyScope}},
+	)
+	if err != nil {
+		t.Fatalf("GoogleConnectStart endpoint: %v", err)
+	}
+	start := resp.(*GoogleConnectStartResponse)
+	authURL, err := url.Parse(start.AuthorizeURL)
+	if err != nil {
+		t.Fatalf("authorize url: %v", err)
+	}
+	if got, want := authURL.Query().Get("redirect_uri"), "https://api.example.test/auth/google/callback"; got != want {
+		t.Fatalf("redirect_uri = %q, want %q", got, want)
+	}
+	if got := authURL.String(); !strings.HasPrefix(got, fake.server.URL+"/auth") {
+		t.Fatalf("authorize url = %q, want fake Google host", got)
+	}
+}
+
+func TestGoogleConnectionFlowStoresEncryptedTokenAndDisconnects(t *testing.T) {
+	svc, fake, authData := setupGoogleConnectionTest(t)
+	fake.accessToken = "initial-access"
+	fake.refreshToken = "initial-refresh"
+	fake.scope = gmailModifyScope
+
+	rec := runFakeGoogleConnectionFlow(t, fake, authData, "/settings")
+	if got := rec.Header().Get("Location"); !strings.Contains(got, "google_connected=1") {
+		t.Fatalf("connection callback redirect = %q, want google_connected=1", got)
+	}
+
+	conn, err := svc.query.GetGoogleConnectionByUser(t.Context(), mustParseAuthUUID(t, string(authData.UserID)))
+	if err != nil {
+		t.Fatalf("get google connection: %v", err)
+	}
+	if conn.Status != "active" || conn.Email != "person@example.test" || !googleScopesContain(parseGoogleScopes(conn.Scopes), []string{gmailModifyScope}) {
+		t.Fatalf("connection = %+v", conn)
+	}
+	if strings.Contains(string(conn.RefreshTokenCiphertext), "initial-refresh") {
+		t.Fatal("refresh token was stored in plaintext")
+	}
+	opened, err := openGoogleToken(conn.RefreshTokenCiphertext)
+	if err != nil || opened != "initial-refresh" {
+		t.Fatalf("open refresh token = %q, %v", opened, err)
+	}
+
+	status, err := runtime.CallEndpoint(WithContext(t.Context(), UID(authData.UserID), authData), "auth", "GetGoogleConnection", nil, nil)
+	if err != nil {
+		t.Fatalf("GetGoogleConnection endpoint: %v", err)
+	}
+	if got := status.(*GoogleConnectionResponse); got.Status != "active" || !googleScopesContain(got.Scopes, []string{gmailModifyScope}) {
+		t.Fatalf("status = %+v", got)
+	}
+	disc, err := runtime.CallEndpoint(WithContext(t.Context(), UID(authData.UserID), authData), "auth", "DisconnectGoogleConnection", nil, nil)
+	if err != nil {
+		t.Fatalf("DisconnectGoogleConnection endpoint: %v", err)
+	}
+	if got := disc.(*GoogleConnectionResponse); got.Status != "disconnected" {
+		t.Fatalf("disconnect status = %+v", got)
+	}
+	if fake.revokeCalls.Load() != 1 {
+		t.Fatalf("revoke calls = %d, want 1", fake.revokeCalls.Load())
+	}
+}
+
+func TestGoogleConnectionCallbackOAuthErrorUsesStateRedirect(t *testing.T) {
+	_, _, authData := setupGoogleConnectionTest(t)
+
+	resp, err := runtime.CallEndpoint(
+		WithContext(t.Context(), UID(authData.UserID), authData),
+		"auth",
+		"GoogleConnectStart",
+		nil,
+		&GoogleConnectStartParams{Scopes: []string{gmailModifyScope}, RedirectPath: "/settings"},
+	)
+	if err != nil {
+		t.Fatalf("GoogleConnectStart endpoint: %v", err)
+	}
+	start := resp.(*GoogleConnectStartResponse)
+	authURL, err := url.Parse(start.AuthorizeURL)
+	if err != nil {
+		t.Fatalf("authorize url: %v", err)
+	}
+	callbackReq := httptest.NewRequest(http.MethodGet, "https://api.example.test/auth/google/callback?error=access_denied&state="+url.QueryEscape(authURL.Query().Get("state")), nil)
+	callbackRec := httptest.NewRecorder()
+	GoogleCallback(callbackRec, callbackReq)
+	assertRedirect(t, callbackRec, "https://app.example.test/settings?error=google_oauth")
+}
+
+func TestGoogleAccessTokenRefreshesRotatesAndSingleFlights(t *testing.T) {
+	svc, fake, authData := setupGoogleConnectionTest(t)
+	fake.accessToken = "initial-access"
+	fake.refreshToken = "initial-refresh"
+	fake.scope = gmailModifyScope
+	runFakeGoogleConnectionFlow(t, fake, authData, "/")
+	userID := mustParseAuthUUID(t, string(authData.UserID))
+
+	token, err := GoogleAccessTokenForUser(t.Context(), string(authData.UserID), gmailModifyScope)
+	if err != nil || token != "initial-access" {
+		t.Fatalf("cached GoogleAccessTokenForUser = %q, %v", token, err)
+	}
+	if _, err := svc.db.ExecContext(t.Context(), `update scenery.scenery_auth_google_connections set access_token_expires_at = now() - interval '1 minute' where user_id = $1`, userID); err != nil {
+		t.Fatalf("expire access token: %v", err)
+	}
+	fake.mu.Lock()
+	fake.refreshQueue = append(fake.refreshQueue, fakeGoogleRefreshResponse{
+		accessToken:  "rotated-access",
+		refreshToken: "rotated-refresh",
+		scope:        gmailModifyScope,
+	})
+	fake.mu.Unlock()
+
+	var wg sync.WaitGroup
+	results := make(chan string, 2)
+	errsCh := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			token, err := GoogleAccessTokenForUser(t.Context(), string(authData.UserID), gmailModifyScope)
+			if err != nil {
+				errsCh <- err
+				return
+			}
+			results <- token
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errsCh)
+	for err := range errsCh {
+		t.Fatalf("concurrent GoogleAccessTokenForUser: %v", err)
+	}
+	for token := range results {
+		if token != "rotated-access" {
+			t.Fatalf("concurrent token = %q, want rotated-access", token)
+		}
+	}
+	if got := fake.refreshCalls.Load(); got != 1 {
+		t.Fatalf("refresh calls = %d, want 1", got)
+	}
+	conn, err := svc.query.GetGoogleConnectionByUser(t.Context(), userID)
+	if err != nil {
+		t.Fatalf("get connection after rotation: %v", err)
+	}
+	opened, err := openGoogleToken(conn.RefreshTokenCiphertext)
+	if err != nil || opened != "rotated-refresh" {
+		t.Fatalf("stored refresh after rotation = %q, %v", opened, err)
+	}
+}
+
+func TestGoogleAccessTokenRetriesTransientAndMarksPermanentRefreshFailures(t *testing.T) {
+	svc, fake, authData := setupGoogleConnectionTest(t)
+	fake.accessToken = "initial-access"
+	fake.refreshToken = "initial-refresh"
+	fake.scope = gmailModifyScope
+	runFakeGoogleConnectionFlow(t, fake, authData, "/")
+	userID := mustParseAuthUUID(t, string(authData.UserID))
+	if _, err := svc.db.ExecContext(t.Context(), `update scenery.scenery_auth_google_connections set access_token_expires_at = now() - interval '1 minute' where user_id = $1`, userID); err != nil {
+		t.Fatalf("expire access token: %v", err)
+	}
+	fake.mu.Lock()
+	fake.refreshQueue = append(fake.refreshQueue,
+		fakeGoogleRefreshResponse{status: http.StatusInternalServerError, errorCode: "server_error"},
+		fakeGoogleRefreshResponse{accessToken: "retried-access", scope: gmailModifyScope},
+	)
+	fake.mu.Unlock()
+	token, err := GoogleAccessTokenForUser(t.Context(), string(authData.UserID), gmailModifyScope)
+	if err != nil || token != "retried-access" {
+		t.Fatalf("retried refresh token = %q, %v", token, err)
+	}
+	if got := fake.refreshCalls.Load(); got != 2 {
+		t.Fatalf("refresh calls after retry = %d, want 2", got)
+	}
+
+	if _, err := svc.db.ExecContext(t.Context(), `update scenery.scenery_auth_google_connections set access_token_expires_at = now() - interval '1 minute' where user_id = $1`, userID); err != nil {
+		t.Fatalf("expire access token again: %v", err)
+	}
+	fake.mu.Lock()
+	fake.refreshQueue = append(fake.refreshQueue, fakeGoogleRefreshResponse{status: http.StatusBadRequest, errorCode: "invalid_grant"})
+	fake.mu.Unlock()
+	_, err = GoogleAccessTokenForUser(t.Context(), string(authData.UserID), gmailModifyScope)
+	if errs.Code(err) != errs.GoogleReauthRequired {
+		t.Fatalf("permanent refresh err = %v, code %q", err, errs.Code(err))
+	}
+	conn, err := svc.query.GetGoogleConnectionByUser(t.Context(), userID)
+	if err != nil {
+		t.Fatalf("get connection after invalid_grant: %v", err)
+	}
+	if conn.Status != "reauth_required" || conn.LastRefreshError != "invalid_grant" {
+		t.Fatalf("connection after invalid_grant = %+v", conn)
+	}
+	before := fake.refreshCalls.Load()
+	_, err = GoogleAccessTokenForUser(t.Context(), string(authData.UserID), gmailModifyScope)
+	if errs.Code(err) != errs.GoogleReauthRequired {
+		t.Fatalf("reauth-required fast fail err = %v, code %q", err, errs.Code(err))
+	}
+	if fake.refreshCalls.Load() != before {
+		t.Fatalf("reauth-required call hit Google: before=%d after=%d", before, fake.refreshCalls.Load())
+	}
+}
+
+func TestGoogleAccessTokenReportsMissingScopes(t *testing.T) {
+	_, fake, authData := setupGoogleConnectionTest(t)
+	allowGoogleScopeForTest("https://www.googleapis.com/auth/gmail.readonly")
+	fake.accessToken = "initial-access"
+	fake.refreshToken = "initial-refresh"
+	fake.scope = gmailModifyScope
+	runFakeGoogleConnectionFlow(t, fake, authData, "/")
+
+	_, err := GoogleAccessTokenForUser(t.Context(), string(authData.UserID), "https://www.googleapis.com/auth/gmail.readonly")
+	if errs.Code(err) != errs.GoogleScopeMissing {
+		t.Fatalf("missing scope err = %v, code %q", err, errs.Code(err))
+	}
+}
+
+func TestGoogleAccessTokenEnforcesAllowedScopes(t *testing.T) {
+	_, fake, authData := setupGoogleConnectionTest(t)
+	fake.accessToken = "initial-access"
+	fake.refreshToken = "initial-refresh"
+	fake.scope = gmailModifyScope + " " + calendarEventsScope
+	runFakeGoogleConnectionFlow(t, fake, authData, "/")
+
+	_, err := GoogleAccessTokenForUser(t.Context(), string(authData.UserID), calendarEventsScope)
+	if errs.Code(err) != errs.PermissionDenied {
+		t.Fatalf("disallowed scope err = %v, code %q", err, errs.Code(err))
+	}
+}
+
+func TestGoogleTokenCipherRoundTrip(t *testing.T) {
+	resetStandardAuthStateForTest(t)
+	key := base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
+	t.Setenv("AuthTokenCipherKey", key)
+	standardAuthState.mu.Lock()
+	standardAuthState.cfg = normalizeStandardConfig(StandardConfig{Enabled: true, GoogleOAuth: GoogleOAuthConfig{Enabled: true}})
+	standardAuthState.mu.Unlock()
+
+	ciphertext, err := sealGoogleToken("refresh-secret")
+	if err != nil {
+		t.Fatalf("sealGoogleToken: %v", err)
+	}
+	if strings.Contains(string(ciphertext), "refresh-secret") {
+		t.Fatal("ciphertext contains plaintext")
+	}
+	opened, err := openGoogleToken(ciphertext)
+	if err != nil || opened != "refresh-secret" {
+		t.Fatalf("openGoogleToken = %q, %v", opened, err)
+	}
+}
+
+func setupGoogleConnectionTest(t *testing.T) (*Service, *fakeGoogleServer, *AuthData) {
+	t.Helper()
+	ctx := t.Context()
+	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
+	t.Cleanup(cleanup)
+	resetStandardAuthStateForTest(t)
+
+	oldBackoff := googleRefreshRetryBackoff
+	googleRefreshRetryBackoff = time.Millisecond
+	t.Cleanup(func() { googleRefreshRetryBackoff = oldBackoff })
+
+	fake := newFakeGoogleServer(t)
+	fake.email = "person@example.test"
+	fake.emailVerified = true
+	fake.subject = "connection-subject"
+	overrideGoogleEndpointsForTest(t, fake)
+	t.Setenv("DatabaseURL", databaseURL)
+	t.Setenv("JWTSecret", "test-jwt-secret")
+	t.Setenv("AuthTokenCipherKey", base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")))
+	t.Setenv("GoogleOAuthClientID", "client-id")
+	t.Setenv("GoogleOAuthClientSecret", "client-secret")
+	t.Setenv("PublicAppURL", "https://app.example.test")
+	t.Setenv("APIBaseURL", "https://api.example.test")
+	runtime.SetAppConfig(runtime.AppConfig{Name: "google-connection-test", ListenAddr: "127.0.0.1:0"})
+
+	cfg := normalizeStandardConfig(StandardConfig{
+		Enabled: true,
+		GoogleOAuth: GoogleOAuthConfig{
+			Enabled:       true,
+			AllowedScopes: []string{gmailModifyScope},
+		},
+		AutoBootstrapDatabase: true,
+	})
+	applyStandardSecrets(cfg)
+	standardAuthState.mu.Lock()
+	standardAuthState.cfg = cfg
+	standardAuthState.mu.Unlock()
+	if _, ok := runtime.LookupEndpoint("auth", "GoogleConnectStart"); !ok {
+		registerStandardAuthEndpoints(cfg)
+	}
+	svc, err := standardAuthService(ctx)
+	if err != nil {
+		t.Fatalf("standard auth service: %v", err)
+	}
+	_, rec := runFakeGoogleFlow(t, fake, "/")
+	refreshCookie := findCookie(rec.Result().Cookies(), refreshCookieName)
+	if refreshCookie == nil {
+		t.Fatal("sign-in did not set refresh cookie")
+	}
+	authData := assertRefreshCookieValid(t, svc, refreshCookie.Value)
+	return svc, fake, authData
+}
+
+func allowGoogleScopeForTest(scope string) {
+	standardAuthState.mu.Lock()
+	defer standardAuthState.mu.Unlock()
+	standardAuthState.cfg.GoogleOAuth.AllowedScopes = append(standardAuthState.cfg.GoogleOAuth.AllowedScopes, scope)
+}
+
+func runFakeGoogleConnectionFlow(t *testing.T, fake *fakeGoogleServer, authData *AuthData, redirectPath string) *httptest.ResponseRecorder {
+	t.Helper()
+	resp, err := runtime.CallEndpoint(
+		WithContext(t.Context(), UID(authData.UserID), authData),
+		"auth",
+		"GoogleConnectStart",
+		nil,
+		&GoogleConnectStartParams{Scopes: []string{gmailModifyScope}, RedirectPath: redirectPath},
+	)
+	if err != nil {
+		t.Fatalf("GoogleConnectStart endpoint: %v", err)
+	}
+	start := resp.(*GoogleConnectStartResponse)
+	callbackURL := fake.authorize(t, start.AuthorizeURL)
+	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	callbackRec := httptest.NewRecorder()
+	GoogleCallback(callbackRec, callbackReq)
+	if callbackRec.Code != http.StatusFound {
+		t.Fatalf("connection callback status = %d, want %d: %s", callbackRec.Code, http.StatusFound, callbackRec.Body.String())
+	}
+	return callbackRec
+}
+
+func mustParseAuthUUID(t *testing.T, value string) authdb.UUID {
+	t.Helper()
+	id, err := parseUUID(value)
+	if err != nil {
+		t.Fatalf("parse uuid %q: %v", value, err)
+	}
+	return id
+}
+
 type fakeGoogleServer struct {
 	server        *httptest.Server
 	key           *rsa.PrivateKey
@@ -290,9 +642,28 @@ type fakeGoogleServer struct {
 	email         string
 	emailVerified bool
 	nonceOverride string
+	accessToken   string
+	refreshToken  string
+	scope         string
 	mu            sync.Mutex
-	codes         map[string]string
+	codes         map[string]fakeGoogleCode
+	refreshQueue  []fakeGoogleRefreshResponse
 	nextCode      int
+	refreshCalls  atomic.Int64
+	revokeCalls   atomic.Int64
+}
+
+type fakeGoogleCode struct {
+	nonce string
+	scope string
+}
+
+type fakeGoogleRefreshResponse struct {
+	status       int
+	accessToken  string
+	refreshToken string
+	scope        string
+	errorCode    string
 }
 
 func newFakeGoogleServer(t *testing.T) *fakeGoogleServer {
@@ -301,11 +672,15 @@ func newFakeGoogleServer(t *testing.T) *fakeGoogleServer {
 		key:           mustRSAKey(t),
 		kid:           "fake-google-key",
 		emailVerified: true,
-		codes:         map[string]string{},
+		codes:         map[string]fakeGoogleCode{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth", fake.handleAuth)
 	mux.HandleFunc("/token", fake.handleToken)
+	mux.HandleFunc("/revoke", func(w http.ResponseWriter, _ *http.Request) {
+		fake.revokeCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
 		writeTestJWKS(t, w, []testJWK{{kid: fake.kid, key: &fake.key.PublicKey}})
 	})
@@ -318,15 +693,18 @@ func overrideGoogleEndpointsForTest(t *testing.T, fake *fakeGoogleServer) {
 	t.Helper()
 	oldAuthEndpoint := googleAuthEndpoint
 	oldTokenEndpoint := googleTokenEndpoint
+	oldRevokeEndpoint := googleRevokeEndpoint
 	oldJWKSURL := googleJWKSURL
 	oldSecrets := secrets
 	resetGoogleJWKSCacheForTest()
 	googleAuthEndpoint = fake.server.URL + "/auth"
 	googleTokenEndpoint = fake.server.URL + "/token"
+	googleRevokeEndpoint = fake.server.URL + "/revoke"
 	googleJWKSURL = fake.server.URL + "/jwks"
 	t.Cleanup(func() {
 		googleAuthEndpoint = oldAuthEndpoint
 		googleTokenEndpoint = oldTokenEndpoint
+		googleRevokeEndpoint = oldRevokeEndpoint
 		googleJWKSURL = oldJWKSURL
 		secrets = oldSecrets
 		resetGoogleJWKSCacheForTest()
@@ -348,6 +726,7 @@ func (f *fakeGoogleServer) handleAuth(w http.ResponseWriter, req *http.Request) 
 	redirectURI := strings.TrimSpace(req.URL.Query().Get("redirect_uri"))
 	state := strings.TrimSpace(req.URL.Query().Get("state"))
 	nonce := strings.TrimSpace(req.URL.Query().Get("nonce"))
+	scope := strings.TrimSpace(req.URL.Query().Get("scope"))
 	if redirectURI == "" || state == "" || nonce == "" {
 		http.Error(w, "bad fake auth request", http.StatusBadRequest)
 		return
@@ -355,7 +734,7 @@ func (f *fakeGoogleServer) handleAuth(w http.ResponseWriter, req *http.Request) 
 	f.mu.Lock()
 	f.nextCode++
 	code := "code-" + strconv.Itoa(f.nextCode)
-	f.codes[code] = nonce
+	f.codes[code] = fakeGoogleCode{nonce: nonce, scope: scope}
 	f.mu.Unlock()
 
 	callback, _ := url.Parse(redirectURI)
@@ -371,14 +750,19 @@ func (f *fakeGoogleServer) handleToken(w http.ResponseWriter, req *http.Request)
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
+	if req.PostForm.Get("grant_type") == "refresh_token" {
+		f.handleRefresh(w)
+		return
+	}
 	code := strings.TrimSpace(req.PostForm.Get("code"))
 	f.mu.Lock()
-	nonce, ok := f.codes[code]
+	issued, ok := f.codes[code]
 	f.mu.Unlock()
 	if !ok {
 		http.Error(w, "unknown code", http.StatusBadRequest)
 		return
 	}
+	nonce := issued.nonce
 	if f.nonceOverride != "" {
 		nonce = f.nonceOverride
 	}
@@ -392,7 +776,47 @@ func (f *fakeGoogleServer) handleToken(w http.ResponseWriter, req *http.Request)
 		http.Error(w, "sign fake token", http.StatusInternalServerError)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]string{"id_token": token})
+	payload := map[string]any{
+		"id_token":      token,
+		"access_token":  firstNonEmpty(f.accessToken, "access-"+code),
+		"expires_in":    3600,
+		"scope":         firstNonEmpty(f.scope, issued.scope),
+		"refresh_token": f.refreshToken,
+	}
+	if f.refreshToken == "" {
+		delete(payload, "refresh_token")
+	}
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func (f *fakeGoogleServer) handleRefresh(w http.ResponseWriter) {
+	call := f.refreshCalls.Add(1)
+	f.mu.Lock()
+	var next fakeGoogleRefreshResponse
+	if len(f.refreshQueue) > 0 {
+		next = f.refreshQueue[0]
+		f.refreshQueue = f.refreshQueue[1:]
+	}
+	f.mu.Unlock()
+	if next.status != 0 && (next.status < http.StatusOK || next.status >= http.StatusMultipleChoices) {
+		w.WriteHeader(next.status)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":             firstNonEmpty(next.errorCode, "server_error"),
+			"error_description": "scripted fake Google refresh error",
+		})
+		return
+	}
+	accessToken := firstNonEmpty(next.accessToken, "refreshed-access-"+strconv.FormatInt(call, 10))
+	scope := firstNonEmpty(next.scope, f.scope)
+	payload := map[string]any{
+		"access_token": accessToken,
+		"expires_in":   3600,
+		"scope":        scope,
+	}
+	if next.refreshToken != "" {
+		payload["refresh_token"] = next.refreshToken
+	}
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 type testJWK struct {

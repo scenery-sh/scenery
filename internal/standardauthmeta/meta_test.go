@@ -5,11 +5,21 @@ import "testing"
 func TestEndpointsGateGoogleOAuth(t *testing.T) {
 	t.Parallel()
 
-	if hasEndpoint(Endpoints(false), "GoogleStart") || hasEndpoint(Endpoints(false), "GoogleCallback") {
-		t.Fatal("disabled Google OAuth endpoints leaked into standard auth metadata")
+	googleEndpoints := []string{
+		"DisconnectGoogleConnection",
+		"GetGoogleConnection",
+		"GoogleCallback",
+		"GoogleConnectCallback",
+		"GoogleConnectStart",
+		"GoogleStart",
 	}
-	if !hasEndpoint(Endpoints(true), "GoogleStart") || !hasEndpoint(Endpoints(true), "GoogleCallback") {
-		t.Fatal("enabled Google OAuth endpoints missing from standard auth metadata")
+	for _, name := range googleEndpoints {
+		if hasEndpoint(Endpoints(false), name) {
+			t.Fatalf("disabled Google OAuth endpoint %s leaked into standard auth metadata", name)
+		}
+		if !hasEndpoint(Endpoints(true), name) {
+			t.Fatalf("enabled Google OAuth endpoint %s missing from standard auth metadata", name)
+		}
 	}
 }
 

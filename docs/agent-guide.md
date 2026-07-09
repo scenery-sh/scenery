@@ -152,6 +152,8 @@ This avoids duplicating stale runtime documentation into every client app while 
 
 When an app needs Go build tags or other app-owned build-time flags, prefer app config `build.go_flags` such as `["-tags=roofmapnet_native"]` over asking every agent to export `GOFLAGS` before `scenery up`, `scenery check`, or `scenery test`.
 
+For Google API integrations such as Gmail, use standard auth's Google connection endpoints and `auth.GoogleAccessToken` / `auth.GoogleAccessTokenForUser`; client apps should not store Google refresh tokens themselves.
+
 ## CLI Surfaces For Agents
 
 Prefer JSON when output will feed another tool or decision.

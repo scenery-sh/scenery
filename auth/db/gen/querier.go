@@ -14,6 +14,7 @@ type Querier interface {
 	CountActiveOwners(ctx context.Context, tenantID UUID) (int64, error)
 	CreateAuthEvent(ctx context.Context, arg CreateAuthEventParams) error
 	CreateAuthIdentity(ctx context.Context, arg CreateAuthIdentityParams) (ScenerySceneryAuthAuthIdentity, error)
+	CreateGoogleConnectionOAuthState(ctx context.Context, arg CreateGoogleConnectionOAuthStateParams) (ScenerySceneryAuthOauthState, error)
 	CreateOAuthState(ctx context.Context, arg CreateOAuthStateParams) (ScenerySceneryAuthOauthState, error)
 	CreateOneTimeToken(ctx context.Context, arg CreateOneTimeTokenParams) (ScenerySceneryAuthOneTimeToken, error)
 	CreateOrganizationMembership(ctx context.Context, arg CreateOrganizationMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)
@@ -22,28 +23,35 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (ScenerySceneryAuthUser, error)
 	DeleteExpiredOAuthStates(ctx context.Context) error
 	DisableMembership(ctx context.Context, arg DisableMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)
+	DisconnectGoogleConnection(ctx context.Context, userID UUID) (ScenerySceneryAuthGoogleConnection, error)
 	EnsureDevBootstrapTenant(ctx context.Context, arg EnsureDevBootstrapTenantParams) (ScenerySceneryAuthTenant, error)
 	EnsureDevBootstrapUser(ctx context.Context, arg EnsureDevBootstrapUserParams) (ScenerySceneryAuthUser, error)
 	GetActiveMembership(ctx context.Context, arg GetActiveMembershipParams) (ScenerySceneryAuthOrganizationMembership, error)
 	GetAuthIdentityByProviderSubject(ctx context.Context, arg GetAuthIdentityByProviderSubjectParams) (ScenerySceneryAuthAuthIdentity, error)
+	GetAuthIdentityByUserProvider(ctx context.Context, arg GetAuthIdentityByUserProviderParams) (ScenerySceneryAuthAuthIdentity, error)
 	GetEmailIdentityForLogin(ctx context.Context, providerSubject string) (ScenerySceneryAuthAuthIdentity, error)
+	GetGoogleConnectionByUser(ctx context.Context, userID UUID) (ScenerySceneryAuthGoogleConnection, error)
+	GetGoogleConnectionByUserForUpdate(ctx context.Context, userID UUID) (ScenerySceneryAuthGoogleConnection, error)
 	GetRefreshSessionByID(ctx context.Context, id UUID) (ScenerySceneryAuthRefreshSession, error)
 	GetTenantByID(ctx context.Context, id UUID) (ScenerySceneryAuthTenant, error)
 	GetUserByID(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error)
 	GetUserByNormalizedEmail(ctx context.Context, normalizedPrimaryEmail string) (ScenerySceneryAuthUser, error)
 	ListTenantMembers(ctx context.Context, tenantID UUID) ([]ListTenantMembersRow, error)
 	ListUserMemberships(ctx context.Context, userID UUID) ([]ListUserMembershipsRow, error)
+	MarkGoogleConnectionReauthRequired(ctx context.Context, arg MarkGoogleConnectionReauthRequiredParams) (ScenerySceneryAuthGoogleConnection, error)
 	MarkUserEmailVerified(ctx context.Context, id UUID) (ScenerySceneryAuthUser, error)
 	RevokeRefreshSession(ctx context.Context, arg RevokeRefreshSessionParams) error
 	RevokeUserRefreshSessions(ctx context.Context, arg RevokeUserRefreshSessionsParams) error
 	RotateRefreshSession(ctx context.Context, arg RotateRefreshSessionParams) (ScenerySceneryAuthRefreshSession, error)
 	SetRefreshSessionTenant(ctx context.Context, arg SetRefreshSessionTenantParams) (ScenerySceneryAuthRefreshSession, error)
 	SoftDeleteTenant(ctx context.Context, id UUID) (ScenerySceneryAuthTenant, error)
+	UpdateGoogleConnectionTokens(ctx context.Context, arg UpdateGoogleConnectionTokensParams) (ScenerySceneryAuthGoogleConnection, error)
 	UpdateIdentityPasswordHash(ctx context.Context, arg UpdateIdentityPasswordHashParams) (ScenerySceneryAuthAuthIdentity, error)
 	UpdateMembershipRole(ctx context.Context, arg UpdateMembershipRoleParams) (ScenerySceneryAuthOrganizationMembership, error)
 	UpdateTenantName(ctx context.Context, arg UpdateTenantNameParams) (ScenerySceneryAuthTenant, error)
 	UpdateUserProfileFromProvider(ctx context.Context, arg UpdateUserProfileFromProviderParams) (ScenerySceneryAuthUser, error)
 	UpsertAuthAttempt(ctx context.Context, arg UpsertAuthAttemptParams) (ScenerySceneryAuthAuthAttempt, error)
+	UpsertGoogleConnection(ctx context.Context, arg UpsertGoogleConnectionParams) (ScenerySceneryAuthGoogleConnection, error)
 }
 
 var _ Querier = (*Queries)(nil)

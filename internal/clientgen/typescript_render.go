@@ -630,6 +630,8 @@ void mergeCallParameters
 		{"DataLoss", "data_loss"},
 		{"Unauthenticated", "unauthenticated"},
 		{"Conflict", "conflict"},
+		{"GoogleReauthRequired", "google_reauth_required"},
+		{"GoogleScopeMissing", "google_scope_missing"},
 	} {
 		buf.WriteString(fmt.Sprintf("    %s = %q,\n", item.Name, item.Value))
 	}

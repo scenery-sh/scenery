@@ -329,7 +329,12 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "client_id_env": { "type": "string" },
-        "client_secret_env": { "type": "string" }
+        "client_secret_env": { "type": "string" },
+        "allowed_scopes": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "token_cipher_key_env": { "type": "string" }
       },
       "additionalProperties": false
     },

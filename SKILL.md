@@ -100,7 +100,7 @@ curl http://localhost:4001/api/hello/world
 //scenery:authhandler
 ```
 
-Standard auth can be enabled from app config without app-local wrapper endpoints. Its tenant tables are framework-owned Postgres tables in the app database's `scenery` schema; app-local `tenants` services or tables are product-domain concerns only.
+Standard auth can be enabled from app config without app-local wrapper endpoints. Its tenant tables are framework-owned Postgres tables in the app database's `scenery` schema; app-local `tenants` services or tables are product-domain concerns only. When `auth.google_oauth.enabled` is true, Google sign-in and Google connection endpoints are generated; app code can call `auth.GoogleAccessToken(ctx, scopes...)` or `auth.GoogleAccessTokenForUser(ctx, userID, scopes...)`, and clients should treat `google_reauth_required` as a reconnect prompt.
 
 Typed endpoint shape:
 

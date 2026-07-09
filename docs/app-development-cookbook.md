@@ -284,7 +284,9 @@ To enable Google sign-in, opt in explicitly and provide credentials through env:
     "google_oauth": {
       "enabled": true,
       "client_id_env": "GoogleOAuthClientID",
-      "client_secret_env": "GoogleOAuthClientSecret"
+      "client_secret_env": "GoogleOAuthClientSecret",
+      "allowed_scopes": ["https://www.googleapis.com/auth/gmail.modify"],
+      "token_cipher_key_env": "AuthTokenCipherKey"
     }
   }
 }
@@ -304,7 +306,35 @@ GET /auth/google/start?redirect_path=/
 
 When `google_oauth.enabled` is false or absent, `/auth/google/start` and `/auth/google/callback` are not registered, do not appear in `scenery inspect endpoints --json`, and are omitted from generated TypeScript clients. When Google OAuth is enabled but credentials are missing, `scenery check --json` reports an `auth` warning.
 
-ONLV should enable `auth.google_oauth.enabled`, keep `GoogleOAuthClientID` and `GoogleOAuthClientSecret` in its local app-root env, register the redirect URI for its Scenery API base URL, and point its sign-in button at `/auth/google/start?redirect_path=/`.
+ONLV should enable `auth.google_oauth.enabled`, keep `GoogleOAuthClientID` and `GoogleOAuthClientSecret` in its local app-root env, register the redirect URI for its Scenery API base URL, and point its sign-in button at `/auth/google/start?redirect_path=/`. Gmail connection consent reuses the same Google callback URI and dispatches by OAuth state purpose, so apps do not need a second Google redirect URI.
+
+Put a base64-encoded 32-byte `AuthTokenCipherKey` in production env. Local `scenery up` can derive a dev-only key from the local JWT secret when this env is absent.
+
+For long-lived Gmail access, do not leave the Google OAuth consent screen in
+Testing publishing status: Google test-user refresh tokens expire after 7 days.
+Use an In production external app, or an Internal app under Google Workspace.
+
+The frontend starts consent through the generated auth client:
+
+```ts
+const { authorize_url } = await client.auth.GoogleConnectStart({
+  scopes: ["https://www.googleapis.com/auth/gmail.modify"],
+  redirect_path: "/settings"
+})
+window.location.href = authorize_url
+```
+
+After Google redirects back, `GET /auth/google/connection` returns `status: "active"` with granted scopes. `status: "reauth_required"` means the user should reconnect.
+
+App backend code fetches a short-lived Google access token when it needs Gmail:
+
+```go
+token, err := auth.GoogleAccessToken(ctx, "https://www.googleapis.com/auth/gmail.modify")
+```
+
+Handle `google_reauth_required` by asking the user to reconnect, and `google_scope_missing` by restarting connect with the missing scope. On a Gmail 401, call `auth.GoogleAccessToken` once more and retry the Gmail request once; use ordinary 429/quota backoff for Gmail rate limits.
+
+For mailbox sync, persist Gmail `historyId`, poll `users.history.list`, and do a full resync if Gmail returns 404 for an expired history cursor. Drafts stay in ONLV and call Gmail `drafts.create` / `drafts.update`. Sending should use a durable outbox: enqueue the send, have a worker call Gmail, and record Gmail `message.id` so retries stay idempotent. Preserve threading by passing Gmail `threadId` when available and setting standard `References` / `In-Reply-To` headers.
 
 Standard auth owns its tenant state in `scenery.scenery_auth_tenants`. You do not need an app-local `tenants` service or table to use standard auth; create one only for product-domain tenant APIs or schema.
 

@@ -150,6 +150,28 @@
       ]
     },
     {
+      "name": "AuthTokenCipherKey",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input_injected",
+      "category": "app.services.auth",
+      "stability": "secret",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Default app-style base64 32-byte AES-GCM key for encrypted Google connection refresh/access token storage when `auth.google_oauth.token_cipher_key_env` is omitted.",
+      "preferred_surface": "app-root `.env` or process environment for app-supplied auth secrets",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "GOOGLE_OAUTH_CLIENT_ID",
       "match": "exact",
       "scope": "runtime",

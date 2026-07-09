@@ -10,16 +10,28 @@ import (
 func TestStandardAuthGoogleEndpointsFollowConfig(t *testing.T) {
 	t.Parallel()
 
+	googleEndpoints := []string{
+		"DisconnectGoogleConnection",
+		"GetGoogleConnection",
+		"GoogleCallback",
+		"GoogleConnectCallback",
+		"GoogleConnectStart",
+		"GoogleStart",
+	}
 	cfg := appcfg.Config{Auth: appcfg.AuthConfig{Enabled: true}}
 	resp := BuildEndpointsResponse("/tmp/app", cfg, &model.App{})
-	if endpointRecord(resp.Endpoints, "GoogleStart") != nil || endpointRecord(resp.Endpoints, "GoogleCallback") != nil {
-		t.Fatal("disabled Google OAuth endpoints leaked into inspect endpoints")
+	for _, name := range googleEndpoints {
+		if endpointRecord(resp.Endpoints, name) != nil {
+			t.Fatalf("disabled Google OAuth endpoint %s leaked into inspect endpoints", name)
+		}
 	}
 
 	cfg.Auth.GoogleOAuth.Enabled = true
 	resp = BuildEndpointsResponse("/tmp/app", cfg, &model.App{})
-	if endpointRecord(resp.Endpoints, "GoogleStart") == nil || endpointRecord(resp.Endpoints, "GoogleCallback") == nil {
-		t.Fatal("enabled Google OAuth endpoints missing from inspect endpoints")
+	for _, name := range googleEndpoints {
+		if endpointRecord(resp.Endpoints, name) == nil {
+			t.Fatalf("enabled Google OAuth endpoint %s missing from inspect endpoints", name)
+		}
 	}
 }
 

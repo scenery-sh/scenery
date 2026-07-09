@@ -44,11 +44,31 @@ type ScenerySceneryAuthAuthIdentity struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
+type ScenerySceneryAuthGoogleConnection struct {
+	ID                     UUID         `json:"id"`
+	UserID                 UUID         `json:"user_id"`
+	ProviderSubject        string       `json:"provider_subject"`
+	Email                  string       `json:"email"`
+	Scopes                 string       `json:"scopes"`
+	RefreshTokenCiphertext []byte       `json:"refresh_token_ciphertext"`
+	AccessTokenCiphertext  []byte       `json:"access_token_ciphertext"`
+	AccessTokenExpiresAt   sql.NullTime `json:"access_token_expires_at"`
+	Status                 string       `json:"status"`
+	LastRefreshAt          sql.NullTime `json:"last_refresh_at"`
+	LastRefreshError       string       `json:"last_refresh_error"`
+	ConnectedAt            time.Time    `json:"connected_at"`
+	DisconnectedAt         sql.NullTime `json:"disconnected_at"`
+	CreatedAt              time.Time    `json:"created_at"`
+	UpdatedAt              time.Time    `json:"updated_at"`
+}
+
 type ScenerySceneryAuthOauthState struct {
 	ID           UUID         `json:"id"`
 	StateHash    string       `json:"state_hash"`
 	PkceVerifier string       `json:"pkce_verifier"`
 	NonceHash    string       `json:"nonce_hash"`
+	UserID       UUID         `json:"user_id"`
+	Purpose      string       `json:"purpose"`
 	RedirectPath string       `json:"redirect_path"`
 	ExpiresAt    time.Time    `json:"expires_at"`
 	ConsumedAt   sql.NullTime `json:"consumed_at"`

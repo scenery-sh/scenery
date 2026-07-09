@@ -90,8 +90,21 @@ func TestTypeScriptClientGatesStandardAuthGoogleMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateTypeScript() error = %v", err)
 	}
-	if strings.Contains(string(out), "GoogleStart") || strings.Contains(string(out), "/auth/google/start") {
-		t.Fatalf("disabled Google OAuth methods leaked into generated client:\n%s", out)
+	googleMethodFragments := []string{
+		"public async DisconnectGoogleConnection",
+		"public async GetGoogleConnection",
+		"public async GoogleCallback",
+		"public async GoogleConnectCallback",
+		"public async GoogleConnectStart",
+		"public async GoogleStart",
+		"/auth/google/connection",
+		"/auth/google/connect/start",
+		"/auth/google/start",
+	}
+	for _, fragment := range googleMethodFragments {
+		if strings.Contains(string(out), fragment) {
+			t.Fatalf("disabled Google OAuth method %q leaked into generated client:\n%s", fragment, out)
+		}
 	}
 
 	out, err = GenerateTypeScript(&model.App{Name: "pulse"}, TypeScriptOptions{
@@ -103,7 +116,7 @@ func TestTypeScriptClientGatesStandardAuthGoogleMethods(t *testing.T) {
 		t.Fatalf("GenerateTypeScript() error = %v", err)
 	}
 	got := string(out)
-	for _, want := range []string{"GoogleStart", "/auth/google/start", "GoogleCallback", "/auth/google/callback"} {
+	for _, want := range append(googleMethodFragments, "GoogleConnectionResponse") {
 		if !strings.Contains(got, want) {
 			t.Fatalf("enabled Google OAuth client missing %q:\n%s", want, got)
 		}

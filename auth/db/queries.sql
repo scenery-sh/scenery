@@ -67,6 +67,12 @@ FROM scenery.scenery_auth_auth_identities
 WHERE provider = $1
   AND provider_subject = $2;
 
+-- name: GetAuthIdentityByUserProvider :one
+SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
+FROM scenery.scenery_auth_auth_identities
+WHERE user_id = $1
+  AND provider = $2;
+
 -- name: GetEmailIdentityForLogin :one
 SELECT id, user_id, provider, provider_subject, email, normalized_email, password_hash, created_at, updated_at
 FROM scenery.scenery_auth_auth_identities
@@ -285,7 +291,21 @@ INSERT INTO scenery.scenery_auth_oauth_states (
   expires_at
 )
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at;
+RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at;
+
+-- name: CreateGoogleConnectionOAuthState :one
+INSERT INTO scenery.scenery_auth_oauth_states (
+  id,
+  state_hash,
+  pkce_verifier,
+  nonce_hash,
+  user_id,
+  purpose,
+  redirect_path,
+  expires_at
+)
+VALUES ($1, $2, $3, $4, $5, 'google_connection', $6, $7)
+RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at;
 
 -- name: DeleteExpiredOAuthStates :exec
 DELETE FROM scenery.scenery_auth_oauth_states
@@ -297,7 +317,83 @@ SET consumed_at = now()
 WHERE state_hash = $1
   AND consumed_at IS NULL
   AND expires_at > now()
-RETURNING id, state_hash, pkce_verifier, nonce_hash, redirect_path, expires_at, consumed_at, created_at;
+RETURNING id, state_hash, pkce_verifier, nonce_hash, user_id, purpose, redirect_path, expires_at, consumed_at, created_at;
+
+-- name: GetGoogleConnectionByUser :one
+SELECT id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+FROM scenery.scenery_auth_google_connections
+WHERE user_id = $1;
+
+-- name: GetGoogleConnectionByUserForUpdate :one
+SELECT id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at
+FROM scenery.scenery_auth_google_connections
+WHERE user_id = $1
+FOR UPDATE;
+
+-- name: UpsertGoogleConnection :one
+INSERT INTO scenery.scenery_auth_google_connections (
+  id,
+  user_id,
+  provider_subject,
+  email,
+  scopes,
+  refresh_token_ciphertext,
+  access_token_ciphertext,
+  access_token_expires_at,
+  status,
+  last_refresh_error,
+  connected_at,
+  disconnected_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', '', now(), NULL)
+ON CONFLICT (user_id)
+DO UPDATE SET provider_subject = EXCLUDED.provider_subject,
+              email = EXCLUDED.email,
+              scopes = EXCLUDED.scopes,
+              refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+              access_token_ciphertext = EXCLUDED.access_token_ciphertext,
+              access_token_expires_at = EXCLUDED.access_token_expires_at,
+              status = 'active',
+              last_refresh_error = '',
+              connected_at = now(),
+              disconnected_at = NULL,
+              updated_at = now()
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
+
+-- name: UpdateGoogleConnectionTokens :one
+UPDATE scenery.scenery_auth_google_connections
+SET scopes = $2,
+    refresh_token_ciphertext = $3,
+    access_token_ciphertext = $4,
+    access_token_expires_at = $5,
+    status = 'active',
+    last_refresh_at = now(),
+    last_refresh_error = '',
+    updated_at = now()
+WHERE user_id = $1
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
+
+-- name: MarkGoogleConnectionReauthRequired :one
+UPDATE scenery.scenery_auth_google_connections
+SET status = 'reauth_required',
+    access_token_ciphertext = NULL,
+    access_token_expires_at = NULL,
+    last_refresh_error = $2,
+    updated_at = now()
+WHERE user_id = $1
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
+
+-- name: DisconnectGoogleConnection :one
+UPDATE scenery.scenery_auth_google_connections
+SET status = 'disconnected',
+    refresh_token_ciphertext = NULL,
+    access_token_ciphertext = NULL,
+    access_token_expires_at = NULL,
+    last_refresh_error = '',
+    disconnected_at = now(),
+    updated_at = now()
+WHERE user_id = $1
+RETURNING id, user_id, provider_subject, email, scopes, refresh_token_ciphertext, access_token_ciphertext, access_token_expires_at, status, last_refresh_at, last_refresh_error, connected_at, disconnected_at, created_at, updated_at;
 
 -- name: UpsertAuthAttempt :one
 INSERT INTO scenery.scenery_auth_auth_attempts (id, purpose, normalized_email, ip_hash, attempt_count)

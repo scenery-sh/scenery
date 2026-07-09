@@ -16,12 +16,16 @@ CREATE TABLE IF NOT EXISTS scenery.scenery_auth_oauth_states (
   state_hash text NOT NULL,
   pkce_verifier text NOT NULL,
   nonce_hash text NOT NULL DEFAULT '',
+  user_id uuid,
+  purpose text NOT NULL DEFAULT 'login',
   redirect_path text NOT NULL DEFAULT '',
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS oauth_states_state_hash_key ON scenery.scenery_auth_oauth_states (state_hash);
+ALTER TABLE scenery.scenery_auth_oauth_states ADD COLUMN IF NOT EXISTS user_id uuid;
+ALTER TABLE scenery.scenery_auth_oauth_states ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'login';
 
 CREATE TABLE IF NOT EXISTS scenery.scenery_auth_users (
   id uuid PRIMARY KEY NOT NULL,
@@ -82,6 +86,27 @@ CREATE TABLE IF NOT EXISTS scenery.scenery_auth_auth_identities (
 CREATE INDEX IF NOT EXISTS auth_identities_normalized_email_idx ON scenery.scenery_auth_auth_identities (normalized_email);
 CREATE UNIQUE INDEX IF NOT EXISTS auth_identities_provider_subject_key ON scenery.scenery_auth_auth_identities (provider, provider_subject);
 CREATE INDEX IF NOT EXISTS auth_identities_user_id_idx ON scenery.scenery_auth_auth_identities (user_id);
+
+CREATE TABLE IF NOT EXISTS scenery.scenery_auth_google_connections (
+  id uuid PRIMARY KEY NOT NULL,
+  user_id uuid NOT NULL,
+  provider_subject text NOT NULL,
+  email text NOT NULL DEFAULT '',
+  scopes text NOT NULL DEFAULT '',
+  refresh_token_ciphertext bytea,
+  access_token_ciphertext bytea,
+  access_token_expires_at timestamptz,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'reauth_required', 'disconnected')),
+  last_refresh_at timestamptz,
+  last_refresh_error text NOT NULL DEFAULT '',
+  connected_at timestamptz NOT NULL DEFAULT now(),
+  disconnected_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (user_id) REFERENCES scenery.scenery_auth_users (id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS google_connections_user_id_key ON scenery.scenery_auth_google_connections (user_id);
+CREATE INDEX IF NOT EXISTS google_connections_status_idx ON scenery.scenery_auth_google_connections (status);
 
 CREATE TABLE IF NOT EXISTS scenery.scenery_auth_one_time_tokens (
   id uuid PRIMARY KEY NOT NULL,

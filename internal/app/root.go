@@ -395,9 +395,11 @@ type AuthConfig struct {
 }
 
 type AuthGoogleConfig struct {
-	Enabled         bool   `json:"enabled"`
-	ClientIDEnv     string `json:"client_id_env"`
-	ClientSecretEnv string `json:"client_secret_env"`
+	Enabled           bool     `json:"enabled"`
+	ClientIDEnv       string   `json:"client_id_env"`
+	ClientSecretEnv   string   `json:"client_secret_env"`
+	AllowedScopes     []string `json:"allowed_scopes"`
+	TokenCipherKeyEnv string   `json:"token_cipher_key_env"`
 }
 
 type AuthDevBootstrap struct {

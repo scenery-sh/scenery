@@ -76,7 +76,7 @@ func authConfigLiteral(cfg appcfg.AuthConfig) string {
 }
 
 func authGoogleConfigLiteral(cfg appcfg.AuthGoogleConfig) string {
-	fields := make([]string, 0, 3)
+	fields := make([]string, 0, 5)
 	if cfg.Enabled {
 		fields = append(fields, "Enabled: true")
 	}
@@ -85,6 +85,16 @@ func authGoogleConfigLiteral(cfg appcfg.AuthGoogleConfig) string {
 	}
 	if cfg.ClientSecretEnv != "" {
 		fields = append(fields, fmt.Sprintf("ClientSecretEnv: %q", cfg.ClientSecretEnv))
+	}
+	if len(cfg.AllowedScopes) > 0 {
+		quoted := make([]string, 0, len(cfg.AllowedScopes))
+		for _, scope := range cfg.AllowedScopes {
+			quoted = append(quoted, fmt.Sprintf("%q", scope))
+		}
+		fields = append(fields, "AllowedScopes: []string{"+strings.Join(quoted, ", ")+"}")
+	}
+	if cfg.TokenCipherKeyEnv != "" {
+		fields = append(fields, fmt.Sprintf("TokenCipherKeyEnv: %q", cfg.TokenCipherKeyEnv))
 	}
 	if len(fields) == 0 {
 		return ""
