@@ -129,7 +129,7 @@ func writeHarnessTestApp(t *testing.T, root, name, body string) {
 	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//scenery:api public\nfunc Ping(context.Context) error { "+body+" }\n")
 }
 
-func writeHarnessSelfRepo(t *testing.T, schema string) string {
+func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...string) string {
 	t.Helper()
 	root := t.TempDir()
 	writeTestAppFile(t, root, "go.mod", "module scenery.sh\n\ngo 1.26.3\n")
@@ -147,12 +147,20 @@ func writeHarnessSelfRepo(t *testing.T, schema string) string {
 	writeTestAppFile(t, root, "docs/plans/active.md", "Active.\n")
 	writeTestAppFile(t, root, "docs/plans/completed.md", "Completed.\n")
 	writeTestAppFile(t, root, "docs/tech-debt.md", "Debt.\n")
-	matches, err := filepath.Glob(filepath.Join(repoRootForTest(t), "docs", "schemas", "*.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range matches {
-		writeTestAppFile(t, root, filepath.Join("docs", "schemas", filepath.Base(path)), schema)
+	schemaNames := append([]string{"scenery.docs.index.v1.schema.json"}, requestedSchemas...)
+	sort.Strings(schemaNames)
+	for i, name := range schemaNames {
+		name = strings.TrimSpace(name)
+		if name == "" || filepath.Base(name) != name || !strings.HasSuffix(name, ".schema.json") {
+			t.Fatalf("invalid harness fixture schema name %q", name)
+		}
+		if i > 0 && name == strings.TrimSpace(schemaNames[i-1]) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(repoRootForTest(t), "docs", "schemas", name)); err != nil {
+			t.Fatalf("unknown harness fixture schema %q: %v", name, err)
+		}
+		writeTestAppFile(t, root, filepath.Join("docs", "schemas", name), schema)
 	}
 	writeTestAppFile(t, root, "docs/knowledge.json", `{
   "schema_version": "scenery.docs.index.v1",

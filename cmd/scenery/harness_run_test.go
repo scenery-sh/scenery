@@ -128,6 +128,8 @@ func TestRunHarnessParallelDevStep(t *testing.T) {
 }
 
 func TestSummarizeGoTestFailures(t *testing.T) {
+	t.Parallel()
+
 	output := []byte(strings.Join([]string{
 		`{"Action":"output","Package":"scenery.sh/internal/storage","Test":"TestLease","Output":"=== RUN   TestLease\n"}`,
 		`{"Action":"output","Package":"scenery.sh/internal/storage","Test":"TestLease","Output":"storage_test.go:12: expected lease\n"}`,

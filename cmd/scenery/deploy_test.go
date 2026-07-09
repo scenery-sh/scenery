@@ -262,6 +262,8 @@ func TestDeployDNSDiagnosticsAllowsCloudflareProxy(t *testing.T) {
 }
 
 func TestParseDeployNetstatPortListenerDualStack(t *testing.T) {
+	t.Parallel()
+
 	output := `tcp46      0      0  *.443                  *.*                    LISTEN                 0            0  131072  131072 scenery-edge-hel:10536  00180 00000006 000000000066c994 00000000 00000800      1      0 000000`
 	info, ok := parseDeployNetstatPortListener(output, 443)
 	if !ok || info.PID != 10536 || info.Command != "scenery-edge-hel" || info.Name != "*.443" {
@@ -270,6 +272,8 @@ func TestParseDeployNetstatPortListenerDualStack(t *testing.T) {
 }
 
 func TestDeployRawIPHTTPSNeedsSNISkipsTLSInternalError(t *testing.T) {
+	t.Parallel()
+
 	if !deployRawIPHTTPSNeedsSNI("https://217.112.163.198/", "remote error: tls: internal error") {
 		t.Fatal("expected raw-IP HTTPS TLS internal error to be skipped")
 	}

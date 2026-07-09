@@ -41,6 +41,8 @@ func TestHarnessSelfGoTestCommandUsesMeasuredPackageParallelism(t *testing.T) {
 }
 
 func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
+	t.Parallel()
+
 	output := strings.Join([]string{
 		`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.8}`,
 		`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.7}`,
@@ -94,6 +96,8 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 }
 
 func TestConfirmHarnessTimingOutliersWarnsOnlyForConfirmedPackage(t *testing.T) {
+	t.Parallel()
+
 	output := []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":3.2}`)
 	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommand(), time.Second, defaultHarnessTestTimingBudgets())
 	confirmHarnessTimingOutliers(context.Background(), "/repo", report, func(_ context.Context, _ string, command []string) ([]byte, error) {
@@ -105,6 +109,8 @@ func TestConfirmHarnessTimingOutliersWarnsOnlyForConfirmedPackage(t *testing.T) 
 }
 
 func TestCommandPackageUsesExplicitTimingBudget(t *testing.T) {
+	t.Parallel()
+
 	output := []byte(`{"Action":"pass","Package":"scenery.sh/cmd/scenery","Elapsed":9}`)
 	report := parseHarnessGoTestTimingWithBudgets(output, harnessSelfGoTestCommand(), time.Second, defaultHarnessTestTimingBudgets())
 	called := false

@@ -178,6 +178,11 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - [x] 2026-07-09: Measured the dependency cut directly. Test dependency closures fell from 230 to 137 packages for `internal/app`, 145 to 80 for `internal/model`, 273 to 152 for `internal/codegen`, 268 to 146 for `internal/webgen`, and 286 to 220 for `internal/inspect`. `cmd/scenery` stayed at 356 because the complete CLI legitimately owns parsing and PostgreSQL commands; the new lightweight package has no separate test binary.
 - [x] 2026-07-09: Adopted `-p 8` for cached and fresh self-harness Go timing commands based only on repeated measurements on the maintainer machine. After the dependency cut, three warm compile/init runs were 6.04s, 6.00s, and 6.07s (6.04s median), and three fresh JSON runs were 10.55s, 10.47s, and 10.30s (10.47s median).
 - [x] 2026-07-09: Consolidated confirmation without caching. Candidate packages share one serial `go test -p 1` command, and same-package test candidates share one `-parallel=1` command. The final fresh self-harness passed at 10.390s with 3.369s confirmation, three observed process-test candidates, zero confirmed slow tests, and no timing warnings. A cache was intentionally not added because the remaining explicit-fresh cost is small relative to the stale-evidence contract it would create.
+- [x] 2026-07-09: Profiled the remaining `cmd/scenery` test cost with three fresh JSON runs, a prebuilt test binary, a runtime trace, and an isolated cold-cache action graph. The package command was 7.60s, 6.94s, and 6.78s wall; the prebuilt binary ran the full tests at 5.48s median while zero-test initialization was effectively free after the first page-cache load. The serial test phase consumed 5.00s median and the parallel tail only 0.68s. The trace attributed 6.91s cumulative delay to process waits, 1.52s to temporary-tree cleanup, and 1.31s to fixture writes; warm build/link was only 1.12s.
+- [x] 2026-07-09: Moved only instance-local `cmd/scenery` tests onto `t.Parallel()`, including generated-schema temp apps and the real Go code-task test. The code-task test now uses its existing explicit stdout writer instead of mutating process-global stdout. Environment-mutating, shared-listener, Git-worktree, frontend-restart, Caddy/Victoria, and global-hook tests remain serial.
+- [x] 2026-07-09: Reduced `writeHarnessSelfRepo` from writing every repository schema to one baseline docs schema plus explicitly requested schemas. The schema-validation test names its 15 validation targets, and a focused regression test proves ordinary fixtures do not restore the 53-schema fanout.
+- [x] 2026-07-09: Retuned `cmd/scenery` test parallelism after the new workload. Three local `-parallel=8` samples were 5.86s, 5.95s, and 6.07s; `-parallel=12` was 6.14-6.22s and `-parallel=16` was 6.43-6.66s. The package default is now 8. Three clean final JSON runs were 6.23s, 6.02s, and 5.76s wall (6.02s median), with 5.177s median package elapsed, a 3.89s serial phase, and a 0.95s parallel tail. Wall time improved 13.3% from the 6.94s pre-change median.
+- [x] 2026-07-09: Revalidated the serial-path cut locally with focused three-run tests, `go test -race ./cmd/scenery`, `go test ./...`, `go test ./cmd/scenery`, `go vet ./...`, docs/schema checks, and both self-harness timing lanes. Cached self-harness passed at 6.307s with no candidates, below the seven-second target. Fresh self-harness passed at 9.577s with 3.320s confirmation, three observed candidates, zero confirmed slow tests, and no timing warnings.
 
 ## Surprises & Discoveries
 
@@ -282,6 +287,9 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - 2026-07-09: `internal/model` exposed the parser loader's `*packages.Package` even though downstream consumers only used its file set and type information. A three-field model-owned value removes `x/tools` from codegen/webgen/model consumers while leaving parser loading unchanged.
 - 2026-07-09: The first post-edit compile-only run was cold at 8.72s; warmed repeats settled at 6.04s median. Performance conclusions must continue to separate source-invalidated build work from the warmed `-count=1` steady state.
 - 2026-07-09: Full self-harness timing still varies with host pressure. One fresh run widened to 13.376s and produced 21 raw package candidates; the next run was 10.390s with no package candidates. Serial grouped confirmation bounds startup overhead without pretending those first-pass package timings are independent regressions.
+- 2026-07-09: The remaining isolated `cmd/scenery` wall time was test execution, not package initialization or warm compilation. A prebuilt binary still took 5.48s median to run the tests, while warm build/link took 1.12s and a warm zero-test binary was effectively instantaneous.
+- 2026-07-09: Test scheduling had two distinct phases because `testing` holds `t.Parallel` tests until serial tests finish. Before the cut, 138 serial tests occupied 4.90-5.63s and 236 parallel tests then finished in 0.66-0.68s. Moving isolated work reduced the serial critical path by about 1.1s even though cumulative per-test elapsed increased under useful overlap.
+- 2026-07-09: More in-package parallelism is not automatically faster. After generated-schema tests joined the parallel phase, a limit of 8 beat 12 by about 0.2-0.3s and 16 by about 0.6s on this machine while using materially less kernel time. The remaining serial leaders all mutate environment/global state or own real shared process lifecycles, so mass-adding `t.Parallel` would be unsafe.
 
 ## Decision Log
 
@@ -479,6 +487,15 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
   Date/Author: 2026-07-09 / Codex.
 - Decision: Consolidate isolated confirmations instead of caching them.
   Rationale: One serial package process and one serial same-package test process reduce Go-driver startup while preserving real reruns. The final fresh confirmation cost was 3.369s; a cache would add invalidation semantics and stale-evidence risk for little remaining benefit.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Parallelize only `cmd/scenery` tests with instance-local inputs and outputs, and keep process-global tests serial.
+  Rationale: The serial phase was the measured package critical path, but environment mutation, global hooks, fixed listeners, and shared process lifecycles are correctness boundaries rather than scheduling accidents. Explicit writers and isolated temp apps can overlap safely; the race detector verifies that chosen boundary.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Materialize only requested schemas in synthetic harness repositories.
+  Rationale: Most harness unit tests need the docs-index schema, not 53 placeholder schema files. Naming the schema-validation targets preserves contract coverage while removing repeated writes and cleanup without adding a fixture cache.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Use an in-package `cmd/scenery` test parallelism limit of 8 on the maintainer machine.
+  Rationale: Repeated local samples after the test scheduling change put 8 ahead of 12 and 16. The lower limit reduces subprocess/kernel contention while the repository-wide self-harness continues to use the separately measured `-p 8` package fanout.
   Date/Author: 2026-07-09 / Codex.
 
 ## Outcomes & Retrospective

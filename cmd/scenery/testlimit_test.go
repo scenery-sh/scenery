@@ -12,6 +12,6 @@ import (
 // subprocesses, so more in-flight tests shorten the run without adding
 // scheduler threads.
 func TestMain(m *testing.M) {
-	testlimit.RaiseTestParallelism(12)
+	testlimit.RaiseTestParallelism(8)
 	os.Exit(m.Run())
 }

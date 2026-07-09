@@ -92,7 +92,23 @@ func TestValidateHarnessJSONSchemaFile(t *testing.T) {
 func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	t.Parallel()
 
-	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
+	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`,
+		"scenery.agent_context.v1.schema.json",
+		"scenery.deploy.registry.v1.schema.json",
+		"scenery.deploy.status.v1.schema.json",
+		"scenery.doctor.result.v1.schema.json",
+		"scenery.environment.registry.v1.schema.json",
+		"scenery.harness.artifact.v1.schema.json",
+		"scenery.harness.changed_area.v1.schema.json",
+		"scenery.harness.schema_validation.v1.schema.json",
+		"scenery.harness.self.summary.v1.schema.json",
+		"scenery.harness.self.v1.schema.json",
+		"scenery.harness.test_timing.v1.schema.json",
+		"scenery.help.v1.schema.json",
+		"scenery.inspect.docs.v1.schema.json",
+		"scenery.inspect.harness.v1.schema.json",
+		"scenery.version.v1.schema.json",
+	)
 	resp := harnessSelfResponse{
 		SchemaVersion: "scenery.harness.self.v1",
 		OK:            true,
@@ -121,6 +137,19 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {
 		t.Fatalf("schema diagnostics = %+v", report.Diagnostics)
+	}
+}
+
+func TestWriteHarnessSelfRepoWritesOnlyRequestedSchemas(t *testing.T) {
+	t.Parallel()
+
+	root := writeHarnessSelfRepo(t, `{"type":"object"}`, "scenery.help.v1.schema.json")
+	matches, err := filepath.Glob(filepath.Join(root, "docs", "schemas", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("fixture schemas = %v, want docs index plus requested help schema", matches)
 	}
 }
 

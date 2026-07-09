@@ -12,6 +12,8 @@ import (
 )
 
 func TestGenerateDataDryRunWritesGeneratedSchema(t *testing.T) {
+	t.Parallel()
+
 	root := writeModelDSLAppFixture(t, modelDSLExpectedSchemaHCL)
 
 	var out bytes.Buffer
@@ -52,6 +54,8 @@ func TestGenerateDataDryRunWritesGeneratedSchema(t *testing.T) {
 }
 
 func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
+	t.Parallel()
+
 	root := writeModelDSLAppFixture(t, modelDSLExpectedSchemaHCL)
 
 	var out bytes.Buffer
@@ -126,6 +130,8 @@ func TestGenerateDataWritesDeterministicGeneratedWebPackage(t *testing.T) {
 }
 
 func TestGenerateDataExistingTableWritesWebWithoutGeneratedDBArtifacts(t *testing.T) {
+	t.Parallel()
+
 	root := writeExistingTableDSLAppFixture(t)
 
 	var out bytes.Buffer
@@ -187,6 +193,8 @@ func TestDBSeedDiscoversGeneratedModelSeed(t *testing.T) {
 }
 
 func TestDBDiffGeneratedReportsSchemaDrift(t *testing.T) {
+	t.Parallel()
+
 	root := writeModelDSLAppFixture(t, `schema "public" {}
 `)
 
@@ -209,6 +217,8 @@ func TestDBDiffGeneratedReportsSchemaDrift(t *testing.T) {
 }
 
 func TestDBDiffGeneratedPassesWhenSchemaMatches(t *testing.T) {
+	t.Parallel()
+
 	root := writeModelDSLAppFixture(t, modelDSLExpectedSchemaHCL)
 
 	var out bytes.Buffer
@@ -225,6 +235,8 @@ func TestDBDiffGeneratedPassesWhenSchemaMatches(t *testing.T) {
 }
 
 func TestDBDiffGeneratedAcceptsCollisionSafeSchemaLabels(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"modelsafe","id":"modelsafe-dev"}`)
 	writeTestAppFile(t, root, "go.mod", "module example.com/modelsafe\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+repoRootForTest(t)+"\n")
@@ -283,6 +295,8 @@ table "tasksnew" "tasks" {
 }
 
 func TestRunSceneryCheckReportsGeneratedSchemaDrift(t *testing.T) {
+	t.Parallel()
+
 	root := writeModelDSLAppFixture(t, `schema "public" {}
 `)
 

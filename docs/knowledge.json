@@ -1231,7 +1231,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Active ExecPlan for honest cached, fresh, and release timing lanes, lightweight PostgreSQL/model dependency boundaries, locally measured package parallelism, serial isolated hotspot confirmation, and reducing the remaining fresh-suite floor.",
+      "summary": "Active ExecPlan for honest cached, fresh, and release timing lanes, lightweight PostgreSQL/model dependency boundaries, locally measured package and test parallelism, serial critical-path reduction, isolated hotspot confirmation, and reducing the remaining fresh-suite floor.",
       "tags": [
         "plans",
         "execplans",

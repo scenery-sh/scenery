@@ -105,6 +105,8 @@ func TestDashboardServesEmbeddedUIAssets(t *testing.T) {
 }
 
 func TestDashboardResponsesIncludeBundleIdentity(t *testing.T) {
+	t.Parallel()
+
 	server := newTestDashboardServer(t)
 	server.assets = fstest.MapFS{
 		"index.html": {Data: []byte(`<!doctype html><html><head></head><body>app __APP_ID__</body></html>`)},

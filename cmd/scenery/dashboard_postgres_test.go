@@ -9,6 +9,8 @@ import (
 )
 
 func TestDashboardPostgresRPCsRequireDatabase(t *testing.T) {
+	t.Parallel()
+
 	server := newTestDashboardServer(t)
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-test","dev":{"services":{"main":{}}}}`), 0o644); err != nil {

@@ -177,6 +177,8 @@ func TestTaskListAndInspectCodeTasks(t *testing.T) {
 }
 
 func TestRunAndScriptCommandsAreRemoved(t *testing.T) {
+	t.Parallel()
+
 	if err := run([]string{"run", "list"}); err == nil || !strings.Contains(err.Error(), `unknown command "run"`) {
 		t.Fatalf("run command error = %v", err)
 	}
@@ -237,6 +239,8 @@ func TestTypeScriptScriptCommandPrefersBunThenNode(t *testing.T) {
 }
 
 func TestRunSceneryScriptRunsGoFileFromAppRoot(t *testing.T) {
+	t.Parallel()
+
 	root := scriptFixtureRoot(t)
 	writeTestAppFile(t, root, "fixtures/input.txt", "fixture-ok\n")
 	writeTestAppFile(t, root, "billing/tasks/reconcile.task.go", `//go:build ignore
@@ -260,14 +264,17 @@ func main() {
 }
 `)
 
-	out := captureStdout(t, func() error {
-		return runSceneryScript(context.Background(), scriptOptions{
-			AppRoot: root,
-			Env:     "production",
-			Target:  "billing:reconcile",
-			Args:    []string{"--dry-run", "--limit", "100"},
-		})
-	})
+	var stdout bytes.Buffer
+	if err := runSceneryScript(context.Background(), scriptOptions{
+		AppRoot: root,
+		Env:     "production",
+		Target:  "billing:reconcile",
+		Args:    []string{"--dry-run", "--limit", "100"},
+		Stdout:  &stdout,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
 	for _, want := range []string{
 		"cwd-fixture=fixture-ok",
 		"args=--dry-run,--limit,100",

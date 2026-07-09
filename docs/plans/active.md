@@ -66,7 +66,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery runtime / test infrastructure
   - Created: 2026-05-28
-  - Focus: keep cached, fresh, and release timing lanes honest after the lightweight dependency cuts and locally measured `-p 8` scheduler, then reduce the remaining CLI/test-body and compile/init floor.
+  - Focus: keep cached, fresh, and release timing lanes honest after the lightweight dependency cuts, locally measured package/test parallelism, and serial-test critical-path reduction, then reduce the remaining process-lifecycle and compile/init floor.
 - [0059 Frozen Toolchain Manifest and Managed Tool Store](0059-frozen-toolchain-manifest.md)
   - Status: active
   - Owner: scenery runtime / release tooling / agent DX

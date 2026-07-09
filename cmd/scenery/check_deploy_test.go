@@ -12,6 +12,8 @@ import (
 )
 
 func TestDeployConfigInfoDiagnosticsReportsUnsetRoot(t *testing.T) {
+	t.Parallel()
+
 	root := persistentTestAppRoot(t, "check-deploy-root")
 	preparePersistentTestApp(t, root, map[string]string{
 		".scenery.json": `{
@@ -38,6 +40,8 @@ func TestDeployConfigInfoDiagnosticsReportsUnsetRoot(t *testing.T) {
 }
 
 func TestRunSceneryCheckCompilesPersistentFixture(t *testing.T) {
+	t.Parallel()
+
 	root := persistentTestAppRoot(t, "check-compile-smoke")
 	preparePersistentTestApp(t, root, map[string]string{
 		".scenery.json":  `{"name":"checksmoke"}`,
