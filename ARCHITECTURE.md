@@ -150,6 +150,28 @@ workspace the source of truth.
 Architecture invariant: build metadata should be machine-readable enough for
 agents and humans to diagnose drift without scraping terminal output.
 
+### `internal/edge`
+
+`internal/edge` owns the managed Caddy lifecycle behind `scenery system edge`:
+process start and stop, admin-socket reload, local-CA trust, and persistence of
+the corresponding `internal/agent` edge state. `cmd/scenery` remains the adapter
+for CLI grammar, output, managed-tool resolution, DNS, privileged listeners, and
+Caddyfile policy.
+
+Architecture invariant: edge lifecycle code exposes a small concrete interface
+and does not import the CLI. Platform-specific child-process behavior stays
+inside the module so command tests do not need to duplicate process semantics.
+
+### `internal/generateddata`
+
+`internal/generateddata` composes `internal/schemagen` and `internal/webgen`
+into one model-derived artifact lifecycle. It builds deterministic schema, seed,
+and web plans, writes changed artifacts, and reports generated-schema drift.
+
+Architecture invariant: generated-data planning and artifact IO live behind
+this module boundary. CLI discovery, flags, output rendering, and command errors
+remain in `cmd/scenery`.
+
 ### `scenery.sh/runtime`
 
 `runtime` is linked into generated app binaries. It registers generated

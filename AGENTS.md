@@ -54,6 +54,8 @@ Child `AGENTS.md` files:
 ### Child Agent Index
 
 - `apps/consolenext/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
+- `internal/edge/AGENTS.md` owns the managed Caddy edge process lifecycle and its real-process validation.
+- `internal/generateddata/AGENTS.md` owns model-derived schema, seed, generated web, and drift lifecycles.
 
 ## Agent skills
 

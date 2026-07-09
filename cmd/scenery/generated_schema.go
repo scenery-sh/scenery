@@ -3,25 +3,16 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
-	"strings"
 
 	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/generateddata"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/schemagen"
-	"scenery.sh/internal/webgen"
 )
 
-type dataGeneratorPlan struct {
-	Record     generatorRecord
-	WebRecords []generatorRecord
-	Schemas    []schemagen.ServiceSchema
-	Seeds      []schemagen.ServiceSeed
-	Web        []webgen.Bundle
-}
+type dataGeneratorPlan = generateddata.Plan
 
 type dbGeneratedDiffOptions struct {
 	AppRoot   string
@@ -52,161 +43,44 @@ type dbGeneratedSchemaRecord struct {
 }
 
 func buildDataGeneratorPlan(appRoot string, cfg appcfg.Config, appModel *model.App) (*dataGeneratorPlan, bool, error) {
-	schemas, err := schemagen.Build(appRoot, appModel)
-	if err != nil {
-		return nil, false, err
-	}
-	seeds, err := schemagen.BuildSeeds(appRoot, appModel)
-	if err != nil {
-		return nil, false, err
-	}
-	web, err := webgen.Build(appRoot, appModel, cfg.Frontends)
-	if err != nil {
-		return nil, false, err
-	}
-	if len(schemas) == 0 && len(seeds) == 0 && len(web) == 0 {
-		return nil, false, nil
-	}
-	configRel := cfg.SourceRelPath(appRoot)
-	inputs := []string{configRel, "**/*.go"}
-	outputs := make([]string, 0, len(schemas)+len(seeds))
-	for _, schema := range schemas {
-		outputs = append(outputs, schema.GeneratedPath)
-	}
-	for _, seed := range seeds {
-		outputs = append(outputs, seed.GeneratedPath)
-	}
-	var webRecords []generatorRecord
-	for _, bundle := range web {
-		var bundleOutputs []string
-		for _, file := range bundle.Files {
-			bundleOutputs = append(bundleOutputs, file.Path)
-		}
-		webRecords = append(webRecords, generatorRecord{
-			ID:      "web:" + bundle.Frontend,
-			Kind:    "model-web",
-			Inputs:  uniqueSorted([]string{configRel, "**/*.go", filepath.ToSlash(filepath.Join(bundle.FrontendRoot, "**/*.{ts,tsx}"))}),
-			Outputs: uniqueSorted(bundleOutputs),
-			Tool:    "scenery-model-webgen",
-		})
-	}
-	return &dataGeneratorPlan{
-		Record: generatorRecord{
-			ID:      "data",
-			Kind:    "model-schema",
-			Inputs:  uniqueSorted(inputs),
-			Outputs: uniqueSorted(outputs),
-			Tool:    "scenery-model-schema",
-		},
-		WebRecords: webRecords,
-		Schemas:    schemas,
-		Seeds:      seeds,
-		Web:        web,
-	}, true, nil
+	return generateddata.Build(appRoot, cfg, appModel)
 }
 
 func appHasModelDirectives(appRoot string) bool {
-	found := false
-	_ = filepath.WalkDir(appRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil || found {
-			return nil
-		}
-		if d.IsDir() {
-			switch d.Name() {
-			case ".git", ".scenery", "node_modules", "vendor":
-				return filepath.SkipDir
-			default:
-				return nil
-			}
-		}
-		if filepath.Ext(path) != ".go" {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err == nil && strings.Contains(string(data), "//scenery:model") {
-			found = true
-		}
-		return nil
-	})
-	return found
-}
-
-func writeGeneratedDataSchemas(appRoot string, schemas []schemagen.ServiceSchema) error {
-	for _, schema := range schemas {
-		if err := writeGeneratedFileIfChanged(filepath.Join(appRoot, filepath.FromSlash(schema.GeneratedPath)), []byte(schema.HCL)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return generateddata.HasModelDirectives(appRoot)
 }
 
 func writeGeneratedDataArtifacts(appRoot string, plan *dataGeneratorPlan) error {
-	if plan == nil {
-		return nil
-	}
-	if err := writeGeneratedDataSchemas(appRoot, plan.Schemas); err != nil {
-		return err
-	}
-	for _, seed := range plan.Seeds {
-		if err := writeGeneratedFileIfChanged(filepath.Join(appRoot, filepath.FromSlash(seed.GeneratedPath)), []byte(seed.SQL)); err != nil {
-			return err
-		}
-	}
-	for _, bundle := range plan.Web {
-		for _, file := range bundle.Files {
-			if err := writeGeneratedFileIfChanged(filepath.Join(appRoot, filepath.FromSlash(file.Path)), []byte(file.Contents)); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func writeGeneratedFileIfChanged(path string, data []byte) error {
-	if current, err := os.ReadFile(path); err == nil && string(current) == string(data) {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
+	return generateddata.Write(appRoot, plan)
 }
 
 func generatedSchemaDrift(appRoot string, schemas []schemagen.ServiceSchema) ([]schemagen.Drift, error) {
-	return schemagen.Diff(appRoot, schemas, os.ReadFile, pathExists)
+	return generateddata.Drift(appRoot, schemas)
 }
 
 func buildGeneratedSchemaDiffResult(appRoot string, cfg appcfg.Config, appModel *model.App, schemas []schemagen.ServiceSchema, drift []schemagen.Drift) dbGeneratedDiffResult {
 	records := make([]dbGeneratedSchemaRecord, 0, len(schemas))
 	for _, schema := range schemas {
 		records = append(records, dbGeneratedSchemaRecord{
-			Service:       schema.Service,
-			SourcePath:    schema.SourcePath,
-			GeneratedPath: schema.GeneratedPath,
-			Entities:      append([]string(nil), schema.Entities...),
+			Service: schema.Service, SourcePath: schema.SourcePath,
+			GeneratedPath: schema.GeneratedPath, Entities: append([]string(nil), schema.Entities...),
 		})
 	}
 	driftRecords := make([]dbGeneratedDriftRecord, 0, len(drift))
 	for _, item := range drift {
 		driftRecords = append(driftRecords, dbGeneratedDriftRecord{
-			Service:       item.Service,
-			SourcePath:    item.SourcePath,
-			GeneratedPath: item.GeneratedPath,
-			Message:       item.Message,
+			Service: item.Service, SourcePath: item.SourcePath,
+			GeneratedPath: item.GeneratedPath, Message: item.Message,
 		})
 	}
 	return dbGeneratedDiffResult{
 		SchemaVersion: "scenery.db.generated_diff.v1",
 		OK:            len(driftRecords) == 0,
 		App: inspectdata.AppRef{
-			Name:       cfg.Name,
-			ID:         cfg.ID,
-			Root:       appRoot,
-			ConfigPath: cfg.SourcePath(appRoot),
-			ModulePath: appModel.ModulePath,
+			Name: cfg.Name, ID: cfg.ID, Root: appRoot,
+			ConfigPath: cfg.SourcePath(appRoot), ModulePath: appModel.ModulePath,
 		},
-		Drift:     driftRecords,
-		Generated: records,
+		Drift: driftRecords, Generated: records,
 	}
 }
 
@@ -230,16 +104,16 @@ func runDBGeneratedDiff(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	schemas, err := schemagen.Build(appRoot, appModel)
+	diff, err := generateddata.BuildDiff(appRoot, appModel)
 	if err != nil {
 		return err
 	}
-	drift, err := generatedSchemaDrift(appRoot, schemas)
-	if err != nil {
-		return err
-	}
-	result := buildGeneratedSchemaDiffResult(appRoot, cfg, appModel, schemas, drift)
-	if opts.JSON {
+	result := buildGeneratedSchemaDiffResult(appRoot, cfg, appModel, diff.Schemas, diff.Drift)
+	return renderDBGeneratedDiffResult(stdout, opts.JSON, result)
+}
+
+func renderDBGeneratedDiffResult(stdout io.Writer, jsonMode bool, result dbGeneratedDiffResult) error {
+	if jsonMode {
 		if err := writeInspectJSON(stdout, result); err != nil {
 			return err
 		}
@@ -248,12 +122,12 @@ func runDBGeneratedDiff(stdout io.Writer, args []string) error {
 		}
 		return nil
 	}
-	if len(schemas) == 0 {
+	if len(result.Generated) == 0 {
 		fmt.Fprintln(stdout, "scenery: no generated model schemas")
 		return nil
 	}
 	if result.OK {
-		fmt.Fprintf(stdout, "scenery: generated schema diff ok for %d service(s)\n", len(schemas))
+		fmt.Fprintf(stdout, "scenery: generated schema diff ok for %d service(s)\n", len(result.Generated))
 		return nil
 	}
 	for _, item := range result.Drift {

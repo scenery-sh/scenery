@@ -183,6 +183,11 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - [x] 2026-07-09: Reduced `writeHarnessSelfRepo` from writing every repository schema to one baseline docs schema plus explicitly requested schemas. The schema-validation test names its 15 validation targets, and a focused regression test proves ordinary fixtures do not restore the 53-schema fanout.
 - [x] 2026-07-09: Retuned `cmd/scenery` test parallelism after the new workload. Three local `-parallel=8` samples were 5.86s, 5.95s, and 6.07s; `-parallel=12` was 6.14-6.22s and `-parallel=16` was 6.43-6.66s. The package default is now 8. Three clean final JSON runs were 6.23s, 6.02s, and 5.76s wall (6.02s median), with 5.177s median package elapsed, a 3.89s serial phase, and a 0.95s parallel tail. Wall time improved 13.3% from the 6.94s pre-change median.
 - [x] 2026-07-09: Revalidated the serial-path cut locally with focused three-run tests, `go test -race ./cmd/scenery`, `go test ./...`, `go test ./cmd/scenery`, `go vet ./...`, docs/schema checks, and both self-harness timing lanes. Cached self-harness passed at 6.307s with no candidates, below the seven-second target. Fresh self-harness passed at 9.577s with 3.320s confirmation, three observed candidates, zero confirmed slow tests, and no timing warnings.
+- [x] 2026-07-10: Extracted managed Caddy start, stop, reload, trust, and state persistence into `internal/edge`, leaving CLI, DNS, privileged-listener, tool-resolution, and Caddyfile policy in `cmd/scenery`. Moved the real process lifecycle tests to the owning package and replaced the `system trust` process test with a focused command-dispatch assertion.
+- [x] 2026-07-10: The edge split reduced three isolated `cmd/scenery` JSON samples from the 5.177s package / 6.02s wall baseline to a 4.059s package / 4.91s wall median, removing about 1.1s or 20% from the package critical path.
+- [x] 2026-07-10: Extracted model-derived schema, seed, web, deterministic-write, and drift behavior into `internal/generateddata`. Expensive fixture generation now runs in that owning package; `cmd/scenery` retains a fast JSON-rendering adapter test plus the real DB-seed and check command integrations.
+- [x] 2026-07-10: Post-split profiling put the isolated `cmd/scenery` serial phase at 3.274s and its parallel tail at 0.647s. Generated-data extraction shortened the tail by about 0.14s but did not move the 4.06s package median beyond run-to-run noise. Warm `go test -count=1 -json -p 8 ./...` reruns were 8.69s and 8.78s after source-invalidated work, while three compile-only runs were 6.35s, 6.36s, and 6.37s.
+- [x] 2026-07-10: Final local validation passed `go test -race ./cmd/scenery ./internal/edge ./internal/generateddata`, `go test ./...`, `go test ./cmd/scenery`, `go vet ./...`, docs inspection, schema validation, and cached/fresh self-harness lanes. Cached timing was 5.296s, down from 6.307s and below the seven-second target. Fresh samples were 12.042s under broad contention and 9.034s on confirmation; both passed the 18-second budget with zero confirmed slow tests, and isolated `cmd/scenery` was 4.015s.
 
 ## Surprises & Discoveries
 
@@ -290,6 +295,9 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - 2026-07-09: The remaining isolated `cmd/scenery` wall time was test execution, not package initialization or warm compilation. A prebuilt binary still took 5.48s median to run the tests, while warm build/link took 1.12s and a warm zero-test binary was effectively instantaneous.
 - 2026-07-09: Test scheduling had two distinct phases because `testing` holds `t.Parallel` tests until serial tests finish. Before the cut, 138 serial tests occupied 4.90-5.63s and 236 parallel tests then finished in 0.66-0.68s. Moving isolated work reduced the serial critical path by about 1.1s even though cumulative per-test elapsed increased under useful overlap.
 - 2026-07-09: More in-package parallelism is not automatically faster. After generated-schema tests joined the parallel phase, a limit of 8 beat 12 by about 0.2-0.3s and 16 by about 0.6s on this machine while using materially less kernel time. The remaining serial leaders all mutate environment/global state or own real shared process lifecycles, so mass-adding `t.Parallel` would be unsafe.
+- 2026-07-10: A deep edge lifecycle seam produced a real critical-path gain; moving only already-parallel generated-data tests improved ownership and the parallel tail but could not shorten the remaining serial phase.
+- 2026-07-10: Running the four independent edge process tests concurrently reduced `internal/edge` under-contention package time from 5.32s to 2.86s, but worsened warm full-suite wall samples from 8.69-8.78s to 8.91-9.05s by concentrating process startup against `cmd/scenery`. They remain serial because total feedback time controls.
+- 2026-07-10: After the runtime cut, compile/init is about 73% of the warm full-suite wall. The new modules increased the `cmd/scenery` test closure only from 356 to 358 packages, but more runtime-only extraction cannot deliver the next significant end-to-end reduction without a dependency or compile-action cut.
 
 ## Decision Log
 
@@ -497,6 +505,12 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - Decision: Use an in-package `cmd/scenery` test parallelism limit of 8 on the maintainer machine.
   Rationale: Repeated local samples after the test scheduling change put 8 ahead of 12 and 16. The lower limit reduces subprocess/kernel contention while the repository-wide self-harness continues to use the separately measured `-p 8` package fanout.
   Date/Author: 2026-07-09 / Codex.
+- Decision: Put Caddy lifecycle and generated-data lifecycle behind deep internal modules while keeping `cmd/scenery` as their CLI adapter.
+  Rationale: Both seams have concrete ownership, small interfaces, and locality. The edge module removes real process work from the command package's serial phase; the generated-data module prevents generate, seed, diff, and check paths from reimplementing the same artifact lifecycle.
+  Date/Author: 2026-07-10 / Codex.
+- Decision: Keep real `internal/edge` process tests serial.
+  Rationale: Parallelizing their isolated temp-directory work improved the package-local number but measurably worsened the full-suite wall through process contention. The module boundary supplies scheduling leverage without requiring maximum concurrency inside every package.
+  Date/Author: 2026-07-10 / Codex.
 
 ## Outcomes & Retrospective
 

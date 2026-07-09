@@ -15,6 +15,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	edgelifecycle "scenery.sh/internal/edge"
 )
 
 func stopStaleRootCaddyEdge(ownerHome string, timeout time.Duration) error {
@@ -118,43 +119,8 @@ func edgePortReachable(addr string) bool {
 	return true
 }
 
-func waitForCaddyEdgeStartup(exitCh <-chan error, logPath string, logOffset int64, settle time.Duration) error {
-	timer := time.NewTimer(settle)
-	defer timer.Stop()
-	select {
-	case err := <-exitCh:
-		tail := tailFileFromOffset(logPath, logOffset, 4096)
-		if tail != "" {
-			return fmt.Errorf("Caddy edge exited during startup: %s", tail)
-		}
-		if err != nil {
-			return fmt.Errorf("Caddy edge exited during startup: %w", err)
-		}
-		return fmt.Errorf("Caddy edge exited during startup")
-	case <-timer.C:
-		return nil
-	}
-}
-
 func stopEdge(paths localagent.Paths, timeout time.Duration) error {
-	state, err := localagent.LoadEdgeState(paths.EdgeStatePath)
-	if err != nil {
-		return err
-	}
-	if state.PID <= 0 || !processAliveForEdge(state.PID) {
-		return nil
-	}
-	if err := signalPID(state.PID, syscall.SIGTERM); err != nil {
-		return err
-	}
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if !processAliveForEdge(state.PID) {
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return fmt.Errorf("timed out waiting for Caddy edge pid %d to stop", state.PID)
+	return edgelifecycle.Stop(paths, timeout)
 }
 
 func signalPID(pid int, signal os.Signal) error {

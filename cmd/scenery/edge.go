@@ -21,6 +21,7 @@ import (
 	"time"
 
 	localagent "scenery.sh/internal/agent"
+	edgelifecycle "scenery.sh/internal/edge"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/toolchain"
 )
@@ -317,7 +318,7 @@ func edgeTrust(opts edgeOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := trustCaddyLocalCA(caddyBin); err != nil {
+	if err := edgelifecycle.TrustLocalCA(caddyBin, os.Stdout, os.Stderr); err != nil {
 		return err
 	}
 	if opts.JSON {
@@ -1191,108 +1192,6 @@ func edgeToolchainStoreDir(paths localagent.Paths) string {
 	return filepath.Join(paths.Home, "toolchain")
 }
 
-func trustCaddyLocalCA(caddyBin string) error {
-	dir, err := os.MkdirTemp("", "scenery-caddy-trust-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(dir)
-	adminSocket := filepath.Join(dir, "admin.sock")
-	configPath := filepath.Join(dir, "Caddyfile")
-	logPath := filepath.Join(dir, "caddy.log")
-	if err := os.WriteFile(configPath, []byte(caddyTrustConfig(adminSocket)), 0o600); err != nil {
-		return err
-	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	run := exec.Command(caddyBin, "run", "--config", configPath, "--adapter", "caddyfile")
-	run.Env = envpolicy.Environ()
-	run.Stdout = logFile
-	run.Stderr = logFile
-	run.Stdin = nil
-	configureChildProcess(run)
-	if err := run.Start(); err != nil {
-		_ = logFile.Close()
-		return err
-	}
-	exitCh := make(chan error, 1)
-	go func() {
-		exitCh <- run.Wait()
-	}()
-	if err := waitForCaddyAdminSocket(adminSocket, exitCh, logPath, 15*time.Second); err != nil {
-		_ = logFile.Close()
-		return err
-	}
-	trust := exec.Command(caddyBin, "trust", "--config", configPath, "--adapter", "caddyfile")
-	trust.Env = envpolicy.Environ()
-	trust.Stdout = os.Stdout
-	trust.Stderr = os.Stderr
-	err = trust.Run()
-	if stopErr := stopStartedCaddy(run.Process.Pid, exitCh, 2*time.Second); err == nil {
-		err = stopErr
-	}
-	_ = logFile.Close()
-	return err
-}
-
-func caddyTrustConfig(adminSocket string) string {
-	return fmt.Sprintf(`{
-	local_certs
-	admin unix//%s
-}
-`, adminSocket)
-}
-
-func waitForCaddyAdminSocket(adminSocket string, exitCh <-chan error, logPath string, timeout time.Duration) error {
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case err := <-exitCh:
-			tail := tailFile(logPath, 4096)
-			if tail != "" {
-				return fmt.Errorf("temporary Caddy trust server exited during startup: %s", tail)
-			}
-			if err != nil {
-				return fmt.Errorf("temporary Caddy trust server exited during startup: %w", err)
-			}
-			return fmt.Errorf("temporary Caddy trust server exited during startup")
-		case <-deadline.C:
-			tail := tailFile(logPath, 4096)
-			if tail != "" {
-				return fmt.Errorf("temporary Caddy trust server did not expose admin socket %s within %s: %s", adminSocket, timeout, tail)
-			}
-			return fmt.Errorf("temporary Caddy trust server did not expose admin socket %s within %s", adminSocket, timeout)
-		case <-ticker.C:
-			conn, err := net.DialTimeout("unix", adminSocket, 50*time.Millisecond)
-			if err == nil {
-				_ = conn.Close()
-				return nil
-			}
-		}
-	}
-}
-
-func stopStartedCaddy(pid int, exitCh <-chan error, timeout time.Duration) error {
-	if pid <= 0 {
-		return nil
-	}
-	_ = signalPID(pid, syscall.SIGTERM)
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case err := <-exitCh:
-		return err
-	case <-timer.C:
-		_ = signalPID(pid, syscall.SIGKILL)
-		return fmt.Errorf("timed out waiting for temporary Caddy trust server pid %d to stop", pid)
-	}
-}
-
 func ensureEdgeToken(path string) (string, error) {
 	if data, err := os.ReadFile(path); err == nil {
 		if token := strings.TrimSpace(string(data)); token != "" {
@@ -1598,67 +1497,16 @@ func caddyACMEIssuerOptions(ca string) string {
 }
 
 func startCaddyEdge(caddyBin string, paths localagent.Paths, publicAddr, targetAddr, httpTargetAddr, adminSocket, upstreamAddr string) error {
-	logOffset := fileSize(paths.EdgeLogPath)
-	logFile, err := os.OpenFile(paths.EdgeLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(caddyBin, "run", "--config", paths.EdgeConfigPath, "--adapter", "caddyfile")
-	cmd.Env = envpolicy.Environ()
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.Stdin = nil
-	configureDetachedChildProcess(cmd)
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return err
-	}
-	exitCh := make(chan error, 1)
-	go func() {
-		exitCh <- cmd.Wait()
-	}()
-	if err := waitForCaddyEdgeStartup(exitCh, paths.EdgeLogPath, logOffset, caddyStartupSettle); err != nil {
-		_ = os.Remove(adminSocket)
-		_ = logFile.Close()
-		return err
-	}
-	startedAt, _ := processStartTime(cmd.Process.Pid)
-	target := localagent.EdgeTargetState{
-		Kind:           localagent.EdgeKindCaddy,
+	return edgelifecycle.Start(edgelifecycle.StartConfig{
+		Binary:         caddyBin,
+		Paths:          paths,
+		PublicAddr:     publicAddr,
 		TargetAddr:     targetAddr,
 		HTTPTargetAddr: httpTargetAddr,
-		PID:            cmd.Process.Pid,
-		OwnerUID:       os.Getuid(),
-		OwnerGID:       os.Getgid(),
-		ProcessStart:   startedAt,
-		Executable:     caddyBin,
-		UpdatedAt:      time.Now().UTC(),
-	}
-	if err := localagent.WriteEdgeTargetState(paths.EdgeTargetPath, target); err != nil {
-		_ = signalPID(cmd.Process.Pid, syscall.SIGTERM)
-		_ = logFile.Close()
-		return err
-	}
-	state := localagent.EdgeState{
-		Kind:         localagent.EdgeKindCaddy,
-		Status:       localagent.EdgeStatusRunning,
-		PID:          cmd.Process.Pid,
-		PublicAddr:   publicAddr,
-		PublicScheme: "https",
-		HTTPSListen:  targetAddr,
-		UpstreamAddr: upstreamAddr,
-		AdminSocket:  adminSocket,
-		ConfigPath:   paths.EdgeConfigPath,
-		LogPath:      paths.EdgeLogPath,
-		UpdatedAt:    time.Now().UTC(),
-	}
-	if err := localagent.WriteEdgeState(paths.EdgeStatePath, state); err != nil {
-		_ = signalPID(cmd.Process.Pid, syscall.SIGTERM)
-		_ = logFile.Close()
-		return err
-	}
-	_ = logFile.Close()
-	return nil
+		AdminSocket:    adminSocket,
+		UpstreamAddr:   upstreamAddr,
+		StartupSettle:  caddyStartupSettle,
+	})
 }
 
 func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) error {
@@ -1696,17 +1544,7 @@ func edgeReloadFromRegistry(paths localagent.Paths, state localagent.EdgeState) 
 }
 
 func reloadCaddyEdgeConfig(caddyBin, configPath, adminSocket string) error {
-	cmd := exec.Command(caddyBin, caddyReloadArgs(configPath, adminSocket)...)
-	cmd.Env = envpolicy.Environ()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("caddy reload: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func caddyReloadArgs(configPath, adminSocket string) []string {
-	return []string{"reload", "--config", configPath, "--adapter", "caddyfile", "--address", "unix//" + adminSocket}
+	return edgelifecycle.Reload(caddyBin, configPath, adminSocket)
 }
 
 func refreshEdgeTargetMetadata(paths localagent.Paths, state localagent.EdgeState, targetAddr, httpTargetAddr string) error {

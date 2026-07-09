@@ -16,6 +16,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/generateddata"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
 )
@@ -44,13 +45,7 @@ type generatorGraphResponse struct {
 	DBArtifacts   []databaseArtifactRecord `json:"db_artifacts"`
 }
 
-type generatorRecord struct {
-	ID      string   `json:"id"`
-	Kind    string   `json:"kind"`
-	Inputs  []string `json:"inputs,omitempty"`
-	Outputs []string `json:"outputs,omitempty"`
-	Tool    string   `json:"tool,omitempty"`
-}
+type generatorRecord = generateddata.Record
 
 type clientGeneratorPlan struct {
 	Record generatorRecord
