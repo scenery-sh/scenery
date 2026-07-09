@@ -3,12 +3,8 @@ package localproxy
 import (
 	"net"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"scenery.sh/internal/envpolicy"
 )
@@ -27,69 +23,6 @@ func FrontendOverride(name string) string {
 		return ""
 	}
 	return normalizeUpstream(value)
-}
-
-func DiscoverFrontendUpstream(appRoot string, frontend FrontendConfig) string {
-	if override := FrontendOverride(frontend.Name); override != "" {
-		return override
-	}
-	if upstream := normalizeUpstream(frontend.Upstream); upstream != "" {
-		return upstream
-	}
-	frontendRoot := frontendRootPath(appRoot, frontend)
-	if frontendRoot == "" {
-		return ""
-	}
-	for _, path := range []string{
-		filepath.Join(frontendRoot, "vite.config.ts"),
-		filepath.Join(frontendRoot, "vite.config.js"),
-		filepath.Join(frontendRoot, "vite.config.mts"),
-		filepath.Join(frontendRoot, "vite.config.mjs"),
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		port := parseVitePort(data)
-		if port == 0 {
-			port = 5173
-		}
-		return discoverReachableLoopbackUpstream(port)
-	}
-	return ""
-}
-
-func ResolveFrontends(appRoot string, frontends []FrontendConfig) []FrontendConfig {
-	resolved := make([]FrontendConfig, 0, len(frontends))
-	for _, frontend := range frontends {
-		frontend.Name = sanitizeLabel(frontend.Name)
-		frontend.Host = normalizeHost(frontend.Host)
-		frontend.Root = strings.TrimSpace(frontend.Root)
-		frontend.Upstream = DiscoverFrontendUpstream(appRoot, frontend)
-		if frontend.Upstream == "" {
-			continue
-		}
-		resolved = append(resolved, frontend)
-	}
-	return resolved
-}
-
-func frontendRootPath(appRoot string, frontend FrontendConfig) string {
-	appRoot = strings.TrimSpace(appRoot)
-	root := strings.TrimSpace(frontend.Root)
-	if root == "" && frontend.Name != "" {
-		root = filepath.Join("apps", frontend.Name)
-	}
-	if root == "" {
-		return ""
-	}
-	if filepath.IsAbs(root) {
-		return filepath.Clean(root)
-	}
-	if appRoot == "" {
-		return filepath.Clean(root)
-	}
-	return filepath.Join(appRoot, root)
 }
 
 func frontendEnvName(name string) string {
@@ -156,40 +89,3 @@ var invalidLabelRE = regexp.MustCompile(`[^a-z0-9-]+`)
 var repeatedDashRE = regexp.MustCompile(`-+`)
 var vitePortRE = regexp.MustCompile(`(?m)\bport\s*:\s*([0-9]+)\b`)
 var netDialTimeout = net.DialTimeout
-
-func sanitizeLabel(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	value = invalidLabelRE.ReplaceAllString(value, "-")
-	value = repeatedDashRE.ReplaceAllString(value, "-")
-	value = strings.Trim(value, "-")
-	return value
-}
-
-func parseVitePort(data []byte) int {
-	matches := vitePortRE.FindSubmatch(data)
-	if len(matches) != 2 {
-		return 0
-	}
-	port, err := strconv.Atoi(string(matches[1]))
-	if err != nil {
-		return 0
-	}
-	return port
-}
-
-func discoverReachableLoopbackUpstream(port int) string {
-	portStr := strconv.Itoa(port)
-	for _, candidate := range []string{
-		net.JoinHostPort("::1", portStr),
-		net.JoinHostPort("127.0.0.1", portStr),
-		net.JoinHostPort("localhost", portStr),
-	} {
-		conn, err := netDialTimeout("tcp", candidate, 150*time.Millisecond)
-		if err != nil {
-			continue
-		}
-		_ = conn.Close()
-		return candidate
-	}
-	return net.JoinHostPort("localhost", portStr)
-}

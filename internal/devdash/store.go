@@ -90,7 +90,6 @@ type storeState struct {
 	ProcessOutput       []ProcessOutput              `json:"process_output,omitempty"`
 	DevSources          map[string]DevSource         `json:"dev_sources,omitempty"`
 	DevEvents           []storedDevEvent             `json:"dev_events,omitempty"`
-	Onboarding          OnboardingState              `json:"onboarding,omitempty"`
 	StoredRequests      map[string]StoredRequest     `json:"stored_requests,omitempty"`
 	NextProcessEventID  int64                        `json:"next_process_event_id,omitempty"`
 	NextProcessOutputID int64                        `json:"next_process_output_id,omitempty"`
@@ -463,7 +462,6 @@ func storeSizeBreakdown(state *storeState) map[string]int {
 		"process_output":         state.ProcessOutput,
 		"dev_sources":            state.DevSources,
 		"dev_events":             state.DevEvents,
-		"onboarding":             state.Onboarding,
 		"stored_requests":        state.StoredRequests,
 		"next_process_event_id":  state.NextProcessEventID,
 		"next_process_output_id": state.NextProcessOutputID,
@@ -579,9 +577,6 @@ func normalizeStoreState(state *storeState) {
 	if state.DevSources == nil {
 		state.DevSources = map[string]DevSource{}
 	}
-	if state.Onboarding == nil {
-		state.Onboarding = OnboardingState{}
-	}
 	if state.StoredRequests == nil {
 		state.StoredRequests = map[string]StoredRequest{}
 	}
@@ -652,16 +647,6 @@ func appSessionRecordKey(app AppRecord) string {
 		return app.SessionID
 	}
 	return app.ID
-}
-
-func storedAppSessionRecordKey(session StoredAppSession) string {
-	if session.RouteID != "" {
-		return session.RouteID
-	}
-	if session.SessionID != "" {
-		return session.SessionID
-	}
-	return session.ID
 }
 
 func normalizeAppRecord(app AppRecord) AppRecord {
@@ -1474,28 +1459,6 @@ func (s *Store) CountLogsByLevelForSession(ctx context.Context, appID, sessionID
 	return []LogLevelCount{}, nil
 }
 
-func (s *Store) GetOnboarding(ctx context.Context) (OnboardingState, error) {
-	stateOut := OnboardingState{}
-	err := s.withState(ctx, false, func(state *storeState) error {
-		maps.Copy(stateOut, state.Onboarding)
-		return nil
-	})
-	return stateOut, err
-}
-
-func (s *Store) SetOnboarding(ctx context.Context, props []string) error {
-	return s.withState(ctx, true, func(state *storeState) error {
-		now := time.Now().UTC()
-		for _, prop := range props {
-			if prop == "" {
-				continue
-			}
-			state.Onboarding[prop] = now
-		}
-		return nil
-	})
-}
-
 func (s *Store) ListStoredRequests(ctx context.Context, appID string) ([]StoredRequest, error) {
 	list := []StoredRequest{}
 	err := s.withState(ctx, false, func(state *storeState) error {
@@ -1619,13 +1582,6 @@ func compactRawMessage(value json.RawMessage) json.RawMessage {
 		return append(json.RawMessage(nil), value...)
 	}
 	return normalized
-}
-
-func copyRawMessage(value json.RawMessage) json.RawMessage {
-	if len(value) == 0 {
-		return nil
-	}
-	return append(json.RawMessage(nil), value...)
 }
 
 func appRevisionFromMetadata(metadata json.RawMessage) string {

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -318,88 +317,76 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 	if !allowObservability && (opts.Subject == "traces" || opts.Subject == "metrics") {
 		return inspectOptions{}, fmt.Errorf("unknown inspect subject %q; use `scenery %s list`", opts.Subject, opts.Subject)
 	}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--repo-root":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for --repo-root")
-			}
-			if opts.Subject != "docs" && opts.Subject != "harness" {
-				return inspectOptions{}, fmt.Errorf("--repo-root is only supported for inspect docs and inspect harness")
-			}
-			opts.RepoRoot = args[i]
-		case "--severity":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for --severity")
-			}
-			if opts.Subject != "harness" || opts.Harness.Topic != "diagnostics" {
-				return inspectOptions{}, fmt.Errorf("--severity is only supported for inspect harness diagnostics")
-			}
-			opts.Harness.Severity = args[i]
-		case "--top":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for --top")
-			}
-			if opts.Subject != "harness" || opts.Harness.Topic != "timing" {
-				return inspectOptions{}, fmt.Errorf("--top is only supported for inspect harness timing")
-			}
-			top, err := strconv.Atoi(args[i])
-			if err != nil || top <= 0 {
-				return inspectOptions{}, fmt.Errorf("--top must be a positive integer")
-			}
-			opts.Harness.Top = top
-		case "--limit", "-n", "--since", "--service", "--endpoint", "--trace-id", "--session", "--status", "--min-duration-ms":
-			i++
-			if i >= len(args) {
-				return inspectOptions{}, fmt.Errorf("missing value for %s", args[i-1])
-			}
-			if args[i-1] == "--session" && opts.Subject == "observability" {
-				opts.Trace.Session = strings.TrimSpace(args[i])
-				if opts.Trace.Session == "" {
-					return inspectOptions{}, fmt.Errorf("invalid session %q", args[i])
-				}
-				continue
-			}
-			if opts.Subject != "traces" && opts.Subject != "metrics" {
-				return inspectOptions{}, fmt.Errorf("%s is only supported for traces list and metrics list", args[i-1])
-			}
-			if err := parseInspectTraceFlags(&opts, args[i-1], args[i]); err != nil {
-				return inspectOptions{}, err
-			}
-		case "--slowest":
-			if opts.Subject != "traces" && opts.Subject != "metrics" {
-				return inspectOptions{}, fmt.Errorf("%s is only supported for traces list and metrics list", args[i])
-			}
-			opts.Trace.Slowest = true
-		case "artifact", "diagnostics", "timing":
-			if opts.Subject != "harness" {
-				return inspectOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			if opts.Harness.Topic != "" {
-				return inspectOptions{}, fmt.Errorf("only one inspect harness topic may be selected")
-			}
-			opts.Harness.Topic = args[i]
-			if args[i] == "artifact" {
-				i++
-				if i >= len(args) {
-					return inspectOptions{}, fmt.Errorf("missing inspect harness artifact name")
-				}
-				opts.Harness.Name = args[i]
-			}
-		default:
-			return inspectOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	flags := newCLIFlagSet("inspect " + opts.Subject)
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
+	flags.StringVar(&opts.Harness.Severity, "severity", "", "")
+	flags.IntVar(&opts.Harness.Top, "top", 0, "")
+	traceValues := map[string]*string{}
+	for _, name := range []string{"limit", "since", "service", "endpoint", "trace-id", "session", "status", "min-duration-ms"} {
+		value := new(string)
+		traceValues[name] = value
+		flags.StringVar(value, name, "", "")
+	}
+	flags.StringVar(traceValues["limit"], "n", "", "")
+	flags.BoolVar(&opts.Trace.Slowest, "slowest", false, "")
+	positionals, err := parseCLIFlags(flags, args[1:])
+	if err != nil {
+		return inspectOptions{}, err
+	}
+	if cliFlagSet(flags, "repo-root") && opts.Subject != "docs" && opts.Subject != "harness" {
+		return inspectOptions{}, fmt.Errorf("--repo-root is only supported for inspect docs and inspect harness")
+	}
+	if opts.Subject == "harness" && len(positionals) > 0 {
+		opts.Harness.Topic = positionals[0]
+		if opts.Harness.Topic != "artifact" && opts.Harness.Topic != "diagnostics" && opts.Harness.Topic != "timing" {
+			return inspectOptions{}, fmt.Errorf("unknown flag %q", positionals[0])
 		}
+		positionals = positionals[1:]
+		if opts.Harness.Topic == "artifact" {
+			if len(positionals) == 0 {
+				return inspectOptions{}, fmt.Errorf("missing inspect harness artifact name")
+			}
+			opts.Harness.Name, positionals = positionals[0], positionals[1:]
+		}
+	}
+	if len(positionals) > 0 {
+		return inspectOptions{}, fmt.Errorf("unknown flag %q", positionals[0])
+	}
+	if cliFlagSet(flags, "severity") && (opts.Subject != "harness" || opts.Harness.Topic != "diagnostics") {
+		return inspectOptions{}, fmt.Errorf("--severity is only supported for inspect harness diagnostics")
+	}
+	if cliFlagSet(flags, "top") && (opts.Subject != "harness" || opts.Harness.Topic != "timing") {
+		return inspectOptions{}, fmt.Errorf("--top is only supported for inspect harness timing")
+	}
+	if cliFlagSet(flags, "top") && opts.Harness.Top <= 0 {
+		return inspectOptions{}, fmt.Errorf("--top must be a positive integer")
+	}
+	for _, name := range []string{"limit", "since", "service", "endpoint", "trace-id", "session", "status", "min-duration-ms"} {
+		aliases := []string{name}
+		if name == "limit" {
+			aliases = append(aliases, "n")
+		}
+		if !cliFlagSet(flags, aliases...) {
+			continue
+		}
+		if name == "session" && opts.Subject == "observability" {
+			opts.Trace.Session = strings.TrimSpace(*traceValues[name])
+			if opts.Trace.Session == "" {
+				return inspectOptions{}, fmt.Errorf("invalid session %q", *traceValues[name])
+			}
+			continue
+		}
+		if opts.Subject != "traces" && opts.Subject != "metrics" {
+			return inspectOptions{}, fmt.Errorf("--%s is only supported for traces list and metrics list", name)
+		}
+		if err := parseInspectTraceFlags(&opts, "--"+name, *traceValues[name]); err != nil {
+			return inspectOptions{}, err
+		}
+	}
+	if cliFlagSet(flags, "slowest") && opts.Subject != "traces" && opts.Subject != "metrics" {
+		return inspectOptions{}, fmt.Errorf("--slowest is only supported for traces list and metrics list")
 	}
 	return opts, nil
 }

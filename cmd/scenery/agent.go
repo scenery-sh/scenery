@@ -176,35 +176,19 @@ func agentRestartCommand(args []string) error {
 
 func parseAgentArgs(args []string) (agentOptions, error) {
 	var opts agentOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--socket":
-			i++
-			if i >= len(args) {
-				return agentOptions{}, fmt.Errorf("missing value for --socket")
-			}
-			opts.SocketPath = args[i]
-		case "--router-listen":
-			i++
-			if i >= len(args) {
-				return agentOptions{}, fmt.Errorf("missing value for --router-listen")
-			}
-			opts.RouterAddr = args[i]
-		case "--router-tls":
-			opts.RouterTLS = true
-			opts.RouterHTTP = false
-		case "--router-http":
-			opts.RouterHTTP = true
-			opts.RouterTLS = false
-		case "--trust":
-			opts.Trust = true
-			opts.RouterTLS = true
-			opts.RouterHTTP = false
-		case "--json":
-			opts.JSON = true
-		default:
-			return agentOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("agent")
+	flags.StringVar(&opts.SocketPath, "socket", "", "")
+	flags.StringVar(&opts.RouterAddr, "router-listen", "", "")
+	flags.BoolFunc("router-tls", "", func(string) error { opts.RouterTLS, opts.RouterHTTP = true, false; return nil })
+	flags.BoolFunc("router-http", "", func(string) error { opts.RouterHTTP, opts.RouterTLS = true, false; return nil })
+	flags.BoolFunc("trust", "", func(string) error { opts.Trust, opts.RouterTLS, opts.RouterHTTP = true, true, false; return nil })
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return agentOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return agentOptions{}, err
 	}
 	return opts, nil
 }
@@ -344,23 +328,17 @@ func statusCommandWithClient(client *localagent.Client, stdout io.Writer, args [
 
 func parseStatusArgs(args []string) (statusOptions, error) {
 	opts := statusOptions{JSON: false}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--watch":
-			opts.Watch = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return statusOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--session":
-			return statusOptions{}, fmt.Errorf("scenery ps no longer accepts --session; use --app-root to inspect an app directory")
-		default:
-			return statusOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("ps")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.Watch, "watch", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	rejectCLIFlag(flags, "session", "scenery ps no longer accepts --session; use --app-root to inspect an app directory")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return statusOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return statusOptions{}, err
 	}
 	return opts, nil
 }
@@ -740,27 +718,19 @@ func resolveDownSessionFromList(appRoot string, sessions []localagent.Session, o
 
 func parseDownArgs(args []string) (downOptions, error) {
 	var opts downOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return downOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--session":
-			return downOptions{}, fmt.Errorf("scenery down no longer accepts --session; use --app-root to stop an app directory's dev runtime")
-		case "--db":
-			opts.DB = true
-		case "--state":
-			opts.State = true
-		case "--all":
-			opts.All = true
-		case "--json":
-			opts.JSON = true
-		default:
-			return downOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("down")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	rejectCLIFlag(flags, "session", "scenery down no longer accepts --session; use --app-root to stop an app directory's dev runtime")
+	flags.BoolVar(&opts.DB, "db", false, "")
+	flags.BoolVar(&opts.State, "state", false, "")
+	flags.BoolVar(&opts.All, "all", false, "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return downOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return downOptions{}, err
 	}
 	return opts, nil
 }
@@ -851,28 +821,22 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 
 func parsePruneArgs(args []string) (pruneOptions, error) {
 	var opts pruneOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return pruneOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--older-than":
-			i++
-			if i >= len(args) {
-				return pruneOptions{}, fmt.Errorf("missing value for --older-than")
-			}
-			duration, err := parsePruneAge(args[i])
-			if err != nil {
-				return pruneOptions{}, err
-			}
-			opts.OlderThan = duration
-		case "--json":
-			opts.JSON = true
-		default:
-			return pruneOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	age := ""
+	flags := newCLIFlagSet("prune")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&age, "older-than", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return pruneOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return pruneOptions{}, err
+	}
+	if age != "" {
+		opts.OlderThan, err = parsePruneAge(age)
+		if err != nil {
+			return pruneOptions{}, err
 		}
 	}
 	if opts.OlderThan <= 0 {

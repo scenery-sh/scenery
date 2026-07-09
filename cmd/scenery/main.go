@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/stdlog"
@@ -152,65 +151,31 @@ type devListenRequest struct {
 
 func parseDevArgs(args []string) (devOptions, error) {
 	opts := devOptions{Port: 4000, Wait: detachedDevWaitReady}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--port", "-p":
-			i++
-			if i >= len(args) {
-				return devOptions{}, fmt.Errorf("missing value for --port")
-			}
-			value, err := strconv.Atoi(args[i])
-			if err != nil {
-				return devOptions{}, fmt.Errorf("invalid port %q", args[i])
-			}
-			opts.Port = value
-			opts.PortSet = true
-		case "--listen":
-			i++
-			if i >= len(args) {
-				return devOptions{}, fmt.Errorf("missing value for --listen")
-			}
-			opts.Listen = args[i]
-			opts.ListenSet = true
-		case "--verbose", "-v":
-			opts.Verbose = true
-		case "--json":
-			opts.JSON = true
-		case "--detach":
-			opts.Detach = true
-		case "--wait":
-			i++
-			if i >= len(args) {
-				return devOptions{}, fmt.Errorf("missing value for --wait")
-			}
-			wait, err := normalizeDetachedDevWaitMode(args[i])
-			if err != nil {
-				return devOptions{}, err
-			}
-			opts.Wait = wait
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return devOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--session":
-			return devOptions{}, fmt.Errorf("scenery up no longer accepts --session; one app root has one live dev runtime, so use --app-root or a separate Git worktree")
-		case "--new-session":
-			return devOptions{}, fmt.Errorf("scenery up no longer accepts --new-session; use a separate Git worktree for another live code copy")
-		case "--claim-aliases":
-			opts.ClaimAliases = true
-		default:
-			if strings.HasPrefix(args[i], "--wait=") {
-				wait, err := normalizeDetachedDevWaitMode(strings.TrimPrefix(args[i], "--wait="))
-				if err != nil {
-					return devOptions{}, err
-				}
-				opts.Wait = wait
-				continue
-			}
-			return devOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("up")
+	flags.IntVar(&opts.Port, "port", opts.Port, "")
+	flags.IntVar(&opts.Port, "p", opts.Port, "")
+	flags.StringVar(&opts.Listen, "listen", "", "")
+	flags.BoolVar(&opts.Verbose, "verbose", false, "")
+	flags.BoolVar(&opts.Verbose, "v", false, "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.Detach, "detach", false, "")
+	flags.StringVar(&opts.Wait, "wait", opts.Wait, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.ClaimAliases, "claim-aliases", false, "")
+	rejectCLIFlag(flags, "session", "scenery up no longer accepts --session; one app root has one live dev runtime, so use --app-root or a separate Git worktree")
+	rejectCLIFlag(flags, "new-session", "scenery up no longer accepts --new-session; use a separate Git worktree for another live code copy")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return devOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return devOptions{}, err
+	}
+	opts.PortSet = cliFlagSet(flags, "port", "p")
+	opts.ListenSet = cliFlagSet(flags, "listen")
+	opts.Wait, err = normalizeDetachedDevWaitMode(opts.Wait)
+	if err != nil {
+		return devOptions{}, err
 	}
 	return opts, nil
 }

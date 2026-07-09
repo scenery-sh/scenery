@@ -36,16 +36,11 @@ const (
 
 type Metadata map[string]any
 
-type ErrDetails interface {
-	ErrDetails()
-}
-
 type Error struct {
-	Code    ErrCode    `json:"code"`
-	Message string     `json:"message"`
-	Details ErrDetails `json:"details,omitempty"`
-	Meta    Metadata   `json:"meta,omitempty"`
-	Cause   error      `json:"-"`
+	Code    ErrCode  `json:"code"`
+	Message string   `json:"message"`
+	Meta    Metadata `json:"meta,omitempty"`
+	Cause   error    `json:"-"`
 }
 
 func (e *Error) Error() string {
@@ -123,11 +118,6 @@ func (b *Builder) Meta(kv ...any) *Builder {
 		}
 		b.err.Meta[key] = kv[i+1]
 	}
-	return b
-}
-
-func (b *Builder) Details(details ErrDetails) *Builder {
-	b.err.Details = details
 	return b
 }
 
@@ -234,13 +224,6 @@ func Meta(err error) Metadata {
 	return nil
 }
 
-func Details(err error) ErrDetails {
-	if pe, ok := As(err); ok {
-		return pe.Details
-	}
-	return nil
-}
-
 func HTTPStatus(err error) int {
 	switch Code(err) {
 	case OK:
@@ -284,12 +267,10 @@ func HTTPErrorWithCode(w http.ResponseWriter, err error, status int) {
 	payload := struct {
 		Code    ErrCode  `json:"code"`
 		Message string   `json:"message"`
-		Details any      `json:"details,omitempty"`
 		Meta    Metadata `json:"meta,omitempty"`
 	}{
 		Code:    Code(err),
 		Message: err.Error(),
-		Details: redact.Value(Details(err)),
 		Meta:    Metadata(redact.Metadata(map[string]any(Meta(err)))),
 	}
 	w.Header().Set("Content-Type", "application/json")

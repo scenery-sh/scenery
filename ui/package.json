@@ -1,19 +1,15 @@
 {
-  "name": "scenery-dev-dashboard-ui",
+  "name": "scenery-ui-registry",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "packageManager": "bun@1.3.14",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "shadcn:add": "node scripts/scenery-shadcn.mjs"
   },
   "dependencies": {
-    "@tanstack/react-router": "1.170.16",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
@@ -21,11 +17,9 @@
     "@testing-library/react": "16.3.2",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.3",
     "jsdom": "29.1.1",
     "tailwindcss": "4.3.1",
     "typescript": "6.0.3",
-    "vite": "8.1.0",
     "vitest": "4.1.9"
   }
 }

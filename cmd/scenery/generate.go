@@ -185,74 +185,43 @@ func runGenerateWithHooks(ctx context.Context, stdout io.Writer, args []string, 
 
 func parseGenerateArgs(args []string) (generateOptions, error) {
 	opts := generateOptions{Subject: "all"}
-	if len(args) > 0 {
-		switch args[0] {
+	flags := newCLIFlagSet("generate")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.Lang, "lang", "", "")
+	flags.StringVar(&opts.Output, "output", "", "")
+	flags.StringVar(&opts.Output, "o", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return generateOptions{}, err
+	}
+	if len(positionals) > 0 {
+		switch positionals[0] {
 		case "client", "sqlc", "data":
-			opts.Subject = args[0]
-			args = args[1:]
+			opts.Subject = positionals[0]
+			positionals = positionals[1:]
 		case "metadata", "worker":
-			return generateOptions{}, fmt.Errorf("generate %s is not implemented yet", args[0])
+			return generateOptions{}, fmt.Errorf("generate %s is not implemented yet", positionals[0])
 		}
 	}
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--app-root":
-			i++
-			if i >= len(args) {
-				return generateOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case strings.HasPrefix(arg, "--app-root="):
-			opts.AppRoot = strings.TrimPrefix(arg, "--app-root=")
-		case arg == "--dry-run":
-			opts.DryRun = true
-		case arg == "--json":
-			opts.JSON = true
-		case arg == "--lang":
-			if opts.Subject != "client" {
-				return generateOptions{}, fmt.Errorf("--lang is only supported for generate client")
-			}
-			i++
-			if i >= len(args) {
-				return generateOptions{}, fmt.Errorf("missing value for --lang")
-			}
-			opts.Lang = args[i]
-		case strings.HasPrefix(arg, "--lang="):
-			if opts.Subject != "client" {
-				return generateOptions{}, fmt.Errorf("--lang is only supported for generate client")
-			}
-			opts.Lang = strings.TrimPrefix(arg, "--lang=")
-		case arg == "--output" || arg == "-o":
-			if opts.Subject != "client" {
-				return generateOptions{}, fmt.Errorf("%s is only supported for generate client", arg)
-			}
-			i++
-			if i >= len(args) {
-				return generateOptions{}, fmt.Errorf("missing value for %s", arg)
-			}
-			opts.Output = args[i]
-		case strings.HasPrefix(arg, "--output="):
-			if opts.Subject != "client" {
-				return generateOptions{}, fmt.Errorf("--output is only supported for generate client")
-			}
-			opts.Output = strings.TrimPrefix(arg, "--output=")
-		case strings.HasPrefix(arg, "-o="):
-			if opts.Subject != "client" {
-				return generateOptions{}, fmt.Errorf("-o is only supported for generate client")
-			}
-			opts.Output = strings.TrimPrefix(arg, "-o=")
-		case strings.HasPrefix(arg, "-"):
-			return generateOptions{}, fmt.Errorf("unknown flag %q", arg)
-		default:
-			if opts.Subject != "client" {
-				return generateOptions{}, fmt.Errorf("unexpected argument %q", arg)
-			}
-			if opts.Target != "" {
-				return generateOptions{}, fmt.Errorf("unexpected argument %q", arg)
-			}
-			opts.Target = arg
+	if opts.Subject != "client" && cliFlagSet(flags, "lang") {
+		return generateOptions{}, fmt.Errorf("--lang is only supported for generate client")
+	}
+	if opts.Subject != "client" && cliFlagSet(flags, "output") {
+		return generateOptions{}, fmt.Errorf("--output is only supported for generate client")
+	}
+	if opts.Subject != "client" && cliFlagSet(flags, "o") {
+		return generateOptions{}, fmt.Errorf("-o is only supported for generate client")
+	}
+	if len(positionals) > 0 {
+		if opts.Subject != "client" {
+			return generateOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
 		}
+		opts.Target = positionals[0]
+	}
+	if len(positionals) > 1 {
+		return generateOptions{}, fmt.Errorf("unexpected argument %q", positionals[1])
 	}
 	return opts, nil
 }
@@ -907,10 +876,6 @@ func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string,
 		}
 	}
 	return nil
-}
-
-func runSQLCGenerator(ctx context.Context, stdout io.Writer, appRoot string, plan *sqlcGeneratorPlan, quiet bool) error {
-	return runSQLCGeneratorWithHooks(ctx, stdout, appRoot, plan, quiet, defaultLifecycleHooks())
 }
 
 func runSQLCGeneratorWithHooks(ctx context.Context, stdout io.Writer, appRoot string, plan *sqlcGeneratorPlan, quiet bool, hooks lifecycleHooks) error {

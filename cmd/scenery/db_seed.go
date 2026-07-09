@@ -133,27 +133,18 @@ func runDBSeedWithHooks(ctx context.Context, stdout io.Writer, args []string, ho
 
 func parseDBSeedArgs(args []string) (dbSeedOptions, error) {
 	var opts dbSeedOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return dbSeedOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--dry-run":
-			opts.DryRun = true
-		case "--json":
-			opts.JSON = true
-		default:
-			return dbSeedOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("db seed")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return dbSeedOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return dbSeedOptions{}, err
 	}
 	return opts, nil
-}
-
-func buildDBSeedResult(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions) (dbSeedResult, error) {
-	return buildDBSeedResultWithHooks(ctx, appRoot, cfg, opts, defaultDBSeedHooks())
 }
 
 func buildDBSeedResultWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, hooks dbSeedHooks) (dbSeedResult, error) {

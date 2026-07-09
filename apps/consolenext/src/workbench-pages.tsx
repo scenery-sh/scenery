@@ -412,7 +412,11 @@ export function ServiceCatalogPage({
   }, [selected, selectedKey])
 
   if (services.length === 0) {
-    return <EmptyPanel title="Service Catalog" message="No services discovered for this app." />
+    return (
+      <section data-scenery-ui="ConsoleNextServiceCatalog">
+        <EmptyPanel title="Service Catalog" message="No services discovered for this app." />
+      </section>
+    )
   }
 
   return (

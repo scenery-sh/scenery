@@ -1,7 +1,6 @@
 package termstyle
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -96,8 +95,4 @@ func useColor(w io.Writer) bool {
 	}
 	term := envpolicy.Get("TERM")
 	return term != "" && term != "dumb"
-}
-
-func Fprintf(w io.Writer, format string, args ...any) {
-	_, _ = fmt.Fprintf(w, format, args...)
 }

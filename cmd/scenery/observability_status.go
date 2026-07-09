@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"strings"
 
 	localagent "scenery.sh/internal/agent"
@@ -54,12 +53,4 @@ func observabilityBackend(rawURL, queryPath, dialect string) devdash.Observabili
 		QueryPath: queryPath,
 		Dialect:   dialect,
 	}
-}
-
-func (s *dashboardServer) observabilityStatus(ctx context.Context, appID string) (*devdash.ObservabilityState, error) {
-	status, err := s.dashboardStatusFor(ctx, appID)
-	if err != nil {
-		return nil, err
-	}
-	return status.Observability, nil
 }

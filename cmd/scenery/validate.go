@@ -320,69 +320,49 @@ func runSceneryValidate(ctx context.Context, stdout io.Writer, args []string) er
 
 func parseValidateArgs(args []string) (validateOptions, error) {
 	opts := validateOptions{Action: "run", Base: "origin/main"}
-	if len(args) > 0 {
-		switch args[0] {
+	flags := newCLIFlagSet("validate")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.Write, "write", false, "")
+	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
+	flags.StringVar(&opts.Base, "base", opts.Base, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return validateOptions{}, err
+	}
+	if len(positionals) > 0 {
+		switch positionals[0] {
 		case "list", "inspect", "graph", "changed":
-			opts.Action = args[0]
-			args = args[1:]
+			opts.Action = positionals[0]
+			positionals = positionals[1:]
 		}
 	}
 	if opts.Action == "inspect" {
-		if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		if len(positionals) == 0 {
 			return validateOptions{}, fmt.Errorf("missing validation profile")
 		}
-		opts.Profile = args[0]
-		args = args[1:]
+		opts.Profile = positionals[0]
+		positionals = positionals[1:]
 	} else if opts.Action == "graph" {
-		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-			opts.Profile = args[0]
-			args = args[1:]
+		if len(positionals) > 0 {
+			opts.Profile = positionals[0]
+			positionals = positionals[1:]
 		}
 	} else if opts.Action == "run" {
-		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-			opts.Profile = args[0]
-			args = args[1:]
+		if len(positionals) > 0 {
+			opts.Profile = positionals[0]
+			positionals = positionals[1:]
 		}
 	}
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--app-root":
-			i++
-			if i >= len(args) {
-				return validateOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case strings.HasPrefix(args[i], "--app-root="):
-			opts.AppRoot = strings.TrimPrefix(args[i], "--app-root=")
-		case args[i] == "--json":
-			opts.JSON = true
-		case args[i] == "--write":
-			opts.Write = true
-		case args[i] == "--dry-run":
-			opts.DryRun = true
-		case args[i] == "--base":
-			if opts.Action != "changed" {
-				return validateOptions{}, fmt.Errorf("--base is only supported for validate changed")
-			}
-			i++
-			if i >= len(args) {
-				return validateOptions{}, fmt.Errorf("missing value for --base")
-			}
-			opts.Base = strings.TrimSpace(args[i])
-			if opts.Base == "" {
-				return validateOptions{}, fmt.Errorf("--base must not be empty")
-			}
-		case strings.HasPrefix(args[i], "--base="):
-			if opts.Action != "changed" {
-				return validateOptions{}, fmt.Errorf("--base is only supported for validate changed")
-			}
-			opts.Base = strings.TrimSpace(strings.TrimPrefix(args[i], "--base="))
-			if opts.Base == "" {
-				return validateOptions{}, fmt.Errorf("--base must not be empty")
-			}
-		default:
-			return validateOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	if len(positionals) > 0 {
+		return validateOptions{}, fmt.Errorf("unknown argument %q", positionals[0])
+	}
+	if cliFlagSet(flags, "base") && opts.Action != "changed" {
+		return validateOptions{}, fmt.Errorf("--base is only supported for validate changed")
+	}
+	opts.Base = strings.TrimSpace(opts.Base)
+	if opts.Base == "" {
+		return validateOptions{}, fmt.Errorf("--base must not be empty")
 	}
 	if (opts.Action == "graph" || opts.Action == "list" || opts.Action == "inspect") && opts.Write {
 		return validateOptions{}, fmt.Errorf("--write is only supported when running validation")

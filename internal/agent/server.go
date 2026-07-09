@@ -51,14 +51,6 @@ type Server struct {
 	routerLn             net.Listener
 }
 
-func Run(ctx context.Context, opts RunOptions) error {
-	server, err := NewServer(opts)
-	if err != nil {
-		return err
-	}
-	return server.Run(ctx)
-}
-
 func NewServer(opts RunOptions) (*Server, error) {
 	var paths Paths
 	if opts.Home != "" {

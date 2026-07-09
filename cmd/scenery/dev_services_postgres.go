@@ -84,16 +84,6 @@ var (
 	}
 )
 
-func managedPostgresEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, baseEnv []string) ([]string, []postgresdb.Service, error) {
-	env, database, err := managedDatabaseEnv(ctx, appRoot, cfg, session, baseEnv)
-	return env, database.Schemas, err
-}
-
-func managedPostgresEnvWithAgent(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, agent *localagent.Client, baseEnv []string) ([]string, []postgresdb.Service, error) {
-	env, database, err := managedDatabaseEnvWithAgent(ctx, appRoot, cfg, session, agent, baseEnv)
-	return env, database.Schemas, err
-}
-
 func managedDatabaseEnv(ctx context.Context, appRoot string, cfg app.Config, session *localagent.Session, baseEnv []string) ([]string, postgresdb.Database, error) {
 	return managedDatabaseEnvWithAgent(ctx, appRoot, cfg, session, nil, baseEnv)
 }
@@ -342,10 +332,6 @@ func postgresContainerPublishedPort(ctx context.Context, container string) (int,
 		return 0, err
 	}
 	return port, nil
-}
-
-func upsertPostgresSubstrate(ctx context.Context, state *postgresServerState, appRoot string, session *localagent.Session) error {
-	return upsertPostgresSubstrateWithAgent(ctx, state, appRoot, session, nil)
 }
 
 func defaultPostgresReadyProbe(ctx context.Context, state *postgresServerState) error {

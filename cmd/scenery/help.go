@@ -511,12 +511,6 @@ func helpCommand(args []string) error {
 	return nil
 }
 
-func rootHelpString() string {
-	var b strings.Builder
-	writeRootHelp(&b)
-	return strings.TrimRight(b.String(), "\n")
-}
-
 func writeRootHelp(w io.Writer) {
 	fmt.Fprintln(w, "Scenery - build, run, and inspect app services.")
 	fmt.Fprintln(w)

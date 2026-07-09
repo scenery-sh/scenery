@@ -250,29 +250,18 @@ func runSceneryHarnessUI(ctx context.Context, stdout io.Writer, args []string) e
 
 func parseHarnessUIArgs(args []string) (harnessUIOptions, error) {
 	opts := harnessUIOptions{}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return harnessUIOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--dashboard-url":
-			i++
-			if i >= len(args) {
-				return harnessUIOptions{}, fmt.Errorf("missing value for --dashboard-url")
-			}
-			opts.DashboardURL = args[i]
-		case "--json":
-			opts.JSON = true
-		case "--write":
-			opts.Write = true
-		case "--headed":
-			opts.Headed = true
-		default:
-			return harnessUIOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("harness ui")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.DashboardURL, "dashboard-url", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.Write, "write", false, "")
+	flags.BoolVar(&opts.Headed, "headed", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return harnessUIOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return harnessUIOptions{}, err
 	}
 	return opts, nil
 }

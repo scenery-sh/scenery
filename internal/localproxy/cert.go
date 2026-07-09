@@ -121,37 +121,6 @@ func InstallLocalCATrust(certPath string) error {
 	return installLocalCATrust(certPath)
 }
 
-func prepareLocalCertificates(subjects []string) (localCertificates, error) {
-	subjects = normalizeCertificateSubjects(subjects)
-	if len(subjects) == 0 {
-		return localCertificates{}, fmt.Errorf("local HTTPS proxy requires at least one certificate subject")
-	}
-	dir, err := localProxyCacheDir()
-	if err != nil {
-		return localCertificates{}, err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return localCertificates{}, err
-	}
-	_ = os.Chmod(dir, 0o700)
-
-	paths := certificatePaths{
-		caCert:   filepath.Join(dir, localProxyCACertFile),
-		caKey:    filepath.Join(dir, localProxyCAKeyFile),
-		leafCert: filepath.Join(dir, localProxyLeafCertFile),
-		leafKey:  filepath.Join(dir, localProxyLeafKeyFile),
-	}
-	caCert, caKey, err := loadOrCreateCA(paths)
-	if err != nil {
-		return localCertificates{}, err
-	}
-	leaf, err := loadOrCreateLeaf(paths, caCert, caKey, subjects)
-	if err != nil {
-		return localCertificates{}, err
-	}
-	return localCertificates{Leaf: leaf, CAPath: paths.caCert, CACert: caCert}, nil
-}
-
 type certificatePaths struct {
 	caCert   string
 	caKey    string
@@ -214,75 +183,6 @@ func loadOrCreateCA(paths certificatePaths) (*x509.Certificate, crypto.Signer, e
 		return nil, nil, err
 	}
 	return cert, key, nil
-}
-
-func loadOrCreateLeaf(paths certificatePaths, caCert *x509.Certificate, caKey crypto.Signer, subjects []string) (tls.Certificate, error) {
-	if cert, key, err := loadCertificateAndKey(paths.leafCert, paths.leafKey); err == nil && validLeaf(cert, key, caCert, subjects) {
-		certPEM, err := os.ReadFile(paths.leafCert)
-		if err != nil {
-			return tls.Certificate{}, err
-		}
-		keyPEM, err := os.ReadFile(paths.leafKey)
-		if err != nil {
-			return tls.Certificate{}, err
-		}
-		tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-		if err != nil {
-			return tls.Certificate{}, err
-		}
-		tlsCert.Leaf = cert
-		return tlsCert, nil
-	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	now := time.Now()
-	serial, err := randomSerial()
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	template := &x509.Certificate{
-		SerialNumber: serial,
-		Subject: pkix.Name{
-			CommonName: "scenery Local Proxy",
-		},
-		NotBefore:   now.Add(-time.Hour),
-		NotAfter:    now.Add(90 * 24 * time.Hour),
-		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	for _, subject := range subjects {
-		if ip := net.ParseIP(subject); ip != nil {
-			template.IPAddresses = append(template.IPAddresses, ip)
-		} else {
-			template.DNSNames = append(template.DNSNames, subject)
-		}
-	}
-	der, err := x509.CreateCertificate(rand.Reader, template, caCert, key.Public(), caKey)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	if err := writePEMFile(paths.leafCert, certPEM); err != nil {
-		return tls.Certificate{}, err
-	}
-	if err := writePEMFile(paths.leafKey, keyPEM); err != nil {
-		return tls.Certificate{}, err
-	}
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	if len(tlsCert.Certificate) > 0 {
-		tlsCert.Leaf, _ = x509.ParseCertificate(tlsCert.Certificate[0])
-	}
-	return tlsCert, nil
 }
 
 func loadCertificateAndKey(certPath, keyPath string) (*x509.Certificate, crypto.Signer, error) {
@@ -359,28 +259,6 @@ func validCA(cert *x509.Certificate, key crypto.Signer) bool {
 		return false
 	}
 	return publicKeysEqual(cert.PublicKey, key.Public())
-}
-
-func validLeaf(cert *x509.Certificate, key crypto.Signer, caCert *x509.Certificate, subjects []string) bool {
-	if cert == nil || key == nil || caCert == nil {
-		return false
-	}
-	now := time.Now()
-	if now.Before(cert.NotBefore) || cert.NotAfter.Sub(now) < 7*24*time.Hour {
-		return false
-	}
-	if err := cert.CheckSignatureFrom(caCert); err != nil {
-		return false
-	}
-	if !publicKeysEqual(cert.PublicKey, key.Public()) {
-		return false
-	}
-	for _, subject := range subjects {
-		if err := cert.VerifyHostname(subject); err != nil {
-			return false
-		}
-	}
-	return true
 }
 
 func publicKeysEqual(a, b any) bool {

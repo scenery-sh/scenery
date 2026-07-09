@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -149,17 +148,12 @@ func goTestNeedsWorkspaceTidy(output []byte) bool {
 
 func parseTestArgs(args []string) (testOptions, error) {
 	var opts testOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return testOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		default:
-			opts.GoArgs = append(opts.GoArgs, args[i])
-		}
+	flags := newCLIFlagSet("test")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	var err error
+	opts.GoArgs, err = parseCLIFlags(flags, args)
+	if err != nil {
+		return testOptions{}, err
 	}
 	return opts, nil
 }

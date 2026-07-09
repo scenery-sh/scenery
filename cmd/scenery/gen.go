@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/clientgen"
@@ -61,43 +60,20 @@ func writeTypeScriptClient(appRoot string, cfg app.Config, target, outputPath st
 
 func parseGenClientArgs(args []string) (genClientOptions, error) {
 	var opts genClientOptions
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--app-root":
-			i++
-			if i >= len(args) {
-				return genClientOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case strings.HasPrefix(arg, "--app-root="):
-			opts.AppRoot = strings.TrimPrefix(arg, "--app-root=")
-		case arg == "--lang":
-			i++
-			if i >= len(args) {
-				return genClientOptions{}, fmt.Errorf("missing value for --lang")
-			}
-			opts.Lang = args[i]
-		case strings.HasPrefix(arg, "--lang="):
-			opts.Lang = strings.TrimPrefix(arg, "--lang=")
-		case arg == "--output" || arg == "-o":
-			i++
-			if i >= len(args) {
-				return genClientOptions{}, fmt.Errorf("missing value for %s", arg)
-			}
-			opts.Output = args[i]
-		case strings.HasPrefix(arg, "--output="):
-			opts.Output = strings.TrimPrefix(arg, "--output=")
-		case strings.HasPrefix(arg, "-o="):
-			opts.Output = strings.TrimPrefix(arg, "-o=")
-		case strings.HasPrefix(arg, "-"):
-			return genClientOptions{}, fmt.Errorf("unknown flag %q", arg)
-		default:
-			if opts.Target != "" {
-				return genClientOptions{}, fmt.Errorf("unexpected argument %q", arg)
-			}
-			opts.Target = arg
-		}
+	flags := newCLIFlagSet("generate client")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Lang, "lang", "", "")
+	flags.StringVar(&opts.Output, "output", "", "")
+	flags.StringVar(&opts.Output, "o", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return genClientOptions{}, err
+	}
+	if len(positionals) > 0 {
+		opts.Target = positionals[0]
+	}
+	if len(positionals) > 1 {
+		return genClientOptions{}, fmt.Errorf("unexpected argument %q", positionals[1])
 	}
 	return opts, nil
 }

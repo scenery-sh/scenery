@@ -127,38 +127,27 @@ func runUpgrade(ctx context.Context, stdout io.Writer, args []string) error {
 
 func parseUpgradeArgs(args []string) (upgradeOptions, error) {
 	opts := upgradeOptions{Version: "latest", ToolchainMode: "installed"}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--dry-run":
-			opts.DryRun = true
-		case "--force":
-			opts.Force = true
-		case "--skip-toolchain":
-			opts.ToolchainMode = "none"
-		case "--version":
-			i++
-			if i >= len(args) {
-				return upgradeOptions{}, fmt.Errorf("missing value for --version")
-			}
-			opts.Version = strings.TrimSpace(args[i])
-		case "--target":
-			i++
-			if i >= len(args) {
-				return upgradeOptions{}, fmt.Errorf("missing value for --target")
-			}
-			opts.Target = args[i]
-		case "--toolchain":
-			i++
-			if i >= len(args) {
-				return upgradeOptions{}, fmt.Errorf("missing value for --toolchain")
-			}
-			opts.ToolchainMode = strings.TrimSpace(args[i])
-		default:
-			return upgradeOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	skipToolchain := false
+	flags := newCLIFlagSet("upgrade")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
+	flags.BoolVar(&opts.Force, "force", false, "")
+	flags.BoolVar(&skipToolchain, "skip-toolchain", false, "")
+	flags.StringVar(&opts.Version, "version", opts.Version, "")
+	flags.StringVar(&opts.Target, "target", "", "")
+	flags.StringVar(&opts.ToolchainMode, "toolchain", opts.ToolchainMode, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return upgradeOptions{}, err
 	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return upgradeOptions{}, err
+	}
+	if skipToolchain {
+		opts.ToolchainMode = "none"
+	}
+	opts.Version = strings.TrimSpace(opts.Version)
+	opts.ToolchainMode = strings.TrimSpace(opts.ToolchainMode)
 	if opts.Version == "" {
 		return upgradeOptions{}, fmt.Errorf("--version must not be empty")
 	}

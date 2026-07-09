@@ -198,10 +198,6 @@ func harnessSelfGoTestCommand() []string {
 	return harnessSelfGoTestCommandWithCacheMode(false)
 }
 
-func harnessSelfFreshGoTestCommand() []string {
-	return harnessSelfGoTestCommandWithCacheMode(true)
-}
-
 func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
 	command := []string{"go", "test"}
 	if freshTests {
@@ -272,48 +268,41 @@ func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 
 func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
 	opts := harnessSelfOptions{Mode: harnessSelfModeDefault}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--repo-root":
-			i++
-			if i >= len(args) {
-				return harnessSelfOptions{}, fmt.Errorf("missing value for --repo-root")
-			}
-			opts.RepoRoot = args[i]
-		case "--json":
-			opts.JSON = true
+	flags := newCLIFlagSet("harness self")
+	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
+	flags.BoolFunc("json", "", func(value string) error {
+		opts.JSON = true
+		switch value {
+		case "true", "summary":
 			opts.Output = harnessSelfOutputSummary
-		case "--summary":
-			opts.JSON = true
-			opts.Output = harnessSelfOutputSummary
-		case "--json=summary":
-			opts.JSON = true
-			opts.Output = harnessSelfOutputSummary
-		case "--json=full":
-			opts.JSON = true
+		case "full":
 			opts.Output = harnessSelfOutputFull
-		case "--write":
-			opts.Write = true
-		case "--fresh-tests":
-			opts.FreshTests = true
-		case "--quick":
-			if opts.Mode != harnessSelfModeDefault {
-				return harnessSelfOptions{}, fmt.Errorf("only one harness self mode may be selected")
-			}
-			opts.Mode = harnessSelfModeQuick
-		case "--race":
-			if opts.Mode != harnessSelfModeDefault {
-				return harnessSelfOptions{}, fmt.Errorf("only one harness self mode may be selected")
-			}
-			opts.Mode = harnessSelfModeRace
-		case "--release":
-			if opts.Mode != harnessSelfModeDefault {
-				return harnessSelfOptions{}, fmt.Errorf("only one harness self mode may be selected")
-			}
-			opts.Mode = harnessSelfModeRelease
 		default:
-			return harnessSelfOptions{}, fmt.Errorf("unknown flag %q", args[i])
+			return fmt.Errorf("invalid --json mode %q", value)
 		}
+		return nil
+	})
+	flags.BoolFunc("summary", "", func(string) error { opts.JSON, opts.Output = true, harnessSelfOutputSummary; return nil })
+	flags.BoolVar(&opts.Write, "write", false, "")
+	flags.BoolVar(&opts.FreshTests, "fresh-tests", false, "")
+	setMode := func(mode string) func(string) error {
+		return func(string) error {
+			if opts.Mode != harnessSelfModeDefault {
+				return fmt.Errorf("only one harness self mode may be selected")
+			}
+			opts.Mode = mode
+			return nil
+		}
+	}
+	flags.BoolFunc("quick", "", setMode(harnessSelfModeQuick))
+	flags.BoolFunc("race", "", setMode(harnessSelfModeRace))
+	flags.BoolFunc("release", "", setMode(harnessSelfModeRelease))
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return harnessSelfOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return harnessSelfOptions{}, err
 	}
 	return opts, nil
 }

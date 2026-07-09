@@ -131,32 +131,6 @@ func (s *victoriaStack) GetTraceSummaries(ctx context.Context, appID, traceID st
 	return items, nil
 }
 
-func (s *victoriaStack) TraceEventsFor(ctx context.Context, appID, traceID, spanID string) ([]map[string]any, error) {
-	baseURL := s.BaseURL("traces")
-	if baseURL == "" {
-		return nil, errors.New("VictoriaTraces is unavailable")
-	}
-	traces, err := getVictoriaJaegerTrace(ctx, baseURL, traceID)
-	if err != nil {
-		return nil, err
-	}
-	var compat []compatTraceEvent
-	for _, trace := range traces {
-		for _, span := range trace.Spans {
-			if spanID != "" && span.SpanID != spanID {
-				continue
-			}
-			summary := traceSummaryFromVictoriaSpan(appID, trace, span)
-			compat = append(compat, compatFromVictoriaSpan(summary, span)...)
-		}
-	}
-	if len(compat) == 0 {
-		return nil, errors.New("trace not found in VictoriaTraces")
-	}
-	sortCompatTraceEvents(compat)
-	return compatTracePayloads(compat), nil
-}
-
 func (s *victoriaStack) BaseURL(name string) string {
 	if s == nil {
 		return ""
@@ -320,29 +294,6 @@ func filterVictoriaSummaries(items []*devdash.TraceSummary, query devdash.TraceQ
 		out = append(out, item)
 	}
 	return out
-}
-
-func compatFromVictoriaSpan(summary *devdash.TraceSummary, span victoriaJaegerSpan) []compatTraceEvent {
-	events := buildCompatTraceEvents(summary, nil)
-	for idx, logEvent := range span.Logs {
-		payload := map[string]any{
-			"trace_id":   compatTraceID(span.TraceID),
-			"span_id":    compatHexIDString(span.SpanID),
-			"event_id":   strconv.Itoa(idx + 2),
-			"event_time": time.UnixMicro(logEvent.Timestamp).UTC().Format(time.RFC3339Nano),
-			"span_event": map[string]any{
-				"victoria": map[string]any{
-					"fields": victoriaTagsMap(logEvent.Fields),
-				},
-			},
-		}
-		events = append(events, compatTraceEvent{
-			id:      uint64(idx + 2),
-			when:    time.UnixMicro(logEvent.Timestamp).UTC(),
-			payload: payload,
-		})
-	}
-	return events
 }
 
 func victoriaTagsMap(tags []victoriaJaegerTag) map[string]any {

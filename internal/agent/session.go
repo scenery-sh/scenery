@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -128,22 +127,6 @@ func SessionID(appRoot, branch string) string {
 		label = strings.Trim(label[:48], "-")
 	}
 	return label + "-" + suffix
-}
-
-func UniqueSessionID(appRoot, branch string) (string, error) {
-	branch = strings.TrimSpace(branch)
-	if branch == "" {
-		branch = discoverGitBranch(appRoot)
-	}
-	base := SessionID(appRoot, branch)
-	var buf [4]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return "", err
-	}
-	if len(base) > 55 {
-		base = strings.Trim(base[:55], "-")
-	}
-	return base + "-" + hex.EncodeToString(buf[:]), nil
 }
 
 func NormalizeSessionID(value string) (string, error) {

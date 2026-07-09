@@ -112,40 +112,31 @@ func runToolchain(ctx context.Context, stdout io.Writer, args []string) error {
 }
 
 func parseToolchainArgs(args []string) (toolchainOptions, error) {
-	if len(args) == 0 {
+	opts := toolchainOptions{}
+	platformName := ""
+	flags := newCLIFlagSet("system toolchain")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.All, "all", false, "")
+	flags.BoolVar(&opts.Images, "images", false, "")
+	flags.BoolVar(&opts.Strict, "strict", false, "")
+	flags.BoolVar(&opts.IncludeSourceLocks, "include-source-locks", false, "")
+	flags.StringVar(&opts.Tool, "tool", "", "")
+	flags.StringVar(&platformName, "platform", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return toolchainOptions{}, err
+	}
+	if len(positionals) == 0 {
 		return toolchainOptions{}, fmt.Errorf("usage: scenery system toolchain list|sync|verify|path [--json]")
 	}
-	opts := toolchainOptions{Command: args[0]}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--all":
-			opts.All = true
-		case "--images":
-			opts.Images = true
-		case "--strict":
-			opts.Strict = true
-		case "--include-source-locks":
-			opts.IncludeSourceLocks = true
-		case "--tool":
-			i++
-			if i >= len(args) {
-				return toolchainOptions{}, fmt.Errorf("missing value for --tool")
-			}
-			opts.Tool = args[i]
-		case "--platform":
-			i++
-			if i >= len(args) {
-				return toolchainOptions{}, fmt.Errorf("missing value for --platform")
-			}
-			platform, err := toolchain.ParsePlatform(args[i])
-			if err != nil {
-				return toolchainOptions{}, err
-			}
-			opts.Platform = platform
-		default:
-			return toolchainOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	opts.Command = positionals[0]
+	if len(positionals) > 1 {
+		return toolchainOptions{}, fmt.Errorf("unknown argument %q", positionals[1])
+	}
+	if platformName != "" {
+		opts.Platform, err = toolchain.ParsePlatform(platformName)
+		if err != nil {
+			return toolchainOptions{}, err
 		}
 	}
 	switch opts.Command {

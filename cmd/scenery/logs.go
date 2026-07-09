@@ -216,107 +216,70 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 		}
 		opts.Backend = normalized
 	}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--limit", "-n":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for %s", args[i-1])
-			}
-			value, err := strconv.Atoi(args[i])
-			if err != nil || value <= 0 {
-				return logsOptions{}, fmt.Errorf("invalid limit %q", args[i])
-			}
-			opts.Limit = value
-		case "--follow", "-f":
-			opts.Follow = true
-		case "--jsonl", "--json":
-			opts.JSONL = true
-		case "--tui":
-			opts.TUI = true
-		case "--backend":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --backend")
-			}
-			opts.Backend = normalizeLogsBackend(args[i])
-			if opts.Backend == "" {
-				return logsOptions{}, fmt.Errorf("invalid backend %q", args[i])
-			}
-		case "--stream":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --stream")
-			}
-			opts.Stream = normalizeLogStream(args[i])
-			if opts.Stream == "" {
-				return logsOptions{}, fmt.Errorf("invalid stream %q", args[i])
-			}
-		case "--session":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --session")
-			}
-			opts.Session = strings.TrimSpace(args[i])
-			if opts.Session == "" {
-				return logsOptions{}, fmt.Errorf("invalid session %q", args[i])
-			}
-		case "--source":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --source")
-			}
-			opts.Source = strings.TrimSpace(args[i])
-			if opts.Source == "" {
-				return logsOptions{}, fmt.Errorf("invalid source %q", args[i])
-			}
-		case "--kind":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --kind")
-			}
-			opts.Kind = strings.ToLower(strings.TrimSpace(args[i]))
-			if opts.Kind == "" {
-				return logsOptions{}, fmt.Errorf("invalid kind %q", args[i])
-			}
-		case "--level":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --level")
-			}
-			opts.Level = normalizeLogLevel(args[i])
-			if opts.Level == "" {
-				return logsOptions{}, fmt.Errorf("invalid level %q", args[i])
-			}
-		case "--grep":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --grep")
-			}
-			opts.Grep = strings.TrimSpace(args[i])
-			if opts.Grep == "" {
-				return logsOptions{}, fmt.Errorf("invalid grep %q", args[i])
-			}
-		case "--since":
-			i++
-			if i >= len(args) {
-				return logsOptions{}, fmt.Errorf("missing value for --since")
-			}
-			duration, err := time.ParseDuration(args[i])
-			if err != nil || duration <= 0 {
-				return logsOptions{}, fmt.Errorf("invalid since duration %q", args[i])
-			}
-			opts.Since = duration
-			opts.SinceRaw = args[i]
-		default:
-			return logsOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	backend, stream, level, since := opts.Backend, opts.Stream, "", ""
+	flags := newCLIFlagSet("logs")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
+	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
+	flags.BoolVar(&opts.Follow, "follow", false, "")
+	flags.BoolVar(&opts.Follow, "f", false, "")
+	flags.BoolVar(&opts.JSONL, "jsonl", false, "")
+	flags.BoolVar(&opts.JSONL, "json", false, "")
+	flags.BoolVar(&opts.TUI, "tui", false, "")
+	flags.StringVar(&backend, "backend", backend, "")
+	flags.StringVar(&stream, "stream", stream, "")
+	flags.StringVar(&opts.Session, "session", "", "")
+	flags.StringVar(&opts.Source, "source", "", "")
+	flags.StringVar(&opts.Kind, "kind", "", "")
+	flags.StringVar(&level, "level", "", "")
+	flags.StringVar(&opts.Grep, "grep", "", "")
+	flags.StringVar(&since, "since", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return logsOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return logsOptions{}, err
+	}
+	if opts.Limit <= 0 {
+		return logsOptions{}, fmt.Errorf("invalid limit %d", opts.Limit)
+	}
+	opts.Backend = normalizeLogsBackend(backend)
+	if opts.Backend == "" {
+		return logsOptions{}, fmt.Errorf("invalid backend %q", backend)
+	}
+	opts.Stream = normalizeLogStream(stream)
+	if opts.Stream == "" {
+		return logsOptions{}, fmt.Errorf("invalid stream %q", stream)
+	}
+	opts.Session = strings.TrimSpace(opts.Session)
+	if cliFlagSet(flags, "session") && opts.Session == "" {
+		return logsOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+	}
+	opts.Source = strings.TrimSpace(opts.Source)
+	if cliFlagSet(flags, "source") && opts.Source == "" {
+		return logsOptions{}, fmt.Errorf("invalid source %q", opts.Source)
+	}
+	opts.Kind = strings.ToLower(strings.TrimSpace(opts.Kind))
+	if cliFlagSet(flags, "kind") && opts.Kind == "" {
+		return logsOptions{}, fmt.Errorf("invalid kind %q", opts.Kind)
+	}
+	if cliFlagSet(flags, "level") {
+		opts.Level = normalizeLogLevel(level)
+		if opts.Level == "" {
+			return logsOptions{}, fmt.Errorf("invalid level %q", level)
 		}
+	}
+	opts.Grep = strings.TrimSpace(opts.Grep)
+	if cliFlagSet(flags, "grep") && opts.Grep == "" {
+		return logsOptions{}, fmt.Errorf("invalid grep %q", opts.Grep)
+	}
+	if since != "" {
+		opts.Since, err = time.ParseDuration(since)
+		if err != nil || opts.Since <= 0 {
+			return logsOptions{}, fmt.Errorf("invalid since duration %q", since)
+		}
+		opts.SinceRaw = since
 	}
 	return opts, nil
 }

@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	localagent "scenery.sh/internal/agent"
@@ -185,90 +184,65 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 }
 
 func parseStorageArgs(args []string) (storageCLIOptions, error) {
-	if len(args) == 0 {
+	opts := storageCLIOptions{}
+	flags := newCLIFlagSet("storage")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Prefix, "prefix", "", "")
+	flags.StringVar(&opts.Cursor, "cursor", "", "")
+	flags.IntVar(&opts.Limit, "limit", 0, "")
+	flags.StringVar(&opts.Output, "output", "", "")
+	flags.BoolVar(&opts.Recursive, "recursive", false, "")
+	flags.BoolVar(&opts.Yes, "yes", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return storageCLIOptions{}, err
+	}
+	if len(positionals) == 0 {
 		return storageCLIOptions{}, fmt.Errorf("missing storage command")
 	}
-	opts := storageCLIOptions{Command: args[0]}
+	opts.Command = positionals[0]
+	expectedPositionals := 1
 	switch opts.Command {
 	case "status", "webui", "cleanup":
 	case "ls":
-		if len(args) < 2 {
+		expectedPositionals = 2
+		if len(positionals) < 2 {
 			return storageCLIOptions{}, fmt.Errorf("scenery storage ls requires <store>")
 		}
-		opts.Store = args[1]
-		args = append(args[:1], args[2:]...)
+		opts.Store = positionals[1]
 	case "stat":
-		if len(args) < 3 {
+		expectedPositionals = 3
+		if len(positionals) < 3 {
 			return storageCLIOptions{}, fmt.Errorf("scenery storage stat requires <store> <key>")
 		}
-		opts.Store, opts.Key = args[1], args[2]
-		args = append(args[:1], args[3:]...)
+		opts.Store, opts.Key = positionals[1], positionals[2]
 	case "put":
-		if len(args) < 4 {
+		expectedPositionals = 4
+		if len(positionals) < 4 {
 			return storageCLIOptions{}, fmt.Errorf("scenery storage put requires <store> <key> <file>")
 		}
-		opts.Store, opts.Key, opts.File = args[1], args[2], args[3]
-		args = append(args[:1], args[4:]...)
+		opts.Store, opts.Key, opts.File = positionals[1], positionals[2], positionals[3]
 	case "get":
-		if len(args) < 3 {
+		expectedPositionals = 3
+		if len(positionals) < 3 {
 			return storageCLIOptions{}, fmt.Errorf("scenery storage get requires <store> <key>")
 		}
-		opts.Store, opts.Key = args[1], args[2]
-		args = append(args[:1], args[3:]...)
+		opts.Store, opts.Key = positionals[1], positionals[2]
 	case "rm":
-		if len(args) < 3 {
+		expectedPositionals = 3
+		if len(positionals) < 3 {
 			return storageCLIOptions{}, fmt.Errorf("scenery storage rm requires <store> <key>")
 		}
-		opts.Store, opts.Key = args[1], args[2]
-		args = append(args[:1], args[3:]...)
+		opts.Store, opts.Key = positionals[1], positionals[2]
 	default:
 		return storageCLIOptions{}, fmt.Errorf("unknown storage command %q", opts.Command)
 	}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return storageCLIOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--prefix":
-			i++
-			if i >= len(args) {
-				return storageCLIOptions{}, fmt.Errorf("missing value for --prefix")
-			}
-			opts.Prefix = args[i]
-		case "--cursor":
-			i++
-			if i >= len(args) {
-				return storageCLIOptions{}, fmt.Errorf("missing value for --cursor")
-			}
-			opts.Cursor = args[i]
-		case "--limit":
-			i++
-			if i >= len(args) {
-				return storageCLIOptions{}, fmt.Errorf("missing value for --limit")
-			}
-			limit, err := strconv.Atoi(args[i])
-			if err != nil || limit <= 0 {
-				return storageCLIOptions{}, fmt.Errorf("--limit must be a positive integer")
-			}
-			opts.Limit = limit
-		case "--output":
-			i++
-			if i >= len(args) {
-				return storageCLIOptions{}, fmt.Errorf("missing value for --output")
-			}
-			opts.Output = args[i]
-		case "--recursive":
-			opts.Recursive = true
-		case "--yes":
-			opts.Yes = true
-		default:
-			return storageCLIOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	if len(positionals) > expectedPositionals {
+		return storageCLIOptions{}, fmt.Errorf("unexpected argument %q", positionals[expectedPositionals])
+	}
+	if cliFlagSet(flags, "limit") && opts.Limit <= 0 {
+		return storageCLIOptions{}, fmt.Errorf("--limit must be a positive integer")
 	}
 	return opts, nil
 }

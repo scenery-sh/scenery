@@ -6,6 +6,24 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Ponytail Cleanup
+
+- Status: completed
+- Owner: scenery maintainers
+- Completed: 2026-07-09
+- Quality: B
+- ExecPlan: [0102 Ponytail Cleanup](0102-ponytail-cleanup.md)
+
+Shipped:
+
+- Retired the obsolete runnable `ui/` dashboard and three direct dependencies while preserving the reusable `@scenery` registry; ConsoleNext is now the sole dashboard source.
+- Consolidated all 44 audited command parsers on a scoped Go `flag.FlagSet` adapter without removing documented positional or pass-through grammar.
+- Removed legacy GraphQL and compatibility RPC paths, MemoryStore, ErrDetails, and every dead-code finding under `cmd/scenery` and `internal`.
+
+Validation:
+
+- Passed `go test ./...`, ConsoleNext lint/typecheck/build, registry typecheck/tests, dashboard embed rebuild, docs inspection, dead-code and removal checks, self-harness, and the full fixture browser UI harness.
+
 ## Google Social Login
 
 - Status: completed

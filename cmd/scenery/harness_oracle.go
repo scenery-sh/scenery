@@ -407,7 +407,7 @@ func classifyHarnessChangedFile(path string) string {
 		return "internal"
 	case strings.HasPrefix(path, "runtime") || strings.HasPrefix(path, "auth/"):
 		return "runtime"
-	case strings.HasPrefix(path, "ui/"):
+	case strings.HasPrefix(path, "ui/"), strings.HasPrefix(path, "apps/consolenext/"):
 		return "ui"
 	case strings.HasPrefix(path, "docs/schemas/"):
 		return "schema"
@@ -448,10 +448,14 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 		docs["docs/plans/active.md"] = true
 		risks["exec-plan"] = true
 	case "ui":
-		docs["docs/ui-agent-contract.md"] = true
 		risks["dashboard-ui"] = true
-		commands["cd ui && bun run typecheck"] = true
-		commands["cd ui && bun run build"] = true
+		if strings.HasPrefix(path, "apps/consolenext/") {
+			docs["apps/consolenext/AGENTS.md"] = true
+			commands["cd apps/consolenext && bun run lint && bun run typecheck && bun run build"] = true
+		} else {
+			docs["docs/ui-agent-contract.md"] = true
+			commands["cd ui && bun run typecheck && bun run test"] = true
+		}
 	case "fixture":
 		docs["docs/app-development-cookbook.md"] = true
 		risks["fixture-contract"] = true
@@ -598,10 +602,6 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	step.OK = !hasErrorDiagnostics(step.Diagnostics)
 	finalizeHarnessEvidence(step.Evidence, elapsed, step.OK, string(output), "", exitCodeFromError(runErr), artifacts)
 	return step, report
-}
-
-func parseHarnessGoTestTiming(output []byte, command []string, elapsed time.Duration) *harnessTestTimingReport {
-	return parseHarnessGoTestTimingWithBudgets(output, command, elapsed, defaultHarnessTestTimingBudgets())
 }
 
 func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapsed time.Duration, budgets harnessTestTimingBudgets) *harnessTestTimingReport {

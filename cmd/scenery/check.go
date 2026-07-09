@@ -337,19 +337,15 @@ func renderCheckFailure(stdout io.Writer, jsonMode bool, app inspectdata.AppRef,
 
 func parseCheckArgs(args []string) (checkOptions, error) {
 	opts := checkOptions{}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return checkOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--json":
-			opts.JSON = true
-		default:
-			return checkOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("check")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return checkOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return checkOptions{}, err
 	}
 	return opts, nil
 }

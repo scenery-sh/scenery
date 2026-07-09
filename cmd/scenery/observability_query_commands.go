@@ -291,98 +291,54 @@ func buildInspectObservabilityResponse(ctx context.Context, appRoot string, cfg 
 
 func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 	opts := logsQueryOptions{Session: "current", Since: 15 * time.Minute, SinceRaw: "15m", Limit: 200, Timeout: 3 * time.Second}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-		case "--jsonl":
-			opts.JSONL = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--session":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --session")
-			}
-			opts.Session = strings.TrimSpace(args[i])
-			if opts.Session == "" {
-				return logsQueryOptions{}, fmt.Errorf("invalid session %q", args[i])
-			}
-		case "--query":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --query")
-			}
-			opts.Query = strings.TrimSpace(args[i])
-		case "--logql":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --logql")
-			}
-			opts.LogQL = strings.TrimSpace(args[i])
-		case "--since":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --since")
-			}
-			duration, err := parsePositiveDuration(args[i], "since")
-			if err != nil {
-				return logsQueryOptions{}, err
-			}
-			opts.Since = duration
-			opts.SinceRaw = args[i]
-		case "--start":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --start")
-			}
-			start, err := parseQueryTime(args[i])
-			if err != nil {
-				return logsQueryOptions{}, err
-			}
-			opts.Start = start
-		case "--end":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --end")
-			}
-			end, err := parseQueryTime(args[i])
-			if err != nil {
-				return logsQueryOptions{}, err
-			}
-			opts.End = end
-		case "--limit", "-n":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for %s", args[i-1])
-			}
-			limit, err := parsePositiveInt(args[i], "limit")
-			if err != nil {
-				return logsQueryOptions{}, err
-			}
-			opts.Limit = limit
-		case "--timeout":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --timeout")
-			}
-			timeout, err := parsePositiveDuration(args[i], "timeout")
-			if err != nil {
-				return logsQueryOptions{}, err
-			}
-			opts.Timeout = timeout
-		case "--fields":
-			i++
-			if i >= len(args) {
-				return logsQueryOptions{}, fmt.Errorf("missing value for --fields")
-			}
-			opts.Fields = splitCSV(args[i])
-		default:
-			return logsQueryOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	since, start, end, timeout, fields := opts.SinceRaw, "", "", opts.Timeout.String(), ""
+	flags := newCLIFlagSet("logs query")
+	flags.Bool("json", false, "")
+	flags.BoolVar(&opts.JSONL, "jsonl", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Session, "session", opts.Session, "")
+	flags.StringVar(&opts.Query, "query", "", "")
+	flags.StringVar(&opts.LogQL, "logql", "", "")
+	flags.StringVar(&since, "since", since, "")
+	flags.StringVar(&start, "start", "", "")
+	flags.StringVar(&end, "end", "", "")
+	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
+	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
+	flags.StringVar(&timeout, "timeout", timeout, "")
+	flags.StringVar(&fields, "fields", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return logsQueryOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return logsQueryOptions{}, err
+	}
+	opts.Session, opts.Query, opts.LogQL = strings.TrimSpace(opts.Session), strings.TrimSpace(opts.Query), strings.TrimSpace(opts.LogQL)
+	if opts.Session == "" {
+		return logsQueryOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+	}
+	if opts.Since, err = parsePositiveDuration(since, "since"); err != nil {
+		return logsQueryOptions{}, err
+	}
+	opts.SinceRaw = since
+	if start != "" {
+		if opts.Start, err = parseQueryTime(start); err != nil {
+			return logsQueryOptions{}, err
 		}
+	}
+	if end != "" {
+		if opts.End, err = parseQueryTime(end); err != nil {
+			return logsQueryOptions{}, err
+		}
+	}
+	if opts.Limit <= 0 {
+		return logsQueryOptions{}, fmt.Errorf("invalid limit %q", strconv.Itoa(opts.Limit))
+	}
+	if opts.Timeout, err = parsePositiveDuration(timeout, "timeout"); err != nil {
+		return logsQueryOptions{}, err
+	}
+	if fields != "" {
+		opts.Fields = splitCSV(fields)
 	}
 	if opts.LogQL != "" {
 		return logsQueryOptions{}, fmt.Errorf("--logql is not supported yet; use native VictoriaLogs LogsQL with --query")
@@ -410,96 +366,53 @@ func parseLogsTailArgs(args []string) (logsQueryOptions, error) {
 
 func parseMetricsQueryArgs(args []string) (metricsQueryOptions, error) {
 	opts := metricsQueryOptions{Session: "current", Since: 15 * time.Minute, SinceRaw: "15m", Step: 5 * time.Second, Timeout: 3 * time.Second, Limit: 100}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-		case "--instant":
-			opts.Instant = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--session":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --session")
-			}
-			opts.Session = strings.TrimSpace(args[i])
-			if opts.Session == "" {
-				return metricsQueryOptions{}, fmt.Errorf("invalid session %q", args[i])
-			}
-		case "--promql":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --promql")
-			}
-			opts.PromQL = strings.TrimSpace(args[i])
-		case "--since":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --since")
-			}
-			duration, err := parsePositiveDuration(args[i], "since")
-			if err != nil {
-				return metricsQueryOptions{}, err
-			}
-			opts.Since = duration
-			opts.SinceRaw = args[i]
-		case "--start":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --start")
-			}
-			start, err := parseQueryTime(args[i])
-			if err != nil {
-				return metricsQueryOptions{}, err
-			}
-			opts.Start = start
-		case "--end":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --end")
-			}
-			end, err := parseQueryTime(args[i])
-			if err != nil {
-				return metricsQueryOptions{}, err
-			}
-			opts.End = end
-		case "--step":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --step")
-			}
-			step, err := parsePositiveDuration(args[i], "step")
-			if err != nil {
-				return metricsQueryOptions{}, err
-			}
-			opts.Step = step
-		case "--timeout":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for --timeout")
-			}
-			timeout, err := parsePositiveDuration(args[i], "timeout")
-			if err != nil {
-				return metricsQueryOptions{}, err
-			}
-			opts.Timeout = timeout
-		case "--limit", "-n":
-			i++
-			if i >= len(args) {
-				return metricsQueryOptions{}, fmt.Errorf("missing value for %s", args[i-1])
-			}
-			limit, err := parsePositiveInt(args[i], "limit")
-			if err != nil {
-				return metricsQueryOptions{}, err
-			}
-			opts.Limit = limit
-		default:
-			return metricsQueryOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	since, start, end, step, timeout := opts.SinceRaw, "", "", opts.Step.String(), opts.Timeout.String()
+	flags := newCLIFlagSet("metrics query")
+	flags.Bool("json", false, "")
+	flags.BoolVar(&opts.Instant, "instant", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Session, "session", opts.Session, "")
+	flags.StringVar(&opts.PromQL, "promql", "", "")
+	flags.StringVar(&since, "since", since, "")
+	flags.StringVar(&start, "start", "", "")
+	flags.StringVar(&end, "end", "", "")
+	flags.StringVar(&step, "step", step, "")
+	flags.StringVar(&timeout, "timeout", timeout, "")
+	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
+	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return metricsQueryOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return metricsQueryOptions{}, err
+	}
+	opts.Session, opts.PromQL = strings.TrimSpace(opts.Session), strings.TrimSpace(opts.PromQL)
+	if opts.Session == "" {
+		return metricsQueryOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+	}
+	if opts.Since, err = parsePositiveDuration(since, "since"); err != nil {
+		return metricsQueryOptions{}, err
+	}
+	opts.SinceRaw = since
+	if start != "" {
+		if opts.Start, err = parseQueryTime(start); err != nil {
+			return metricsQueryOptions{}, err
 		}
+	}
+	if end != "" {
+		if opts.End, err = parseQueryTime(end); err != nil {
+			return metricsQueryOptions{}, err
+		}
+	}
+	if opts.Step, err = parsePositiveDuration(step, "step"); err != nil {
+		return metricsQueryOptions{}, err
+	}
+	if opts.Timeout, err = parsePositiveDuration(timeout, "timeout"); err != nil {
+		return metricsQueryOptions{}, err
+	}
+	if opts.Limit <= 0 {
+		return metricsQueryOptions{}, fmt.Errorf("invalid limit %q", strconv.Itoa(opts.Limit))
 	}
 	if opts.PromQL == "" {
 		return metricsQueryOptions{}, fmt.Errorf("missing required --promql")
@@ -510,84 +423,48 @@ func parseMetricsQueryArgs(args []string) (metricsQueryOptions, error) {
 
 func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOptions, error) {
 	opts := metricsCatalogOptions{Session: "current", Since: time.Hour, SinceRaw: "1h", Limit: 1000, Timeout: 3 * time.Second}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--session":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for --session")
-			}
-			opts.Session = strings.TrimSpace(args[i])
-			if opts.Session == "" {
-				return metricsCatalogOptions{}, fmt.Errorf("invalid session %q", args[i])
-			}
-		case "--match":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for --match")
-			}
-			opts.Match = strings.TrimSpace(args[i])
-		case "--since":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for --since")
-			}
-			duration, err := parsePositiveDuration(args[i], "since")
-			if err != nil {
-				return metricsCatalogOptions{}, err
-			}
-			opts.Since = duration
-			opts.SinceRaw = args[i]
-		case "--start":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for --start")
-			}
-			start, err := parseQueryTime(args[i])
-			if err != nil {
-				return metricsCatalogOptions{}, err
-			}
-			opts.Start = start
-		case "--end":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for --end")
-			}
-			end, err := parseQueryTime(args[i])
-			if err != nil {
-				return metricsCatalogOptions{}, err
-			}
-			opts.End = end
-		case "--limit", "-n":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for %s", args[i-1])
-			}
-			limit, err := parsePositiveInt(args[i], "limit")
-			if err != nil {
-				return metricsCatalogOptions{}, err
-			}
-			opts.Limit = limit
-		case "--timeout":
-			i++
-			if i >= len(args) {
-				return metricsCatalogOptions{}, fmt.Errorf("missing value for --timeout")
-			}
-			timeout, err := parsePositiveDuration(args[i], "timeout")
-			if err != nil {
-				return metricsCatalogOptions{}, err
-			}
-			opts.Timeout = timeout
-		default:
-			return metricsCatalogOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	since, start, end, timeout := opts.SinceRaw, "", "", opts.Timeout.String()
+	flags := newCLIFlagSet("metrics catalog")
+	flags.Bool("json", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Session, "session", opts.Session, "")
+	flags.StringVar(&opts.Match, "match", "", "")
+	flags.StringVar(&since, "since", since, "")
+	flags.StringVar(&start, "start", "", "")
+	flags.StringVar(&end, "end", "", "")
+	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
+	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
+	flags.StringVar(&timeout, "timeout", timeout, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return metricsCatalogOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return metricsCatalogOptions{}, err
+	}
+	opts.Session, opts.Match = strings.TrimSpace(opts.Session), strings.TrimSpace(opts.Match)
+	if opts.Session == "" {
+		return metricsCatalogOptions{}, fmt.Errorf("invalid session %q", opts.Session)
+	}
+	if opts.Since, err = parsePositiveDuration(since, "since"); err != nil {
+		return metricsCatalogOptions{}, err
+	}
+	opts.SinceRaw = since
+	if start != "" {
+		if opts.Start, err = parseQueryTime(start); err != nil {
+			return metricsCatalogOptions{}, err
 		}
+	}
+	if end != "" {
+		if opts.End, err = parseQueryTime(end); err != nil {
+			return metricsCatalogOptions{}, err
+		}
+	}
+	if opts.Limit <= 0 {
+		return metricsCatalogOptions{}, fmt.Errorf("invalid limit %q", strconv.Itoa(opts.Limit))
+	}
+	if opts.Timeout, err = parsePositiveDuration(timeout, "timeout"); err != nil {
+		return metricsCatalogOptions{}, err
 	}
 	if requireMatch && opts.Match == "" {
 		return metricsCatalogOptions{}, fmt.Errorf("missing required --match")
@@ -677,14 +554,6 @@ func parsePositiveDuration(value, name string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid %s duration %q", name, value)
 	}
 	return duration, nil
-}
-
-func parsePositiveInt(value, name string) (int, error) {
-	n, err := strconv.Atoi(value)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid %s %q", name, value)
-	}
-	return n, nil
 }
 
 func parseQueryTime(value string) (time.Time, error) {

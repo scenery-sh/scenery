@@ -64,21 +64,16 @@ func symphonyAutoCommand(args []string) error {
 
 func parseSymphonyAutoArgs(args []string) (symphonyAutoOptions, error) {
 	var opts symphonyAutoOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--on":
-			opts.On = true
-		case "--off":
-			opts.Off = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return symphonyAutoOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		default:
-			return symphonyAutoOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("symphony auto")
+	flags.BoolVar(&opts.On, "on", false, "")
+	flags.BoolVar(&opts.Off, "off", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return symphonyAutoOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return symphonyAutoOptions{}, err
 	}
 	return opts, nil
 }

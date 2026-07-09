@@ -564,10 +564,6 @@ func stampWatchedFile(path string, info fs.FileInfo, embedded bool) (fileStamp, 
 	}, data, nil
 }
 
-func shouldIgnoreWatchPath(rel string) bool {
-	return shouldIgnoreWatchPathWithMatcher(rel, false, nil)
-}
-
 func shouldIgnoreWatchPathWithMatcher(rel string, isDir bool, ignore *watchignore.Matcher) bool {
 	rel = filepath.ToSlash(filepath.Clean(rel))
 	if rel == "." || rel == "" {

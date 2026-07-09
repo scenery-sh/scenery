@@ -122,19 +122,15 @@ func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error 
 
 func parseTracesClearArgs(args []string) (adminOptions, error) {
 	opts := adminOptions{Domain: "traces", Action: "clear"}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return adminOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		default:
-			return adminOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("traces clear")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return adminOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return adminOptions{}, err
 	}
 	return opts, nil
 }

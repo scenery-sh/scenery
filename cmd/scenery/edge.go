@@ -99,21 +99,20 @@ func edgeCommand(args []string) error {
 
 func parseEdgeArgs(args []string) (edgeOptions, error) {
 	var opts edgeOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--domain":
-			if i+1 >= len(args) {
-				return edgeOptions{}, fmt.Errorf("missing value for --domain")
-			}
-			i++
-			opts.Domain = normalizeRouteNamespaceHost(args[i])
-			if opts.Domain == "" {
-				return edgeOptions{}, fmt.Errorf("--domain must be a valid domain")
-			}
-		default:
-			return edgeOptions{}, fmt.Errorf("unknown flag %q", args[i])
+	flags := newCLIFlagSet("system edge")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.Domain, "domain", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return edgeOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return edgeOptions{}, err
+	}
+	if opts.Domain != "" {
+		opts.Domain = normalizeRouteNamespaceHost(opts.Domain)
+		if opts.Domain == "" {
+			return edgeOptions{}, fmt.Errorf("--domain must be a valid domain")
 		}
 	}
 	return opts, nil
@@ -978,37 +977,19 @@ func edgeDNSHelperCommand(args []string) error {
 
 func parseEdgeDNSHelperArgs(args []string) (edgeDNSHelperOptions, error) {
 	opts := edgeDNSHelperOptions{Nameserver: "127.0.0.1", Port: "53535"}
-	for i := 0; i < len(args); i++ {
-		value := func(name string) (string, error) {
-			if i+1 >= len(args) {
-				return "", fmt.Errorf("%s requires a value", name)
-			}
-			i++
-			return args[i], nil
-		}
-		switch args[i] {
-		case "--domain":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeDNSHelperOptions{}, err
-			}
-			opts.Domain = normalizeRouteNamespaceHost(raw)
-		case "--nameserver":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeDNSHelperOptions{}, err
-			}
-			opts.Nameserver = strings.TrimSpace(raw)
-		case "--port":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeDNSHelperOptions{}, err
-			}
-			opts.Port = strings.TrimSpace(raw)
-		default:
-			return edgeDNSHelperOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("system edge dns-helper")
+	flags.StringVar(&opts.Domain, "domain", "", "")
+	flags.StringVar(&opts.Nameserver, "nameserver", opts.Nameserver, "")
+	flags.StringVar(&opts.Port, "port", opts.Port, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return edgeDNSHelperOptions{}, err
 	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return edgeDNSHelperOptions{}, err
+	}
+	opts.Domain = normalizeRouteNamespaceHost(opts.Domain)
+	opts.Nameserver, opts.Port = strings.TrimSpace(opts.Nameserver), strings.TrimSpace(opts.Port)
 	if opts.Domain == "" {
 		return edgeDNSHelperOptions{}, fmt.Errorf("--domain is required")
 	}
@@ -1885,64 +1866,20 @@ func edgePrivilegedHelperCommand(args []string) error {
 
 func parseEdgeHelperArgs(args []string) (edgeHelperOptions, error) {
 	var opts edgeHelperOptions
-	for i := 0; i < len(args); i++ {
-		value := func(name string) (string, error) {
-			if i+1 >= len(args) {
-				return "", fmt.Errorf("%s requires a value", name)
-			}
-			i++
-			return args[i], nil
-		}
-		switch args[i] {
-		case "--owner-uid":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeHelperOptions{}, err
-			}
-			uid, err := strconv.Atoi(raw)
-			if err != nil {
-				return edgeHelperOptions{}, fmt.Errorf("--owner-uid must be an integer")
-			}
-			opts.OwnerUID = uid
-		case "--owner-gid":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeHelperOptions{}, err
-			}
-			gid, err := strconv.Atoi(raw)
-			if err != nil {
-				return edgeHelperOptions{}, fmt.Errorf("--owner-gid must be an integer")
-			}
-			opts.OwnerGID = gid
-		case "--owner-home":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeHelperOptions{}, err
-			}
-			opts.OwnerHome = raw
-		case "--helper-target-state":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeHelperOptions{}, err
-			}
-			opts.HelperTargetState = raw
-		case "--router-addr":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeHelperOptions{}, err
-			}
-			opts.RouterAddr = raw
-		case "--public":
-			opts.Public = true
-		case "--helper-version":
-			raw, err := value(args[i])
-			if err != nil {
-				return edgeHelperOptions{}, err
-			}
-			opts.HelperVersion = raw
-		default:
-			return edgeHelperOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("system edge privileged-helper")
+	flags.IntVar(&opts.OwnerUID, "owner-uid", 0, "")
+	flags.IntVar(&opts.OwnerGID, "owner-gid", 0, "")
+	flags.StringVar(&opts.OwnerHome, "owner-home", "", "")
+	flags.StringVar(&opts.HelperTargetState, "helper-target-state", "", "")
+	flags.StringVar(&opts.RouterAddr, "router-addr", "", "")
+	flags.BoolVar(&opts.Public, "public", false, "")
+	flags.StringVar(&opts.HelperVersion, "helper-version", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return edgeHelperOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return edgeHelperOptions{}, err
 	}
 	return opts, nil
 }

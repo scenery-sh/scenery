@@ -80,37 +80,25 @@ func runWorktreeCommand(ctx context.Context, stdout io.Writer, args []string) er
 }
 
 func parseWorktreeArgs(args []string) (worktreeOptions, error) {
-	if len(args) == 0 {
+	opts := worktreeOptions{}
+	flags := newCLIFlagSet("worktree")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.From, "from", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.DB, "db", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return worktreeOptions{}, err
+	}
+	if len(positionals) == 0 {
 		return worktreeOptions{}, fmt.Errorf("usage: scenery worktree create|list|remove ...")
 	}
-	opts := worktreeOptions{Command: args[0]}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return worktreeOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--from":
-			i++
-			if i >= len(args) {
-				return worktreeOptions{}, fmt.Errorf("missing value for --from")
-			}
-			opts.From = args[i]
-		case "--json":
-			opts.JSON = true
-		case "--db":
-			opts.DB = true
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return worktreeOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			if opts.Name != "" {
-				return worktreeOptions{}, fmt.Errorf("unexpected argument %q", args[i])
-			}
-			opts.Name = args[i]
-		}
+	opts.Command = positionals[0]
+	if len(positionals) > 1 {
+		opts.Name = positionals[1]
+	}
+	if len(positionals) > 2 {
+		return worktreeOptions{}, fmt.Errorf("unexpected argument %q", positionals[2])
 	}
 	switch opts.Command {
 	case "create", "remove":
@@ -253,10 +241,6 @@ func resolveExistingWorktreeTarget(ctx context.Context, appRoot, name string) (s
 		}
 	}
 	return "", fmt.Errorf("git worktree %q is not registered", cleanName)
-}
-
-func rollbackCreatedWorktree(ctx context.Context, appRoot, target string) {
-	_ = runGitCommand(ctx, "-C", appRoot, "worktree", "remove", "--force", target)
 }
 
 func listGitWorktrees(ctx context.Context, appRoot string) ([]worktreeRecord, error) {

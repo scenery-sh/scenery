@@ -152,17 +152,19 @@ For sync-backed frontend writes, generated TypeScript `WithMeta` methods include
 
 ## UI Work
 
-Read `docs/ui-agent-contract.md` before dashboard or app UI work. Use scenery-owned primitives and the @scenery registry; add registry components with commands such as `bun run shadcn:add @scenery/button`.
+For dashboard work, follow `apps/consolenext/AGENTS.md`. For reusable `@scenery registry` work, read `docs/ui-agent-contract.md`; add registry components with commands such as `bun run shadcn:add @scenery/button` from `ui/`.
 The browser UI harness is implemented; use it for dashboard route validation when UI behavior changes. Prefer `--write` when debugging so screenshots, DOM snapshots, console JSONL, and network JSONL are available under `.scenery/harness/ui/`.
 
 ```sh
-cd ui
+cd apps/consolenext
+bun run lint
 bun run typecheck
-bun run test
 bun run build
-cd ..
+cd ../..
 scenery harness ui --json --write
 ```
+
+For `ui/` registry changes, run `bun run typecheck` and `bun run test` from `ui/`.
 
 ## Debugging
 

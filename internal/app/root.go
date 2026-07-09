@@ -212,29 +212,6 @@ type PostgresServiceConfig struct {
 	Raw            DevServiceConfig
 }
 
-func upperSnake(value string) string {
-	value = strings.ToUpper(strings.TrimSpace(value))
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		ok := (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
-		if ok {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	out := strings.Trim(b.String(), "_")
-	if out == "" {
-		return "DATABASE"
-	}
-	return out
-}
-
 type BuildConfig struct {
 	GoFlags []string `json:"go_flags"`
 }
@@ -661,20 +638,6 @@ func validDeployFQDN(domain string) bool {
 		}
 	}
 	return true
-}
-
-func normalizeConfigHost(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if scheme := strings.Index(value, "://"); scheme >= 0 {
-		value = value[scheme+3:]
-	}
-	if slash := strings.IndexByte(value, '/'); slash >= 0 {
-		value = value[:slash]
-	}
-	if host, _, err := net.SplitHostPort(value); err == nil {
-		value = host
-	}
-	return strings.Trim(value, "[]")
 }
 
 func (c Config) validateStorage() error {

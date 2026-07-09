@@ -152,14 +152,6 @@ func (c *agentDashboardController) dashboardAuthorizeReport(req *http.Request, r
 	return dashboardReportAuth{Authorized: true}
 }
 
-func (c *agentDashboardController) dashboardRootForApp(ctx context.Context, appID string) (string, error) {
-	status, err := c.dashboardStatusFor(ctx, appID)
-	if err != nil {
-		return "", err
-	}
-	return status.AppRoot, nil
-}
-
 func (c *agentDashboardController) dashboardVictoria() dashboardVictoria {
 	if c == nil || c.agent == nil {
 		return nil

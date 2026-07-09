@@ -58,49 +58,35 @@ var scriptCommandContext = commandTreeContext
 
 func parseScriptRunArgs(args []string) (scriptOptions, error) {
 	var opts scriptOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return scriptOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--env":
-			i++
-			if i >= len(args) {
-				return scriptOptions{}, fmt.Errorf("missing value for --env")
-			}
-			opts.Env = strings.TrimSpace(args[i])
-			if opts.Env == "" {
-				return scriptOptions{}, fmt.Errorf("--env must not be empty")
-			}
-		case "--lang":
-			i++
-			if i >= len(args) {
-				return scriptOptions{}, fmt.Errorf("missing value for --lang")
-			}
-			lang, err := normalizeScriptLang(args[i])
-			if err != nil {
-				return scriptOptions{}, err
-			}
-			opts.Lang = lang
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return scriptOptions{}, fmt.Errorf("unknown flag %q before script target", args[i])
-			}
-			opts.Target = args[i]
-			opts.Args = append([]string(nil), args[i+1:]...)
-			if len(opts.Args) > 0 && opts.Args[0] == "--" {
-				opts.Args = opts.Args[1:]
-			}
-			if _, err := parseScriptTarget(opts.Target); err != nil {
-				return scriptOptions{}, err
-			}
-			return opts, nil
-		}
+	flags := newCLIFlagSet("script run")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", "", "")
+	lang := ""
+	flags.StringVar(&lang, "lang", "", "")
+	rest, err := parseLeadingCLIFlags(flags, args)
+	if err != nil {
+		return scriptOptions{}, err
 	}
-	return scriptOptions{}, errors.New(scriptRunUsage)
+	if len(rest) == 0 {
+		return scriptOptions{}, errors.New(scriptRunUsage)
+	}
+	opts.Env = strings.TrimSpace(opts.Env)
+	if cliFlagSet(flags, "env") && opts.Env == "" {
+		return scriptOptions{}, fmt.Errorf("--env must not be empty")
+	}
+	opts.Lang, err = normalizeScriptLang(lang)
+	if err != nil {
+		return scriptOptions{}, err
+	}
+	opts.Target = rest[0]
+	opts.Args = append([]string(nil), rest[1:]...)
+	if len(opts.Args) > 0 && opts.Args[0] == "--" {
+		opts.Args = opts.Args[1:]
+	}
+	if _, err := parseScriptTarget(opts.Target); err != nil {
+		return scriptOptions{}, err
+	}
+	return opts, nil
 }
 
 func normalizeScriptLang(value string) (string, error) {

@@ -414,13 +414,15 @@ scenery generate client --lang typescript --output <expected-output>
 Dashboard UI change:
 
 ```sh
-cd ui
+cd apps/consolenext
+bun run lint
 bun run typecheck
-bun run test
 bun run build
-cd ..
+cd ../..
 scenery harness ui --json --write
 ```
+
+The `ui/` tree is the reusable `@scenery` component registry, not a runnable dashboard. Registry changes use `bun run typecheck` and `bun run test` from `ui/`.
 
 ## Keeping Agent Docs Fresh
 

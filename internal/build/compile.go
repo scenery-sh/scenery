@@ -12,10 +12,6 @@ func Compile(result *Result) error {
 	return CompileContext(context.Background(), result)
 }
 
-func PrimeWorkspace(result *Result) error {
-	return PrimeWorkspaceContext(context.Background(), result)
-}
-
 func PrimeWorkspaceContext(ctx context.Context, result *Result) error {
 	if result == nil {
 		return fmt.Errorf("nil build result")

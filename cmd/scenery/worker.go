@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -143,80 +142,46 @@ func durableWorkerCommand(args []string, stdout io.Writer) error {
 
 func parseWorkerArgs(args []string) (workerOptions, error) {
 	opts := workerOptions{LogFormat: "text"}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return workerOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--env":
-			i++
-			if i >= len(args) {
-				return workerOptions{}, fmt.Errorf("missing value for --env")
-			}
-			opts.Env = strings.TrimSpace(args[i])
-			if opts.Env == "" {
-				return workerOptions{}, fmt.Errorf("--env must not be empty")
-			}
-		case "--log-format":
-			i++
-			if i >= len(args) {
-				return workerOptions{}, fmt.Errorf("missing value for --log-format")
-			}
-			switch args[i] {
-			case "text", "json":
-				opts.LogFormat = args[i]
-			default:
-				return workerOptions{}, fmt.Errorf("invalid --log-format %q", args[i])
-			}
-		case "--port", "-p", "--listen", "--verbose", "-v", "--json", "--dashboard", "--watch":
-			return workerOptions{}, fmt.Errorf("%s is not supported by `scenery worker`", args[i])
-		default:
-			return workerOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("worker")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", "", "")
+	flags.StringVar(&opts.LogFormat, "log-format", opts.LogFormat, "")
+	for _, name := range []string{"port", "p", "listen", "verbose", "v", "json", "dashboard", "watch"} {
+		rejectCLIFlag(flags, name, "--"+name+" is not supported by `scenery worker`")
+	}
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return workerOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return workerOptions{}, err
+	}
+	opts.Env = strings.TrimSpace(opts.Env)
+	if cliFlagSet(flags, "env") && opts.Env == "" {
+		return workerOptions{}, fmt.Errorf("--env must not be empty")
+	}
+	if opts.LogFormat != "text" && opts.LogFormat != "json" {
+		return workerOptions{}, fmt.Errorf("invalid --log-format %q", opts.LogFormat)
 	}
 	return opts, nil
 }
 
 func parseWorkerDurableTokenCreateArgs(args []string) (workerDurableTokenCreateOptions, error) {
 	var opts workerDurableTokenCreateOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return workerDurableTokenCreateOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--service":
-			i++
-			if i >= len(args) {
-				return workerDurableTokenCreateOptions{}, fmt.Errorf("missing value for --service")
-			}
-			opts.Service = strings.TrimSpace(args[i])
-		case "--name":
-			i++
-			if i >= len(args) {
-				return workerDurableTokenCreateOptions{}, fmt.Errorf("missing value for --name")
-			}
-			opts.Name = strings.TrimSpace(args[i])
-		case "--id":
-			i++
-			if i >= len(args) {
-				return workerDurableTokenCreateOptions{}, fmt.Errorf("missing value for --id")
-			}
-			opts.ID = strings.TrimSpace(args[i])
-		case "--json":
-			opts.JSON = true
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return workerDurableTokenCreateOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			return workerDurableTokenCreateOptions{}, fmt.Errorf("unexpected argument %q", args[i])
-		}
+	flags := newCLIFlagSet("worker durable token create")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Service, "service", "", "")
+	flags.StringVar(&opts.Name, "name", "", "")
+	flags.StringVar(&opts.ID, "id", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return workerDurableTokenCreateOptions{}, err
 	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return workerDurableTokenCreateOptions{}, err
+	}
+	opts.Service, opts.Name, opts.ID = strings.TrimSpace(opts.Service), strings.TrimSpace(opts.Name), strings.TrimSpace(opts.ID)
 	if opts.Service == "" {
 		return workerDurableTokenCreateOptions{}, fmt.Errorf("--service is required")
 	}
@@ -228,61 +193,32 @@ func parseWorkerDurableTokenCreateArgs(args []string) (workerDurableTokenCreateO
 
 func parseWorkerDurableArgs(args []string) (workerDurableOptions, error) {
 	opts := workerDurableOptions{LogFormat: "text"}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return workerDurableOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--env":
-			i++
-			if i >= len(args) {
-				return workerDurableOptions{}, fmt.Errorf("missing value for --env")
-			}
-			opts.Env = strings.TrimSpace(args[i])
-			if opts.Env == "" {
-				return workerDurableOptions{}, fmt.Errorf("--env must not be empty")
-			}
-		case "--log-format":
-			i++
-			if i >= len(args) {
-				return workerDurableOptions{}, fmt.Errorf("missing value for --log-format")
-			}
-			switch args[i] {
-			case "text", "json":
-				opts.LogFormat = args[i]
-			default:
-				return workerDurableOptions{}, fmt.Errorf("invalid --log-format %q", args[i])
-			}
-		case "--endpoint":
-			i++
-			if i >= len(args) {
-				return workerDurableOptions{}, fmt.Errorf("missing value for --endpoint")
-			}
-			opts.Endpoint = strings.TrimRight(strings.TrimSpace(args[i]), "/")
-		case "--token":
-			i++
-			if i >= len(args) {
-				return workerDurableOptions{}, fmt.Errorf("missing value for --token")
-			}
-			opts.Token = strings.TrimSpace(args[i])
-		case "--service":
-			i++
-			if i >= len(args) {
-				return workerDurableOptions{}, fmt.Errorf("missing value for --service")
-			}
-			service := strings.TrimSpace(args[i])
-			if service == "" {
-				return workerDurableOptions{}, fmt.Errorf("--service must not be empty")
-			}
-			opts.Services = append(opts.Services, service)
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return workerDurableOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			return workerDurableOptions{}, fmt.Errorf("unexpected argument %q", args[i])
+	flags := newCLIFlagSet("worker durable")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", "", "")
+	flags.StringVar(&opts.LogFormat, "log-format", opts.LogFormat, "")
+	flags.StringVar(&opts.Endpoint, "endpoint", "", "")
+	flags.StringVar(&opts.Token, "token", "", "")
+	flags.Func("service", "", func(value string) error { opts.Services = append(opts.Services, strings.TrimSpace(value)); return nil })
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return workerDurableOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return workerDurableOptions{}, err
+	}
+	opts.Env = strings.TrimSpace(opts.Env)
+	opts.Endpoint = strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
+	opts.Token = strings.TrimSpace(opts.Token)
+	if cliFlagSet(flags, "env") && opts.Env == "" {
+		return workerDurableOptions{}, fmt.Errorf("--env must not be empty")
+	}
+	if opts.LogFormat != "text" && opts.LogFormat != "json" {
+		return workerDurableOptions{}, fmt.Errorf("invalid --log-format %q", opts.LogFormat)
+	}
+	for _, service := range opts.Services {
+		if service == "" {
+			return workerDurableOptions{}, fmt.Errorf("--service must not be empty")
 		}
 	}
 	if opts.Endpoint == "" {
@@ -295,56 +231,40 @@ func parseWorkerDurableArgs(args []string) (workerDurableOptions, error) {
 }
 
 func parseWorkerDurableJobsArgs(args []string) (workerDurableJobsOptions, error) {
-	if len(args) == 0 {
+	opts := workerDurableJobsOptions{Limit: 100}
+	flags := newCLIFlagSet("worker durable jobs")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Service, "service", "", "")
+	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return workerDurableJobsOptions{}, err
+	}
+	if len(positionals) == 0 {
 		return workerDurableJobsOptions{}, fmt.Errorf("scenery worker durable jobs requires list, inspect, cancel, or retry")
 	}
-	opts := workerDurableJobsOptions{Action: args[0], Limit: 100}
+	opts.Action = positionals[0]
 	switch opts.Action {
 	case "list":
 	case "inspect", "cancel", "retry":
-		if len(args) < 2 {
+		if len(positionals) < 2 {
 			return workerDurableJobsOptions{}, fmt.Errorf("scenery worker durable jobs %s requires a job id", opts.Action)
 		}
-		opts.JobID = strings.TrimSpace(args[1])
+		opts.JobID = strings.TrimSpace(positionals[1])
 		if opts.JobID == "" {
 			return workerDurableJobsOptions{}, fmt.Errorf("job id must not be empty")
 		}
-		args = append([]string{opts.Action}, args[2:]...)
+		positionals = append(positionals[:1], positionals[2:]...)
 	default:
 		return workerDurableJobsOptions{}, fmt.Errorf("unknown scenery worker durable jobs command %q", opts.Action)
 	}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return workerDurableJobsOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--service":
-			i++
-			if i >= len(args) {
-				return workerDurableJobsOptions{}, fmt.Errorf("missing value for --service")
-			}
-			opts.Service = strings.TrimSpace(args[i])
-		case "--limit":
-			i++
-			if i >= len(args) {
-				return workerDurableJobsOptions{}, fmt.Errorf("missing value for --limit")
-			}
-			limit, err := strconv.Atoi(args[i])
-			if err != nil || limit < 1 || limit > 500 {
-				return workerDurableJobsOptions{}, fmt.Errorf("--limit must be between 1 and 500")
-			}
-			opts.Limit = limit
-		case "--json":
-			opts.JSON = true
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return workerDurableJobsOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			return workerDurableJobsOptions{}, fmt.Errorf("unexpected argument %q", args[i])
-		}
+	if len(positionals) > 1 {
+		return workerDurableJobsOptions{}, fmt.Errorf("unexpected argument %q", positionals[1])
+	}
+	opts.Service = strings.TrimSpace(opts.Service)
+	if opts.Limit < 1 || opts.Limit > 500 {
+		return workerDurableJobsOptions{}, fmt.Errorf("--limit must be between 1 and 500")
 	}
 	if opts.Service == "" {
 		return workerDurableJobsOptions{}, fmt.Errorf("--service is required")

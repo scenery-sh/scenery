@@ -12,6 +12,13 @@
       "name": "dashboard-ui",
       "kind": "package-manager",
       "manager": "bun",
+      "manifest": "apps/consolenext/package.json",
+      "lock": "apps/consolenext/bun.lock"
+    },
+    {
+      "name": "scenery-ui-registry",
+      "kind": "package-manager",
+      "manager": "bun",
       "manifest": "ui/package.json",
       "lock": "ui/bun.lock"
     }

@@ -233,34 +233,20 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 
 func parseDeployOptions(subcommand string, args []string) (deployOptions, error) {
 	var opts deployOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return deployOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--acme-email":
-			i++
-			if i >= len(args) {
-				return deployOptions{}, fmt.Errorf("missing value for --acme-email")
-			}
-			opts.ACMEEmail = args[i]
-		case "--acme-ca":
-			i++
-			if i >= len(args) {
-				return deployOptions{}, fmt.Errorf("missing value for --acme-ca")
-			}
-			opts.ACMECA = args[i]
-			if opts.ACMECA != "production" && opts.ACMECA != "staging" {
-				return deployOptions{}, fmt.Errorf("--acme-ca must be production or staging")
-			}
-		default:
-			return deployOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("deploy " + subcommand)
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.ACMEEmail, "acme-email", "", "")
+	flags.StringVar(&opts.ACMECA, "acme-ca", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return deployOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return deployOptions{}, err
+	}
+	if opts.ACMECA != "" && opts.ACMECA != "production" && opts.ACMECA != "staging" {
+		return deployOptions{}, fmt.Errorf("--acme-ca must be production or staging")
 	}
 	if subcommand != "setup" && (opts.ACMEEmail != "" || opts.ACMECA != "") {
 		return deployOptions{}, fmt.Errorf("--acme-email and --acme-ca are only supported by scenery deploy setup")
@@ -812,10 +798,6 @@ func deployHelperHasPublicBinding(listen []string) bool {
 		}
 	}
 	return has80 && has443
-}
-
-func deployCertPresent(paths localagent.Paths, domain string) bool {
-	return deployCertStatusFor(paths, domain).Present
 }
 
 func deployCertStatusFor(paths localagent.Paths, domain string) deployCertStatus {

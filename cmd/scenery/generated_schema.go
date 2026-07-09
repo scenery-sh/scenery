@@ -264,21 +264,16 @@ func runDBGeneratedDiff(stdout io.Writer, args []string) error {
 
 func parseDBGeneratedDiffArgs(args []string) (dbGeneratedDiffOptions, error) {
 	var opts dbGeneratedDiffOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--generated":
-			opts.Generated = true
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return dbGeneratedDiffOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--json":
-			opts.JSON = true
-		default:
-			return dbGeneratedDiffOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("db diff")
+	flags.BoolVar(&opts.Generated, "generated", false, "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return dbGeneratedDiffOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return dbGeneratedDiffOptions{}, err
 	}
 	return opts, nil
 }

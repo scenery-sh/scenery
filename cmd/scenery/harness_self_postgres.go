@@ -305,23 +305,6 @@ func withPatchedEnvForDB(appRoot string, env []string, fn func() error) error {
 	return fn()
 }
 
-func assertPostgresMarkerGone(ctx context.Context, dsn string) error {
-	db, err := openPostgresDatabase(ctx, dsn)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	var exists bool
-	err = db.QueryRowContext(ctx, `select exists (select 1 from information_schema.tables where table_name = 'scenery_pg_marker')`).Scan(&exists)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return fmt.Errorf("reset postgres database still has marker table")
-	}
-	return nil
-}
-
 func runPostgresHarnessDurableRoundTrip(ctx context.Context, databaseURL string) error {
 	s, err := durablestore.Open(ctx, "reports", databaseURL, durablestore.Options{})
 	if err != nil {

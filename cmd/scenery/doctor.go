@@ -189,19 +189,15 @@ func runSceneryDoctorWithDeps(ctx context.Context, stdout io.Writer, args []stri
 
 func parseDoctorArgs(args []string) (doctorOptions, error) {
 	opts := doctorOptions{}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return doctorOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--json":
-			opts.JSON = true
-		default:
-			return doctorOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("doctor")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return doctorOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return doctorOptions{}, err
 	}
 	return opts, nil
 }

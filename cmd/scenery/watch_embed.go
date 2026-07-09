@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -22,78 +21,6 @@ type embedPatternCacheEntry struct {
 // embedPatternCache memoizes parsed //go:embed patterns per Go file so repeated
 // watch scans stat files instead of re-reading every .go file in the app.
 var embedPatternCache sync.Map
-
-func embedPatternsForFile(path string, info fs.FileInfo) []string {
-	stamp := fileStamp{modTime: info.ModTime().UTC().Round(0), size: info.Size()}
-	if cached, ok := embedPatternCache.Load(path); ok {
-		entry := cached.(embedPatternCacheEntry)
-		if entry.stamp == stamp {
-			return entry.patterns
-		}
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	patterns := parseGoEmbedPatterns(string(data))
-	embedPatternCache.Store(path, embedPatternCacheEntry{stamp: stamp, patterns: patterns})
-	return patterns
-}
-
-func discoverEmbeddedWatchFiles(root string, ignore *watchignore.Matcher) (map[string]struct{}, error) {
-	files := make(map[string]struct{})
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if path == root && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			if d != nil && d.IsDir() && path != root {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			if shouldIgnoreWatchPathWithMatcher(rel, true, ignore) {
-				return filepath.SkipDir
-			}
-			ignore.LoadDir(rel)
-			return nil
-		}
-		if shouldIgnoreWatchPathWithMatcher(rel, false, ignore) {
-			return nil
-		}
-		if filepath.Ext(rel) != ".go" || d.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		patterns := embedPatternsForFile(path, info)
-		if len(patterns) == 0 {
-			return nil
-		}
-		pkgDir := filepath.Dir(rel)
-		for _, pattern := range patterns {
-			if err := addEmbeddedPatternFiles(root, pkgDir, pattern, files, ignore); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return files, nil
-}
 
 func parseGoEmbedPatterns(src string) []string {
 	var patterns []string

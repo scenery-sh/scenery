@@ -397,8 +397,7 @@ func checkArchitectureGeneratedHygiene(repoRoot string, summary *architectureSum
 	}
 	requiredAttributes := []string{
 		"cmd/scenery/devdash_static/** -diff",
-		"ui/public/assets/** -diff",
-		"ui/dist/** -diff",
+		"cmd/scenery/dashboard_static/dist/** -diff",
 	}
 	gitattributes := readOptionalText(filepath.Join(repoRoot, ".gitattributes"))
 	for _, pattern := range requiredAttributes {
@@ -477,8 +476,7 @@ func architectureGeneratedOrVendored(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	for _, prefix := range []string{
 		"cmd/scenery/devdash_static/",
-		"ui/public/assets/",
-		"ui/dist/",
+		"cmd/scenery/dashboard_static/dist/",
 	} {
 		if strings.HasPrefix(rel, prefix) {
 			return true

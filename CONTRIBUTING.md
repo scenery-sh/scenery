@@ -39,10 +39,13 @@ scenery harness self --json --write
 For dashboard UI changes:
 
 ```sh
-cd ui
+cd apps/consolenext
+bun run lint
 bun run typecheck
 bun run build
 ```
+
+For `ui/` registry changes, run `bun run typecheck` and `bun run test` from `ui/`.
 
 ## Pull Requests
 
@@ -52,7 +55,7 @@ Before opening a pull request:
 - update docs when user-facing behavior changes
 - add or update tests at stable boundaries
 - keep dependencies minimal and justify new dependencies clearly
-- avoid committing local artifacts such as `.DS_Store`, `.scenery/`, logs, databases, generated cache directories, or `ui/dist/`
+- avoid committing local artifacts such as `.DS_Store`, `.scenery/`, logs, databases, generated cache directories, or frontend `dist/` directories
 
 Good test boundaries include parser validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
 

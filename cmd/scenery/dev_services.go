@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode"
 
-	"scenery.sh/internal/identityhash"
 	localagent "scenery.sh/internal/agent"
+	"scenery.sh/internal/identityhash"
 )
 
 const (
@@ -44,14 +44,6 @@ func verifySubstrateOwner(substrate localagent.Substrate) error {
 		}
 	}
 	return nil
-}
-
-func currentAgentSessionForAppRoot(ctx context.Context, appRoot string) (*localagent.Session, error) {
-	client, err := localagent.DefaultClient()
-	if err != nil {
-		return nil, err
-	}
-	return currentAgentSessionForAppRootWithClient(ctx, client, appRoot)
 }
 
 func currentAgentSessionForAppRootWithClient(ctx context.Context, client *localagent.Client, appRoot string) (*localagent.Session, error) {
@@ -95,54 +87,6 @@ func normalizeManagedTCPUpstream(value string) string {
 		}
 	}
 	return value
-}
-
-func copyManagedEnv(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	copied := make(map[string]string, len(values))
-	for key, value := range values {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		copied[key] = strings.TrimSpace(value)
-	}
-	return copied
-}
-
-func copyManagedBackends(backends map[string]localagent.Backend) map[string]localagent.Backend {
-	copied := make(map[string]localagent.Backend, len(backends)+1)
-	for key, backend := range backends {
-		copied[key] = backend
-	}
-	return copied
-}
-
-func envWithManagedOverrides(base []string, overrides map[string]string) []string {
-	env := append([]string(nil), base...)
-	index := make(map[string]int, len(env))
-	for i, item := range env {
-		key, _, ok := strings.Cut(item, "=")
-		if ok {
-			index[key] = i
-		}
-	}
-	for key, value := range overrides {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		item := key + "=" + strings.TrimSpace(value)
-		if i, ok := index[key]; ok {
-			env[i] = item
-			continue
-		}
-		index[key] = len(env)
-		env = append(env, item)
-	}
-	return env
 }
 
 func lookupEnvValue(env []string, key string) (string, string) {

@@ -1,8 +1,6 @@
 package devtools
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -61,19 +59,6 @@ func pinnedVersionsFromToolchainManifest() (PinnedVersionsConfig, error) {
 	}
 	if err := validatePinnedVersions(cfg); err != nil {
 		return PinnedVersionsConfig{}, err
-	}
-	return cfg, nil
-}
-
-func ParsePinnedVersions(data []byte) (PinnedVersionsConfig, error) {
-	var cfg PinnedVersionsConfig
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil {
-		return cfg, fmt.Errorf("parse internal devtool versions: %w", err)
-	}
-	if err := validatePinnedVersions(cfg); err != nil {
-		return cfg, err
 	}
 	return cfg, nil
 }

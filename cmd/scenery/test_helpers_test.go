@@ -355,17 +355,6 @@ func stringSliceContains(values []string, want string) bool {
 	return false
 }
 
-func countEnvKey(env []string, key string) int {
-	prefix := key + "="
-	count := 0
-	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			count++
-		}
-	}
-	return count
-}
-
 func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victoriaStack {
 	t.Helper()
 	for i := range events {

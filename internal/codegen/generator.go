@@ -20,10 +20,6 @@ type Output struct {
 	Generated map[string][]byte
 }
 
-func Generate(app *model.App) (*Output, error) {
-	return GenerateWithConfig(app, appcfg.Config{})
-}
-
 func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error) {
 	out := &Output{
 		Rewritten: make(map[string][]byte),

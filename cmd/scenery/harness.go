@@ -172,31 +172,26 @@ func runSceneryHarness(ctx context.Context, stdout io.Writer, args []string) err
 
 func parseHarnessArgs(args []string) (harnessOptions, error) {
 	opts := harnessOptions{}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return harnessOptions{}, fmt.Errorf("missing value for --app-root")
+	flags := newCLIFlagSet("harness")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.Write, "write", false, "")
+	flags.BoolFunc("with-validation", "", func(value string) error {
+		opts.WithValidation = true
+		if value != "true" {
+			opts.ValidationProfile = strings.TrimSpace(value)
+			if opts.ValidationProfile == "" {
+				return fmt.Errorf("--with-validation profile must not be empty")
 			}
-			opts.AppRoot = args[i]
-		case "--json":
-			opts.JSON = true
-		case "--write":
-			opts.Write = true
-		case "--with-validation":
-			opts.WithValidation = true
-		default:
-			if strings.HasPrefix(args[i], "--with-validation=") {
-				opts.WithValidation = true
-				opts.ValidationProfile = strings.TrimSpace(strings.TrimPrefix(args[i], "--with-validation="))
-				if opts.ValidationProfile == "" {
-					return harnessOptions{}, fmt.Errorf("--with-validation profile must not be empty")
-				}
-				continue
-			}
-			return harnessOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
+		return nil
+	})
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return harnessOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return harnessOptions{}, err
 	}
 	return opts, nil
 }

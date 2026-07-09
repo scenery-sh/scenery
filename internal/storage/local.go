@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime"
 	"os"
 	"path/filepath"
@@ -112,7 +113,7 @@ func (s *LocalStore) putUnlocked(ctx context.Context, key string, body io.Reader
 		contentType = mime.TypeByExtension(filepath.Ext(key))
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
-	meta := storageMetadataSidecar{ContentType: contentType, Metadata: cloneMap(opts.Metadata)}
+	meta := storageMetadataSidecar{ContentType: contentType, Metadata: maps.Clone(opts.Metadata)}
 	if err := s.writeMetadata(key, meta); err != nil {
 		return nil, err
 	}
@@ -124,7 +125,7 @@ func (s *LocalStore) putUnlocked(ctx context.Context, key string, body io.Reader
 		ETag:        `"` + sum + `"`,
 		SHA256:      sum,
 		ModifiedAt:  info.ModTime().UTC(),
-		Metadata:    cloneMap(meta.Metadata),
+		Metadata:    maps.Clone(meta.Metadata),
 	}, nil
 }
 
@@ -216,7 +217,7 @@ func (s *LocalStore) Head(ctx context.Context, key string) (*public.Object, erro
 		ETag:        `"` + sum + `"`,
 		SHA256:      sum,
 		ModifiedAt:  info.ModTime().UTC(),
-		Metadata:    cloneMap(meta.Metadata),
+		Metadata:    maps.Clone(meta.Metadata),
 	}, nil
 }
 
@@ -395,7 +396,7 @@ func (s *LocalStore) readMetadata(key string) (storageMetadataSidecar, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return storageMetadataSidecar{}, err
 	}
-	meta.Metadata = cloneMap(meta.Metadata)
+	meta.Metadata = maps.Clone(meta.Metadata)
 	return meta, nil
 }
 

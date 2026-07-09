@@ -363,10 +363,6 @@ func entityFieldPatchTypeExpr(im *imports, field model.EntityField) string {
 	return "*" + entityFieldTypeExpr(im, field)
 }
 
-func generatedModelDBStateName() string {
-	return "sceneryModelStoreDB"
-}
-
 func generatedModelPoolFunc() string {
 	return "sceneryModelStorePool"
 }

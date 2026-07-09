@@ -88,12 +88,6 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return dashboardLogEventsFromDevEvents(items), nil
-	case "observability/status":
-		var params struct {
-			AppID string `json:"app_id"`
-		}
-		_ = json.Unmarshal(raw, &params)
-		return s.observabilityStatus(ctx, firstNonEmpty(params.AppID, s.dashboardActiveAppID()))
 	case "process/output/list":
 		var params struct {
 			AppID string `json:"app_id"`
@@ -138,49 +132,6 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return s.listTraceSummaries(ctx, dashboardStoreAppID(status), status.SessionID, 100, params.MessageID)
-	case "traces/get":
-		var params struct {
-			AppID   string `json:"app_id"`
-			TraceID string `json:"trace_id"`
-		}
-		_ = json.Unmarshal(raw, &params)
-		if params.AppID == "" {
-			params.AppID = s.dashboardActiveAppID()
-		}
-		status, err := s.dashboardStatusFor(ctx, params.AppID)
-		if err != nil {
-			return nil, err
-		}
-		return s.traceEventsFor(ctx, dashboardStoreAppID(status), status.SessionID, params.TraceID)
-	case "traces/spans/summaries/list":
-		var params struct {
-			AppID   string `json:"app_id"`
-			TraceID string `json:"trace_id"`
-		}
-		_ = json.Unmarshal(raw, &params)
-		if params.AppID == "" {
-			params.AppID = s.dashboardActiveAppID()
-		}
-		status, err := s.dashboardStatusFor(ctx, params.AppID)
-		if err != nil {
-			return nil, err
-		}
-		return s.getTraceSummaries(ctx, dashboardStoreAppID(status), status.SessionID, params.TraceID)
-	case "traces/spans/events/list":
-		var params struct {
-			AppID   string `json:"app_id"`
-			TraceID string `json:"trace_id"`
-			SpanID  string `json:"span_id"`
-		}
-		_ = json.Unmarshal(raw, &params)
-		if params.AppID == "" {
-			params.AppID = s.dashboardActiveAppID()
-		}
-		status, err := s.dashboardStatusFor(ctx, params.AppID)
-		if err != nil {
-			return nil, err
-		}
-		return s.traceEventsForSpan(ctx, dashboardStoreAppID(status), status.SessionID, params.TraceID, params.SpanID)
 	case "postgres/tables":
 		var params dashboardPostgresRequest
 		if err := json.Unmarshal(raw, &params); err != nil {
@@ -251,44 +202,6 @@ func (s *dashboardServer) dispatchRPC(ctx context.Context, method string, raw js
 			return nil, err
 		}
 		return s.queryDB(ctx, params)
-	case "db/transaction":
-		var params devdash.TransactionRequest
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		return s.transactionDB(ctx, params)
-	case "db-migration-status":
-		return []any{}, nil
-	case "editors/list":
-		return map[string]any{"editors": listEditors()}, nil
-	case "editors/open":
-		var params struct {
-			AppID     string `json:"app_id"`
-			Editor    string `json:"editor"`
-			File      string `json:"file"`
-			StartLine int    `json:"start_line"`
-			StartCol  int    `json:"start_col"`
-		}
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		root, err := s.dashboardRootForApp(ctx, params.AppID)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{}, openEditor(root, params.Editor, params.File, params.StartLine, params.StartCol)
-	case "onboarding/get":
-		return s.dashboardStore().GetOnboarding(ctx)
-	case "onboarding/set":
-		var params struct {
-			Properties []string `json:"properties"`
-		}
-		if err := json.Unmarshal(raw, &params); err != nil {
-			return nil, err
-		}
-		return nil, s.dashboardStore().SetOnboarding(ctx, params.Properties)
-	case "telemetry":
-		return "ok", nil
 	default:
 		if strings.HasPrefix(method, "ai/") {
 			return nil, fmt.Errorf("%s is unsupported in scenery", method)

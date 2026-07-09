@@ -161,81 +161,41 @@ func parseTaskArgs(args []string) (taskOptions, error) {
 		return taskOptions{}, fmt.Errorf("usage: scenery task list|inspect|run|graph [--app-root <path>] [--json]")
 	}
 	opts := taskOptions{Action: args[0]}
-	args = args[1:]
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "--":
-			if opts.Action != "run" {
-				return taskOptions{}, fmt.Errorf("-- is only supported for task run")
-			}
-			opts.Args = append([]string(nil), args[i+1:]...)
-			i = len(args)
-		case arg == "--app-root":
-			i++
-			if i >= len(args) {
-				return taskOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case strings.HasPrefix(arg, "--app-root="):
-			opts.AppRoot = strings.TrimPrefix(arg, "--app-root=")
-		case arg == "--env":
-			if opts.Action != "run" {
-				return taskOptions{}, fmt.Errorf("--env is only supported for task run")
-			}
-			i++
-			if i >= len(args) {
-				return taskOptions{}, fmt.Errorf("missing value for --env")
-			}
-			opts.Env = strings.TrimSpace(args[i])
-			if opts.Env == "" {
-				return taskOptions{}, fmt.Errorf("--env must not be empty")
-			}
-		case strings.HasPrefix(arg, "--env="):
-			if opts.Action != "run" {
-				return taskOptions{}, fmt.Errorf("--env is only supported for task run")
-			}
-			opts.Env = strings.TrimSpace(strings.TrimPrefix(arg, "--env="))
-			if opts.Env == "" {
-				return taskOptions{}, fmt.Errorf("--env must not be empty")
-			}
-		case arg == "--lang":
-			if opts.Action != "run" && opts.Action != "inspect" {
-				return taskOptions{}, fmt.Errorf("--lang is only supported for task inspect and task run")
-			}
-			i++
-			if i >= len(args) {
-				return taskOptions{}, fmt.Errorf("missing value for --lang")
-			}
-			lang, err := normalizeScriptLang(args[i])
-			if err != nil {
-				return taskOptions{}, err
-			}
-			opts.Lang = lang
-		case strings.HasPrefix(arg, "--lang="):
-			if opts.Action != "run" && opts.Action != "inspect" {
-				return taskOptions{}, fmt.Errorf("--lang is only supported for task inspect and task run")
-			}
-			lang, err := normalizeScriptLang(strings.TrimPrefix(arg, "--lang="))
-			if err != nil {
-				return taskOptions{}, err
-			}
-			opts.Lang = lang
-		case arg == "--json":
-			opts.JSON = true
-		default:
-			if strings.HasPrefix(arg, "-") {
-				return taskOptions{}, fmt.Errorf("unknown flag %q", arg)
-			}
-			if opts.Action != "run" && opts.Action != "inspect" {
-				return taskOptions{}, fmt.Errorf("unexpected argument %q", arg)
-			}
-			if opts.Target != "" {
-				return taskOptions{}, fmt.Errorf("unexpected argument %q; pass task arguments after --", arg)
-			}
-			opts.Target = arg
-		}
+	before, passthrough, hasPassthrough := splitCLIPassthrough(args[1:])
+	if hasPassthrough && opts.Action != "run" {
+		return taskOptions{}, fmt.Errorf("-- is only supported for task run")
 	}
+	flags := newCLIFlagSet("task " + opts.Action)
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", "", "")
+	lang := ""
+	flags.StringVar(&lang, "lang", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, before)
+	if err != nil {
+		return taskOptions{}, err
+	}
+	if cliFlagSet(flags, "env") && opts.Action != "run" {
+		return taskOptions{}, fmt.Errorf("--env is only supported for task run")
+	}
+	opts.Env = strings.TrimSpace(opts.Env)
+	if cliFlagSet(flags, "env") && opts.Env == "" {
+		return taskOptions{}, fmt.Errorf("--env must not be empty")
+	}
+	if cliFlagSet(flags, "lang") && opts.Action != "run" && opts.Action != "inspect" {
+		return taskOptions{}, fmt.Errorf("--lang is only supported for task inspect and task run")
+	}
+	opts.Lang, err = normalizeScriptLang(lang)
+	if err != nil {
+		return taskOptions{}, err
+	}
+	if len(positionals) > 0 {
+		opts.Target = positionals[0]
+	}
+	if len(positionals) > 1 {
+		return taskOptions{}, fmt.Errorf("unexpected argument %q; pass task arguments after --", positionals[1])
+	}
+	opts.Args = append([]string(nil), passthrough...)
 	switch opts.Action {
 	case "list", "graph":
 		if opts.Target != "" {
@@ -446,10 +406,6 @@ func taskTargetKind(target string) (string, error) {
 	return taskKindConfigured, nil
 }
 
-func runTaskTarget(ctx context.Context, appRoot string, cfg appcfg.Config, opts taskOptions) error {
-	return runTaskTargetWithHooks(ctx, appRoot, cfg, opts, defaultLifecycleHooks(), defaultDBSeedHooks())
-}
-
 func runTaskTargetWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts taskOptions, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	kind, err := taskTargetKind(opts.Target)
 	if err != nil {
@@ -480,10 +436,6 @@ func runTaskTargetWithHooks(ctx context.Context, appRoot string, cfg appcfg.Conf
 	}
 }
 
-func runConfiguredTask(ctx context.Context, appRoot string, cfg appcfg.Config, name string, stack []string) error {
-	return runConfiguredTaskWithHooks(ctx, appRoot, cfg, name, stack, defaultLifecycleHooks(), defaultDBSeedHooks())
-}
-
 func runConfiguredTaskWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, name string, stack []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	task, ok := cfg.Tasks[name]
 	if !ok {
@@ -512,10 +464,6 @@ func runConfiguredTaskWithHooks(ctx context.Context, appRoot string, cfg appcfg.
 	return nil
 }
 
-func runTaskShellCommand(ctx context.Context, appRoot string, cfg appcfg.Config, task appcfg.TaskConfig) error {
-	return runTaskShellCommandWithHooks(ctx, appRoot, cfg, task, defaultLifecycleHooks())
-}
-
 func runTaskShellCommandWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, task appcfg.TaskConfig, hooks lifecycleHooks) error {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
@@ -537,10 +485,6 @@ func runTaskShellCommandWithHooks(ctx context.Context, appRoot string, cfg appcf
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 	})
-}
-
-func runTaskStep(ctx context.Context, appRoot string, cfg appcfg.Config, step string, stack []string) error {
-	return runTaskStepWithHooks(ctx, appRoot, cfg, step, stack, defaultLifecycleHooks(), defaultDBSeedHooks())
 }
 
 func runTaskStepWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, step string, stack []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {

@@ -16,23 +16,16 @@ import (
 func buildCommand(args []string) error {
 	outputPath := ""
 	appRootFlag := ""
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--output", "-o":
-			i++
-			if i >= len(args) {
-				return fmt.Errorf("missing value for %s", args[i-1])
-			}
-			outputPath = args[i]
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return fmt.Errorf("missing value for --app-root")
-			}
-			appRootFlag = args[i]
-		default:
-			return fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("build")
+	flags.StringVar(&outputPath, "output", "", "")
+	flags.StringVar(&outputPath, "o", "", "")
+	flags.StringVar(&appRootFlag, "app-root", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return err
 	}
 
 	start, err := resolveAppRoot(appRootFlag)

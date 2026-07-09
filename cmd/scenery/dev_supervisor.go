@@ -400,28 +400,6 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 	return stack
 }
 
-func (s *devSupervisor) agentVictoriaStack(ctx context.Context) *victoriaStack {
-	if s == nil || s.agent == nil {
-		return nil
-	}
-	substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateVictoria)
-	if err != nil {
-		return nil
-	}
-	stack, reusable := reusableVictoriaStack(substrate)
-	if !reusable {
-		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria)
-		return nil
-	}
-	if s.console != nil && s.console.verbose {
-		s.console.Event("victoria.reuse", map[string]any{
-			"owner":     "agent",
-			"endpoints": substrate.Endpoints,
-		})
-	}
-	return stack
-}
-
 func (s *devSupervisor) monitorSharedVictoriaStack(stack *victoriaStack) <-chan struct{} {
 	if s == nil {
 		done := make(chan struct{})
@@ -1130,10 +1108,6 @@ func (s *devSupervisor) processOutputFilter(pid int, stream string, data []byte)
 	return data
 }
 
-func isExpectedOutputReadError(err error) bool {
-	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || errors.Is(err, net.ErrClosed)
-}
-
 func appChildEnv(base []string, forceColor bool, vars ...string) []string {
 	env := append(append([]string(nil), base...), vars...)
 	if forceColor {
@@ -1476,42 +1450,6 @@ func substrateExitEventFields(exit localagent.SubstrateExit) map[string]any {
 	return fields
 }
 
-func (s *devSupervisor) registerAgentSessionBackend(ctx context.Context, route string, backend localagent.Backend) bool {
-	if s == nil || s.agent == nil {
-		return false
-	}
-	route = strings.TrimSpace(route)
-	backend.Network = strings.TrimSpace(backend.Network)
-	backend.Addr = strings.TrimSpace(backend.Addr)
-	session := s.currentAgentSession()
-	if session == nil || route == "" || backend.Addr == "" {
-		return false
-	}
-	if backend.Network == "" {
-		backend.Network = "tcp"
-	}
-	backends := copyManagedBackends(session.Backends)
-	backends[route] = backend
-	updated, err := s.agent.Register(ctx, localagent.RegisterRequest{
-		BaseAppID:     s.activeAppID(),
-		AppRoot:       s.root,
-		SessionID:     session.SessionID,
-		Branch:        session.Branch,
-		Status:        firstNonEmpty(session.Status, "starting"),
-		OwnerPID:      os.Getpid(),
-		AppPID:        session.AppPID,
-		Backends:      backends,
-		RouteManifest: session.RouteManifest,
-		ReportToken:   s.reportToken,
-	})
-	if err != nil {
-		slog.Warn("failed to register scenery agent session backend", "route", route, "err", err)
-		return false
-	}
-	s.storeAgentSession(&updated)
-	return true
-}
-
 func (s *devSupervisor) activeAppID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1555,14 +1493,6 @@ func (s *devSupervisor) dashboardAuthorizeReport(req *http.Request, report devda
 		return dashboardReportAuth{Reason: "invalid-report-token"}
 	}
 	return dashboardReportAuth{Authorized: true}
-}
-
-func (s *devSupervisor) dashboardRootForApp(ctx context.Context, appID string) (string, error) {
-	status, err := s.statusFor(ctx, firstNonEmpty(appID, s.activeAppID()))
-	if err != nil {
-		return "", err
-	}
-	return status.AppRoot, nil
 }
 
 func (s *devSupervisor) dashboardVictoria() dashboardVictoria {
@@ -1968,19 +1898,4 @@ func portAvailable(addr string) error {
 		return err
 	}
 	return ln.Close()
-}
-
-func localPath(root, target string) (string, error) {
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(root, target)
-	}
-	target = filepath.Clean(target)
-	rel, err := filepath.Rel(root, target)
-	if err != nil {
-		return "", err
-	}
-	if rel == ".." || strings.HasPrefix(rel, "../") {
-		return "", fmt.Errorf("file path must be within the app root")
-	}
-	return target, nil
 }

@@ -20,22 +20,6 @@ func Register(provider Provider) {
 	providers.mu.Unlock()
 }
 
-func UserID() (string, bool) {
-	provider := current()
-	if provider.UserID == nil {
-		return "", false
-	}
-	return provider.UserID()
-}
-
-func Data() any {
-	provider := current()
-	if provider.Data == nil {
-		return nil
-	}
-	return provider.Data()
-}
-
 func CurrentData() (any, bool) {
 	provider := current()
 	if provider.CurrentData == nil {

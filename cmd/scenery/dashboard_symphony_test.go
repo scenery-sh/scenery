@@ -772,9 +772,7 @@ func (c *symphonyNoBaseController) dashboardStore() *devdash.Store { return c.st
 func (c *symphonyNoBaseController) dashboardAuthorizeReport(*http.Request, devdash.ReportEnvelope) dashboardReportAuth {
 	return dashboardReportAuth{}
 }
-func (c *symphonyNoBaseController) dashboardRootForApp(context.Context, string) (string, error) {
-	return "", nil
-}
+
 func (c *symphonyNoBaseController) dashboardVictoria() dashboardVictoria { return nil }
 func (c *symphonyNoBaseController) dashboardStatusFor(ctx context.Context, appID string) (devdash.AppStatus, error) {
 	app, err := c.store.GetApp(ctx, appID)

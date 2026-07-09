@@ -73,9 +73,7 @@ type dashboardServer struct {
 }
 
 type dashboardVictoria interface {
-	TraceEventsFor(context.Context, string, string, string) ([]map[string]any, error)
 	QueryTraceSummaries(context.Context, devdash.TraceQuery) ([]*devdash.TraceSummary, error)
-	GetTraceSummaries(context.Context, string, string) ([]*devdash.TraceSummary, error)
 	ListDevEvents(context.Context, devdash.DevEventQuery) ([]devdash.DevEvent, error)
 	MarkCleared(string, time.Time)
 	URLs() map[string]string
@@ -89,7 +87,6 @@ type dashboardController interface {
 	dashboardStatusFor(context.Context, string) (devdash.AppStatus, error)
 	dashboardStore() *devdash.Store
 	dashboardAuthorizeReport(*http.Request, devdash.ReportEnvelope) dashboardReportAuth
-	dashboardRootForApp(context.Context, string) (string, error)
 	dashboardVictoria() dashboardVictoria
 }
 
@@ -140,13 +137,6 @@ func (s *dashboardServer) dashboardAuthorizeReport(req *http.Request, report dev
 	return s.controller.dashboardAuthorizeReport(req, report)
 }
 
-func (s *dashboardServer) dashboardRootForApp(ctx context.Context, appID string) (string, error) {
-	if s == nil || s.controller == nil {
-		return "", fmt.Errorf("dashboard controller unavailable")
-	}
-	return s.controller.dashboardRootForApp(ctx, appID)
-}
-
 func (s *dashboardServer) dashboardVictoria() dashboardVictoria {
 	if s == nil || s.controller == nil {
 		return nil
@@ -175,7 +165,6 @@ func newDashboardServerWithController(controller dashboardController, root, addr
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
-	mux.HandleFunc("/__graphql", s.handleGraphQL)
 	mux.HandleFunc(devdash.WebSocketPath, s.handleWebSocket)
 	mux.HandleFunc(devdash.ReportPath, s.handleReport)
 	mux.HandleFunc(dashboardControlPlanePath, s.handleControlPlane)
@@ -827,42 +816,6 @@ func (s *dashboardServer) queryDB(ctx context.Context, req devdash.QueryRequest)
 	return scanRows(rows, req.ArrayMode)
 }
 
-func (s *dashboardServer) transactionDB(ctx context.Context, req devdash.TransactionRequest) ([]any, error) {
-	appID := firstNonEmpty(req.AppID, s.dashboardActiveAppID())
-	status, err := s.dashboardStatusFor(ctx, appID)
-	if err != nil {
-		return nil, err
-	}
-	db, err := openPostgresDashboardDB(ctx, status.AppRoot)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var results []any
-	for _, query := range req.Queries {
-		rows, err := tx.QueryContext(ctx, query.SQL, query.Params...)
-		if err != nil {
-			return nil, err
-		}
-		items, err := scanRows(rows, false)
-		rows.Close()
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, items)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return results, nil
-}
-
 func openPostgresDashboardDB(ctx context.Context, root string) (*sql.DB, error) {
 	appRoot, cfg, err := app.DiscoverRoot(root)
 	if err != nil {
@@ -932,52 +885,6 @@ type rpcResponse struct {
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-}
-
-func listEditors() []string {
-	candidates := []string{"cursor", "code", "code-insiders", "windsurf", "zed"}
-	var found []string
-	for _, candidate := range candidates {
-		if _, err := exec.LookPath(candidate); err == nil {
-			found = append(found, candidate)
-		}
-	}
-	if len(found) == 0 {
-		return []string{}
-	}
-	return found
-}
-
-func openEditor(root, editor, file string, line, col int) error {
-	target, err := localPath(root, file)
-	if err != nil {
-		return err
-	}
-	if editor == "" {
-		editors := listEditors()
-		if len(editors) == 0 {
-			return fmt.Errorf("no supported editor found in PATH")
-		}
-		editor = editors[0]
-	}
-	var args []string
-	switch editor {
-	case "cursor", "code", "code-insiders", "windsurf":
-		location := target
-		if line > 0 {
-			location = fmt.Sprintf("%s:%d", target, line)
-			if col > 0 {
-				location = fmt.Sprintf("%s:%d", location, col)
-			}
-		}
-		args = []string{"--goto", location}
-	case "zed":
-		args = []string{target}
-	default:
-		return fmt.Errorf("unsupported editor %q", editor)
-	}
-	cmd := exec.Command(editor, args...)
-	return cmd.Start()
 }
 
 func detectAssetContentType(path string) string {

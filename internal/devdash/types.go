@@ -181,8 +181,6 @@ type StoredRequestData struct {
 	Payload    json.RawMessage `json:"payload"`
 }
 
-type OnboardingState map[string]time.Time
-
 type ReportEnvelope = devreport.ReportEnvelope
 
 type QueryRequest struct {
@@ -191,15 +189,6 @@ type QueryRequest struct {
 	ArrayMode bool   `json:"arrayMode"`
 	DbID      string `json:"dbId"`
 	AppID     string `json:"appId"`
-}
-
-type TransactionRequest struct {
-	Queries []struct {
-		SQL    string `json:"sql"`
-		Params []any  `json:"params"`
-	} `json:"queries"`
-	DbID  string `json:"dbId"`
-	AppID string `json:"appId"`
 }
 
 type APICallRequest struct {

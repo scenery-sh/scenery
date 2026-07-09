@@ -84,10 +84,6 @@ func runDBApplyWithHooks(ctx context.Context, stdout io.Writer, args []string, h
 	return nil
 }
 
-func dbSyncCommand(args []string) error {
-	return dbSyncCommandWithHooks(args, defaultLifecycleHooks())
-}
-
 func dbSyncCommandWithHooks(args []string, hooks lifecycleHooks) error {
 	opts, err := parseDBResetArgs(args)
 	if err != nil {
@@ -144,10 +140,6 @@ func buildDBApplyResult(appRoot string, cfg appcfg.Config) dbApplyResult {
 	}
 }
 
-func runDatabaseApplyCommand(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig) error {
-	return runDatabaseApplyCommandWithHooks(ctx, appRoot, cfg, apply, defaultLifecycleHooks())
-}
-
 func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, apply appcfg.DatabaseApplyConfig, hooks lifecycleHooks) error {
 	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
 	if err != nil {
@@ -158,10 +150,6 @@ func runDatabaseApplyCommandWithHooks(ctx context.Context, appRoot string, cfg a
 		return err
 	}
 	return runDatabaseApplyCommandWithEnvHooks(ctx, appRoot, apply, env, hooks)
-}
-
-func runDatabaseApplyCommandWithEnv(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string) error {
-	return runDatabaseApplyCommandWithEnvHooks(ctx, appRoot, apply, env, defaultLifecycleHooks())
 }
 
 func runDatabaseApplyCommandWithEnvHooks(ctx context.Context, appRoot string, apply appcfg.DatabaseApplyConfig, env []string, hooks lifecycleHooks) error {
@@ -401,19 +389,20 @@ func dbServerCommand(args []string) error {
 }
 
 func parseDBServerArgs(args []string) (dbServerOptions, error) {
-	if len(args) == 0 {
+	opts := dbServerOptions{}
+	flags := newCLIFlagSet("db server")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.Yes, "yes", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return dbServerOptions{}, err
+	}
+	if len(positionals) == 0 {
 		return dbServerOptions{}, fmt.Errorf("usage: scenery db server status|start|stop|logs [--json] [--yes]")
 	}
-	opts := dbServerOptions{Action: args[0]}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--json":
-			opts.JSON = true
-		case "--yes":
-			opts.Yes = true
-		default:
-			return dbServerOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	opts.Action = positionals[0]
+	if len(positionals) > 1 {
+		return dbServerOptions{}, fmt.Errorf("unknown argument %q", positionals[1])
 	}
 	return opts, nil
 }
@@ -661,8 +650,6 @@ func databaseEnvKeys(cfg appcfg.Config) []string {
 	return keys
 }
 
-func postgresEnvKeys(cfg appcfg.Config) []string { return databaseEnvKeys(cfg) }
-
 func envMap(env []string) map[string]string {
 	out := map[string]string{}
 	for _, entry := range env {
@@ -726,27 +713,17 @@ func databaseListRecordFromDatabase(ctx context.Context, database postgresdb.Dat
 
 func parseDBCLIArgs(args []string, serviceRequired bool) (dbCLIOptions, error) {
 	var opts dbCLIOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return dbCLIOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--json":
-			opts.JSON = true
-		case "--yes":
-			opts.Yes = true
-		default:
-			if opts.Service == "" {
-				opts.Service = args[i]
-				opts.Args = append(opts.Args, args[i+1:]...)
-				i = len(args)
-				break
-			}
-			return dbCLIOptions{}, fmt.Errorf("unknown argument %q", args[i])
-		}
+	flags := newCLIFlagSet("db")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.BoolVar(&opts.Yes, "yes", false, "")
+	rest, err := parseLeadingCLIFlags(flags, args)
+	if err != nil {
+		return dbCLIOptions{}, err
+	}
+	if len(rest) > 0 {
+		opts.Service = rest[0]
+		opts.Args = append(opts.Args, rest[1:]...)
 	}
 	if serviceRequired && opts.Service == "" {
 		opts.Args = nil
@@ -756,97 +733,74 @@ func parseDBCLIArgs(args []string, serviceRequired bool) (dbCLIOptions, error) {
 
 func parseDBTargetArgs(args []string) (dbCLIOptions, error) {
 	var opts dbCLIOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return dbCLIOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--yes":
-			opts.Yes = true
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return dbCLIOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			if opts.Service != "" {
-				return dbCLIOptions{}, fmt.Errorf("unexpected argument %q", args[i])
-			}
-			opts.Service = args[i]
-		}
+	flags := newCLIFlagSet("db")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.Yes, "yes", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return dbCLIOptions{}, err
+	}
+	if len(positionals) > 0 {
+		opts.Service = positionals[0]
+	}
+	if len(positionals) > 1 {
+		return dbCLIOptions{}, fmt.Errorf("unexpected argument %q", positionals[1])
 	}
 	return opts, nil
 }
 
 func parseDBResetArgs(args []string) (dbResetOptions, error) {
 	var opts dbResetOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return dbResetOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		default:
-			return dbResetOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("db reset")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return dbResetOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return dbResetOptions{}, err
 	}
 	return opts, nil
 }
 
 func parseDBApplyArgs(args []string) (dbApplyOptions, error) {
 	var opts dbApplyOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return dbApplyOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--json":
-			opts.JSON = true
-		default:
-			return dbApplyOptions{}, fmt.Errorf("unknown flag %q", args[i])
-		}
+	flags := newCLIFlagSet("db apply")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.JSON, "json", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return dbApplyOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return dbApplyOptions{}, err
 	}
 	return opts, nil
 }
 
 func parseDBSnapshotArgs(args []string) (dbSnapshotOptions, error) {
 	var opts dbSnapshotOptions
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "create", "restore":
-			if opts.Action != "" {
-				return dbSnapshotOptions{}, fmt.Errorf("db snapshot action already set")
-			}
-			opts.Action = args[i]
-		case "--name":
-			i++
-			if i >= len(args) {
-				return dbSnapshotOptions{}, fmt.Errorf("missing value for --name")
-			}
-			opts.Name = args[i]
-		case "--app-root":
-			i++
-			if i >= len(args) {
-				return dbSnapshotOptions{}, fmt.Errorf("missing value for --app-root")
-			}
-			opts.AppRoot = args[i]
-		case "--yes":
-			opts.Yes = true
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return dbSnapshotOptions{}, fmt.Errorf("unknown flag %q", args[i])
-			}
-			if opts.Name != "" {
-				return dbSnapshotOptions{}, fmt.Errorf("unexpected argument %q", args[i])
-			}
-			opts.Name = args[i]
+	flags := newCLIFlagSet("db snapshot")
+	flags.StringVar(&opts.Name, "name", "", "")
+	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.BoolVar(&opts.Yes, "yes", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return dbSnapshotOptions{}, err
+	}
+	if len(positionals) > 0 && (positionals[0] == "create" || positionals[0] == "restore") {
+		opts.Action = positionals[0]
+		positionals = positionals[1:]
+	}
+	if len(positionals) > 0 {
+		if opts.Name != "" {
+			return dbSnapshotOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
 		}
+		opts.Name = positionals[0]
+		positionals = positionals[1:]
+	}
+	if len(positionals) > 0 {
+		return dbSnapshotOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
 	}
 	if opts.Action == "" {
 		return dbSnapshotOptions{}, fmt.Errorf("usage: scenery db snapshot create|restore --name <name> [--app-root <path>]")
