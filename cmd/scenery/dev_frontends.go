@@ -84,11 +84,12 @@ func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cf
 		}
 		startable = append(startable, frontend)
 	}
-	pending := beginManagedFrontends(ctx, root, cfg.AppID(), startable, baseEnv, session)
+	pending, cancelPending := beginManagedFrontends(ctx, root, cfg.AppID(), startable, baseEnv, session)
 	processes := make([]*managedFrontendProcess, 0, len(pending))
 	var ready []<-chan error
 	for _, result := range pending {
 		if result.err != nil {
+			cancelPending()
 			stopManagedFrontendProcesses(processes)
 			return nil, nil, nil, result.err
 		}
@@ -106,6 +107,7 @@ func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cf
 		backends = nil
 	}
 	wait := func(context.Context) error {
+		defer cancelPending()
 		var errs []error
 		for _, ch := range ready {
 			if err := <-ch; err != nil {
@@ -119,6 +121,7 @@ func beginManagedFrontendBackendsForSession(ctx context.Context, root string, cf
 		return nil
 	}
 	if len(ready) == 0 {
+		cancelPending()
 		wait = nil
 	}
 	return backends, processes, wait, nil
@@ -218,9 +221,9 @@ func startManagedFrontends(ctx context.Context, appRoot, appID string, frontends
 	return results
 }
 
-func beginManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session) []pendingManagedFrontendStart {
+func beginManagedFrontends(ctx context.Context, appRoot, appID string, frontends []localproxy.FrontendConfig, baseEnv []string, session localagent.Session) ([]pendingManagedFrontendStart, context.CancelFunc) {
 	if len(frontends) == 0 {
-		return nil
+		return nil, func() {}
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	resultCh := make(chan pendingManagedFrontendStart, len(frontends))
@@ -242,7 +245,7 @@ func beginManagedFrontends(ctx context.Context, appRoot, appID string, frontends
 	for result := range resultCh {
 		results[result.index] = result
 	}
-	return results
+	return results, cancel
 }
 
 func beginManagedFrontend(ctx context.Context, cancel context.CancelFunc, appRoot, appID string, index int, frontend localproxy.FrontendConfig, baseEnv []string, session localagent.Session) pendingManagedFrontendStart {

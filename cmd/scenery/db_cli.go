@@ -16,6 +16,7 @@ import (
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/postgresname"
 )
 
 type dbCLIOptions struct {
@@ -472,20 +473,20 @@ func resolveDatabaseURLForConfig(ctx context.Context, appRoot string, cfg appcfg
 
 func resolveDatabaseURLForConfigFromEnv(cfg appcfg.Config, env []string) (string, error) {
 	if svc, ok := cfg.DatabaseService("db"); ok {
-		return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresdb.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
+		return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 	}
 	services := cfg.DatabaseServices()
 	if len(services) != 1 {
 		return "", fmt.Errorf("database service name is required when %d services are configured", len(services))
 	}
-	return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresdb.ServiceDatabaseURLEnv(services[0].Name), "postgres", services[0].Name)
+	return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresname.ServiceDatabaseURLEnv(services[0].Name), "postgres", services[0].Name)
 }
 
 func resolveDatabaseURLForServiceFromEnv(cfg appcfg.Config, env []string, service string) (string, error) {
 	service = strings.TrimSpace(service)
 	if service != "" && service != "." {
 		if svc, ok := cfg.DatabaseService(service); ok {
-			return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresdb.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
+			return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 		}
 		if len(cfg.DatabaseServices()) > 1 {
 			return "", fmt.Errorf("seed service %q has no matching database service; configure dev.services.%s or use a single database service", service, service)
@@ -645,7 +646,7 @@ func managedPostgresAdmin(ctx context.Context) (*sql.DB, error) {
 func databaseEnvKeys(cfg appcfg.Config) []string {
 	keys := []string{appDatabaseURLEnv, cfg.DatabaseURLEnv(), postgresdb.RegistryEnv}
 	for _, svc := range cfg.DatabaseServices() {
-		keys = append(keys, postgresdb.ServiceDatabaseURLEnv(svc.Name))
+		keys = append(keys, postgresname.ServiceDatabaseURLEnv(svc.Name))
 	}
 	return keys
 }

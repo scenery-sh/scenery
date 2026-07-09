@@ -139,8 +139,8 @@ func parseEntitySeedValue(pkg *model.Package, aliases map[string]string, expr as
 		}
 		return model.EntitySeedValue{Kind: model.EntitySeedTimestamp, Value: value}, nil
 	}
-	if pkg != nil && pkg.GoPkg != nil {
-		if tv, ok := pkg.GoPkg.TypesInfo.Types[expr]; ok && tv.Value != nil {
+	if pkg != nil && pkg.Analysis != nil {
+		if tv, ok := pkg.Analysis.TypesInfo.Types[expr]; ok && tv.Value != nil {
 			switch tv.Value.Kind() {
 			case constant.String:
 				value, err := strconv.Unquote(tv.Value.ExactString())
@@ -166,7 +166,7 @@ func parseStaticTimeDate(pkg *model.Package, aliases map[string]string, call *as
 	}
 	ints := make([]int, 7)
 	for i := 0; i < 7; i++ {
-		tv, ok := pkg.GoPkg.TypesInfo.Types[call.Args[i]]
+		tv, ok := pkg.Analysis.TypesInfo.Types[call.Args[i]]
 		if !ok || tv.Value == nil || tv.Value.Kind() != constant.Int {
 			return "", fmt.Errorf("time.Date argument %d must be a constant integer", i+1)
 		}

@@ -32,6 +32,8 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		writeArchitectureSupportFiles(t, root)
 		writeTestAppFile(t, root, "go.mod", "module scenery.sh\n\ngo 1.26.3\n\nrequire github.com/example/newdep v1.0.0\n")
 		writeTestAppFile(t, root, "internal/bad/bad.go", "package bad\n\nimport _ \"github.com/spf13/cobra\"\n")
+		writeTestAppFile(t, root, "internal/app/bad.go", "package app\n\nimport _ \"scenery.sh/internal/postgresdb\"\n")
+		writeTestAppFile(t, root, "internal/model/bad.go", "package model\n\nimport _ \"golang.org/x/tools/go/packages\"\n")
 		writeTestAppFile(t, root, "runtime/bad.go", "package runtime\n\nimport _ \"scenery.sh/internal/devdash\"\n")
 
 		step := runHarnessArchitectureStep(root)
@@ -42,7 +44,8 @@ func TestRunHarnessArchitectureStepValidAndInvalidFixtures(t *testing.T) {
 		for _, want := range []string{
 			"direct Go dependency is not in the architecture allowlist",
 			"forbidden import github.com/spf13/cobra",
-			"package layer violation",
+			"internal/app imports the PostgreSQL driver layer",
+			"internal/model imports the parser package loader",
 		} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("missing %q diagnostic: %+v", want, step.Diagnostics)

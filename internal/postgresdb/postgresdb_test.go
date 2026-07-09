@@ -6,12 +6,14 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"scenery.sh/internal/postgresname"
 )
 
 func TestDatabaseNameForIsStableAndKeepsHash(t *testing.T) {
-	a := DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-a")
-	b := DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-a")
-	c := DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-b")
+	a := postgresname.DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-a")
+	b := postgresname.DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-a")
+	c := postgresname.DatabaseNameFor("My App With A Very Very Very Long Name", "/tmp/worktree-b")
 	if a != b {
 		t.Fatalf("DatabaseNameFor not stable: %q != %q", a, b)
 	}
@@ -28,7 +30,7 @@ func TestDatabaseNameForIsStableAndKeepsHash(t *testing.T) {
 
 func TestSchemaNameForRejectsReservedNames(t *testing.T) {
 	for _, name := range []string{"scenery", "public", "information-schema", "pg_catalog"} {
-		if _, err := SchemaNameFor(name); err == nil {
+		if _, err := postgresname.SchemaNameFor(name); err == nil {
 			t.Fatalf("SchemaNameFor(%q) returned nil error", name)
 		}
 	}

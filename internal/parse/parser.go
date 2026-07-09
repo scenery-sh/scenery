@@ -73,7 +73,7 @@ func App(root, name string) (*model.App, error) {
 			relDir = "."
 		}
 		mpkg := &model.Package{
-			GoPkg:      pkg,
+			Analysis:   &model.PackageAnalysis{Fset: pkg.Fset, Types: pkg.Types, TypesInfo: pkg.TypesInfo},
 			ImportPath: pkg.PkgPath,
 			Name:       pkg.Name,
 			AbsDir:     absDir,
@@ -314,7 +314,7 @@ func App(root, name string) (*model.App, error) {
 					if !ok {
 						return true
 					}
-					if obj := calledObject(pkg.GoPkg, call.Fun); obj != nil {
+					if obj := calledObject(pkg.Analysis, call.Fun); obj != nil {
 						if ep := rawSet[obj]; ep != nil {
 							errs = append(errs, fmt.Sprintf("raw endpoint calls are not supported for %s.%s", ep.Service.Name, ep.Name))
 						}
@@ -670,7 +670,7 @@ func packageDeclaresService(pkg *model.Package) bool {
 }
 
 func parseEndpoint(pkg *model.Package, file *model.File, fn *ast.FuncDecl, dir *directive) (*model.Endpoint, error) {
-	sigObj := pkg.GoPkg.TypesInfo.Defs[fn.Name]
+	sigObj := pkg.Analysis.TypesInfo.Defs[fn.Name]
 	if sigObj == nil {
 		return nil, fmt.Errorf("unable to resolve %s", fn.Name.Name)
 	}
@@ -702,10 +702,10 @@ func parseEndpoint(pkg *model.Package, file *model.File, fn *ast.FuncDecl, dir *
 	}
 
 	if fn.Recv != nil {
-		ep.Receiver = receiverFromFieldList(pkg.GoPkg.Fset, fn.Recv)
+		ep.Receiver = receiverFromFieldList(pkg.Analysis.Fset, fn.Recv)
 	}
-	ep.Params = expandFields(pkg.GoPkg.Fset, fn.Type.Params, sig.Params(), "arg")
-	ep.Results = expandFields(pkg.GoPkg.Fset, fn.Type.Results, sig.Results(), "ret")
+	ep.Params = expandFields(pkg.Analysis.Fset, fn.Type.Params, sig.Params(), "arg")
+	ep.Results = expandFields(pkg.Analysis.Fset, fn.Type.Results, sig.Results(), "ret")
 
 	if ep.Raw {
 		if len(ep.Params) != 2 {
@@ -771,7 +771,7 @@ func parseEndpoint(pkg *model.Package, file *model.File, fn *ast.FuncDecl, dir *
 }
 
 func parseAuthHandler(pkg *model.Package, file *model.File, fn *ast.FuncDecl) (*model.AuthHandler, error) {
-	sigObj := pkg.GoPkg.TypesInfo.Defs[fn.Name]
+	sigObj := pkg.Analysis.TypesInfo.Defs[fn.Name]
 	if sigObj == nil {
 		return nil, fmt.Errorf("unable to resolve auth handler %s", fn.Name.Name)
 	}
@@ -779,8 +779,8 @@ func parseAuthHandler(pkg *model.Package, file *model.File, fn *ast.FuncDecl) (*
 	if !ok {
 		return nil, fmt.Errorf("%s is not a function", fn.Name.Name)
 	}
-	params := expandFields(pkg.GoPkg.Fset, fn.Type.Params, sig.Params(), "arg")
-	results := expandFields(pkg.GoPkg.Fset, fn.Type.Results, sig.Results(), "ret")
+	params := expandFields(pkg.Analysis.Fset, fn.Type.Params, sig.Params(), "arg")
+	results := expandFields(pkg.Analysis.Fset, fn.Type.Results, sig.Results(), "ret")
 	if len(params) != 2 || !isNamedType(sig.Params().At(0).Type(), "context", "Context") {
 		return nil, fmt.Errorf("auth handler %s must have signature func(context.Context, ...)", fn.Name.Name)
 	}
@@ -804,7 +804,7 @@ func parseAuthHandler(pkg *model.Package, file *model.File, fn *ast.FuncDecl) (*
 		TokenPos: fn.Pos(),
 	}
 	if fn.Recv != nil {
-		ah.Receiver = receiverFromFieldList(pkg.GoPkg.Fset, fn.Recv)
+		ah.Receiver = receiverFromFieldList(pkg.Analysis.Fset, fn.Recv)
 	}
 	if len(results) == 3 {
 		data := results[1]
@@ -814,7 +814,7 @@ func parseAuthHandler(pkg *model.Package, file *model.File, fn *ast.FuncDecl) (*
 }
 
 func parseMiddleware(pkg *model.Package, file *model.File, fn *ast.FuncDecl, dir *directive) (*model.Middleware, error) {
-	sigObj := pkg.GoPkg.TypesInfo.Defs[fn.Name]
+	sigObj := pkg.Analysis.TypesInfo.Defs[fn.Name]
 	if sigObj == nil {
 		return nil, fmt.Errorf("unable to resolve middleware %s", fn.Name.Name)
 	}
@@ -846,7 +846,7 @@ func parseMiddleware(pkg *model.Package, file *model.File, fn *ast.FuncDecl, dir
 		TokenPos: fn.Pos(),
 	}
 	if fn.Recv != nil {
-		mw.Receiver = receiverFromFieldList(pkg.GoPkg.Fset, fn.Recv)
+		mw.Receiver = receiverFromFieldList(pkg.Analysis.Fset, fn.Recv)
 	}
 	return mw, nil
 }
@@ -879,14 +879,14 @@ func parseServiceStruct(pkg *model.Package, file *model.File, decl *ast.GenDecl)
 		GetterName:  "sceneryInternalGet" + typeName,
 		InstanceVar: "sceneryInternalService" + typeName,
 	}
-	if initObj := pkg.GoPkg.Types.Scope().Lookup("init" + typeName); initObj != nil {
+	if initObj := pkg.Analysis.Types.Scope().Lookup("init" + typeName); initObj != nil {
 		if sig, ok := initObj.Type().(*types.Signature); ok && sig.Params().Len() == 0 && sig.Results().Len() == 2 {
 			if ptr, ok := sig.Results().At(0).Type().(*types.Pointer); ok && isNamedType(ptr, pkg.ImportPath, typeName) && isErrorType(sig.Results().At(1).Type()) {
 				ss.InitFunc = initObj.Name()
 			}
 		}
 	}
-	if namedObj := pkg.GoPkg.Types.Scope().Lookup(typeName); namedObj != nil {
+	if namedObj := pkg.Analysis.Types.Scope().Lookup(typeName); namedObj != nil {
 		if named, ok := namedObj.Type().(*types.Named); ok {
 			methods := types.NewMethodSet(types.NewPointer(named))
 			for sel := range methods.Methods() {
@@ -936,7 +936,7 @@ func discoverEntityConfigs(pkgs []*model.Package) (map[string]entityConfig, []st
 				if !ok || !isPackageCall(call.Fun, aliases, "scenery.sh/model", "Entity") {
 					return true
 				}
-				typeName, ok := firstTypeArg(pkg.GoPkg.Fset, call.Fun)
+				typeName, ok := firstTypeArg(pkg.Analysis.Fset, call.Fun)
 				if !ok {
 					errs = append(errs, sourceDiagnostic(pkg, call.Lparen, "model.Entity requires one static type argument"))
 					return true
@@ -991,8 +991,8 @@ func parseEntity(pkg *model.Package, file *model.File, decl *ast.GenDecl, cfg en
 		if len(field.Names) == 0 {
 			continue
 		}
-		typeExpr := renderNode(pkg.GoPkg.Fset, field.Type)
-		fieldType := pkg.GoPkg.TypesInfo.TypeOf(field.Type)
+		typeExpr := renderNode(pkg.Analysis.Fset, field.Type)
+		fieldType := pkg.Analysis.TypesInfo.TypeOf(field.Type)
 		for _, name := range field.Names {
 			if !name.IsExported() {
 				continue
@@ -1101,7 +1101,7 @@ func parsePageView(root string, pkg *model.Package, file *model.File, decl *ast.
 	if !ok || !isPageCollectionType(lit.Type, importAliases(file.AST)) {
 		return nil, []string{"scenery:page currently supports page.Collection[T] composite literals"}
 	}
-	entityName, ok := firstTypeArg(pkg.GoPkg.Fset, lit.Type)
+	entityName, ok := firstTypeArg(pkg.Analysis.Fset, lit.Type)
 	if !ok {
 		return nil, []string{"page.Collection requires one static type argument"}
 	}
@@ -1418,8 +1418,8 @@ func firstTagValue(tag, key string) string {
 }
 
 func staticStringValue(pkg *model.Package, expr ast.Expr) (string, bool) {
-	if ident, ok := expr.(*ast.Ident); ok && pkg != nil && pkg.GoPkg != nil {
-		if _, ok := pkg.GoPkg.TypesInfo.Uses[ident].(*types.Const); !ok {
+	if ident, ok := expr.(*ast.Ident); ok && pkg != nil && pkg.Analysis != nil {
+		if _, ok := pkg.Analysis.TypesInfo.Uses[ident].(*types.Const); !ok {
 			return "", false
 		}
 	}
@@ -1720,7 +1720,7 @@ func parseMiddlewareTargets(value string) ([]model.Selector, error) {
 }
 
 func discoverRuntimeDeclarations(pkg *model.Package) []*model.RuntimeDeclaration {
-	if pkg == nil || pkg.GoPkg == nil {
+	if pkg == nil || pkg.Analysis == nil {
 		return nil
 	}
 	var decls []*model.RuntimeDeclaration
@@ -1842,7 +1842,7 @@ func runtimeConfigStringField(pkg *model.Package, expr ast.Expr, importPath, typ
 }
 
 func validateRuntimeCalls(pkg *model.Package) []string {
-	if pkg == nil || pkg.GoPkg == nil {
+	if pkg == nil || pkg.Analysis == nil {
 		return nil
 	}
 	var errs []string
@@ -1911,18 +1911,18 @@ func runtimeConfigLiteral(pkg *model.Package, expr ast.Expr, importPath, typeNam
 }
 
 func objectFromExpr(pkg *model.Package, expr ast.Expr) types.Object {
-	if pkg == nil || pkg.GoPkg == nil {
+	if pkg == nil || pkg.Analysis == nil {
 		return nil
 	}
 	ident, ok := expr.(*ast.Ident)
 	if !ok {
 		return nil
 	}
-	return pkg.GoPkg.TypesInfo.Uses[ident]
+	return pkg.Analysis.TypesInfo.Uses[ident]
 }
 
 func objectInitializer(pkg *model.Package, obj types.Object) (ast.Expr, bool, bool) {
-	if pkg == nil || pkg.GoPkg == nil || obj == nil {
+	if pkg == nil || pkg.Analysis == nil || obj == nil {
 		return nil, false, false
 	}
 	for _, file := range pkg.Files {
@@ -1935,7 +1935,7 @@ func objectInitializer(pkg *model.Package, obj types.Object) (ast.Expr, bool, bo
 			switch stmt := node.(type) {
 			case *ast.ValueSpec:
 				for i, name := range stmt.Names {
-					if pkg.GoPkg.TypesInfo.Defs[name] != obj {
+					if pkg.Analysis.TypesInfo.Defs[name] != obj {
 						continue
 					}
 					if len(stmt.Values) == 0 {
@@ -1955,7 +1955,7 @@ func objectInitializer(pkg *model.Package, obj types.Object) (ast.Expr, bool, bo
 				}
 				for i, lhs := range stmt.Lhs {
 					name, ok := lhs.(*ast.Ident)
-					if !ok || pkg.GoPkg.TypesInfo.Defs[name] != obj {
+					if !ok || pkg.Analysis.TypesInfo.Defs[name] != obj {
 						continue
 					}
 					if i < len(stmt.Rhs) {
@@ -1988,8 +1988,8 @@ func isRuntimeConfigType(expr ast.Expr, importPath, typeName string, aliases map
 }
 
 func literalStringValue(pkg *model.Package, expr ast.Expr) (string, bool) {
-	if pkg != nil && pkg.GoPkg != nil {
-		if tv, ok := pkg.GoPkg.TypesInfo.Types[expr]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+	if pkg != nil && pkg.Analysis != nil {
+		if tv, ok := pkg.Analysis.TypesInfo.Types[expr]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
 			return constant.StringVal(tv.Value), true
 		}
 	}
@@ -2000,8 +2000,8 @@ func literalStringValue(pkg *model.Package, expr ast.Expr) (string, bool) {
 }
 
 func sourceDiagnostic(pkg *model.Package, pos token.Pos, message string) string {
-	if pkg != nil && pkg.GoPkg != nil && pkg.GoPkg.Fset != nil {
-		position := pkg.GoPkg.Fset.Position(pos)
+	if pkg != nil && pkg.Analysis != nil && pkg.Analysis.Fset != nil {
+		position := pkg.Analysis.Fset.Position(pos)
 		if position.Filename != "" {
 			return fmt.Sprintf("%s:%d:%d: %s", position.Filename, position.Line, position.Column, message)
 		}
@@ -2049,16 +2049,16 @@ func runtimeDeclarationKind(importPath, callName string) (model.RuntimeDeclarati
 }
 
 func runtimeDeclarationTypeArgs(pkg *model.Package, call *ast.CallExpr) (string, string) {
-	if pkg == nil || pkg.GoPkg == nil || call == nil {
+	if pkg == nil || pkg.Analysis == nil || call == nil {
 		return "", ""
 	}
 	switch fun := call.Fun.(type) {
 	case *ast.IndexListExpr:
 		if len(fun.Indices) >= 2 {
-			return renderNode(pkg.GoPkg.Fset, fun.Indices[0]), renderNode(pkg.GoPkg.Fset, fun.Indices[1])
+			return renderNode(pkg.Analysis.Fset, fun.Indices[0]), renderNode(pkg.Analysis.Fset, fun.Indices[1])
 		}
 	case *ast.IndexExpr:
-		return renderNode(pkg.GoPkg.Fset, fun.Index), ""
+		return renderNode(pkg.Analysis.Fset, fun.Index), ""
 	case *ast.SelectorExpr:
 		return "", ""
 	}
@@ -2066,10 +2066,10 @@ func runtimeDeclarationTypeArgs(pkg *model.Package, call *ast.CallExpr) (string,
 }
 
 func runtimeDeclarationName(pkg *model.Package, call *ast.CallExpr, arg int) string {
-	if pkg == nil || pkg.GoPkg == nil || call == nil || arg < 0 || arg >= len(call.Args) {
+	if pkg == nil || pkg.Analysis == nil || call == nil || arg < 0 || arg >= len(call.Args) {
 		return ""
 	}
-	tv, ok := pkg.GoPkg.TypesInfo.Types[call.Args[arg]]
+	tv, ok := pkg.Analysis.TypesInfo.Types[call.Args[arg]]
 	if !ok || tv.Value == nil || tv.Value.Kind() != constant.String {
 		return ""
 	}
@@ -2198,7 +2198,7 @@ func isMiddlewareNamedType(t types.Type, name string) bool {
 	return isNamedType(t, "scenery.sh/middleware", name)
 }
 
-func calledObject(pkg *packages.Package, fun ast.Expr) types.Object {
+func calledObject(pkg *model.PackageAnalysis, fun ast.Expr) types.Object {
 	switch expr := fun.(type) {
 	case *ast.Ident:
 		return pkg.TypesInfo.Uses[expr]

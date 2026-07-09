@@ -19,6 +19,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/postgresname"
 )
 
 const (
@@ -109,7 +110,7 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 				Schema:         svc.Schema,
 				URL:            serviceURL,
 				Database:       postgresdb.DatabaseNameFromURL(value),
-				DatabaseURLEnv: postgresdb.ServiceDatabaseURLEnv(svc.Name),
+				DatabaseURLEnv: postgresname.ServiceDatabaseURLEnv(svc.Name),
 				Source:         postgresdb.SourceExternal,
 			})
 		}
@@ -126,7 +127,7 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 		return nil, postgresdb.Database{}, fmt.Errorf("connect to managed postgres server: %w", err)
 	}
 	defer admin.Close()
-	dbName := postgresdb.DatabaseNameFor(cfg.AppID(), appRoot)
+	dbName := postgresname.DatabaseNameFor(cfg.AppID(), appRoot)
 	if err := postgresdb.EnsureDatabase(ctx, admin, dbName); err != nil {
 		return nil, postgresdb.Database{}, fmt.Errorf("ensure postgres database %s: %w", dbName, err)
 	}
@@ -152,7 +153,7 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 			Schema:         svc.Schema,
 			URL:            serviceURL,
 			Database:       dbName,
-			DatabaseURLEnv: postgresdb.ServiceDatabaseURLEnv(svc.Name),
+			DatabaseURLEnv: postgresname.ServiceDatabaseURLEnv(svc.Name),
 			Source:         postgresdb.SourceManaged,
 		})
 	}

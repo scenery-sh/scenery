@@ -12,6 +12,7 @@ import (
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/postgresname"
 	sceneryruntime "scenery.sh/runtime"
 )
 
@@ -115,7 +116,7 @@ func databaseURLForConfiguredService(cfg app.Config, name string) (resolvedDatab
 	if !ok {
 		return resolvedDatabaseURL{}, false, nil
 	}
-	serviceEnv := postgresdb.ServiceDatabaseURLEnv(svc.Name)
+	serviceEnv := postgresname.ServiceDatabaseURLEnv(svc.Name)
 	if dsn := strings.TrimSpace(getEnv(serviceEnv)); dsn != "" {
 		return resolvedDatabaseURL{Service: svc.Name, Schema: svc.Schema, URL: dsn, Source: serviceEnv}, true, nil
 	}

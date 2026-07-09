@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"scenery.sh/internal/postgresname"
 )
 
 const RegistryEnv = "SCENERY_DATABASE_JSON"
@@ -31,29 +33,6 @@ type Database struct {
 	URL      string    `json:"url"`
 	Source   Source    `json:"source"`
 	Schemas  []Service `json:"schemas"`
-}
-
-func ServiceDatabaseURLEnv(service string) string {
-	prefix := strings.ToUpper(strings.TrimSpace(service))
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range prefix {
-		ok := (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
-		if ok {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	out := strings.Trim(b.String(), "_")
-	if out == "" {
-		out = "DATABASE"
-	}
-	return out + "_DATABASE_URL"
 }
 
 func ServiceURL(baseURL, schema string) (string, error) {
@@ -83,7 +62,7 @@ func Env(database Database, databaseURLEnv string) []string {
 	}
 	values[databaseURLEnv] = database.URL
 	for _, svc := range database.Schemas {
-		values[ServiceDatabaseURLEnv(svc.Name)] = svc.URL
+		values[postgresname.ServiceDatabaseURLEnv(svc.Name)] = svc.URL
 	}
 	if data, err := json.Marshal(database); err == nil {
 		values[RegistryEnv] = string(data)

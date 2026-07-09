@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/postgresname"
 )
 
 const (
@@ -149,7 +149,7 @@ func (c Config) DatabaseURLEnv() string {
 func (c Config) DatabaseServices() []DatabaseServiceConfig {
 	out := make([]DatabaseServiceConfig, 0, len(c.Dev.Services))
 	for name, svc := range c.Dev.Services {
-		schema, err := postgresdb.SchemaNameFor(name)
+		schema, err := postgresname.SchemaNameFor(name)
 		if err != nil {
 			schema = ""
 		}
@@ -187,7 +187,7 @@ func (c Config) PostgresServices() []PostgresServiceConfig {
 		out = append(out, PostgresServiceConfig{
 			Name:           svc.Name,
 			DatabaseLabel:  svc.Schema,
-			DatabaseURLEnv: postgresdb.ServiceDatabaseURLEnv(svc.Name),
+			DatabaseURLEnv: postgresname.ServiceDatabaseURLEnv(svc.Name),
 			Schema:         svc.Schema,
 			Raw:            svc.Raw,
 		})
@@ -514,7 +514,7 @@ func (c Config) validateDevServices() error {
 		if !isStorageIdentifier(name) {
 			return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
 		}
-		schema, err := postgresdb.SchemaNameFor(name)
+		schema, err := postgresname.SchemaNameFor(name)
 		if err != nil {
 			return fmt.Errorf("dev.services.%s name maps to an invalid Postgres schema: %w", name, err)
 		}

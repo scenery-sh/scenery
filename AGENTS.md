@@ -92,6 +92,8 @@ Do not revive deprecated non-scenery APIs, legacy directive spellings, or compat
 
 - Prefer the Go standard library. Add dependencies only when the payoff is clear and the maintenance surface is justified.
 - Keep public surface small, current, and singular. Remove obsolete spellings instead of carrying compatibility shims.
+- Keep `internal/app` free of the PostgreSQL driver layer; deterministic database/schema/env naming belongs in `internal/postgresname`.
+- Keep `golang.org/x/tools/go/packages` inside `internal/parse`; `internal/model` exposes only model-owned analysis data.
 - Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
 - Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
@@ -200,7 +202,8 @@ Self-harness timing keeps a seven-second optimization target separate from its
 operational lanes: cached and fresh runs use 12-second and 18-second advisory
 budgets, while release mode enforces 30 seconds. Package and test timing
 warnings require isolated confirmation; inspect the timing artifact before
-treating contended full-suite elapsed values as regressions.
+treating contended full-suite elapsed values as regressions. The Go timing step
+uses `-p 8`, selected from repeated measurements on the maintainer machine.
 
 For target app changes:
 

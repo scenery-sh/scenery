@@ -19,7 +19,7 @@ scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [--jso
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
 ```
 
-Self-harness Go test steps use the Go test result cache by default. Add `--fresh-tests` when the validation needs to force `-count=1`. Timing reports distinguish cached (12s advisory), fresh (18s advisory), and release (30s enforced) lanes while retaining seven seconds as the optimization target. Package overages are rerun once in isolation, and test overages are reported only after a three-run isolated median remains above 500ms.
+Self-harness Go test steps use the Go test result cache by default. Add `--fresh-tests` when the validation needs to force `-count=1`. Cached and fresh commands use the locally measured `-p 8` package parallelism. Timing reports distinguish cached (12s advisory), fresh (18s advisory), and release (30s enforced) lanes while retaining seven seconds as the optimization target. Package overages share one serial `-p 1` confirmation process, and test overages are reported only after a three-run isolated median remains above 500ms; same-package candidates share one serial `-parallel=1` confirmation process.
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
 

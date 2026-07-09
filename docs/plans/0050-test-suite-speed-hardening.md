@@ -173,6 +173,11 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - [x] 2026-07-09: Split timing policy into machine-readable cached, fresh, and release lanes. The seven-second optimization target remains visible; cached runs use a 12-second advisory budget, fresh runs use an 18-second advisory budget, and release runs enforce 30 seconds. The default package budget remains two seconds with a ten-second `scenery.sh/cmd/scenery` override, and the 500ms test budget remains unchanged.
 - [x] 2026-07-09: Made package/test hotspot reporting evidence-based. Full-suite package overages are rerun once in isolation, test candidates are rerun three times and classified by isolated median, and the timing artifact separates observed candidates, confirmed slow tests, full-suite duration, and confirmation duration. The cached self-harness passed at 7.207s with no confirmation work; the fresh lane passed at 14.184s and correctly cleared every contended candidate after 25.423s of isolated confirmation.
 - [x] 2026-07-09: Profiled the post-change suite. Three fresh JSON runs were 12.21s, 11.49s, and 11.24s (11.49s median); compile/init-only runs were 6.51s, 6.43s, and 6.47s (6.47s median). Fresh `-p 8` JSON runs were 10.60s, 11.26s, and 10.42s (10.60s median), a measured 7.7% improvement over the default median but not yet adopted as policy.
+- [x] 2026-07-09: Removed two broad dependency edges. Pure PostgreSQL database/schema/env naming now lives in lightweight `internal/postgresname`, so `internal/app` no longer imports pgx through `internal/postgresdb`. `model.Package` now stores a model-owned `PackageAnalysis` with only `token.FileSet`, `types.Package`, and `types.Info`, keeping `golang.org/x/tools/go/packages` inside the parser loader.
+- [x] 2026-07-09: Added self-harness architecture guards for both dependency cuts: `internal/app` cannot import `internal/postgresdb`, and `internal/model` cannot import `golang.org/x/tools/go/packages`.
+- [x] 2026-07-09: Measured the dependency cut directly. Test dependency closures fell from 230 to 137 packages for `internal/app`, 145 to 80 for `internal/model`, 273 to 152 for `internal/codegen`, 268 to 146 for `internal/webgen`, and 286 to 220 for `internal/inspect`. `cmd/scenery` stayed at 356 because the complete CLI legitimately owns parsing and PostgreSQL commands; the new lightweight package has no separate test binary.
+- [x] 2026-07-09: Adopted `-p 8` for cached and fresh self-harness Go timing commands based only on repeated measurements on the maintainer machine. After the dependency cut, three warm compile/init runs were 6.04s, 6.00s, and 6.07s (6.04s median), and three fresh JSON runs were 10.55s, 10.47s, and 10.30s (10.47s median).
+- [x] 2026-07-09: Consolidated confirmation without caching. Candidate packages share one serial `go test -p 1` command, and same-package test candidates share one `-parallel=1` command. The final fresh self-harness passed at 10.390s with 3.369s confirmation, three observed process-test candidates, zero confirmed slow tests, and no timing warnings. A cache was intentionally not added because the remaining explicit-fresh cost is small relative to the stale-evidence contract it would create.
 
 ## Surprises & Discoveries
 
@@ -273,6 +278,10 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - 2026-07-09: Compile/init is now about 56% of the median fresh-suite wall time. The repo has 29 test-bearing packages and a 431-package aggregate test dependency graph; `cmd/scenery` alone contains 120 production Go files, 87 direct imports, and a 355-package test closure. Further progress needs dependency/package-boundary work, not more warning-test micro-optimization.
 - 2026-07-09: Trustworthy automatic confirmation has a visible cost on fresh runs. The first fresh lane spent 25.423s confirming broad contention candidates even though none remained over budget in isolation; cached everyday runs had no candidates and no confirmation cost.
 - 2026-07-09: `-p 8` produced a repeatable but modest improvement on this host. Its 10.60s fresh JSON median is useful evidence for a follow-up scheduler experiment, but prior history shows scheduler optima move with the workload, so it should not be hard-coded from one workstation snapshot alone.
+- 2026-07-09: `internal/app` depended on the full pgx/x/text closure only to derive schema and environment names. Moving those pure functions to `internal/postgresname` removed 93 packages from the app test closure without changing database behavior.
+- 2026-07-09: `internal/model` exposed the parser loader's `*packages.Package` even though downstream consumers only used its file set and type information. A three-field model-owned value removes `x/tools` from codegen/webgen/model consumers while leaving parser loading unchanged.
+- 2026-07-09: The first post-edit compile-only run was cold at 8.72s; warmed repeats settled at 6.04s median. Performance conclusions must continue to separate source-invalidated build work from the warmed `-count=1` steady state.
+- 2026-07-09: Full self-harness timing still varies with host pressure. One fresh run widened to 13.376s and produced 21 raw package candidates; the next run was 10.390s with no package candidates. Serial grouped confirmation bounds startup overhead without pretending those first-pass package timings are independent regressions.
 
 ## Decision Log
 
@@ -458,6 +467,18 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
   Date/Author: 2026-07-09 / Codex.
 - Decision: Give `scenery.sh/cmd/scenery` an explicit ten-second isolated package baseline.
   Rationale: The command package owns 120 production files and 67 test files across the complete CLI surface. Applying the two-second small-package budget to that package creates noise rather than a useful regression signal.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Keep PostgreSQL name derivation outside `internal/postgresdb` without compatibility wrappers.
+  Rationale: Configuration parsing needs deterministic names, not a database driver. A singular lightweight package removes pgx from `internal/app` and makes future heavy imports at that boundary obvious.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Store parser analysis in a model-owned three-field value instead of `*packages.Package`.
+  Rationale: Downstream generators and inspectors need the file set and Go type data, not the loader implementation. Keeping `x/tools/go/packages` inside `internal/parse` materially shrinks repeated test-binary closures without changing the app model.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Use `-p 8` in the self-harness Go timing command based on this maintainer machine only.
+  Rationale: Three local fresh JSON samples were consistently faster than the default scheduler, and this repository is validated on the maintainer machine rather than CI. The command remains explicit in every timing artifact.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Consolidate isolated confirmations instead of caching them.
+  Rationale: One serial package process and one serial same-package test process reduce Go-driver startup while preserving real reruns. The final fresh confirmation cost was 3.369s; a cache would add invalidation semantics and stale-evidence risk for little remaining benefit.
   Date/Author: 2026-07-09 / Codex.
 
 ## Outcomes & Retrospective

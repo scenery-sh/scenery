@@ -429,7 +429,7 @@ func BuildEndpointsResponse(appRoot string, cfg appcfg.Config, app *model.App) E
 func BuildModelsResponse(appRoot string, cfg appcfg.Config, app *model.App) ModelsResponse {
 	models := make([]ModelRecord, 0, len(app.Entities))
 	for _, entity := range app.Entities {
-		position := entity.Package.GoPkg.Fset.Position(entity.TokenPos)
+		position := entity.Package.Analysis.Fset.Position(entity.TokenPos)
 		item := ModelRecord{
 			Name:    entity.Name,
 			Package: filepath.ToSlash(entity.Package.RelDir),
@@ -473,7 +473,7 @@ func BuildModelsResponse(appRoot string, cfg appcfg.Config, app *model.App) Mode
 func BuildViewsResponse(appRoot string, cfg appcfg.Config, app *model.App) ViewsResponse {
 	views := make([]ViewRecord, 0, len(app.Views))
 	for _, view := range app.Views {
-		position := view.Package.GoPkg.Fset.Position(view.TokenPos)
+		position := view.Package.Analysis.Fset.Position(view.TokenPos)
 		item := ViewRecord{
 			Name:       view.Name,
 			Kind:       view.Kind,

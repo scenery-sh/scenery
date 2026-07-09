@@ -203,7 +203,7 @@ func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
 	if freshTests {
 		command = append(command, "-count=1")
 	}
-	return append(command, "-json", "./...")
+	return append(command, "-p", "8", "-json", "./...")
 }
 
 func harnessSelfGoTestEnv() []string {

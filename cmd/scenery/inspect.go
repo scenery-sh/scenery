@@ -656,7 +656,7 @@ func durableDeclarations(appRoot string, cfg appcfg.Config, appModel *model.App)
 		if decl.Kind != model.RuntimeDeclarationDurableTask {
 			continue
 		}
-		position := decl.Package.GoPkg.Fset.Position(decl.TokenPos)
+		position := decl.Package.Analysis.Fset.Position(decl.TokenPos)
 		schema := decl.ServiceName
 		if svc, ok := cfg.DatabaseService(decl.ServiceName); ok {
 			schema = svc.Schema

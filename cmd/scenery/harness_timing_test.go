@@ -30,13 +30,24 @@ func TestHarnessTimingBudgetsUseSeparateLanes(t *testing.T) {
 	}
 }
 
+func TestHarnessSelfGoTestCommandUsesMeasuredPackageParallelism(t *testing.T) {
+	t.Parallel()
+	if got := strings.Join(harnessSelfGoTestCommand(), " "); got != "go test -p 8 -json ./..." {
+		t.Fatalf("cached command = %q", got)
+	}
+	if got := strings.Join(harnessSelfGoTestCommandWithCacheMode(true), " "); got != "go test -count=1 -p 8 -json ./..." {
+		t.Fatalf("fresh command = %q", got)
+	}
+}
+
 func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 	output := strings.Join([]string{
 		`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.8}`,
+		`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.7}`,
 		`{"Action":"pass","Package":"example.com/app","Elapsed":3.2}`,
 	}, "\n")
 	report := parseHarnessGoTestTimingWithBudgets([]byte(output), harnessSelfGoTestCommand(), 13*time.Second, defaultHarnessTestTimingBudgets())
-	if len(report.ObservedSlowTests) != 1 || len(report.SlowTests) != 0 {
+	if len(report.ObservedSlowTests) != 2 || len(report.SlowTests) != 0 {
 		t.Fatalf("pre-confirmation tests = observed:%+v confirmed:%+v", report.ObservedSlowTests, report.SlowTests)
 	}
 
@@ -45,13 +56,16 @@ func TestConfirmHarnessTimingOutliersUsesIsolatedEvidence(t *testing.T) {
 		joined := strings.Join(command, " ")
 		commands = append(commands, joined)
 		switch joined {
-		case "go test -count=1 -json example.com/app":
+		case "go test -count=1 -p 1 -json example.com/app":
 			return []byte(`{"Action":"pass","Package":"example.com/app","Elapsed":1.1}`), nil
-		case "go test -count=3 -run ^TestSlow$ -json example.com/app":
+		case "go test -count=3 -parallel=1 -run ^(TestAlsoObserved|TestSlow)$ -json example.com/app":
 			return []byte(strings.Join([]string{
 				`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.7}`,
 				`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.9}`,
 				`{"Action":"pass","Package":"example.com/app","Test":"TestSlow","Elapsed":0.6}`,
+				`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.1}`,
+				`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.1}`,
+				`{"Action":"pass","Package":"example.com/app","Test":"TestAlsoObserved","Elapsed":0.1}`,
 			}, "\n")), nil
 		default:
 			return nil, fmt.Errorf("unexpected command %q", joined)

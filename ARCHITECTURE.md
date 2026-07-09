@@ -81,6 +81,10 @@ work.
 Architecture invariant: `.scenery.json` is the app root marker for scenery apps. App
 loading should fail clearly when the marker is missing or invalid.
 
+Architecture invariant: configuration parsing must not import the PostgreSQL
+driver layer. Pure database, schema, and environment name derivation lives in
+`internal/postgresname`; database IO lives in `internal/postgresdb`.
+
 ### `internal/parse`
 
 `internal/parse` loads Go packages with `go/packages`, reads `//scenery:`
@@ -99,6 +103,10 @@ Architecture invariant: service names and service roots are model facts. Keep
 nested-service and duplicate-name validation here rather than spreading it into
 runtime or codegen.
 
+Architecture invariant: `golang.org/x/tools/go/packages` is owned by this
+loader boundary. Downstream model consumers receive only model-owned analysis
+data, not the loader package itself.
+
 ### `internal/model`
 
 `internal/model` is the shared vocabulary between parser, inspector, codegen,
@@ -108,6 +116,10 @@ and build. Important types include `App`, `Service`, `Package`,
 Architecture invariant: the model is an in-memory description of a parsed app,
 not a runtime registry and not a JSON schema. Public JSON responses live in
 `internal/inspect`; runtime registration lives in `scenery.sh/runtime`.
+
+`PackageAnalysis` intentionally contains only the Go file set, type package,
+and type info needed by parser, inspector, and generators. Do not replace it
+with a parser-loader type.
 
 ### `internal/codegen`
 

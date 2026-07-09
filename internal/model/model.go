@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/tools/go/packages"
-
 	"scenery.sh/internal/runtimeapi"
 )
 
@@ -38,7 +36,7 @@ type Service struct {
 }
 
 type Package struct {
-	GoPkg      *packages.Package
+	Analysis   *PackageAnalysis
 	ImportPath string
 	Name       string
 	AbsDir     string
@@ -46,6 +44,12 @@ type Package struct {
 	Files      []*File
 	Service    *Service
 	Runtime    []*RuntimeDeclaration
+}
+
+type PackageAnalysis struct {
+	Fset      *token.FileSet
+	Types     *types.Package
+	TypesInfo *types.Info
 }
 
 type File struct {

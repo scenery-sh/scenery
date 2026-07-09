@@ -228,7 +228,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, cached/fresh/release timing policy, validation, docs review-due signals, drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, lightweight PostgreSQL naming and parser/model dependency boundaries, cached/fresh/release timing policy with locally measured package parallelism, validation, docs review-due signals, drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -245,7 +245,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, standard auth Google sign-in and Google connection endpoints, beta public deploy status/setup commands, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, cached/fresh/release timing interpretation, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, standard auth Google sign-in and Google connection endpoints, beta public deploy status/setup commands, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, cached/fresh/release timing interpretation with locally measured package parallelism, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -284,7 +284,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, standard auth Google connections for Gmail-style integrations, beta public deploy readiness commands, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, cached/fresh/release timing lanes with isolated hotspot confirmation, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, standard auth Google connections for Gmail-style integrations, beta public deploy readiness commands, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, cached/fresh/release timing lanes with locally measured package parallelism and serial isolated hotspot confirmation, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -336,9 +336,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-06-07",
-      "review_after": "2026-07-07",
-      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, updated for current scenery up command naming.",
+      "last_reviewed": "2026-07-09",
+      "review_after": "2026-08-08",
+      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, including lightweight PostgreSQL naming and parser-owned go/packages analysis boundaries.",
       "tags": [
         "architecture",
         "agents",
@@ -355,7 +355,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, watch.ignore, deploy.domain/root, runtime capabilities, standard auth Google connection endpoints and encrypted token storage, beta public deploy registry/status schemas, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts including cached/fresh/release timing lanes and isolated hotspot confirmation, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, watch.ignore, deploy.domain/root, runtime capabilities, standard auth Google connection endpoints and encrypted token storage, beta public deploy registry/status schemas, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts including cached/fresh/release timing lanes, locally measured package parallelism, and serial isolated hotspot confirmation, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -458,7 +458,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Agent validation loop, cached/fresh/release timing lanes with isolated hotspot confirmation, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, parallel managed Postgres self-harness proof, local storage restart durability proof, and doc-gardening rules for review-due and drift handling.",
+      "summary": "Agent validation loop, cached/fresh/release timing lanes with locally measured package parallelism and serial isolated hotspot confirmation, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, parallel managed Postgres self-harness proof, local storage restart durability proof, and doc-gardening rules for review-due and drift handling.",
       "tags": [
         "harness",
         "agents",
@@ -1231,7 +1231,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-09",
       "review_after": "2026-08-08",
-      "summary": "Active ExecPlan for honest cached, fresh, and release timing lanes, isolated confirmation of package/test hotspots, and reducing the compile/init-dominated fresh-suite floor.",
+      "summary": "Active ExecPlan for honest cached, fresh, and release timing lanes, lightweight PostgreSQL/model dependency boundaries, locally measured package parallelism, serial isolated hotspot confirmation, and reducing the remaining fresh-suite floor.",
       "tags": [
         "plans",
         "execplans",

@@ -17,6 +17,7 @@ import (
 	durablestore "scenery.sh/internal/durable/store"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/postgresname"
 )
 
 type workerOptions struct {
@@ -561,7 +562,7 @@ func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (stri
 			return registry.URL, nil
 		}
 	}
-	serviceEnv := postgresdb.ServiceDatabaseURLEnv(service)
+	serviceEnv := postgresname.ServiceDatabaseURLEnv(service)
 	if value, _ := lookupEnvValue(env, serviceEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value), nil
 	}

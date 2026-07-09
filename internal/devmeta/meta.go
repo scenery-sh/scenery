@@ -712,7 +712,7 @@ func collectStructSecretFields(structType *ast.StructType, seen map[string]bool)
 }
 
 func buildLoc(pkg *model.Package, start, end token.Pos) map[string]any {
-	fset := pkg.GoPkg.Fset
+	fset := pkg.Analysis.Fset
 	startPos := fset.PositionFor(start, false)
 	endPos := fset.PositionFor(end, false)
 	return map[string]any{
@@ -764,7 +764,7 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 
 func renderExpr(pkg *model.Package, expr ast.Expr) string {
 	var b strings.Builder
-	_ = ast.Fprint(&b, pkg.GoPkg.Fset, expr, nil)
+	_ = ast.Fprint(&b, pkg.Analysis.Fset, expr, nil)
 	return b.String()
 }
 
@@ -790,13 +790,13 @@ func relFilePath(pkg *model.Package, abs string) string {
 }
 
 func posOffset(pkg *model.Package, pos token.Pos) int {
-	return pkg.GoPkg.Fset.PositionFor(pos, false).Offset
+	return pkg.Analysis.Fset.PositionFor(pos, false).Offset
 }
 
 func posLine(pkg *model.Package, pos token.Pos) int {
-	return pkg.GoPkg.Fset.PositionFor(pos, false).Line
+	return pkg.Analysis.Fset.PositionFor(pos, false).Line
 }
 
 func posColumn(pkg *model.Package, pos token.Pos) int {
-	return pkg.GoPkg.Fset.PositionFor(pos, false).Column
+	return pkg.Analysis.Fset.PositionFor(pos, false).Column
 }

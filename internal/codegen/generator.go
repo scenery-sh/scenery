@@ -35,7 +35,7 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 				return nil, err
 			}
 			if changed := fileChanged(pkg, file); changed {
-				data, err := renderFile(pkg.GoPkg.Fset, file.AST)
+				data, err := renderFile(pkg.Analysis.Fset, file.AST)
 				if err != nil {
 					return nil, err
 				}

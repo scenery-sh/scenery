@@ -29,7 +29,7 @@ import (
 	"scenery.sh/internal/devdash"
 	"scenery.sh/internal/envfile"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/postgresname"
 )
 
 type runningApp struct {
@@ -1775,7 +1775,7 @@ func configuredPostgresDatabase(root string, cfg app.Config) dashboardPostgresDa
 	if len(services) == 0 {
 		return dashboardPostgresDatabase{}
 	}
-	db := dashboardPostgresDatabase{Name: postgresdb.DatabaseNameFor(cfg.AppID(), root), Source: "managed"}
+	db := dashboardPostgresDatabase{Name: postgresname.DatabaseNameFor(cfg.AppID(), root), Source: "managed"}
 	for _, svc := range services {
 		db.Schemas = append(db.Schemas, dashboardPostgresSchema{Service: svc.Name, Schema: svc.Schema})
 	}

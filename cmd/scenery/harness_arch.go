@@ -344,6 +344,24 @@ func checkArchitectureGoImports(path, rel string) ([]checkDiagnostic, error) {
 				SuggestedAction: "Move shared code into internal/ instead of importing the CLI package.",
 			})
 		}
+		if strings.HasPrefix(rel, "internal/app/") && importPath == "scenery.sh/internal/postgresdb" {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "architecture checks",
+				Severity:        "error",
+				File:            rel,
+				Message:         "package layer violation: internal/app imports the PostgreSQL driver layer",
+				SuggestedAction: "Use scenery.sh/internal/postgresname for deterministic naming and keep database IO in internal/postgresdb.",
+			})
+		}
+		if strings.HasPrefix(rel, "internal/model/") && importPath == "golang.org/x/tools/go/packages" {
+			diagnostics = append(diagnostics, checkDiagnostic{
+				Stage:           "architecture checks",
+				Severity:        "error",
+				File:            rel,
+				Message:         "package layer violation: internal/model imports the parser package loader",
+				SuggestedAction: "Keep golang.org/x/tools/go/packages in internal/parse and expose only model-owned analysis data.",
+			})
+		}
 		for _, rule := range packageLayerRules {
 			if !pathMatchesLayerRule(rel, rule) {
 				continue

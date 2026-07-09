@@ -385,7 +385,8 @@ scenery harness self --json --write
 ```
 
 Self-harness Go test steps use the Go test result cache by default; add
-`--fresh-tests` when you need a fresh `-count=1` run.
+`--fresh-tests` when you need a fresh `-count=1` run. The timing step uses the
+locally measured package parallelism `-p 8`.
 Timing reports distinguish cached, fresh, and release budgets and confirm
 package/test hotspots in isolation before reporting them.
 

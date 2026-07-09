@@ -1,4 +1,6 @@
-package postgresdb
+// Package postgresname derives PostgreSQL-safe database, schema, and env names
+// without pulling the PostgreSQL driver into configuration-only packages.
+package postgresname
 
 import (
 	"fmt"
@@ -17,7 +19,7 @@ func DatabaseNameFor(appID, appRoot string) string {
 	if hash == "" {
 		hash = identityhash.Short(appID)
 	}
-	base := sanitizePG(appID)
+	base := sanitize(appID)
 	suffix := "_" + hash
 	name := base + suffix
 	if len(name) <= 63 {
@@ -31,7 +33,7 @@ func DatabaseNameFor(appID, appRoot string) string {
 }
 
 func SchemaNameFor(service string) (string, error) {
-	schema := sanitizePG(service)
+	schema := sanitize(service)
 	if schema == "" || schema == "app" {
 		return "", fmt.Errorf("postgres schema name is required")
 	}
@@ -46,7 +48,30 @@ func SchemaNameReserved(schema string) bool {
 	return schema == "scenery" || schema == "public" || schema == "information_schema" || strings.HasPrefix(schema, "pg_")
 }
 
-func sanitizePG(value string) string {
+func ServiceDatabaseURLEnv(service string) string {
+	prefix := strings.ToUpper(strings.TrimSpace(service))
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range prefix {
+		ok := (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		out = "DATABASE"
+	}
+	return out + "_DATABASE_URL"
+}
+
+func sanitize(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	var b strings.Builder
 	lastUnderscore := false
