@@ -196,6 +196,12 @@ For substantial scenery repo changes:
 scenery harness self --summary --write
 ```
 
+Self-harness timing keeps a seven-second optimization target separate from its
+operational lanes: cached and fresh runs use 12-second and 18-second advisory
+budgets, while release mode enforces 30 seconds. Package and test timing
+warnings require isolated confirmation; inspect the timing artifact before
+treating contended full-suite elapsed values as regressions.
+
 For target app changes:
 
 ```sh

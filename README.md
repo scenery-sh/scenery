@@ -386,6 +386,8 @@ scenery harness self --json --write
 
 Self-harness Go test steps use the Go test result cache by default; add
 `--fresh-tests` when you need a fresh `-count=1` run.
+Timing reports distinguish cached, fresh, and release budgets and confirm
+package/test hotspots in isolation before reporting them.
 
 ## Contributing
 

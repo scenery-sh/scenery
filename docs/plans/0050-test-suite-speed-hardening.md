@@ -169,6 +169,10 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - [x] 2026-06-13: Completed the P5 follow-up by removing the remaining fixed edge-probe sleeps from `cmd/scenery` tests, reusing the current test binary for managed-frontend helper servers instead of `go run`, and making the external-Postgres managed-env test prove it does not need `SCENERY_AGENT_HOME`.
 - [x] 2026-06-13: Parallelized managed frontend startup. Configured frontends now start concurrently, preserve deterministic result ordering, and stop every started child process if any sibling startup fails.
 - [x] 2026-06-13: Revalidated this pass with focused frontend/edge/env tests, `go test -count=1 -json ./cmd/scenery` plus `scripts/slowtests.go`, `go test ./cmd/scenery`, `go test ./...`, and `go run ./cmd/scenery harness self --summary --write`. Isolated `cmd/scenery` JSON timing was 7.922s, `go test ./cmd/scenery` reported 8.143s, literal `go test ./...` passed in 7.976s wall, and the source-run self-harness passed with existing architecture/timing warnings only.
+- [x] 2026-07-09: Replaced two warning-only `scenery check` integration paths with direct OAuth/deploy diagnostic assertions over fingerprinted persistent configs, while retaining one real persistent compile smoke. Five isolated repetitions put the compile smoke at 0.06-0.08s, the diagnostic assertions below the JSON timer resolution, and the managed-frontend restart test at a stable 0.39s.
+- [x] 2026-07-09: Split timing policy into machine-readable cached, fresh, and release lanes. The seven-second optimization target remains visible; cached runs use a 12-second advisory budget, fresh runs use an 18-second advisory budget, and release runs enforce 30 seconds. The default package budget remains two seconds with a ten-second `scenery.sh/cmd/scenery` override, and the 500ms test budget remains unchanged.
+- [x] 2026-07-09: Made package/test hotspot reporting evidence-based. Full-suite package overages are rerun once in isolation, test candidates are rerun three times and classified by isolated median, and the timing artifact separates observed candidates, confirmed slow tests, full-suite duration, and confirmation duration. The cached self-harness passed at 7.207s with no confirmation work; the fresh lane passed at 14.184s and correctly cleared every contended candidate after 25.423s of isolated confirmation.
+- [x] 2026-07-09: Profiled the post-change suite. Three fresh JSON runs were 12.21s, 11.49s, and 11.24s (11.49s median); compile/init-only runs were 6.51s, 6.43s, and 6.47s (6.47s median). Fresh `-p 8` JSON runs were 10.60s, 11.26s, and 10.42s (10.60s median), a measured 7.7% improvement over the default median but not yet adopted as policy.
 
 ## Surprises & Discoveries
 
@@ -265,6 +269,10 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - 2026-06-13: The configured edge probe tests were still paying the production 500ms retry interval. Making the interval test-overridable preserves production retry behavior while turning those assertions into millisecond-scale tests.
 - 2026-06-13: The managed-frontend concurrency regression test initially used `go run` to host fake frontends, which made the new coverage one of the package's slower tests. Re-executing the already-built test binary keeps the same real TCP readiness path with much less compile/process overhead.
 - 2026-06-13: `managedAppEnv` exits before branch-registry work when external Postgres is configured. The test no longer needs a fake `SCENERY_AGENT_HOME`, which captures that boundary and lets the assertion run in parallel.
+- 2026-07-09: Full-suite elapsed values are still dominated by contention. `TestManagedFrontendExitRestartsAndUpdatesAgentSession` repeatedly appeared at about 4.5s in fresh full-suite runs but was 0.39s in five isolated repetitions; `cmd/scenery` appeared at 12.940s in the fresh harness and 6.067s in isolation. Isolated confirmation is necessary before acting on those readings.
+- 2026-07-09: Compile/init is now about 56% of the median fresh-suite wall time. The repo has 29 test-bearing packages and a 431-package aggregate test dependency graph; `cmd/scenery` alone contains 120 production Go files, 87 direct imports, and a 355-package test closure. Further progress needs dependency/package-boundary work, not more warning-test micro-optimization.
+- 2026-07-09: Trustworthy automatic confirmation has a visible cost on fresh runs. The first fresh lane spent 25.423s confirming broad contention candidates even though none remained over budget in isolation; cached everyday runs had no candidates and no confirmation cost.
+- 2026-07-09: `-p 8` produced a repeatable but modest improvement on this host. Its 10.60s fresh JSON median is useful evidence for a follow-up scheduler experiment, but prior history shows scheduler optima move with the workload, so it should not be hard-coded from one workstation snapshot alone.
 
 ## Decision Log
 
@@ -442,6 +450,15 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - Decision: Decouple `data` from `auth` through `internal/authbridge`.
   Rationale: `data` should not depend on the full standard-auth implementation just to read current auth state and map `auth.AuthData.TenantID` to a data tenant key. The bridge keeps current public helpers working when `auth` is imported and reduces data-only dependency graph weight.
   Date/Author: 2026-05-29 / Codex.
+- Decision: Separate the seven-second optimization target from cached, fresh, and release operational budgets.
+  Rationale: A fresh compile/init-only pass is already about 6.47s, so one seven-second threshold cannot honestly describe cached developer feedback, fresh no-result-cache health, and release enforcement. Explicit lanes preserve the target without manufacturing routine failures.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Emit package and test timing warnings only after isolated confirmation.
+  Rationale: Full-suite contention inflated a stable 0.39s test to about 4.5s and a 6.067s isolated package to 12.940s. One isolated package rerun and a three-sample test median make the warnings actionable while retaining the original observations in the artifact.
+  Date/Author: 2026-07-09 / Codex.
+- Decision: Give `scenery.sh/cmd/scenery` an explicit ten-second isolated package baseline.
+  Rationale: The command package owns 120 production files and 67 test files across the complete CLI surface. Applying the two-second small-package budget to that package creates noise rather than a useful regression signal.
+  Date/Author: 2026-07-09 / Codex.
 
 ## Outcomes & Retrospective
 

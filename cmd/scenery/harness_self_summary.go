@@ -87,14 +87,18 @@ type harnessSelfDriftSummary struct {
 }
 
 type harnessSelfTestTimingSummary struct {
-	TotalSeconds    intOrFloat             `json:"total_seconds"`
-	BudgetSeconds   intOrFloat             `json:"budget_seconds"`
-	PackageCount    int                    `json:"package_count"`
-	SlowTestCount   int                    `json:"slow_test_count"`
-	WarningCount    int                    `json:"warning_count"`
-	TopSlowTests    []harnessTestTiming    `json:"top_slow_tests,omitempty"`
-	TopSlowPackages []harnessPackageTiming `json:"top_slow_packages,omitempty"`
-	Artifact        string                 `json:"artifact"`
+	Lane                  string                 `json:"lane,omitempty"`
+	TotalSeconds          intOrFloat             `json:"total_seconds"`
+	ConfirmationSeconds   intOrFloat             `json:"confirmation_seconds,omitempty"`
+	BudgetSeconds         intOrFloat             `json:"budget_seconds"`
+	TargetSeconds         intOrFloat             `json:"target_seconds,omitempty"`
+	PackageCount          int                    `json:"package_count"`
+	ObservedSlowTestCount int                    `json:"observed_slow_test_count"`
+	SlowTestCount         int                    `json:"slow_test_count"`
+	WarningCount          int                    `json:"warning_count"`
+	TopSlowTests          []harnessTestTiming    `json:"top_slow_tests,omitempty"`
+	TopSlowPackages       []harnessPackageTiming `json:"top_slow_packages,omitempty"`
+	Artifact              string                 `json:"artifact"`
 }
 
 // intOrFloat preserves compact numeric JSON while keeping the summary structs simple.
@@ -343,14 +347,18 @@ func summarizeTestTiming(report *harnessTestTimingReport) *harnessSelfTestTiming
 		return packages[i].Seconds > packages[j].Seconds
 	})
 	return &harnessSelfTestTimingSummary{
-		TotalSeconds:    intOrFloat(report.TotalSeconds),
-		BudgetSeconds:   intOrFloat(report.Budgets.TotalSeconds),
-		PackageCount:    len(report.Packages),
-		SlowTestCount:   len(report.SlowTests),
-		WarningCount:    warnings,
-		TopSlowTests:    capTests(report.SlowTests, 5),
-		TopSlowPackages: capPackages(packages, 5),
-		Artifact:        ".scenery/harness/test-timing-latest.json",
+		Lane:                  report.Budgets.Lane,
+		TotalSeconds:          intOrFloat(report.TotalSeconds),
+		ConfirmationSeconds:   intOrFloat(report.ConfirmationSeconds),
+		BudgetSeconds:         intOrFloat(report.Budgets.TotalSeconds),
+		TargetSeconds:         intOrFloat(report.Budgets.TargetSeconds),
+		PackageCount:          len(report.Packages),
+		ObservedSlowTestCount: len(report.ObservedSlowTests),
+		SlowTestCount:         len(report.SlowTests),
+		WarningCount:          warnings,
+		TopSlowTests:          capTests(report.SlowTests, 5),
+		TopSlowPackages:       capPackages(packages, 5),
+		Artifact:              ".scenery/harness/test-timing-latest.json",
 	}
 }
 

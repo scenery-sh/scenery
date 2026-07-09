@@ -66,7 +66,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery runtime / test infrastructure
   - Created: 2026-05-28
-  - Focus: keep the default cached `go test ./...` path fast and quiet while preserving explicit fresh `-count=1` validation for targeted no-cache checks.
+  - Focus: keep cached, fresh, and release timing lanes honest, confirm package/test hotspots in isolation, and reduce the remaining compile/init-dominated fresh-suite floor.
 - [0059 Frozen Toolchain Manifest and Managed Tool Store](0059-frozen-toolchain-manifest.md)
   - Status: active
   - Owner: scenery runtime / release tooling / agent DX

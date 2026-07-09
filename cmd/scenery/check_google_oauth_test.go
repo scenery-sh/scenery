@@ -1,51 +1,59 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	appcfg "scenery.sh/internal/app"
 )
 
-func TestRunSceneryCheckWarnsWhenGoogleOAuthCredentialsAreMissing(t *testing.T) {
-	root := writeGoogleOAuthCheckFixture(t)
+func TestCheckWarningDiagnosticsReportsMissingGoogleOAuthCredentials(t *testing.T) {
+	for _, name := range []string{"GoogleOAuthClientID", "GoogleOAuthClientSecret", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"} {
+		value, exists := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if exists {
+				_ = os.Setenv(name, value)
+			} else {
+				_ = os.Unsetenv(name)
+			}
+		})
+	}
 
-	var out bytes.Buffer
-	if err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
-		t.Fatalf("runSceneryCheck: %v\n%s", err, out.String())
+	root := persistentTestAppRoot(t, "check-google-oauth")
+	preparePersistentTestApp(t, root, map[string]string{
+		".scenery.json": `{"name":"googlecheck","auth":{"enabled":true,"google_oauth":{"enabled":true}}}`,
+	})
+	if err := os.Remove(filepath.Join(root, ".env")); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
 	}
-	var payload checkResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	_, cfg, err := appcfg.DiscoverRoot(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !payload.OK || len(payload.Diagnostics) != 1 {
-		t.Fatalf("payload = %+v", payload)
+
+	diagnostics, err := checkWarningDiagnostics(root, cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	diag := payload.Diagnostics[0]
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %+v", diagnostics)
+	}
+	diag := diagnostics[0]
 	if diag.Stage != "auth" || diag.Severity != "warning" || !strings.Contains(diag.Message, "GoogleOAuthClientID") || !strings.Contains(diag.Message, "GoogleOAuthClientSecret") {
 		t.Fatalf("diagnostic = %+v", diag)
 	}
 
 	writeTestAppFile(t, root, ".env", "GoogleOAuthClientID=test-client\nGoogleOAuthClientSecret=test-secret\n")
-	out.Reset()
-	if err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
-		t.Fatalf("runSceneryCheck with env: %v\n%s", err, out.String())
+	diagnostics, err = checkWarningDiagnostics(root, cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics with env = %+v", diagnostics)
 	}
-	if !payload.OK || len(payload.Diagnostics) != 0 {
-		t.Fatalf("payload with env = %+v", payload)
-	}
-}
-
-func writeGoogleOAuthCheckFixture(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"googlecheck","auth":{"enabled":true,"google_oauth":{"enabled":true}}}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/googlecheck\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => "+filepath.ToSlash(repoRootForTest(t))+"\n")
-	writeTestAppFile(t, root, "service/api.go", "package service\n\nimport \"context\"\n\ntype PingResponse struct { OK bool `json:\"ok\"` }\n\n//scenery:api public method=GET path=/ping\nfunc Ping(context.Context) (*PingResponse, error) { return &PingResponse{OK: true}, nil }\n")
-	return root
 }

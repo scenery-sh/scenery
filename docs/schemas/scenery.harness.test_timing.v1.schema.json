@@ -19,6 +19,9 @@
     "total_seconds": {
       "type": "number"
     },
+    "confirmation_seconds": {
+      "type": "number"
+    },
     "packages": {
       "type": "array",
       "items": { "$ref": "#/$defs/package_timing" }
@@ -27,13 +30,24 @@
       "type": "array",
       "items": { "$ref": "#/$defs/test_timing" }
     },
+    "observed_slow_tests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/test_timing" }
+    },
     "budgets": {
       "type": "object",
       "required": ["total_seconds", "package_seconds", "test_seconds", "mode"],
       "properties": {
+        "lane": { "type": "string", "enum": ["cached", "fresh", "release"] },
+        "target_seconds": { "type": "number" },
         "total_seconds": { "type": "number" },
         "package_seconds": { "type": "number" },
+        "package_overrides": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
         "test_seconds": { "type": "number" },
+        "confirmation_runs": { "type": "integer", "minimum": 1 },
         "mode": { "type": "string" }
       },
       "additionalProperties": false
@@ -54,6 +68,8 @@
       "properties": {
         "package": { "type": "string" },
         "seconds": { "type": "number" },
+        "budget_seconds": { "type": "number" },
+        "isolated_seconds": { "type": "number" },
         "slow_tests": {
           "type": "array",
           "items": { "$ref": "#/$defs/test_timing" }
@@ -67,7 +83,13 @@
       "properties": {
         "name": { "type": "string" },
         "package": { "type": "string" },
-        "seconds": { "type": "number" }
+        "seconds": { "type": "number" },
+        "budget_seconds": { "type": "number" },
+        "isolated_samples": {
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "isolated_median_seconds": { "type": "number" }
       },
       "additionalProperties": false
     }

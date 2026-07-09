@@ -24,8 +24,12 @@ const (
 )
 
 const (
-	defaultHarnessTotalSeconds = 7
-	releaseHarnessTotalSeconds = 30
+	harnessOptimizationTargetSeconds = 7
+	cachedHarnessTotalSeconds        = 12
+	freshHarnessTotalSeconds         = 18
+	releaseHarnessTotalSeconds       = 30
+	commandPackageTimingSeconds      = 10
+	harnessTimingConfirmationRuns    = 3
 )
 
 type harnessChangedAreaReport struct {
@@ -58,33 +62,44 @@ var (
 )
 
 type harnessTestTimingReport struct {
-	SchemaVersion string                   `json:"schema_version"`
-	Command       []string                 `json:"command"`
-	Env           []string                 `json:"env,omitempty"`
-	TotalSeconds  float64                  `json:"total_seconds"`
-	Packages      []harnessPackageTiming   `json:"packages"`
-	SlowTests     []harnessTestTiming      `json:"slow_tests,omitempty"`
-	Budgets       harnessTestTimingBudgets `json:"budgets"`
-	Diagnostics   []checkDiagnostic        `json:"diagnostics,omitempty"`
+	SchemaVersion       string                   `json:"schema_version"`
+	Command             []string                 `json:"command"`
+	Env                 []string                 `json:"env,omitempty"`
+	TotalSeconds        float64                  `json:"total_seconds"`
+	ConfirmationSeconds float64                  `json:"confirmation_seconds,omitempty"`
+	Packages            []harnessPackageTiming   `json:"packages"`
+	ObservedSlowTests   []harnessTestTiming      `json:"observed_slow_tests,omitempty"`
+	SlowTests           []harnessTestTiming      `json:"slow_tests,omitempty"`
+	Budgets             harnessTestTimingBudgets `json:"budgets"`
+	Diagnostics         []checkDiagnostic        `json:"diagnostics,omitempty"`
 }
 
 type harnessPackageTiming struct {
-	Package string              `json:"package"`
-	Seconds float64             `json:"seconds"`
-	Tests   []harnessTestTiming `json:"slow_tests,omitempty"`
+	Package         string              `json:"package"`
+	Seconds         float64             `json:"seconds"`
+	BudgetSeconds   float64             `json:"budget_seconds,omitempty"`
+	IsolatedSeconds *float64            `json:"isolated_seconds,omitempty"`
+	Tests           []harnessTestTiming `json:"slow_tests,omitempty"`
 }
 
 type harnessTestTiming struct {
-	Name    string  `json:"name"`
-	Package string  `json:"package"`
-	Seconds float64 `json:"seconds"`
+	Name            string    `json:"name"`
+	Package         string    `json:"package"`
+	Seconds         float64   `json:"seconds"`
+	BudgetSeconds   float64   `json:"budget_seconds,omitempty"`
+	IsolatedSamples []float64 `json:"isolated_samples,omitempty"`
+	IsolatedMedian  *float64  `json:"isolated_median_seconds,omitempty"`
 }
 
 type harnessTestTimingBudgets struct {
-	TotalSeconds   float64 `json:"total_seconds"`
-	PackageSeconds float64 `json:"package_seconds"`
-	TestSeconds    float64 `json:"test_seconds"`
-	Mode           string  `json:"mode"`
+	Lane             string             `json:"lane,omitempty"`
+	TargetSeconds    float64            `json:"target_seconds,omitempty"`
+	TotalSeconds     float64            `json:"total_seconds"`
+	PackageSeconds   float64            `json:"package_seconds"`
+	PackageOverrides map[string]float64 `json:"package_overrides,omitempty"`
+	TestSeconds      float64            `json:"test_seconds"`
+	ConfirmationRuns int                `json:"confirmation_runs,omitempty"`
+	Mode             string             `json:"mode"`
 }
 
 type goTestJSONEvent struct {
@@ -491,12 +506,17 @@ func harnessDevEventBackendPath(path string) bool {
 }
 
 func runHarnessGoTestTimingStepForMode(ctx context.Context, repoRoot, mode string, freshTests bool, artifactCtxs ...harnessArtifactContext) (harnessStep, *harnessTestTimingReport) {
-	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, harnessTestTimingBudgetsForMode(mode), freshTests, artifactCtxs...)
+	return runHarnessGoTestTimingStepWithBudgets(ctx, repoRoot, harnessTestTimingBudgetsForMode(mode, freshTests), freshTests, artifactCtxs...)
 }
 
-func harnessTestTimingBudgetsForMode(mode string) harnessTestTimingBudgets {
+func harnessTestTimingBudgetsForMode(mode string, freshTests bool) harnessTestTimingBudgets {
 	budgets := defaultHarnessTestTimingBudgets()
+	if freshTests {
+		budgets.Lane = "fresh"
+		budgets.TotalSeconds = freshHarnessTotalSeconds
+	}
 	if mode == harnessSelfModeRelease {
+		budgets.Lane = "release"
 		budgets.TotalSeconds = releaseHarnessTotalSeconds
 		budgets.Mode = "enforce-total"
 	}
@@ -563,7 +583,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	cmd.Stdout = outputFile
 	cmd.Stderr = outputFile
 	runErr := cmd.Run()
-	elapsed := time.Since(started)
+	suiteElapsed := time.Since(started)
 	closeErr := outputFile.Close()
 	output, readErr := os.ReadFile(outputPath)
 	if readErr != nil && runErr == nil {
@@ -572,14 +592,21 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	if closeErr != nil && runErr == nil {
 		runErr = closeErr
 	}
-	report := parseHarnessGoTestTimingWithBudgets(output, command, elapsed, budgets)
+	report := parseHarnessGoTestTimingWithBudgets(output, command, suiteElapsed, budgets)
 	report.Env = append([]string{}, testEnv...)
+	if runErr == nil {
+		confirmHarnessTimingOutliers(ctx, repoRoot, report, runHarnessTimingConfirmationCommand)
+	}
+	elapsed := time.Since(started)
 	step.DurationMS = elapsed.Milliseconds()
 	step.Summary = map[string]any{
-		"packages":      len(report.Packages),
-		"slow_tests":    len(report.SlowTests),
-		"total_seconds": report.TotalSeconds,
-		"env":           testEnv,
+		"packages":             len(report.Packages),
+		"observed_slow_tests":  len(report.ObservedSlowTests),
+		"confirmed_slow_tests": len(report.SlowTests),
+		"total_seconds":        report.TotalSeconds,
+		"confirmation_seconds": report.ConfirmationSeconds,
+		"timing_lane":          report.Budgets.Lane,
+		"env":                  testEnv,
 	}
 	step.Diagnostics = report.Diagnostics
 	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "go-test.jsonl", "go.test.jsonl", output, nil)
@@ -627,7 +654,10 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		}
 		pkg := packages[event.Package]
 		if pkg == nil {
-			pkg = &harnessPackageTiming{Package: event.Package}
+			pkg = &harnessPackageTiming{
+				Package:       event.Package,
+				BudgetSeconds: harnessPackageTimingBudget(event.Package, report.Budgets),
+			}
 			packages[event.Package] = pkg
 		}
 		if event.Test == "" {
@@ -638,12 +668,12 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		}
 		if (event.Action == "pass" || event.Action == "fail") && event.Elapsed >= report.Budgets.TestSeconds {
 			timing := harnessTestTiming{
-				Name:    event.Test,
-				Package: event.Package,
-				Seconds: roundSeconds(event.Elapsed),
+				Name:          event.Test,
+				Package:       event.Package,
+				Seconds:       roundSeconds(event.Elapsed),
+				BudgetSeconds: report.Budgets.TestSeconds,
 			}
-			pkg.Tests = append(pkg.Tests, timing)
-			report.SlowTests = append(report.SlowTests, timing)
+			report.ObservedSlowTests = append(report.ObservedSlowTests, timing)
 		}
 	}
 	for _, pkg := range packages {
@@ -652,28 +682,12 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 	sort.Slice(report.Packages, func(i, j int) bool {
 		return report.Packages[i].Package < report.Packages[j].Package
 	})
-	sort.Slice(report.SlowTests, func(i, j int) bool {
-		if report.SlowTests[i].Seconds == report.SlowTests[j].Seconds {
-			return report.SlowTests[i].Package+"."+report.SlowTests[i].Name < report.SlowTests[j].Package+"."+report.SlowTests[j].Name
+	sort.Slice(report.ObservedSlowTests, func(i, j int) bool {
+		if report.ObservedSlowTests[i].Seconds == report.ObservedSlowTests[j].Seconds {
+			return report.ObservedSlowTests[i].Package+"."+report.ObservedSlowTests[i].Name < report.ObservedSlowTests[j].Package+"."+report.ObservedSlowTests[j].Name
 		}
-		return report.SlowTests[i].Seconds > report.SlowTests[j].Seconds
+		return report.ObservedSlowTests[i].Seconds > report.ObservedSlowTests[j].Seconds
 	})
-	for i := range report.Packages {
-		sort.Slice(report.Packages[i].Tests, func(a, b int) bool {
-			if report.Packages[i].Tests[a].Seconds == report.Packages[i].Tests[b].Seconds {
-				return report.Packages[i].Tests[a].Name < report.Packages[i].Tests[b].Name
-			}
-			return report.Packages[i].Tests[a].Seconds > report.Packages[i].Tests[b].Seconds
-		})
-		if report.Packages[i].Seconds >= report.Budgets.PackageSeconds {
-			report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
-				Stage:           "go tests",
-				Severity:        "warning",
-				Message:         fmt.Sprintf("package %s took %.3fs, over %.3fs budget", report.Packages[i].Package, report.Packages[i].Seconds, report.Budgets.PackageSeconds),
-				SuggestedAction: "Inspect `.scenery/harness/test-timing-latest.json` and reduce repeated process startup or slow fixture setup.",
-			})
-		}
-	}
 	if report.TotalSeconds >= report.Budgets.TotalSeconds {
 		severity := "warning"
 		suggestion := "Review `.scenery/harness/test-timing-latest.json` for regressions; timing is advisory in default self-harness mode."
@@ -684,7 +698,7 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
 			Stage:           "go tests",
 			Severity:        severity,
-			Message:         fmt.Sprintf("full Go suite took %.3fs, over %.3fs target", report.TotalSeconds, report.Budgets.TotalSeconds),
+			Message:         fmt.Sprintf("full Go suite took %.3fs, over %.3fs %s budget", report.TotalSeconds, report.Budgets.TotalSeconds, report.Budgets.Lane),
 			SuggestedAction: suggestion,
 		})
 	}
@@ -697,6 +711,13 @@ func parseHarnessGoTestTimingWithBudgets(output []byte, command []string, elapse
 		})
 	}
 	return report
+}
+
+func harnessPackageTimingBudget(packageName string, budgets harnessTestTimingBudgets) float64 {
+	if seconds, ok := budgets.PackageOverrides[packageName]; ok {
+		return seconds
+	}
+	return budgets.PackageSeconds
 }
 
 func summarizeGoTestFailures(output []byte) string {
@@ -747,10 +768,16 @@ func summarizeGoTestFailures(output []byte) string {
 
 func defaultHarnessTestTimingBudgets() harnessTestTimingBudgets {
 	return harnessTestTimingBudgets{
-		TotalSeconds:   defaultHarnessTotalSeconds,
+		Lane:           "cached",
+		TargetSeconds:  harnessOptimizationTargetSeconds,
+		TotalSeconds:   cachedHarnessTotalSeconds,
 		PackageSeconds: 2,
-		TestSeconds:    0.5,
-		Mode:           "observe-total",
+		PackageOverrides: map[string]float64{
+			"scenery.sh/cmd/scenery": commandPackageTimingSeconds,
+		},
+		TestSeconds:      0.5,
+		ConfirmationRuns: harnessTimingConfirmationRuns,
+		Mode:             "observe-total",
 	}
 }
 

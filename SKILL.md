@@ -336,6 +336,9 @@ scenery worktree remove <name> [--app-root <path>] [--db] [--json]
 
 Self-harness Go test steps use the Go test result cache by default. Pass
 `--fresh-tests` when a fresh `-count=1` run is intentionally required.
+Treat the seven-second timing value as an optimization target. Cached and fresh
+budgets are advisory, release timing is enforced, and package/test warnings are
+actionable only after the timing artifact records isolated confirmation.
 
 ## Validation Before Finishing
 

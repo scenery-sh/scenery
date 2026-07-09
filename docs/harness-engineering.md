@@ -19,7 +19,7 @@ scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [--jso
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
 ```
 
-Self-harness Go test steps use the Go test result cache by default. Add `--fresh-tests` when the validation needs to force `-count=1`.
+Self-harness Go test steps use the Go test result cache by default. Add `--fresh-tests` when the validation needs to force `-count=1`. Timing reports distinguish cached (12s advisory), fresh (18s advisory), and release (30s enforced) lanes while retaining seven seconds as the optimization target. Package overages are rerun once in isolation, and test overages are reported only after a three-run isolated median remains above 500ms.
 
 Use this before large edits and after fixes when an agent needs a single machine-readable status snapshot.
 
@@ -184,10 +184,11 @@ The self harness validates the local scenery development loop:
 - local `.scenery/harness/bin/scenery` freshness against repo sources
 
 The default self-harness still runs the complete Go suite and writes
-`.scenery/harness/test-timing-latest.json`, but the wall-clock duration budget is
-advisory. Timing overages are warnings so ordinary feature work is not blocked by
-machine and scheduler variance. Release-mode self-harness may enforce the total
-duration budget when maintainers intentionally want a hard speed gate.
+`.scenery/harness/test-timing-latest.json`, but the cached and fresh wall-clock
+duration budgets are advisory. The artifact records the full-suite duration
+separately from isolated confirmation time and keeps contended observations
+separate from confirmed slow tests. Release mode enforces the 30-second total
+budget when maintainers intentionally want a hard speed gate.
 
 ## Design Rules
 
