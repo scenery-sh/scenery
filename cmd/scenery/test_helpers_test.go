@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -365,7 +366,7 @@ func countEnvKey(env []string, key string) int {
 	return count
 }
 
-func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) {
+func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) *victoriaStack {
 	t.Helper()
 	for i := range events {
 		if events[i].ID == 0 {
@@ -393,6 +394,7 @@ func installLogsVictoriaStack(t *testing.T, events ...devdash.DevEvent) {
 	t.Cleanup(func() {
 		resolveLogsVictoriaStackFunc = prev
 	})
+	return stack
 }
 
 func stopAgentServerForTest(t *testing.T, cancel context.CancelFunc, done <-chan error) {
@@ -427,6 +429,40 @@ func waitForSubstrateStatus(t *testing.T, ctx context.Context, client *localagen
 	}
 	t.Fatalf("substrate %s status = %+v err=%v, want %s", kind, last, lastErr, status)
 	return localagent.Substrate{}
+}
+
+func startSubstrateTestAgent(t *testing.T) (context.Context, *localagent.Client) {
+	t.Helper()
+	ctx := context.Background()
+	server, err := localagent.NewServer(localagent.RunOptions{Home: t.TempDir(), RouterAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- server.Run(runCtx) }()
+	t.Cleanup(func() {
+		stopAgentServerForTest(t, cancel, done)
+	})
+	client := localagent.NewClient(server.Paths().SocketPath)
+	t.Cleanup(client.CloseIdleConnections)
+	if err := waitForAgentCommandPing(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, client
+}
+
+func startFakeSubstrateOwner(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start fake substrate owner: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	return cmd.Process.Pid
 }
 
 func waitForMonitorDone(t *testing.T, done <-chan struct{}) {

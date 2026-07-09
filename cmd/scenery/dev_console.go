@@ -91,12 +91,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	if err != nil {
 		return err
 	}
-	store, err := openDevdashStore()
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	backend, err := selectDevEventBackend(ctx, store, opts)
+	victoria, err := logsVictoriaStack(ctx)
 	if err != nil {
 		return err
 	}
@@ -139,7 +134,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 	defer pollTicker.Stop()
 	heartbeatTicker := time.NewTicker(devConsoleHeartbeat)
 	defer heartbeatTicker.Stop()
-	if err := state.refresh(ctx, backend); err != nil {
+	if err := state.refresh(ctx, victoria); err != nil {
 		return err
 	}
 	renderer := newConsoleDiffRenderer(stdout, size)
@@ -157,7 +152,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 			if state.handleKey(key) {
 				return nil
 			}
-			if err := state.refresh(ctx, backend); err != nil {
+			if err := state.refresh(ctx, victoria); err != nil {
 				return err
 			}
 			if err := renderer.Render(renderDevConsoleStyled(state.snapshot(), termstyle.New(stdout))); err != nil {
@@ -173,7 +168,7 @@ func runSceneryConsole(ctx context.Context, stdin *os.File, stdout io.Writer, op
 			}
 		case <-pollTicker.C:
 			if !state.frozen {
-				changed, err := state.refreshIfChanged(ctx, backend)
+				changed, err := state.refreshIfChanged(ctx, victoria)
 				if err != nil {
 					return err
 				}
@@ -210,7 +205,7 @@ type devConsoleState struct {
 	sources   []devConsoleSource
 }
 
-func (s *devConsoleState) refresh(ctx context.Context, backend devEventBackend) error {
+func (s *devConsoleState) refresh(ctx context.Context, victoria *victoriaStack) error {
 	query := logsDevEventQuery(s.opts, s.appID, s.sessionID)
 	query.Limit = maxInt(s.opts.Limit, devConsoleDefaultEvents)
 	if s.selected != "" && s.selected != "all" {
@@ -222,11 +217,11 @@ func (s *devConsoleState) refresh(ctx context.Context, backend devEventBackend) 
 	if s.search != "" {
 		query.Grep = s.search
 	}
-	events, err := backend.ListDevEvents(ctx, query)
+	events, err := victoria.ListDevEvents(ctx, query)
 	if err != nil {
 		return err
 	}
-	sources, err := backend.ListDevSources(ctx, s.appID, s.sessionID)
+	sources, err := victoria.ListDevSources(ctx, s.appID, s.sessionID)
 	if err != nil {
 		return err
 	}
@@ -239,9 +234,9 @@ func (s *devConsoleState) refresh(ctx context.Context, backend devEventBackend) 
 	return nil
 }
 
-func (s *devConsoleState) refreshIfChanged(ctx context.Context, backend devEventBackend) (bool, error) {
+func (s *devConsoleState) refreshIfChanged(ctx context.Context, victoria *victoriaStack) (bool, error) {
 	before := s.signature()
-	if err := s.refresh(ctx, backend); err != nil {
+	if err := s.refresh(ctx, victoria); err != nil {
 		return false, err
 	}
 	return before != s.signature(), nil

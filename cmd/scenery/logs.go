@@ -174,16 +174,16 @@ func runSceneryLogs(ctx context.Context, stdout io.Writer, args []string) error 
 		return fmt.Errorf("local logs for %q belong to %s, not %s", appID, record.Root, appRoot)
 	}
 
+	victoria, err := logsVictoriaStack(ctx)
+	if err != nil {
+		return err
+	}
 	devQuery := logsDevEventQuery(opts, appID, sessionID)
-	eventBackend, err := selectDevEventBackend(ctx, store, opts)
+	devItems, err := victoria.ListDevEvents(ctx, devQuery)
 	if err != nil {
 		return err
 	}
-	devItems, err := eventBackend.ListDevEvents(ctx, devQuery)
-	if err != nil {
-		return err
-	}
-	return followDevEventBackend(ctx, stdout, eventBackend, appID, appRoot, sessionID, opts, devItems)
+	return followVictoriaDevEvents(ctx, stdout, victoria, appID, appRoot, sessionID, opts, devItems)
 }
 
 func logsDevEventQuery(opts logsOptions, appID, sessionID string) devdash.DevEventQuery {
@@ -332,6 +332,16 @@ func normalizeLogsBackend(value string) string {
 	}
 }
 
+var resolveLogsVictoriaStackFunc = resolveLogsVictoriaStack
+
+func logsVictoriaStack(ctx context.Context) (*victoriaStack, error) {
+	victoria := resolveLogsVictoriaStackFunc(ctx, true)
+	if victoria == nil {
+		return nil, fmt.Errorf("VictoriaLogs is unavailable")
+	}
+	return victoria, nil
+}
+
 func resolveLogsVictoriaStack(ctx context.Context, allowDefault bool) *victoriaStack {
 	agentCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -374,6 +384,48 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 		return "", nil
 	}
 	return sessions[0].SessionID, nil
+}
+
+func followVictoriaDevEvents(ctx context.Context, stdout devEventWriter, victoria *victoriaStack, appID, appRoot, sessionID string, opts logsOptions, items []devdash.DevEvent) error {
+	lastID := int64(0)
+	for _, item := range items {
+		if item.ID > lastID {
+			lastID = item.ID
+		}
+		if err := writeDevEventOutput(stdout, appID, appRoot, item, opts.JSONL); err != nil {
+			return err
+		}
+	}
+	if !opts.Follow {
+		return nil
+	}
+	ticker := time.NewTicker(300 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			query := logsDevEventQuery(opts, appID, sessionID)
+			query.AfterID = lastID
+			items, err := victoria.ListDevEvents(ctx, query)
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				if item.ID > lastID {
+					lastID = item.ID
+				}
+				if err := writeDevEventOutput(stdout, appID, appRoot, item, opts.JSONL); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+type devEventWriter interface {
+	Write([]byte) (int, error)
 }
 
 func normalizeLogStream(value string) string {

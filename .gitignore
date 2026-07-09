@@ -3,6 +3,7 @@
 .idea/
 .vscode/
 .cursor/
+.claude/settings.local.json
 
 # Local dependencies and caches
 node_modules/

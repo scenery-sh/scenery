@@ -10,7 +10,7 @@ import (
 func TestStatusSubstratesPrunesDeadOwners(t *testing.T) {
 	t.Parallel()
 
-	ctx, client := startManagedSubstrateManagerTestAgent(t)
+	ctx, client := startSubstrateTestAgent(t)
 	livePID := startFakeSubstrateOwner(t)
 	if _, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
 		Kind:     "live",

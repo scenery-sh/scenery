@@ -182,6 +182,96 @@ func TestVictoriaStackFromSubstrateRequiresAllComponents(t *testing.T) {
 	}
 }
 
+func TestEnsureSharedVictoriaStackReusesAgentSubstrate(t *testing.T) {
+	t.Parallel()
+
+	ctx, client := startSubstrateTestAgent(t)
+	ownerPID := startFakeSubstrateOwner(t)
+	substrate := reachableVictoriaTestSubstrate(t, ownerPID)
+	created, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:      substrate.Kind,
+		Status:    substrate.Status,
+		OwnerPID:  substrate.OwnerPID,
+		PIDs:      substrate.PIDs,
+		URLs:      substrate.URLs,
+		Endpoints: substrate.Endpoints,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stack, reused, err := (&devSupervisor{agent: client}).ensureSharedVictoriaStack(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stack == nil || !reused {
+		t.Fatalf("ensure result stack=%T reused=%v", stack, reused)
+	}
+	after, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("created_at changed on reuse: before=%s after=%s", created.CreatedAt, after.CreatedAt)
+	}
+	for _, component := range stack.components {
+		if component == nil || !component.external {
+			t.Fatalf("reused component not marked external: %+v", component)
+		}
+	}
+}
+
+func TestVictoriaSubstrateMonitorRecordsExitState(t *testing.T) {
+	t.Parallel()
+
+	ctx, client := startSubstrateTestAgent(t)
+	done := make(chan error, 1)
+	stack := &victoriaStack{components: []*victoriaComponent{{
+		spec:        victoriaComponentSpec{Name: "logs", DisplayName: "VictoriaLogs"},
+		baseURL:     "http://127.0.0.1:1",
+		endpointURL: "http://127.0.0.1:1/insert/opentelemetry/v1/logs",
+		stdoutLog:   "/tmp/victoria.logs.stdout.log",
+		stderrLog:   "/tmp/victoria.logs.stderr.log",
+		done:        done,
+		startedAt:   time.Now().Add(-time.Second).UTC(),
+	}}}
+	if _, err := client.UpsertSubstrate(ctx, stack.SubstrateRequest(os.Getpid())); err != nil {
+		t.Fatal(err)
+	}
+	monitorDone := monitorVictoriaSubstrate(client, nil, stack)
+	done <- fmt.Errorf("exit status 7")
+	close(done)
+	substrate := waitForSubstrateStatus(t, ctx, client, localagent.SubstrateVictoria, "degraded")
+	if substrate.LastExit == nil || substrate.LastExit.Component != "logs" {
+		t.Fatalf("last exit = %+v", substrate.LastExit)
+	}
+	if got := substrate.ComponentExits["logs"].Component; got != "logs" {
+		t.Fatalf("component exit = %+v", substrate.ComponentExits)
+	}
+	waitForMonitorDone(t, monitorDone)
+}
+
+func reachableVictoriaTestSubstrate(t *testing.T, ownerPID int) localagent.Substrate {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(server.Close)
+	urls := make(map[string]string)
+	endpoints := make(map[string]string)
+	pids := make(map[string]int)
+	for _, spec := range victoriaComponentSpecs() {
+		urls[spec.Name] = server.URL
+		endpoints[spec.Name] = server.URL + spec.EndpointPath
+		pids[spec.Name] = ownerPID
+	}
+	return localagent.Substrate{
+		Kind:      localagent.SubstrateVictoria,
+		Status:    "ready",
+		OwnerPID:  ownerPID,
+		PIDs:      pids,
+		URLs:      urls,
+		Endpoints: endpoints,
+	}
+}
+
 func TestURLAcceptsTCP(t *testing.T) {
 	t.Parallel()
 

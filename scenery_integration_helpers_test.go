@@ -68,7 +68,6 @@ func latestIntegrationSourceModTime(repo string) (time.Time, bool, error) {
 		"errs",
 		"internal",
 		"middleware",
-		"rlog",
 		"runtime",
 	}
 	var latest time.Time
@@ -190,7 +189,7 @@ func integrationSourceFingerprintFile(rel, path string) bool {
 		base := filepath.Base(path)
 		return base != "" && base != ".DS_Store"
 	}
-	for _, prefix := range []string{"auth/", "cron/", "errs/", "internal/", "middleware/", "rlog/", "runtime/"} {
+	for _, prefix := range []string{"auth/", "cron/", "errs/", "internal/", "middleware/", "runtime/"} {
 		if strings.HasPrefix(rel, prefix) {
 			return integrationBinaryInputFile(path)
 		}

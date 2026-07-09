@@ -168,150 +168,6 @@ type storedDevEvent struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (app *StoredApp) UnmarshalJSON(data []byte) error {
-	type storedApp StoredApp
-	var current storedApp
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*app = StoredApp(current)
-	var legacy AppRecord
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return nil
-	}
-	mergeStoredAppLegacy(app, legacy)
-	return nil
-}
-
-func (session *StoredAppSession) UnmarshalJSON(data []byte) error {
-	type storedAppSession StoredAppSession
-	var current storedAppSession
-	if err := json.Unmarshal(data, &current); err != nil {
-		return err
-	}
-	*session = StoredAppSession(current)
-	var legacy AppRecord
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return nil
-	}
-	mergeStoredAppSessionLegacy(session, legacy)
-	return nil
-}
-
-func mergeStoredAppLegacy(app *StoredApp, legacy AppRecord) {
-	if app.ID == "" {
-		app.ID = legacy.ID
-	}
-	if app.RouteID == "" {
-		app.RouteID = legacy.RouteID
-	}
-	if app.BaseAppID == "" {
-		app.BaseAppID = legacy.BaseAppID
-	}
-	if app.RuntimeAppID == "" {
-		app.RuntimeAppID = legacy.RuntimeAppID
-	}
-	if app.SessionID == "" {
-		app.SessionID = legacy.SessionID
-	}
-	if app.Name == "" {
-		app.Name = legacy.Name
-	}
-	if app.Root == "" {
-		app.Root = legacy.Root
-	}
-	if app.ListenAddr == "" {
-		app.ListenAddr = legacy.ListenAddr
-	}
-	if app.Routes == nil {
-		app.Routes = maps.Clone(legacy.Routes)
-	}
-	if app.Aliases == nil {
-		app.Aliases = maps.Clone(legacy.Aliases)
-	}
-	if !app.Offline {
-		app.Offline = legacy.Offline
-	}
-	if !app.Running {
-		app.Running = legacy.Running
-	}
-	if app.SessionStatus == "" {
-		app.SessionStatus = legacy.SessionStatus
-	}
-	if app.SessionStatusReason == "" {
-		app.SessionStatusReason = legacy.SessionStatusReason
-	}
-	if !app.Compiling {
-		app.Compiling = legacy.Compiling
-	}
-	if app.CompileError == "" {
-		app.CompileError = legacy.CompileError
-	}
-	if app.PID == "" {
-		app.PID = legacy.PID
-	}
-	if app.UpdatedAt.IsZero() {
-		app.UpdatedAt = legacy.UpdatedAt
-	}
-}
-
-func mergeStoredAppSessionLegacy(session *StoredAppSession, legacy AppRecord) {
-	if session.ID == "" {
-		session.ID = legacy.ID
-	}
-	if session.RouteID == "" {
-		session.RouteID = legacy.RouteID
-	}
-	if session.BaseAppID == "" {
-		session.BaseAppID = legacy.BaseAppID
-	}
-	if session.RuntimeAppID == "" {
-		session.RuntimeAppID = legacy.RuntimeAppID
-	}
-	if session.SessionID == "" {
-		session.SessionID = legacy.SessionID
-	}
-	if session.Name == "" {
-		session.Name = legacy.Name
-	}
-	if session.Root == "" {
-		session.Root = legacy.Root
-	}
-	if session.ListenAddr == "" {
-		session.ListenAddr = legacy.ListenAddr
-	}
-	if session.Routes == nil {
-		session.Routes = maps.Clone(legacy.Routes)
-	}
-	if session.Aliases == nil {
-		session.Aliases = maps.Clone(legacy.Aliases)
-	}
-	if !session.Offline {
-		session.Offline = legacy.Offline
-	}
-	if !session.Running {
-		session.Running = legacy.Running
-	}
-	if session.SessionStatus == "" {
-		session.SessionStatus = legacy.SessionStatus
-	}
-	if session.SessionStatusReason == "" {
-		session.SessionStatusReason = legacy.SessionStatusReason
-	}
-	if !session.Compiling {
-		session.Compiling = legacy.Compiling
-	}
-	if session.CompileError == "" {
-		session.CompileError = legacy.CompileError
-	}
-	if session.PID == "" {
-		session.PID = legacy.PID
-	}
-	if session.UpdatedAt.IsZero() {
-		session.UpdatedAt = legacy.UpdatedAt
-	}
-}
-
 var storeLocks sync.Map
 
 func OpenStore(cacheRoot string) (*Store, error) {
@@ -729,12 +585,6 @@ func normalizeStoreState(state *storeState) {
 	if state.StoredRequests == nil {
 		state.StoredRequests = map[string]StoredRequest{}
 	}
-	if len(state.AppSessions) == 0 && len(state.Apps) > 0 {
-		for _, app := range state.Apps {
-			session := storedAppSessionFromApp(app)
-			state.AppSessions[storedAppSessionRecordKey(session)] = session
-		}
-	}
 	if state.NextProcessEventID <= 0 {
 		state.NextProcessEventID = maxProcessEventID(state.ProcessEvents) + 1
 	}
@@ -894,34 +744,6 @@ func storedAppSessionFromAppRecord(app AppRecord) StoredAppSession {
 		CompileError:        app.CompileError,
 		PID:                 app.PID,
 		UpdatedAt:           app.UpdatedAt,
-	}
-}
-
-func storedAppSessionFromApp(app StoredApp) StoredAppSession {
-	return StoredAppSession{
-		RouteID:             app.RouteID,
-		ID:                  app.ID,
-		BaseAppID:           app.BaseAppID,
-		RuntimeAppID:        app.RuntimeAppID,
-		SessionID:           app.SessionID,
-		Name:                app.Name,
-		Root:                app.Root,
-		ListenAddr:          app.ListenAddr,
-		Routes:              maps.Clone(app.Routes),
-		Aliases:             maps.Clone(app.Aliases),
-		Offline:             app.Offline,
-		Running:             app.Running,
-		SessionStatus:       app.SessionStatus,
-		SessionStatusReason: app.SessionStatusReason,
-		Compiling:           app.Compiling,
-		CompileError:        app.CompileError,
-		PID:                 app.PID,
-		UpdatedAt:           app.UpdatedAt,
-		MetadataRef:         app.MetadataRef,
-		MetadataHash:        app.MetadataHash,
-		APIEncodingRef:      app.APIEncodingRef,
-		APIEncodingHash:     app.APIEncodingHash,
-		AppRevision:         app.AppRevision,
 	}
 }
 

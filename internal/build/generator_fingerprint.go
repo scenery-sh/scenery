@@ -120,7 +120,6 @@ func generatorFingerprintPaths() []string {
 		"internal/stdlog",
 		"internal/termstyle",
 		"middleware",
-		"rlog",
 		"runtime",
 	}
 }

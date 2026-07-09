@@ -53,7 +53,6 @@ Child `AGENTS.md` files:
 
 ### Child Agent Index
 
-- `apps/console/AGENTS.md` owns the standalone Vite/React console app, shadcn component inventory, and frontend validation commands.
 - `apps/consolenext/AGENTS.md` owns the standalone Vite/React Astryx + StyleX console demo and frontend validation commands.
 
 ## Agent skills

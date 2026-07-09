@@ -546,7 +546,6 @@ func latestHarnessSourceModTime(repoRoot string) (time.Time, bool, error) {
 		"errs",
 		"internal",
 		"middleware",
-		"rlog",
 		"runtime",
 	}
 	var latest time.Time

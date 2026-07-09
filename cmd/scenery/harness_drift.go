@@ -660,7 +660,7 @@ func harnessBinaryFreshnessCoversRel(rel string) bool {
 	if strings.HasPrefix(rel, dashboardStaticDistRel+"/") && harnessBinaryInputFile(rel) {
 		return true
 	}
-	for _, prefix := range []string{"auth/", "cmd/", "cron/", "db/", "errs/", "internal/", "middleware/", "rlog/", "runtime/"} {
+	for _, prefix := range []string{"auth/", "cmd/", "cron/", "db/", "errs/", "internal/", "middleware/", "runtime/"} {
 		if strings.HasPrefix(rel, prefix) && harnessBinaryInputFile(rel) {
 			for _, part := range strings.Split(filepath.Dir(rel), "/") {
 				if harnessBinaryInputSkipDir(part) {

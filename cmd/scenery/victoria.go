@@ -77,7 +77,16 @@ type victoriaStack struct {
 	clearSince map[string]time.Time
 }
 
+type victoriaSubstrateComponent struct {
+	Name        string
+	DisplayName string
+	URL         string
+	Done        <-chan error
+	ExitRecord  func(error) localagent.SubstrateExit
+}
+
 var victoriaToolchainSyncMu sync.Mutex
+var victoriaSubstrateProcessLocks sync.Map
 
 func startVictoriaStack(ctx context.Context, appRoot string, console *runConsole) *victoriaStack {
 	return startVictoriaStackWithRoot(ctx, victoriaRootDir(appRoot), console)
@@ -200,20 +209,19 @@ func (s *victoriaStack) MarkExternal() {
 	}
 }
 
-func (s *victoriaStack) Components() []managedSubstrateComponent {
+func (s *victoriaStack) Components() []victoriaSubstrateComponent {
 	if s == nil {
 		return nil
 	}
-	var components []managedSubstrateComponent
+	var components []victoriaSubstrateComponent
 	for _, component := range s.components {
 		if component == nil || component.done == nil {
 			continue
 		}
 		component := component
-		components = append(components, managedSubstrateComponent{
+		components = append(components, victoriaSubstrateComponent{
 			Name:        component.spec.Name,
 			DisplayName: component.spec.DisplayName,
-			Role:        "observability",
 			URL:         component.baseURL,
 			Done:        component.done,
 			ExitRecord:  component.ExitRecord,
@@ -730,63 +738,154 @@ func warnVictoria(console *runConsole, format string, args ...any) {
 	}
 }
 
-type victoriaSubstrateAdapter struct {
-	console *runConsole
+func (s *devSupervisor) ensureSharedVictoriaStack(ctx context.Context, root string) (*victoriaStack, bool, error) {
+	console := (*runConsole)(nil)
+	if s != nil {
+		console = s.console
+	}
+	if s == nil || s.agent == nil {
+		return startVictoriaStackWithRoot(ctx, root, console), false, nil
+	}
+	processUnlock := lockVictoriaSubstrateProcess(root)
+	defer processUnlock()
+	unlock, err := lockManagedSubstrateRoot(root, localagent.SubstrateVictoria)
+	if err != nil {
+		return nil, false, err
+	}
+	defer unlock()
+	if substrate, err := s.agent.GetSubstrate(ctx, localagent.SubstrateVictoria); err == nil {
+		stack, reusable := reusableVictoriaStack(substrate)
+		if reusable {
+			emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack reused", map[string]any{
+				"owner":     "agent",
+				"endpoints": substrate.Endpoints,
+			})
+			return stack, true, nil
+		}
+		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria)
+	}
+	stack := startVictoriaStackWithRoot(ctx, root, console)
+	if stack == nil {
+		return nil, false, nil
+	}
+	req := stack.SubstrateRequest(os.Getpid())
+	if strings.TrimSpace(req.Kind) == "" {
+		req.Kind = localagent.SubstrateVictoria
+	}
+	if strings.TrimSpace(req.Status) == "" {
+		req.Status = "ready"
+	}
+	if _, err := s.agent.UpsertSubstrate(ctx, req); err != nil {
+		return stack, false, err
+	}
+	stack.MarkExternal()
+	emitVictoriaSubstrateEvent(s.eventSink(), ctx, "running", "shared Victoria stack ready", map[string]any{
+		"owner":     "agent",
+		"endpoints": req.Endpoints,
+	})
+	return stack, false, nil
 }
 
-func (a victoriaSubstrateAdapter) Kind() string       { return localagent.SubstrateVictoria }
-func (a victoriaSubstrateAdapter) SourceID() string   { return "victoria" }
-func (a victoriaSubstrateAdapter) SourceName() string { return "Victoria stack" }
-func (a victoriaSubstrateAdapter) Role() string       { return "observability" }
-
-func (a victoriaSubstrateAdapter) Start(ctx context.Context, root string) (managedSubstrateHandle, error) {
-	return startVictoriaStackWithRoot(ctx, root, a.console), nil
+func lockVictoriaSubstrateProcess(root string) func() {
+	keyRoot := strings.TrimSpace(root)
+	if keyRoot == "" {
+		keyRoot = os.TempDir()
+	}
+	if abs, err := filepath.Abs(keyRoot); err == nil {
+		keyRoot = abs
+	}
+	key := filepath.Clean(keyRoot) + "\x00" + localagent.SubstrateVictoria
+	value, _ := victoriaSubstrateProcessLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
-func (a victoriaSubstrateAdapter) FromSubstrate(_ context.Context, substrate localagent.Substrate) (managedSubstrateHandle, bool) {
+func reusableVictoriaStack(substrate localagent.Substrate) (*victoriaStack, bool) {
+	if strings.TrimSpace(substrate.Status) != "" && strings.TrimSpace(substrate.Status) != "ready" {
+		return nil, false
+	}
+	if err := verifySubstrateOwner(substrate); err != nil {
+		return nil, false
+	}
 	stack := victoriaStackFromSubstrate(substrate)
 	if stack == nil || !stack.Reachable() {
 		return nil, false
 	}
+	stack.MarkExternal()
 	return stack, true
 }
 
-func (a victoriaSubstrateAdapter) ReadyFields(handle managedSubstrateHandle) map[string]any {
-	stack, _ := handle.(*victoriaStack)
-	if stack == nil {
-		return nil
+func monitorVictoriaSubstrate(agent *localagent.Client, events *devEventSink, stack *victoriaStack) <-chan struct{} {
+	done := make(chan struct{})
+	if agent == nil || stack == nil {
+		close(done)
+		return done
 	}
-	return map[string]any{
-		"owner":     "agent",
-		"endpoints": stack.SubstrateRequest(os.Getpid()).Endpoints,
+	components := stack.Components()
+	if len(components) == 0 {
+		close(done)
+		return done
 	}
-}
-
-func (a victoriaSubstrateAdapter) ReuseFields(handle managedSubstrateHandle, substrate localagent.Substrate) map[string]any {
-	fields := a.ReadyFields(handle)
-	if fields == nil {
-		fields = map[string]any{}
+	var wg sync.WaitGroup
+	for _, component := range components {
+		component := component
+		if component.Done == nil || component.ExitRecord == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err, ok := <-component.Done
+			if !ok {
+				return
+			}
+			exit := component.ExitRecord(err)
+			req := stack.SubstrateRequest(os.Getpid())
+			req.Status = "degraded"
+			req.LastExit = &exit
+			req.ComponentExits = map[string]localagent.SubstrateExit{component.Name: exit}
+			_, _ = agent.UpsertSubstrate(context.Background(), req)
+			emitVictoriaSubstrateEvent(events, context.Background(), "degraded", component.DisplayName+" exited", substrateExitEventFields(exit), devdash.DevSource{
+				ID:     "victoria." + component.Name,
+				Kind:   "substrate",
+				Name:   component.DisplayName,
+				Role:   "observability",
+				Status: "degraded",
+				URL:    component.URL,
+			})
+		}()
 	}
-	fields["endpoints"] = substrate.Endpoints
-	return fields
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
 }
 
-func (a victoriaSubstrateAdapter) ExitStatus(managedSubstrateComponent) string {
-	return "degraded"
-}
-
-func (a victoriaSubstrateAdapter) ExitMessage(component managedSubstrateComponent) string {
-	return component.DisplayName + " exited"
-}
-
-func (a victoriaSubstrateAdapter) EventSource(_ managedSubstrateHandle, component managedSubstrateComponent, status string) devdash.DevSource {
-	return devdash.DevSource{
-		ID:     "victoria." + component.Name,
+func emitVictoriaSubstrateEvent(events *devEventSink, ctx context.Context, status, message string, fields map[string]any, sourceOverride ...devdash.DevSource) {
+	if events == nil {
+		return
+	}
+	source := devdash.DevSource{
+		ID:     "victoria",
 		Kind:   "substrate",
-		Name:   component.DisplayName,
+		Name:   "Victoria stack",
 		Role:   "observability",
 		Status: status,
-		URL:    component.URL,
+	}
+	if len(sourceOverride) > 0 {
+		source = sourceOverride[0]
+	}
+	events.Emit(ctx, source, levelForSubstrateStatus(status), message, fields)
+}
+
+func levelForSubstrateStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "degraded", "exited", "unavailable":
+		return "error"
+	default:
+		return "info"
 	}
 }
 

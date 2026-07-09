@@ -15,10 +15,11 @@ This plan keeps that model and makes it harder to misunderstand. The desired end
 - [x] 2026-06-26: Refreshed the Victoria/Grafana docs so the shared-agent behavior is explicit and review-due metadata is current.
 - [x] 2026-06-26: Added the smallest useful runtime visibility improvements for Victoria substrate reuse.
 - [x] 2026-06-26: Validated docs metadata, focused Go tests, full Go tests, and diff hygiene.
+- [x] 2026-07-09: Inlined the one-adapter shared substrate manager into concrete Victoria startup, reuse, and monitor helpers without changing the shared-agent lifecycle contract.
 
 ## Surprises & Discoveries
 
-- 2026-06-26: The current agent-backed path already uses `managedSubstrateManager.Ensure(ctx, filepath.Join(paths.AgentDir, "victoria"), victoriaSubstrateAdapter)` and marks the resulting Victoria stack external after registry upsert, so session shutdown should not kill the shared stack.
+- 2026-06-26: The agent-backed path already used a shared Victoria substrate helper and marked the resulting Victoria stack external after registry upsert, so session shutdown should not kill the shared stack.
 - 2026-06-26: `scenery ps --json` already includes the agent `substrates` list. The missing piece is mainly human and documentation visibility, not a new persistence model.
 - 2026-06-26: The no-agent fallback has a partial opportunistic reuse behavior because default Victoria ports are treated as external when already occupied, but that path lacks the agent registry, owner fingerprint verification, and degraded-state reporting. Do not promote that fallback into the primary sharing contract.
 - 2026-06-26: `scenery ps` text only printed app roots before this slice, so the additive `Shared substrates` block is the smallest human-visible parity with the existing JSON payload.
@@ -45,9 +46,9 @@ Completed on 2026-06-26. Contributors can answer the Victoria lifecycle question
 
 Start with these files:
 
-- `cmd/scenery/dev_supervisor.go` for `devSupervisor.Start`, `startVictoriaStack`, and the agent-backed `Ensure` call.
-- `cmd/scenery/victoria.go` for Victoria component defaults, environment export, registry serialization, external/reuse behavior, and substrate adapter methods.
-- `cmd/scenery/dev_substrate_manager.go` for shared substrate locking, reusable-substrate checks, registry upsert, `MarkExternal`, and component-exit monitoring.
+- `cmd/scenery/dev_supervisor.go` for `devSupervisor.Start`, `startVictoriaStack`, and the agent-backed shared Victoria call.
+- `cmd/scenery/victoria.go` for Victoria component defaults, environment export, registry serialization, external/reuse behavior, and shared substrate helpers.
+- `cmd/scenery/victoria.go` for shared Victoria substrate locking, reusable-substrate checks, registry upsert, `MarkExternal`, and component-exit monitoring.
 - `cmd/scenery/agent.go` for `scenery ps` and the existing `--json` status payload that includes `substrates`.
 - `internal/agent/types.go` for `Substrate`, `SubstrateExit`, and substrate kind constants.
 - `docs/local-contract.md` for the current local observability contract.
@@ -73,7 +74,7 @@ Current behavior to preserve:
 
 Treat the active local agent as Scenery's machine-local control plane. Do not add LaunchAgent, systemd, Windows service, cron, login-item, or daemon-install code. The agent-backed Victoria substrate is already the efficient path; this work should make that obvious and robust.
 
-First, update documentation and plan indexing. Then make one small runtime visibility change: surface whether a Victoria stack was newly prepared or reused when `managedSubstrateManager.Ensure` returns. Prefer adding fields to existing verbose/dev events over adding a new command. If maintainers want human `scenery ps` parity, add a compact shared-substrates section to text output while preserving the existing JSON payload shape.
+First, update documentation and plan indexing. Then make one small runtime visibility change: surface whether a Victoria stack was newly prepared or reused when the shared Victoria startup helper returns. Prefer adding fields to existing verbose/dev events over adding a new command. If maintainers want human `scenery ps` parity, add a compact shared-substrates section to text output while preserving the existing JSON payload shape.
 
 Only consider a follow-up plan for OS-level bootstrap if measured startup cost remains high in no-agent workflows after this change, and if the measurement names a real user flow that cannot simply run `scenery system agent`.
 
@@ -169,8 +170,7 @@ Suggested `docs/knowledge.json` document entry:
 This plan depends on existing Scenery interfaces only:
 
 - `localagent.SubstrateVictoria` and `scenery.dev.substrate.v1`
-- `managedSubstrateManager.Ensure` and `Monitor`
-- `victoriaSubstrateAdapter`
+- `ensureSharedVictoriaStack`, `reusableVictoriaStack`, and `monitorVictoriaSubstrate`
 - existing Victoria endpoint environment variables
 - existing `scenery ps --json` status shape
 

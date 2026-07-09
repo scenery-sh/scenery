@@ -380,9 +380,7 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 		warnVictoria(s.console, "agent Victoria state path unavailable: %v", err)
 		return startVictoriaStack(s.ctx, s.root, s.console)
 	}
-	adapter := victoriaSubstrateAdapter{console: s.console}
-	handle, reused, err := s.substrateManager().Ensure(ctx, filepath.Join(paths.AgentDir, "victoria"), adapter)
-	stack, _ := handle.(*victoriaStack)
+	stack, reused, err := s.ensureSharedVictoriaStack(ctx, filepath.Join(paths.AgentDir, "victoria"))
 	if err != nil {
 		warnVictoria(s.console, "failed to prepare shared Victoria substrate with agent: %v", err)
 		return stack
@@ -390,7 +388,7 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 	if stack == nil {
 		return nil
 	}
-	s.substrateManager().Monitor(stack, adapter)
+	s.monitorSharedVictoriaStack(stack)
 	if s.console != nil && s.console.verbose {
 		s.console.Event("victoria.shared", map[string]any{
 			"owner":     "agent",
@@ -402,13 +400,6 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 	return stack
 }
 
-func (s *devSupervisor) substrateManager() managedSubstrateManager {
-	if s == nil {
-		return managedSubstrateManager{}
-	}
-	return managedSubstrateManager{agent: s.agent, events: s.eventSink()}
-}
-
 func (s *devSupervisor) agentVictoriaStack(ctx context.Context) *victoriaStack {
 	if s == nil || s.agent == nil {
 		return nil
@@ -417,12 +408,11 @@ func (s *devSupervisor) agentVictoriaStack(ctx context.Context) *victoriaStack {
 	if err != nil {
 		return nil
 	}
-	handle, reusable := s.substrateManager().reusable(ctx, victoriaSubstrateAdapter{console: s.console}, substrate)
+	stack, reusable := reusableVictoriaStack(substrate)
 	if !reusable {
 		_, _ = s.agent.DeleteSubstrate(ctx, localagent.SubstrateVictoria)
 		return nil
 	}
-	stack, _ := handle.(*victoriaStack)
 	if s.console != nil && s.console.verbose {
 		s.console.Event("victoria.reuse", map[string]any{
 			"owner":     "agent",
@@ -433,7 +423,12 @@ func (s *devSupervisor) agentVictoriaStack(ctx context.Context) *victoriaStack {
 }
 
 func (s *devSupervisor) monitorSharedVictoriaStack(stack *victoriaStack) <-chan struct{} {
-	return s.substrateManager().Monitor(stack, victoriaSubstrateAdapter{console: s.console})
+	if s == nil {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+	return monitorVictoriaSubstrate(s.agent, s.eventSink(), stack)
 }
 
 func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot fileSnapshot) error {
