@@ -150,6 +150,15 @@ workspace the source of truth.
 Architecture invariant: build metadata should be machine-readable enough for
 agents and humans to diagnose drift without scraping terminal output.
 
+### `internal/testsuite`
+
+`internal/testsuite` discovers the complete repository test graph through the
+Go tool, caches linked test binaries by Go build ID, runs every test body fresh,
+and emits Go-compatible JSON timing events for the self-harness.
+
+Architecture invariant: the binary cache may avoid repeated linking but must
+never reuse test results or narrow the `./...` package and test surface.
+
 ### `internal/edge`
 
 `internal/edge` owns the managed Caddy lifecycle behind `scenery system edge`:

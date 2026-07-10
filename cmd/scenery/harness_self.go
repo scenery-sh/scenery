@@ -109,6 +109,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		resp.TestTiming = testTiming
 		resp.Steps = append(resp.Steps,
 			goTestStep,
+			runHarnessExecStep(ctx, repoRoot, "go vet", []string{"go", "vet", "./..."}, artifactCtx),
 			runHarnessParallelDevStep(ctx, repoRoot),
 			runHarnessPostgresProbeStep(ctx, repoRoot),
 		)
@@ -198,12 +199,8 @@ func harnessSelfGoTestCommand() []string {
 	return harnessSelfGoTestCommandWithCacheMode(false)
 }
 
-func harnessSelfGoTestCommandWithCacheMode(freshTests bool) []string {
-	command := []string{"go", "test"}
-	if freshTests {
-		command = append(command, "-count=1")
-	}
-	return append(command, "-p", "8", "-json", "./...")
+func harnessSelfGoTestCommandWithCacheMode(_ bool) []string {
+	return []string{"go", "run", "./scripts/testsuite", "-p", "3", "-run", ".*"}
 }
 
 func harnessSelfGoTestEnv() []string {

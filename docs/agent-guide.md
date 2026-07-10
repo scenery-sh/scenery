@@ -62,13 +62,12 @@ go test ./cmd/scenery
 scenery harness self --summary --write
 ```
 
-The self-harness Go test steps use the Go test result cache by default; add
-`--fresh-tests` only when a no-result-cache `-count=1` run is required.
-Timing artifacts label cached, fresh, and release lanes. The seven-second value
-is an optimization target; operational budgets are 12 seconds cached, 18
-seconds fresh, and 30 seconds enforced in release mode. Package/test warnings
-require isolated confirmation before they are actionable. Self-harness Go test
-commands use the locally measured package parallelism `-p 8`.
+Self-harness always executes test bodies fresh with `-test.count=1` across the
+complete `./...` graph. It reuses content-addressed linked test binaries, not
+test results. `--fresh-tests` retains the explicit fresh timing-lane label;
+cached and fresh lanes both have a five-second advisory budget and use the
+locally measured package parallelism of three. Release retains its 30-second
+enforced budget. Package/test warnings require isolated confirmation.
 
 Do not run `go install ./cmd/scenery` during agent validation unless a human
 explicitly asks. Multiple worktrees share the installed `scenery` binary; the

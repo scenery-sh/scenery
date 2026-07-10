@@ -26,7 +26,7 @@ reuse IDs; this list can still be ordered by current priority.
   - Status: active
   - Owner: scenery runtime / agent DX
   - Created: 2026-07-06
-  - Focus: speed up `scenery up` startup to full readiness (single source snapshot, parse/compile fast paths, parallel startup phases, tighter readiness probes) and continue test-suite speed work from plan 0050 (event-driven frontend tests, fixture reuse, parallelizable clusters, opportunistic package splits).
+  - Focus: speed up `scenery up` startup to full readiness through a single source snapshot, parse/compile fast paths, parallel startup phases, and tighter readiness probes. The test-suite target formerly referenced here is complete in plan 0050.
 - [0095 Symphony Hardening](0095-symphony-hardening.md)
   - Status: active
   - Owner: scenery dashboard / agent DX
@@ -62,11 +62,6 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: scenery runtime / ONLV Pulse integration
   - Created: 2026-05-28
   - Focus: replace Pulse's same-origin Vite API proxy with direct browser calls to the agent-routed API origin, with explicit auth, CORS, and sync validation.
-- [0050 Test Suite Speed and Stability](0050-test-suite-speed-hardening.md)
-  - Status: active
-  - Owner: scenery runtime / test infrastructure
-  - Created: 2026-05-28
-  - Focus: keep cached, fresh, and release timing lanes honest after the lightweight dependency cuts, locally measured package/test parallelism, and serial-test critical-path reduction, then reduce the remaining process-lifecycle and compile/init floor.
 - [0059 Frozen Toolchain Manifest and Managed Tool Store](0059-frozen-toolchain-manifest.md)
   - Status: active
   - Owner: scenery runtime / release tooling / agent DX

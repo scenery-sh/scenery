@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -82,7 +83,7 @@ func CompileContext(ctx context.Context, result *Result) error {
 			return err
 		}
 	}
-	err = runGoContext(ctx, result.Dir, goBuildArgs(result.Binary, result.GoBuildFlags)...)
+	err = runGoBuildContext(ctx, result)
 	if err != nil && (result.NeedsTidy || goBuildNeedsWorkspaceTidy(err)) {
 		if tidyErr := tidyWorkspace(ctx, result); tidyErr != nil {
 			return tidyErr
@@ -90,7 +91,7 @@ func CompileContext(ctx context.Context, result *Result) error {
 		if saveErr := savePrimedWorkspace(result); saveErr != nil {
 			return saveErr
 		}
-		err = runGoContext(ctx, result.Dir, goBuildArgs(result.Binary, result.GoBuildFlags)...)
+		err = runGoBuildContext(ctx, result)
 	}
 	if err != nil {
 		return err
@@ -110,6 +111,13 @@ func CompileContext(ctx context.Context, result *Result) error {
 		return err
 	}
 	return nil
+}
+
+func runGoBuildContext(ctx context.Context, result *Result) error {
+	if err := os.Remove(result.Binary); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale build output %s: %w", result.Binary, err)
+	}
+	return runGoContext(ctx, result.Dir, goBuildArgs(result.Binary, result.GoBuildFlags)...)
 }
 
 func goBuildNeedsWorkspaceTidy(err error) bool {

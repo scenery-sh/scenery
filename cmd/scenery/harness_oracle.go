@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"scenery.sh/internal/envpolicy"
+	"scenery.sh/internal/testsuite"
 )
 
 const (
@@ -24,11 +25,11 @@ const (
 )
 
 const (
-	harnessOptimizationTargetSeconds = 7
-	cachedHarnessTotalSeconds        = 12
-	freshHarnessTotalSeconds         = 18
+	harnessOptimizationTargetSeconds = 5
+	cachedHarnessTotalSeconds        = 5
+	freshHarnessTotalSeconds         = 5
 	releaseHarnessTotalSeconds       = 30
-	commandPackageTimingSeconds      = 10
+	commandPackageTimingSeconds      = 5
 	harnessTimingConfirmationRuns    = 3
 )
 
@@ -533,7 +534,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 		Command:  command,
 		Evidence: &evidence,
 	}
-	path, err := exec.LookPath(command[0])
+	_, err := exec.LookPath("go")
 	if err != nil {
 		step.OK = false
 		step.DurationMS = time.Since(started).Milliseconds()
@@ -554,9 +555,6 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 			Diagnostics:   step.Diagnostics,
 		}
 	}
-	cmd := commandTreeContext(ctx, path, command[1:]...)
-	cmd.Dir = repoRoot
-	cmd.Env = envWithOverrides(envpolicy.Environ(), testEnv...)
 	outputFile, err := os.CreateTemp("", "scenery-go-test-*.json")
 	if err != nil {
 		step.OK = false
@@ -580,9 +578,16 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	}
 	outputPath := outputFile.Name()
 	defer os.Remove(outputPath)
-	cmd.Stdout = outputFile
-	cmd.Stderr = outputFile
-	runErr := cmd.Run()
+	testResult, runErr := testsuite.Run(ctx, testsuite.Options{
+		RepoRoot:           repoRoot,
+		CacheDir:           filepath.Join(repoRoot, ".scenery", "harness", "test-binaries"),
+		RunPattern:         ".*",
+		PackageParallelism: 3,
+		BuildParallelism:   8,
+		RecordTimings:      true,
+		Output:             outputFile,
+		Env:                envWithOverrides(envpolicy.Environ(), testEnv...),
+	})
 	suiteElapsed := time.Since(started)
 	closeErr := outputFile.Close()
 	output, readErr := os.ReadFile(outputPath)
@@ -601,6 +606,9 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 	step.DurationMS = elapsed.Milliseconds()
 	step.Summary = map[string]any{
 		"packages":             len(report.Packages),
+		"test_results":         testResult.TestResultCount,
+		"test_binaries_built":  testResult.BuiltCount,
+		"test_manifest_hit":    testResult.ManifestHit,
 		"observed_slow_tests":  len(report.ObservedSlowTests),
 		"confirmed_slow_tests": len(report.SlowTests),
 		"total_seconds":        report.TotalSeconds,

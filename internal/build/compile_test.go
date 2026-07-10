@@ -91,6 +91,9 @@ func TestCompileRealGoBuildSmoke(t *testing.T) {
 		SourceFiles:    []string{"go.mod"},
 		GeneratedFiles: []string{"scenery_internal_main/main.go"},
 	}
+	if err := os.WriteFile(result.Binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write stale build output: %v", err)
+	}
 	if err := Compile(result); err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
