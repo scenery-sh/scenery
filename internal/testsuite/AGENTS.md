@@ -18,8 +18,11 @@ binaries so repeated local validation does not relink unchanged packages.
   test results.
 - Preserve every `./...` package and test. Packages without tests still appear
   in JSON output.
-- Invalidate manifests from the Go toolchain, build-affecting environment,
-  committed revision, tracked diff, and untracked repository inputs.
+- Invalidate manifests from the Go toolchain, build-affecting environment, and
+  tracked/untracked workspace contents. Committing unchanged contents must not
+  invalidate the manifest.
+- Build disposable test binaries with VCS stamping disabled; the workspace
+  fingerprint remains the source-change guard.
 - Store disposable state only under `.scenery/harness/test-binaries/`.
 - Route process environment reads through `internal/envpolicy`.
 

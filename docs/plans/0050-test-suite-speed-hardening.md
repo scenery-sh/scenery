@@ -192,6 +192,7 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - [x] 2026-07-10: Added `internal/testsuite` and `scripts/testsuite`. The runner discovers all `./...` packages with the Go tool, caches linked test binaries by Go build ID, executes every test body fresh with `-test.count=1`, preserves no-test packages in JSON evidence, and schedules historical longest packages first with three workers.
 - [x] 2026-07-10: Proved unchanged coverage against standard `go test -count=1 -json ./...`: both paths reported the same 58 packages and the same 744 pass/fail/skip test results. Added a stale-build-output fix after the preserved persistent compile smoke exposed Go 1.26 refusing to overwrite a non-object cache artifact.
 - [x] 2026-07-10: Closed the five-second target locally. Seven full runner samples had a 4.37s median; isolated `cmd/scenery` medians were 4.040s package and 4.920s wall; source-invalidated compile validation was 4.400s. Final post-doc self-harness proof passed at 4.870s cached from a manifest miss and 4.899s with `--fresh-tests`, with no timing warnings, 58 packages, and 744 test results.
+- [x] 2026-07-10: Post-push validation found and fixed commit-only cache churn. Test binaries now use `-buildvcs=false`, and the workspace fingerprint hashes actual tracked/untracked contents instead of `HEAD` plus a patch. A regression test proves committing unchanged contents preserves the fingerprint.
 
 ## Surprises & Discoveries
 
@@ -199,6 +200,7 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - 2026-07-10: Go test build IDs are a sufficient cache key for linked binaries. A separate dependency graph or source cache would duplicate Go's own correctness model.
 - 2026-07-10: `--fresh-tests` no longer needs a separate binary-manifest refresh. The workspace fingerprint validates binary inputs, while both cached and fresh timing lanes now execute test bodies with `-test.count=1`; only linked binaries are reused.
 - 2026-07-10: The persistent `scenery check` compile smoke found a real Go 1.26 cache edge: `go build -o` refuses to replace a pre-existing non-object executable. Removing the stale destination immediately before a real build fixes the product path without weakening the smoke.
+- 2026-07-10: Go VCS stamping made every linked test-binary build ID change at a commit boundary even when workspace contents were identical. The first post-push run exposed this by relinking the whole repository. Disabling VCS stamps for disposable test binaries is safe only because the separate workspace/toolchain/environment fingerprint remains authoritative.
 
 - 2026-05-28: The Grafana resolver already prefers an explicitly configured binary, then a managed downloaded binary, then probes `PATH` binaries with `grafana -v` / `grafana-server -v`. The mismatch test was using a fake shell script and therefore depended on process spawn timing.
 - 2026-05-28: `warnDevEscapeHatches` writes directly to `os.Stderr`, so unit tests that intentionally call `devCommand --proxy`, `devCommand --trust`, or env-enabled proxy mode produce warning spam unless they are changed to suppress or assert that stream.
@@ -528,6 +530,9 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
   Date/Author: 2026-07-10 / Codex.
 - Decision: Keep `--fresh-tests` as a timing-lane label with the same fresh execution semantics as the default lane.
   Rationale: Default execution is now stronger than the old cached lane because it never reuses test results. Forcing a redundant `go list -test -export` refresh added about 0.7s without finding inputs outside the workspace fingerprint.
+  Date/Author: 2026-07-10 / Codex.
+- Decision: Make linked test binaries independent of commit metadata and fingerprint actual workspace contents.
+  Rationale: A commit does not change the code being tested. `-buildvcs=false` prevents commit-only build-ID churn, while hashing tracked/untracked files keeps staged, unstaged, untracked, deleted, embedded, and non-Go build inputs invalidating correctly.
   Date/Author: 2026-07-10 / Codex.
 
 ## Outcomes & Retrospective

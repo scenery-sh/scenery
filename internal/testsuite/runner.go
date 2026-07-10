@@ -192,7 +192,7 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 			return err
 		}
 		defer os.Remove(tempPath)
-		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-o", tempPath, pkg.ImportPath)
+		cmd := exec.CommandContext(ctx, "go", testBinaryBuildArgs(tempPath, pkg.ImportPath)...)
 		configureCommandCancellation(cmd)
 		cmd.Dir = opts.RepoRoot
 		cmd.Env = opts.Env
@@ -210,6 +210,10 @@ func buildMissingBinaries(ctx context.Context, opts Options, packages []testPack
 		return nil
 	})
 	return int(built.Load()), errors.Join(errs...)
+}
+
+func testBinaryBuildArgs(output, importPath string) []string {
+	return []string{"test", "-c", "-buildvcs=false", "-o", output, importPath}
 }
 
 func runPackages(ctx context.Context, opts Options, packages []testPackage) []packageRun {

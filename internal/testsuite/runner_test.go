@@ -134,6 +134,15 @@ func TestWorkspaceFingerprintChangesForDirtyTrackedSource(t *testing.T) {
 	if before == after {
 		t.Fatal("dirty tracked source did not invalidate workspace fingerprint")
 	}
+	runGit(t, repoRoot, "add", ".")
+	runGit(t, repoRoot, "commit", "-m", "change value")
+	committed, err := workspaceFingerprint(context.Background(), repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed != after {
+		t.Fatal("committing unchanged workspace content changed its fingerprint")
+	}
 }
 
 func TestSortTestPackagesUsesLongestFirstThenName(t *testing.T) {
@@ -142,6 +151,15 @@ func TestSortTestPackagesUsesLongestFirstThenName(t *testing.T) {
 	got := []string{packages[0].ImportPath, packages[1].ImportPath, packages[2].ImportPath}
 	if strings.Join(got, ",") != "a,b,z" {
 		t.Fatalf("order = %v", got)
+	}
+}
+
+func TestTestBinaryCommandsDisableVCSStamping(t *testing.T) {
+	if got := strings.Join(testPackageListArgs(), " "); got != "list -buildvcs=false -test -export -json ./..." {
+		t.Fatalf("go list args = %q", got)
+	}
+	if got := strings.Join(testBinaryBuildArgs("/tmp/pkg.test", "example.com/pkg"), " "); got != "test -c -buildvcs=false -o /tmp/pkg.test example.com/pkg" {
+		t.Fatalf("go test args = %q", got)
 	}
 }
 
