@@ -228,7 +228,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-10",
       "review_after": "2026-08-08",
-      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, lightweight PostgreSQL naming, parser/model, edge lifecycle, and generated-data boundaries, cached/fresh/release timing policy with locally measured package parallelism, validation, docs review-due signals, drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, local Markdown issue tracking and triage statuses, multi-context domain docs, lightweight PostgreSQL naming, parser/model, edge lifecycle, and generated-data boundaries, cached/fresh/release timing policy with locally measured package parallelism, validation, docs review-due signals, drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",

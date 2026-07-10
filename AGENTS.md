@@ -66,11 +66,11 @@ When browser interaction is needed, use the `chrome:control-chrome` skill by def
 
 ### Issue tracker
 
-Issues and product specs for this repo live in GitHub Issues. See `docs/agents/issue-tracker.md`.
+Issues and product specs for this repo live as Markdown under `.scratch/<feature>/`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Use the default five-role triage label vocabulary. See `docs/agents/triage-labels.md`.
+Use the default five-role triage vocabulary as local issue status values. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
