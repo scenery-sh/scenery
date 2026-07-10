@@ -24,9 +24,9 @@
       "status": "completed",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-09",
+      "last_reviewed": "2026-07-10",
       "review_after": "2026-08-08",
-      "summary": "Completed ExecPlan that made ConsoleNext the sole runnable dashboard while preserving the Scenery registry, consolidated 44 command parsers on a shared standard-library flag adapter, and removed dormant compatibility paths, MemoryStore, ErrDetails, and unreachable internal code with full Go, frontend, self-harness, and browser-harness proof.",
+      "summary": "Completed ExecPlan that made ConsoleNext the sole runnable dashboard, consolidated 44 command parsers, removed dormant compatibility and dead surfaces, unified local filesystem storage, deleted superseded timing and dashboard-mtime tooling, and pruned unused error/SQLC adapters while retaining Astryx by explicit request.",
       "tags": [
         "plans",
         "execplans",
@@ -107,7 +107,7 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-07",
+      "last_reviewed": "2026-07-10",
       "review_after": "2026-08-06",
       "summary": "Active ExecPlan adding a top-level scenery snapshot save|load command: one portable zip with a scenery.snapshot.manifest.v1 manifest, a pg_dump -Fc dump of the whole app database, and verbatim storage-cell store trees; explicit --db/--storage selection, --mode overwrite|merge with atomic merge-or-fail semantics, docker-exec pg_dump/pg_restore inside the managed scenery-postgres container (host fallback for external DSNs), and removal of scenery db snapshot.",
       "tags": [
@@ -338,7 +338,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-10",
       "review_after": "2026-08-08",
-      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, including lightweight PostgreSQL naming, parser-owned go/packages analysis, managed edge and generated-data lifecycles, and content-addressed repository test execution.",
+      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, including lightweight PostgreSQL naming, parser-owned go/packages analysis, managed edge and generated-data lifecycles, canonical public local-filesystem storage, and content-addressed repository test execution.",
       "tags": [
         "architecture",
         "agents",

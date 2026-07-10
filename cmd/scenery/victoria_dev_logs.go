@@ -252,14 +252,10 @@ func victoriaDevEventsLogSQL(query devdash.DevEventQuery) string {
 		}
 		b.WriteString(key)
 		b.WriteByte('=')
-		b.WriteString(victoriaLogSQLQuote(stream[key]))
+		b.WriteString(strconv.Quote(stream[key]))
 	}
 	b.WriteByte('}')
 	return b.String()
-}
-
-func victoriaLogSQLQuote(value string) string {
-	return strconv.Quote(value)
 }
 
 func victoriaDevEventFetchLimit(query devdash.DevEventQuery) int {

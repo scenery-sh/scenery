@@ -194,10 +194,6 @@ func processCommand(pid int) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func tailFile(path string, limit int64) string {
-	return tailFileFromOffset(path, 0, limit)
-}
-
 func tailFileFromOffset(path string, offset, limit int64) string {
 	file, err := os.Open(path)
 	if err != nil {

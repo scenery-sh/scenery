@@ -18,7 +18,6 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
-	storagebackend "scenery.sh/internal/storage"
 	publicstorage "scenery.sh/storage"
 )
 
@@ -71,7 +70,7 @@ func startManagedStorageProxy(ctx context.Context, cfg appcfg.Config, session *l
 			_ = ln.Close()
 			return nil, err
 		}
-		stores[name] = storagebackend.NewLocalStoreWithOptions(name, root, storagebackend.LocalStoreOptions{
+		stores[name] = publicstorage.NewLocalStoreWithOptions(name, root, publicstorage.LocalStoreOptions{
 			MaxObjectBytes: storeCfg.MaxObjectBytes,
 		})
 	}

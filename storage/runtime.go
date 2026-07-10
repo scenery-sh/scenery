@@ -30,6 +30,21 @@ type localRuntimeStore struct {
 	maxObjectBytes int64
 }
 
+// LocalStoreOptions configures a filesystem-backed store.
+type LocalStoreOptions struct {
+	MaxObjectBytes int64
+}
+
+// NewLocalStore returns a filesystem-backed store rooted at root.
+func NewLocalStore(name, root string) Store {
+	return NewLocalStoreWithOptions(name, root, LocalStoreOptions{})
+}
+
+// NewLocalStoreWithOptions returns a configured filesystem-backed store.
+func NewLocalStoreWithOptions(name, root string, opts LocalStoreOptions) Store {
+	return &localRuntimeStore{name: name, root: root, maxObjectBytes: opts.MaxObjectBytes}
+}
+
 type proxyRuntimeStore struct {
 	name   string
 	socket string
@@ -55,7 +70,7 @@ func newRuntimeStore(name string, cfg storageconfig.RuntimeStoreConfig) (Store, 
 		if root == "" {
 			return nil, fmt.Errorf("storage store %q root is empty", name)
 		}
-		store = &localRuntimeStore{name: name, root: root, maxObjectBytes: cfg.MaxObjectBytes}
+		store = NewLocalStoreWithOptions(name, root, LocalStoreOptions{MaxObjectBytes: cfg.MaxObjectBytes})
 	case "proxy":
 		socket := strings.TrimSpace(cfg.ProxySocket)
 		if socket == "" {

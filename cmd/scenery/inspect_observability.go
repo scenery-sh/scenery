@@ -238,7 +238,7 @@ func openObservabilityStore(ctx context.Context, appRoot string, cfg appcfg.Conf
 	}
 	appID := cfg.AppID()
 	var warnings []string
-	record, sessionRecord, err := devdashAppRecordForSession(ctx, store, appID, sessionID)
+	record, sessionRecord, err := devdashAppRecordForRuntime(ctx, store, appID, sessionID, "")
 	if err != nil {
 		if err == sql.ErrNoRows {
 			warnings = append(warnings, "no local observability state found for "+appID+"; run `scenery up` first")

@@ -104,23 +104,6 @@ func (b *Builder) Msgf(format string, args ...any) *Builder {
 	return b
 }
 
-func (b *Builder) Meta(kv ...any) *Builder {
-	if len(kv) == 0 {
-		return b
-	}
-	if b.err.Meta == nil {
-		b.err.Meta = make(Metadata, len(kv)/2)
-	}
-	for i := 0; i+1 < len(kv); i += 2 {
-		key, ok := kv[i].(string)
-		if !ok {
-			continue
-		}
-		b.err.Meta[key] = kv[i+1]
-	}
-	return b
-}
-
 func (b *Builder) Cause(err error) *Builder {
 	b.err.Cause = err
 	return b
@@ -168,34 +151,6 @@ func Wrap(err error, msg string, metaPairs ...any) error {
 	return wrapped
 }
 
-func WrapCode(err error, code ErrCode, msg string, metaPairs ...any) error {
-	if err == nil {
-		if code == OK {
-			return nil
-		}
-		return B().Code(code).Msg(msg).Meta(metaPairs...).Err()
-	}
-	wrapped := Wrap(err, msg, metaPairs...)
-	if pe, ok := As(wrapped); ok {
-		clone := *pe
-		if code != OK {
-			clone.Code = code
-		}
-		return &clone
-	}
-	return wrapped
-}
-
-func Convert(err error) error {
-	if err == nil {
-		return nil
-	}
-	if pe, ok := As(err); ok {
-		return pe
-	}
-	return &Error{Code: Unknown, Message: err.Error(), Cause: err}
-}
-
 func As(err error) (*Error, bool) {
 	return errors.AsType[*Error](err)
 }
@@ -211,17 +166,6 @@ func Code(err error) ErrCode {
 		return Unknown
 	}
 	return Internal
-}
-
-func CodeOf(err error) ErrCode {
-	return Code(err)
-}
-
-func Meta(err error) Metadata {
-	if pe, ok := As(err); ok {
-		return pe.Meta
-	}
-	return nil
 }
 
 func HTTPStatus(err error) int {
@@ -264,6 +208,10 @@ func HTTPErrorWithCode(w http.ResponseWriter, err error, status int) {
 	if err == nil {
 		err = &Error{Code: OK}
 	}
+	var meta Metadata
+	if typed, ok := As(err); ok {
+		meta = typed.Meta
+	}
 	payload := struct {
 		Code    ErrCode  `json:"code"`
 		Message string   `json:"message"`
@@ -271,7 +219,7 @@ func HTTPErrorWithCode(w http.ResponseWriter, err error, status int) {
 	}{
 		Code:    Code(err),
 		Message: err.Error(),
-		Meta:    Metadata(redact.Metadata(map[string]any(Meta(err)))),
+		Meta:    Metadata(redact.Metadata(map[string]any(meta))),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

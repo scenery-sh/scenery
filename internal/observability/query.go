@@ -382,16 +382,12 @@ func logTailValues(q LogsQuery) url.Values {
 func logScopeFilters(scope QueryScope) []string {
 	var out []string
 	if scope.AppID != "" {
-		out = append(out, fmt.Sprintf(`(scenery.application_id:%s OR scenery_app_id:%s)`, logsQLQuote(scope.AppID), logsQLQuote(scope.AppID)))
+		out = append(out, fmt.Sprintf(`(scenery.application_id:%s OR scenery_app_id:%s)`, strconv.Quote(scope.AppID), strconv.Quote(scope.AppID)))
 	}
 	if scope.SessionID != "" {
-		out = append(out, fmt.Sprintf(`(scenery.session_id:%s OR scenery_session_id:%s)`, logsQLQuote(scope.SessionID), logsQLQuote(scope.SessionID)))
+		out = append(out, fmt.Sprintf(`(scenery.session_id:%s OR scenery_session_id:%s)`, strconv.Quote(scope.SessionID), strconv.Quote(scope.SessionID)))
 	}
 	return out
-}
-
-func logsQLQuote(value string) string {
-	return strconv.Quote(value)
 }
 
 func fetchLogs(ctx context.Context, baseURL, path string, values url.Values) ([]map[string]any, error) {

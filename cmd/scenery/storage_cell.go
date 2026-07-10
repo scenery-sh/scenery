@@ -9,7 +9,7 @@ import (
 
 // storageCellPlan describes the Scenery-owned local storage cell directories for
 // an app's declared stores. Storage is served from a plain directory tree
-// (internal/storage.LocalStore): atomic temp-file + rename writes, checked
+// (storage.LocalStore): atomic temp-file + rename writes, checked
 // fsync, and sidecar metadata. There is no managed storage process; offsite
 // durability is an operator concern (replicate CellRoot with rclone/restic).
 type storageCellPlan struct {

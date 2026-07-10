@@ -39,7 +39,7 @@ func GoogleStart(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Google OAuth is not configured", http.StatusServiceUnavailable)
 		return
 	}
-	svc, err := newRuntimeService(req.Context())
+	svc, err := standardAuthService(req.Context())
 	if err != nil {
 		http.Error(w, "auth service unavailable", http.StatusInternalServerError)
 		return
@@ -111,7 +111,7 @@ func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	svc, err := newRuntimeService(req.Context())
+	svc, err := standardAuthService(req.Context())
 	if err != nil {
 		redirectGoogleCallbackError(w, req, "google_internal")
 		return
@@ -159,10 +159,6 @@ func GoogleCallback(w http.ResponseWriter, req *http.Request) {
 
 func redirectGoogleCallbackError(w http.ResponseWriter, req *http.Request, code string) {
 	http.Redirect(w, req, appRedirectURL(req, "/sign-in?error="+url.QueryEscape(code)), http.StatusFound)
-}
-
-func newRuntimeService(ctx context.Context) (*Service, error) {
-	return standardAuthService(ctx)
 }
 
 type googleTokenResponse struct {

@@ -112,7 +112,7 @@ func GoogleConnectCallback(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	svc, err := newRuntimeService(req.Context())
+	svc, err := standardAuthService(req.Context())
 	if err != nil {
 		redirectGoogleConnectionCallbackError(w, req, "/", "google_internal")
 		return
@@ -468,7 +468,7 @@ func consumeGoogleConnectionErrorRedirectPath(req *http.Request) (string, bool) 
 	if state == "" {
 		return "/", false
 	}
-	svc, err := newRuntimeService(req.Context())
+	svc, err := standardAuthService(req.Context())
 	if err != nil {
 		return "/", false
 	}

@@ -210,6 +210,9 @@ The public packages at the module root are what user apps import:
   registration, and pluggable email delivery)
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping
 - `scenery.sh/middleware` exposes middleware types
+- `scenery.sh/storage` exposes the storage capability and owns the canonical
+  local filesystem store used by app runtimes, CLI commands, and the managed
+  storage proxy
 - `scenery.sh/model` and `scenery.sh/page` expose static compile-time vocabulary
   for model/view IR; they do not maintain a runtime registry
 - `scenery.sh/durable`, `scenery.sh/cron`, `scenery.sh/db`, and related small
@@ -222,6 +225,10 @@ public names and behavior are much harder to change.
 Architecture invariant: public packages may delegate inward to runtime internals
 when necessary, but they should not pull in CLI, dashboard, parser, build, or
 codegen concerns.
+
+Architecture invariant: local object, metadata-sidecar, fsync, range, list,
+delete, and conditional-write behavior has one implementation in
+`scenery.sh/storage`; do not recreate a parallel backend under `internal/`.
 
 ### `internal/inspect`
 

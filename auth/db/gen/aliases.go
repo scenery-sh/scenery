@@ -1,12 +1,5 @@
 package authdb
 
-type SceneryAuthAuthAttempt = ScenerySceneryAuthAuthAttempt
-type SceneryAuthAuthEvent = ScenerySceneryAuthAuthEvent
-type SceneryAuthAuthIdentity = ScenerySceneryAuthAuthIdentity
 type SceneryAuthGoogleConnection = ScenerySceneryAuthGoogleConnection
-type SceneryAuthOauthState = ScenerySceneryAuthOauthState
-type SceneryAuthOneTimeToken = ScenerySceneryAuthOneTimeToken
-type SceneryAuthOrganizationMembership = ScenerySceneryAuthOrganizationMembership
 type SceneryAuthRefreshSession = ScenerySceneryAuthRefreshSession
-type SceneryAuthTenant = ScenerySceneryAuthTenant
 type SceneryAuthUser = ScenerySceneryAuthUser

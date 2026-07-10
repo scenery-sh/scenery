@@ -66,10 +66,6 @@ func parentMonitorPIDFromEnv() int {
 	return pid
 }
 
-func supervisorPIDFromEnv() int {
-	return parentMonitorPIDFromEnv()
-}
-
 func supervisorParentMonitorShouldCancel(supervisorPID int, supervisorAlive bool, initial, current int) bool {
 	if supervisorPID > 1 {
 		return !supervisorAlive

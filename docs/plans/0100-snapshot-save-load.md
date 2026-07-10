@@ -27,7 +27,7 @@ When this plan is done: `scenery snapshot save --db --storage --output app.zip` 
 
 ## Progress
 
-* [x] 2026-07-07 - Explored the db CLI (`cmd/scenery/db_cli.go`), storage cell layout (`cmd/scenery/storage_cell.go`, `internal/storage/local.go`), managed Postgres server state (`cmd/scenery/dev_services_postgres.go`), and prior art (plans 0094, 0097, 0022); settled the four headline decisions with the repo owner; drafted this plan.
+* [x] 2026-07-07 - Explored the db CLI (`cmd/scenery/db_cli.go`), storage cell layout (`cmd/scenery/storage_cell.go`, now implemented by `storage/runtime.go`), managed Postgres server state (`cmd/scenery/dev_services_postgres.go`), and prior art (plans 0094, 0097, 0022); settled the four headline decisions with the repo owner; drafted this plan.
 * [ ] Milestone 1: `scenery snapshot` command skeleton — dispatcher, explicit flag parsing/validation, help registration, JSON result types, new schemas.
 * [ ] Milestone 2: Postgres dump/restore engine — docker-exec streaming for the managed server, host-PATH fallback for external DSNs.
 * [ ] Milestone 3: `snapshot save` — manifest, zip writer, db section, storage section.
@@ -117,7 +117,7 @@ Terms:
 
 * App database: the single Postgres database per app root/worktree, named `<sanitizePG(app_id)>_<shortIdentityHash(appRoot)>` (`internal/postgresdb/name.go`), containing one schema per service plus the `scenery` schema. Resolved for CLI use by `resolvePostgresDatabaseForCLI` (`cmd/scenery/db_cli.go:529`), which returns a `postgresdb.Database{Database, URL, Source, Schemas}` where `Source` is `managed` or `external`.
 * Managed Postgres server: the shared Docker container (`scenery-postgres`, `postgres:18`) whose state (container name, volume, loopback port, user, random password) lives in `$SCENERY_AGENT_HOME/postgres/server.json` (`postgresServerState` in `cmd/scenery/dev_services_postgres.go:32`). `ensureSharedPostgresServer` starts it; `postgresDocker` (a `postgresDockerRunner`, line 52) shells out to docker.
-* Storage cell: the shared-across-worktrees directory `<agent-home>/agent/storage/<cell-id>/` with per-store object trees under `objects/<store>/` and metadata sidecars under `objects/<store>/__scenery/metadata/<key>.json`. Resolved by `resolveStorageCellPlan` (`cmd/scenery/storage_cell.go:24`); per-store dir via `storageStoreObjectsDir`. The backend (`internal/storage/local.go`) writes objects with temp-file+rename and checked fsync.
+* Storage cell: the shared-across-worktrees directory `<agent-home>/agent/storage/<cell-id>/` with per-store object trees under `objects/<store>/` and metadata sidecars under `objects/<store>/__scenery/metadata/<key>.json`. Resolved by `resolveStorageCellPlan` (`cmd/scenery/storage_cell.go:24`); per-store dir via `storageStoreObjectsDir`. The canonical backend (`storage/runtime.go`) writes objects with temp-file+rename and checked fsync.
 * Snapshot archive: the zip this plan introduces — `manifest.json`, `db/<database>.postgres.dump`, `storage/<store>/...`.
 * Seed ledger: `scenery.seed_runs` table recording applied seeds by `(app_id, path, sha256)`; it lives in the dump and must travel with the data.
 

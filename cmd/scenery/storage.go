@@ -11,7 +11,6 @@ import (
 
 	localagent "scenery.sh/internal/agent"
 	appcfg "scenery.sh/internal/app"
-	storagebackend "scenery.sh/internal/storage"
 	"scenery.sh/internal/storageconfig"
 	publicstorage "scenery.sh/storage"
 )
@@ -297,7 +296,7 @@ func storageStoreForCLI(cfg appcfg.Config, name string) (publicstorage.Store, er
 	if plan == nil {
 		return nil, fmt.Errorf("storage is not configured")
 	}
-	return storagebackend.NewLocalStoreWithOptions(name, plan.storageStoreObjectsDir(name), storagebackend.LocalStoreOptions{
+	return publicstorage.NewLocalStoreWithOptions(name, plan.storageStoreObjectsDir(name), publicstorage.LocalStoreOptions{
 		MaxObjectBytes: storeCfg.MaxObjectBytes,
 	}), nil
 }

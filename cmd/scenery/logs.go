@@ -349,7 +349,7 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 	return sessions[0].SessionID, nil
 }
 
-func followVictoriaDevEvents(ctx context.Context, stdout devEventWriter, victoria *victoriaStack, appID, appRoot, sessionID string, opts logsOptions, items []devdash.DevEvent) error {
+func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *victoriaStack, appID, appRoot, sessionID string, opts logsOptions, items []devdash.DevEvent) error {
 	lastID := int64(0)
 	for _, item := range items {
 		if item.ID > lastID {
@@ -385,10 +385,6 @@ func followVictoriaDevEvents(ctx context.Context, stdout devEventWriter, victori
 			}
 		}
 	}
-}
-
-type devEventWriter interface {
-	Write([]byte) (int, error)
 }
 
 func normalizeLogStream(value string) string {

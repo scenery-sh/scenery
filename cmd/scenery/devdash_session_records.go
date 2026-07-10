@@ -8,10 +8,6 @@ import (
 	"scenery.sh/internal/devdash"
 )
 
-func devdashAppRecordForSession(ctx context.Context, store *devdash.Store, appID, sessionID string) (devdash.AppRecord, bool, error) {
-	return devdashAppRecordForRuntime(ctx, store, appID, sessionID, "")
-}
-
 func devdashAppRecordForRuntime(ctx context.Context, store *devdash.Store, appID, sessionID, appRoot string) (devdash.AppRecord, bool, error) {
 	if sessionID != "" {
 		record, err := store.GetAppForSession(ctx, appID, sessionID)

@@ -15,6 +15,7 @@ Remove every over-engineering finding from the 2026-07-09 whole-repository Ponyt
 - [x] 2026-07-09 - Removed the test-only memory store and unused `ErrDetails` extension point.
 - [x] 2026-07-09 - Synchronized docs, indexes, agent instructions, toolchain source locks, and harness UI ownership.
 - [x] 2026-07-09 - Passed the full validation and live dashboard acceptance surface; repaired the empty Service Catalog marker found by the first browser-harness run.
+- [x] 2026-07-10 - Completed the follow-up whole-repo audit except the explicitly retained Astryx dependency: unified the duplicate local filesystem store, removed superseded timing tools and dead dashboard mtime checks, pruned unused error/SQLC surface, and inlined trivial adapters.
 
 ## Surprises & Discoveries
 
@@ -22,6 +23,8 @@ Remove every over-engineering finding from the 2026-07-09 whole-repository Ponyt
 - The current release and embed scripts already build only `apps/consolenext`; the old dashboard is not in the release path.
 - The first post-removal dead-code pass exposed 51 unreachable functions under `cmd/scenery` and `internal`, plus an unused dashboard interface method; deleting those revealed one additional parser helper after the CLI migration.
 - Go's `flag.FlagSet` stops at the first positional by default, so preserving Scenery's existing interspersed flags and task/script pass-through grammar required one small normalization adapter rather than per-command parsing loops.
+- The promoted local storage backend still existed twice: once for the app runtime and once for CLI/proxy use. Both implementations had the same object, sidecar, fsync, range, list, delete, and conditional-write mechanics plus duplicate tests.
+- Dashboard dependency/source mtime checks survived the old dashboard removal but had no production caller; only their own tests kept them alive.
 
 ## Decision Log
 
@@ -34,10 +37,18 @@ Remove every over-engineering finding from the 2026-07-09 whole-repository Ponyt
 - Decision: Remove compatibility endpoints only when current ConsoleNext, CLI, docs, and tests have no supported caller.
   Rationale: This removes obsolete surface without guessing about live behavior.
   Date/Author: 2026-07-09 / Codex.
+- Decision: Make `scenery.sh/storage` the one local filesystem store used by app runtimes, CLI commands, and the managed storage proxy.
+  Rationale: The public implementation already contained the complete promoted backend; the parallel internal package added no behavior and duplicated its contract tests.
+  Date/Author: 2026-07-10 / Codex.
+- Decision: Retain `@astryxdesign/cli` despite the follow-up audit finding.
+  Rationale: The repository owner explicitly excluded Astryx from this cleanup pass.
+  Date/Author: 2026-07-10 / Codex.
 
 ## Outcomes & Retrospective
 
 Completed on 2026-07-09. ConsoleNext is the sole runnable dashboard; `ui/` is now only the reusable registry. All 44 audited `parse*Args` functions use the shared standard-library flag adapter, and the additional build/deploy argument loops found during implementation use it too. Legacy GraphQL, trace-event compatibility, dormant RPCs, MemoryStore, ErrDetails, and all dead-code findings under `cmd/scenery` and `internal` are gone.
+
+The 2026-07-10 follow-up removed another roughly 1,400 lines without changing supported behavior. Local storage now has one implementation, `scripts/testsuite` and harness timing replace both older timing tools, dashboard bundle identity remains while dead mtime freshness code is gone, and unused error helpers, SQLC aliases, wrappers, and the custom writer interface were removed. Astryx remains unchanged by explicit request.
 
 The final tracked diff removes more than ten thousand lines before the small shared parser, plan, and registry-test additions. `go test ./...`, both frontend validation surfaces, embed rebuild, docs inspection, dead-code checks, self-harness, and the complete fixture browser journey pass. Self-harness remains `pass_with_warnings` only for pre-existing review-due documents, large-file warnings, and test timing budgets; it reports no blocking error.
 

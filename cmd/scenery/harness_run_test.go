@@ -131,15 +131,15 @@ func TestSummarizeGoTestFailures(t *testing.T) {
 	t.Parallel()
 
 	output := []byte(strings.Join([]string{
-		`{"Action":"output","Package":"scenery.sh/internal/storage","Test":"TestLease","Output":"=== RUN   TestLease\n"}`,
-		`{"Action":"output","Package":"scenery.sh/internal/storage","Test":"TestLease","Output":"storage_test.go:12: expected lease\n"}`,
-		`{"Action":"fail","Package":"scenery.sh/internal/storage","Test":"TestLease","Elapsed":0.01}`,
+		`{"Action":"output","Package":"scenery.sh/storage","Test":"TestLease","Output":"=== RUN   TestLease\n"}`,
+		`{"Action":"output","Package":"scenery.sh/storage","Test":"TestLease","Output":"storage_test.go:12: expected lease\n"}`,
+		`{"Action":"fail","Package":"scenery.sh/storage","Test":"TestLease","Elapsed":0.01}`,
 		`{"Action":"output","Package":"scenery.sh/cmd/scenery","Output":"cmd/scenery/main.go:12:2: missing module\n"}`,
 		`{"Action":"fail","Package":"scenery.sh/cmd/scenery","Elapsed":0.01}`,
 	}, "\n"))
 
 	summary := summarizeGoTestFailures(output)
-	if !strings.Contains(summary, "scenery.sh/internal/storage TestLease") {
+	if !strings.Contains(summary, "scenery.sh/storage TestLease") {
 		t.Fatalf("summary missing test failure: %q", summary)
 	}
 	if !strings.Contains(summary, "expected lease") {
