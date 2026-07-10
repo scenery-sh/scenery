@@ -1,5 +1,11 @@
 # scenery Agent Guide
 
+## Working in an edition-2027 mixed app
+
+When `scenery.scn` exists, read it together with `scenery.migration.scn` and each installed package's `scenery.package.scn`. Use `scenery migrate status -o json` to see active frontend ownership, then query canonical resources with `scenery list|get|explain ... -o json`. Do not infer ownership from Go directives or file order.
+
+For native contract edits, run `scenery fmt`, `scenery check -o json`, and `scenery generate --check`. Edit `.scn` source rather than generated `scenerycontract` or TypeScript files. A service is the minimum bridge activation unit: all of its routes and lifecycle keys must match before native activation. Existing legacy-only apps continue using the stable `--json` workflow.
+
 This guide is for AI agents using scenery or changing scenery. It explains how to combine repo-local instructions, the installable skill, CLI JSON, scenery capabilities, and app-local instructions.
 
 For exact command grammar and schemas, use `docs/local-contract.md`. For app recipes, use `docs/app-development-cookbook.md`. For scenery repo edits, `AGENTS.md` is the first file to read.

@@ -24,6 +24,7 @@ import (
 type checkOptions struct {
 	AppRoot string
 	JSON    bool
+	Output  string
 }
 
 type checkResponse struct {
@@ -53,6 +54,9 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 	opts, err := parseCheckArgs(args)
 	if err != nil {
 		return err
+	}
+	if opts.Output != "" {
+		return runVNextCheck(stdout, args)
 	}
 
 	start, err := resolveAppRoot(opts.AppRoot)
@@ -340,6 +344,7 @@ func parseCheckArgs(args []string) (checkOptions, error) {
 	flags := newCLIFlagSet("check")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.Output, "o", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return checkOptions{}, err

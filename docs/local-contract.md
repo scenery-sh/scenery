@@ -1,5 +1,27 @@
 # scenery Local Contract
 
+## Edition-2027 vNext contract
+
+An app containing `scenery.scn` opts into the edition-2027 compiler described by [the normative vNext specification set](specs/vnext/SCENERY_LANGUAGE_SPEC.md). A mixed app that also retains `.scenery.json` or `.config.json` must contain `scenery.migration.scn`; compilation fails rather than choosing implicit frontend precedence.
+
+The migration-capable kernel currently exposes:
+
+```text
+scenery fmt [--check] [--app-root <path>] [-o human|json]
+scenery check [--app-root <path>] -o human|json
+scenery compile [--view source|effective|expanded] [--app-root <path>] -o human|json
+scenery schema <kind> [-o human|json]
+scenery list <kind> [--module <name>] [--view source|effective|expanded] [-o human|json]
+scenery get <address> [--view source|effective|expanded] [-o human|json]
+scenery explain <address> [--view source|effective|expanded] [-o human|json]
+scenery migrate status|verify [--app-root <path>] [-o human|json]
+scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
+```
+
+`-o json` selects the `scenery.cli.v1` edition-2027 envelope. Existing `--json` commands retain their stable v0 schemas and project the same validated active graph in mixed mode. The compiler reports separate `workspace_revision` and `contract_revision`; generated Go contracts and TypeScript clients are descriptor-covered committed artifacts, and `scenery generate --check` verifies exact bytes without writing.
+
+The current first-release profile boundary is the section 26.2 kernel plus `scenery.legacy-bridge/v1`. Unsupported later profiles are rejected; they are not approximated. Mixed startup validates one active owner for every discovered service and the complete route parity of native services before the existing runtime adapters are allowed to start.
+
 This document freezes the local developer and agent-facing contract for scenery v0.
 
 The goal is to make scenery deterministic and inspectable:

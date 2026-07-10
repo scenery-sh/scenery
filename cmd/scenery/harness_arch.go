@@ -27,6 +27,8 @@ var allowedDirectGoDeps = map[string]string{
 	"github.com/golang-jwt/jwt/v5": "JWT signing and verification for standard auth",
 	"github.com/google/uuid":       "UUID generation and parsing for standard auth database records",
 	"github.com/gorilla/websocket": "dashboard JSON-RPC websocket transport",
+	"github.com/hashicorp/hcl/v2":  "edition-2027 lossless HCL syntax parsing and deterministic source formatting",
+	"github.com/zclconf/go-cty":    "typed literal values exposed by the HCL v2 syntax API",
 	"golang.org/x/crypto":          "password hashing primitives for standard auth",
 	"golang.org/x/mod":             "Go module parsing for self-harness dependency checks",
 	"golang.org/x/sys":             "portable OS syscalls for doctor disk and memory readiness probes",
@@ -242,6 +244,9 @@ func checkArchitectureSource(repoRoot string, summary *architectureSummary) ([]c
 }
 
 func checkRemovedAgentTransportTerms(path, rel string) []checkDiagnostic {
+	if strings.HasPrefix(filepath.ToSlash(rel), "docs/specs/vnext/") {
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil

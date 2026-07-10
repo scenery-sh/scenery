@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.typescript-client-generated.v1.schema.json",
+  "title": "Scenery generated TypeScript client descriptor",
+  "type": "object",
+  "required": ["api_version", "target", "package", "contract_revision", "typescript_client_revision", "content_digest", "profile", "codec_profiles", "covered_bindings", "generator"],
+  "properties": {
+    "api_version": { "const": "scenery.typescript-client-generated/v1" },
+    "target": { "type": "string" },
+    "package": { "type": "string" },
+    "contract_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "typescript_client_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "content_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "profile": { "const": "scenery.typescript-client/v1" },
+    "codec_profiles": { "type": "array", "items": { "type": "string" } },
+    "covered_bindings": { "type": "array", "items": { "type": "string" } },
+    "generator": { "type": "string" }
+  },
+  "additionalProperties": false
+}

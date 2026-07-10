@@ -2,6 +2,8 @@
 
 **One CLI for building, running, and inspecting Go services — built for humans and AI agents.**
 
+Edition-2027 vNext apps may opt into `scenery.scn`, a canonical typed resource graph, and a bounded `scenery.migration.scn` bridge that keeps explicitly listed services legacy-owned while one service moves natively without a second runtime.
+
 scenery is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
 Applications mark their root with `.scenery.json` (preferred) or `.config.json`, declare endpoints with `//scenery:` directives, and run as one local HTTP server. scenery handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.

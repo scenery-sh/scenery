@@ -193,6 +193,8 @@ Do not introduce new scenery-owned production environment variables by default. 
 
 ## Generated TypeScript Client
 
+Edition-2027 apps use generated targets declared in `scenery.scn`. Run `scenery migrate status -o json` before changing a mixed app, edit `.scn` declarations rather than generated files, and verify exact Go/TypeScript artifacts with `scenery generate --check`. A native ownership switch covers the whole service, not selected endpoints. Legacy-only apps continue using the stable generator workflow below.
+
 ```sh
 scenery inspect endpoints --json
 scenery inspect models --json

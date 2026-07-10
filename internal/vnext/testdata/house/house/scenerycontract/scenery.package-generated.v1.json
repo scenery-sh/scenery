@@ -1,0 +1,15 @@
+{
+  "api_version": "scenery.package-generated.v1",
+  "covered": [
+    "house/binding/process_scene_http",
+    "house/execution/process_scene_direct",
+    "house/operation/process_scene",
+    "house/record/process_scene_input",
+    "house/record/process_scene_result",
+    "house/service/house"
+  ],
+  "generator": "scenery.vnext.go/v1",
+  "import_path": "example.test/clean-tech/house/scenerycontract",
+  "package": "house",
+  "package_contract_abi_revision": "sha256:c82469adfc80a4656205af09881f5ffd1f4c9331373577ca5c675d1161baa2a5"
+}

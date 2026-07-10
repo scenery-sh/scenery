@@ -18,6 +18,220 @@
   },
   "documents": [
     {
+      "path": "docs/schemas/scenery.client-selection.v1.schema.json",
+      "title": "scenery.client-selection.v1 Schema",
+      "owner": "scenery client generation / migration",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "JSON Schema mapping each active mixed-mode HTTP operation to exactly one native or legacy generated client family and revision.",
+      "tags": [
+        "schema",
+        "vnext",
+        "typescript",
+        "legacy-bridge",
+        "clientgen"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.cli.v1.schema.json",
+      "title": "scenery.cli.v1 Schema",
+      "owner": "scenery compiler / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "JSON Schema for the edition-2027 CLI envelope, revisions, data payload, and structured diagnostics.",
+      "tags": [
+        "schema",
+        "vnext",
+        "cli",
+        "json"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.manifest.v1.schema.json",
+      "title": "scenery.manifest.v1 Schema",
+      "owner": "scenery compiler",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "JSON Schema for the edition-2027 canonical resource manifest.",
+      "tags": [
+        "schema",
+        "vnext",
+        "manifest",
+        "canonical-ir"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.migrate.status.v1.schema.json",
+      "title": "scenery.migrate.status.v1 Schema",
+      "owner": "scenery compiler / migration",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "JSON Schema for mixed-mode service ownership and migration readiness.",
+      "tags": [
+        "schema",
+        "vnext",
+        "migration",
+        "legacy-bridge"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.typescript-client-generated.v1.schema.json",
+      "title": "scenery.typescript-client-generated.v1 Schema",
+      "owner": "scenery client generation",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "JSON Schema for deterministic vNext TypeScript client descriptors.",
+      "tags": [
+        "schema",
+        "vnext",
+        "typescript",
+        "clientgen"
+      ]
+    },
+    {
+      "path": "docs/plans/0103-vnext-language-and-onlv-house-migration.md",
+      "title": "Scenery vNext Language and ONLV House Migration",
+      "owner": "scenery compiler / runtime / ONLV integration",
+      "status": "active",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "Active ExecPlan implementing the edition-2027 kernel, bounded legacy bridge, generated Go and TypeScript contracts, and ONLV House as the first native service while all other ONLV services remain legacy-owned.",
+      "tags": [
+        "plans",
+        "execplans",
+        "vnext",
+        "language",
+        "compiler",
+        "legacy-bridge",
+        "onlv",
+        "house"
+      ]
+    },
+    {
+      "path": "docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md",
+      "title": "Scenery Language Specification",
+      "owner": "scenery compiler / language",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "Normative umbrella design specification for Scenery language edition 2027, its canonical typed resource graph, profiles, CLI, agent interfaces, revisions, Go ABI summary, and representative House migration.",
+      "tags": [
+        "spec",
+        "vnext",
+        "language",
+        "edition-2027",
+        "compiler",
+        "canonical-ir"
+      ]
+    },
+    {
+      "path": "docs/specs/vnext/SCENERY_GO_IMPLEMENTATION_V1.md",
+      "title": "Scenery Go Implementation ABI v1",
+      "owner": "scenery compiler / Go runtime",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, constructor inputs, handlers, outcomes, adapters, descriptors, and staged verification.",
+      "tags": [
+        "spec",
+        "vnext",
+        "go",
+        "abi",
+        "codegen"
+      ]
+    },
+    {
+      "path": "docs/specs/vnext/SCENERY_HTTP_CODEC_V1.md",
+      "title": "Scenery HTTP Codec v1",
+      "owner": "scenery HTTP runtime",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "Normative HTTP gateway, routing, request mapping, codec, response, negotiation, limit, and security-boundary contract for vNext.",
+      "tags": [
+        "spec",
+        "vnext",
+        "http",
+        "codec",
+        "runtime"
+      ]
+    },
+    {
+      "path": "docs/specs/vnext/SCENERY_TYPESCRIPT_CLIENT_V1.md",
+      "title": "Scenery TypeScript Client v1",
+      "owner": "scenery client generation",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, and generation workflow for vNext public HTTP bindings.",
+      "tags": [
+        "spec",
+        "vnext",
+        "typescript",
+        "clientgen"
+      ]
+    },
+    {
+      "path": "docs/specs/vnext/SCENERY_COMPATIBILITY_CORE_V1.md",
+      "title": "Scenery Compatibility Core v1",
+      "owner": "scenery compiler / compatibility",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "Normative multidimensional semantic compatibility comparison rules for canonical Scenery resource graphs.",
+      "tags": [
+        "spec",
+        "vnext",
+        "compatibility",
+        "semantic-diff"
+      ]
+    },
+    {
+      "path": "docs/specs/vnext/SCENERY_LEGACY_BRIDGE_V1.md",
+      "title": "Scenery Legacy Bridge v1",
+      "owner": "scenery compiler / migration",
+      "status": "reference",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-09",
+      "summary": "Normative bounded service-by-service migration profile linking frozen legacy declarations and edition-2027 native source into one active graph and runtime plan.",
+      "tags": [
+        "spec",
+        "vnext",
+        "legacy",
+        "migration",
+        "bridge"
+      ]
+    },
+    {
       "path": "docs/plans/0102-ponytail-cleanup.md",
       "title": "Ponytail Cleanup: Singular Dashboard, Native CLI Parsing, and Dead Surface Removal",
       "owner": "scenery maintainers",

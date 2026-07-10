@@ -59,6 +59,13 @@ var rootHelpGroups = []helpRootGroup{
 	}},
 	{Name: "App resources", Entries: []helpRootEntry{
 		{Command: "inspect", Summary: "Inspect app model and diagnostics as JSON"},
+		{Command: "compile", Summary: "Compile an edition-2027 canonical manifest"},
+		{Command: "list", Summary: "List edition-2027 resources"},
+		{Command: "get", Summary: "Get one edition-2027 resource"},
+		{Command: "explain", Summary: "Explain a resource and provenance"},
+		{Command: "schema", Summary: "Read an edition-2027 resource schema"},
+		{Command: "fmt", Summary: "Format edition-2027 source"},
+		{Command: "migrate", Summary: "Inspect mixed legacy/native ownership"},
 		{Command: "generate", Summary: "Generate clients, SQLC, and configured outputs"},
 		{Command: "db", Summary: "Manage Postgres database lifecycle"},
 		{Command: "task", Summary: "List, inspect, graph, and run app tasks"},
@@ -84,6 +91,16 @@ var rootHelpGroups = []helpRootGroup{
 }
 
 var helpReferenceGroups = []helpReferenceGroup{
+	{Name: "Edition 2027", Commands: []string{
+		"scenery fmt",
+		"scenery compile",
+		"scenery schema",
+		"scenery list",
+		"scenery get",
+		"scenery explain",
+		"scenery migrate status",
+		"scenery migrate verify",
+	}},
 	{Name: "Local dev", Commands: []string{
 		"scenery up",
 		"scenery ps",
@@ -199,6 +216,13 @@ var helpReferenceGroups = []helpReferenceGroup{
 }
 
 var helpCommands = []helpCommandEntry{
+	{Command: "fmt", Group: "Edition 2027", Summary: "Format edition-2027 .scn source.", Usage: []string{"scenery fmt [--check] [--app-root <path>] [-o human|json]"}, Flags: []string{"--check", "--app-root <path>", "-o human|json"}, JSON: true, Stability: "draft"},
+	{Command: "compile", Group: "Edition 2027", Summary: "Compile the canonical edition-2027 manifest.", Usage: []string{"scenery compile [--view source|effective|expanded] [--app-root <path>] [-o human|json]"}, Flags: []string{"--view <view>", "--app-root <path>", "-o human|json"}, JSON: true, Stability: "draft"},
+	{Command: "schema", Group: "Edition 2027", Summary: "Read an edition-2027 resource schema.", Usage: []string{"scenery schema <kind> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "draft"},
+	{Command: "list", Group: "Edition 2027", Summary: "List canonical resources by kind.", Usage: []string{"scenery list <kind> [--module <name>] [-o human|json]"}, Flags: []string{"--module <name>", "-o human|json"}, JSON: true, Stability: "draft"},
+	{Command: "get", Group: "Edition 2027", Summary: "Get one canonical resource.", Usage: []string{"scenery get <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "draft"},
+	{Command: "explain", Group: "Edition 2027", Summary: "Explain a canonical resource and provenance.", Usage: []string{"scenery explain <address> [-o human|json]"}, Flags: []string{"-o human|json"}, JSON: true, Stability: "draft"},
+	{Command: "migrate", Group: "Edition 2027", Summary: "Inspect bounded mixed legacy/native migration state.", Usage: []string{"scenery migrate status [--app-root <path>] [-o human|json]", "scenery migrate verify <service> [--app-root <path>] [-o human|json]"}, Subcommands: []string{"status", "verify"}, Flags: []string{"--app-root <path>", "-o human|json"}, JSON: true, Stability: "draft"},
 	{
 		Command:   "up",
 		Group:     "Local dev",

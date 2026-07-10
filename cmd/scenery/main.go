@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 
+	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/stdlog"
+	"scenery.sh/internal/vnext"
 )
 
 var cliStderr io.Writer = os.Stderr
@@ -53,6 +55,9 @@ func run(args []string) error {
 	case "worktree":
 		return worktreeCommand(args[1:])
 	case "generate":
+		if hasCLIArg(args[1:], "--check") || hasCLIArg(args[1:], "--target") || isVNextGenerate(args[1:]) {
+			return runVNextGenerate(os.Stdout, args[1:])
+		}
 		return generateCommand(args[1:])
 	case "task":
 		return taskCommand(args[1:])
@@ -76,6 +81,20 @@ func run(args []string) error {
 		return buildCommand(args[1:])
 	case "check":
 		return checkCommand(args[1:])
+	case "fmt":
+		return fmtCommand(args[1:])
+	case "compile":
+		return compileCommand(args[1:])
+	case "schema":
+		return schemaCommand(args[1:])
+	case "list":
+		return listCommand(args[1:])
+	case "get":
+		return getCommand(args[1:])
+	case "explain":
+		return explainCommand(args[1:])
+	case "migrate":
+		return migrateCommand(args[1:])
 	case "harness":
 		return harnessCommand(args[1:])
 	case "inspect":
@@ -118,6 +137,9 @@ func upCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateVNextRuntimePlan(opts.AppRoot); err != nil {
+		return err
+	}
 	restore := configureDevProcessEnv(opts)
 	defer restore()
 	warnDevEscapeHatches(opts)
@@ -126,6 +148,28 @@ func upCommand(args []string) error {
 	}
 	listen := resolveDevListenRequest(opts)
 	return runWithWatchFunc(listen, opts.Verbose, opts.JSON, opts.AppRoot)
+}
+
+func validateVNextRuntimePlan(appRootOption string) error {
+	start, err := resolveAppRoot(appRootOption)
+	if err != nil {
+		return err
+	}
+	appRoot, _, err := appcfg.DiscoverRoot(start)
+	if err != nil {
+		return err
+	}
+	if !pathExists(filepath.Join(appRoot, "scenery.scn")) {
+		return nil
+	}
+	result, err := vnext.Compile(appRoot)
+	if err != nil {
+		return err
+	}
+	if !result.Valid() {
+		return fmt.Errorf("vNext runtime plan is invalid: %s", firstVNextDiagnostic(result.Diagnostics))
+	}
+	return nil
 }
 
 type devOptions struct {

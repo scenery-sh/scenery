@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.cli.v1.schema.json",
+  "title": "Scenery edition-2027 CLI envelope",
+  "type": "object",
+  "required": ["api_version", "diagnostic_catalog", "ok", "implementation_revision", "deployment_revision", "data", "diagnostics"],
+  "properties": {
+    "api_version": { "const": "scenery.cli.v1" },
+    "diagnostic_catalog": { "const": "scenery.diagnostics.2027.v1" },
+    "ok": { "type": "boolean" },
+    "workspace_revision": { "$ref": "#/$defs/revision" },
+    "contract_revision": { "$ref": "#/$defs/revision" },
+    "implementation_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "deployment_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "data": true,
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "diagnostic": {
+      "type": "object",
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^SCN[0-9]{4}$" },
+        "severity": { "enum": ["error", "warning", "information", "hint"] },
+        "message": { "type": "string" },
+        "address": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

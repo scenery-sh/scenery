@@ -1,0 +1,15 @@
+{
+  "api_version": "scenery.typescript-client-generated/v1",
+  "codec_profiles": [
+    "scenery.http-codec/v1"
+  ],
+  "contract_revision": "sha256:3fafc7dab21a6f2eb6f24ee5908cc22057487a4aa51a61d444bb1103feef00c1",
+  "covered_bindings": [
+    "house/binding/process_scene_http"
+  ],
+  "generator": "scenery.vnext.typescript/v1",
+  "package": "@example/scenery-client",
+  "profile": "scenery.typescript-client/v1",
+  "target": "app/typescript_client/public_api",
+  "typescript_client_revision": "sha256:597b11ae4d0215a4ac02e62cd1b66c2e2c4c6c28fe0fd4573c3775b615402eb7"
+}

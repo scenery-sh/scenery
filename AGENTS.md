@@ -57,6 +57,7 @@ Child `AGENTS.md` files:
 - `internal/edge/AGENTS.md` owns the managed Caddy edge process lifecycle and its real-process validation.
 - `internal/generateddata/AGENTS.md` owns model-derived schema, seed, generated web, and drift lifecycles.
 - `internal/testsuite/AGENTS.md` owns content-addressed Go test binaries, fresh test execution, and Go JSON event output.
+- `docs/specs/vnext/AGENTS.md` owns the edition-2027 normative specification set and profile-conformance update rules.
 
 ## Agent skills
 
@@ -82,6 +83,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 
 - App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
 - Go source is the app model: services, endpoints, auth handlers, middleware, durable tasks, cron jobs, and generated clients are discovered from code.
+- Edition-2027 apps opt into `scenery.scn`; mixed apps use `scenery.migration.scn` to link native packages and explicitly bounded legacy services into one validated active graph before the existing runtime adapters start.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for durable tasks and cron.
 - `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing.

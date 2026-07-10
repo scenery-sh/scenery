@@ -21,6 +21,7 @@ import (
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/vnext"
 )
 
 var inspectAppModelCache = struct {
@@ -198,6 +199,15 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if pathExists(filepath.Join(appRoot, "scenery.scn")) && (opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints") {
+		compiled, compileErr := vnext.Compile(appRoot)
+		if compileErr != nil {
+			return compileErr
+		}
+		if !compiled.Valid() {
+			return fmt.Errorf("vNext merged graph is invalid: %s", firstVNextDiagnostic(compiled.Diagnostics))
+		}
+	}
 
 	switch opts.Subject {
 	case "app":
@@ -303,6 +313,15 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown inspect subject %q", opts.Subject)
 	}
+}
+
+func firstVNextDiagnostic(diagnostics []vnext.Diagnostic) string {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" {
+			return diagnostic.Code + ": " + diagnostic.Message
+		}
+	}
+	return "unknown vNext compilation failure"
 }
 
 func parseInspectArgs(args []string) (inspectOptions, error) {

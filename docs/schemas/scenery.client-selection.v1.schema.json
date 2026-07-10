@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.client-selection.v1.schema.json",
+  "title": "Scenery mixed-mode generated client selection",
+  "type": "object",
+  "required": ["api_version", "operations"],
+  "properties": {
+    "api_version": { "const": "scenery.client-selection.v1" },
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["family", "revision"],
+        "properties": {
+          "family": { "enum": ["native", "legacy_v0"] },
+          "revision": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
