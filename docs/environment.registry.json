@@ -1306,28 +1306,6 @@
       ]
     },
     {
-      "name": "SCENERY_LOGS_BACKEND",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "dev.events",
-      "stability": "dev_escape_hatch",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Selects the dev-event backend for logs, attach, TUI, and console when debugging the VictoriaLogs read path.",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "SCENERY_LOG_FORMAT",
       "match": "exact",
       "scope": "runtime",

@@ -237,8 +237,8 @@ var helpCommands = []helpCommandEntry{
 		Command:   "console",
 		Group:     "Local dev",
 		Summary:   "Open the source-aware dev console.",
-		Usage:     []string{"scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria]"},
-		Flags:     []string{"--app-root <path>", "--source <id>", "--kind <kind>", "--level <level>", "--grep <text>", "--since <duration>", "--backend auto|victoria"},
+		Usage:     []string{"scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]"},
+		Flags:     []string{"--app-root <path>", "--source <id>", "--kind <kind>", "--level <level>", "--grep <text>", "--since <duration>"},
 		Stability: "stable",
 	},
 	{

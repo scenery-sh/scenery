@@ -388,7 +388,7 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 	if stack == nil {
 		return nil
 	}
-	s.monitorSharedVictoriaStack(stack)
+	monitorVictoriaSubstrate(s.agent, s.eventSink(), stack)
 	if s.console != nil && s.console.verbose {
 		s.console.Event("victoria.shared", map[string]any{
 			"owner":     "agent",
@@ -398,15 +398,6 @@ func (s *devSupervisor) startVictoriaStack(ctx context.Context) *victoriaStack {
 		})
 	}
 	return stack
-}
-
-func (s *devSupervisor) monitorSharedVictoriaStack(stack *victoriaStack) <-chan struct{} {
-	if s == nil {
-		done := make(chan struct{})
-		close(done)
-		return done
-	}
-	return monitorVictoriaSubstrate(s.agent, s.eventSink(), stack)
 }
 
 func (s *devSupervisor) RebuildAndRestart(ctx context.Context, initial bool, snapshot fileSnapshot) error {

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -220,6 +221,96 @@ func TestEnsureSharedVictoriaStackReusesAgentSubstrate(t *testing.T) {
 	}
 }
 
+func TestEnsureSharedVictoriaStackReplacesStaleOwner(t *testing.T) {
+	occupyVictoriaTestPorts(t)
+
+	ctx, client := startSubstrateTestAgent(t)
+	stale, err := client.UpsertSubstrate(ctx, localagent.UpsertSubstrateRequest{
+		Kind:     localagent.SubstrateVictoria,
+		Status:   "ready",
+		OwnerPID: 99999991,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stack, reused, err := (&devSupervisor{agent: client}).ensureSharedVictoriaStack(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stack == nil || reused {
+		t.Fatalf("ensure result stack=%T reused=%v", stack, reused)
+	}
+	fresh, err := client.GetSubstrate(ctx, localagent.SubstrateVictoria)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.OwnerPID != os.Getpid() {
+		t.Fatalf("fresh owner pid = %d, want %d", fresh.OwnerPID, os.Getpid())
+	}
+	if fresh.CreatedAt.Equal(stale.CreatedAt) {
+		t.Fatalf("stale substrate was updated in place: created_at=%s", fresh.CreatedAt)
+	}
+}
+
+func TestEnsureSharedVictoriaStackSerializesConcurrentStarts(t *testing.T) {
+	occupyVictoriaTestPorts(t)
+
+	ctx, client := startSubstrateTestAgent(t)
+	supervisor := &devSupervisor{agent: client}
+	root := t.TempDir()
+	unlock := lockVictoriaSubstrateProcess(root)
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			unlock()
+		}
+	})
+
+	type ensureResult struct {
+		stack  *victoriaStack
+		reused bool
+		err    error
+	}
+	results := make(chan ensureResult, 2)
+	for range 2 {
+		go func() {
+			stack, reused, err := supervisor.ensureSharedVictoriaStack(ctx, root)
+			results <- ensureResult{stack: stack, reused: reused, err: err}
+		}()
+	}
+	select {
+	case result := <-results:
+		t.Fatalf("ensure returned while the process lock was held: %+v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlock()
+	released = true
+
+	started, reused := 0, 0
+	for range 2 {
+		select {
+		case result := <-results:
+			if result.err != nil {
+				t.Fatal(result.err)
+			}
+			if result.stack == nil {
+				t.Fatal("ensure returned a nil Victoria stack")
+			}
+			if result.reused {
+				reused++
+			} else {
+				started++
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for concurrent Victoria starts")
+		}
+	}
+	if started != 1 || reused != 1 {
+		t.Fatalf("concurrent ensure results started=%d reused=%d, want 1 each", started, reused)
+	}
+}
+
 func TestVictoriaSubstrateMonitorRecordsExitState(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +361,23 @@ func reachableVictoriaTestSubstrate(t *testing.T, ownerPID int) localagent.Subst
 		URLs:      urls,
 		Endpoints: endpoints,
 	}
+}
+
+func occupyVictoriaTestPorts(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"SCENERY_VICTORIA_METRICS_PORT",
+		"SCENERY_VICTORIA_LOGS_PORT",
+		"SCENERY_VICTORIA_TRACES_PORT",
+	} {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = listener.Close() })
+		t.Setenv(key, strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
+	}
+	t.Setenv("SCENERY_DEV_VICTORIA_DOWNLOAD", "0")
 }
 
 func TestURLAcceptsTCP(t *testing.T) {

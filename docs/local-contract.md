@@ -314,10 +314,10 @@ Current implemented grammar:
 
 ```text
 scenery up [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [-v|--verbose] [--json] [--detach] [--wait ready|registered]
-scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [--jsonl|--json]
+scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--jsonl|--json]
 scenery logs query [--app-root <path>] --query <logsql> [--since <duration>] [--start <time>] [--end <time>] [--limit <n>] [--timeout <duration>] [--fields <csv>] [--json|--jsonl]
 scenery logs tail [--app-root <path>] --query <logsql> [--since <duration>] [--timeout <duration>] [--fields <csv>] [--jsonl]
-scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria]
+scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
 scenery system edge install|trust|status|restart|uninstall|dns|privileged [--json]
@@ -389,7 +389,7 @@ scenery metrics query --json [--app-root <path>] --promql <query> [--instant] [-
 scenery metrics labels --json [--app-root <path>] [--match <selector>] [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
 scenery metrics series --json [--app-root <path>] --match <selector> [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
 scenery traces clear --json [--app-root <path>]
-scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--backend auto|victoria] [-f|--follow] [--jsonl|--json]
+scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-f|--follow] [--jsonl|--json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 ```
@@ -477,10 +477,10 @@ Command split:
 
 - `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths and app config `watch.ignore` paths as outside the watch surface and does not descend into ignored directories. `watch.ignore` also excludes those paths from the rebuild/change fingerprint used by the dev loop, but it does not affect Git tracking. A second live code copy requires a separate Git worktree.
 - `scenery up --detach` requires the local agent, starts the same dev supervisor in a background child process, and by default (`--wait ready`) waits until the child session is registered, its status is `running`, the API backend accepts connections, and configured frontend backends are registered and accepting, then prints a Docker-style app action summary, status/log/stop commands, and currently registered routes/aliases before returning. `--wait registered` returns as soon as the child PID registers as the app root's runtime owner, without waiting for readiness. Wait timeout errors report the last reached state. Detached child stdout/stderr from the supervisor is written under the agent directory; app process output continues to flow through the scoped dashboard log store.
-- `scenery logs --follow` follows the app root's live runtime logs by default with the same app-root, limit, stream, source, kind, level, grep, since, backend, and JSONL options, and it does not mutate runtime state.
-- `scenery logs`, plain `scenery logs --follow`, and `scenery console` read structured dev events for the selected app root's live runtime. `--backend auto` and `--backend victoria` currently select the same Victoria-backed substrate path; use backend selection only when intentionally debugging that substrate. `SCENERY_LOGS_BACKEND` accepts the same values and applies to the console as well.
+- `scenery logs --follow` follows the app root's live runtime logs by default with the same app-root, limit, stream, source, kind, level, grep, since, and JSONL options, and it does not mutate runtime state.
+- `scenery logs`, plain `scenery logs --follow`, and `scenery console` read structured dev events from the Victoria-backed substrate for the selected app root's live runtime.
 - If the backing dev-event substrate is unavailable, structured dev-event read commands fail loudly instead of falling back to the deprecated local process-output cache.
-- `scenery console` opens the source-aware terminal console when stdin/stdout are real TTYs. In CI, dumb terminals, or redirected output it falls back to normal log following with the same backend option.
+- `scenery console` opens the source-aware terminal console when stdin/stdout are real TTYs. In CI, dumb terminals, or redirected output it falls back to normal log following with the same filters.
 - Structured dev logs carry source identity. Current source ids include `api`, `worker`, `build`, `supervisor`, `victoria`, and `frontend:<name>`.
 - `scenery system agent restart` stops the currently reachable local agent process, starts a new background agent, waits until the control socket is reachable, and returns. The same `--socket`, `--router-listen`, `--router-tls`, `--router-http`, `--trust`, and `--json` options apply to the restarted agent.
 - Commands that ensure the local agent compare the running agent's reported build identity (`version`, `commit`, `built_at`) with the invoking CLI's build identity and transparently restart the agent once when the running agent is older or predates identity reporting. Semver versions compare by semver; equal or non-semver versions fall back to `built_at`. The automatic restart preserves the running agent's router address and internal router scheme so registered route URLs stay valid, and an older CLI never restarts a newer agent.

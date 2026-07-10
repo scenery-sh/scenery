@@ -443,10 +443,10 @@ func classifyHarnessChangedFile(path string) string {
 }
 
 func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands map[string]bool) {
-	if harnessDevEventBackendPath(path) {
-		docs["docs/plans/0056-dev-event-backend-cutover-and-parity.md"] = true
+	if harnessDevEventReadPath(path) {
+		docs["docs/local-contract.md"] = true
 		risks["victoria-dev-event-read-path"] = true
-		commands["scenery logs --backend victoria --limit 500 --jsonl"] = true
+		commands["scenery logs --limit 500 --jsonl"] = true
 	}
 	switch category {
 	case "cli":
@@ -489,13 +489,12 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 	}
 }
 
-func harnessDevEventBackendPath(path string) bool {
+func harnessDevEventReadPath(path string) bool {
 	switch path {
 	case "cmd/scenery/logs.go",
 		"cmd/scenery/logs_test.go",
 		"cmd/scenery/dev_console.go",
 		"cmd/scenery/dev_console_test.go",
-		"cmd/scenery/dev_event_backend.go",
 		"cmd/scenery/victoria_dev_logs.go",
 		"internal/devdash/dev_events.go",
 		"internal/devdash/store.go",

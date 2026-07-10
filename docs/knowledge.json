@@ -435,8 +435,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-02",
-      "review_after": "2026-08-02",
+      "last_reviewed": "2026-07-10",
+      "review_after": "2026-08-08",
       "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including Postgres app database env, service database URL patterns, standard auth Google OAuth and AuthTokenCipherKey secrets, and remote durable worker endpoint/token/service variables.",
       "tags": [
         "environment",

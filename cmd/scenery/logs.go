@@ -13,7 +13,6 @@ import (
 	localagent "scenery.sh/internal/agent"
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/devdash"
-	"scenery.sh/internal/envpolicy"
 )
 
 type logsOptions struct {
@@ -30,13 +29,7 @@ type logsOptions struct {
 	Since    time.Duration
 	SinceRaw string
 	TUI      bool
-	Backend  string
 }
-
-const (
-	logsBackendAuto     = "auto"
-	logsBackendVictoria = "victoria"
-)
 
 type logsEvent struct {
 	SchemaVersion string `json:"schema_version"`
@@ -131,9 +124,6 @@ func logArgsFromOptions(opts logsOptions, follow bool) []string {
 	if opts.SinceRaw != "" {
 		out = append(out, "--since", opts.SinceRaw)
 	}
-	if opts.Backend != "" && opts.Backend != logsBackendAuto {
-		out = append(out, "--backend", opts.Backend)
-	}
 	return out
 }
 
@@ -205,18 +195,10 @@ func logsDevEventQuery(opts logsOptions, appID, sessionID string) devdash.DevEve
 
 func parseLogsArgs(args []string) (logsOptions, error) {
 	opts := logsOptions{
-		Limit:   200,
-		Stream:  "all",
-		Backend: logsBackendAuto,
+		Limit:  200,
+		Stream: "all",
 	}
-	if backend := strings.TrimSpace(envpolicy.Get("SCENERY_LOGS_BACKEND")); backend != "" {
-		normalized := normalizeLogsBackend(backend)
-		if normalized == "" {
-			return logsOptions{}, fmt.Errorf("invalid logs backend %q", backend)
-		}
-		opts.Backend = normalized
-	}
-	backend, stream, level, since := opts.Backend, opts.Stream, "", ""
+	stream, level, since := opts.Stream, "", ""
 	flags := newCLIFlagSet("logs")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
@@ -226,7 +208,6 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 	flags.BoolVar(&opts.JSONL, "jsonl", false, "")
 	flags.BoolVar(&opts.JSONL, "json", false, "")
 	flags.BoolVar(&opts.TUI, "tui", false, "")
-	flags.StringVar(&backend, "backend", backend, "")
 	flags.StringVar(&stream, "stream", stream, "")
 	flags.StringVar(&opts.Session, "session", "", "")
 	flags.StringVar(&opts.Source, "source", "", "")
@@ -243,10 +224,6 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 	}
 	if opts.Limit <= 0 {
 		return logsOptions{}, fmt.Errorf("invalid limit %d", opts.Limit)
-	}
-	opts.Backend = normalizeLogsBackend(backend)
-	if opts.Backend == "" {
-		return logsOptions{}, fmt.Errorf("invalid backend %q", backend)
 	}
 	opts.Stream = normalizeLogStream(stream)
 	if opts.Stream == "" {
@@ -282,17 +259,6 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 		opts.SinceRaw = since
 	}
 	return opts, nil
-}
-
-func normalizeLogsBackend(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "auto":
-		return logsBackendAuto
-	case "victoria", "victorialogs", "vl":
-		return logsBackendVictoria
-	default:
-		return ""
-	}
 }
 
 var resolveLogsVictoriaStackFunc = resolveLogsVictoriaStack

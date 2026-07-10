@@ -77,14 +77,6 @@ type victoriaStack struct {
 	clearSince map[string]time.Time
 }
 
-type victoriaSubstrateComponent struct {
-	Name        string
-	DisplayName string
-	URL         string
-	Done        <-chan error
-	ExitRecord  func(error) localagent.SubstrateExit
-}
-
 var victoriaToolchainSyncMu sync.Mutex
 var victoriaSubstrateProcessLocks sync.Map
 
@@ -207,27 +199,6 @@ func (s *victoriaStack) MarkExternal() {
 			component.external = true
 		}
 	}
-}
-
-func (s *victoriaStack) Components() []victoriaSubstrateComponent {
-	if s == nil {
-		return nil
-	}
-	var components []victoriaSubstrateComponent
-	for _, component := range s.components {
-		if component == nil || component.done == nil {
-			continue
-		}
-		component := component
-		components = append(components, victoriaSubstrateComponent{
-			Name:        component.spec.Name,
-			DisplayName: component.spec.DisplayName,
-			URL:         component.baseURL,
-			Done:        component.done,
-			ExitRecord:  component.ExitRecord,
-		})
-	}
-	return components
 }
 
 func (c *victoriaComponent) ExitRecord(err error) localagent.SubstrateExit {
@@ -822,21 +793,19 @@ func monitorVictoriaSubstrate(agent *localagent.Client, events *devEventSink, st
 		close(done)
 		return done
 	}
-	components := stack.Components()
-	if len(components) == 0 {
+	if len(stack.components) == 0 {
 		close(done)
 		return done
 	}
 	var wg sync.WaitGroup
-	for _, component := range components {
-		component := component
-		if component.Done == nil || component.ExitRecord == nil {
+	for _, component := range stack.components {
+		if component == nil || component.done == nil {
 			continue
 		}
 		wg.Add(1)
-		go func() {
+		go func(component *victoriaComponent) {
 			defer wg.Done()
-			err, ok := <-component.Done
+			err, ok := <-component.done
 			if !ok {
 				return
 			}
@@ -844,17 +813,17 @@ func monitorVictoriaSubstrate(agent *localagent.Client, events *devEventSink, st
 			req := stack.SubstrateRequest(os.Getpid())
 			req.Status = "degraded"
 			req.LastExit = &exit
-			req.ComponentExits = map[string]localagent.SubstrateExit{component.Name: exit}
+			req.ComponentExits = map[string]localagent.SubstrateExit{component.spec.Name: exit}
 			_, _ = agent.UpsertSubstrate(context.Background(), req)
-			emitVictoriaSubstrateEvent(events, context.Background(), "degraded", component.DisplayName+" exited", substrateExitEventFields(exit), devdash.DevSource{
-				ID:     "victoria." + component.Name,
+			emitVictoriaSubstrateEvent(events, context.Background(), "degraded", component.spec.DisplayName+" exited", substrateExitEventFields(exit), devdash.DevSource{
+				ID:     "victoria." + component.spec.Name,
 				Kind:   "substrate",
-				Name:   component.DisplayName,
+				Name:   component.spec.DisplayName,
 				Role:   "observability",
 				Status: "degraded",
-				URL:    component.URL,
+				URL:    component.baseURL,
 			})
-		}()
+		}(component)
 	}
 	go func() {
 		wg.Wait()
