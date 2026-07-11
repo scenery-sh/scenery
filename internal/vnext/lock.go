@@ -146,8 +146,9 @@ func loadLockfile(root string) (*Lockfile, []Diagnostic, error) {
 		return nil, nil, err
 	}
 	sourceID := sourceID("scenery.lock.scn")
+	positions := newSourcePositionIndex(data)
 	file, hclDiagnostics := hclsyntax.ParseConfig(data, "scenery.lock.scn", hcl.Pos{Line: 1, Column: 1})
-	diagnostics := diagnosticsFromHCL(sourceID, data, hclDiagnostics)
+	diagnostics := diagnosticsFromHCL(sourceID, positions, hclDiagnostics)
 	if file == nil || hclDiagnostics.HasErrors() {
 		return nil, diagnostics, nil
 	}
@@ -157,7 +158,7 @@ func loadLockfile(root string) (*Lockfile, []Diagnostic, error) {
 	previousKey := ""
 	seen := map[string]bool{}
 	for _, rawBlock := range body.Blocks {
-		block := convertBlock(sourceID, data, rawBlock)
+		block := convertBlock(sourceID, data, positions, rawBlock)
 		switch block.Type {
 		case "lock":
 			lockBlocks++

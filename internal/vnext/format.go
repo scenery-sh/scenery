@@ -205,7 +205,7 @@ func canonicalFormatSource(source []byte, filename string) ([]byte, error) {
 		return nil, err
 	}
 	var replacements []formatReplacement
-	collectContextualFormatReplacements(formatted, body, nil, &replacements)
+	collectContextualFormatReplacements(formatted, newSourcePositionIndex(formatted), body, nil, &replacements)
 	sort.Slice(replacements, func(i, j int) bool { return replacements[i].start > replacements[j].start })
 	for _, replacement := range replacements {
 		if replacement.start < 0 || replacement.end < replacement.start || replacement.end > len(formatted) {
@@ -285,15 +285,15 @@ func canonicalComment(comment string, indentation int) string {
 	return strings.Join(lines, "\n") + lineEnding
 }
 
-func collectContextualFormatReplacements(source []byte, body *hclsyntax.Body, ancestors []string, replacements *[]formatReplacement) {
+func collectContextualFormatReplacements(source []byte, positions *sourcePositionIndex, body *hclsyntax.Body, ancestors []string, replacements *[]formatReplacement) {
 	for _, block := range body.Blocks {
 		path := append(append([]string(nil), ancestors...), block.Type)
 		for name, attribute := range block.Body.Attributes {
-			expected := formatterExpectedPrimitive(source, block, path, name)
+			expected := formatterExpectedPrimitive(source, positions, block, path, name)
 			if expected == "" {
 				continue
 			}
-			expression := convertExpression("format", source, attribute.Expr)
+			expression := convertExpression("format", source, positions, attribute.Expr)
 			value := expressionValue(expression)
 			canonical, ok := canonicalPrimitiveSourceLiteral(value, expected)
 			if !ok {
@@ -302,14 +302,14 @@ func collectContextualFormatReplacements(source []byte, body *hclsyntax.Body, an
 			rng := attribute.Expr.Range()
 			*replacements = append(*replacements, formatReplacement{start: rng.Start.Byte, end: rng.End.Byte, value: canonical})
 		}
-		collectContextualFormatReplacements(source, block.Body, path, replacements)
+		collectContextualFormatReplacements(source, positions, block.Body, path, replacements)
 	}
 }
 
-func formatterExpectedPrimitive(source []byte, block *hclsyntax.Block, path []string, attribute string) string {
+func formatterExpectedPrimitive(source []byte, positions *sourcePositionIndex, block *hclsyntax.Block, path []string, attribute string) string {
 	if attribute == "default" && (block.Type == "field" || block.Type == "input" || block.Type == "config_schema") {
 		if typeAttribute := block.Body.Attributes["type"]; typeAttribute != nil {
-			expression := convertExpression("format", source, typeAttribute.Expr)
+			expression := convertExpression("format", source, positions, typeAttribute.Expr)
 			typeName := typeExpressionText(expressionValue(expression))
 			for _, wrapper := range []string{"optional", "nullable"} {
 				prefix := wrapper + "("

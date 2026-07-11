@@ -108,13 +108,9 @@ func runVNextDeploy(stdout io.Writer, args []string) error {
 		if expectedWorkspace == "" || expectedContract == "" {
 			return fmt.Errorf("usage: scenery deploy apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
 		}
-		encoded, err := os.ReadFile(planPath)
-		if err != nil {
-			return err
-		}
 		var plan vnext.DeploymentPlan
-		if err := json.Unmarshal(encoded, &plan); err != nil {
-			return fmt.Errorf("invalid_request: decode deployment plan: %w", err)
+		if err := readExactVNextPlanFile(planPath, "deployment plan", &plan); err != nil {
+			return err
 		}
 		approvalTokens, err := readMigrationApprovalTokens(approvalTokenPaths)
 		if err != nil {

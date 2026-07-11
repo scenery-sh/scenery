@@ -20,14 +20,15 @@ import (
 )
 
 type Source struct {
-	ID       string
-	Path     string
-	Relative string
-	Bytes    []byte
-	File     *hcl.File
-	CST      *ConcreteSyntaxTree
-	Blocks   []*Block
-	External bool
+	ID        string
+	Path      string
+	Relative  string
+	Bytes     []byte
+	File      *hcl.File
+	CST       *ConcreteSyntaxTree
+	Blocks    []*Block
+	External  bool
+	positions *sourcePositionIndex
 }
 
 type Block struct {
@@ -68,11 +69,12 @@ func parseSourceLogical(path, relative string) (*Source, []Diagnostic) {
 	}
 	rel := filepath.ToSlash(relative)
 	id := sourceID(rel)
+	positions := newSourcePositionIndex(b)
 	file, diags := hclsyntax.ParseConfig(b, rel, hcl.Pos{Line: 1, Column: 1})
-	source := &Source{ID: id, Path: path, Relative: rel, Bytes: b, File: file}
-	resultDiags := diagnosticsFromHCL(id, b, diags)
+	source := &Source{ID: id, Path: path, Relative: rel, Bytes: b, File: file, positions: positions}
+	resultDiags := diagnosticsFromHCL(id, positions, diags)
 	var cstDiagnostics []Diagnostic
-	source.CST, cstDiagnostics = buildConcreteSyntaxTree(id, rel, b, file, diags.HasErrors())
+	source.CST, cstDiagnostics = buildConcreteSyntaxTree(id, rel, b, positions, file, diags.HasErrors())
 	resultDiags = append(resultDiags, cstDiagnostics...)
 	if file == nil {
 		return source, resultDiags
@@ -82,36 +84,36 @@ func parseSourceLogical(path, relative string) (*Source, []Diagnostic) {
 		return source, append(resultDiags, internalDiagnostic("SCN9001", "parser returned an unsupported body"))
 	}
 	for _, block := range body.Blocks {
-		source.Blocks = append(source.Blocks, convertBlock(id, b, block))
+		source.Blocks = append(source.Blocks, convertBlock(id, b, positions, block))
 	}
 	return source, resultDiags
 }
 
-func convertBlock(sourceID string, source []byte, block *hclsyntax.Block) *Block {
+func convertBlock(sourceID string, source []byte, positions *sourcePositionIndex, block *hclsyntax.Block) *Block {
 	converted := &Block{
 		Type:            block.Type,
 		Labels:          append([]string(nil), block.Labels...),
 		Attributes:      make(map[string]Expression, len(block.Body.Attributes)),
 		AttributeRanges: make(map[string]Range, len(block.Body.Attributes)),
-		Range:           convertRange(sourceID, source, block.Range()),
+		Range:           convertRange(sourceID, positions, block.Range()),
 	}
 	for name, attribute := range block.Body.Attributes {
-		converted.Attributes[name] = convertExpression(sourceID, source, attribute.Expr)
-		converted.AttributeRanges[name] = convertRange(sourceID, source, attribute.Range())
+		converted.Attributes[name] = convertExpression(sourceID, source, positions, attribute.Expr)
+		converted.AttributeRanges[name] = convertRange(sourceID, positions, attribute.Range())
 	}
 	for _, child := range block.Body.Blocks {
-		converted.Blocks = append(converted.Blocks, convertBlock(sourceID, source, child))
+		converted.Blocks = append(converted.Blocks, convertBlock(sourceID, source, positions, child))
 	}
 	return converted
 }
 
-func convertExpression(sourceID string, source []byte, expr hclsyntax.Expression) Expression {
+func convertExpression(sourceID string, source []byte, positions *sourcePositionIndex, expr hclsyntax.Expression) Expression {
 	rng := expr.Range()
 	raw := ""
 	if rng.Start.Byte >= 0 && rng.End.Byte <= len(source) && rng.Start.Byte <= rng.End.Byte {
 		raw = string(source[rng.Start.Byte:rng.End.Byte])
 	}
-	converted := Expression{Kind: "expression", Raw: raw, Range: convertRange(sourceID, source, rng), ValueRanges: expressionValueRanges(sourceID, source, expr), Static: staticExpressionAllowed(expr)}
+	converted := Expression{Kind: "expression", Raw: raw, Range: convertRange(sourceID, positions, rng), ValueRanges: expressionValueRanges(sourceID, positions, expr), Static: staticExpressionAllowed(expr)}
 	if value, diags := expr.Value(nil); !diags.HasErrors() && value.IsWhollyKnown() {
 		converted.Kind = "literal"
 		converted.Value = ctyValue(value)
@@ -139,7 +141,7 @@ func convertExpression(sourceID string, source []byte, expr hclsyntax.Expression
 	return converted
 }
 
-func expressionValueRanges(sourceID string, source []byte, expression hclsyntax.Expression) map[string]Range {
+func expressionValueRanges(sourceID string, positions *sourcePositionIndex, expression hclsyntax.Expression) map[string]Range {
 	ranges := map[string]Range{}
 	var visit func(hclsyntax.Expression, string)
 	visit = func(current hclsyntax.Expression, path string) {
@@ -149,7 +151,7 @@ func expressionValueRanges(sourceID string, source []byte, expression hclsyntax.
 		case *hclsyntax.TupleConsExpr:
 			for index, item := range typed.Exprs {
 				childPath := path + "/" + strconv.Itoa(index)
-				ranges[childPath] = convertRange(sourceID, source, item.Range())
+				ranges[childPath] = convertRange(sourceID, positions, item.Range())
 				visit(item, childPath)
 			}
 		case *hclsyntax.ObjectConsExpr:
@@ -159,7 +161,7 @@ func expressionValueRanges(sourceID string, source []byte, expression hclsyntax.
 					continue
 				}
 				childPath := path + "/" + escapeJSONPointer(keyValue.AsString())
-				ranges[childPath] = convertRange(sourceID, source, item.ValueExpr.Range())
+				ranges[childPath] = convertRange(sourceID, positions, item.ValueExpr.Range())
 				visit(item.ValueExpr, childPath)
 			}
 		}
@@ -420,15 +422,15 @@ func traversalString(traversal hcl.Traversal) string {
 	return strings.Join(parts, ".")
 }
 
-func convertRange(sourceID string, source []byte, rng hcl.Range) Range {
+func convertRange(sourceID string, positions *sourcePositionIndex, rng hcl.Range) Range {
 	return Range{
 		SourceID: sourceID,
-		Start:    sourcePosition(source, rng.Start.Byte),
-		End:      sourcePosition(source, rng.End.Byte),
+		Start:    positions.position(rng.Start.Byte),
+		End:      positions.position(rng.End.Byte),
 	}
 }
 
-func diagnosticsFromHCL(sourceID string, source []byte, diagnostics hcl.Diagnostics) []Diagnostic {
+func diagnosticsFromHCL(sourceID string, positions *sourcePositionIndex, diagnostics hcl.Diagnostics) []Diagnostic {
 	result := make([]Diagnostic, 0, len(diagnostics))
 	for _, diag := range diagnostics {
 		severity := "warning"
@@ -437,7 +439,7 @@ func diagnosticsFromHCL(sourceID string, source []byte, diagnostics hcl.Diagnost
 		}
 		item := Diagnostic{Code: "SCN1000", Severity: severity, Message: diag.Summary + ": " + diag.Detail}
 		if diag.Subject != nil {
-			rng := convertRange(sourceID, source, *diag.Subject)
+			rng := convertRange(sourceID, positions, *diag.Subject)
 			item.Range = &rng
 		}
 		result = append(result, item)
@@ -452,24 +454,42 @@ func sourceID(relative string) string {
 	return "src_" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:]))
 }
 
-func sourcePosition(source []byte, offset int) Position {
+type sourcePositionIndex struct {
+	source     []byte
+	lineStarts []int
+}
+
+func newSourcePositionIndex(source []byte) *sourcePositionIndex {
+	index := &sourcePositionIndex{source: source, lineStarts: []int{0}}
+	for offset, value := range source {
+		if value == '\n' {
+			index.lineStarts = append(index.lineStarts, offset+1)
+		}
+	}
+	return index
+}
+
+func (index *sourcePositionIndex) position(offset int) Position {
+	if index == nil {
+		return Position{ByteOffset: offset}
+	}
 	if offset < 0 {
 		offset = 0
-	} else if offset > len(source) {
-		offset = len(source)
+	} else if offset > len(index.source) {
+		offset = len(index.source)
 	}
-	line, column := 0, 0
-	for index := 0; index < offset; {
-		if source[index] == '\n' {
-			line, column, index = line+1, 0, index+1
-			continue
-		}
-		_, size := utf8.DecodeRune(source[index:])
+	line := sort.Search(len(index.lineStarts), func(candidate int) bool { return index.lineStarts[candidate] > offset }) - 1
+	if line < 0 {
+		line = 0
+	}
+	column := 0
+	for cursor := index.lineStarts[line]; cursor < offset; {
+		_, size := utf8.DecodeRune(index.source[cursor:])
 		if size == 0 {
 			size = 1
 		}
 		column++
-		index += size
+		cursor += size
 	}
 	return Position{Line: line, Column: column, ByteOffset: offset}
 }

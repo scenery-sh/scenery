@@ -103,6 +103,9 @@ func PlanMigrationInitialization(root, caller string) (MigrationInitializationPl
 		ExpiresAt:                  time.Now().UTC().Add(15 * time.Minute),
 	}
 	plan.PlanID = migrationInitializationPlanID(plan)
+	if err := retainIssuedPlan(absRoot, issuedMigrationInitializationPlan, plan.PlanID, plan); err != nil {
+		return MigrationInitializationPlan{}, err
+	}
 	return plan, nil
 }
 
@@ -112,6 +115,9 @@ func ApplyMigrationInitialization(root string, plan MigrationInitializationPlan,
 		return MigrationInitializationReceipt{}, fmt.Errorf("load legacy app root: %w", err)
 	}
 	root = discoveredRoot
+	if err := requireIssuedPlan(root, issuedMigrationInitializationPlan, plan.PlanID, plan); err != nil {
+		return MigrationInitializationReceipt{}, err
+	}
 	if time.Now().UTC().After(plan.ExpiresAt) {
 		return MigrationInitializationReceipt{}, fmt.Errorf("failed_precondition: migration initialization plan expired")
 	}

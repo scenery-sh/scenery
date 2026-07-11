@@ -243,6 +243,9 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 	}
 	plan.OperationsDigest = semanticOperationsDigest(plan.Operations)
 	plan.PlanID = changePlanID(plan)
+	if err := retainIssuedPlan(root, issuedChangePlan, plan.PlanID, plan); err != nil {
+		return ChangePlan{}, err
+	}
 	return plan, nil
 }
 
@@ -251,6 +254,9 @@ func ApplyChangePlan(root string, plan ChangePlan, expectedWorkspace, expectedCo
 }
 
 func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptions) (ChangeReceipt, error) {
+	if err := requireIssuedPlan(root, issuedChangePlan, plan.PlanID, plan); err != nil {
+		return ChangeReceipt{}, err
+	}
 	if time.Now().UTC().After(plan.ExpiresAt) {
 		return ChangeReceipt{}, fmt.Errorf("failed_precondition: plan expired")
 	}
@@ -411,7 +417,11 @@ func renameResource(root string, base *Result, resource Resource, newName string
 		return fmt.Errorf("source for %s not found", resource.Address)
 	}
 	targetDirectory := filepath.ToSlash(filepath.Dir(targetSource.Relative))
-	for _, source := range base.Sources {
+	sources := append([]*Source(nil), base.Sources...)
+	if base.Migration != nil && base.Migration.Source != nil {
+		sources = append(sources, base.Migration.Source)
+	}
+	for _, source := range sources {
 		if source.ID == "" || filepath.ToSlash(filepath.Dir(source.Relative)) != targetDirectory {
 			continue
 		}
@@ -490,7 +500,11 @@ func collectSourceTraversalReplacements(source *Source, oldTraversal, newTravers
 				if text != oldTraversal && !strings.HasPrefix(text, oldTraversal+".") {
 					continue
 				}
-				rng := convertRange(source.ID, source.Bytes, traversal.SourceRange())
+				positions := source.positions
+				if positions == nil {
+					positions = newSourcePositionIndex(source.Bytes)
+				}
+				rng := convertRange(source.ID, positions, traversal.SourceRange())
 				key := fmt.Sprintf("%d:%d", rng.Start.ByteOffset, rng.End.ByteOffset)
 				if seen[key] {
 					continue
@@ -798,62 +812,6 @@ func normalizePresentedSemanticValue(presented, effective any) any {
 		return result
 	}
 	return cloneSemanticValue(effective)
-}
-
-func plannedRenameReceipts(base, target *Manifest, operations []SemanticOperation) []RenameReceipt {
-	baseResources := resourcesByAddress(base)
-	targetResources := resourcesByAddress(target)
-	type renameState struct {
-		from     string
-		current  string
-		resource Resource
-	}
-	statesByCurrent := map[string]*renameState{}
-	for _, operation := range operations {
-		if operation.Op != "resource.rename" {
-			continue
-		}
-		state := statesByCurrent[operation.Address]
-		if state == nil {
-			resource, ok := baseResources[operation.Address]
-			if !ok {
-				continue
-			}
-			state = &renameState{from: operation.Address, current: operation.Address, resource: resource}
-		}
-		newName, ok := operation.Value.(string)
-		if !ok {
-			continue
-		}
-		delete(statesByCurrent, state.current)
-		state.current = resourceAddress(state.resource.Module, blockTypeForKind(state.resource.Kind), newName)
-		statesByCurrent[state.current] = state
-	}
-	receipts := []RenameReceipt{}
-	for _, state := range statesByCurrent {
-		if renamed, exists := targetResources[state.current]; !exists || renamed.Kind != state.resource.Kind {
-			continue
-		}
-		receipt := RenameReceipt{
-			From: state.from, To: state.current,
-			BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision,
-		}
-		receipt.Digest = renameReceiptDigest(receipt)
-		receipts = append(receipts, receipt)
-	}
-	sort.Slice(receipts, func(i, j int) bool {
-		if receipts[i].From != receipts[j].From {
-			return receipts[i].From < receipts[j].From
-		}
-		return receipts[i].To < receipts[j].To
-	})
-	return receipts
-}
-
-func renameReceiptDigest(receipt RenameReceipt) string {
-	receipt.Digest = ""
-	b, _ := MarshalCanonical(receipt)
-	return byteDigest(append([]byte("scenery.rename-receipt.v1\x00"), b...))
 }
 
 func rejectSecretMutation(operation SemanticOperation) error {

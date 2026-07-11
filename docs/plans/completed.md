@@ -6,6 +6,26 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Edition-2027 Transaction and Migration Conformance
+
+- Status: completed
+- Owner: scenery compiler / runtime / agent interfaces
+- Completed: 2026-07-11
+- Quality: B
+- ExecPlan: [0105 Edition-2027 Transaction and Migration Conformance](0105-edition-2027-transaction-and-migration-conformance.md)
+
+Shipped:
+
+- Authenticated exact app-local issuance for change, deployment, and every migration plan family before apply trusts expiry, approvals, operations, edits, or provider actions; strict single-value plan decoding rejects unknown fields, and approval-bearing migration transitions now retain and apply one exact plan.
+- Made legacy migration evidence truthful across static, behavioral, and operational dimensions; service status aggregates typed construct evidence, cutover classes include both candidates, and candidate validation preserves every other active owner while detecting route, durable, schedule, and event identities.
+- Completed mixed-app rename lineage, config-free bounded legacy TypeScript generation from canonical resources, default-before-patch ordering, exact package-input provenance for generated Go config schemas, and near-linear Unicode source positions.
+- Added public-boundary regressions for caller-tampered plans, apply grammar/non-mutation, advisory activation, cross-owner references and collisions, migration/module rename, config-free generation/planning, exact provenance, and source scaling.
+
+Validation:
+
+- Passed uncached full Go tests, fifteen TypeScript codec tests, generated-client typechecking, byte-identical House/native/bridge generation, docs and schema inspection, and the default self-harness with no failing steps.
+- Repeated independent standards and specification reviews until both reported no actionable findings.
+
 ## Edition-2027 Conformance Hardening
 
 - Status: completed

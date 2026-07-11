@@ -177,8 +177,7 @@ func migrationConstructStatuses(result *Result, service MigrationService, operat
 		}
 		guarantee, disposition := "verified", "native_equivalent"
 		if hasLegacy && legacyResource.Compatibility != nil {
-			guarantee = legacyResource.Compatibility.Contract
-			disposition = legacyResource.Compatibility.MigrationDisposition
+			guarantee, disposition = migrationResourceEvidence(legacyResource)
 		}
 		required := migrationResourceProfiles(resource)
 		missing := []string{}

@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -93,7 +95,7 @@ func (service *Service) Secret(context.Context) (*EchoResponse, error) {
 		t.Fatalf("initialized status = %#v, %v", status, err)
 	}
 	for _, construct := range status.Constructs {
-		if construct.Address == "service/binding/echo_http_1" && (construct.ActiveOwner != "legacy" || construct.GuaranteeClassification != "verified" || len(construct.ExternalIdentities) != 1) {
+		if construct.Address == "service/binding/echo_http_1" && (construct.ActiveOwner != "legacy" || construct.GuaranteeClassification != "advisory" || construct.MigrationDisposition != "advisory" || len(construct.ExternalIdentities) != 1) {
 			t.Fatalf("typed legacy construct = %#v", construct)
 		}
 		if construct.OperationalStateRevision == "" || len(construct.CLIProtocolDependencies) != 2 || construct.ExternalAliases == nil || construct.DeployedConsumerGates == nil {
@@ -140,7 +142,7 @@ func (service *Service) Secret(context.Context) (*EchoResponse, error) {
 	}
 
 	comparison, err := CompareMigrationService(shadowResult, "service")
-	if err != nil || !comparison.Complete {
+	if err != nil || !comparison.StaticContractComplete || comparison.BehavioralEvidenceComplete || comparison.Complete {
 		unknown := make([]string, 0)
 		for _, difference := range comparison.Differences {
 			if difference.Classification == CompatibilityUnknown || difference.Classification == SecurityUnknown {
@@ -157,6 +159,19 @@ func (service *Service) Secret(context.Context) (*EchoResponse, error) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !slices.Contains(activationPlan.RequiredApprovals, "risk_advisory_migration_evidence") {
+		t.Fatalf("activation approvals = %#v", activationPlan.RequiredApprovals)
+	}
+	tamperedActivation := activationPlan
+	tamperedActivation.RequiredApprovals = nil
+	tamperedActivation.PlanID = migrationPlanID(tamperedActivation)
+	if _, err := ApplyMigrationPlan(root, tamperedActivation, MigrationApplyOptions{
+		ExpectedWorkspaceRevision: tamperedActivation.BaseWorkspaceRevision,
+		ExpectedContractRevision:  tamperedActivation.BaseContractRevision,
+		Caller:                    tamperedActivation.Caller,
+	}); err == nil || !strings.Contains(err.Error(), "issued plan") {
+		t.Fatalf("approval-stripped activation error = %v", err)
 	}
 	activationReceipt, err := ApplyMigrationPlan(root, activationPlan, migrationTestApplyOptions(activationPlan))
 	if err != nil {

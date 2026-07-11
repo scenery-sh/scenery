@@ -141,10 +141,16 @@ func PlanMigrationCandidate(root string, request MigrationCandidateRequest) (Mig
 		ExpiresAt:                  time.Now().UTC().Add(15 * time.Minute),
 	}
 	plan.PlanID = migrationCandidatePlanID(plan)
+	if err := retainIssuedPlan(root, issuedMigrationCandidatePlan, plan.PlanID, plan); err != nil {
+		return MigrationCandidatePlan{}, err
+	}
 	return plan, nil
 }
 
 func ApplyMigrationCandidate(root string, plan MigrationCandidatePlan, options MigrationCandidateApplyOptions) (MigrationCandidateReceipt, error) {
+	if err := requireIssuedPlan(root, issuedMigrationCandidatePlan, plan.PlanID, plan); err != nil {
+		return MigrationCandidateReceipt{}, err
+	}
 	if time.Now().UTC().After(plan.ExpiresAt) {
 		return MigrationCandidateReceipt{}, fmt.Errorf("failed_precondition: migration candidate plan expired")
 	}

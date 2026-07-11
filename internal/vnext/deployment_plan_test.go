@@ -130,6 +130,44 @@ func TestManagedDeploymentRequiresAndInvokesProviderAdapter(t *testing.T) {
 	}
 }
 
+func TestDeploymentApplyRejectsCallerRecomputedProviderPlan(t *testing.T) {
+	root := deploymentPlanFixture(t, "managed")
+	provider := &testDeploymentProvider{}
+	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
+	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := plan
+	tampered.ProviderPlans = append([]DeploymentProviderPlan(nil), plan.ProviderPlans...)
+	for index := range tampered.ProviderPlans {
+		if tampered.ProviderPlans[index].ProviderAddress != "app/provider/postgres" {
+			continue
+		}
+		tampered.ProviderPlans[index].Actions = []DeploymentAction{{Kind: "delete", Address: "app/data_source/database", Destructive: true}}
+		tampered.ProviderPlans[index] = normalizeDeploymentProviderPlan(tampered.ProviderPlans[index])
+	}
+	tampered.RequiredApprovals = nil
+	tampered.RiskRecords = nil
+	digests := deploymentProviderPlanDigests(tampered.ProviderPlans)
+	result, compileErr := compileContractGraph(root, false)
+	if compileErr != nil {
+		t.Fatal(compileErr)
+	}
+	tampered.DeploymentRevision = computeDeploymentRevisions(result.Manifest, tampered.ImplementationRevision, map[string][]string{tampered.Deployment: digests})[tampered.DeploymentName]
+	tampered.ExpiresAt = tampered.ExpiresAt.Add(time.Hour)
+	tampered.PlanID = deploymentPlanID(tampered)
+	if _, err := ApplyDeploymentPlan(context.Background(), root, tampered, DeploymentApplyOptions{
+		ExpectedWorkspaceRevision: tampered.BaseWorkspaceRevision, ExpectedContractRevision: tampered.ContractRevision,
+		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
+	}, registry); err == nil || !strings.Contains(err.Error(), "issued plan") {
+		t.Fatalf("tampered deployment plan error = %v", err)
+	}
+	if provider.applied {
+		t.Fatal("tampered provider plan reached adapter apply")
+	}
+}
+
 func TestDeploymentProviderApplyFailureDoesNotWriteState(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 

@@ -4,7 +4,7 @@ This cookbook is the practical "how do I build this?" companion to `docs/local-c
 
 ## Edition-2027 Native Or Mixed App
 
-Create `scenery.scn` with `language`, `application`, installed `module` blocks, gateways, and declared generation targets. Each local module owns a `scenery.package.scn`. A mixed app also keeps its legacy app config and an explicit `scenery.migration.scn`; every discovered service must appear as `legacy_service`, `shadow_service`, or `native_service`.
+Create `scenery.scn` with `language`, `application`, installed `module` blocks, gateways, and declared generation targets. Each local module owns a `scenery.package.scn`. A mixed app keeps an explicit `scenery.migration.scn`; it references the exact legacy app config while that shared file exists and omits `legacy_config` after the file is removed. Remaining bounded legacy services and clients then resolve from the compiled migration snapshot. Every discovered service must appear as `legacy_service`, `shadow_service`, or `native_service`.
 
 Use the compiler and committed-generation loop:
 
@@ -47,13 +47,15 @@ scenery db seed --env development --dry-run --json
 scenery db seed --env development --json
 ```
 
-To migrate a service, generate a native candidate, shadow and compare it, activate native ownership with evidence for every reported non-stateless cutover class, verify the service, then retire the legacy candidate. Handler migration may proceed operation by operation: move the service implementation to the native lifecycle, then remove each operation's `legacy_go_v0` adapter while `migrate status` reports the remaining count. During that mixed phase, the native constructor must still return a pointer assignable to every remaining legacy endpoint receiver; `scenery check` rejects an incompatible split before startup. Keep the activation receipt until retirement because rollback is a new receipt-bound plan, not a runtime toggle. Finish the whole bridge only after all services are native and retired, all adapters/incomplete constructs are gone, v0 CLI and legacy generated-client consumers are cleared, and every stateful retirement has an evidence reference:
+To migrate a service, generate a native candidate, shadow and compare it, activate native ownership with evidence for every reported non-stateless cutover class, verify the service, then retire the legacy candidate. Read `static_contract_complete`, `static_contract_equal`, `behavioral_evidence_complete`, and `operational_evidence_complete` separately. Static equality does not waive advisory behavior: when the activation plan reports `risk_advisory_migration_evidence`, obtain a detached project approval token bound to that exact plan and pass it with `--approval-token`. Handler migration may proceed operation by operation: move the service implementation to the native lifecycle, then remove each operation's `legacy_go_v0` adapter while `migrate status` reports the remaining count. During that mixed phase, the native constructor must still return a pointer assignable to every remaining legacy endpoint receiver; `scenery check` rejects an incompatible split before startup. Keep the activation receipt until retirement because rollback is a new receipt-bound plan, not a runtime toggle. Finish the whole bridge only after all services are native and retired, all adapters/incomplete constructs are gone, v0 CLI and legacy generated-client consumers are cleared, and every stateful retirement has an evidence reference:
 
 ```sh
 scenery migrate service house --generate --dry-run -o json
 scenery migrate service house --shadow --dry-run -o json
 scenery migrate compare house -o json
-scenery migrate activate house --native --dry-run --evidence generated_client=artifact://consumer-gate -o json
+scenery migrate activate house --native --dry-run --out /tmp/house-activation-plan.json --evidence generated_client=artifact://consumer-gate -o json
+# Have the project approval service issue a token for plan_id and required_approvals in that exact file.
+scenery migrate apply /tmp/house-activation-plan.json --approval-token /path/to/project-issued-token.json -o json
 scenery migrate verify house -o json
 scenery migrate service house --retire --dry-run -o json
 scenery migrate finish --dry-run --evidence v0_cli_consumers=artifact://cli-audit -o json

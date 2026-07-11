@@ -302,12 +302,10 @@ func linkMigrationResources(native, legacy []Resource, migration *Migration) ([]
 		service.LegacyCandidateDigest = migrationCandidateDigest("legacy", legacyCandidate)
 		service.NativeCandidateDigest = migrationCandidateDigest("native", nativeCandidate)
 		service.RollbackSafety = "safe"
-		service.CutoverClasses = migrationCutoverClasses(nativeCandidate)
-		service.GuaranteeClassification = "verified"
-		service.MigrationDisposition = "native_equivalent"
-		if len(legacyCandidate) > 0 && !migrationCandidateContractComplete(legacyCandidate) {
-			service.GuaranteeClassification = "advisory"
-			service.MigrationDisposition = "advisory"
+		service.CutoverClasses = migrationServiceCutoverClasses(legacyCandidate, nativeCandidate)
+		service.GuaranteeClassification, service.MigrationDisposition = "verified", "native_equivalent"
+		if len(legacyCandidate) > 0 {
+			service.GuaranteeClassification, service.MigrationDisposition = migrationCandidateEvidence(legacyCandidate)
 		}
 		if service.State == "native" {
 			service.RollbackSafety = "unavailable"
@@ -372,27 +370,40 @@ func validateMigrationCandidateGraphs(root string, active []Resource, migration 
 	if migration == nil {
 		return
 	}
-	shared := make([]Resource, 0)
-	sharedPackageTypes := migrationSharedPackageTypes(active)
-	for _, resource := range active {
-		if resource.Module == "app" || resource.Kind == "scenery.module/v1" || sharedPackageTypes[resource.Address] {
-			shared = append(shared, resource)
-		}
-	}
 	for index := range migration.Services {
 		service := &migration.Services[index]
 		service.CandidateDiagnostics = map[string][]Diagnostic{}
 		if candidate := migration.LegacyCandidates[service.Name]; len(candidate) > 0 {
-			diagnostics := validateResources(root, append(append([]Resource(nil), shared...), candidate...), nil)
+			diagnostics := validateResources(root, migrationCandidateOperatingGraph(active, migration, *service, candidate), nil)
 			service.CandidateDiagnostics["legacy"] = diagnostics
 			service.LegacyCandidateValid = !hasErrors(diagnostics)
 		}
 		if candidate := migration.NativeCandidates[service.Name]; len(candidate) > 0 {
-			diagnostics := validateResources(root, append(append([]Resource(nil), shared...), candidate...), nil)
+			diagnostics := validateResources(root, migrationCandidateOperatingGraph(active, migration, *service, candidate), nil)
 			service.CandidateDiagnostics["native"] = diagnostics
 			service.NativeCandidateValid = !hasErrors(diagnostics)
 		}
 	}
+}
+
+func migrationCandidateOperatingGraph(active []Resource, migration *Migration, service MigrationService, candidate []Resource) []Resource {
+	activeOwner := migration.LegacyCandidates[service.Name]
+	if service.Active == "native" {
+		activeOwner = migration.NativeCandidates[service.Name]
+	}
+	owned := map[string]bool{}
+	for _, resource := range activeOwner {
+		owned[resource.Address] = true
+	}
+	predicted := make([]Resource, 0, len(active)+len(candidate))
+	for _, resource := range active {
+		if !owned[resource.Address] {
+			predicted = append(predicted, resource)
+		}
+	}
+	predicted = append(predicted, candidate...)
+	sort.Slice(predicted, func(i, j int) bool { return predicted[i].Address < predicted[j].Address })
+	return predicted
 }
 
 func migrationSharedPackageTypes(resources []Resource) map[string]bool {
@@ -471,18 +482,22 @@ type MigrationDifference struct {
 }
 
 type MigrationComparison struct {
-	APIVersion            string                `json:"api_version"`
-	Service               string                `json:"service"`
-	State                 string                `json:"state"`
-	Active                string                `json:"active"`
-	EvidenceMode          string                `json:"evidence_mode"`
-	LegacyCandidateDigest string                `json:"legacy_candidate_digest,omitempty"`
-	NativeCandidateDigest string                `json:"native_candidate_digest,omitempty"`
-	ComparisonDigest      string                `json:"comparison_digest"`
-	Equal                 bool                  `json:"equal"`
-	Complete              bool                  `json:"complete"`
-	Differences           []MigrationDifference `json:"differences"`
-	SemanticDiff          SemanticDiff          `json:"semantic_diff"`
+	APIVersion                  string                `json:"api_version"`
+	Service                     string                `json:"service"`
+	State                       string                `json:"state"`
+	Active                      string                `json:"active"`
+	EvidenceMode                string                `json:"evidence_mode"`
+	LegacyCandidateDigest       string                `json:"legacy_candidate_digest,omitempty"`
+	NativeCandidateDigest       string                `json:"native_candidate_digest,omitempty"`
+	ComparisonDigest            string                `json:"comparison_digest"`
+	StaticContractComplete      bool                  `json:"static_contract_complete"`
+	StaticContractEqual         bool                  `json:"static_contract_equal"`
+	BehavioralEvidenceComplete  bool                  `json:"behavioral_evidence_complete"`
+	OperationalEvidenceComplete bool                  `json:"operational_evidence_complete"`
+	Equal                       bool                  `json:"equal"`
+	Complete                    bool                  `json:"complete"`
+	Differences                 []MigrationDifference `json:"differences"`
+	SemanticDiff                SemanticDiff          `json:"semantic_diff"`
 }
 
 func CompareMigrationService(result *Result, serviceName string) (MigrationComparison, error) {
@@ -522,13 +537,23 @@ func CompareMigrationService(result *Result, serviceName string) (MigrationCompa
 			differences = append(differences, MigrationDifference{Dimension: "source", Address: change.Address, Path: change.Path, Legacy: change.Base, Native: change.Target, Classification: CompatibilityUnknown})
 		}
 	}
-	complete := service.LegacyCandidateValid && service.NativeCandidateValid && migrationCandidateContractComplete(legacy) && migrationCandidateContractComplete(native) && migrationDifferencesComplete(differences)
+	staticComplete := service.LegacyCandidateValid && service.NativeCandidateValid && migrationCandidateStaticContractComplete(legacy) && migrationCandidateStaticContractComplete(native) && migrationDifferencesComplete(differences)
+	staticEqual := staticComplete && len(differences) == 0
+	behavioralComplete := migrationCandidateBehavioralEvidenceComplete(legacy)
+	operationalComplete := migrationCandidateOperationalEvidenceComplete(legacy, native)
+	complete := staticComplete && behavioralComplete && operationalComplete
 	comparison := MigrationComparison{
 		APIVersion: "scenery.migrate.compare.v1", Service: serviceName, State: service.State, Active: service.Active, EvidenceMode: "static_contract",
 		LegacyCandidateDigest: service.LegacyCandidateDigest, NativeCandidateDigest: service.NativeCandidateDigest,
-		Equal: complete && len(differences) == 0, Complete: complete, Differences: differences, SemanticDiff: diff,
+		StaticContractComplete: staticComplete, StaticContractEqual: staticEqual,
+		BehavioralEvidenceComplete: behavioralComplete, OperationalEvidenceComplete: operationalComplete,
+		Equal: complete && staticEqual, Complete: complete, Differences: differences, SemanticDiff: diff,
 	}
-	comparison.ComparisonDigest = revisionHash("scenery.migration-comparison.v1\x00", map[string]any{"service": serviceName, "legacy": comparison.LegacyCandidateDigest, "native": comparison.NativeCandidateDigest, "mode": comparison.EvidenceMode, "differences": differences, "complete": complete})
+	comparison.ComparisonDigest = revisionHash("scenery.migration-comparison.v1\x00", map[string]any{
+		"service": serviceName, "legacy": comparison.LegacyCandidateDigest, "native": comparison.NativeCandidateDigest,
+		"mode": comparison.EvidenceMode, "differences": differences, "static_complete": staticComplete, "static_equal": staticEqual,
+		"behavioral_complete": behavioralComplete, "operational_complete": operationalComplete, "complete": complete,
+	})
 	return comparison, nil
 }
 
@@ -604,59 +629,95 @@ func migrationDifferencesComplete(differences []MigrationDifference) bool {
 	return true
 }
 
-func migrationCandidateContractComplete(resources []Resource) bool {
+func migrationCandidateStaticContractComplete(resources []Resource) bool {
 	for _, resource := range resources {
 		if resource.Compatibility != nil && resource.Compatibility.Contract != "verified" {
-			return false
-		}
-		if semanticValueContains(resource.Spec, "legacy.type.advisory") || semanticValueContains(resource.Spec, "opaque") || semanticValueContainsExceptAdvisoryHTTPGuarantee(resource.Spec, "advisory") || semanticValueContains(resource.Spec, "unsupported") {
 			return false
 		}
 	}
 	return true
 }
 
-func semanticValueContainsExceptAdvisoryHTTPGuarantee(value any, target string) bool {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, item := range typed {
-			if key == "guarantee" && item == "advisory" {
-				continue
+func migrationCandidateBehavioralEvidenceComplete(resources []Resource) bool {
+	for _, resource := range resources {
+		if resource.Compatibility != nil {
+			semantics := resource.Compatibility.Semantics
+			if semantics != "" && semantics != "verified" && semantics != "legacy_exact" {
+				return false
 			}
-			if semanticValueContainsExceptAdvisoryHTTPGuarantee(item, target) {
-				return true
-			}
-		}
-	case []any:
-		for _, item := range typed {
-			if semanticValueContainsExceptAdvisoryHTTPGuarantee(item, target) {
-				return true
+			disposition := resource.Compatibility.MigrationDisposition
+			if disposition != "" && disposition != "native_equivalent" {
+				return false
 			}
 		}
-	case string:
-		return typed == target
 	}
-	return false
+	return true
 }
 
-func semanticValueContains(value any, target string) bool {
-	switch typed := value.(type) {
-	case string:
-		return typed == target
-	case map[string]any:
-		for _, item := range typed {
-			if semanticValueContains(item, target) {
-				return true
-			}
-		}
-	case []any:
-		for _, item := range typed {
-			if semanticValueContains(item, target) {
-				return true
-			}
+func migrationCandidateOperationalEvidenceComplete(legacy, native []Resource) bool {
+	for _, class := range migrationServiceCutoverClasses(legacy, native) {
+		if class != "stateless_route" {
+			return false
 		}
 	}
-	return false
+	return true
+}
+
+func migrationServiceCutoverClasses(legacy, native []Resource) []string {
+	resources := make([]Resource, 0, len(legacy)+len(native))
+	resources = append(resources, legacy...)
+	resources = append(resources, native...)
+	return migrationCutoverClasses(resources)
+}
+
+func migrationCandidateEvidence(resources []Resource) (string, string) {
+	guarantee, disposition := "verified", "native_equivalent"
+	for _, resource := range resources {
+		candidateGuarantee, candidateDisposition := migrationResourceEvidence(resource)
+		if migrationEvidenceRank(candidateGuarantee) > migrationEvidenceRank(guarantee) {
+			guarantee = candidateGuarantee
+		}
+		if migrationEvidenceRank(candidateDisposition) > migrationEvidenceRank(disposition) {
+			disposition = candidateDisposition
+		}
+	}
+	return guarantee, disposition
+}
+
+func migrationResourceEvidence(resource Resource) (string, string) {
+	if resource.Compatibility == nil {
+		return "verified", "native_equivalent"
+	}
+	guarantee := resource.Compatibility.Contract
+	if guarantee == "" || guarantee == "legacy_exact" {
+		guarantee = "verified"
+	}
+	semantics := resource.Compatibility.Semantics
+	if semantics != "" && semantics != "verified" && semantics != "legacy_exact" && migrationEvidenceRank(semantics) > migrationEvidenceRank(guarantee) {
+		guarantee = semantics
+	}
+	disposition := resource.Compatibility.MigrationDisposition
+	if disposition == "" {
+		disposition = "native_equivalent"
+	}
+	return guarantee, disposition
+}
+
+func migrationEvidenceRank(value string) int {
+	switch value {
+	case "", "verified", "legacy_exact", "native_equivalent":
+		return 0
+	case "advisory":
+		return 1
+	case "rewrite_required":
+		return 2
+	case "opaque":
+		return 3
+	case "unsupported":
+		return 4
+	default:
+		return 1
+	}
 }
 
 func migrationService(migration *Migration, name string) (MigrationService, error) {

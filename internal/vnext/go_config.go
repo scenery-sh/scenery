@@ -52,10 +52,39 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 				field[constraint] = cloneSemanticValue(value)
 			}
 			schema = append(schema, field)
+			index := len(schema) - 1
+			basePath := fmt.Sprintf("/spec/config_schema/%d", index)
+			baseField := packageInputContractProvenance(*service, declaration, inputName, "")
+			setFieldProvenance(&service.Origin, basePath, field, baseField)
+			nameField := baseField
+			nameField.Kind = "service_config_alias"
+			if authored := service.Origin.FieldProvenance["/spec/config/"+escapeJSONPointer(name)]; authored.DeclaredAt != nil {
+				nameField.DeclaredAt = authored.DeclaredAt
+			}
+			setFieldProvenance(&service.Origin, basePath+"/name", name, nameField)
+			for _, attribute := range []string{"type", "phase", "sensitive"} {
+				setFieldProvenance(&service.Origin, basePath+"/"+attribute, field[attribute], packageInputContractProvenance(*service, declaration, inputName, attribute))
+			}
+			for constraint := range declaration.Constraints {
+				setFieldProvenance(&service.Origin, basePath+"/"+escapeJSONPointer(constraint), field[constraint], packageInputContractProvenance(*service, declaration, inputName, constraint))
+			}
 		}
 		service.Spec["config_schema"] = schema
 	}
 	return result, diagnostics
+}
+
+func packageInputContractProvenance(service Resource, declaration packageInputDeclaration, inputName, attribute string) FieldProvenance {
+	declaredAt := declaration.DeclarationRange
+	if rng, ok := declaration.AttributeRanges[attribute]; ok {
+		copyRange := rng
+		declaredAt = &copyRange
+	}
+	return FieldProvenance{
+		Kind: "package_input_contract", DeclaredAt: declaredAt, Input: "var." + inputName,
+		ProvidedBy: resourceAddress(service.Module, "input", inputName), SourceAddress: service.Address,
+		Transformations: []string{"go_config_schema_derivation"},
+	}
 }
 
 func validateGoServiceConfiguration(resources []Resource) []Diagnostic {

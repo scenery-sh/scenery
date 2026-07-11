@@ -1,6 +1,10 @@
 package vnext
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestApplyPatchesRequiresExactPrecondition(t *testing.T) {
 	resources := []Resource{
@@ -71,5 +75,61 @@ func TestApplyPatchesEnforcesVersionExportAndSingleWriter(t *testing.T) {
 	_, diagnostics = applyPatches(append(append([]Resource(nil), base...), patch))
 	if !hasDiagnostic(diagnostics, "SCN2906") {
 		t.Fatalf("private target diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestCompileAppliesEffectiveDefaultsBeforeExactPatches(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "house"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte(`language {
+  edition = "2027"
+  require_profiles = ["scenery.compiler-core/v1", "scenery.inspection-core/v1", "scenery.compatibility-core/v1", "scenery.patches/v1"]
+}
+application "patch_defaults" { version = "1.0.0" }
+module "house" { source = "./house" }
+patch "record_openness" {
+  target         = module.house.model
+  module_version = ">= 1.0.0, < 2.0.0"
+  schema         = "scenery.record/v1"
+  expect {
+    path  = "/spec/unknown_fields"
+    value = "reject"
+  }
+  set {
+    path  = "/spec/unknown_fields"
+    value = "preserve"
+  }
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "house", "scenery.package.scn"), []byte(`package "house" {
+  version = "1.0.0"
+  scenery_version = ">= 2.0.0, < 3.0.0"
+}
+record "model" {
+  field "value" { type = string }
+}
+export "model" {
+  value     = record.model
+  patchable = ["/spec/unknown_fields"]
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	source := resourcesByAddress(result.ViewManifests["source"])["house/record/model"]
+	effective := resourcesByAddress(result.ViewManifests["effective"])["house/record/model"]
+	if source.Spec["unknown_fields"] != nil || effective.Spec["unknown_fields"] != "preserve" {
+		t.Fatalf("source=%#v effective=%#v", source.Spec, effective.Spec)
+	}
+	field := effective.Origin.FieldProvenance["/spec/unknown_fields"]
+	if field.Kind != "patch" || field.ProvidedBy != "app/patch/record_openness" {
+		t.Fatalf("patch provenance = %#v", field)
 	}
 }

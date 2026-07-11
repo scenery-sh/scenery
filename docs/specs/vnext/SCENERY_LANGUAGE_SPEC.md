@@ -2613,7 +2613,7 @@ Compilation has ordered semantic phases:
 4. Build package scopes.
 5. Type-check attributes, expressions, inputs, exports, and references.
 6. Instantiate modules into namespaces.
-7. Apply defaults and, when scenery.patches/v1 is active, allowed exact patches.
+7. Apply effective defaults, then, when scenery.patches/v1 is active, apply allowed exact patches against those defaulted values.
 8. Expand declarative resources such as CRUD.
 9. Validate the whole resource graph.
 10. Produce canonical IR, provenance, diagnostics, and contract_revision.
@@ -3233,7 +3233,11 @@ A source-only change plan MUST NOT invent a predicted implementation_revision or
 
 If either base revision changed, the agent API returns revision_conflict and the CLI exits with status 3. It MUST NOT attempt a best-effort merge.
 
-A plan is immutable and bound to one application, normalized-operation digest, rename receipts, both base revisions, negotiated capability set, caller identity, required approvals, and expiry. Presentation-equivalent contextual and tagged scalar values, and source-local versus canonical references, normalize before the operation digest is computed. Applying an expired or already-applied plan fails without writing.
+A plan is immutable and bound to one application, normalized-operation digest, rename receipts, both base revisions, negotiated capability set, caller identity, required approvals, concrete source/provider actions, and expiry. Presentation-equivalent contextual and tagged scalar values, and source-local versus canonical references, normalize before the operation digest is computed. Applying an expired or already-applied plan fails without writing.
+
+The plan ID MAY remain a domain-separated content digest, but that public digest is not proof that a trusted planner issued the supplied object. Before trusting expiry, approvals, operations, source edits, provider actions, or predicted revisions, apply MUST authenticate issuance by either loading the exact canonical plan retained in trusted app-local state under that ID or verifying an issuer signature/MAC with key material unavailable to callers. If the caller supplies the full plan, it MUST match the authenticated canonical plan exactly; decoding rejects unknown fields and trailing values rather than normalizing an expanded caller object into the trusted shape. Missing issuance state, a changed field, or a caller-recomputed ID fails before staging. Change, deployment, migration initialization/candidate/transition/finish, and every future approval-bearing plan family use the same rule.
+
+An approval-bearing migration transition MUST be serializable as the exact issued plan and independently applicable after approval. `scenery migrate ... --dry-run --out <plan>` retains that object and `scenery migrate apply <plan>` applies it; apply rejects planning-only flags, including `--dry-run` and `--evidence`. Rerunning the planning command creates a distinct expiry-bound plan and MUST NOT be presented as applying the earlier plan.
 
 If required_approvals is non-empty, apply MUST reject missing or invalid approval tokens. A token is bound to the plan digest, caller, approved risk scopes, and expiry.
 
@@ -3254,7 +3258,7 @@ It updates:
 
 It does not update arbitrary strings, wire names, routes, task names, or database names unless separately requested.
 
-The resulting plan and persisted apply receipt record the old address, new address, base and target contract revisions, and a domain-separated receipt digest so later diffs can prove the rename. Rename traverses every typed reference inside attributes, including object/list/function expressions, exports, and module input maps; it never rewrites lookalike strings. If one physical package declaration is instantiated more than once, a mutation targeting only one instance address MUST fail instead of silently renaming every instance; the caller must edit or refactor the shared declaration explicitly. External durable names are unchanged unless separately requested.
+The resulting plan and persisted apply receipt record the old address, new address, base and target contract revisions, and a domain-separated receipt digest so later diffs can prove the rename. Rename traverses every typed reference inside attributes, including object/list/function expressions, exports, module input maps, and the separately parsed migration manifest; it never rewrites lookalike strings. Renaming a containing module instance changes every descendant address, so planning MUST derive a revision-bound receipt for each descendant matched through stable declaration/package origin and the old/new module chains. If one physical package declaration is instantiated more than once, a mutation targeting only one instance address MUST fail instead of silently renaming every instance; the caller must edit or refactor the shared declaration explicitly. External durable names are unchanged unless separately requested.
 
 ### 22.7 Agent expectations
 

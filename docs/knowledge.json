@@ -236,6 +236,26 @@
       ]
     },
     {
+      "path": "docs/plans/0105-edition-2027-transaction-and-migration-conformance.md",
+      "title": "Edition-2027 Transaction and Migration Conformance",
+      "owner": "scenery compiler / runtime / agent interfaces",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Completed conformance hardening for authenticated exact plan issuance and strict apply, truthful migration evidence and predicted candidate graphs, complete mixed rename and config-free client generation, default-before-patch ordering, exact generated config provenance, and indexed source positions.",
+      "tags": [
+        "plans",
+        "execplans",
+        "vnext",
+        "conformance",
+        "agent-mutation",
+        "legacy-bridge",
+        "security"
+      ]
+    },
+    {
       "path": "docs/plans/0103-vnext-language-and-onlv-house-migration.md",
       "title": "Scenery vNext Language and ONLV House Migration",
       "owner": "scenery compiler / runtime / ONLV integration",
@@ -285,7 +305,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-09",
-      "summary": "Normative umbrella design specification for Scenery language edition 2027, truthful graph views and field provenance, profiles/dependencies, CLI and normalized agent transactions, revisions, synchronized Go ABI summary, and representative House migration.",
+      "summary": "Normative umbrella design specification for Scenery language edition 2027, truthful graph views and field provenance, profiles/dependencies, authenticated plan issuance and retained migration apply, normalized agent transactions and rename lineage, revisions, synchronized Go ABI summary, and representative House migration.",
       "tags": [
         "spec",
         "vnext",
@@ -304,7 +324,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-09",
-      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, aliased typed config inputs, constructor inputs, handlers, mixed-receiver static safety, outcomes, adapters, descriptors, and staged verification.",
+      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, aliased typed config inputs with exact field provenance, constructor inputs, handlers, mixed-receiver static safety, outcomes, adapters, descriptors, and staged verification.",
       "tags": [
         "spec",
         "vnext",
@@ -338,9 +358,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-09",
-      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, and generation workflow for vNext public HTTP bindings.",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, mixed-mode snapshot-derived legacy generation, and generation workflow for vNext public HTTP bindings.",
       "tags": [
         "spec",
         "vnext",
@@ -374,7 +394,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Normative bounded service-by-service migration profile linking frozen legacy declarations and edition-2027 native source into one active graph, with per-operation adapters and static mixed-receiver safety.",
+      "summary": "Normative bounded service-by-service migration profile linking frozen legacy declarations and edition-2027 native source into one active graph, with predicted candidate validation, separated evidence dimensions, retained transition plan/apply, config-free legacy clients, per-operation adapters, and static mixed-receiver safety.",
       "tags": [
         "spec",
         "vnext",
@@ -592,9 +612,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-08",
-      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, local Markdown issue tracking and triage statuses, multi-context domain docs, lightweight PostgreSQL naming, parser/model, edge lifecycle, and generated-data boundaries, cached/fresh/release timing policy with locally measured package parallelism, validation, docs review-due signals, drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, trusted edition plan issuance, unioned migration evidence/candidate rules and canonical client auth, local Markdown issue tracking and triage statuses, domain docs, parser/model, boundaries, validation, docs drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -611,7 +631,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Concise installed-skill entrypoint for current scenery apps, including target-app AGENTS checks, CLI JSON, edition-2027 graph views/provenance, schema-driven authoring and normalized transactions, mixed bridge safety, dev runtimes/capabilities, auth, public deploy, local storage, Postgres, durable/event workflows, observability, toolchains, browser validation, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for current scenery apps, including target-app AGENTS checks, CLI JSON, edition-2027 graph views/provenance, schema-driven authoring, trusted normalized transactions, unioned evidence-aware mixed bridge safety and canonical client auth, dev runtimes/capabilities, deploy, storage, Postgres, workflows, observability, toolchains, clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -650,7 +670,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Agent workflow guide for CLI JSON and app roots, including edition-2027 source/effective/expanded provenance, schema-driven wire-label authoring, normalized plans and rename receipts, typed Go config aliases, static mixed bridge checks, runtime capabilities, auth, deploy, local storage, Postgres, observability, toolchains, fresh tests, dashboard evidence, generated clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for CLI JSON and app roots, including edition-2027 graph provenance, schema-driven authoring, trusted normalized plans, retained migration apply and complete rename receipts, typed Go config provenance, unioned evidence-aware mixed bridge checks and canonical client auth, runtime capabilities, deploy, storage, Postgres, observability, toolchains, tests, clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -721,7 +741,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Frozen local developer and agent-facing contract for the v0 and edition-2027 CLI/JSON surfaces, including graph provenance, recursive authoring schemas, normalized change and rename receipts, Go config aliases and mixed bridge checks, app-root discovery, runtimes/capabilities, auth/deploy, Postgres/durable/event/storage, observability, Symphony/dashboard evidence, harness timing lanes, toolchains, generators, tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for the v0 and edition-2027 CLI/JSON surfaces, including graph provenance, recursive authoring schemas, retained issued plans and migration apply, normalized changes and rename receipts, Go config provenance, unioned evidence-aware mixed bridge checks and canonical client auth, app-root discovery, runtimes/capabilities, deploy, data/storage, observability, harness timing, toolchains, generators, tasks, and runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -848,7 +868,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Practical recipes for building scenery apps, including safe native/legacy per-operation migration, app config and frontends, endpoints, storage, auth and Google connections, middleware, Postgres, durable/cron work, generators, code tasks, clients, scoped observability, and validation workflows.",
+      "summary": "Practical recipes for building scenery apps, including post-config mixed migration, retained transition plans, separated migration evidence and approval tokens, safe per-operation adapters, app config/frontends, endpoints, storage, auth/Google connections, middleware, Postgres, durable/cron work, generators, tasks, clients, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -1826,7 +1846,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Completed milestones and shipped behavior, including edition-2027 exact-SHA conformance hardening, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
+      "summary": "Completed milestones and shipped behavior, including edition-2027 exact-plan transaction and migration conformance, exact-SHA conformance hardening, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",

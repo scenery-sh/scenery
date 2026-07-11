@@ -30,7 +30,7 @@ Available now as draft profile surfaces:
 - edition-2027 exact Go build-input/toolchain identities and runtime-bundle sidecars, with host-CGO native-tool identities and fail-closed fixed-target CGO
 - edition-2027 authored CLI execution with generated help/completion and typed outcomes, plus environment-selected typed fixtures shared by deployment and local database seeding
 - edition-2027 HTTP, durable execution, schedules, events, data/CRUD/provider, deployment plan/apply, patches, UI validation, compatibility, and bounded legacy-bridge profiles
-- revision-bound semantic change, deployment, migration activation/rollback/retirement, and evidence-bound migration-finish transactions
+- workspace-issued, revision-bound semantic change, deployment, migration activation/rollback/retirement, and evidence-bound migration-finish transactions; apply rejects caller-recomputed plans before trusting approvals, edits, or provider actions
 - `.scenery.json` root discovery, with `.config.json` accepted as an alias
 - `scenery up`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
 - typed and raw HTTP endpoints

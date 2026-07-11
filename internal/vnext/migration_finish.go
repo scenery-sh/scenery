@@ -134,10 +134,16 @@ func PlanMigrationFinish(root string, request MigrationFinishRequest) (Migration
 		OperationalStateRevision: operationalStateRevision, ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
 	}
 	plan.PlanID = migrationFinishPlanID(plan)
+	if err := retainIssuedPlan(root, issuedMigrationFinishPlan, plan.PlanID, plan); err != nil {
+		return MigrationFinishPlan{}, err
+	}
 	return plan, nil
 }
 
 func ApplyMigrationFinish(root string, plan MigrationFinishPlan, options MigrationFinishApplyOptions) (MigrationFinishReceipt, error) {
+	if err := requireIssuedPlan(root, issuedMigrationFinishPlan, plan.PlanID, plan); err != nil {
+		return MigrationFinishReceipt{}, err
+	}
 	if time.Now().UTC().After(plan.ExpiresAt) || migrationFinishPlanID(plan) != plan.PlanID {
 		return MigrationFinishReceipt{}, fmt.Errorf("failed_precondition: migration finish plan expired or identity changed")
 	}

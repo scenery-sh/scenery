@@ -14,6 +14,7 @@ import (
 	"scenery.sh/internal/clientgen"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/standardauthmeta"
 )
 
 func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResult, error) {
@@ -425,9 +426,9 @@ func renderLegacyTypeScriptFamily(result *Result, target Resource, root string, 
 	if len(bindings) == 0 {
 		return nil, "", "", nil
 	}
-	_, cfg, err := appcfg.DiscoverRoot(result.Root)
+	cfg, err := legacyTypeScriptClientConfig(result)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("discover legacy client app: %w", err)
+		return nil, "", "", err
 	}
 	services := map[string]bool{}
 	for _, binding := range bindings {
@@ -465,6 +466,52 @@ func renderLegacyTypeScriptFamily(result *Result, target Resource, root string, 
 	descriptorBytes, _ := json.MarshalIndent(descriptor, "", "  ")
 	files = append(files, generatedFile{Path: filepath.Join(legacyRoot, "scenery.legacy-typescript-client-generated.v1.json"), Bytes: append(descriptorBytes, '\n')})
 	return files, revision, "", nil
+}
+
+func legacyTypeScriptClientConfig(result *Result) (appcfg.Config, error) {
+	if result == nil || result.Manifest == nil || result.Migration == nil {
+		return appcfg.Config{}, fmt.Errorf("generate legacy TypeScript client: compiled migration snapshot is unavailable")
+	}
+	if result.Migration.LegacyConfig != "" {
+		_, cfg, err := appcfg.DiscoverRoot(result.Root)
+		if err != nil {
+			return appcfg.Config{}, fmt.Errorf("discover legacy client app: %w", err)
+		}
+		return cfg, nil
+	}
+	cfg := appcfg.Config{Name: result.Manifest.Application.Name, ID: result.Manifest.Application.Name}
+	cfg.Auth.Enabled, cfg.Auth.GoogleOAuth.Enabled = compiledLegacyClientAuth(result.Manifest.Resources)
+	return cfg, nil
+}
+
+func compiledLegacyClientAuth(resources []Resource) (standardAuth, googleOAuth bool) {
+	baseMethods := map[string]bool{}
+	for _, endpoint := range standardauthmeta.Endpoints(false) {
+		baseMethods[endpoint.Name] = true
+	}
+	googleMethods := map[string]bool{}
+	for _, endpoint := range standardauthmeta.Endpoints(true) {
+		if !baseMethods[endpoint.Name] {
+			googleMethods[endpoint.Name] = true
+		}
+	}
+	for _, resource := range resources {
+		if resource.Kind == "scenery.authentication/v1" && refOrString(resource.Spec["provider"]) == "std.provider.standard_auth" {
+			standardAuth = true
+		}
+		if resource.Kind != "scenery.operation/v1" {
+			continue
+		}
+		handler, _ := resource.Spec["handler"].(map[string]any)
+		if stringValue(handler["adapter"]) != "legacy_standard_auth_v0" {
+			continue
+		}
+		standardAuth = true
+		if googleMethods[stringValue(handler["method"])] {
+			googleOAuth = true
+		}
+	}
+	return standardAuth, googleOAuth
 }
 
 func boundedLegacyClientApp(result *Result, cfg appcfg.Config, selected map[string]bool) (*model.App, error) {

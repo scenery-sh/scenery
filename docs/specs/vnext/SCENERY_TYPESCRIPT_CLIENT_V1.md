@@ -313,7 +313,7 @@ Method renames require explicit compatibility aliases with a declared removal ve
 
 Only complete verified active contracts enter the native merged client. `implementation_declared`, advisory, opaque, or custom legacy wire behavior cannot be presented as native verified behavior.
 
-The legacy bridge may emit a distinct versioned legacy client. A selection manifest gives each active operation exactly one generated client family and revision. Client-family cutover follows the bridge's `generated_client` operational class and deployed-consumer gates.
+The legacy bridge may emit a distinct versioned legacy client. A selection manifest gives each active operation exactly one generated client family and revision. Client-family cutover follows the bridge's `generated_client` operational class and deployed-consumer gates. When the shared v0 config has already been removed, the legacy family derives application identity, authentication/client options, and selected bindings from structured canonical resources in the compiled migration snapshot; generation MUST NOT rediscover an ambient `.scenery.json` or `.config.json` or infer options from free-form source symbols.
 
 ## 18. Generation workflow
 

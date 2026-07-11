@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,12 @@ provider "vault" {
 	schema := namedChildren(service.Spec, "config_schema")
 	if len(schema) != 3 || schema[0]["name"] != "process_concurrency" || schema[0]["phase"] != "deployment" || schema[0]["minimum"] == nil || schema[1]["name"] != "provider_token" || schema[1]["sensitive"] != true || schema[2]["name"] != "roof_model_path" {
 		t.Fatalf("config schema = %#v", schema)
+	}
+	for _, path := range []string{"/spec/config_schema/0/type", "/spec/config_schema/0/phase", "/spec/config_schema/0/minimum", "/spec/config_schema/1/sensitive", "/spec/config_schema/2/type"} {
+		field := service.Origin.FieldProvenance[path]
+		if field.Kind != "package_input_contract" || field.DeclaredAt == nil || field.Input == "" || !strings.HasPrefix(field.ProvidedBy, "house/input/") || field.SourceAddress != service.Address || !slices.Contains(field.Transformations, "go_config_schema_derivation") {
+			t.Fatalf("config schema provenance %s = %#v", path, field)
+		}
 	}
 	provider := resourcesByAddress(result.Manifest)["app/provider/vault"]
 	field := provider.Origin.FieldProvenance["/spec/compile_descriptor_digest"]

@@ -1,11 +1,35 @@
 package vnext
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func BenchmarkParseManyTokenSource(b *testing.B) {
+	for _, blocks := range []int{256, 512, 1024} {
+		var source strings.Builder
+		for index := 0; index < blocks; index++ {
+			fmt.Fprintf(&source, "record \"item_%04d\" {\n  field \"value\" { type = string }\n}\n", index)
+		}
+		root := b.TempDir()
+		path := filepath.Join(root, "scenery.scn")
+		if err := os.WriteFile(path, []byte(source.String()), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		b.Run(fmt.Sprintf("blocks_%d", blocks), func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				parsed, diagnostics := parseSourceLogical(path, "scenery.scn")
+				if parsed == nil || hasErrors(diagnostics) {
+					b.Fatalf("parse diagnostics = %#v", diagnostics)
+				}
+			}
+		})
+	}
+}
 
 func TestPortableSourceIDsDoNotCollideForPunctuationOrPaths(t *testing.T) {
 	ids := map[string]string{}
@@ -55,6 +79,22 @@ func TestSourceRangesUseUnicodeScalarColumnsAndUTF8ByteOffsets(t *testing.T) {
 	}
 	if !foundIdentifierRange {
 		t.Fatalf("identifier diagnostics = %#v", diagnostics)
+	}
+}
+
+func TestSourcePositionIndexUsesUnicodeColumnsWithinEachLine(t *testing.T) {
+	source := []byte("ascii\nČeština🙂e\u0301\nend")
+	index := newSourcePositionIndex(source)
+	tests := map[int]Position{
+		0:                      {Line: 0, Column: 0, ByteOffset: 0},
+		len("ascii\n"):         {Line: 1, Column: 0, ByteOffset: len("ascii\n")},
+		len("ascii\nČeština🙂"): {Line: 1, Column: 8, ByteOffset: len("ascii\nČeština🙂")},
+		len(source):            {Line: 2, Column: 3, ByteOffset: len(source)},
+	}
+	for offset, want := range tests {
+		if got := index.position(offset); got != want {
+			t.Errorf("position(%d) = %#v, want %#v", offset, got, want)
+		}
 	}
 }
 

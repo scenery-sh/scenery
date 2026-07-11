@@ -153,12 +153,8 @@ func runVNextChanges(stdout io.Writer, args []string) error {
 		} else if planPath == "" || len(positionals) > 0 {
 			return fmt.Errorf("usage: scenery changes apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
 		}
-		b, err := os.ReadFile(planPath)
-		if err != nil {
-			return err
-		}
 		var plan vnext.ChangePlan
-		if err := json.Unmarshal(b, &plan); err != nil {
+		if err := readExactVNextPlanFile(planPath, "change plan", &plan); err != nil {
 			return err
 		}
 		approvalTokens, err := readMigrationApprovalTokens(approvalTokenPaths)
@@ -671,7 +667,7 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 	subject := args[0]
 	opts := vnextOptions{Output: "human"}
 	var dryRun, native, legacy, generate, shadow, retire, allowSkipShadow bool
-	var approvedComparisonDigest, activationReceipt string
+	var approvedComparisonDigest, activationReceipt, outPath, expectWorkspace, expectContract string
 	var evidenceValues, approvalTokenPaths []string
 	flags := newCLIFlagSet("migrate " + subject)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
@@ -685,6 +681,9 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 	flags.BoolVar(&allowSkipShadow, "allow-skip-shadow", false, "")
 	flags.StringVar(&approvedComparisonDigest, "approve-comparison-digest", "", "")
 	flags.StringVar(&activationReceipt, "activation-receipt", "", "")
+	flags.StringVar(&outPath, "out", "", "")
+	flags.StringVar(&expectWorkspace, "expect-workspace-revision", "", "")
+	flags.StringVar(&expectContract, "expect-contract-revision", "", "")
 	flags.Func("evidence", "", func(value string) error { evidenceValues = append(evidenceValues, value); return nil })
 	flags.Func("approval-token", "", func(value string) error { approvalTokenPaths = append(approvalTokenPaths, value); return nil })
 	flags.BoolVar(&opts.NonInteractive, "non-interactive", false, "")
@@ -692,6 +691,12 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 	positionals, err := parseCLIFlags(flags, args[1:])
 	if err != nil {
 		return err
+	}
+	if outPath != "" && subject != "service" && subject != "activate" && subject != "rollback" {
+		return fmt.Errorf("--out is supported only for migration transition planning")
+	}
+	if subject != "apply" && (expectWorkspace != "" || expectContract != "") {
+		return fmt.Errorf("--expect-*-revision is supported only by scenery migrate apply")
 	}
 	if opts.Output != "human" && opts.Output != "json" {
 		return fmt.Errorf("unsupported output %q", opts.Output)
@@ -747,6 +752,37 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 	status := vnext.BuildMigrationStatus(result)
 	data := any(status)
 	switch subject {
+	case "apply":
+		if len(positionals) != 1 {
+			return fmt.Errorf("usage: scenery migrate apply PLAN [--expect-workspace-revision REV] [--expect-contract-revision REV]")
+		}
+		if dryRun || native || legacy || generate || shadow || retire || allowSkipShadow || approvedComparisonDigest != "" || activationReceipt != "" || len(evidenceValues) != 0 {
+			return fmt.Errorf("transition planning flags are not valid for scenery migrate apply")
+		}
+		planPath := positionals[0]
+		plan, readErr := readMigrationTransitionPlan(planPath)
+		if readErr != nil {
+			return readErr
+		}
+		if expectWorkspace == "" {
+			expectWorkspace = plan.BaseWorkspaceRevision
+		}
+		if expectContract == "" {
+			expectContract = plan.BaseContractRevision
+		}
+		receipt, applyErr := vnext.ApplyMigrationPlan(result.Root, plan, vnext.MigrationApplyOptions{
+			ExpectedWorkspaceRevision: expectWorkspace, ExpectedContractRevision: expectContract,
+			Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier,
+		})
+		if applyErr != nil {
+			return applyErr
+		}
+		data = receipt
+		result, err = vnext.Compile(result.Root)
+		if err != nil {
+			return err
+		}
+		status = vnext.BuildMigrationStatus(result)
 	case "status":
 		if len(positionals) > 0 {
 			return fmt.Errorf("unexpected argument %q", positionals[0])
@@ -806,6 +842,9 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 		if len(positionals) != 1 || boolCount(generate, shadow, retire) != 1 {
 			return fmt.Errorf("usage: scenery migrate service SERVICE --generate|--shadow|--retire [--dry-run]")
 		}
+		if generate && outPath != "" {
+			return fmt.Errorf("--out is supported for --shadow and --retire transition plans, not candidate generation")
+		}
 		service, serviceErr := status.Service(positionals[0])
 		if serviceErr != nil {
 			return serviceErr
@@ -838,6 +877,9 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 		if planErr != nil {
 			return planErr
 		}
+		if writeErr := writeMigrationTransitionPlan(outPath, plan); writeErr != nil {
+			return writeErr
+		}
 		data = plan
 		if !dryRun {
 			receipt, applyErr := vnext.ApplyMigrationPlan(result.Root, plan, vnext.MigrationApplyOptions{ExpectedWorkspaceRevision: status.WorkspaceRevision, ExpectedContractRevision: status.ContractRevision, Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier})
@@ -863,6 +905,9 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 		if planErr != nil {
 			return planErr
 		}
+		if writeErr := writeMigrationTransitionPlan(outPath, plan); writeErr != nil {
+			return writeErr
+		}
 		data = plan
 		if !dryRun {
 			receipt, applyErr := vnext.ApplyMigrationPlan(result.Root, plan, vnext.MigrationApplyOptions{ExpectedWorkspaceRevision: status.WorkspaceRevision, ExpectedContractRevision: status.ContractRevision, Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier})
@@ -887,6 +932,9 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 		plan, planErr := vnext.PlanMigrationTransition(result.Root, vnext.MigrationPlanRequest{Action: "activate_legacy", Service: service.Name, Caller: "local", BaseWorkspaceRevision: status.WorkspaceRevision, BaseContractRevision: status.ContractRevision, ApprovedComparisonDigest: approvedComparisonDigest, ActivationReceiptPlanID: activationReceipt, OperationalEvidence: operationalEvidence})
 		if planErr != nil {
 			return planErr
+		}
+		if writeErr := writeMigrationTransitionPlan(outPath, plan); writeErr != nil {
+			return writeErr
 		}
 		data = plan
 		if !dryRun {

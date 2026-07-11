@@ -105,7 +105,11 @@ func PlanMigrationTransition(root string, request MigrationPlanRequest) (Migrati
 	requiredApprovals := []string{}
 	if action == "activate_native" {
 		if service.Active == "native" {
-			return idempotentMigrationPlan(base, service, action, caller, comparison), nil
+			plan := idempotentMigrationPlan(base, service, action, caller, comparison)
+			if err := retainIssuedPlan(root, issuedMigrationTransitionPlan, plan.PlanID, plan); err != nil {
+				return MigrationPlan{}, err
+			}
+			return plan, nil
 		}
 		if service.State != "shadow" {
 			if !request.AllowSkipShadow {
@@ -113,14 +117,17 @@ func PlanMigrationTransition(root string, request MigrationPlanRequest) (Migrati
 			}
 			requiredApprovals = append(requiredApprovals, "risk_skip_shadow")
 		}
-		if !comparison.Complete {
+		if !comparison.StaticContractComplete {
 			return MigrationPlan{}, fmt.Errorf("failed_precondition: candidate comparison is incomplete")
 		}
-		if !comparison.Equal {
+		if !comparison.StaticContractEqual {
 			if request.ApprovedComparisonDigest == "" || request.ApprovedComparisonDigest != comparison.ComparisonDigest {
 				return MigrationPlan{}, fmt.Errorf("failed_precondition: candidate comparison differs; approve the exact comparison digest to continue")
 			}
 			requiredApprovals = append(requiredApprovals, "risk_migration_difference")
+		}
+		if !comparison.BehavioralEvidenceComplete {
+			requiredApprovals = append(requiredApprovals, "risk_advisory_migration_evidence")
 		}
 	}
 	if action == "retire" && service.Active != "native" {
@@ -143,16 +150,19 @@ func PlanMigrationTransition(root string, request MigrationPlanRequest) (Migrati
 		if activation.LegacyCandidateDigest != service.LegacyCandidateDigest || activation.NativeCandidateDigest != service.NativeCandidateDigest || activation.ComparisonDigest != comparison.ComparisonDigest {
 			return MigrationPlan{}, fmt.Errorf("revision_conflict: rollback candidates or comparison changed")
 		}
-		if !comparison.Complete {
+		if !comparison.StaticContractComplete {
 			return MigrationPlan{}, fmt.Errorf("failed_precondition: rollback comparison is incomplete")
 		}
-		if !comparison.Equal && request.ApprovedComparisonDigest != comparison.ComparisonDigest {
+		if !comparison.StaticContractEqual && request.ApprovedComparisonDigest != comparison.ComparisonDigest {
 			return MigrationPlan{}, fmt.Errorf("failed_precondition: rollback comparison differs; approve the exact comparison digest")
 		}
 		requiredApprovals = append(requiredApprovals, "risk_operational_rollback")
+		if !comparison.BehavioralEvidenceComplete {
+			requiredApprovals = append(requiredApprovals, "risk_advisory_migration_evidence")
+		}
 	}
 
-	cutoverClasses := migrationCutoverClasses(base.Migration.NativeCandidates[service.Name])
+	cutoverClasses := append([]string(nil), service.CutoverClasses...)
 	if action == "activate_native" || action == "activate_legacy" {
 		for _, class := range cutoverClasses {
 			if class == "stateless_route" {
@@ -226,10 +236,16 @@ func PlanMigrationTransition(root string, request MigrationPlanRequest) (Migrati
 		RequiredApprovals: canonicalStrings(requiredApprovals), ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
 	}
 	plan.PlanID = migrationPlanID(plan)
+	if err := retainIssuedPlan(root, issuedMigrationTransitionPlan, plan.PlanID, plan); err != nil {
+		return MigrationPlan{}, err
+	}
 	return plan, nil
 }
 
 func ApplyMigrationPlan(root string, plan MigrationPlan, options MigrationApplyOptions) (MigrationReceipt, error) {
+	if err := requireIssuedPlan(root, issuedMigrationTransitionPlan, plan.PlanID, plan); err != nil {
+		return MigrationReceipt{}, err
+	}
 	if time.Now().UTC().After(plan.ExpiresAt) {
 		return MigrationReceipt{}, fmt.Errorf("failed_precondition: migration plan expired")
 	}

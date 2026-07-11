@@ -239,12 +239,18 @@ func PlanDeployment(ctx context.Context, root string, request DeploymentPlanRequ
 	}
 	plan.RequiredApprovals = canonicalStrings(plan.RequiredApprovals)
 	plan.PlanID = deploymentPlanID(plan)
+	if err := retainIssuedPlan(root, issuedDeploymentPlan, plan.PlanID, plan); err != nil {
+		return DeploymentPlan{}, err
+	}
 	return plan, nil
 }
 
 func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, options DeploymentApplyOptions, providers DeploymentProviderRegistry) (DeploymentReceipt, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := requireIssuedPlan(root, issuedDeploymentPlan, plan.PlanID, plan); err != nil {
+		return DeploymentReceipt{}, err
 	}
 	release, err := acquireDeploymentApplyLock(root)
 	if err != nil {

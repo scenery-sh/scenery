@@ -46,7 +46,7 @@ func (tree *ConcreteSyntaxTree) Bytes() []byte {
 	return result
 }
 
-func buildConcreteSyntaxTree(sourceID, filename string, source []byte, file *hcl.File, recovered bool) (*ConcreteSyntaxTree, []Diagnostic) {
+func buildConcreteSyntaxTree(sourceID, filename string, source []byte, positions *sourcePositionIndex, file *hcl.File, recovered bool) (*ConcreteSyntaxTree, []Diagnostic) {
 	tree := &ConcreteSyntaxTree{LineEndings: detectLineEndings(source), Recovered: recovered}
 	var diagnostics []Diagnostic
 	if bytes.HasPrefix(source, []byte{0xef, 0xbb, 0xbf}) {
@@ -66,14 +66,14 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, file *hcl
 			start = len(source)
 		}
 		if start > cursor {
-			tree.Tokens = append(tree.Tokens, ConcreteToken{Kind: "trivia", Bytes: append([]byte(nil), source[cursor:start]...), Range: byteRange(sourceID, source, cursor, start)})
+			tree.Tokens = append(tree.Tokens, ConcreteToken{Kind: "trivia", Bytes: append([]byte(nil), source[cursor:start]...), Range: byteRange(sourceID, positions, cursor, start)})
 		}
 		end := start + len(token.Bytes)
 		if end > len(source) {
 			end = len(source)
 		}
 		if len(token.Bytes) > 0 {
-			item := ConcreteToken{Kind: concreteTokenKind(token.Type), Bytes: append([]byte(nil), source[start:end]...), Range: convertRange(sourceID, source, token.Range)}
+			item := ConcreteToken{Kind: concreteTokenKind(token.Type), Bytes: append([]byte(nil), source[start:end]...), Range: convertRange(sourceID, positions, token.Range)}
 			tree.Tokens = append(tree.Tokens, item)
 			if token.Type == hclsyntax.TokenComment {
 				comment := ConcreteComment{Bytes: append([]byte(nil), item.Bytes...), Range: item.Range, Attachment: "detached"}
@@ -87,13 +87,13 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, file *hcl
 		cursor = end
 	}
 	if cursor < len(source) {
-		tree.Tokens = append(tree.Tokens, ConcreteToken{Kind: "trivia", Bytes: append([]byte(nil), source[cursor:]...), Range: byteRange(sourceID, source, cursor, len(source))})
+		tree.Tokens = append(tree.Tokens, ConcreteToken{Kind: "trivia", Bytes: append([]byte(nil), source[cursor:]...), Range: byteRange(sourceID, positions, cursor, len(source))})
 	}
 	if file != nil {
 		if body, ok := file.Body.(*hclsyntax.Body); ok {
 			nodes := concreteSyntaxNodes(body)
 			attachConcreteComments(source, tree.Comments, nodes)
-			diagnostics = append(diagnostics, validateConcreteIdentifiers(sourceID, source, body)...)
+			diagnostics = append(diagnostics, validateConcreteIdentifiers(sourceID, positions, body)...)
 		}
 	}
 	return tree, diagnostics
@@ -190,19 +190,19 @@ func commentGapIsContiguous(source []byte, start, end int) bool {
 	return bytes.Count(normalized, []byte("\n")) <= 1
 }
 
-func validateConcreteIdentifiers(sourceID string, source []byte, body *hclsyntax.Body) []Diagnostic {
+func validateConcreteIdentifiers(sourceID string, positions *sourcePositionIndex, body *hclsyntax.Body) []Diagnostic {
 	var diagnostics []Diagnostic
 	var visit func(*hclsyntax.Body)
 	visit = func(current *hclsyntax.Body) {
 		for name, attribute := range current.Attributes {
 			if !sceneryIdentifierPattern.MatchString(name) {
-				rng := convertRange(sourceID, source, attribute.NameRange)
+				rng := convertRange(sourceID, positions, attribute.NameRange)
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: "attribute names must use lower_snake_case ASCII", Range: &rng})
 			}
 		}
 		for _, block := range current.Blocks {
 			if !sceneryIdentifierPattern.MatchString(block.Type) {
-				rng := convertRange(sourceID, source, block.TypeRange)
+				rng := convertRange(sourceID, positions, block.TypeRange)
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: "block names must use lower_snake_case ASCII", Range: &rng})
 			}
 			for index, label := range block.Labels {
@@ -213,7 +213,7 @@ func validateConcreteIdentifiers(sourceID string, source []byte, body *hclsyntax
 					continue
 				}
 				if !sceneryIdentifierPattern.MatchString(label) {
-					rng := convertRange(sourceID, source, block.LabelRanges[index])
+					rng := convertRange(sourceID, positions, block.LabelRanges[index])
 					diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: "resource labels must use lower_snake_case ASCII", Range: &rng})
 				}
 			}
@@ -256,6 +256,6 @@ func detectLineEndings(source []byte) string {
 	}
 }
 
-func byteRange(sourceID string, source []byte, start, end int) Range {
-	return Range{SourceID: sourceID, Start: sourcePosition(source, start), End: sourcePosition(source, end)}
+func byteRange(sourceID string, positions *sourcePositionIndex, start, end int) Range {
+	return Range{SourceID: sourceID, Start: positions.position(start), End: positions.position(end)}
 }

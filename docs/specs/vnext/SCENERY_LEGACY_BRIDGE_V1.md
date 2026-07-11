@@ -133,7 +133,7 @@ migration {
 
 All paths are normalized, workspace-relative, and symlink-safe. A package must be beneath a declared implementation root.
 
-`legacy_config` is required while `.scenery.json` exists and omitted after that shared file has been migrated. Every legacy or shadow service in mixed mode binds its legacy implementation to an explicit declared Go target. Mixed mode may continue with bounded legacy packages until the final service retires.
+`legacy_config` is required while `.scenery.json` exists and omitted after that shared file has been migrated. Every legacy or shadow service in mixed mode binds its legacy implementation to an explicit declared Go target. Mixed mode may continue with bounded legacy packages until the final service retires. In this post-config state, compatibility client generation and every compile/generate/change/migration planning check derive application identity, selected legacy services/bindings, and client/auth options from the already compiled application and migration snapshot; they MUST NOT rediscover the removed ambient v0 config.
 
 ### 4.2 Discovery boundary
 
@@ -270,6 +270,8 @@ Each discovered construct also has one migration disposition:
 
 `scenery migrate status` reports both classifications, active and shadow owners, blocking profiles, stateful cutover class, generated artifacts, external identities, and rollback state for every construct. Unknown or unclassified constructs block the no-flag-day readiness claim.
 
+Service-level guarantee classification and migration disposition aggregate the weakest construct-level value. Static graph completeness MUST NOT upgrade advisory semantics or disposition to `verified` or `native_equivalent`.
+
 Opaque resources may remain active while legacy-owned. They cannot be declared shadow-equal, consumed by native resources as fully typed contracts, or used to generate trustworthy native clients.
 
 Every runtime ownership key must still be known. If the frontend cannot determine a route key, service lifecycle identity, durable external identity, schedule identity, or schema/migration owner, the resource may run only in legacy-only mode until an explicit compatibility descriptor reserves that identity. Mixed mode MUST NOT guess around an opaque ownership key.
@@ -310,7 +312,7 @@ Each frontend first produces a candidate graph keyed internally by `(frontend, a
 
 The final canonical active graph contains ordinary resources plus provenance and migration metadata. Runtime generation reads only this graph.
 
-`contract_revision` hashes the active graph only. Each inactive shadow candidate has a separate candidate digest and validation result. Editing a shadow candidate changes `workspace_revision` and its comparison digest but does not change the active contract or implementation revision until activation. An activation plan predicts the revisions produced by selecting the candidate.
+`contract_revision` hashes the active graph only. Each inactive shadow candidate has a separate candidate digest and validation result. Candidate validation uses the predicted operating graph: current active graph, minus active resources owned by candidate service S, plus the candidate resources for S. Every other active service owner remains present so verified cross-service dependencies resolve and global routes, durable external identities, schedules, event consumers, schema owners, and generated-client identities are checked before status claims the candidate is valid. Editing a shadow candidate changes `workspace_revision` and its comparison digest but does not change the active contract or implementation revision until activation. An activation plan predicts the revisions produced by selecting the candidate.
 
 ### 8.3 Dependencies
 
@@ -405,6 +407,12 @@ The comparison result is versioned and machine-readable:
   "service": "house",
   "state": "shadow",
   "active": "legacy",
+  "evidence_mode": "static_contract",
+  "static_contract_complete": true,
+  "static_contract_equal": false,
+  "behavioral_evidence_complete": false,
+  "operational_evidence_complete": false,
+  "complete": false,
   "equal": false,
   "differences": [
     {
@@ -419,7 +427,7 @@ The comparison result is versioned and machine-readable:
 }
 ~~~
 
-Equality requires no unknown or opaque dimension. A project may approve intentional differences, but the approval is bound to the exact comparison digest.
+`static_contract_complete` and `static_contract_equal` report canonical graph shape independently. `behavioral_evidence_complete` is true only when every promised legacy facet has verified behavioral evidence and a native-equivalent disposition. `operational_evidence_complete` is true only when no cutover class still requires external drain/fence/cursor/consumer evidence. Aggregate `complete` requires all three dimensions; aggregate `equal` additionally requires static equality. A static graph comparison may therefore be complete and equal while aggregate `complete` and `equal` remain false. A project may approve intentional static differences, but the approval is bound to the exact comparison digest.
 
 ### 11.1 Comparison evidence modes
 
@@ -438,11 +446,11 @@ Recorded corpora contain no secret plaintext and are bound to codec/frontend ver
 ### 12.1 Activation plan
 
 ~~~text
-scenery migrate activate house --native --dry-run
-scenery migrate activate house --native
+scenery migrate activate house --native --dry-run --out house-activation-plan.json
+scenery migrate apply house-activation-plan.json --approval-token project-approval.json
 ~~~
 
-Activation uses the ordinary immutable plan/apply transaction model. The plan binds:
+Activation uses the ordinary immutable plan/apply transaction model, including authenticated issuance before apply trusts any supplied plan field. The plan binds:
 
 - base `workspace_revision`;
 - base and predicted `contract_revision`;
@@ -455,6 +463,11 @@ Activation uses the ordinary immutable plan/apply transaction model. The plan bi
 - expiry and caller identity.
 
 Apply atomically edits ownership configuration and generated descriptors. Any revision, candidate, comparison, diagnostic, or approval mismatch commits nothing.
+The apply command consumes the exact retained plan. Re-running `migrate activate` would issue a new expiry-bound plan and cannot consume an approval token for the dry-run plan.
+
+Native activation requires static contract completeness. Static differences require approval of the exact comparison digest. Incomplete behavioral evidence requires the revision-bound `risk_advisory_migration_evidence` approval; static shape equality alone never authorizes cutover. Operational evidence remains mandatory for each non-stateless cutover class.
+
+The activation plan computes cutover classes from the union of legacy and native candidate resources. A durable execution, schedule, event consumer, generated client, or other stateful identity removed by the native candidate still requires its drain, fence, cursor, or consumer evidence; omission from the target graph does not erase the legacy cutover obligation.
 
 ### 12.2 Runtime effect
 
@@ -657,7 +670,7 @@ Activation reports every known CI, agent, and script dependency on a v0 command 
 Generation has two explicit product families during mixed mode:
 
 1. A native merged client per requested language and public-surface projection, generated from all active resources whose wire behavior is complete and verified. TypeScript follows [SCENERY_TYPESCRIPT_CLIENT_V1.md](SCENERY_TYPESCRIPT_CLIENT_V1.md). Its descriptor records active operation addresses, gateway or export scope, codec profiles, whole `contract_revision`, and the smallest applicable artifact revision.
-2. A versioned legacy client for active `legacy_exact`, advisory, or custom-wire surfaces whose stable v0 client behavior cannot be represented by the native profile. It retains the v0 package, method, metadata, and error conventions and records the compatibility frontend and fixture-catalog digest.
+2. A versioned legacy client for active `legacy_exact`, advisory, or custom-wire surfaces whose stable v0 client behavior cannot be represented by the native profile. It retains the v0 package, method, metadata, and error conventions and records the compatibility frontend and fixture-catalog digest. After `legacy_config` is removed, this family is rendered from the compiled application identity, active migration inventory, canonical authentication resources, structured handler-adapter metadata, and selected binding graph rather than ambient v0 root discovery. Free-form source symbols, legacy names, and origin descriptions MUST NOT enable authentication options.
 
 The two families use distinct artifact identities and import/package names. A generated client selection manifest maps every active client operation to exactly one family and revision. No generator may expose advisory or opaque behavior as native framework-enforced behavior, and no operation may be silently emitted by both families under the same external artifact identity.
 
@@ -705,8 +718,8 @@ Shadowing writes explicit ownership configuration but does not change the active
 ### 18.5 Activation
 
 ~~~text
-scenery migrate activate house --native --dry-run
-scenery migrate activate house --native
+scenery migrate activate house --native --dry-run --out house-activation-plan.json
+scenery migrate apply house-activation-plan.json --approval-token project-approval.json
 ~~~
 
 Activation is atomic and receipt-producing.

@@ -16,6 +16,7 @@ type packageInputDeclaration struct {
 	Default          any
 	DefaultRange     *Range
 	DeclarationRange *Range
+	AttributeRanges  map[string]Range
 	Optional         bool
 	Sensitive        bool
 	Requires         []string
@@ -132,6 +133,10 @@ func packageInputDeclarations(sources []*Source) map[string]packageInputDeclarat
 			declaration := packageInputDeclaration{Name: block.Labels[0]}
 			declarationRange := block.Range
 			declaration.DeclarationRange = &declarationRange
+			declaration.AttributeRanges = make(map[string]Range, len(block.AttributeRanges))
+			for name, rng := range block.AttributeRanges {
+				declaration.AttributeRanges[name] = rng
+			}
 			if expression, ok := block.Attributes["type"]; ok {
 				declaration.Type = strings.TrimSpace(expression.Raw)
 			}

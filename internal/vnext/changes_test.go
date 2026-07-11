@@ -806,7 +806,16 @@ func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 	}
 	plan.OperationsDigest = semanticOperationsDigest(plan.Operations)
 	plan.PlanID = changePlanID(plan)
+	if err := retainIssuedPlan(root, issuedChangePlan, plan.PlanID, plan); err != nil {
+		t.Fatal(err)
+	}
 	options := ApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: stringPointer(base.Manifest.ContractRevision), Caller: plan.Caller}
+	tampered := plan
+	tampered.RequiredApprovals = nil
+	tampered.PlanID = changePlanID(tampered)
+	if _, err := ApplyChangePlanWithOptions(root, tampered, options); err == nil || !strings.Contains(err.Error(), "issued plan") {
+		t.Fatalf("caller-recomputed approval stripping error = %v", err)
+	}
 	if _, err := ApplyChangePlanWithOptions(root, plan, options); err == nil || !strings.Contains(err.Error(), "permission_denied") {
 		t.Fatalf("missing approval error = %v", err)
 	}

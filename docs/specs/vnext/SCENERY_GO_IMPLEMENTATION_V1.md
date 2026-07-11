@@ -392,6 +392,8 @@ Dependency fields expose stable provider capability interfaces, never concrete p
 
 Config fields come from the service's explicit config attributes after module/deployment resolution. The config attribute supplies the generated field identity; its referenced typed package input supplies type, phase, constraints, and sensitivity, so aliases such as `model_path = var.roof_model_path` are valid. They retain optional/null semantics and sensitive taint. Secrets arrive only as runtime-resolvable `scenery.SecretRef` or a narrower declared secret capability, never plaintext in generated artifacts, manifests, diagnostics, or logs.
 
+Every effective `config_schema` field carries path-indexed provenance to the exact referenced package-input declaration and, when present, its individual type/phase/constraint/sensitivity attribute range. Provenance identifies the `var.<input>` expression, supplying `<module>/input/<input>` address, service source address, and `go_config_schema_derivation` transformation. An aliased config key retains its own config-attribute provenance for the generated field name while contract metadata points to the referenced input.
+
 Implementations MUST NOT recover configuration from environment variables, package globals, `context.Context`, current working directory, or ambient files.
 
 ### 10.3 Internal clients

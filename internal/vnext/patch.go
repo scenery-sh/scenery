@@ -133,6 +133,21 @@ func resolvePatchTarget(patch Resource, resources []Resource, indexes map[string
 	}
 	target := resources[index]
 	if target.Module != patch.Module {
+		for _, module := range resources {
+			if module.Kind != "scenery.module/v1" || moduleInstancePath(module) != target.Module {
+				continue
+			}
+			metadata, _ := module.Spec["export_metadata"].(map[string]any)
+			for _, raw := range metadata {
+				export, _ := raw.(map[string]any)
+				valueReference := refString(export["value"])
+				if valueReference != reference {
+					continue
+				}
+				packageMetadata, _ := module.Spec["package"].(map[string]any)
+				return reference, stringValue(packageMetadata["version"]), stringListSet(export["patchable"]), nil
+			}
+		}
 		diagnostic := patchDiagnostic("SCN2906", "cross-module patches must target an explicitly patchable export", patch)
 		return "", "", nil, &diagnostic
 	}
