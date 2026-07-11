@@ -2,13 +2,14 @@ package vnext
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestMixedNativeAndLegacyOperationHandlersCompile(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	rewriteFixtureSceneryReplace(t, root)
@@ -157,11 +158,7 @@ func (service *Service) LegacyStatus(_ context.Context, input *LegacyStatusParam
 		t.Fatalf("mixed handler status = %#v", service)
 	}
 
-	files, err := generateApplicationArtifacts(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter := generatedSourceWithSuffix(files, "/house_house_adapter/adapter.gen.go")
+	adapter := generatedSourceWithSuffix(result.verifiedGoFiles, "/house_house_adapter/adapter.gen.go")
 	for _, fragment := range []string{
 		"native.ProcessScene(ctx, input)",
 		"SceneryVNextBridgeLegacyStatusWithService(ctx, native, raw)",
@@ -171,10 +168,10 @@ func (service *Service) LegacyStatus(_ context.Context, input *LegacyStatusParam
 		}
 	}
 
-	if _, err := GenerateGoContracts(root, false); err != nil {
+	if _, err := generateGoContractsFromResult(result, false); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("go", "test", "./...")
+	command := boundedGoCommand("test", "./...")
 	command.Dir = root
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("mixed generated application compile: %v\n%s", err, output)
@@ -182,6 +179,8 @@ func (service *Service) LegacyStatus(_ context.Context, input *LegacyStatusParam
 }
 
 func TestMixedHandlersCompileWithBridgeLifecycle(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "bridge"), root)
 	rewriteFixtureSceneryReplace(t, root)
@@ -269,11 +268,7 @@ func (service *Service) NativeStatus(_ context.Context, input contract.NativeSta
 		t.Fatalf("bridge lifecycle status = %#v", service)
 	}
 
-	files, err := generateApplicationArtifacts(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter := generatedSourceWithSuffix(files, "/bridge_bridge_adapter/adapter.gen.go")
+	adapter := generatedSourceWithSuffix(result.verifiedGoFiles, "/bridge_bridge_adapter/adapter.gen.go")
 	for _, fragment := range []string{
 		"implementation.SceneryVNextBridgeService()",
 		"native.NativeStatus(ctx, input)",
@@ -284,10 +279,10 @@ func (service *Service) NativeStatus(_ context.Context, input contract.NativeSta
 		}
 	}
 
-	if _, err := GenerateGoContracts(root, false); err != nil {
+	if _, err := generateGoContractsFromResult(result, false); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("go", "test", "./...")
+	command := boundedGoCommand("test", "./...")
 	command.Dir = root
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("bridge lifecycle generated application compile: %v\n%s", err, output)

@@ -59,6 +59,8 @@ func (provider *testDeploymentProvider) Rollback(context.Context, DeploymentProv
 }
 
 func TestDeploymentPlanAndApplyBindExactRevisions(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "external")
 	result, err := Compile(root)
 	if err != nil || !result.Valid() {
@@ -95,18 +97,16 @@ func TestDeploymentPlanAndApplyBindExactRevisions(t *testing.T) {
 	if _, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}, nil); err == nil || !strings.Contains(err.Error(), "already applied") {
 		t.Fatalf("replay error = %v", err)
 	}
-	after, err := Compile(root)
+	after, err := compileContractGraph(root, false)
 	if err != nil || after.WorkspaceRevision != result.WorkspaceRevision {
 		t.Fatalf("deployment ledger changed managed workspace: %v before=%s after=%s", err, result.WorkspaceRevision, after.WorkspaceRevision)
 	}
 }
 
 func TestManagedDeploymentRequiresAndInvokesProviderAdapter(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "managed")
-	result, err := Compile(root)
-	if err != nil || !result.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
-	}
 	if _, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, nil); err == nil || !strings.Contains(err.Error(), "capability_unavailable") {
 		t.Fatalf("missing provider error = %v", err)
 	}
@@ -120,7 +120,7 @@ func TestManagedDeploymentRequiresAndInvokesProviderAdapter(t *testing.T) {
 		t.Fatal("provider planner was not invoked")
 	}
 	if _, err := ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
-		ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision,
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, registry); err != nil {
 		t.Fatal(err)
@@ -131,6 +131,8 @@ func TestManagedDeploymentRequiresAndInvokesProviderAdapter(t *testing.T) {
 }
 
 func TestDeploymentProviderApplyFailureDoesNotWriteState(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "managed")
 	provider := &testDeploymentProvider{applyErr: errors.New("boom")}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
@@ -138,9 +140,8 @@ func TestDeploymentProviderApplyFailureDoesNotWriteState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, _ := Compile(root)
 	_, err = ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
-		ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision,
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, registry)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
@@ -152,6 +153,8 @@ func TestDeploymentProviderApplyFailureDoesNotWriteState(t *testing.T) {
 }
 
 func TestDeploymentProviderNilCompensatorFallsBackToCrashSafeRollback(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "managed")
 	provider := &testDeploymentProvider{nilRollback: true}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
@@ -159,9 +162,8 @@ func TestDeploymentProviderNilCompensatorFallsBackToCrashSafeRollback(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, _ := Compile(root)
 	_, err = ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
-		ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision,
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, registry)
 	if err == nil || !strings.Contains(err.Error(), "returned no compensator") {
@@ -209,6 +211,8 @@ func TestDeploymentApprovalsUseTheSharedPlanCallerScopeBinding(t *testing.T) {
 }
 
 func TestDeploymentApplySerializesConcurrentProviderEffects(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "managed")
 	provider := &blockingDeploymentProvider{entered: make(chan struct{}), release: make(chan struct{})}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}
@@ -216,8 +220,7 @@ func TestDeploymentApplySerializesConcurrentProviderEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, _ := Compile(root)
-	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
+	options := DeploymentApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision, ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test"}
 	first := make(chan error, 1)
 	go func() {
 		_, err := ApplyDeploymentPlan(context.Background(), root, plan, options, registry)
@@ -234,8 +237,9 @@ func TestDeploymentApplySerializesConcurrentProviderEffects(t *testing.T) {
 }
 
 func TestDeploymentApplyRejectsSymlinkedStateDirectory(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "external")
-	result, _ := Compile(root)
 	plan, err := PlanDeployment(context.Background(), root, DeploymentPlanRequest{Deployment: "preview", ImplementationRevisions: testDeploymentImplementationRevision(), Caller: "test"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +252,7 @@ func TestDeploymentApplyRejectsSymlinkedStateDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = ApplyDeploymentPlan(context.Background(), root, plan, DeploymentApplyOptions{
-		ExpectedWorkspaceRevision: result.WorkspaceRevision, ExpectedContractRevision: result.Manifest.ContractRevision,
+		ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, ExpectedContractRevision: plan.ContractRevision,
 		ExpectedImplementation: testDeploymentImplementationRevision(), Caller: "test",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "unsafe") {
@@ -261,6 +265,8 @@ func TestDeploymentApplyRejectsSymlinkedStateDirectory(t *testing.T) {
 }
 
 func TestDeploymentRecoveryRestoresPreviousStateBeforeProviderRollback(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "managed")
 	provider := &testDeploymentProvider{}
 	registry := DeploymentProviderRegistry{"app/provider/postgres": provider}

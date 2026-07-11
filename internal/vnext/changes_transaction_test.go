@@ -100,6 +100,44 @@ func TestCompileRejectsActiveTransactionOwnedByCurrentProcess(t *testing.T) {
 	}
 }
 
+func TestCommittedResultRevalidationDetectsWorkspaceDrift(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	excludedPath := filepath.Join(root, "revision-excluded.txt")
+	if err := os.WriteFile(excludedPath, []byte("checked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stagedRoot, err := cloneWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(stagedRoot)
+	staged, checkedFiles, err := validateStagedWorkspace(stagedRoot, false)
+	if err != nil || !staged.Valid() {
+		t.Fatalf("staged compile: %v diagnostics=%#v", err, staged.Diagnostics)
+	}
+	actual, err := revalidateCommittedResult(root, staged, checkedFiles)
+	if err != nil || actual.WorkspaceRevision != staged.WorkspaceRevision {
+		t.Fatalf("unchanged workspace revalidation: %v staged=%s actual=%s", err, staged.WorkspaceRevision, actual.WorkspaceRevision)
+	}
+
+	if err := os.WriteFile(excludedPath, []byte("changed after check\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := revalidateCommittedResult(root, staged, checkedFiles); err == nil || !strings.Contains(err.Error(), "differs from checked staging") {
+		t.Fatalf("revision-excluded drift error = %v", err)
+	}
+	if err := os.WriteFile(excludedPath, []byte("checked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte("migration {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := revalidateCommittedResult(root, staged, checkedFiles); err == nil || !strings.Contains(err.Error(), "differs from checked staging") {
+		t.Fatalf("migration-source drift error = %v", err)
+	}
+}
+
 func TestChangeTransactionRecoveryRejectsEscapingMetadata(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

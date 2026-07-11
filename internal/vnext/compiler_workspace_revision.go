@@ -93,6 +93,20 @@ func computeWorkspaceRevision(root string, sources []*Source, migration *Migrati
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// refreshWorkspaceRevision re-hashes an unchanged compiler result after its
+// already-verified generated artifacts have been materialized.
+func refreshWorkspaceRevision(result *Result) error {
+	if result == nil {
+		return errors.New("compiler result is unavailable")
+	}
+	revision, err := computeWorkspaceRevision(result.Root, result.Sources, result.Migration)
+	if err != nil {
+		return err
+	}
+	result.WorkspaceRevision = revision
+	return nil
+}
+
 func declaredWorkspaceEntries(root string, sources []*Source) (map[string][]byte, error) {
 	entries, err := declaredResourceFileEntries(root, sources)
 	if err != nil {

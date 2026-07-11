@@ -42,6 +42,8 @@ func verifyGoImplementation(result *Result) []Diagnostic {
 	if err != nil {
 		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
 	}
+	result.verifiedGoFiles = append([]generatedFile(nil), files...)
+	result.hasVerifiedGoFiles = true
 	overlay, err := generatedGoVerificationOverlay(files)
 	if err != nil {
 		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}

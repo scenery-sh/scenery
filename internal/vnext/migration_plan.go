@@ -73,7 +73,7 @@ type MigrationReceipt struct {
 }
 
 func PlanMigrationTransition(root string, request MigrationPlanRequest) (MigrationPlan, error) {
-	base, err := Compile(root)
+	base, err := compileContractGraph(root, false)
 	if err != nil {
 		return MigrationPlan{}, err
 	}
@@ -202,15 +202,14 @@ func PlanMigrationTransition(root string, request MigrationPlanRequest) (Migrati
 		}
 		return MigrationPlan{}, fmt.Errorf("failed_precondition: migration transition does not compile: %s", firstError(predicted.Diagnostics))
 	}
-	if _, err := GenerateGoContracts(temp, false); err != nil {
+	if _, err := generateGoContractsFromResult(predicted, false); err != nil {
 		return MigrationPlan{}, fmt.Errorf("failed_precondition: migration Go artifacts are invalid: %w", err)
 	}
-	if _, err := GenerateTypeScriptClients(temp, "", false); err != nil {
+	if _, err := generateTypeScriptClientsFromResult(predicted, "", false); err != nil {
 		return MigrationPlan{}, fmt.Errorf("failed_precondition: migration client artifacts are invalid: %w", err)
 	}
-	predicted, err = Compile(temp)
-	if err != nil || !predicted.Valid() {
-		return MigrationPlan{}, fmt.Errorf("failed_precondition: generated migration transition is invalid")
+	if err := refreshWorkspaceRevision(predicted); err != nil {
+		return MigrationPlan{}, err
 	}
 	edits, err := changedWorkspaceFiles(root, temp)
 	if err != nil {
@@ -246,7 +245,7 @@ func ApplyMigrationPlan(root string, plan MigrationPlan, options MigrationApplyO
 	if err := validateApprovals(ChangePlan{PlanID: plan.PlanID, Caller: plan.Caller, RequiredApprovals: plan.RequiredApprovals}, ApplyOptions{Caller: options.Caller, ApprovalTokens: options.ApprovalTokens, VerifyApproval: options.VerifyApproval}); err != nil {
 		return MigrationReceipt{}, err
 	}
-	current, err := Compile(root)
+	current, err := compileContractGraph(root, false)
 	if err != nil || current.Manifest == nil || current.WorkspaceRevision != plan.BaseWorkspaceRevision || current.Manifest.ContractRevision != plan.BaseContractRevision {
 		return MigrationReceipt{}, fmt.Errorf("revision_conflict: migration source changed")
 	}
@@ -268,7 +267,7 @@ func ApplyMigrationPlan(root string, plan MigrationPlan, options MigrationApplyO
 	if err := applyPlannedEdits(staged, plan.Edits, true); err != nil {
 		return MigrationReceipt{}, err
 	}
-	checked, err := Check(staged)
+	checked, checkedFiles, err := validateStagedWorkspace(staged, true)
 	if err != nil || !checked.Valid() || checked.WorkspaceRevision != plan.PredictedWorkspaceRevision || checked.Manifest.ContractRevision != plan.PredictedContractRevision {
 		detail := ""
 		if err != nil {
@@ -284,7 +283,7 @@ func ApplyMigrationPlan(root string, plan MigrationPlan, options MigrationApplyO
 	if err != nil {
 		return MigrationReceipt{}, err
 	}
-	actual, err := compileDuringChangeTransaction(root)
+	actual, err := revalidateCommittedResult(root, checked, checkedFiles)
 	if err != nil || !actual.Valid() || actual.WorkspaceRevision != plan.PredictedWorkspaceRevision || actual.Manifest.ContractRevision != plan.PredictedContractRevision {
 		rollback()
 		return MigrationReceipt{}, fmt.Errorf("internal: applied migration revisions differ from plan")

@@ -25,6 +25,10 @@ func generateTypeScriptClients(root, selector string, check, allowActiveChangeTr
 	if err != nil {
 		return GenerateResult{}, err
 	}
+	return generateTypeScriptClientsFromResult(result, selector, check)
+}
+
+func generateTypeScriptClientsFromResult(result *Result, selector string, check bool) (GenerateResult, error) {
 	if result.ContractStatus != "valid" || result.Manifest == nil {
 		return GenerateResult{}, fmt.Errorf("cannot generate from invalid vNext contract: %s", firstError(result.Diagnostics))
 	}

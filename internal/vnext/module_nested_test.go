@@ -2,7 +2,6 @@ package vnext
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -41,7 +40,7 @@ record "point" {
 }
 export "point" { value = record.point }
 `)
-	result, err := Compile(root)
+	result, err := compileContractGraph(root, false)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -66,6 +65,8 @@ export "point" { value = record.point }
 }
 
 func TestNestedExportedTypeGeneratesCompilableGoContractClosure(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	for _, directory := range []string{"parent", "geometry"} {
 		if err := os.MkdirAll(filepath.Join(root, directory), 0o755); err != nil {
@@ -162,7 +163,7 @@ record "point" {
 }
 export "point" { value = record.point }
 `)
-	result, err := Compile(root)
+	result, err := compileContractGraph(root, false)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -174,7 +175,7 @@ export "point" { value = record.point }
 	if err := atomicWriteSet(root, files); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("go", "test", "-mod=mod", "./parent/scenerycontract")
+	command := boundedGoCommand("test", "-mod=mod", "./parent/scenerycontract")
 	command.Dir = root
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated cross-module contract does not compile: %v\n%s", err, output)

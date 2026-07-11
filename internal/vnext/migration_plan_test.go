@@ -8,6 +8,8 @@ import (
 )
 
 func TestMigrationShadowPlanAppliesAtomicallyAndBlocksUnprovenActivation(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -72,7 +74,7 @@ func TestMigrationShadowPlanAppliesAtomicallyAndBlocksUnprovenActivation(t *test
 	if _, err := ApplyMigrationPlan(root, plan, MigrationApplyOptions{ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: base.Manifest.ContractRevision, Caller: "test"}); err == nil || !strings.Contains(err.Error(), "already applied") {
 		t.Fatalf("migration replay error = %v", err)
 	}
-	shadow, err := Compile(root)
+	shadow, err := compileContractGraph(root, false)
 	if err != nil || !shadow.Valid() {
 		t.Fatalf("shadow compile: %v %#v", err, shadow.Diagnostics)
 	}

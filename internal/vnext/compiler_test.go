@@ -347,6 +347,8 @@ func TestWorkspaceRevisionIncludesOnlyDescriptorOwnedGeneratedFiles(t *testing.T
 }
 
 func TestCompileVerifiesDeclaredGoTargetPlatform(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	contractPath := filepath.Join(root, "scenery.scn")
@@ -476,6 +478,8 @@ func TestMixedModeRejectsNonNormalizedManifestPaths(t *testing.T) {
 }
 
 func TestMixedModeLowersLegacyPackagesWithTheirDeclaredGoTarget(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -582,6 +586,8 @@ func TestStaticLegacyProjectionDoesNotClaimBehavioralExactness(t *testing.T) {
 }
 
 func TestNativeMigrationServiceRejectsHiddenLegacyRuntimeDeclarations(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	tests := map[string]string{
 		"direct": `package bridge
 

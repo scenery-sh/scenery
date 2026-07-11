@@ -172,6 +172,8 @@ type Result struct {
 	Diagnostics             []Diagnostic         `json:"diagnostics"`
 	Sources                 []*Source            `json:"-"`
 	Migration               *Migration           `json:"migration,omitempty"`
+	verifiedGoFiles         []generatedFile
+	hasVerifiedGoFiles      bool
 }
 
 // ManifestForView returns the immutable compiler snapshot for one of the

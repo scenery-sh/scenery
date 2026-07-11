@@ -334,6 +334,15 @@ func validateNativeMigrationLegacyAbsence(root, applicationName string, migratio
 	if migration == nil {
 		return nil
 	}
+	nativeServices := make([]MigrationService, 0, len(migration.Services))
+	for _, service := range migration.Services {
+		if service.State == "native" {
+			nativeServices = append(nativeServices, service)
+		}
+	}
+	if len(nativeServices) == 0 {
+		return nil
+	}
 	cfg := appcfg.Config{Name: applicationName}
 	if migration.LegacyConfig != "" {
 		_, discovered, err := appcfg.DiscoverRoot(root)
@@ -358,10 +367,7 @@ func validateNativeMigrationLegacyAbsence(root, applicationName string, migratio
 		moduleRoots[moduleInstancePath(resource)] = source
 	}
 	var diagnostics []Diagnostic
-	for _, service := range migration.Services {
-		if service.State != "native" {
-			continue
-		}
+	for _, service := range nativeServices {
 		module := strings.TrimPrefix(service.Module, "module.")
 		if module == "" {
 			module = service.Name

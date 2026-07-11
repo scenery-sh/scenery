@@ -302,7 +302,7 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
+      "last_reviewed": "2026-07-11",
       "review_after": "2026-08-09",
       "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, constructor inputs, handlers, outcomes, adapters, descriptors, and staged verification.",
       "tags": [
@@ -1597,7 +1597,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-10",
       "review_after": "2026-08-08",
-      "summary": "Completed ExecPlan that preserved the full repository test surface while bringing compile validation, cmd/scenery package and wall medians, and cached/fresh self-harness timing below five seconds through content-addressed linked test binaries and fresh test execution.",
+      "summary": "Completed ExecPlan that preserves the full repository test surface, uses content-addressed linked test binaries, and keeps the expanded edition-2027 suite below the 30-second release limit through verified compiler-result reuse and bounded Go-analysis concurrency.",
       "tags": [
         "plans",
         "execplans",

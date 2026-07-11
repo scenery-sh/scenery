@@ -54,6 +54,10 @@ func generateGoContracts(root string, check, allowActiveChangeTransaction bool) 
 	if err != nil {
 		return GenerateResult{}, err
 	}
+	return generateGoContractsFromResult(result, check)
+}
+
+func generateGoContractsFromResult(result *Result, check bool) (GenerateResult, error) {
 	if result.ContractStatus != "valid" || result.Manifest == nil {
 		return GenerateResult{}, fmt.Errorf("cannot generate from invalid vNext contract: %s", firstError(result.Diagnostics))
 	}
@@ -65,6 +69,9 @@ func generateGoContracts(root string, check, allowActiveChangeTransaction bool) 
 }
 
 func renderGoContractFiles(result *Result) ([]generatedFile, error) {
+	if result != nil && result.hasVerifiedGoFiles {
+		return append([]generatedFile(nil), result.verifiedGoFiles...), nil
+	}
 	if err := validateInvariantPackageABIs(result); err != nil {
 		return nil, err
 	}

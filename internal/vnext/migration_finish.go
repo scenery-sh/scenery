@@ -65,7 +65,7 @@ type migrationFinishOperationalState struct {
 }
 
 func PlanMigrationFinish(root string, request MigrationFinishRequest) (MigrationFinishPlan, error) {
-	base, err := Compile(root)
+	base, err := compileContractGraph(root, false)
 	if err != nil {
 		return MigrationFinishPlan{}, err
 	}
@@ -113,15 +113,14 @@ func PlanMigrationFinish(root string, request MigrationFinishRequest) (Migration
 		}
 		return MigrationFinishPlan{}, fmt.Errorf("failed_precondition: native-only graph after finish is invalid: %s", firstError(predicted.Diagnostics))
 	}
-	if _, err := GenerateGoContracts(temp, false); err != nil {
+	if _, err := generateGoContractsFromResult(predicted, false); err != nil {
 		return MigrationFinishPlan{}, fmt.Errorf("failed_precondition: native-only Go artifacts are invalid: %w", err)
 	}
-	if _, err := GenerateTypeScriptClients(temp, "", false); err != nil {
+	if _, err := generateTypeScriptClientsFromResult(predicted, "", false); err != nil {
 		return MigrationFinishPlan{}, fmt.Errorf("failed_precondition: native-only client artifacts are invalid: %w", err)
 	}
-	predicted, err = Check(temp)
-	if err != nil || !predicted.Valid() || predicted.Manifest == nil {
-		return MigrationFinishPlan{}, fmt.Errorf("failed_precondition: generated native-only graph is invalid")
+	if err := refreshWorkspaceRevision(predicted); err != nil {
+		return MigrationFinishPlan{}, err
 	}
 	edits, err := changedWorkspaceFiles(root, temp)
 	if err != nil {
@@ -148,7 +147,7 @@ func ApplyMigrationFinish(root string, plan MigrationFinishPlan, options Migrati
 	if pathExists(migrationFinishReceiptPath(root, plan.PlanID)) {
 		return MigrationFinishReceipt{}, fmt.Errorf("failed_precondition: migration finish plan was already applied")
 	}
-	current, err := Compile(root)
+	current, err := compileContractGraph(root, false)
 	if err != nil || current.Manifest == nil || current.WorkspaceRevision != plan.BaseWorkspaceRevision || current.Manifest.ContractRevision != plan.BaseContractRevision {
 		return MigrationFinishReceipt{}, fmt.Errorf("revision_conflict: migration source changed")
 	}
@@ -171,7 +170,7 @@ func ApplyMigrationFinish(root string, plan MigrationFinishPlan, options Migrati
 	if err := applyPlannedEdits(staged, plan.SourceEdits, true); err != nil {
 		return MigrationFinishReceipt{}, err
 	}
-	checked, err := Check(staged)
+	checked, checkedFiles, err := validateStagedWorkspace(staged, true)
 	if err != nil || !checked.Valid() || checked.Migration != nil || checked.WorkspaceRevision != plan.PredictedWorkspaceRevision || checked.Manifest.ContractRevision != plan.PredictedContractRevision {
 		return MigrationFinishReceipt{}, fmt.Errorf("failed_precondition: staged migration finish no longer validates")
 	}
@@ -179,7 +178,7 @@ func ApplyMigrationFinish(root string, plan MigrationFinishPlan, options Migrati
 	if err != nil {
 		return MigrationFinishReceipt{}, err
 	}
-	actual, err := checkDuringChangeTransaction(root)
+	actual, err := revalidateCommittedResult(root, checked, checkedFiles)
 	if err != nil || !actual.Valid() || actual.Migration != nil || actual.WorkspaceRevision != plan.PredictedWorkspaceRevision || actual.Manifest.ContractRevision != plan.PredictedContractRevision {
 		rollback()
 		return MigrationFinishReceipt{}, fmt.Errorf("internal: applied migration finish revisions differ from plan")

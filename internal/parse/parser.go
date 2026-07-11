@@ -51,6 +51,8 @@ type GoTargetContext struct {
 	NativeToolIdentities []map[string]string
 }
 
+const goAnalysisMaxProcs = 2
+
 // AppWithOverlayTarget loads exactly the packages and Go build context declared
 // by an edition-2027 go_target while preserving app-root-relative discovery.
 func AppWithOverlayTarget(root, name string, overlay map[string][]byte, target GoTargetContext) (*model.App, error) {
@@ -494,7 +496,7 @@ func hermeticOverlayGoEnvironment(target *GoTargetContext) []string {
 		"CPATH": true, "C_INCLUDE_PATH": true, "CPLUS_INCLUDE_PATH": true, "LIBRARY_PATH": true, "LD_LIBRARY_PATH": true,
 		"DYLD_LIBRARY_PATH": true, "DYLD_FALLBACK_LIBRARY_PATH": true,
 		"CGO_ENABLED": true, "GOARCH": true, "GOENV": true, "GOEXPERIMENT": true, "GOFLAGS": true,
-		"GOOS": true, "GOPROXY": true, "GOTOOLCHAIN": true, "GOWORK": true,
+		"GOMAXPROCS": true, "GOOS": true, "GOPROXY": true, "GOTOOLCHAIN": true, "GOWORK": true,
 		"GO386": true, "GOAMD64": true, "GOARM": true, "GOARM64": true, "GOMIPS": true,
 		"GOMIPS64": true, "GOPPC64": true, "GORISCV64": true, "GOWASM": true,
 	}
@@ -520,6 +522,7 @@ func hermeticOverlayGoEnvironment(target *GoTargetContext) []string {
 		"GOENV=off",
 		"GOEXPERIMENT="+experiments,
 		"GOFLAGS=",
+		"GOMAXPROCS="+strconv.Itoa(min(runtime.GOMAXPROCS(0), goAnalysisMaxProcs)),
 		"GOOS="+goos,
 		"GOPROXY=off",
 		"GOTOOLCHAIN="+resolvedGoToolchain(target),

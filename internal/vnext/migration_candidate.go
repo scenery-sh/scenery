@@ -59,7 +59,7 @@ type MigrationCandidateReceipt struct {
 }
 
 func PlanMigrationCandidate(root string, request MigrationCandidateRequest) (MigrationCandidatePlan, error) {
-	base, err := Compile(root)
+	base, err := compileContractGraph(root, false)
 	if err != nil {
 		return MigrationCandidatePlan{}, err
 	}
@@ -157,7 +157,7 @@ func ApplyMigrationCandidate(root string, plan MigrationCandidatePlan, options M
 	if pathExists(migrationCandidateReceiptPath(root, plan.PlanID)) {
 		return MigrationCandidateReceipt{}, fmt.Errorf("failed_precondition: migration candidate plan was already applied")
 	}
-	current, err := Compile(root)
+	current, err := compileContractGraph(root, false)
 	if err != nil || !current.Valid() || current.Manifest == nil || current.WorkspaceRevision != plan.BaseWorkspaceRevision || current.Manifest.ContractRevision != plan.BaseContractRevision {
 		return MigrationCandidateReceipt{}, fmt.Errorf("revision_conflict: migration candidate source changed")
 	}
@@ -173,7 +173,7 @@ func ApplyMigrationCandidate(root string, plan MigrationCandidatePlan, options M
 	if err := applyPlannedEdits(staged, plan.Edits, true); err != nil {
 		return MigrationCandidateReceipt{}, err
 	}
-	checked, err := Compile(staged)
+	checked, checkedFiles, err := validateStagedWorkspace(staged, false)
 	if err != nil || !checked.Valid() || checked.Manifest == nil || checked.WorkspaceRevision != plan.PredictedWorkspaceRevision || checked.Manifest.ContractRevision != plan.PredictedContractRevision {
 		return MigrationCandidateReceipt{}, fmt.Errorf("failed_precondition: staged migration candidate no longer validates")
 	}
@@ -185,7 +185,7 @@ func ApplyMigrationCandidate(root string, plan MigrationCandidatePlan, options M
 	if err != nil {
 		return MigrationCandidateReceipt{}, err
 	}
-	actual, err := compileDuringChangeTransaction(root)
+	actual, err := revalidateCommittedResult(root, checked, checkedFiles)
 	if err != nil || !actual.Valid() || actual.Manifest == nil || actual.WorkspaceRevision != plan.PredictedWorkspaceRevision || actual.Manifest.ContractRevision != plan.PredictedContractRevision {
 		rollback()
 		return MigrationCandidateReceipt{}, fmt.Errorf("internal: applied migration candidate revisions differ from plan")

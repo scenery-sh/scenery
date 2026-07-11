@@ -139,7 +139,7 @@ func ApplyMigrationInitialization(root string, plan MigrationInitializationPlan,
 	if err := applyPlannedEdits(staged, plan.Edits, true); err != nil {
 		return MigrationInitializationReceipt{}, err
 	}
-	checked, err := Compile(staged)
+	checked, checkedFiles, err := validateStagedWorkspace(staged, false)
 	if err != nil || !checked.Valid() || checked.Manifest == nil || checked.WorkspaceRevision != plan.PredictedWorkspaceRevision || checked.Manifest.ContractRevision != plan.PredictedContractRevision {
 		return MigrationInitializationReceipt{}, fmt.Errorf("failed_precondition: staged migration initialization no longer validates")
 	}
@@ -147,7 +147,7 @@ func ApplyMigrationInitialization(root string, plan MigrationInitializationPlan,
 	if err != nil {
 		return MigrationInitializationReceipt{}, err
 	}
-	actual, err := compileDuringChangeTransaction(root)
+	actual, err := revalidateCommittedResult(root, checked, checkedFiles)
 	if err != nil || !actual.Valid() || actual.Manifest == nil || actual.WorkspaceRevision != plan.PredictedWorkspaceRevision || actual.Manifest.ContractRevision != plan.PredictedContractRevision {
 		rollback()
 		return MigrationInitializationReceipt{}, fmt.Errorf("internal: applied migration initialization revisions differ from plan")

@@ -38,6 +38,17 @@ func compileDuringChangeTransaction(root string) (*Result, error) {
 }
 
 func compile(root string, allowActiveChangeTransaction bool) (*Result, error) {
+	return compileResult(root, allowActiveChangeTransaction, true)
+}
+
+// compileContractGraph resolves and validates the canonical graph without
+// repeating source implementation verification. Build and deployment phases
+// consume an independently verified, content-addressed implementation revision.
+func compileContractGraph(root string, allowActiveChangeTransaction bool) (*Result, error) {
+	return compileResult(root, allowActiveChangeTransaction, false)
+}
+
+func compileResult(root string, allowActiveChangeTransaction, verifyImplementation bool) (*Result, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -98,7 +109,7 @@ func compile(root string, allowActiveChangeTransaction bool) (*Result, error) {
 	if manifest != nil {
 		result.ContractStatus = "valid"
 		result.HTTPSurfaceRevisions, result.OpenAPIRevisions = computeHTTPProjectionRevisions(manifest)
-		if hasNativeGoHandlers(manifest.Resources) {
+		if verifyImplementation && hasNativeGoHandlers(manifest.Resources) {
 			result.ImplementationStatus = "valid"
 			implementationDiagnostics := verifyGoImplementation(result)
 			if hasErrors(implementationDiagnostics) {

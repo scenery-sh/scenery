@@ -9,6 +9,8 @@ import (
 )
 
 func TestMigrationFinishPlansAndAppliesNativeOnlyTransition(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	rewriteFixtureSceneryReplace(t, root)
@@ -140,6 +142,8 @@ func migrationFinishTestEvidence(status MigrationStatus) map[string]string {
 }
 
 func TestMigrationFinishRejectsLegacyGoAdapter(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "bridge"), root)
 	rewriteFixtureSceneryReplace(t, root)

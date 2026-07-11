@@ -133,7 +133,7 @@ func PlanDeployment(ctx context.Context, root string, request DeploymentPlanRequ
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	result, err := Compile(root)
+	result, err := compileContractGraph(root, false)
 	if err != nil {
 		return DeploymentPlan{}, err
 	}
@@ -270,7 +270,7 @@ func ApplyDeploymentPlan(ctx context.Context, root string, plan DeploymentPlan, 
 	if pathExists(appliedPath) {
 		return DeploymentReceipt{}, fmt.Errorf("failed_precondition: deployment plan was already applied")
 	}
-	current, err := Compile(root)
+	current, err := compileContractGraph(root, false)
 	if err != nil {
 		return DeploymentReceipt{}, err
 	}

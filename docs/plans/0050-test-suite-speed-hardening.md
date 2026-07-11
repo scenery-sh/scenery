@@ -193,9 +193,13 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - [x] 2026-07-10: Proved unchanged coverage against standard `go test -count=1 -json ./...`: both paths reported the same 58 packages and the same 745 pass/fail/skip test results. Added a stale-build-output fix after the preserved persistent compile smoke exposed Go 1.26 refusing to overwrite a non-object cache artifact.
 - [x] 2026-07-10: Closed the five-second target locally. Seven full runner samples had a 4.37s median; isolated `cmd/scenery` medians were 4.040s package and 4.920s wall; source-invalidated compile validation was 4.400s. Final post-doc self-harness proof passed at 4.870s cached from a manifest miss and 4.899s with `--fresh-tests`, with no timing warnings, 58 packages, and 745 test results.
 - [x] 2026-07-10: Post-push validation found and fixed commit-only cache churn. Test binaries now use `-buildvcs=false`, and the workspace fingerprint hashes actual tracked/untracked contents instead of `HEAD` plus a patch. A regression test proves committing unchanged contents preserves the fingerprint; the exact post-push rerun completed in 4.32s.
+- [x] 2026-07-11: Diagnosed the edition-2027 regression from the recorded 80.970s full-suite artifact. `internal/vnext` consumed 78.340s because migration and mutation workflows repeatedly compiled the same graph and each Go package load inherited the host's 24-thread scheduler budget.
+- [x] 2026-07-11: Reused verified compiler results across checks, generation, migration planning, and atomic apply; replaced redundant post-generation compiles with an exact workspace-revision refresh; and retained full staged validation plus byte-for-byte committed-workspace revalidation. No test was skipped, gated, or deleted.
+- [x] 2026-07-11: Put vNext integration tests under the repository test CPU limiter, bounded nested Go analysis, and allowed three resource-budgeted integration tests in flight. Final isolated `internal/vnext` samples were 16.31-16.67s. Three final complete plain `go test ./... -count=1` samples were 27.85s, 22.87s, and 22.94s; cached full-runner samples were 17.28-18.03s and a source-invalidated runner pass was 20.31s. The managed sandbox still rejects loopback listeners, so host-side release harness remains the final green correctness proof.
 
 ## Surprises & Discoveries
 
+- 2026-07-11: The vNext slowdown was multiplicative rather than one slow assertion: repeated canonical compilation launched overlapping `go/packages` processes, and the previously uncapped vNext test binary let each process expose the host's full 24-thread scheduler budget. Joining the existing four-thread test limiter cut kernel time by roughly three quarters without narrowing coverage.
 - 2026-07-10: The final compile floor was link work, not compilation, test initialization, vet, or package scheduler fanout. The Go tool correctly reused compile archives but still linked every test binary for each `-count=1` invocation.
 - 2026-07-10: Go test build IDs are a sufficient cache key for linked binaries. A separate dependency graph or source cache would duplicate Go's own correctness model.
 - 2026-07-10: `--fresh-tests` no longer needs a separate binary-manifest refresh. The workspace fingerprint validates binary inputs, while both cached and fresh timing lanes now execute test bodies with `-test.count=1`; only linked binaries are reused.
@@ -534,6 +538,9 @@ The longer goal is a warm-cache full-suite runtime near five seconds. That requi
 - Decision: Make linked test binaries independent of commit metadata and fingerprint actual workspace contents.
   Rationale: A commit does not change the code being tested. `-buildvcs=false` prevents commit-only build-ID churn, while hashing tracked/untracked files keeps staged, unstaged, untracked, deleted, embedded, and non-Go build inputs invalidating correctly.
   Date/Author: 2026-07-10 / Codex.
+- Decision: Reuse an already verified vNext compiler result only while its exact staged workspace snapshot remains unchanged, and enforce a small explicit scheduler budget for nested Go analysis.
+  Rationale: Re-running identical semantic and implementation verification inside one transaction added no coverage. Exact snapshot comparison preserves the former post-commit safety boundary, while bounded concurrency removes scheduler oversubscription without disabling any test.
+  Date/Author: 2026-07-11 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -544,6 +551,12 @@ bodies after link work became the floor. Standard `go test` remains a valid
 compatibility/correctness command; the self-harness and `scripts/testsuite` are
 the optimized local timing path. Ongoing dev-loop work continues under plan
 0096 rather than keeping this historical speed plan active.
+
+Revalidated after the edition-2027 expansion on 2026-07-11. The new compiler
+surface remains fully exercised, but repeated compile/package-load work and
+unbounded nested scheduler fanout were removed. Complete plain-suite samples
+now stay below the release hard limit with at least 2.15 seconds of measured
+margin, and the content-addressed runner remains faster still.
 
 ## Context and Orientation
 

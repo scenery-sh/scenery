@@ -9,6 +9,8 @@ import (
 )
 
 func TestGoServiceConfigCompilesFromAuthoredSource(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	rewriteFixtureSceneryReplace(t, root)

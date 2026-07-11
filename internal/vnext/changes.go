@@ -128,14 +128,17 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 		return ChangePlan{}, err
 	}
 	defer os.RemoveAll(temp)
-	for _, operation := range request.Operations {
+	for index, operation := range request.Operations {
 		if err := rejectSecretMutation(operation); err != nil {
 			return ChangePlan{}, err
 		}
 		if err := applySemanticOperation(temp, planningBase, operation); err != nil {
 			return ChangePlan{}, err
 		}
-		if refreshed, compileErr := Compile(temp); compileErr == nil {
+		if index == len(request.Operations)-1 {
+			continue
+		}
+		if refreshed, compileErr := compileContractGraph(temp, false); compileErr == nil {
 			if next, writableErr := writablePlanningResult(refreshed); writableErr == nil {
 				planningBase = next
 			}
@@ -152,18 +155,14 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 		predictedEdits, _ := changedWorkspaceFiles(root, temp)
 		return ChangePlan{}, &ChangePlanFailure{Diagnostics: append([]Diagnostic(nil), predicted.Diagnostics...), Edits: predictedEdits, Message: "planned source does not compile: " + firstError(predicted.Diagnostics)}
 	}
-	if _, err := GenerateGoContracts(temp, false); err != nil {
+	if _, err := generateGoContractsFromResult(predicted, false); err != nil {
 		return ChangePlan{}, &ChangePlanFailure{Diagnostics: []Diagnostic{{Code: "SCN6205", Severity: "error", Message: err.Error()}}, Message: "planned generated Go artifacts are invalid: " + err.Error()}
 	}
-	if _, err := GenerateTypeScriptClients(temp, "", false); err != nil {
+	if _, err := generateTypeScriptClientsFromResult(predicted, "", false); err != nil {
 		return ChangePlan{}, &ChangePlanFailure{Diagnostics: []Diagnostic{{Code: "SCN6206", Severity: "error", Message: err.Error()}}, Message: "planned generated TypeScript artifacts are invalid: " + err.Error()}
 	}
-	predicted, err = Compile(temp)
-	if err != nil || !predicted.Valid() {
-		if err != nil {
-			return ChangePlan{}, err
-		}
-		return ChangePlan{}, &ChangePlanFailure{Diagnostics: append([]Diagnostic(nil), predicted.Diagnostics...), Message: "planned generated workspace does not compile: " + firstError(predicted.Diagnostics)}
+	if err := refreshWorkspaceRevision(predicted); err != nil {
+		return ChangePlan{}, err
 	}
 	edits, err := changedWorkspaceFiles(root, temp)
 	if err != nil {
@@ -234,7 +233,7 @@ func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	if err := validateApprovals(plan, options); err != nil {
 		return ChangeReceipt{}, err
 	}
-	current, err := Compile(root)
+	current, err := compileContractGraph(root, false)
 	if err != nil {
 		return ChangeReceipt{}, err
 	}
@@ -256,7 +255,7 @@ func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	if err := applyPlannedEdits(stagedRoot, plan.Edits, true); err != nil {
 		return ChangeReceipt{}, err
 	}
-	stagedResult, err := Check(stagedRoot)
+	stagedResult, checkedFiles, err := validateStagedWorkspace(stagedRoot, true)
 	if err != nil || !stagedResult.Valid() || stagedResult.WorkspaceRevision != plan.PredictedWorkspaceRevision || stagedResult.Manifest.ContractRevision != plan.PredictedContractRevision {
 		if err != nil {
 			return ChangeReceipt{}, err
@@ -267,7 +266,7 @@ func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 	if err != nil {
 		return ChangeReceipt{}, err
 	}
-	actual, err := compileDuringChangeTransaction(root)
+	actual, err := revalidateCommittedResult(root, stagedResult, checkedFiles)
 	if err != nil || !actual.Valid() || actual.WorkspaceRevision != plan.PredictedWorkspaceRevision || actual.Manifest.ContractRevision != plan.PredictedContractRevision {
 		rollback()
 		if err != nil {

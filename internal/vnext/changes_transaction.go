@@ -128,7 +128,7 @@ func snapshotWorkspaceFiles(root string) (map[string]workspaceFile, error) {
 			return fmt.Errorf("workspace symlink is not permitted: %s", filepath.ToSlash(relative))
 		}
 		if !entry.Type().IsRegular() {
-			return nil
+			return fmt.Errorf("workspace entry is not a regular file: %s", filepath.ToSlash(relative))
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {

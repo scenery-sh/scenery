@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"go/format"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -118,7 +117,9 @@ func TestGenerateAllDoesNotCommitGoArtifactsWhenTypeScriptValidationFails(t *tes
 }
 
 func TestExportedFixtureProducesNativeTypeScriptClientBinding(t *testing.T) {
-	result, err := Compile(filepath.Join("testdata", "native"))
+	parallelVNextIntegrationTest(t)
+
+	result, err := compileContractGraph(filepath.Join("testdata", "native"), false)
 	if err != nil || result.Manifest == nil {
 		t.Fatalf("compile: %v %#v", err, result)
 	}
@@ -155,6 +156,8 @@ func TestNativeFixtureLegacyParserFindsImplementationService(t *testing.T) {
 }
 
 func TestNativeFixtureChecksCommittedContractAndApplicationArtifacts(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root, err := filepath.Abs(filepath.Join("testdata", "native"))
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +166,7 @@ func TestNativeFixtureChecksCommittedContractAndApplicationArtifacts(t *testing.
 	if err != nil || !result.Valid() {
 		t.Fatalf("check: %v %#v", err, result.Diagnostics)
 	}
-	generated, err := GenerateGoContracts(root, true)
+	generated, err := generateGoContractsFromResult(result, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,6 +183,8 @@ func TestNativeFixtureChecksCommittedContractAndApplicationArtifacts(t *testing.
 }
 
 func TestNativeImplementationVerificationUsesOverlayWithoutGeneratedTree(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -214,6 +219,8 @@ func TestNativeImplementationVerificationUsesOverlayWithoutGeneratedTree(t *test
 }
 
 func TestGenerateBootstrapsContractArtifactsWhileImplementationIsInvalid(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -819,6 +826,8 @@ func TestGenerateApplicationArtifactsRegistersProviderCRUDRuntime(t *testing.T) 
 }
 
 func TestGeneratedProviderCRUDAdapterCompilesInCleanClone(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "native"), root)
 	rewriteFixtureSceneryReplace(t, root)
@@ -921,7 +930,7 @@ crud "scene_api" {
 	if _, err := GenerateGoContracts(root, false); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("go", "test", "./...")
+	command := boundedGoCommand("test", "./...")
 	command.Dir = root
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("clean-clone provider CRUD compile: %v\n%s", err, output)

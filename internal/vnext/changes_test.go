@@ -70,14 +70,17 @@ func TestChangeRenameUpdatesTypedReferences(t *testing.T) {
 	}
 }
 
-func TestChangeCreateAddsTypedResource(t *testing.T) {
+func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)
 	base, err := Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), Operations: []SemanticOperation{{Op: "resource.create", Address: "app/authentication/test", Value: map[string]any{"provider": map[string]any{"$ref": "std.provider.standard_auth"}, "scheme": "session"}}}})
+	plan, err := PlanChanges(root, ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: stringPointer(base.Manifest.ContractRevision), Operations: []SemanticOperation{
+		{Op: "resource.create", Address: "app/authentication/test", Value: map[string]any{"provider": map[string]any{"$ref": "std.provider.standard_auth"}, "scheme": "session"}},
+		{Op: "resource.rename", Address: "app/authentication/test", Value: "renamed"},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +91,12 @@ func TestChangeCreateAddsTypedResource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := resourcesByAddress(result.Manifest)["app/authentication/test"]; !ok {
-		t.Fatal("created resource missing")
+	resources := resourcesByAddress(result.Manifest)
+	if _, ok := resources["app/authentication/renamed"]; !ok {
+		t.Fatal("created and renamed resource missing")
+	}
+	if _, ok := resources["app/authentication/test"]; ok {
+		t.Fatal("pre-rename resource remains")
 	}
 }
 

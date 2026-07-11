@@ -10,8 +10,10 @@ import (
 )
 
 func TestLockedBuiltinProviderDerivesCapabilitiesAndSchema(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := deploymentPlanFixture(t, "external")
-	result, err := Compile(root)
+	result, err := compileContractGraph(root, false)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}

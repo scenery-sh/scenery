@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 
 func TestGoTargetEnvironmentSelectsDeclaredToolchain(t *testing.T) {
 	t.Setenv("GOTOOLCHAIN", "go9.9.9+auto")
+	t.Setenv("GOMAXPROCS", "99")
 	t.Setenv("CC", "/ambient/cc")
 	t.Setenv("PKG_CONFIG", "/ambient/pkg-config")
 
@@ -34,6 +37,9 @@ func TestGoTargetEnvironmentSelectsDeclaredToolchain(t *testing.T) {
 	}
 	if values["CC"] != "/declared/cc" || values["PKG_CONFIG"] != "/declared/pkg-config-disabled" {
 		t.Fatalf("native tools leaked ambient environment: CC=%q PKG_CONFIG=%q", values["CC"], values["PKG_CONFIG"])
+	}
+	if want := strconv.Itoa(min(runtime.GOMAXPROCS(0), goAnalysisMaxProcs)); values["GOMAXPROCS"] != want {
+		t.Fatalf("Go analysis concurrency = %q, want bounded subprocess concurrency", values["GOMAXPROCS"])
 	}
 }
 

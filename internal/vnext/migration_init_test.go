@@ -10,6 +10,8 @@ import (
 )
 
 func TestMigrationInitializationPlansWithoutWritingAndAppliesAtomically(t *testing.T) {
+	parallelVNextIntegrationTest(t)
+
 	root := t.TempDir()
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -128,7 +130,7 @@ func (service *Service) Secret(context.Context) (*EchoResponse, error) {
 	if candidateReceipt.NativeCandidateDigest != candidatePlan.NativeCandidateDigest || candidateReceipt.Active != "legacy" {
 		t.Fatalf("candidate receipt = %#v", candidateReceipt)
 	}
-	shadowResult, err := Compile(root)
+	shadowResult, err := compileContractGraph(root, false)
 	if err != nil || !shadowResult.Valid() {
 		t.Fatalf("candidate compile: %v %#v", err, shadowResult.Diagnostics)
 	}
