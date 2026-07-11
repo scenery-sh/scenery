@@ -5,21 +5,23 @@ import "fmt"
 type authoredBlockSchema struct {
 	Revision               string
 	Labels                 int
-	Attributes             map[string]bool
+	Attributes             map[string]authoredAttributeSchema
 	Required               map[string]bool
 	Children               map[string]authoredChildSchema
 	AllowUnknownAttributes bool
+	DynamicAttribute       *authoredAttributeSchema
 }
 
 type authoredChildSchema struct {
 	Schema     *authoredBlockSchema
 	Repeatable bool
+	Ordered    bool
 }
 
 func sourceSchema(revision string, labels int, attributes, required []string, children map[string]authoredChildSchema) *authoredBlockSchema {
-	schema := &authoredBlockSchema{Revision: revision, Labels: labels, Attributes: map[string]bool{}, Required: map[string]bool{}, Children: children}
+	schema := &authoredBlockSchema{Revision: revision, Labels: labels, Attributes: map[string]authoredAttributeSchema{}, Required: map[string]bool{}, Children: children}
 	for _, name := range attributes {
-		schema.Attributes[name] = true
+		schema.Attributes[name] = authoredAttributeDefinition(revision, name)
 	}
 	for _, name := range required {
 		schema.Required[name] = true
@@ -36,6 +38,10 @@ func repeated(schema *authoredBlockSchema) authoredChildSchema {
 
 func singleton(schema *authoredBlockSchema) authoredChildSchema {
 	return authoredChildSchema{Schema: schema}
+}
+
+func ordered(schema *authoredBlockSchema) authoredChildSchema {
+	return authoredChildSchema{Schema: schema, Repeatable: true, Ordered: true}
 }
 
 var (
@@ -164,12 +170,16 @@ var (
 
 func init() {
 	serviceConfigSourceSchema.AllowUnknownAttributes = true
+	serviceConfigSourceSchema.DynamicAttribute = &authoredAttributeSchema{
+		Type: map[string]any{"$ref": "scenery.value/v1", "type_source": "package_input"}, Phase: "compile", InputPhaseSource: "package_input", RevisionSource: "package_input",
+		SensitivitySource: "package_input", Patchable: true, DefaultSource: "none", Constraints: map[string]any{"name_pattern": "^[a-z][a-z0-9_]*$"}, MetadataStatus: "dynamic",
+	}
 }
 
 var authoredResourceChildren = map[string]map[string]authoredChildSchema{
 	"go_target":         {"test": singleton(goTargetTestSourceSchema)},
-	"authorization":     {"rule": repeated(authorizationRuleSourceSchema)},
-	"pipeline":          {"step": repeated(pipelineStepSourceSchema)},
+	"authorization":     {"rule": ordered(authorizationRuleSourceSchema)},
+	"pipeline":          {"step": ordered(pipelineStepSourceSchema)},
 	"deployment":        {"module": repeated(deploymentModuleSourceSchema), "data_source": repeated(deploymentDataSourceSourceSchema), "service": repeated(deploymentServiceSourceSchema), "http_gateway": repeated(deploymentHTTPGatewaySourceSchema), "provider": repeated(deploymentProviderSourceSchema), "secret": repeated(deploymentSecretSourceSchema)},
 	"typescript_client": {"retry": singleton(typescriptRetrySourceSchema)},
 	"patch":             {"expect": repeated(patchOperationSourceSchema), "set": repeated(patchOperationSourceSchema)},
@@ -201,18 +211,12 @@ var authoredStructuralSchemas = map[string]*authoredBlockSchema{
 }
 
 func authoredResourceSourceSchema(blockType string) (*authoredBlockSchema, bool) {
-	semantic, ok := resourceSchemas[kindForBlock(blockType)]
+	schema, ok := resourceSchemas[kindForBlock(blockType)]
 	if !ok {
 		return nil, false
 	}
 	children := authoredResourceChildren[blockType]
-	attributes := make([]string, 0, len(semantic.Allowed))
-	for _, name := range semantic.Allowed {
-		if _, nested := children[name]; !nested {
-			attributes = append(attributes, name)
-		}
-	}
-	return sourceSchema("scenery.source."+blockType+"/v1", 1, attributes, semantic.Required, children), true
+	return sourceSchema("scenery.source."+blockType+"/v1", 1, schema.Attributes, schema.Required, children), true
 }
 
 func validateAuthoredBlockSchemas(sources []*Source, packageScope bool) []Diagnostic {
@@ -240,13 +244,24 @@ func validateAuthoredBlock(block *Block, schema *authoredBlockSchema) []Diagnost
 		diagnostics = append(diagnostics, Diagnostic{Code: code, Severity: "error", Message: message + " (schema " + schema.Revision + ")", Range: &rng})
 	}
 	if len(block.Labels) != schema.Labels {
-		add("SCN1011", fmt.Sprintf("%s requires exactly %d labels; found %d", block.Type, schema.Labels, len(block.Labels)), block)
+		add("SCN1016", fmt.Sprintf("%s requires exactly %d labels; found %d", block.Type, schema.Labels, len(block.Labels)), block)
 	}
 	for name := range block.Attributes {
 		if _, expectsBlock := schema.Children[name]; expectsBlock {
-			add("SCN1012", "field "+name+" must be authored as a block", block)
-		} else if !schema.AllowUnknownAttributes && !schema.Attributes[name] {
-			add("SCN1012", "unknown attribute "+name+" in "+block.Type, block)
+			add("SCN1017", "field "+name+" must be authored as a block", block)
+		} else if field, allowed := schema.Attributes[name]; allowed {
+			if field.UnsupportedDraft != "" {
+				add("SCN7009", "unsupported_draft: attribute "+name+" requires unresolved capability "+field.UnsupportedDraft, block)
+			}
+			if value, literal := literalString(block, name); literal && !authoredEnumAllows(field, value) {
+				add("SCN1020", "attribute "+name+" in "+block.Type+" is outside its declared enum", block)
+			}
+		} else {
+			if !schema.AllowUnknownAttributes {
+				add("SCN1017", "unknown attribute "+name+" in "+block.Type, block)
+			} else if schema.DynamicAttribute != nil && !validSemanticName(name) {
+				add("SCN1017", "dynamic attribute "+name+" in "+block.Type+" must be lower_snake_case", block)
+			}
 		}
 	}
 	counts := map[string]int{}
@@ -254,7 +269,7 @@ func validateAuthoredBlock(block *Block, schema *authoredBlockSchema) []Diagnost
 	for _, child := range block.Blocks {
 		rule, ok := schema.Children[child.Type]
 		if !ok {
-			add("SCN1013", "unknown nested block "+child.Type+" in "+block.Type, child)
+			add("SCN1018", "unknown nested block "+child.Type+" in "+block.Type, child)
 			continue
 		}
 		counts[child.Type]++
@@ -279,7 +294,32 @@ func validateAuthoredBlock(block *Block, schema *authoredBlockSchema) []Diagnost
 			add("SCN1015", "missing required field "+name+" in "+block.Type, block)
 		}
 	}
+	for _, requirement := range authoredConditionalRequirements[schema.Revision] {
+		value, literal := literalString(block, requirement.Field)
+		if !literal || !semanticEqual(value, requirement.Equals) {
+			continue
+		}
+		for _, name := range requirement.Required {
+			_, attribute := block.Attributes[name]
+			if !attribute && counts[name] == 0 {
+				add("SCN1015", "missing required field "+name+" when "+requirement.Field+" is "+stringValue(requirement.Equals), block)
+			}
+		}
+	}
 	return diagnostics
+}
+
+func authoredEnumAllows(field authoredAttributeSchema, value string) bool {
+	values, constrained := field.Constraints["enum"].([]string)
+	if !constrained {
+		return true
+	}
+	for _, allowed := range values {
+		if value == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func validateMigrationAuthoredSchema(source *Source) []Diagnostic {

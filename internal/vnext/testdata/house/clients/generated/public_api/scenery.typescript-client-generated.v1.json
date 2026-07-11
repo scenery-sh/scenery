@@ -111,8 +111,8 @@
       }
     ]
   },
-  "content_digest": "sha256:b74d04d46059a0af710d7fa45d6db75a4022257c13099d83746715c0d1cc6877",
-  "contract_revision": "sha256:21fb90797a215784da7c0ca765e4b8378fc6a65696481ae51492bdb5dfde89ed",
+  "content_digest": "sha256:f51012691e65f9a03b8de1c6806c9779340b0a386b8df3661570f416c4c93426",
+  "contract_revision": "sha256:21c34102784711303677430c21195714cfec26d290532c8750700994a568b9e5",
   "covered_bindings": [],
   "covered_gateways": [
     "http_gateway.public_api"

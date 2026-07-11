@@ -47,7 +47,7 @@ scenery db seed --env development --dry-run --json
 scenery db seed --env development --json
 ```
 
-To migrate a service, generate a native candidate, shadow and compare it, activate native ownership with evidence for every reported non-stateless cutover class, verify the service, then retire the legacy candidate. Keep the activation receipt until retirement because rollback is a new receipt-bound plan, not a runtime toggle. Finish the whole bridge only after all services are native and retired, all adapters/incomplete constructs are gone, v0 CLI and legacy generated-client consumers are cleared, and every stateful retirement has an evidence reference:
+To migrate a service, generate a native candidate, shadow and compare it, activate native ownership with evidence for every reported non-stateless cutover class, verify the service, then retire the legacy candidate. Handler migration may proceed operation by operation: move the service implementation to the native lifecycle, then remove each operation's `legacy_go_v0` adapter while `migrate status` reports the remaining count. Keep the activation receipt until retirement because rollback is a new receipt-bound plan, not a runtime toggle. Finish the whole bridge only after all services are native and retired, all adapters/incomplete constructs are gone, v0 CLI and legacy generated-client consumers are cleared, and every stateful retirement has an evidence reference:
 
 ```sh
 scenery migrate service house --generate --dry-run -o json

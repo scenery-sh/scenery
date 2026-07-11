@@ -31,10 +31,10 @@ func validateGoTargets(root string, resources []Resource) []Diagnostic {
 				diagnostics = append(diagnostics, goTargetDiagnostic("SCN6131", "Go module import_path must be portable", resource))
 			}
 			if previous := moduleRoots[absolute]; previous != "" {
-				diagnostics = append(diagnostics, goTargetDiagnostic("SCN6131", "duplicate Go module root also owned by "+previous, resource))
+				diagnostics = append(diagnostics, goTargetDiagnostic("SCN6143", "duplicate Go module root also owned by "+previous, resource))
 			}
 			if previous := moduleImports[importPath]; previous != "" {
-				diagnostics = append(diagnostics, goTargetDiagnostic("SCN6131", "duplicate Go module import_path also owned by "+previous, resource))
+				diagnostics = append(diagnostics, goTargetDiagnostic("SCN6143", "duplicate Go module import_path also owned by "+previous, resource))
 			}
 			moduleRoots[absolute], moduleImports[importPath] = resource.Address, resource.Address
 		case "scenery.go-toolchain/v1":

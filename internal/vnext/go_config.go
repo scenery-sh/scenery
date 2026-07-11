@@ -26,6 +26,9 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 		sort.Strings(names)
 		schema := make([]any, 0, len(names))
 		for _, name := range names {
+			if !sceneryIdentifierPattern.MatchString(name) {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3405", Severity: "error", Message: "Go service config keys must use lower_snake_case", Address: service.Address, Path: "/spec/config/" + name})
+			}
 			reference := refString(config[name])
 			if !strings.HasPrefix(reference, "var.") {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3401", Severity: "error", Message: "Go service config " + name + " must reference a typed package input", Address: service.Address, Path: "/spec/config/" + name})
@@ -33,11 +36,18 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 			}
 			inputName := strings.TrimPrefix(reference, "var.")
 			declaration, ok := declarations[inputName]
-			if !ok || declaration.Type == "" {
+			if !ok || declaration.Type == "" || inputName != name {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3402", Severity: "error", Message: "Go service config " + name + " references an unavailable typed input", Address: service.Address, Path: "/spec/config/" + name})
 				continue
 			}
-			schema = append(schema, map[string]any{"name": name, "type": declaration.Type, "phase": declaration.Phase, "sensitive": declaration.Sensitive})
+			phase := declaration.Phase
+			if phase == "" {
+				phase = "contract"
+			}
+			if phase != "contract" && phase != "implementation" && phase != "deployment" {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3406", Severity: "error", Message: "Go service config " + name + " uses an invalid package input phase", Address: service.Address, Path: "/spec/config/" + name})
+			}
+			schema = append(schema, map[string]any{"name": name, "type": declaration.Type, "phase": phase, "sensitive": declaration.Sensitive})
 		}
 		service.Spec["config_schema"] = schema
 	}
@@ -73,9 +83,13 @@ func validateGoServiceConfiguration(resources []Resource) []Diagnostic {
 			}
 			if reference != "" {
 				diagnostics = append(diagnostics, goConfigDiagnostic("SCN4002", "resource or secret reference cannot flow into non-secret configuration", service, name))
+				continue
 			}
 			if field["sensitive"] == true {
 				diagnostics = append(diagnostics, goConfigDiagnostic("SCN4003", "sensitive Go configuration must use resource_ref(\"secret\")", service, name))
+			}
+			if err := validateFixtureValue(value, typeExpression, service.Module, byAddress); err != nil {
+				diagnostics = append(diagnostics, goConfigDiagnostic("SCN3407", "Go service config value does not match its package input type: "+err.Error(), service, name))
 			}
 		}
 		for name := range config {

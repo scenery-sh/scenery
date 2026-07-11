@@ -65,6 +65,20 @@ func TestVNextDurationAndSizeRemainExactBeyondMachineIntegerRange(t *testing.T) 
 	assertJSON(t, size, `"18446744073709551616"`)
 }
 
+func TestVNextSizeAcceptsOnlyIntegralExactByteCounts(t *testing.T) {
+	size, err := ParseSize("1.5KiB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSON(t, size, `"1536"`)
+	if _, err := ParseSize("0.1B"); err == nil {
+		t.Fatal("fractional byte count was accepted")
+	}
+	if _, err := ParseSize("-0B"); err == nil {
+		t.Fatal("signed size was accepted")
+	}
+}
+
 func TestDecimalExponentIsBoundedBeforeExpansion(t *testing.T) {
 	if _, err := ParseDecimal("1e1000000000"); err == nil {
 		t.Fatal("huge positive exponent was accepted")
@@ -166,6 +180,19 @@ func TestVNextPathsAndURLs(t *testing.T) {
 	if _, err := ParseRelativePath("../secret"); err == nil {
 		t.Fatal("escaping path accepted")
 	}
+	pathValue, err := ParseRelativePath("models/Cafe\u0301")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pathValue != RelativePath("models/Caf\u00e9") {
+		t.Fatalf("relative path = %q", pathValue)
+	}
+	if _, err := ParseRelativePath("models/a\x00b"); err == nil {
+		t.Fatal("NUL-containing path accepted")
+	}
+	if _, err := ParseRelativePath("models/" + string([]byte{0xff})); err == nil {
+		t.Fatal("invalid UTF-8 path accepted")
+	}
 	value, err := ParseURL("HTTPS://Example.COM:443/a/../b")
 	if err != nil {
 		t.Fatal(err)
@@ -200,6 +227,9 @@ func TestVNextPathsAndURLs(t *testing.T) {
 	}
 	if _, err := ParseURL("https://[fe80::1%25en0]/"); err == nil {
 		t.Fatal("IPv6 zone was accepted")
+	}
+	if _, err := ParseURL("urn:example:asset"); err == nil {
+		t.Fatal("opaque URI was accepted as a network URL")
 	}
 }
 

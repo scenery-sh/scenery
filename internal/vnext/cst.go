@@ -72,7 +72,7 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, file *hcl
 			end = len(source)
 		}
 		if len(token.Bytes) > 0 {
-			item := ConcreteToken{Kind: concreteTokenKind(token.Type), Bytes: append([]byte(nil), source[start:end]...), Range: convertRange(sourceID, token.Range)}
+			item := ConcreteToken{Kind: concreteTokenKind(token.Type), Bytes: append([]byte(nil), source[start:end]...), Range: convertRange(sourceID, source, token.Range)}
 			tree.Tokens = append(tree.Tokens, item)
 			if token.Type == hclsyntax.TokenComment {
 				comment := ConcreteComment{Bytes: append([]byte(nil), item.Bytes...), Range: item.Range, Attachment: "detached"}
@@ -92,7 +92,7 @@ func buildConcreteSyntaxTree(sourceID, filename string, source []byte, file *hcl
 		if body, ok := file.Body.(*hclsyntax.Body); ok {
 			nodes := concreteSyntaxNodes(body)
 			attachConcreteComments(source, tree.Comments, nodes)
-			diagnostics = append(diagnostics, validateConcreteIdentifiers(sourceID, body)...)
+			diagnostics = append(diagnostics, validateConcreteIdentifiers(sourceID, source, body)...)
 		}
 	}
 	return tree, diagnostics
@@ -189,7 +189,7 @@ func commentGapIsContiguous(source []byte, start, end int) bool {
 	return bytes.Count(normalized, []byte("\n")) <= 1
 }
 
-func validateConcreteIdentifiers(sourceID string, body *hclsyntax.Body) []Diagnostic {
+func validateConcreteIdentifiers(sourceID string, source []byte, body *hclsyntax.Body) []Diagnostic {
 	wireLabelBlocks := map[string]bool{
 		"path_parameter":  true,
 		"query_parameter": true,
@@ -202,13 +202,13 @@ func validateConcreteIdentifiers(sourceID string, body *hclsyntax.Body) []Diagno
 	visit = func(current *hclsyntax.Body) {
 		for name, attribute := range current.Attributes {
 			if !sceneryIdentifierPattern.MatchString(name) {
-				rng := convertRange(sourceID, attribute.NameRange)
+				rng := convertRange(sourceID, source, attribute.NameRange)
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: "attribute names must use lower_snake_case ASCII", Range: &rng})
 			}
 		}
 		for _, block := range current.Blocks {
 			if !sceneryIdentifierPattern.MatchString(block.Type) {
-				rng := convertRange(sourceID, block.TypeRange)
+				rng := convertRange(sourceID, source, block.TypeRange)
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: "block names must use lower_snake_case ASCII", Range: &rng})
 			}
 			for index, label := range block.Labels {
@@ -216,7 +216,7 @@ func validateConcreteIdentifiers(sourceID string, body *hclsyntax.Body) []Diagno
 					continue
 				}
 				if !sceneryIdentifierPattern.MatchString(label) {
-					rng := convertRange(sourceID, block.LabelRanges[index])
+					rng := convertRange(sourceID, source, block.LabelRanges[index])
 					diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: "resource labels must use lower_snake_case ASCII", Range: &rng})
 				}
 			}
@@ -260,16 +260,5 @@ func detectLineEndings(source []byte) string {
 }
 
 func byteRange(sourceID string, source []byte, start, end int) Range {
-	position := func(offset int) Position {
-		line, column := 0, 0
-		for index := 0; index < offset && index < len(source); index++ {
-			if source[index] == '\n' {
-				line, column = line+1, 0
-			} else {
-				column++
-			}
-		}
-		return Position{Line: line, Column: column, ByteOffset: offset}
-	}
-	return Range{SourceID: sourceID, Start: position(start), End: position(end)}
+	return Range{SourceID: sourceID, Start: sourcePosition(source, start), End: sourcePosition(source, end)}
 }

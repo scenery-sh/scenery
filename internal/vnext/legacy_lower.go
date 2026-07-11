@@ -464,6 +464,18 @@ func nativeServiceNamedType(pkg *model.Package, constructor string) *types.Named
 	return named
 }
 
+func legacyBridgeServiceNamedType(pkg *model.Package) *types.Named {
+	if pkg == nil || pkg.Analysis == nil || pkg.Service == nil || pkg.Service.Struct == nil {
+		return nil
+	}
+	object := pkg.Analysis.Types.Scope().Lookup(pkg.Service.Struct.TypeName)
+	if object == nil {
+		return nil
+	}
+	named, _ := types.Unalias(object.Type()).(*types.Named)
+	return named
+}
+
 func objectTypeSignature(object types.Object) (*types.Signature, bool) {
 	if object == nil {
 		return nil, false
@@ -595,6 +607,9 @@ func validateNativeGoHandlers(appModel *model.App, resources []Resource, migrati
 		constructor := stringValue(implementation["constructor"])
 		pkg := nativeGoPackage(appModel, resources, operation.Module)
 		named := nativeServiceNamedType(pkg, constructor)
+		if stringValue(implementation["adapter"]) == "legacy_go_v0" {
+			named = legacyBridgeServiceNamedType(pkg)
+		}
 		if pkg == nil || named == nil {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6101", Severity: "error", Message: "native operation " + operation.Address + " has no Go service type", Address: operation.Address})
 			continue

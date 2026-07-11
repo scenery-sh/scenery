@@ -39,7 +39,7 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 			}
 			identity := page.Address + "\x00" + runtimeName
 			if previous := rendererRuntimes[identity]; page.Address != "" && runtimeName != "" && previous != "" {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2605", Severity: "error", Message: "renderer runtime conflicts with " + previous, Address: resource.Address, Related: []Related{{Address: previous}}})
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2606", Severity: "error", Message: "renderer runtime conflicts with " + previous, Address: resource.Address, Related: []Related{{Address: previous}}})
 			} else {
 				rendererRuntimes[identity] = resource.Address
 			}

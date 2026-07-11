@@ -389,8 +389,10 @@ Constructors return the named primitive and accept exactly one quoted literal. T
 | datetime | RFC 3339 with Z or an explicit numeric offset and at most 9 fractional digits | reject leap seconds; normalize the instant to UTC Z and trim trailing fractional zeros |
 | duration | optional leading minus followed by one or more exact ns, us, ms, s, m, h, d, or w components | convert to signed arbitrary-precision nanoseconds; reject fractions that are not an exact nanosecond |
 | size | non-negative exact number followed by B, kB, MB, GB, TB, KiB, MiB, GiB, or TiB | convert to arbitrary-precision integral bytes; reject fractional bytes |
-| url | absolute RFC 3986 URI with a scheme | lower-case scheme and any DNS host, remove the default port for HTTP or HTTPS, remove dot segments from hierarchical paths, uppercase percent hex, and unescape percent-encoded unreserved bytes |
-| relative_path | non-empty slash-separated UTF-8 segments | reject a leading slash, backslash, empty segment, dot segment, NUL, or traversal; normalize each segment to Unicode NFC |
+| url | absolute hierarchical RFC 3986 URI with a scheme and non-empty host | reject opaque and hostless URIs; lower-case scheme and any DNS host, remove the default port for HTTP or HTTPS, remove dot segments, uppercase percent hex, and unescape percent-encoded unreserved bytes |
+| relative_path | non-empty slash-separated UTF-8 segments | reject a leading slash, backslash, empty segment, dot segment, NUL, or traversal; normalize each segment with edition-pinned Unicode 15.0 NFC |
+
+Size conversion is exact rather than integer-lexical: `1.5KiB` is valid and canonicalizes to `1536` bytes, while `0.1B` is invalid because it produces a fractional byte.
 
 Invalid lexical form, overflow in a field with a bounded representation, loss of precision, a disallowed sign, or a constructor whose result is not assignable to the expected type is a compile error. Formatting is deterministic: when a position has one exact expected primitive type, the formatter emits its canonical quoted contextual literal; when the expected type is absent or not singular, it emits the explicit constructor. It does not preserve the author's choice between those equivalent notations. The result MUST be idempotent.
 
@@ -639,7 +641,7 @@ The core primitive types are:
 | datetime | Timestamp with an explicit offset, normalized in IR |
 | duration | Non-negative or signed duration where permitted |
 | size | Byte size such as 2GiB |
-| url | Normalized absolute RFC 3986 URI |
+| url | Normalized absolute hierarchical RFC 3986 network URI |
 | relative_path | Normalized relative path |
 | json | JSON value, allowed only at declared untyped boundaries |
 
@@ -1794,7 +1796,7 @@ The profile uses:
 | datetime | RFC 3339, emitted in UTC with Z |
 | duration | ISO 8601 elapsed-duration string using only days, hours, minutes, and seconds; years and calendar months are forbidden, weeks normalize to days, and fractions are permitted only on seconds at nanosecond precision |
 | size | base-10 byte-count string |
-| url | normalized absolute URI string |
+| url | normalized absolute hierarchical network-URI string |
 | bytes in JSON | RFC 4648 base64 with required padding |
 | enum | declared string wire value |
 
@@ -2900,7 +2902,7 @@ Absolute local paths MUST NOT appear in distributable manifests.
 
 Distributable source maps MUST NOT contain source excerpts or comments. A local, explicitly requested debug sidecar MAY contain them after secret redaction.
 
-Ranges are start-inclusive and end-exclusive. Lines and columns are zero-based Unicode scalar positions, and every position also includes a zero-based UTF-8 byte offset. A source ID is unique within one workspace revision and maps to a normalized relative URI.
+Ranges are start-inclusive and end-exclusive. Lines and columns are zero-based Unicode scalar positions, and every position also includes a zero-based UTF-8 byte offset. Columns count combining marks as their own Unicode scalars rather than display grapheme clusters. A source ID is collision-resistant, opaque, unique within one workspace revision, and maps to a normalized relative URI; it MUST NOT be derived by lossy punctuation or path-separator replacement.
 
 ### 20.6 Expansion lineage
 
@@ -3320,6 +3322,8 @@ Within one diagnostic-catalog major version, a code's meaning, structured fields
 
 A message is for humans. Agents MUST branch on code and structured fields, not exact message text.
 
+`schema.get` with `kind = "scenery.diagnostics.2027.v1"` returns the complete checked-in catalog. Supplying one catalog code such as `SCN2101` returns that definition. Every definition contains its code, category, stable identity and meaning, default severity, structured fields, and documentation. Every emitted code MUST be declared exactly once. An internal diagnostic carries a separate opaque `report_token`; its public message is stable and sanitized rather than the raw internal cause.
+
 ### 23.3 Core categories
 
 | Range | Category |
@@ -3330,8 +3334,15 @@ A message is for humans. Agents MUST branch on code and structured fields, not e
 | SCN1300-SCN1399 | Evaluation-phase and determinism errors |
 | SCN2000-SCN2199 | Operation and binding contract errors |
 | SCN2200-SCN2399 | Execution, schedule, and delivery errors |
+| SCN2400-SCN2499 | Binding and CLI contract errors |
+| SCN2500-SCN2599 | Data profile errors |
+| SCN2600-SCN2699 | UI profile errors |
+| SCN2700-SCN2799 | Event profile errors |
+| SCN2800-SCN2899 | Deployment profile errors |
+| SCN2900-SCN2999 | Patch profile errors |
 | SCN3000-SCN3199 | Package, module, and export errors |
 | SCN3200-SCN3399 | Provider instance, entity, and extension errors |
+| SCN3400-SCN3499 | Go service configuration errors |
 | SCN4000-SCN4199 | Policy, security, and secret-flow errors |
 | SCN4200-SCN4299 | Runtime policy and middleware-profile errors |
 | SCN5000-SCN5999 | Legacy bridge, migration, and operational-evidence errors |
@@ -3340,6 +3351,7 @@ A message is for humans. Agents MUST branch on code and structured fields, not e
 | SCN6300-SCN6399 | TypeScript client and codec-generation errors |
 | SCN6400-SCN6499 | Compatibility comparison errors and reserved companion diagnostics |
 | SCN7000-SCN7099 | Profile availability and conformance errors |
+| SCN8000-SCN8099 | CLI and agent request-protocol errors |
 | SCN9000-SCN9099 | Internal compiler errors |
 
 An internal compiler error MUST include a report token but MUST NOT expose secrets.

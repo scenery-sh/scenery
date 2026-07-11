@@ -259,11 +259,7 @@ func resolveOperationInputShape(resources map[string]Resource, operation Resourc
 		shape.Unit = true
 		return shape
 	}
-	parts := strings.Split(reference, ".")
-	if len(parts) != 2 || parts[0] != "record" {
-		return shape
-	}
-	record, ok := resources[resourceAddress(operation.Module, "record", parts[1])]
+	record, ok := resources[resolveResourceRef(operation, reference, "record")]
 	if !ok {
 		return shape
 	}

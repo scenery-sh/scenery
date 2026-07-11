@@ -12,8 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
@@ -21,7 +23,10 @@ var (
 	durationPattern = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)(ns|us|ms|s|m|h|d|w)`)
 )
 
-const maxDecimalScaleMagnitude int64 = 1_000_000
+const (
+	maxDecimalScaleMagnitude int64 = 1_000_000
+	editionUnicodeVersion          = "15.0.0"
+)
 
 func ParseInt(value string) (Int, error) {
 	var integer big.Int
@@ -362,15 +367,25 @@ func ParseSize(value string) (Size, error) {
 	for _, unit := range units {
 		if strings.HasSuffix(value, unit.suffix) {
 			raw := strings.TrimSuffix(value, unit.suffix)
-			if raw == "" || strings.Trim(raw, "0123456789") != "" {
+			quantity, err := ParseDecimal(raw)
+			if err != nil || strings.HasPrefix(raw, "-") {
 				return Size{}, fmt.Errorf("invalid size %q", value)
 			}
-			var count big.Int
-			if _, ok := count.SetString(raw, 10); !ok {
-				return Size{}, fmt.Errorf("invalid size %q", value)
+			count := new(big.Int).Set(&quantity.Coefficient)
+			if quantity.Scale < 0 {
+				count.Mul(count, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-quantity.Scale)), nil))
 			}
-			count.Mul(&count, big.NewInt(unit.multiplier))
-			return Size{bytes: count}, nil
+			count.Mul(count, big.NewInt(unit.multiplier))
+			if quantity.Scale > 0 {
+				divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(quantity.Scale)), nil)
+				quotient, remainder := new(big.Int), new(big.Int)
+				quotient.QuoRem(count, divisor, remainder)
+				if remainder.Sign() != 0 {
+					return Size{}, fmt.Errorf("size %q produces fractional bytes", value)
+				}
+				count = quotient
+			}
+			return Size{bytes: *count}, nil
 		}
 	}
 	return Size{}, fmt.Errorf("invalid size %q", value)
@@ -394,10 +409,17 @@ func (value *Size) UnmarshalJSON(data []byte) error {
 }
 
 func ParseRelativePath(value string) (RelativePath, error) {
-	if value == "" || strings.Contains(value, "\\") || path.IsAbs(value) || path.Clean(value) != value || value == ".." || strings.HasPrefix(value, "../") {
+	if norm.Version != editionUnicodeVersion {
+		return "", fmt.Errorf("unsupported Unicode normalization version %s", norm.Version)
+	}
+	if value == "" || !utf8.ValidString(value) || strings.Contains(value, "\\") || strings.ContainsRune(value, '\x00') || path.IsAbs(value) || path.Clean(value) != value || value == ".." || strings.HasPrefix(value, "../") {
 		return "", fmt.Errorf("invalid relative path %q", value)
 	}
-	return RelativePath(value), nil
+	segments := strings.Split(value, "/")
+	for index := range segments {
+		segments[index] = norm.NFC.String(segments[index])
+	}
+	return RelativePath(strings.Join(segments, "/")), nil
 }
 
 func ParseURL(value string) (URL, error) {

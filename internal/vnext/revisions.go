@@ -31,7 +31,7 @@ func ComputeImplementationRevisions(result *Result, buildInputManifestDigests ma
 		target := targets[name]
 		effective, err := effectiveGoTarget(target, targets, nil)
 		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6120", Severity: "error", Message: err.Error(), Address: target.Address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6150", Severity: "error", Message: err.Error(), Address: target.Address})
 			continue
 		}
 		if stringValue(effective["role"]) == "contract" {
@@ -40,7 +40,7 @@ func ComputeImplementationRevisions(result *Result, buildInputManifestDigests ma
 		moduleRef := resolveResourceRef(target, refString(effective["module"]), "go_module")
 		module := byAddress[moduleRef]
 		if module.Address == "" {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6121", Severity: "error", Message: "Go target has no resolved module", Address: target.Address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6151", Severity: "error", Message: "Go target has no resolved module", Address: target.Address})
 			continue
 		}
 		if !isCanonicalSHA256Digest(inputDigest) {

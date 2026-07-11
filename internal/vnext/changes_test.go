@@ -93,6 +93,394 @@ func TestChangeCreateAddsTypedResource(t *testing.T) {
 	}
 }
 
+func TestChangeCreateAddsStructuredRecord(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	base, err := Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Operations: []SemanticOperation{{
+			Op:      "resource.create",
+			Address: "house/record/audit_entry",
+			Value: map[string]any{
+				"field": []any{
+					map[string]any{"name": "message", "type": map[string]any{"$ref": "string"}, "min_length": 1},
+					map[string]any{"name": "id", "type": map[string]any{"$ref": "uuid"}},
+				},
+				"unknown_fields": "reject",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	record := resourcesByAddress(result.Manifest)["house/record/audit_entry"]
+	fields := namedChildren(record.Spec, "field")
+	if len(fields) != 2 || stringValue(fields[0]["name"]) != "id" || stringValue(fields[1]["name"]) != "message" {
+		t.Fatalf("created record fields = %#v", fields)
+	}
+}
+
+func TestChangeCreateAddsStructuredOperation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "catalog"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `language {
+  edition = "2027"
+  require_profiles = ["scenery.compiler-core/v1", "scenery.inspection-core/v1"]
+}
+application "catalog" { version = "1.0.0" }
+workspace {
+  managed_generated_roots = ["catalog/scenerycontract", "internal/scenerygen"]
+}
+go_module "application" {
+  root = "."
+  import_path = "example.test/catalog"
+}
+module "catalog" { source = "./catalog" }
+`)
+	writeNestedModuleFile(t, filepath.Join(root, "catalog", "scenery.package.scn"), `package "catalog" {
+  version = "1.0.0"
+  scenery_version = ">= 2.0.0, < 3.0.0"
+  go_contract {
+    import_path = "example.test/catalog/catalog"
+  }
+}
+service "catalog" {
+  runtime = "test"
+  implementation {
+    constructor = "NewService"
+  }
+}
+record "lookup_input" {
+  field "id" {
+    type = uuid
+  }
+  field "region" {
+    type = string
+  }
+}
+record "lookup_result" {
+  field "name" {
+    type = string
+  }
+}
+`)
+	base, err := Compile(root)
+	if err != nil || !base.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
+	}
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Operations: []SemanticOperation{{
+			Op:      "resource.create",
+			Address: "catalog/operation/lookup",
+			Value: map[string]any{
+				"service": map[string]any{"$ref": "catalog/service/catalog"},
+				"input":   map[string]any{"$ref": "catalog/record/lookup_input"},
+				"handler": map[string]any{"method": "Lookup"},
+				"idempotency": map[string]any{
+					"mode": "keyed",
+					"key": []any{
+						map[string]any{"$expression": "input.id"},
+						map[string]any{"$expression": "input.region"},
+					},
+				},
+				"result": map[string]any{"name": "found", "type": map[string]any{"$ref": "catalog/record/lookup_result"}},
+				"error":  map[string]any{"name": "invalid", "type": map[string]any{"$ref": "std.type.problem"}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		written, _ := os.ReadFile(filepath.Join(root, "catalog", "scenery.package.scn"))
+		t.Fatalf("compile: %v diagnostics=%#v\nsource:\n%s", err, result.Diagnostics, written)
+	}
+	operation := resourcesByAddress(result.Manifest)["catalog/operation/lookup"]
+	keys, _ := operation.Spec["idempotency"].(map[string]any)["key"].([]any)
+	if stringValue(operation.Spec["handler"].(map[string]any)["method"]) != "Lookup" || len(namedChildren(operation.Spec, "result")) != 1 || len(namedChildren(operation.Spec, "error")) != 1 ||
+		len(keys) != 2 || expressionText(keys[0]) != "input.id" || expressionText(keys[1]) != "input.region" {
+		t.Fatalf("created operation = %#v", operation.Spec)
+	}
+}
+
+func TestChangeCreateRejectsScalarIdempotencyKey(t *testing.T) {
+	tests := []struct {
+		name, message string
+		key           any
+	}{
+		{name: "scalar", key: map[string]any{"$expression": "input.id"}, message: "key: must be a list"},
+		{name: "computed", key: []any{map[string]any{"$expression": "input.id + input.region"}}, message: "must reference a direct input field"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := renderAuthoredResourceBlock("idempotency", nil, map[string]any{
+				"mode": "keyed",
+				"key":  test.key,
+			}, operationIdempotencySourceSchema, "house")
+			if err == nil || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("invalid idempotency key error = %v", err)
+			}
+		})
+	}
+}
+
+func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	base, err := Compile(root)
+	if err != nil || !base.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
+	}
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Operations: []SemanticOperation{{
+			Op:      "resource.create",
+			Address: "house/execution/process_scene_copy",
+			Value: map[string]any{
+				"operation": map[string]any{"$ref": "house/operation/process_scene"},
+				"mode":      "direct",
+				"timeout":   map[string]any{"$scalar": "duration", "nanoseconds": "2400000000000"},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	execution := resourcesByAddress(result.Manifest)["house/execution/process_scene_copy"]
+	timeout, _ := execution.Spec["timeout"].(map[string]any)
+	written, err := os.ReadFile(filepath.Join(root, "house", "scenery.package.scn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refString(execution.Spec["operation"]) != "operation.process_scene" || timeout["nanoseconds"] != "2400000000000" || strings.Count(string(written), `"40m"`) != 2 {
+		t.Fatalf("created execution = %#v\nsource:\n%s", execution.Spec, written)
+	}
+}
+
+func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	base, err := Compile(root)
+	if err != nil || !base.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
+	}
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Operations: []SemanticOperation{{
+			Op:      "resource.create",
+			Address: "house/binding/process_scene_copy",
+			Value: map[string]any{
+				"gateway":        map[string]any{"$ref": "var.gateway"},
+				"operation":      map[string]any{"$ref": "operation.process_scene"},
+				"execution":      map[string]any{"$ref": "execution.process_scene_direct"},
+				"protocol":       "http",
+				"delivery":       "call",
+				"authentication": map[string]any{"$ref": "std.authentication.none"},
+				"authorization":  map[string]any{"$ref": "std.authorization.public"},
+				"pipeline":       map[string]any{"$ref": "std.pipeline.empty"},
+				"http": map[string]any{
+					"method":        "POST",
+					"path":          "/house/process-copy",
+					"codec_profile": map[string]any{"$ref": "std.codec.http_json_v1"},
+					"body":          map[string]any{"codec": "json", "to": map[string]any{"$ref": "operation.process_scene.input"}},
+					"response": map[string]any{
+						"name": "processed", "when": map[string]any{"$ref": "result.processed"}, "status": 200,
+						"body": map[string]any{"codec": "json", "from": map[string]any{"$ref": "result.processed"}},
+					},
+				},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	source, err := result.ManifestForView("source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := resourcesByAddress(source)["house/binding/process_scene_copy"]
+	httpSpec, _ := binding.Spec["http"].(map[string]any)
+	responses := namedChildren(httpSpec, "response")
+	if stringValue(httpSpec["path"]) != "/house/process-copy" || len(responses) != 1 || responses[0]["body"] == nil {
+		t.Fatalf("created HTTP binding = %#v", binding.Spec)
+	}
+}
+
+func TestChangeCreateAddsServiceDynamicConfigBlock(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	rootPath := filepath.Join(root, "scenery.scn")
+	rootSource, err := os.ReadFile(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSource = bytes.Replace(rootSource, []byte(`    "scenery.go-implementation/v1",
+    "scenery.runtime-http/v1",
+`), nil, 1)
+	if err := os.WriteFile(rootPath, rootSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packagePath := filepath.Join(root, "house", "scenery.package.scn")
+	packageSource, err := os.ReadFile(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageSource = append(packageSource, []byte(`
+input "model_path" {
+  type = relative_path
+  default = relative_path("models/default")
+}
+`)...)
+	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base, err := Compile(root)
+	if err != nil || !base.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
+	}
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Operations: []SemanticOperation{{
+			Op:      "resource.create",
+			Address: "house/service/audit",
+			Value: map[string]any{
+				"runtime":        "go",
+				"implementation": map[string]any{"constructor": "NewAuditService"},
+				"config":         map[string]any{"model_path": map[string]any{"$ref": "var.model_path"}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	service := resourcesByAddress(result.Manifest)["house/service/audit"]
+	configSchema := namedChildren(service.Spec, "config_schema")
+	written, err := os.ReadFile(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configSchema) != 1 || stringValue(configSchema[0]["name"]) != "model_path" || !strings.Contains(string(written), "config {\n    model_path = var.model_path\n  }") {
+		t.Fatalf("created service config = %#v\nsource:\n%s", service.Spec, written)
+	}
+}
+
+func TestChangeCreateResolvesNestedModuleSource(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{"parent", "geometry"} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeNestedModuleFile(t, filepath.Join(root, "scenery.scn"), `language {
+  edition = "2027"
+  require_profiles = ["scenery.compiler-core/v1", "scenery.inspection-core/v1"]
+}
+workspace {
+  managed_generated_roots = ["parent/scenerycontract", "geometry/scenerycontract", "internal/scenerygen"]
+}
+go_module "application" {
+  root = "."
+  import_path = "example.test/nested"
+}
+application "nested" { version = "1.0.0" }
+module "parent" { source = "./parent" }
+`)
+	writeNestedModuleFile(t, filepath.Join(root, "parent", "scenery.package.scn"), `package "parent" {
+  version = "1.0.0"
+  scenery_version = ">= 2.0.0, < 3.0.0"
+  go_contract { import_path = "example.test/nested/parent" }
+}
+module "geometry" { source = "../geometry" }
+`)
+	geometryPath := filepath.Join(root, "geometry", "scenery.package.scn")
+	writeNestedModuleFile(t, geometryPath, `package "geometry" {
+  version = "1.0.0"
+  scenery_version = ">= 2.0.0, < 3.0.0"
+  go_contract { import_path = "example.test/nested/geometry" }
+}
+record "point" {
+  field "x" { type = float64 }
+}
+`)
+	base, err := Compile(root)
+	if err != nil || !base.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
+	}
+	plan, err := PlanChanges(root, ChangeRequest{
+		BaseWorkspaceRevision: base.WorkspaceRevision,
+		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
+		Operations: []SemanticOperation{{
+			Op:      "resource.create",
+			Address: "parent/geometry/record/vector",
+			Value: map[string]any{"field": []any{
+				map[string]any{"name": "x", "type": map[string]any{"$ref": "float64"}},
+				map[string]any{"name": "y", "type": map[string]any{"$ref": "float64"}},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	written, err := os.ReadFile(geometryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resourcesByAddress(result.Manifest)["parent/geometry/record/vector"].Address == "" || !strings.Contains(string(written), `record "vector"`) {
+		t.Fatalf("nested resource destination:\n%s", written)
+	}
+}
+
 func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), root)

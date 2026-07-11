@@ -141,10 +141,53 @@ func validateStaticExpressions(sources []*Source) []Diagnostic {
 }
 
 func runtimeExpressionField(parent, blockType, attribute string) bool {
-	return parent == "authorization" && blockType == "rule" && attribute == "allow" ||
-		parent == "record" && blockType == "validation" && attribute == "when" ||
-		parent == "operation" && blockType == "idempotency" && attribute == "key" ||
-		parent == "execution" && blockType == "concurrency" && attribute == "key"
+	schema, ok := authoredSchemaForBlock(parent, blockType)
+	if !ok {
+		return false
+	}
+	field, ok := schema.Attributes[attribute]
+	return ok && field.Phase == "runtime"
+}
+
+func authoredSchemaForBlock(parent, blockType string) (*authoredBlockSchema, bool) {
+	if parent == "" {
+		if schema, ok := authoredStructuralSchemas[blockType]; ok {
+			return schema, true
+		}
+		return authoredResourceSourceSchema(blockType)
+	}
+	find := func(rootType string, root *authoredBlockSchema) (*authoredBlockSchema, bool) {
+		var visit func(string, *authoredBlockSchema) (*authoredBlockSchema, bool)
+		visit = func(currentType string, current *authoredBlockSchema) (*authoredBlockSchema, bool) {
+			if currentType == parent {
+				if child, ok := current.Children[blockType]; ok {
+					return child.Schema, true
+				}
+			}
+			for childType, child := range current.Children {
+				if found, ok := visit(childType, child.Schema); ok {
+					return found, true
+				}
+			}
+			return nil, false
+		}
+		return visit(rootType, root)
+	}
+	for rootType := range authoredResourceChildren {
+		root, ok := authoredResourceSourceSchema(rootType)
+		if !ok {
+			continue
+		}
+		if schema, ok := find(rootType, root); ok {
+			return schema, true
+		}
+	}
+	for rootType, root := range authoredStructuralSchemas {
+		if schema, ok := find(rootType, root); ok {
+			return schema, true
+		}
+	}
+	return nil, false
 }
 
 func compileSources(root string, sources []*Source, migration *Migration, lockfile *Lockfile) (*Manifest, map[string]*Manifest, []Diagnostic, []*Source) {
@@ -321,7 +364,7 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 	}
 	revision, err := contractRevision(resources, append([]string(nil), profiles...), appName)
 	if err != nil {
-		diagnostics = append(diagnostics, Diagnostic{Code: "SCN9002", Severity: "error", Message: err.Error()})
+		diagnostics = append(diagnostics, internalDiagnostic("SCN9002", err.Error()))
 	}
 	manifest := &Manifest{APIVersion: ManifestVersion, Edition: Edition, DiagnosticCatalog: DiagnosticCatalog, Application: ApplicationIdentity{Name: appName, Version: appVersion}, Profiles: profiles, ContractRevision: revision, Resources: resources, SourceMap: sourceMap, Diagnostics: []Diagnostic{}}
 	views := map[string]*Manifest{

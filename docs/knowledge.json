@@ -244,7 +244,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Completed ExecPlan implementing the six-specification edition-2027 compiler/runtime surface and migrating all eighteen ONLV House HTTP operations plus two durable workers to retired native ownership while forty-three non-House services remain explicitly legacy-owned.",
+      "summary": "Historical first integrated edition-2027 draft delivery and ONLV House migration; follow-up exact-SHA conformance gaps were closed by plan 0104.",
       "tags": [
         "plans",
         "execplans",
@@ -254,6 +254,26 @@
         "legacy-bridge",
         "onlv",
         "house"
+      ]
+    },
+    {
+      "path": "docs/plans/0104-edition-2027-conformance-hardening.md",
+      "title": "Edition-2027 Conformance Hardening",
+      "owner": "scenery compiler / runtime / agent interfaces",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Completed conformance hardening for Go config, incremental bridge handlers, structured mutation and schemas, diagnostics, portable source maps, exact scalars, and final review gaps.",
+      "tags": [
+        "plans",
+        "execplans",
+        "vnext",
+        "conformance",
+        "compiler",
+        "agent-mutation",
+        "diagnostics"
       ]
     },
     {
@@ -589,8 +609,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-09",
-      "review_after": "2026-08-08",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
       "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, standard auth Google sign-in and Google connection endpoints, beta public deploy status/setup commands, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, cached/fresh/release timing interpretation with locally measured package parallelism, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
       "tags": [
         "skill",
@@ -628,8 +648,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-08",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
       "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, standard auth Google connections for Gmail-style integrations, beta public deploy readiness commands, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, fresh test execution from content-addressed linked binaries, cached/fresh/release timing lanes, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
@@ -699,8 +719,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-08",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
       "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, watch.ignore, deploy.domain/root, runtime capabilities, standard auth Google connection endpoints and encrypted token storage, beta public deploy registry/status schemas, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts including fresh execution from content-addressed test binaries and cached/fresh/release timing lanes, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
       "tags": [
         "contract",

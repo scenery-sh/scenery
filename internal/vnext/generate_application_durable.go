@@ -114,18 +114,17 @@ func renderDurableKeyComponents(b *strings.Builder, shape operationInputShape, v
 	case nil:
 		return nil, fmt.Errorf("durable %s key is missing", purpose)
 	default:
-		values = []any{typed}
+		return nil, fmt.Errorf("durable %s key must be an ordered component list", purpose)
 	}
 	if len(values) == 0 || shape.Record == nil {
 		return nil, fmt.Errorf("durable %s key requires a record input", purpose)
 	}
 	components := make([]string, len(values))
 	for index, value := range values {
-		expression := expressionText(value)
-		fieldName, ok := strings.CutPrefix(expression, "input.")
+		fieldName, ok := inputKeyFieldName(value)
 		field, exists := shape.Fields[fieldName]
-		if !ok || !exists || strings.Contains(fieldName, ".") {
-			return nil, fmt.Errorf("durable %s key expression %q is not an input field", purpose, expression)
+		if !ok || !exists {
+			return nil, fmt.Errorf("durable %s key expression %q is not a direct input field", purpose, expressionText(value))
 		}
 		component := fmt.Sprintf("component%d", index)
 		if purpose == "concurrency" {

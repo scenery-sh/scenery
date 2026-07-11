@@ -92,6 +92,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
 - Edition-2027 constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
+- Edition-2027 agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
 
 Do not revive deprecated non-scenery APIs, legacy directive spellings, or compatibility aliases unless an active plan explicitly requires compatibility.
 
@@ -105,7 +106,8 @@ Do not revive deprecated non-scenery APIs, legacy directive spellings, or compat
 - Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
 - Keep edition module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level edition generation is one artifact-set transaction.
-- A migration service declared `native_service` must not retain undeclared legacy models, pages, or references to the package-init builders `durable.NewTask` and `cron.NewJob` in its Go packages; non-registering APIs from those packages remain valid. An explicit `legacy_go_v0` handler adapter may remain only while migration status reports it; declare durable tasks, schedules, and other runtime identities in `.scn` before retiring legacy ownership. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
+- A migration service declared `native_service` must not retain undeclared legacy models, pages, or references to the package-init builders `durable.NewTask` and `cron.NewJob` in its Go packages; non-registering APIs from those packages remain valid. The service implementation selects the one lifecycle adapter while each operation independently selects its handler adapter. An explicit `legacy_go_v0` handler adapter may remain only while migration status reports it; declare durable tasks, schedules, and other runtime identities in `.scn` before retiring legacy ownership. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
+- Keep every edition diagnostic in the checked-in catalog with one stable identity. Request-protocol failures use SCN8000-range codes; SCN9000-range codes are internal-only and must carry an opaque report token with a sanitized public message.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 
 ## Before Making Changes

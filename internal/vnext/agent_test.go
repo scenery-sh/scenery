@@ -8,6 +8,16 @@ import (
 	"testing"
 )
 
+func TestInternalAgentErrorCarriesOpaqueReportToken(t *testing.T) {
+	err := agentError("internal", "internal failure")
+	if err.Kind != "internal" || err.Message != "internal tooling failure" || !strings.HasPrefix(err.ReportToken, "rpt_") {
+		t.Fatalf("agent error = %#v", err)
+	}
+	if ordinary := agentError("invalid_request", "bad request"); ordinary.ReportToken != "" {
+		t.Fatalf("ordinary agent error has report token %#v", ordinary)
+	}
+}
+
 func TestAgentCapabilitiesAdvertiseExactProfiles(t *testing.T) {
 	result, err := Compile("testdata/house")
 	if err != nil {
@@ -63,7 +73,7 @@ func TestAgentSchemaGetCoversEveryMutationAndDiagnosticValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{
-		"scenery.value/v1", "scenery.diagnostic/v1", "scenery.semantic-operation/v1",
+		"scenery.value/v1", "scenery.diagnostic/v1", "scenery.semantic-operation/v1", DiagnosticCatalog, "SCN8001",
 		"resource.create", "resource.delete", "resource.rename", "value.set", "value.unset", "module.configure", "module.upgrade",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -77,6 +87,145 @@ func TestAgentSchemaGetCoversEveryMutationAndDiagnosticValue(t *testing.T) {
 				t.Fatalf("schema = %s", encoded)
 			}
 		})
+	}
+}
+
+func TestAgentSchemaDescribesStructuredResourceAuthoring(t *testing.T) {
+	result, err := Compile("testdata/house")
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(map[string]string{"kind": "scenery.operation/v1"})
+	response := HandleAgentRequest(result, AgentRequest{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "schema.get", Params: params})
+	if response.Error != nil {
+		t.Fatal(response.Error)
+	}
+	schema, ok := response.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("operation schema = %#v", response.Result)
+	}
+	fields, _ := schema["fields"].(map[string]any)
+	service, _ := fields["service"].(map[string]any)
+	serviceType, _ := service["type"].(map[string]any)
+	resultField, _ := fields["result"].(map[string]any)
+	cardinality, _ := resultField["cardinality"].(map[string]any)
+	if schema["source_shape"] != "labeled_block" || schema["labels"] != 1 || schema["label_source"] != "address" ||
+		service["source_shape"] != "attribute" || serviceType["resource_ref"] != "scenery.service/v1" || service["phase"] != "compile" ||
+		service["revision_domain"] != "contract" || service["required"] != true || service["sensitive"] != false || service["patchable"] != true ||
+		service["ordered"] != false || service["constraints"] == nil ||
+		resultField["source_shape"] != "repeated_labeled_block" || resultField["labels"] != 1 || resultField["label_source"] != "name" || resultField["ordered"] != false ||
+		resultField["child_schema"] != "scenery.operation.outcome/v1" || cardinality["minimum"] != 0 || cardinality["maximum"] != nil {
+		t.Fatalf("operation authoring schema = %#v", schema)
+	}
+
+	params, _ = json.Marshal(map[string]string{"kind": "scenery.service.config/v1"})
+	response = HandleAgentRequest(result, AgentRequest{JSONRPC: "2.0", ID: json.RawMessage(`2`), Method: "schema.get", Params: params})
+	if response.Error != nil {
+		t.Fatal(response.Error)
+	}
+	config, _ := response.Result.(map[string]any)
+	dynamic, _ := config["dynamic_attributes"].(map[string]any)
+	if config["additional_properties"] != true || dynamic["name_pattern"] != "^[a-z][a-z0-9_]*$" || dynamic["phase"] != "compile" || dynamic["input_phase_source"] != "package_input" || dynamic["revision_domain_source"] != "package_input" || dynamic["sensitivity_source"] != "package_input" {
+		t.Fatalf("service config schema = %#v", config)
+	}
+	authorization, _ := CoreSchema("scenery.authorization/v1")
+	authorizationFields, _ := authorization["fields"].(map[string]any)
+	rule, _ := authorizationFields["rule"].(map[string]any)
+	if rule["ordered"] != true {
+		t.Fatalf("authorization rule ordering = %#v", rule)
+	}
+	binding, _ := CoreSchema("scenery.binding/v1")
+	bindingFields, _ := binding["fields"].(map[string]any)
+	for _, name := range []string{"operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline"} {
+		field, _ := bindingFields[name].(map[string]any)
+		if field["required"] != true {
+			t.Errorf("binding field %s required = %#v", name, field["required"])
+		}
+	}
+	gateway, _ := bindingFields["gateway"].(map[string]any)
+	conditional, _ := binding["conditional_requirements"].([]any)
+	if gateway["required"] != false || len(conditional) != 1 {
+		t.Fatalf("binding conditional authoring schema = %#v", binding)
+	}
+	requirement, _ := conditional[0].(map[string]any)
+	when, _ := requirement["when"].(map[string]any)
+	required, _ := requirement["required"].([]string)
+	if when["field"] != "protocol" || when["equals"] != "http" || len(required) != 1 || required[0] != "gateway" {
+		t.Fatalf("binding conditional requirement = %#v", requirement)
+	}
+	sourceBinding, _ := AgentSchema("scenery.source.binding/v1")
+	sourceConditional, _ := sourceBinding["conditional_requirements"].([]any)
+	if len(sourceConditional) != 1 {
+		t.Fatalf("source binding conditional requirement = %#v", sourceBinding)
+	}
+}
+
+func TestAdvertisedResourceCreateSchemasHaveCompleteMetadata(t *testing.T) {
+	advertised := resourceCreateSchemaRevisions()
+	if len(advertised) != len(resourceSchemas) {
+		t.Errorf("resource.create schema coverage = %d/%d; advertised=%v", len(advertised), len(resourceSchemas), advertised)
+	}
+	for _, required := range []string{"scenery.authentication/v1", "scenery.binding/v1", "scenery.operation/v1", "scenery.record/v1", "scenery.service/v1"} {
+		if !containsExactString(advertised, required) {
+			t.Errorf("resource.create does not advertise required kind %s; advertised=%v", required, advertised)
+		}
+	}
+	allowedDomains := map[string]bool{"contract": true, "implementation": true, "deployment": true, "workspace_only": true}
+	seen := map[string]bool{}
+	var inspect func(string)
+	inspect = func(revision string) {
+		if seen[revision] {
+			return
+		}
+		seen[revision] = true
+		schema, ok := AgentSchema(revision)
+		if !ok {
+			t.Errorf("schema.get missing %s", revision)
+			return
+		}
+		if gaps, _ := schema["metadata_gaps"].([]string); len(gaps) != 0 {
+			t.Errorf("schema %s metadata gaps = %v", revision, gaps)
+		}
+		fields, _ := schema["fields"].(map[string]any)
+		for name, raw := range fields {
+			field, _ := raw.(map[string]any)
+			if field["metadata_status"] == "generic" {
+				t.Errorf("schema %s field %s is generic", revision, name)
+			}
+			if domain, _ := field["revision_domain"].(string); !allowedDomains[domain] && field["revision_domain_source"] == nil {
+				t.Errorf("schema %s field %s revision domain = %q without a dynamic source", revision, name, domain)
+			}
+			if child, _ := field["child_schema"].(string); child != "" {
+				inspect(child)
+			}
+		}
+	}
+	for _, revision := range advertised {
+		inspect(revision)
+	}
+}
+
+func TestAgentMutationSchemasRequireOperationInputs(t *testing.T) {
+	tests := map[string][]string{
+		"resource.create": {"op", "address", "value"}, "resource.delete": {"op", "address"}, "resource.rename": {"op", "address", "value"},
+		"value.set": {"op", "address", "path", "value"}, "value.unset": {"op", "address", "path"},
+		"module.configure": {"op", "address", "value"}, "module.upgrade": {"op", "address", "value"},
+	}
+	for operation, required := range tests {
+		schema, ok := AgentSchema(operation)
+		if !ok {
+			t.Fatalf("missing schema %s", operation)
+		}
+		got, _ := schema["required"].([]string)
+		if strings.Join(got, ",") != strings.Join(required, ",") {
+			t.Errorf("%s required = %v, want %v", operation, got, required)
+		}
+		properties, _ := schema["properties"].(map[string]any)
+		_, hasPath := properties["path"]
+		_, hasValue := properties["value"]
+		if operation == "resource.delete" && (hasPath || hasValue) || operation == "value.unset" && hasValue {
+			t.Errorf("%s properties = %#v", operation, properties)
+		}
 	}
 }
 

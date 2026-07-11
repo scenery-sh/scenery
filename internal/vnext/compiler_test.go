@@ -97,6 +97,32 @@ func TestManifestSourceMapCarriesPortableDeclarationAttributeAndModuleRanges(t *
 	}
 }
 
+func TestManifestSourceMapKeepsPunctuationDistinctSourceURIs(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	for _, name := range []string{"a-b.scn", "a_b.scn"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("# source identity fixture\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("Compile() = %#v, %v", result, err)
+	}
+	ids := map[string]string{}
+	for id, record := range result.Manifest.SourceMap {
+		if previous := ids[id]; previous != "" {
+			t.Fatalf("source ID %q maps to both %q and %q", id, previous, record.URI)
+		}
+		ids[id] = record.URI
+	}
+	for _, uri := range []string{"a-b.scn", "a_b.scn"} {
+		if ids[sourceID(uri)] != uri {
+			t.Fatalf("source map[%q] = %q, want %q", sourceID(uri), ids[sourceID(uri)], uri)
+		}
+	}
+}
+
 func TestLegacySourceMapCoversEveryOriginWithPortableURIs(t *testing.T) {
 	t.Parallel()
 
@@ -942,7 +968,7 @@ operation "invalid_nested" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, code := range []string{"SCN1011", "SCN1012", "SCN1013", "SCN1014"} {
+	for _, code := range []string{"SCN1014", "SCN1016", "SCN1017", "SCN1018"} {
 		if !hasDiagnostic(result.Diagnostics, code) {
 			t.Errorf("missing %s in %#v", code, result.Diagnostics)
 		}
@@ -1038,6 +1064,44 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestCompileValidatesIdempotencyKeysAgainstInputRecord(t *testing.T) {
+	tests := []struct {
+		name, key string
+		valid     bool
+	}{
+		{name: "direct field", key: "[input.scene_id]", valid: true},
+		{name: "scalar", key: "input.scene_id"},
+		{name: "missing field", key: "[input.missing]"},
+		{name: "nested field", key: "[input.scene_id.value]"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			copyTree(t, filepath.Join("testdata", "house"), root)
+			path := filepath.Join(root, "house", "scenery.package.scn")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const needle = "  input   = record.process_scene_input\n\n  handler {"
+			replacement := "  input   = record.process_scene_input\n\n  idempotency {\n    mode = \"keyed\"\n    key  = " + test.key + "\n  }\n\n  handler {"
+			if !strings.Contains(string(data), needle) {
+				t.Fatal("operation fixture insertion point is missing")
+			}
+			if err := os.WriteFile(path, []byte(strings.Replace(string(data), needle, replacement, 1)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Compile(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Valid() != test.valid || (!test.valid && !hasDiagnostic(result.Diagnostics, "SCN2003")) {
+				t.Fatalf("valid = %t, want %t; diagnostics = %#v", result.Valid(), test.valid, result.Diagnostics)
+			}
+		})
+	}
 }
 
 func hasDiagnostic(diags []Diagnostic, code string) bool {

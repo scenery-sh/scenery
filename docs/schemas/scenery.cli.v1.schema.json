@@ -35,6 +35,7 @@
         "code": { "type": "string", "pattern": "^SCN[0-9]{4}$" },
         "severity": { "enum": ["error", "warning", "information", "hint"] },
         "message": { "type": "string" },
+        "report_token": { "type": "string", "pattern": "^rpt_[a-z2-7]+$" },
         "address": { "type": "string" },
         "path": { "type": "string" }
       },

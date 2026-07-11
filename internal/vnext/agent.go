@@ -19,9 +19,10 @@ type AgentRequest struct {
 }
 
 type AgentError struct {
-	Code    int    `json:"code"`
-	Kind    string `json:"kind"`
-	Message string `json:"message"`
+	Code        int    `json:"code"`
+	Kind        string `json:"kind"`
+	Message     string `json:"message"`
+	ReportToken string `json:"report_token,omitempty"`
 }
 
 type AgentResponse struct {
@@ -408,10 +409,25 @@ func agentCapabilities(manifest *Manifest) map[string]any {
 	return map[string]any{
 		"api_version": "scenery.agent.v1", "editions": []string{Edition}, "profiles": profiles,
 		"resource_schema_revisions": allResourceSchemaRevisions(),
+		"resource_create_kinds":     resourceCreateSchemaRevisions(),
 		"mutation_schema_revisions": allMutationSchemaRevisions(),
 		"codec_profiles":            []string{"scenery.http-codec/v1"},
-		"operations":                []string{"capabilities", "schema.get", "resources.list", "resources.get", "resources.explain", "graph.get", "revisions.diff", "diagnostics.get", "context.get", "changes.plan", "changes.apply", "resource.create", "resource.delete", "resource.rename", "value.set", "value.unset", "module.configure", "module.upgrade"},
-		"transport_limits":          map[string]any{"max_resources": 1000, "max_bytes": 2_000_000, "max_depth": 16, "continuation_ttl_seconds": int(contextTokenTTL.Seconds()), "retained_snapshots": 32},
+		"unsupported_draft_surfaces": []string{
+			"compatibility_source_and_wire_classification",
+			"entity_evolution_migration",
+			"legacy_v0_fixture_catalog_and_bridge_removal",
+			"native_toolchain_identity",
+			"patch_authorization_and_review_policy",
+			"platform_listener_and_certificate_schemas",
+			"provider_capability_vocabulary",
+			"provider_deployment_plan_and_target_vocabulary",
+			"registry_trust_and_revocation",
+			"standard_library_catalog",
+			"streaming_and_websockets",
+			"workflow_runtime",
+		},
+		"operations":       []string{"capabilities", "schema.get", "resources.list", "resources.get", "resources.explain", "graph.get", "revisions.diff", "diagnostics.get", "context.get", "changes.plan", "changes.apply", "resource.create", "resource.delete", "resource.rename", "value.set", "value.unset", "module.configure", "module.upgrade"},
+		"transport_limits": map[string]any{"max_resources": 1000, "max_bytes": 2_000_000, "max_depth": 16, "continuation_ttl_seconds": int(contextTokenTTL.Seconds()), "retained_snapshots": 32},
 	}
 }
 
@@ -471,6 +487,9 @@ func validateAgentSemanticOperation(result *Result, operation SemanticOperation)
 	}
 	defer os.RemoveAll(temp)
 	if err := applySemanticOperation(temp, planningBase, operation); err != nil {
+		if strings.HasPrefix(err.Error(), "capability_unavailable:") {
+			return SemanticOperation{}, err
+		}
 		return SemanticOperation{}, fmt.Errorf("failed_precondition: %w", err)
 	}
 	if _, err := Format(temp, false); err != nil {
@@ -488,7 +507,12 @@ func validateAgentSemanticOperation(result *Result, operation SemanticOperation)
 
 func agentError(kind, message string) *AgentError {
 	codes := map[string]int{"invalid_request": -32602, "revision_conflict": -32003, "failed_precondition": -32004, "capability_unavailable": -32005, "permission_denied": -32006, "internal": -32603}
-	return &AgentError{Code: codes[kind], Kind: kind, Message: message}
+	result := &AgentError{Code: codes[kind], Kind: kind, Message: message}
+	if kind == "internal" {
+		result.Message = "internal tooling failure"
+		result.ReportToken = newReportToken()
+	}
+	return result
 }
 
 func agentErrorFrom(err error) *AgentError {

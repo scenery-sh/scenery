@@ -594,7 +594,7 @@ func runVNextSchema(stdout io.Writer, args []string) error {
 	if len(positionals) != 1 {
 		return fmt.Errorf("usage: scenery schema KIND")
 	}
-	schema, ok := vnext.CoreSchema(positionals[0])
+	schema, ok := vnext.AgentSchema(positionals[0])
 	if !ok {
 		return fmt.Errorf("schema %q not found", positionals[0])
 	}
@@ -622,7 +622,7 @@ func runVNextFmt(stdout io.Writer, args []string) error {
 	if opts.Output == "json" {
 		diagnostics := []vnext.Diagnostic{}
 		if formatErr != nil {
-			diagnostics = append(diagnostics, vnext.Diagnostic{Code: "SCN6208", Severity: "error", Message: formatErr.Error()})
+			diagnostics = append(diagnostics, vnext.Diagnostic{Code: "SCN1019", Severity: "error", Message: formatErr.Error()})
 		}
 		_ = json.NewEncoder(stdout).Encode(vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: formatErr == nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil, Data: result, Diagnostics: diagnostics})
 	}

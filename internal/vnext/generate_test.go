@@ -689,17 +689,23 @@ func TestTypeScriptRetryRequiresIdempotentReplayableOperation(t *testing.T) {
 		"gateways": []any{map[string]any{"$ref": "http_gateway.public"}}, "package": "@test/client", "module": "esm", "runtime": "fetch", "output_root": "generated/client",
 		"retry": map[string]any{"policy": "scenery.retry.idempotent/v1", "maximum_attempts": "3"},
 	}}
-	operation := Resource{Address: "house/operation/get", Kind: "scenery.operation/v1", Name: "get", Module: "house", Spec: map[string]any{"input": map[string]any{"$ref": "json"}}}
+	input := Resource{Address: "house/record/get_input", Kind: "scenery.record/v1", Name: "get_input", Module: "house", Spec: map[string]any{"field": map[string]any{"name": "id", "type": map[string]any{"$ref": "string"}}}}
+	operation := Resource{Address: "house/operation/get", Kind: "scenery.operation/v1", Name: "get", Module: "house", Spec: map[string]any{"input": map[string]any{"$ref": "record.get_input"}}}
 	binding := Resource{Address: "house/binding/get", Kind: "scenery.binding/v1", Name: "get", Module: "house", Origin: Origin{Kind: "authored"}, Spec: map[string]any{
 		"gateway": map[string]any{"$ref": "http_gateway.public"}, "operation": map[string]any{"$ref": "operation.get"}, "protocol": "http", "http": map[string]any{"method": "POST", "path": "/get", "body": map[string]any{"codec": "json"}},
 	}}
-	resources := []Resource{target, operation, binding}
+	resources := []Resource{target, input, operation, binding}
 	diagnostics := validateTypeScriptTarget(target, resources)
 	if !diagnosticsContain(diagnostics, "SCN6309") {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 	operation.Spec["idempotency"] = map[string]any{"mode": "keyed"}
-	resources[1] = operation
+	resources[2] = operation
+	if diagnostics := validateTypeScriptTarget(target, resources); !diagnosticsContain(diagnostics, "SCN6309") {
+		t.Fatalf("keyed operation without a key was accepted: %#v", diagnostics)
+	}
+	operation.Spec["idempotency"] = map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "input.id"}}}
+	resources[2] = operation
 	if diagnostics := validateTypeScriptTarget(target, resources); diagnosticsContain(diagnostics, "SCN6309") {
 		t.Fatalf("idempotent operation was rejected: %#v", diagnostics)
 	}
@@ -770,23 +776,6 @@ func TestGeneratedGoOperationOutcomeHasDeterministicDurableCodec(t *testing.T) {
 		if !strings.Contains(contract, fragment) {
 			t.Fatalf("contract outcome codec missing %q:\n%s", fragment, contract)
 		}
-	}
-}
-
-func TestGenerateApplicationArtifactsRejectsLegacyHandlerInNativeService(t *testing.T) {
-	result := nativeApplicationGenerationFixture(t.TempDir())
-	var legacy Resource
-	for _, resource := range result.Manifest.Resources {
-		if resource.Kind == "scenery.operation/v1" {
-			legacy = resource
-			break
-		}
-	}
-	legacy.Address, legacy.Name = "house/operation/legacy", "legacy"
-	legacy.Spec = map[string]any{"service": map[string]any{"$ref": "service.house"}, "input": map[string]any{"$ref": "record.process_scene_input"}, "handler": map[string]any{"method": "Legacy", "adapter": "legacy_go_v0"}, "result": map[string]any{"name": "processed", "type": map[string]any{"$ref": "record.process_scene_result"}}}
-	result.Manifest.Resources = append(result.Manifest.Resources, legacy)
-	if _, err := generateApplicationArtifacts(result); err == nil || !strings.Contains(err.Error(), "still uses legacy_go_v0") {
-		t.Fatalf("legacy handler error = %v", err)
 	}
 }
 

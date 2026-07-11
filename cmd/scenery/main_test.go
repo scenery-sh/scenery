@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/vnext"
 )
 
 func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
@@ -131,6 +133,31 @@ func TestVNextJSONEnvelopeHasStableFields(t *testing.T) {
 	}
 }
 
+func TestVNextSchemaPublishesDiagnosticCatalog(t *testing.T) {
+	var output strings.Builder
+	if err := runVNextSchema(&output, []string{vnext.DiagnosticCatalog, "-o", "json"}); err != nil {
+		t.Fatal(err)
+	}
+	var envelope vnextEnvelope
+	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	catalog, ok := envelope.Data.(map[string]any)
+	if !ok || catalog["type"] != "diagnostic_catalog" {
+		t.Fatalf("catalog = %#v", envelope.Data)
+	}
+	found := false
+	for _, value := range catalog["definitions"].([]any) {
+		definition, _ := value.(map[string]any)
+		if definition["code"] == "SCN8001" && definition["identity"] == "invalid_request" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("catalog definitions = %#v", catalog["definitions"])
+	}
+}
+
 func TestVNextJSONFailureWritesExactlyOneStableEnvelope(t *testing.T) {
 	var output strings.Builder
 	err := renderVNextMachineError(&output, []string{"migrate", "activate", "missing", "-o", "json"}, errors.New("failed_precondition: candidate unavailable"))
@@ -142,12 +169,48 @@ func TestVNextJSONFailureWritesExactlyOneStableEnvelope(t *testing.T) {
 	if err := decoder.Decode(&envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN9005" {
+	if envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN8003" {
 		t.Fatalf("failure envelope = %#v", envelope)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err == nil {
 		t.Fatalf("failure output contains more than one document: %q", output.String())
+	}
+}
+
+func TestVNextJSONFailureCodesMatchTransportErrorKinds(t *testing.T) {
+	tests := []struct {
+		err        error
+		wantCode   string
+		wantReport bool
+	}{
+		{err: errors.New("invalid_request: malformed request"), wantCode: "SCN8001"},
+		{err: errors.New("revision_conflict: stale graph"), wantCode: "SCN8002"},
+		{err: errors.New("failed_precondition: stale plan"), wantCode: "SCN8003"},
+		{err: errors.New("capability_unavailable: provider missing"), wantCode: "SCN8004"},
+		{err: errors.New("permission_denied: approval missing"), wantCode: "SCN8005"},
+		{err: errors.New("internal: compiler invariant"), wantCode: "SCN9000", wantReport: true},
+	}
+	for _, test := range tests {
+		var output strings.Builder
+		err := renderVNextMachineError(&output, []string{"compile", "-o", "json"}, test.err)
+		if err == nil {
+			t.Fatalf("renderVNextMachineError(%v) returned nil", test.err)
+		}
+		var envelope vnextEnvelope
+		if decodeErr := json.Unmarshal([]byte(output.String()), &envelope); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != test.wantCode {
+			t.Fatalf("%v diagnostic = %#v, want %s", test.err, envelope.Diagnostics, test.wantCode)
+		}
+		reportToken := envelope.Diagnostics[0].ReportToken
+		if test.wantReport != strings.HasPrefix(reportToken, "rpt_") {
+			t.Fatalf("%v report_token = %q", test.err, reportToken)
+		}
+		if test.wantReport && strings.Contains(envelope.Diagnostics[0].Message, "compiler invariant") {
+			t.Fatalf("internal cause leaked in %#v", envelope.Diagnostics[0])
+		}
 	}
 }
 

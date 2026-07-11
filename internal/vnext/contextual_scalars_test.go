@@ -12,14 +12,14 @@ func TestContextualPrimitiveLiteralsLowerToExactScalars(t *testing.T) {
 `, `
     default = "018f47a2-6f45-7c4a-8b31-4cbbe3c99a22"
 `, `
-    default = "2GiB"
+    default = "1.5KiB"
 `)
 	explicit := contextualScalarFixture(t, `
     default = duration("1h30m")
 `, `
     default = uuid("018f47a2-6f45-7c4a-8b31-4cbbe3c99a22")
 `, `
-    default = size("2GiB")
+    default = size("1.5KiB")
 `)
 	quotedResult, err := Compile(quoted)
 	if err != nil || !quotedResult.Valid() {
@@ -43,8 +43,11 @@ func TestContextualPrimitiveLiteralsLowerToExactScalars(t *testing.T) {
 	if got := fields["id"]["default"].(map[string]any); got["$scalar"] != "uuid" || got["value"] != "018f47a2-6f45-7c4a-8b31-4cbbe3c99a22" {
 		t.Fatalf("uuid = %#v", got)
 	}
-	if got := fields["capacity"]["default"].(map[string]any); got["$scalar"] != "size" || got["bytes"] != "2147483648" {
+	if got := fields["capacity"]["default"].(map[string]any); got["$scalar"] != "size" || got["bytes"] != "1536" {
 		t.Fatalf("size = %#v", got)
+	}
+	if got := fields["model"]["default"].(map[string]any); got["$scalar"] != "relative_path" || got["value"] != "models/Café" {
+		t.Fatalf("relative path = %#v", got)
 	}
 }
 
@@ -82,6 +85,10 @@ record "settings" {
     type = uuid` + uuidDefault + `  }
   field "capacity" {
     type = size` + sizeDefault + `  }
+  field "model" {
+    type    = relative_path
+    default = "models/Café"
+  }
 }
 `
 	if err := os.WriteFile(filepath.Join(moduleRoot, "scenery.package.scn"), []byte(packageSource), 0o644); err != nil {

@@ -6,7 +6,7 @@ import (
 	scenery "scenery.sh"
 )
 
-const ContractRevision = "sha256:6e1529535c8afe1023019d0cb2c9f83f0239047ebe776fe7b20591c4ec910f63"
+const ContractRevision = "sha256:13091d6d1929f10339f55ad03714840fa56e206a063ce1c4e731615ccb19ca41"
 
 var RequiredAddresses = []string{"bridge/binding/echo_http", "bridge/execution/echo_direct", "bridge/operation/echo", "bridge/service/bridge"}
 

@@ -358,8 +358,8 @@
       }
     ]
   },
-  "content_digest": "sha256:8b6cf51a4ad4d821d0a8653b1f097e95915d2daee8f5b1d96df2b20829d1d360",
-  "contract_revision": "sha256:d3766e1e90832fd787c21553dfe70e52ae79c365c3cb0fb83078c97d849bf836",
+  "content_digest": "sha256:6000c8019d64234adbdd3e1771678ec4f97e320b834a0a9879097d41c20d3138",
+  "contract_revision": "sha256:bdcdc3efe46a7ed61994badb8c55c0f7b5a6b7f8311be7f3512efe47c91ea0ae",
   "covered_bindings": [
     "house/binding/process_scene_http"
   ],

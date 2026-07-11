@@ -7,12 +7,15 @@ import (
 )
 
 func validateProfileResources(resources []Resource) []Diagnostic {
+	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		if resource.Origin.Kind == "legacy_v0" {
 			continue
 		}
 		switch resource.Kind {
+		case "scenery.operation/v1":
+			diagnostics = append(diagnostics, validateOperation(resource, byAddress)...)
 		case "scenery.execution/v1":
 			diagnostics = append(diagnostics, validateExecution(resource)...)
 		case "scenery.binding/v1":
@@ -48,7 +51,7 @@ func validateProfileResources(resources []Resource) []Diagnostic {
 			}
 		case "scenery.fixture/v1":
 			if missingAny(resource.Spec, "entity", "environments", "mode", "values") {
-				diagnostics = append(diagnostics, profileDiagnostic("SCN2504", "fixture requires entity, environments, mode, and values", resource))
+				diagnostics = append(diagnostics, profileDiagnostic("SCN2511", "fixture requires entity, environments, mode, and values", resource))
 			}
 		case "scenery.page/v1":
 			if missingAny(resource.Spec, "path", "load") {
@@ -60,14 +63,88 @@ func validateProfileResources(resources []Resource) []Diagnostic {
 			}
 		case "scenery.deployment/v1":
 			if resource.Spec["environment"] == nil {
-				diagnostics = append(diagnostics, profileDiagnostic("SCN2801", "deployment requires environment", resource))
+				diagnostics = append(diagnostics, profileDiagnostic("SCN2805", "deployment requires environment", resource))
 			}
+			diagnostics = append(diagnostics, validateDeploymentDraftSurfaces(resource)...)
 		}
 	}
 	diagnostics = append(diagnostics, validateExecutionBindings(resources)...)
 	diagnostics = append(diagnostics, validateCLIBindings(resources)...)
 	diagnostics = append(diagnostics, validateDurableExecutions(resources)...)
 	diagnostics = append(diagnostics, validateScheduleAndEventSemantics(resources)...)
+	return diagnostics
+}
+
+func validateOperation(resource Resource, resources map[string]Resource) []Diagnostic {
+	raw, present := resource.Spec["idempotency"]
+	if !present {
+		return nil
+	}
+	idempotency, valid := raw.(map[string]any)
+	if !valid {
+		return []Diagnostic{profileDiagnostic("SCN2003", "operation idempotency must be a singleton block", resource)}
+	}
+	mode := stringValue(idempotency["mode"])
+	if (mode == "keyed" && validKeyedIdempotency(resource, resources)) || (mode == "none" && idempotency["key"] == nil) {
+		return nil
+	}
+	return []Diagnostic{profileDiagnostic("SCN2003", "operation idempotency must be none without a key or keyed with a non-empty ordered list of direct input-record field references", resource)}
+}
+
+func validKeyedIdempotency(operation Resource, resources map[string]Resource) bool {
+	idempotency, _ := operation.Spec["idempotency"].(map[string]any)
+	if stringValue(idempotency["mode"]) != "keyed" {
+		return false
+	}
+	components, ok := idempotency["key"].([]any)
+	if !ok || len(components) == 0 {
+		return false
+	}
+	shape := resolveOperationInputShape(resources, operation)
+	if shape.Record == nil {
+		return false
+	}
+	for _, component := range components {
+		name, ok := inputKeyFieldName(component)
+		if !ok {
+			return false
+		}
+		if _, exists := shape.Fields[name]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func inputKeyFieldName(value any) (string, bool) {
+	reference, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	expression := strings.TrimSpace(stringValue(reference["$expression"]))
+	if expression == "" {
+		expression = strings.TrimSpace(stringValue(reference["$ref"]))
+	}
+	name, found := strings.CutPrefix(expression, "input.")
+	if !found || !validSemanticName(name) {
+		return "", false
+	}
+	return name, true
+}
+
+func validateDeploymentDraftSurfaces(deployment Resource) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, gateway := range namedChildren(deployment.Spec, "http_gateway") {
+		for _, listener := range namedChildren(gateway, "listener") {
+			for name := range listener {
+				capability := authoredFieldOverrides[authoredFieldKey{Revision: deploymentListenerSourceSchema.Revision, Name: name}].UnsupportedDraft
+				if capability == "" {
+					continue
+				}
+				diagnostics = append(diagnostics, profileDiagnostic("SCN7009", "unsupported_draft: deployment listener field "+name+" requires unresolved capability "+capability, deployment))
+			}
+		}
+	}
 	return diagnostics
 }
 
@@ -215,11 +292,11 @@ func validateBinding(resource Resource) []Diagnostic {
 		}
 		visibility := stringValue(internal["visibility"])
 		if visibility != "package" && visibility != "application" {
-			diagnostics = append(diagnostics, profileDiagnostic("SCN2403", "internal binding visibility must be package or application", resource))
+			diagnostics = append(diagnostics, profileDiagnostic("SCN2405", "internal binding visibility must be package or application", resource))
 		}
 		exposure := stringValue(resource.Spec["exposure"])
 		if visibility == "package" && exposure != "local" || visibility == "application" && exposure != "application" {
-			diagnostics = append(diagnostics, profileDiagnostic("SCN2404", "internal binding exposure must match its package/application visibility", resource))
+			diagnostics = append(diagnostics, profileDiagnostic("SCN2406", "internal binding exposure must match its package/application visibility", resource))
 		}
 	}
 	if protocol == "event" {

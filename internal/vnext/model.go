@@ -76,6 +76,7 @@ type Diagnostic struct {
 	Code        string         `json:"code"`
 	Severity    string         `json:"severity"`
 	Message     string         `json:"message"`
+	ReportToken string         `json:"report_token,omitempty"`
 	Address     string         `json:"address,omitempty"`
 	Path        string         `json:"path,omitempty"`
 	Range       *Range         `json:"range,omitempty"`
@@ -268,39 +269,58 @@ func dependencyContractIdentities(resources []Resource) []map[string]any {
 }
 
 func contractResourceProjection(resource Resource) (Resource, bool) {
-	switch resource.Kind {
-	case "scenery.go-module/v1", "scenery.go-toolchain/v1", "scenery.go-target/v1", "scenery.deployment/v1", "scenery.typescript-client/v1", "scenery.patch/v1", "scenery.secret/v1":
+	schema, ok := resourceSchemas[resource.Kind]
+	if !ok {
 		return Resource{}, false
 	}
 	projected := Resource{Address: resource.Address, Kind: resource.Kind, Name: resource.Name, Module: resource.Module, Spec: make(map[string]any, len(resource.Spec))}
 	for key, value := range resource.Spec {
-		projected.Spec[key] = value
+		if rule, dynamic := dynamicResourceRevisionDomains[resource.Kind][key]; dynamic {
+			if contractValue, include := dynamicContractFieldProjection(resource, key, value, rule); include {
+				projected.Spec[key] = contractValue
+			}
+			continue
+		}
+		if domain, exists := resourceFieldRevisionDomain(resource.Kind, key); exists && domain == "contract" {
+			projected.Spec[key] = value
+		}
 	}
-	switch resource.Kind {
-	case "scenery.module/v1":
+	if schema.RevisionDomain != "contract" && len(projected.Spec) == 0 {
 		return Resource{}, false
-	case "scenery.service/v1":
-		delete(projected.Spec, "implementation")
-		delete(projected.Spec, "lifecycle")
-		delete(projected.Spec, "config")
-		delete(projected.Spec, "config_schema")
-	case "scenery.operation/v1":
-		delete(projected.Spec, "handler")
-	case "scenery.provider/v1":
-		delete(projected.Spec, "source")
-		delete(projected.Spec, "version")
-		delete(projected.Spec, "config")
-	case "scenery.data-source/v1", "scenery.execution-engine/v1", "scenery.event-bus/v1", "scenery.secret-store/v1":
-		delete(projected.Spec, "config")
-	case "scenery.view/v1", "scenery.crud/v1":
-		delete(projected.Spec, "implementation")
-		delete(projected.Spec, "implementation_digest")
-	case "scenery.renderer/v1":
-		delete(projected.Spec, "module")
-		delete(projected.Spec, "config")
-		delete(projected.Spec, "implementation_digest")
 	}
 	return projected, true
+}
+
+func dynamicContractFieldProjection(resource Resource, field string, value any, rule dynamicRevisionDomain) (any, bool) {
+	domains := map[string]string{}
+	for _, descriptor := range namedChildren(resource.Spec, rule.SchemaField) {
+		domains[stringValue(descriptor[rule.NameField])] = stringValue(descriptor[rule.DomainField])
+	}
+	if field == rule.SchemaField {
+		items, ok := value.([]any)
+		if !ok {
+			return nil, false
+		}
+		projected := make([]any, 0, len(items))
+		for _, item := range items {
+			descriptor, ok := item.(map[string]any)
+			if ok && stringValue(descriptor[rule.DomainField]) == "contract" {
+				projected = append(projected, item)
+			}
+		}
+		return projected, len(projected) > 0
+	}
+	values, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	projected := map[string]any{}
+	for name, item := range values {
+		if domains[name] == "contract" {
+			projected[name] = item
+		}
+	}
+	return projected, len(projected) > 0
 }
 
 func kindForBlock(blockType string) string {

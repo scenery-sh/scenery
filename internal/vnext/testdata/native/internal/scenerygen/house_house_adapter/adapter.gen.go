@@ -11,7 +11,7 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:d3766e1e90832fd787c21553dfe70e52ae79c365c3cb0fb83078c97d849bf836"
+const ContractRevision = "sha256:bdcdc3efe46a7ed61994badb8c55c0f7b5a6b7f8311be7f3512efe47c91ea0ae"
 const PackageIdentity = "house"
 const PackageContractABIRevision = "sha256:5c180808dd4d9608f6985a306ef4552276ff7aa1f7e3d8481d95c55a069d7c44"
 const PackageVersion = "1.0.0"
@@ -20,7 +20,17 @@ type serviceImplementation interface {
 	ProcessScene(context.Context, contract.ProcessSceneInput) (contract.ProcessSceneOutcome, error)
 }
 
-var service serviceImplementation
+type serviceAdapter struct{ native serviceImplementation }
+
+var service *serviceAdapter
+
+func (adapter *serviceAdapter) ProcessScene(ctx context.Context, input contract.ProcessSceneInput) (contract.ProcessSceneOutcome, error) {
+	if adapter == nil || adapter.native == nil {
+		return nil, fmt.Errorf("service is not initialized")
+	}
+	native := adapter.native
+	return native.ProcessScene(ctx, input)
+}
 
 type selfInternalClient struct{}
 
@@ -77,7 +87,7 @@ func Register(registry scenery.Registry) error {
 				if value == nil {
 					return fmt.Errorf("constructor returned nil service")
 				}
-				service = value
+				service = &serviceAdapter{native: value}
 				return nil
 			}}); err != nil {
 				return err

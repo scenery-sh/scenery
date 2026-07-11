@@ -16,6 +16,19 @@ func AgentSchema(name string) (map[string]any, bool) {
 	if schema, ok := CoreSchema(name); ok {
 		return schema, true
 	}
+	if schema, ok := authoredPublicSchema(name); ok {
+		return schema, true
+	}
+	if name == DiagnosticCatalog {
+		return map[string]any{"schema_revision": DiagnosticCatalog, "type": "diagnostic_catalog", "definitions": DiagnosticDefinitions()}, true
+	}
+	if definition, ok := DiagnosticDefinitionFor(name); ok {
+		return map[string]any{
+			"schema_revision": DiagnosticCatalog, "type": "diagnostic_definition", "code": definition.Code, "category": definition.Category,
+			"identity": definition.Identity, "meaning": definition.Meaning, "default_severity": definition.DefaultSeverity,
+			"structured_fields": definition.StructuredFields, "documentation": definition.Documentation,
+		}, true
+	}
 	switch name {
 	case "scenery.value/v1":
 		return map[string]any{
@@ -35,7 +48,7 @@ func AgentSchema(name string) (map[string]any, bool) {
 			"required": []string{"code", "severity", "message"},
 			"properties": map[string]any{
 				"code": map[string]any{"type": "string"}, "severity": map[string]any{"enum": []string{"error", "warning", "information", "hint"}},
-				"message": map[string]any{"type": "string"}, "address": map[string]any{"type": "string"}, "path": map[string]any{"type": "string"},
+				"message": map[string]any{"type": "string"}, "report_token": map[string]any{"type": "string", "pattern": "^rpt_[a-z2-7]+$"}, "address": map[string]any{"type": "string"}, "path": map[string]any{"type": "string"},
 				"range": map[string]any{"schema_revision": "scenery.source-range/v1"}, "related": map[string]any{"type": "array"}, "suggestions": map[string]any{"type": "array"}, "fixes": map[string]any{"type": "array"},
 			},
 		}, true
@@ -58,15 +71,47 @@ func semanticOperationSchema(revision, operation string) map[string]any {
 	if operation != "" {
 		op = map[string]any{"const": operation}
 	}
-	return map[string]any{
-		"schema_revision": revision, "type": "object", "additional_properties": false,
-		"required": []string{"op", "address"},
-		"properties": map[string]any{
-			"op": op, "address": map[string]any{"type": "string"}, "view": map[string]any{"enum": []string{"source"}},
-			"path": map[string]any{"type": "string", "format": "json-pointer"}, "value": map[string]any{"$ref": "scenery.value/v1"},
-			"precondition": map[string]any{"type": "object", "properties": map[string]any{"exists": map[string]any{"type": "boolean"}, "absent": map[string]any{"type": "boolean"}, "equals": map[string]any{"$ref": "scenery.value/v1"}}},
-		},
+	properties := map[string]any{
+		"op": op, "address": map[string]any{"type": "string"}, "view": map[string]any{"enum": []string{"source"}},
+		"path": map[string]any{"type": "string", "format": "json-pointer", "pattern": "^/spec(?:/|$)"}, "value": map[string]any{"$ref": "scenery.value/v1"},
+		"precondition": map[string]any{"type": "object", "additional_properties": false, "properties": map[string]any{"exists": map[string]any{"type": "boolean"}, "absent": map[string]any{"type": "boolean"}, "equals": map[string]any{"$ref": "scenery.value/v1"}}},
 	}
+	required := []string{"op", "address"}
+	switch operation {
+	case "resource.create":
+		required = append(required, "value")
+		properties["value"] = map[string]any{"type": "object", "additional_properties": map[string]any{"$ref": "scenery.value/v1"}}
+		delete(properties, "path")
+		delete(properties, "precondition")
+	case "resource.delete":
+		delete(properties, "path")
+		delete(properties, "value")
+	case "resource.rename":
+		required = append(required, "value")
+		properties["value"] = map[string]any{"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+		delete(properties, "path")
+	case "value.set":
+		required = append(required, "path", "value")
+	case "value.unset":
+		required = append(required, "path")
+		delete(properties, "value")
+	case "module.configure":
+		required = append(required, "value")
+		properties["value"] = map[string]any{"type": "object", "additional_properties": map[string]any{"$ref": "scenery.value/v1"}}
+		delete(properties, "path")
+	case "module.upgrade":
+		required = append(required, "value")
+		properties["value"] = map[string]any{"type": "string", "min_length": 1, "format": "semantic-version-constraint"}
+		delete(properties, "path")
+	}
+	result := map[string]any{
+		"schema_revision": revision, "type": "object", "additional_properties": false,
+		"required": required, "properties": properties,
+	}
+	if operation == "resource.create" {
+		result["resource_kinds"] = resourceCreateSchemaRevisions()
+	}
+	return result
 }
 
 func allResourceSchemaRevisions() []string {

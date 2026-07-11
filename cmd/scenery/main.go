@@ -37,20 +37,23 @@ func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
 		return err
 	}
 	code := cliExitCode(err)
-	diagnosticCode := "SCN9004"
-	if code == 3 {
-		diagnosticCode = "SCN9005"
+	kind, _, _ := strings.Cut(err.Error(), ":")
+	if code == 2 {
+		kind = "invalid_request"
+	} else if code == 3 && kind != "revision_conflict" {
+		kind = "failed_precondition"
 	} else if code == 4 {
-		diagnosticCode = "SCN9006"
+		kind = "capability_unavailable"
 	} else if code == 5 {
-		diagnosticCode = "SCN9007"
+		kind = "permission_denied"
 	} else if code == 10 {
-		diagnosticCode = "SCN9008"
+		kind = "internal"
 	}
+	diagnostic := vnext.TransportDiagnostic(kind, err.Error())
 	envelope := vnextEnvelope{
 		APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: false,
 		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
-		Data: nil, Diagnostics: []vnext.Diagnostic{{Code: diagnosticCode, Severity: "error", Message: err.Error()}},
+		Data: nil, Diagnostics: []vnext.Diagnostic{diagnostic},
 	}
 	if encodeErr := json.NewEncoder(stdout).Encode(envelope); encodeErr != nil {
 		return &silentCLIError{err: fmt.Errorf("internal: encode CLI error envelope: %w", encodeErr), code: 10}

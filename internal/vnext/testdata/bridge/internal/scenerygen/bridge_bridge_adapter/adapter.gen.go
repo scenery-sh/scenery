@@ -11,20 +11,19 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:6e1529535c8afe1023019d0cb2c9f83f0239047ebe776fe7b20591c4ec910f63"
+const ContractRevision = "sha256:13091d6d1929f10339f55ad03714840fa56e206a063ce1c4e731615ccb19ca41"
 const PackageIdentity = "bridge"
 const PackageContractABIRevision = "sha256:9520bcdfed16c50869ad259284f57fa71279b11a68925a595712fd4a69343ed4"
 const PackageVersion = "1.0.0"
 
 type serviceImplementation interface {
-	Echo(context.Context, contract.EchoInput) (contract.EchoOutcome, error)
 }
 
-var service serviceImplementation
+type serviceAdapter struct{ native serviceImplementation }
 
-type legacyBridgeService struct{}
+var service *serviceAdapter
 
-func (legacyBridgeService) Echo(ctx context.Context, input contract.EchoInput) (contract.EchoOutcome, error) {
+func (adapter *serviceAdapter) Echo(ctx context.Context, input contract.EchoInput) (contract.EchoOutcome, error) {
 	raw, err := scenery.MarshalContractValue(input, "record.echo_input")
 	if err != nil {
 		return nil, fmt.Errorf("encode legacy bridge input: %w", err)
@@ -52,10 +51,15 @@ func Register(registry scenery.Registry) error {
 				return fmt.Errorf("package contract ABI mismatch")
 			}
 			if err := sceneryruntime.RegisterNativeService(sceneryruntime.NativeServiceRegistration{Address: "bridge/service/bridge", Initialize: func(ctx context.Context) error {
-				if err := implementation.SceneryVNextBridgeInitialize(); err != nil {
+				value, err := implementation.SceneryVNextBridgeService()
+				if err != nil {
 					return err
 				}
-				service = legacyBridgeService{}
+				native, ok := value.(serviceImplementation)
+				if !ok {
+					return fmt.Errorf("legacy bridge service does not implement selected native handlers")
+				}
+				service = &serviceAdapter{native: native}
 				return nil
 			}, Shutdown: func(ctx context.Context) error {
 				implementation.SceneryVNextBridgeShutdown(ctx)

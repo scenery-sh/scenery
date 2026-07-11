@@ -2,6 +2,53 @@ package vnext
 
 import "testing"
 
+func TestOperationIdempotencyRequiresOrderedTypedKeyComponents(t *testing.T) {
+	tests := []struct {
+		name string
+		spec map[string]any
+		want bool
+	}{
+		{name: "absent", spec: map[string]any{}, want: true},
+		{name: "wrong block shape", spec: map[string]any{"idempotency": "keyed"}},
+		{name: "none", spec: map[string]any{"idempotency": map[string]any{"mode": "none"}}, want: true},
+		{
+			name: "keyed",
+			spec: map[string]any{"idempotency": map[string]any{
+				"mode": "keyed",
+				"key":  []any{map[string]any{"$expression": "input.tenant_id"}, map[string]any{"$expression": "input.scene_id"}},
+			}},
+			want: true,
+		},
+		{name: "missing key", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed"}}},
+		{name: "empty key", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed", "key": []any{}}}},
+		{name: "scalar key", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed", "key": map[string]any{"$expression": "input.scene_id"}}}},
+		{name: "literal component", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed", "key": []any{"scene"}}}},
+		{name: "computed component", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "input.scene_id + input.tenant_id"}}}}},
+		{name: "non-input component", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "principal.uid"}}}}},
+		{name: "missing input field", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "input.missing"}}}}},
+		{name: "nested input field", spec: map[string]any{"idempotency": map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "input.scene_id.value"}}}}},
+		{name: "unit input", spec: map[string]any{"input": map[string]any{"$ref": "std.type.unit"}, "idempotency": map[string]any{"mode": "keyed", "key": []any{map[string]any{"$expression": "input.scene_id"}}}}},
+		{name: "none with key", spec: map[string]any{"idempotency": map[string]any{"mode": "none", "key": []any{map[string]any{"$expression": "input.scene_id"}}}}},
+	}
+	input := Resource{Address: "house/record/process_input", Module: "house", Name: "process_input", Kind: "scenery.record/v1", Spec: map[string]any{"field": []any{
+		map[string]any{"name": "tenant_id", "type": map[string]any{"$ref": "string"}},
+		map[string]any{"name": "scene_id", "type": map[string]any{"$ref": "string"}},
+	}}}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := cloneMapValue(test.spec)
+			if spec["input"] == nil {
+				spec["input"] = map[string]any{"$ref": "record.process_input"}
+			}
+			operation := Resource{Address: "house/operation/process", Module: "house", Name: "process", Kind: "scenery.operation/v1", Spec: spec}
+			diagnostics := validateProfileResources([]Resource{input, operation})
+			if got := !hasDiagnostic(diagnostics, "SCN2003"); got != test.want {
+				t.Fatalf("valid = %t, want %t; diagnostics=%#v", got, test.want, diagnostics)
+			}
+		})
+	}
+}
+
 func TestProfileValidationRejectsIncompleteDurableAndTriggerResources(t *testing.T) {
 	resources := []Resource{
 		{Address: "house/execution/process", Module: "house", Kind: "scenery.execution/v1", Spec: map[string]any{"operation": map[string]any{"$ref": "operation.process"}, "mode": "durable", "revision": "0"}},

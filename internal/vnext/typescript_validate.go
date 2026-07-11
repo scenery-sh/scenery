@@ -51,6 +51,7 @@ func validateTypeScriptTarget(target Resource, resources []Resource) []Diagnosti
 	bindings := publicHTTPBindings(resources, target)
 	diagnostics = append(diagnostics, validateTypeScriptNames(target, resources, bindings)...)
 	operations := resourcesByKind(resources, "scenery.operation/v1")
+	resourceMap := resourcesByAddress(&Manifest{Resources: resources})
 	for _, binding := range bindings {
 		httpSpec, _ := binding.Spec["http"].(map[string]any)
 		operation := operations[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]
@@ -91,8 +92,7 @@ func validateTypeScriptTarget(target Resource, resources []Resource) []Diagnosti
 		for _, binding := range bindings {
 			operation := operations[binding.Module+"/operation/"+lastRef(refString(binding.Spec["operation"]))]
 			idempotency, _ := operation.Spec["idempotency"].(map[string]any)
-			mode, _ := idempotency["mode"].(string)
-			if mode != "keyed" && mode != "idempotent" {
+			if idempotency == nil || !validKeyedIdempotency(operation, resourceMap) {
 				diagnostic("SCN6309", "retry-selected binding "+binding.Address+" does not reference an idempotent operation")
 			}
 			httpSpec, _ := binding.Spec["http"].(map[string]any)

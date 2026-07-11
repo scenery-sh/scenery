@@ -10,13 +10,19 @@ import (
 	scenery "scenery.sh"
 )
 
-func renderLegacyBridgeService(b *strings.Builder, service Resource, operations []Resource) error {
-	b.WriteString("type legacyBridgeService struct{}\n\n")
+func renderServiceOperationAdapters(b *strings.Builder, operations []Resource, lifecycleBridge bool) error {
 	for _, operation := range operations {
 		handler, _ := operation.Spec["handler"].(map[string]any)
 		method := stringValue(handler["method"])
 		if method == "" {
-			return fmt.Errorf("legacy bridge operation %s has no handler method", operation.Address)
+			return fmt.Errorf("operation %s has no handler method", operation.Address)
+		}
+		operationName := goName(operation.Name)
+		fmt.Fprintf(b, "func (adapter *serviceAdapter) %s(ctx context.Context, input contract.%sInput) (contract.%sOutcome, error) {\n", method, operationName, operationName)
+		if stringValue(handler["adapter"]) != "legacy_go_v0" {
+			b.WriteString("\tif adapter == nil || adapter.native == nil { return nil, fmt.Errorf(\"service is not initialized\") }\n\tnative := adapter.native\n")
+			fmt.Fprintf(b, "\treturn native.%s(ctx, input)\n}\n\n", method)
+			continue
 		}
 		results := namedChildren(operation.Spec, "result")
 		if len(results) != 1 {
@@ -30,11 +36,14 @@ func renderLegacyBridgeService(b *strings.Builder, service Resource, operations 
 				break
 			}
 		}
-		operationName := goName(operation.Name)
 		resultWrapper := operationName + goName(stringValue(result["name"]))
-		fmt.Fprintf(b, "func (legacyBridgeService) %s(ctx context.Context, input contract.%sInput) (contract.%sOutcome, error) {\n", method, operationName, operationName)
 		fmt.Fprintf(b, "\traw, err := scenery.MarshalContractValue(input, %q)\n\tif err != nil { return nil, fmt.Errorf(\"encode legacy bridge input: %%w\", err) }\n", goWireTypeExpression(operation.Spec["input"]))
-		fmt.Fprintf(b, "\tresult, err := implementation.SceneryVNextBridge%s(ctx, raw)\n", method)
+		if lifecycleBridge {
+			fmt.Fprintf(b, "\tresult, err := implementation.SceneryVNextBridge%s(ctx, raw)\n", method)
+		} else {
+			b.WriteString("\tif adapter == nil || adapter.native == nil { return nil, fmt.Errorf(\"service is not initialized\") }\n\tnative := adapter.native\n")
+			fmt.Fprintf(b, "\tresult, err := implementation.SceneryVNextBridge%sWithService(ctx, native, raw)\n", method)
+		}
 		if errorName != "" {
 			fmt.Fprintf(b, "\tif err != nil { return contract.%s%s{Problem: scenery.Problem{Code: %q, Message: err.Error()}}, nil }\n", operationName, goName(errorName), errorName)
 		} else {
@@ -44,7 +53,6 @@ func renderLegacyBridgeService(b *strings.Builder, service Resource, operations 
 		fmt.Fprintf(b, "\tif err := scenery.UnmarshalContractValue(result, &outcome.Value, %q); err != nil { return nil, fmt.Errorf(\"decode legacy bridge result: %%w\", err) }\n", goWireTypeExpression(result["type"]))
 		b.WriteString("\treturn outcome, nil\n}\n\n")
 	}
-	_ = service
 	return nil
 }
 

@@ -33,6 +33,7 @@ var allowedDirectGoDeps = map[string]string{
 	"golang.org/x/mod":             "Go module parsing for self-harness dependency checks",
 	"golang.org/x/net":             "IDNA2008 non-transitional URL host normalization required by the edition-2027 scalar contract",
 	"golang.org/x/sys":             "portable OS syscalls for doctor disk and memory readiness probes",
+	"golang.org/x/text":            "Unicode 15.0 NFC normalization required by the edition-2027 relative_path scalar contract",
 	"golang.org/x/tools":           "Go package loading/parser pipeline",
 	"gopkg.in/yaml.v3":             "SQLC generator graph inspection from sqlc.yaml without shell parsing",
 }

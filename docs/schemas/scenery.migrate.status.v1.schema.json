@@ -14,7 +14,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "state", "active", "legacy_candidate_valid", "native_candidate_valid"],
+        "required": ["name", "state", "active", "lifecycle_adapter", "remaining_operation_bridge_count", "adapter_retirement_ready", "legacy_candidate_valid", "native_candidate_valid"],
         "properties": {
           "name": { "type": "string" },
           "state": { "enum": ["legacy", "shadow", "native", "retired"] },
@@ -30,6 +30,9 @@
           "guarantee_classification": { "type": "string" },
           "migration_disposition": { "type": "string" },
           "cutover_classes": { "$ref": "#/$defs/string_list" },
+          "lifecycle_adapter": { "enum": ["legacy_go_v0", "native_go_v1"] },
+          "remaining_operation_bridge_count": { "type": "integer", "minimum": 0 },
+          "adapter_retirement_ready": { "type": "boolean" },
           "legacy_candidate_valid": { "type": "boolean" },
           "native_candidate_valid": { "type": "boolean" },
           "candidate_diagnostics": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "object" } } }

@@ -30,11 +30,25 @@ func sceneryVNextBridgeService() (*Service, error) {
 	return sceneryVNextBridgeState.service, nil
 }
 
+func SceneryVNextBridgeService() (any, error) { return sceneryVNextBridgeService() }
+
 func SceneryVNextBridgeShutdown(ctx context.Context) {
 	_ = ctx
 }
 
 func SceneryVNextBridgeEcho(ctx context.Context, input []byte) ([]byte, error) {
+	service, err := sceneryVNextBridgeService()
+	if err != nil {
+		return nil, err
+	}
+	return SceneryVNextBridgeEchoWithService(ctx, service, input)
+}
+
+func SceneryVNextBridgeEchoWithService(ctx context.Context, receiver any, input []byte) ([]byte, error) {
+	service, ok := receiver.(*Service)
+	if !ok {
+		return nil, fmt.Errorf("legacy bridge receiver has type %T, want *Service", receiver)
+	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(input, &object); err != nil {
 		return nil, fmt.Errorf("decode bridge input: %w", err)
@@ -52,10 +66,6 @@ func SceneryVNextBridgeEcho(ctx context.Context, input []byte) ([]byte, error) {
 	var payload *EchoParams
 	if err := json.Unmarshal(payloadRaw, &payload); err != nil {
 		return nil, fmt.Errorf("decode bridge payload: %w", err)
-	}
-	service, err := sceneryVNextBridgeService()
-	if err != nil {
-		return nil, err
 	}
 	response, err := service.Echo(ctx, payload)
 	if err != nil {

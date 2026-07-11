@@ -3,8 +3,60 @@ package vnext
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestPortableSourceIDsDoNotCollideForPunctuationOrPaths(t *testing.T) {
+	ids := map[string]string{}
+	for _, uri := range []string{"a-b.scn", "a_b.scn", "a/b.scn", "a.scn", " a.scn", "a.scn "} {
+		id := sourceID(uri)
+		if !strings.HasPrefix(id, "src_") || len(id) != 56 {
+			t.Fatalf("sourceID(%q) = %q", uri, id)
+		}
+		if previous := ids[id]; previous != "" {
+			t.Fatalf("sourceID collision: %q and %q = %q", previous, uri, id)
+		}
+		ids[id] = uri
+	}
+	if sourceID("./a.scn") != sourceID("a.scn") {
+		t.Fatal("equivalent relative URIs did not normalize to one source ID")
+	}
+}
+
+func TestSourceRangesUseUnicodeScalarColumnsAndUTF8ByteOffsets(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "scenery.scn")
+	sourceText := "record \"Čeština🙂e\u0301\" {}\r\n"
+	if err := os.WriteFile(path, []byte(sourceText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source, diagnostics := parseSource(root, path)
+	if source == nil || len(source.Blocks) != 1 {
+		t.Fatalf("source = %#v", source)
+	}
+	rng := source.Blocks[0].Range
+	if rng.Start != (Position{Line: 0, Column: 0, ByteOffset: 0}) {
+		t.Fatalf("start = %#v", rng.Start)
+	}
+	if rng.End != (Position{Line: 0, Column: 22, ByteOffset: 28}) {
+		t.Fatalf("end = %#v, want Unicode column 22 and byte offset 28", rng.End)
+	}
+	if source.CST.LineEndings != "crlf" {
+		t.Fatalf("line endings = %q", source.CST.LineEndings)
+	}
+	foundIdentifierRange := false
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "SCN1013" {
+			foundIdentifierRange = diagnostic.Range != nil &&
+				diagnostic.Range.Start == (Position{Line: 0, Column: 7, ByteOffset: 7}) &&
+				diagnostic.Range.End == (Position{Line: 0, Column: 19, ByteOffset: 25})
+		}
+	}
+	if !foundIdentifierRange {
+		t.Fatalf("identifier diagnostics = %#v", diagnostics)
+	}
+}
 
 func TestStaticCompositeValuesKeepBooleanLiteralsAsValues(t *testing.T) {
 	root := t.TempDir()
@@ -101,6 +153,32 @@ execution "run_durable" {
 	concurrency := blockSpec(source.Blocks[1])["concurrency"].(map[string]any)
 	if expressionText(concurrency["key"]) != "input.queue_key" {
 		t.Fatalf("concurrency key = %#v", concurrency["key"])
+	}
+}
+
+func TestAuthoredKeyedIdempotencyRequiresKeyAttribute(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "scenery.package.scn")
+	if err := os.WriteFile(path, []byte(`operation "run" {
+  service = service.worker
+  input   = record.run_input
+  handler { method = "Run" }
+  idempotency { mode = "keyed" }
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source, diagnostics := parseSource(root, path)
+	if hasErrors(diagnostics) {
+		t.Fatalf("parse diagnostics: %#v", diagnostics)
+	}
+	diagnostics = validateAuthoredBlockSchemas([]*Source{source}, true)
+	found := false
+	for _, diagnostic := range diagnostics {
+		found = found || diagnostic.Code == "SCN1015" && strings.Contains(diagnostic.Message, "missing required field key when mode is keyed")
+	}
+	if !found {
+		t.Fatalf("authored diagnostics = %#v", diagnostics)
 	}
 }
 

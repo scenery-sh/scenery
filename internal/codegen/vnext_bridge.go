@@ -128,6 +128,7 @@ func writeVNextLegacyCallEndpoint(source *strings.Builder, imports *imports, end
 func writeVNextBridgeLifecycle(source *strings.Builder, imports *imports, service *model.ServiceStruct) {
 	if service == nil {
 		source.WriteString("func SceneryVNextBridgeInitialize() error { return nil }\n")
+		source.WriteString("func SceneryVNextBridgeService() (any, error) { return struct{}{}, nil }\n")
 		source.WriteString("func SceneryVNextBridgeShutdown(context.Context) {}\n\n")
 		return
 	}
@@ -141,6 +142,7 @@ func writeVNextBridgeLifecycle(source *strings.Builder, imports *imports, servic
 	}
 	source.WriteString("\t})\n\treturn sceneryVNextBridgeState.err\n}\n\n")
 	fmt.Fprintf(source, "func sceneryVNextBridgeService() (*%s, error) {\n\tif err := SceneryVNextBridgeInitialize(); err != nil { return nil, err }\n\treturn sceneryVNextBridgeState.service, nil\n}\n\n", service.TypeName)
+	source.WriteString("func SceneryVNextBridgeService() (any, error) { return sceneryVNextBridgeService() }\n\n")
 	source.WriteString("func SceneryVNextBridgeShutdown(ctx context.Context) {\n")
 	if service.Shutdown != "" {
 		fmt.Fprintf(source, "\tif sceneryVNextBridgeState.service != nil { sceneryVNextBridgeState.service.%s(ctx) }\n", service.Shutdown)
@@ -151,7 +153,12 @@ func writeVNextBridgeLifecycle(source *strings.Builder, imports *imports, servic
 }
 
 func writeVNextBridgeEndpoint(source *strings.Builder, imports *imports, endpoint *model.Endpoint, service *model.ServiceStruct) {
-	fmt.Fprintf(source, "func SceneryVNextBridge%s(ctx context.Context, input []byte) ([]byte, error) {\n", endpoint.Name)
+	if endpoint.Receiver != nil {
+		fmt.Fprintf(source, "func SceneryVNextBridge%s(ctx context.Context, input []byte) ([]byte, error) {\n\tservice, err := sceneryVNextBridgeService()\n\tif err != nil { return nil, err }\n\treturn SceneryVNextBridge%sWithService(ctx, service, input)\n}\n\n", endpoint.Name, endpoint.Name)
+		fmt.Fprintf(source, "func SceneryVNextBridge%sWithService(ctx context.Context, receiver any, input []byte) ([]byte, error) {\n\tservice, ok := receiver.(*%s)\n\tif !ok { return nil, fmt.Errorf(\"legacy bridge receiver has type %%T, want *%s\", receiver) }\n", endpoint.Name, endpoint.Receiver.TypeName, endpoint.Receiver.TypeName)
+	} else {
+		fmt.Fprintf(source, "func SceneryVNextBridge%s(ctx context.Context, input []byte) ([]byte, error) {\n", endpoint.Name)
+	}
 	needsObject := len(endpoint.PathParams) > 0 || endpoint.Payload != nil
 	if needsObject {
 		source.WriteString("\tvar object map[string]json.RawMessage\n\tif err := json.Unmarshal(input, &object); err != nil { return nil, fmt.Errorf(\"decode bridge input: %w\", err) }\n")
@@ -185,7 +192,6 @@ func writeVNextBridgeEndpoint(source *strings.Builder, imports *imports, endpoin
 
 	callTarget := endpoint.Name
 	if endpoint.Receiver != nil {
-		fmt.Fprintf(source, "\tservice, err := sceneryVNextBridgeService()\n\tif err != nil { return nil, err }\n")
 		callTarget = "service." + endpoint.Name
 	} else if service != nil && endpoint.Package == service.Package {
 		// The package-level handler intentionally remains a package function.
@@ -203,6 +209,9 @@ func writeVNextBridgeEndpoint(source *strings.Builder, imports *imports, endpoin
 		}
 	}
 	source.WriteString("}\n\n")
+	if endpoint.Receiver == nil {
+		fmt.Fprintf(source, "func SceneryVNextBridge%sWithService(ctx context.Context, _ any, input []byte) ([]byte, error) { return SceneryVNextBridge%s(ctx, input) }\n\n", endpoint.Name, endpoint.Name)
+	}
 }
 
 type vnextBridgeFieldMapping struct {

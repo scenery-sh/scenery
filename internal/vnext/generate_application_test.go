@@ -1,10 +1,298 @@
 package vnext
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMixedNativeAndLegacyOperationHandlersCompile(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "native"), root)
+	rewriteFixtureSceneryReplace(t, root)
+
+	rootPath := filepath.Join(root, "scenery.scn")
+	rootSource, err := os.ReadFile(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSource = []byte(strings.Replace(string(rootSource), `"scenery.runtime-http/v1",`, `"scenery.runtime-http/v1",
+    "scenery.legacy-bridge/v1",`, 1))
+	if err := os.WriteFile(rootPath, rootSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte(`migration {
+  frontend      = "scenery.legacy.v0"
+  legacy_config = ".scenery.json"
+
+  legacy_gateway "default" {
+    target = http_gateway.public_api
+  }
+
+  native_service "house" {
+    module = module.house
+  }
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	packagePath := filepath.Join(root, "house", "scenery.package.scn")
+	packageSource, err := os.ReadFile(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageSource = []byte(strings.Replace(string(packageSource), `constructor = "NewService"`, `constructor = "NewService"
+    root        = "./house"`, 1))
+	packageSource = append(packageSource, []byte(`
+
+record "legacy_status_input" {
+  field "message" { type = string }
+}
+
+record "legacy_status_result" {
+  field "message" { type = string }
+}
+
+operation "legacy_status" {
+  service = service.house
+  input   = record.legacy_status_input
+
+  handler {
+    method  = "LegacyStatus"
+    adapter = "legacy_go_v0"
+  }
+
+  result "ok" { type = record.legacy_status_result }
+  error "legacy_error" { type = std.type.problem }
+}
+
+execution "legacy_status_direct" {
+  operation = operation.legacy_status
+  mode      = "direct"
+  timeout   = "30s"
+}
+
+binding "legacy_status_http" {
+  gateway   = var.gateway
+  operation = operation.legacy_status
+  execution = execution.legacy_status_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/house/legacy-status"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.legacy_status.input
+    }
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+
+    response "legacy_error" {
+      when   = error.legacy_error
+      status = 500
+      body {
+        codec = "problem_json"
+        from  = error.legacy_error
+      }
+    }
+  }
+}
+`)...)
+	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	servicePath := filepath.Join(root, "house", "service.go")
+	serviceSource, err := os.ReadFile(servicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceSource = append(serviceSource, []byte(`
+
+type LegacyStatusParams struct {
+	Message string `+"`json:\"message\"`"+`
+}
+
+type LegacyStatusResponse struct {
+	Message string `+"`json:\"message\"`"+`
+}
+
+//scenery:api public path=/house/legacy-status method=POST
+func (service *Service) LegacyStatus(_ context.Context, input *LegacyStatusParams) (*LegacyStatusResponse, error) {
+	return &LegacyStatusResponse{Message: "legacy:" + input.Message}, nil
+}
+`)...)
+	if err := os.WriteFile(servicePath, serviceSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile mixed handlers: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	status := BuildMigrationStatus(result)
+	service, err := status.Service("house")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.LifecycleAdapter != "native_go_v1" || service.RemainingOperationBridgeCount != 1 || service.AdapterRetirementReady {
+		t.Fatalf("mixed handler status = %#v", service)
+	}
+
+	files, err := generateApplicationArtifacts(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := generatedSourceWithSuffix(files, "/house_house_adapter/adapter.gen.go")
+	for _, fragment := range []string{
+		"native.ProcessScene(ctx, input)",
+		"SceneryVNextBridgeLegacyStatusWithService(ctx, native, raw)",
+	} {
+		if !strings.Contains(adapter, fragment) {
+			t.Fatalf("mixed adapter missing %q:\n%s", fragment, adapter)
+		}
+	}
+
+	if _, err := GenerateGoContracts(root, false); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("mixed generated application compile: %v\n%s", err, output)
+	}
+}
+
+func TestMixedHandlersCompileWithBridgeLifecycle(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "bridge"), root)
+	rewriteFixtureSceneryReplace(t, root)
+
+	packagePath := filepath.Join(root, "bridge", "scenery.package.scn")
+	packageSource, err := os.ReadFile(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageSource = append(packageSource, []byte(`
+
+record "native_status_input" {
+  field "message" { type = string }
+}
+
+record "native_status_result" {
+  field "message" { type = string }
+}
+
+operation "native_status" {
+  service = service.bridge
+  input   = record.native_status_input
+
+  handler { method = "NativeStatus" }
+  result "ok" { type = record.native_status_result }
+}
+
+execution "native_status_direct" {
+  operation = operation.native_status
+  mode      = "direct"
+  timeout   = "30s"
+}
+
+binding "native_status_internal" {
+  operation = operation.native_status
+  execution = execution.native_status_direct
+  protocol  = "internal"
+  delivery  = "call"
+
+  exposure       = "application"
+  authentication = std.authentication.inherit
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  internal {
+    visibility = "application"
+    principal  = "inherit"
+  }
+}
+`)...)
+	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	servicePath := filepath.Join(root, "bridge", "service.go")
+	serviceSource, err := os.ReadFile(servicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceSource = []byte(strings.Replace(string(serviceSource), `import "context"`, `import (
+	"context"
+
+	contract "example.test/bridgeapp/bridge/scenerycontract"
+)`, 1))
+	serviceSource = append(serviceSource, []byte(`
+
+func (service *Service) NativeStatus(_ context.Context, input contract.NativeStatusInput) (contract.NativeStatusOutcome, error) {
+	return contract.NativeStatusOk{Value: contract.NativeStatusResult{Message: "native:" + input.Message}}, nil
+}
+`)...)
+	if err := os.WriteFile(servicePath, serviceSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile bridge lifecycle mixed handlers: %v diagnostics=%#v", err, result.Diagnostics)
+	}
+	status := BuildMigrationStatus(result)
+	service, err := status.Service("bridge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.LifecycleAdapter != "legacy_go_v0" || service.RemainingOperationBridgeCount != 1 || service.AdapterRetirementReady {
+		t.Fatalf("bridge lifecycle status = %#v", service)
+	}
+
+	files, err := generateApplicationArtifacts(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := generatedSourceWithSuffix(files, "/bridge_bridge_adapter/adapter.gen.go")
+	for _, fragment := range []string{
+		"implementation.SceneryVNextBridgeService()",
+		"native.NativeStatus(ctx, input)",
+		"implementation.SceneryVNextBridgeEcho(ctx, raw)",
+	} {
+		if !strings.Contains(adapter, fragment) {
+			t.Fatalf("bridge lifecycle adapter missing %q:\n%s", fragment, adapter)
+		}
+	}
+
+	if _, err := GenerateGoContracts(root, false); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("bridge lifecycle generated application compile: %v\n%s", err, output)
+	}
+}
 
 func TestGeneratedHTTPAdapterBindsSchemaDirectedExactScalarCodecs(t *testing.T) {
 	operation := Resource{Address: "house/operation/put_count", Module: "house", Kind: "scenery.operation/v1", Name: "put_count", Spec: map[string]any{"input": map[string]any{"$ref": "int64"}}}

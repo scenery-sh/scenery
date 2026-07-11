@@ -147,7 +147,7 @@ func loadLockfile(root string) (*Lockfile, []Diagnostic, error) {
 	}
 	sourceID := sourceID("scenery.lock.scn")
 	file, hclDiagnostics := hclsyntax.ParseConfig(data, "scenery.lock.scn", hcl.Pos{Line: 1, Column: 1})
-	diagnostics := diagnosticsFromHCL(sourceID, hclDiagnostics)
+	diagnostics := diagnosticsFromHCL(sourceID, data, hclDiagnostics)
 	if file == nil || hclDiagnostics.HasErrors() {
 		return nil, diagnostics, nil
 	}

@@ -12,7 +12,6 @@ import (
 	scenery "scenery.sh"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -363,75 +362,6 @@ func validateLocalModuleUpgrade(resource Resource, value any) error {
 		return fmt.Errorf("failed_precondition: local package version %s does not satisfy upgrade constraint %s", version, constraint)
 	}
 	return nil
-}
-
-func createResourceBlock(root string, base *Result, operation SemanticOperation) error {
-	parts := strings.Split(operation.Address, "/")
-	if len(parts) != 3 || !validSemanticName(parts[2]) {
-		return fmt.Errorf("resource.create requires a canonical address")
-	}
-	for _, resource := range base.Manifest.Resources {
-		if resource.Address == operation.Address {
-			return fmt.Errorf("failed_precondition: resource already exists")
-		}
-	}
-	spec, ok := operation.Value.(map[string]any)
-	if !ok {
-		return fmt.Errorf("resource.create value must be a spec object")
-	}
-	relative := "scenery.scn"
-	if parts[0] != "app" {
-		for _, resource := range base.Manifest.Resources {
-			if resource.Kind == "scenery.module/v1" && resource.Name == parts[0] {
-				source, _ := resource.Spec["source"].(string)
-				relative = filepath.ToSlash(filepath.Join(source, "scenery.package.scn"))
-				break
-			}
-		}
-	}
-	path := filepath.Join(root, filepath.FromSlash(relative))
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	file, diagnostics := hclwrite.ParseConfig(b, relative, hcl.InitialPos)
-	if diagnostics.HasErrors() {
-		return fmt.Errorf("parse writable source: %s", diagnostics.Error())
-	}
-	block := hclwrite.NewBlock(strings.ReplaceAll(parts[1], "-", "_"), []string{parts[2]})
-	keys := make([]string, 0, len(spec))
-	for key := range spec {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		tokens, err := changeTokens(spec[key])
-		if err != nil {
-			return fmt.Errorf("%s: %w", key, err)
-		}
-		block.Body().SetAttributeRaw(key, tokens)
-	}
-	file.Body().AppendNewline()
-	file.Body().AppendBlock(block)
-	file.Body().AppendNewline()
-	return atomicWrite(path, hclwrite.Format(file.Bytes()))
-}
-
-func changeTokens(value any) (hclwrite.Tokens, error) {
-	if object, ok := value.(map[string]any); ok {
-		if reference, ok := object["$ref"].(string); ok {
-			traversal, diagnostics := hclsyntax.ParseTraversalAbs([]byte(reference), "change", hcl.InitialPos)
-			if diagnostics.HasErrors() {
-				return nil, fmt.Errorf("invalid reference %q", reference)
-			}
-			return hclwrite.TokensForTraversal(traversal), nil
-		}
-	}
-	converted, err := changeValue(value)
-	if err != nil {
-		return nil, err
-	}
-	return hclwrite.TokensForValue(converted), nil
 }
 
 func renameResource(root string, base *Result, resource Resource, newName string) error {

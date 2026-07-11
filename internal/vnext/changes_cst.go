@@ -53,7 +53,7 @@ func mutateResourceValue(root string, base *Result, resource Resource, operation
 			return fmt.Errorf("semantic path %s does not exist", operation.Path)
 		}
 		if blockValue, ok := operation.Value.(map[string]any); ok && semanticSingularBlockField(resource.Kind, target.object[0]) {
-			blockBytes, err := semanticBlockBytes(target.object[0], blockValue)
+			blockBytes, err := semanticBlockBytes(target.object[0], blockValue, resource.Module)
 			if err != nil {
 				return err
 			}
@@ -63,7 +63,7 @@ func mutateResourceValue(root string, base *Result, resource Resource, operation
 			}
 			break
 		}
-		tokens, err := changeTokens(operation.Value)
+		tokens, err := changeTokensForModule(operation.Value, resource.Module)
 		if err != nil {
 			return err
 		}
@@ -75,7 +75,7 @@ func mutateResourceValue(root string, base *Result, resource Resource, operation
 		if operation.Op == "value.unset" {
 			data = removeSourceRangeLine(data, target.attribute.Range())
 		} else {
-			tokens, err := changeTokens(operation.Value)
+			tokens, err := changeTokensForModule(operation.Value, resource.Module)
 			if err != nil {
 				return err
 			}
@@ -83,7 +83,7 @@ func mutateResourceValue(root string, base *Result, resource Resource, operation
 			data = replaceSourceRange(data, rng, tokens.Bytes())
 		}
 	default:
-		data, err = mutateObjectExpression(data, target.attribute.Expr, target.object, operation)
+		data, err = mutateObjectExpression(data, target.attribute.Expr, target.object, operation, resource.Module)
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func semanticSingularBlockField(kind, name string) bool {
 	return fields[kind][name]
 }
 
-func semanticBlockBytes(name string, value map[string]any) ([]byte, error) {
+func semanticBlockBytes(name string, value map[string]any, module string) ([]byte, error) {
 	block := hclwrite.NewBlock(name, nil)
 	keys := make([]string, 0, len(value))
 	for key := range value {
@@ -122,7 +122,7 @@ func semanticBlockBytes(name string, value map[string]any) ([]byte, error) {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		tokens, err := changeTokens(value[key])
+		tokens, err := changeTokensForModule(value[key], module)
 		if err != nil {
 			return nil, err
 		}
@@ -176,7 +176,7 @@ func locateSemanticSourceTarget(body *hclsyntax.Body, parts []string, insert hcl
 	return locateSemanticSourceTarget(selected.Body, parts[consumed:], selected.CloseBraceRange.Start)
 }
 
-func mutateObjectExpression(data []byte, expression hclsyntax.Expression, parts []string, operation SemanticOperation) ([]byte, error) {
+func mutateObjectExpression(data []byte, expression hclsyntax.Expression, parts []string, operation SemanticOperation, module string) ([]byte, error) {
 	object := unwrapObjectExpression(expression)
 	if object == nil {
 		return nil, fmt.Errorf("semantic path traverses a non-object expression")
@@ -187,14 +187,14 @@ func mutateObjectExpression(data []byte, expression hclsyntax.Expression, parts 
 			continue
 		}
 		if len(parts) > 1 {
-			return mutateObjectExpression(data, item.ValueExpr, parts[1:], operation)
+			return mutateObjectExpression(data, item.ValueExpr, parts[1:], operation, module)
 		}
 		if operation.Op == "value.unset" {
 			start := item.KeyExpr.Range().Start.Byte
 			end := item.ValueExpr.Range().End.Byte
 			return removeSourceOffsetsLine(data, start, end), nil
 		}
-		tokens, err := changeTokens(operation.Value)
+		tokens, err := changeTokensForModule(operation.Value, module)
 		if err != nil {
 			return nil, err
 		}
@@ -203,7 +203,7 @@ func mutateObjectExpression(data []byte, expression hclsyntax.Expression, parts 
 	if len(parts) != 1 || operation.Op != "value.set" {
 		return nil, fmt.Errorf("semantic object path does not exist")
 	}
-	tokens, err := changeTokens(operation.Value)
+	tokens, err := changeTokensForModule(operation.Value, module)
 	if err != nil {
 		return nil, err
 	}
