@@ -3,7 +3,7 @@
   "operations": {
     "house/operation/process_scene": {
       "family": "native",
-      "revision": "sha256:30fc81c4f97438fb0789d214aa78aabbc1a5e880b5ec1165c3868c5a7ae9c690"
+      "revision": "sha256:642815b18e6950b13f255bdf46b38b1d3797c06fcbc98664d72a58ec737e32cf"
     }
   }
 }

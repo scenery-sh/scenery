@@ -266,7 +266,7 @@ http_gateway "public_api" {
 `, goMod.Module.Mod.Path, toolchain, strings.Join(quotedPackages, ", "), config.Name)
 
 	var migration strings.Builder
-	fmt.Fprintf(&migration, "migration {\n  frontend      = \"scenery.legacy.v0\"\n  legacy_config = %q\n", config.SourceRelPath(root))
+	fmt.Fprintf(&migration, "migration {\n  frontend      = \"scenery.legacy.v0\"\n  legacy_config = %q\n\n  legacy_gateway \"default\" {\n    target = http_gateway.public_api\n  }\n", config.SourceRelPath(root))
 	for _, service := range services {
 		fmt.Fprintf(&migration, "\n  legacy_service %q {\n    package   = %q\n    namespace = %q\n    target    = go_target.legacy\n  }\n", service, "./"+servicePackages[service], service)
 	}

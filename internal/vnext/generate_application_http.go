@@ -455,7 +455,11 @@ func durationNanos(value any) int64 {
 	if err != nil {
 		return 0
 	}
-	return int64(parsed)
+	nanoseconds := parsed.Nanoseconds()
+	if !nanoseconds.IsInt64() {
+		return 0
+	}
+	return nanoseconds.Int64()
 }
 
 func renderContractBodyFields(operation Resource, shape operationInputShape, body map[string]any) ([]string, error) {

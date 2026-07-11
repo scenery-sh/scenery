@@ -286,11 +286,12 @@ func validateMigrationAuthoredSchema(source *Source) []Diagnostic {
 	if source == nil || len(source.Blocks) != 1 || source.Blocks[0].Type != "migration" {
 		return nil
 	}
+	gateway := sourceSchema("scenery.migration.legacy-gateway/v1", 1, []string{"target"}, []string{"target"}, nil)
 	legacy := sourceSchema("scenery.migration.legacy-service/v1", 1, []string{"package", "namespace", "target"}, []string{"package"}, nil)
 	shadow := sourceSchema("scenery.migration.shadow-service/v1", 1, []string{"package", "namespace", "module", "target", "legacy_target", "active"}, []string{"package", "module", "active"}, nil)
 	native := sourceSchema("scenery.migration.native-service/v1", 1, []string{"module"}, []string{"module"}, nil)
-	migration := sourceSchema("scenery.migration/v1", 0, []string{"frontend", "legacy_config"}, []string{"frontend", "legacy_config"}, map[string]authoredChildSchema{
-		"legacy_service": repeated(legacy), "shadow_service": repeated(shadow), "native_service": repeated(native),
+	migration := sourceSchema("scenery.migration/v1", 0, []string{"frontend", "legacy_config"}, []string{"frontend"}, map[string]authoredChildSchema{
+		"legacy_gateway": repeated(gateway), "legacy_service": repeated(legacy), "shadow_service": repeated(shadow), "native_service": repeated(native),
 	})
 	return validateAuthoredBlock(source.Blocks[0], migration)
 }

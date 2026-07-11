@@ -124,6 +124,7 @@ func validateExecutionBindings(resources []Resource) []Diagnostic {
 func validateDurableExecutions(resources []Resource) []Diagnostic {
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var diagnostics []Diagnostic
+	externalNames := map[string]Resource{}
 	for _, execution := range resources {
 		if execution.Kind != "scenery.execution/v1" || execution.Origin.Kind == "legacy_v0" || stringValue(execution.Spec["mode"]) != "durable" {
 			continue
@@ -133,10 +134,18 @@ func validateDurableExecutions(resources []Resource) []Diagnostic {
 		if !engineOK || engine.Kind != "scenery.execution-engine/v1" {
 			diagnostics = append(diagnostics, profileDiagnostic("SCN2206", "durable execution engine must reference an execution_engine", execution))
 		}
+		if externalName := strings.TrimSpace(stringValue(execution.Spec["external_name"])); externalName != "" {
+			key := engineAddress + "\x00" + externalName
+			if previous, exists := externalNames[key]; exists {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2210", Severity: "error", Message: "durable external_name must be unique within its execution engine", Address: execution.Address, Related: []Related{{Address: previous.Address}}})
+			} else {
+				externalNames[key] = execution
+			}
+		}
 		timeout, timeoutErr := scenery.ParseDuration(stringValue(execution.Spec["timeout"]))
 		lease, leaseErr := scenery.ParseDuration(stringValue(execution.Spec["lease"]))
 		attempts, attemptsOK := integerValue(execution.Spec["attempts"])
-		if timeoutErr != nil || leaseErr != nil || timeout <= 0 || lease <= 0 || lease > timeout || !attemptsOK || attempts <= 0 {
+		if timeoutErr != nil || leaseErr != nil || timeout.Sign() <= 0 || lease.Sign() <= 0 || lease.Cmp(timeout) > 0 || !timeout.Nanoseconds().IsInt64() || !lease.Nanoseconds().IsInt64() || !attemptsOK || attempts <= 0 {
 			diagnostics = append(diagnostics, profileDiagnostic("SCN2207", "durable execution requires positive timeout, lease not exceeding timeout, and positive attempts", execution))
 		}
 		retry, _ := execution.Spec["retry"].(map[string]any)
@@ -144,7 +153,7 @@ func validateDurableExecutions(resources []Resource) []Diagnostic {
 		validRetry := validDurableRetry(retry)
 		success, successErr := scenery.ParseDuration(stringValue(retention["success"]))
 		failure, failureErr := scenery.ParseDuration(stringValue(retention["failure"]))
-		if !validRetry || successErr != nil || failureErr != nil || success <= 0 || failure <= 0 {
+		if !validRetry || successErr != nil || failureErr != nil || success.Sign() <= 0 || failure.Sign() <= 0 || !success.Nanoseconds().IsInt64() || !failure.Nanoseconds().IsInt64() {
 			diagnostics = append(diagnostics, profileDiagnostic("SCN2208", "durable execution retry and retention policies are invalid", execution))
 		}
 		operationAddress := resolveResourceRef(execution, refString(execution.Spec["operation"]), "operation")
@@ -153,7 +162,7 @@ func validateDurableExecutions(resources []Resource) []Diagnostic {
 		if stringValue(idempotency["mode"]) == "keyed" {
 			deduplication, _ := execution.Spec["deduplication"].(map[string]any)
 			retentionValue, retentionErr := scenery.ParseDuration(stringValue(deduplication["retention"]))
-			if retentionErr != nil || retentionValue <= 0 || stringValue(deduplication["conflict"]) != "return_existing" {
+			if retentionErr != nil || retentionValue.Sign() <= 0 || !retentionValue.Nanoseconds().IsInt64() || stringValue(deduplication["conflict"]) != "return_existing" {
 				diagnostics = append(diagnostics, profileDiagnostic("SCN2205", "keyed-idempotent durable execution requires positive return_existing deduplication", execution))
 			}
 		}
@@ -177,7 +186,7 @@ func validDurableRetry(retry map[string]any) bool {
 		initial, initialErr := scenery.ParseDuration(stringValue(retry["initial"]))
 		maximum, maximumErr := scenery.ParseDuration(stringValue(retry["maximum"]))
 		factor, jitter := numericValue(retry["factor"]), numericValue(retry["jitter"])
-		return initialErr == nil && maximumErr == nil && initial > 0 && maximum >= initial && factor > 1 && jitter >= 0 && jitter <= 1
+		return initialErr == nil && maximumErr == nil && initial.Sign() > 0 && maximum.Cmp(initial) >= 0 && initial.Nanoseconds().IsInt64() && maximum.Nanoseconds().IsInt64() && factor > 1 && jitter >= 0 && jitter <= 1
 	default:
 		return false
 	}

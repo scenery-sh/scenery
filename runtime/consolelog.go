@@ -306,7 +306,7 @@ func logRequestFailure(state *requestState, err error) {
 		return
 	}
 	args := []any{
-		"error", err.Error(),
+		"error", contractDiagnosticError(err).Error(),
 		"code", errs.Code(err),
 		"endpoint", state.request.Endpoint,
 		"service", state.request.Service,

@@ -142,7 +142,9 @@ func validateStaticExpressions(sources []*Source) []Diagnostic {
 
 func runtimeExpressionField(parent, blockType, attribute string) bool {
 	return parent == "authorization" && blockType == "rule" && attribute == "allow" ||
-		parent == "record" && blockType == "validation" && attribute == "when"
+		parent == "record" && blockType == "validation" && attribute == "when" ||
+		parent == "operation" && blockType == "idempotency" && attribute == "key" ||
+		parent == "execution" && blockType == "concurrency" && attribute == "key"
 }
 
 func compileSources(root string, sources []*Source, migration *Migration, lockfile *Lockfile) (*Manifest, map[string]*Manifest, []Diagnostic, []*Source) {
@@ -268,8 +270,9 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 		}
 	}
 
-	legacyResources, legacyDiagnostics := lowerLegacyResources(root, migration, resources)
+	legacyResources, legacyDiagnostics := lowerLegacyResources(root, appName, migration, resources)
 	diagnostics = append(diagnostics, legacyDiagnostics...)
+	diagnostics = append(diagnostics, validateNativeMigrationLegacyAbsence(root, appName, migration, resources)...)
 	addLegacySourceRecords(sourceMap, legacyResources)
 	resources, legacyDiagnostics = contextualizeResourceScalars(resources)
 	diagnostics = append(diagnostics, legacyDiagnostics...)
@@ -554,7 +557,11 @@ func moduleInstantiationChain(instance string) []string {
 func blockSpec(block *Block) map[string]any {
 	spec := make(map[string]any, len(block.Attributes)+len(block.Blocks))
 	for name, expression := range block.Attributes {
-		spec[name] = expressionValue(expression)
+		if runtimeKeyExpressionField(block.Type, name) {
+			spec[name] = runtimeKeyExpressionValue(expression)
+		} else {
+			spec[name] = expressionValue(expression)
+		}
 	}
 	for _, child := range block.Blocks {
 		value := blockSpec(child)
@@ -573,6 +580,32 @@ func blockSpec(block *Block) map[string]any {
 		}
 	}
 	return spec
+}
+
+func runtimeKeyExpressionField(blockType, attribute string) bool {
+	return (blockType == "idempotency" || blockType == "concurrency") && attribute == "key"
+}
+
+func runtimeKeyExpressionValue(expression Expression) any {
+	if expression.Kind == "reference" {
+		return map[string]any{"$expression": expression.Traversal}
+	}
+	if expression.Kind != "literal" {
+		return map[string]any{"$expression": strings.TrimSpace(expression.Raw)}
+	}
+	values, ok := expression.Value.([]any)
+	if !ok {
+		return expression.Value
+	}
+	converted := make([]any, len(values))
+	for index, value := range values {
+		if reference := refString(value); reference != "" {
+			converted[index] = map[string]any{"$expression": reference}
+		} else {
+			converted[index] = value
+		}
+	}
+	return converted
 }
 
 func expressionValue(expression Expression) any {

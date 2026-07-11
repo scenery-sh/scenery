@@ -3,7 +3,6 @@ package vnext
 import (
 	"encoding/base64"
 	"fmt"
-	"strconv"
 	"strings"
 
 	scenery "scenery.sh"
@@ -268,13 +267,13 @@ func contextualizeValue(value any, typeExpression, module string, resources map[
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"$scalar": "duration", "nanoseconds": strconv.FormatInt(int64(parsed), 10)}, nil
+		return map[string]any{"$scalar": "duration", "nanoseconds": parsed.Nanoseconds().String()}, nil
 	case "size":
 		parsed, err := scenery.ParseSize(text)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"$scalar": "size", "bytes": strconv.FormatUint(uint64(parsed), 10)}, nil
+		return map[string]any{"$scalar": "size", "bytes": parsed.Bytes().String()}, nil
 	case "url":
 		parsed, err := scenery.ParseURL(text)
 		if err != nil {

@@ -1,20 +1,29 @@
 package vnext
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	appcfg "scenery.sh/internal/app"
 )
 
 type Migration struct {
 	Frontend         string                `json:"frontend"`
 	LegacyConfig     string                `json:"legacy_config,omitempty"`
+	LegacyGateways   []MigrationGateway    `json:"legacy_gateways,omitempty"`
 	Services         []MigrationService    `json:"services"`
 	Source           *Source               `json:"-"`
 	LegacyCandidates map[string][]Resource `json:"-"`
 	NativeCandidates map[string][]Resource `json:"-"`
+}
+
+type MigrationGateway struct {
+	Name   string `json:"name"`
+	Target string `json:"target"`
 }
 
 type MigrationService struct {
@@ -65,6 +74,18 @@ func parseMigration(root string) (*Migration, []Diagnostic) {
 		diagnostics = append(diagnostics, diagnosticForBlock("SCN5004", "migration frontend must be \"scenery.legacy.v0\"", block))
 	}
 	for _, child := range block.Blocks {
+		if child.Type == "legacy_gateway" {
+			if len(child.Labels) != 1 {
+				diagnostics = append(diagnostics, diagnosticForBlock("SCN5006", "legacy_gateway requires one label", child))
+				continue
+			}
+			gateway := MigrationGateway{Name: child.Labels[0]}
+			if expression, ok := child.Attributes["target"]; ok {
+				gateway.Target = expression.Traversal
+			}
+			migration.LegacyGateways = append(migration.LegacyGateways, gateway)
+			continue
+		}
 		if child.Type != "legacy_service" && child.Type != "shadow_service" && child.Type != "native_service" {
 			diagnostics = append(diagnostics, diagnosticForBlock("SCN5005", "unknown migration block "+child.Type, child))
 			continue
@@ -88,6 +109,9 @@ func parseMigration(root string) (*Migration, []Diagnostic) {
 		}
 		service.Package, _ = literalString(child, "package")
 		service.Namespace, _ = literalString(child, "namespace")
+		if service.Namespace == "" {
+			service.Namespace = service.Name
+		}
 		if expression, ok := child.Attributes["module"]; ok {
 			service.Module = expression.Traversal
 		}
@@ -100,6 +124,7 @@ func parseMigration(root string) (*Migration, []Diagnostic) {
 		migration.Services = append(migration.Services, service)
 	}
 	sort.Slice(migration.Services, func(i, j int) bool { return migration.Services[i].Name < migration.Services[j].Name })
+	sort.Slice(migration.LegacyGateways, func(i, j int) bool { return migration.LegacyGateways[i].Name < migration.LegacyGateways[j].Name })
 	return migration, diagnostics
 }
 
@@ -108,7 +133,46 @@ func (m *Migration) validate(root string, resources []Resource) []Diagnostic {
 		return nil
 	}
 	var diagnostics []Diagnostic
+	if m.LegacyConfig == "" {
+		discoveredRoot, _, err := appcfg.DiscoverRoot(root)
+		if err == nil && samePath(discoveredRoot, root) || err != nil && !errors.Is(err, appcfg.ErrRootNotFound) {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5106", Severity: "error", Message: "legacy_config may be omitted only after the workspace app config has been removed"})
+		}
+	} else {
+		cleanConfig := filepath.ToSlash(filepath.Clean(filepath.FromSlash(m.LegacyConfig)))
+		configPath := filepath.Join(root, filepath.FromSlash(cleanConfig))
+		configInfo, configErr := os.Lstat(configPath)
+		if m.LegacyConfig != cleanConfig || filepath.IsAbs(m.LegacyConfig) || strings.Contains(m.LegacyConfig, "\\") || cleanConfig == "." || cleanConfig == ".." || strings.HasPrefix(cleanConfig, "../") || !pathWithin(root, configPath) || configErr != nil || configInfo.Mode()&os.ModeSymlink != 0 || !configInfo.Mode().IsRegular() {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5106", Severity: "error", Message: "legacy_config must identify the normalized regular non-symlink app config selected for this workspace"})
+		} else if discoveredRoot, config, err := appcfg.DiscoverRoot(root); err != nil || !samePath(discoveredRoot, root) || filepath.ToSlash(config.SourceRelPath(root)) != cleanConfig {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5106", Severity: "error", Message: "legacy_config must identify the app config selected for this workspace"})
+		}
+	}
+	resourcesByAddress := resourcesByAddress(&Manifest{Resources: resources})
+	seenGateways := map[string]bool{}
+	defaultGateway := false
+	for _, gateway := range m.LegacyGateways {
+		if seenGateways[gateway.Name] {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5107", Severity: "error", Message: "duplicate legacy gateway " + gateway.Name})
+			continue
+		}
+		seenGateways[gateway.Name] = true
+		defaultGateway = defaultGateway || gateway.Name == "default"
+		address := migrationGatewayAddress(gateway.Target)
+		resource, ok := resourcesByAddress[address]
+		if gateway.Target == "" || address == gateway.Target || !ok || resource.Kind != "scenery.http-gateway/v1" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5107", Severity: "error", Message: "legacy gateway " + gateway.Name + " must target a declared root http_gateway"})
+		}
+	}
+	legacyServices := false
+	for _, service := range m.Services {
+		legacyServices = legacyServices || service.State != "native"
+	}
+	if legacyServices && !defaultGateway {
+		diagnostics = append(diagnostics, Diagnostic{Code: "SCN5107", Severity: "error", Message: "mixed mode requires a legacy_gateway \"default\" target"})
+	}
 	seen := map[string]bool{}
+	seenNamespaces := map[string]bool{}
 	modules := map[string]bool{}
 	for _, resource := range resources {
 		if resource.Kind == "scenery.module/v1" {
@@ -121,6 +185,11 @@ func (m *Migration) validate(root string, resources []Resource) []Diagnostic {
 			continue
 		}
 		seen[service.Name] = true
+		namespace := migrationServiceNamespace(service)
+		if !validSemanticName(namespace) || seenNamespaces[namespace] {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5108", Severity: "error", Message: "migration namespace must be a unique semantic name: " + namespace})
+		}
+		seenNamespaces[namespace] = true
 		if service.State != "legacy" && !modules[service.Name] && strings.TrimPrefix(service.Module, "module.") != service.Name {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5102", Severity: "error", Message: "native migration service " + service.Name + " has no installed module"})
 		}
@@ -131,9 +200,10 @@ func (m *Migration) validate(root string, resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5104", Severity: "error", Message: "legacy migration service " + service.Name + " requires an explicit Go target"})
 		}
 		if service.State != "native" {
-			clean := filepath.Clean(service.Package)
+			clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(service.Package)))
+			canonical := "./" + strings.TrimPrefix(clean, "./")
 			path := filepath.Join(root, filepath.FromSlash(clean))
-			if filepath.IsAbs(service.Package) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || !pathWithin(root, path) {
+			if service.Package != canonical || strings.Contains(service.Package, "\\") || filepath.IsAbs(service.Package) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || !pathWithin(root, path) {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN5105", Severity: "error", Message: "legacy migration package must be workspace-relative and confined: " + service.Name})
 			} else if info, err := os.Stat(path); err != nil || !info.IsDir() {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN5105", Severity: "error", Message: "legacy migration package is unavailable: " + service.Name})
@@ -145,6 +215,32 @@ func (m *Migration) validate(root string, resources []Resource) []Diagnostic {
 	return diagnostics
 }
 
+func migrationGatewayAddress(reference string) string {
+	parts := strings.Split(reference, ".")
+	if len(parts) != 2 || parts[0] != "http_gateway" || parts[1] == "" {
+		return reference
+	}
+	return resourceAddress("app", parts[0], parts[1])
+}
+
+func samePath(left, right string) bool {
+	leftAbsolute, leftErr := filepath.Abs(left)
+	rightAbsolute, rightErr := filepath.Abs(right)
+	return leftErr == nil && rightErr == nil && filepath.Clean(leftAbsolute) == filepath.Clean(rightAbsolute)
+}
+
+func (m *Migration) defaultLegacyGatewayAddress() string {
+	if m == nil {
+		return ""
+	}
+	for _, gateway := range m.LegacyGateways {
+		if gateway.Name == "default" {
+			return migrationGatewayAddress(gateway.Target)
+		}
+	}
+	return ""
+}
+
 func linkMigrationResources(native, legacy []Resource, migration *Migration) ([]Resource, []Diagnostic) {
 	if migration == nil {
 		return native, nil
@@ -152,12 +248,14 @@ func linkMigrationResources(native, legacy []Resource, migration *Migration) ([]
 	migration.NativeCandidates = map[string][]Resource{}
 	migration.LegacyCandidates = map[string][]Resource{}
 	moduleToService := map[string]string{}
+	namespaceToService := map[string]string{}
 	for _, service := range migration.Services {
 		module := strings.TrimPrefix(service.Module, "module.")
 		if module == "" {
 			module = service.Name
 		}
 		moduleToService[module] = service.Name
+		namespaceToService[migrationServiceNamespace(service)] = service.Name
 	}
 	active := make([]Resource, 0, len(native)+len(legacy))
 	sharedPackageTypes := migrationSharedPackageTypes(native)
@@ -179,7 +277,12 @@ func linkMigrationResources(native, legacy []Resource, migration *Migration) ([]
 			active = append(active, resource)
 			continue
 		}
-		migration.LegacyCandidates[resource.Module] = append(migration.LegacyCandidates[resource.Module], resource)
+		serviceName := namespaceToService[resource.Module]
+		if serviceName == "" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5301", Severity: "error", Message: "legacy namespace " + resource.Module + " is absent from the migration ownership inventory", Address: resource.Address})
+			continue
+		}
+		migration.LegacyCandidates[serviceName] = append(migration.LegacyCandidates[serviceName], resource)
 	}
 	for index := range migration.Services {
 		service := &migration.Services[index]
@@ -325,6 +428,7 @@ func applyMigration(resources []Resource, migration *Migration) {
 	states := map[string]MigrationService{}
 	for _, service := range migration.Services {
 		states[service.Name] = service
+		states[migrationServiceNamespace(service)] = service
 	}
 	for i := range resources {
 		resource := &resources[i]
@@ -563,11 +667,34 @@ func migrationCandidateContractComplete(resources []Resource) bool {
 		if resource.Compatibility != nil && resource.Compatibility.Contract != "verified" {
 			return false
 		}
-		if semanticValueContains(resource.Spec, "legacy.type.advisory") || semanticValueContains(resource.Spec, "opaque") || semanticValueContains(resource.Spec, "advisory") || semanticValueContains(resource.Spec, "unsupported") {
+		if semanticValueContains(resource.Spec, "legacy.type.advisory") || semanticValueContains(resource.Spec, "opaque") || semanticValueContainsExceptAdvisoryHTTPGuarantee(resource.Spec, "advisory") || semanticValueContains(resource.Spec, "unsupported") {
 			return false
 		}
 	}
 	return true
+}
+
+func semanticValueContainsExceptAdvisoryHTTPGuarantee(value any, target string) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if key == "guarantee" && item == "advisory" {
+				continue
+			}
+			if semanticValueContainsExceptAdvisoryHTTPGuarantee(item, target) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if semanticValueContainsExceptAdvisoryHTTPGuarantee(item, target) {
+				return true
+			}
+		}
+	case string:
+		return typed == target
+	}
+	return false
 }
 
 func semanticValueContains(value any, target string) bool {

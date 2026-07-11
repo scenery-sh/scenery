@@ -1,7 +1,7 @@
 {
   "api_version": "scenery.legacy-bridge-generated.v1",
   "artifact_kind": "go_legacy_compatibility_adapter",
-  "content_digest": "sha256:962d70501ce4f45551d766a6c370e3bbbb56aae6053d7f9cfda73a23d228d77d",
+  "content_digest": "sha256:63e55f7a26399a5117ca482c79ca0bc2bddbddda68dcb6e266a7a25de5c71f22",
   "contract_revision": "sha256:6e1529535c8afe1023019d0cb2c9f83f0239047ebe776fe7b20591c4ec910f63",
   "files": [
     "scenery.bridge.gen.go"

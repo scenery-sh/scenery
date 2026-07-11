@@ -2,10 +2,10 @@ package vnext
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +66,9 @@ func formattingPaths(root string, selected []string) ([]string, error) {
 		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("format path %q escapes app root", item)
 		}
+		if err := rejectPathSymlinks(root, path); err != nil {
+			return nil, fmt.Errorf("format path %q: %w", item, err)
+		}
 		info, err := os.Stat(path)
 		if err != nil {
 			return nil, err
@@ -94,6 +97,9 @@ func formatSourcePaths(root string, paths []string, check bool) (FormatResult, e
 			continue
 		}
 		seen[path] = true
+		if err := rejectPathSymlinks(root, path); err != nil {
+			return result, fmt.Errorf("format source: %w", err)
+		}
 		info, err := os.Stat(path)
 		if err != nil {
 			return result, err
@@ -150,12 +156,24 @@ func localModuleFormattingPaths(root string, rootPaths []string) ([]string, erro
 				continue
 			}
 			directory := filepath.Clean(filepath.Join(callerDirectory, filepath.FromSlash(moduleSource)))
-			if seenDirectories[directory] || !pathWithin(root, directory) {
+			if !pathWithin(root, directory) {
+				return nil, fmt.Errorf("module source %q escapes app root", moduleSource)
+			}
+			if seenDirectories[directory] {
 				continue
 			}
-			info, err := os.Stat(directory)
-			if err != nil || !info.IsDir() {
+			info, err := os.Lstat(directory)
+			if err != nil {
 				continue
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				return nil, fmt.Errorf("module source %q contains a symlink", moduleSource)
+			}
+			if !info.IsDir() {
+				continue
+			}
+			if err := rejectPathSymlinks(root, directory); err != nil {
+				return nil, fmt.Errorf("module source %q: %w", moduleSource, err)
 			}
 			seenDirectories[directory] = true
 			paths, err := sourceFiles(directory, false)
@@ -333,8 +351,8 @@ func canonicalPrimitiveSourceLiteral(value any, expected string) ([]byte, bool) 
 	text := stringValue(scalar["value"])
 	switch expected {
 	case "duration":
-		nanoseconds, err := strconv.ParseInt(stringValue(scalar["nanoseconds"]), 10, 64)
-		if err != nil {
+		nanoseconds, ok := new(big.Int).SetString(stringValue(scalar["nanoseconds"]), 10)
+		if !ok {
 			return nil, false
 		}
 		text = formatDurationSource(nanoseconds)
@@ -347,14 +365,13 @@ func canonicalPrimitiveSourceLiteral(value any, expected string) ([]byte, bool) 
 	return hclwrite.TokensForValue(cty.StringVal(text)).Bytes(), true
 }
 
-func formatDurationSource(nanoseconds int64) string {
-	if nanoseconds == 0 {
+func formatDurationSource(nanoseconds *big.Int) string {
+	if nanoseconds == nil || nanoseconds.Sign() == 0 {
 		return "0s"
 	}
-	negative := nanoseconds < 0
-	if negative {
-		nanoseconds = -nanoseconds
-	}
+	remaining := new(big.Int).Set(nanoseconds)
+	negative := remaining.Sign() < 0
+	remaining.Abs(remaining)
 	units := []struct {
 		suffix string
 		value  int64
@@ -364,12 +381,14 @@ func formatDurationSource(nanoseconds int64) string {
 		result.WriteByte('-')
 	}
 	for _, unit := range units {
-		if nanoseconds < unit.value {
+		divisor := big.NewInt(unit.value)
+		if remaining.Cmp(divisor) < 0 {
 			continue
 		}
-		count := nanoseconds / unit.value
-		nanoseconds %= unit.value
-		result.WriteString(strconv.FormatInt(count, 10))
+		count, remainder := new(big.Int), new(big.Int)
+		count.QuoRem(remaining, divisor, remainder)
+		remaining = remainder
+		result.WriteString(count.String())
 		result.WriteString(unit.suffix)
 	}
 	return result.String()

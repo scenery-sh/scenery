@@ -184,6 +184,7 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 			resource.Spec = map[string]any{
 				"operation": map[string]any{"$ref": "operation.process_scene"}, "mode": "durable",
 				"engine": map[string]any{"$ref": "app/execution_engine/tasks"}, "revision": "3", "timeout": "40m", "lease": "20m", "attempts": "6",
+				"external_name": "house.ProcessScene/v1",
 				"retry":         map[string]any{"strategy": "exponential", "initial": "10s", "factor": "2", "maximum": "2m"},
 				"retention":     map[string]any{"success": "7d", "failure": "30d"},
 				"concurrency":   map[string]any{"key": map[string]any{"$expression": "input.scene_id"}, "limit": "2"},
@@ -212,6 +213,7 @@ func TestGenerateApplicationAdapterRegistersAndDispatchesDurableExecution(t *tes
 	for _, fragment := range []string{
 		`RegisterContractDurableExecution(sceneryruntime.ContractDurableRegistration{`,
 		`Address: "house/execution/process_scene_durable"`,
+		`ExternalName: "house.ProcessScene/v1"`,
 		`EngineAddress: "app/execution_engine/tasks"`,
 		`Revision: 3`,
 		`DefaultTimeout: 2400000000000`,

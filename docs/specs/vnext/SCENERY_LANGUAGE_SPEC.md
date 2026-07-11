@@ -2,7 +2,7 @@
 
 Agent-oriented draft for Scenery vNext
 
-Version: 0.3-draft  
+Version: 0.4-draft
 Target language edition: 2027  
 Status: design specification, not documentation of the current implementation
 
@@ -30,6 +30,8 @@ This specification intentionally does not preserve Scenery's legacy declaration 
 - Sections 21–23 define CLI, agent transactions, and diagnostics.
 - Section 24 defines the language-level Go integration contract; [SCENERY_GO_IMPLEMENTATION_V1.md](SCENERY_GO_IMPLEMENTATION_V1.md) is the normative ABI specification.
 - [SCENERY_HTTP_CODEC_V1.md](SCENERY_HTTP_CODEC_V1.md) is normative for scenery.http-codec/v1 and scenery.runtime-http/v1.
+- [SCENERY_TYPESCRIPT_CLIENT_V1.md](SCENERY_TYPESCRIPT_CLIENT_V1.md) is normative for scenery.typescript-client/v1.
+- [SCENERY_COMPATIBILITY_CORE_V1.md](SCENERY_COMPATIBILITY_CORE_V1.md) is normative for multidimensional semantic compatibility decisions.
 - [SCENERY_LEGACY_BRIDGE_V1.md](SCENERY_LEGACY_BRIDGE_V1.md) is normative for mixed legacy/native migration.
 - Section 25 defines security properties.
 - Section 26 defines conformance profiles and the initial implementation slice.
@@ -623,7 +625,13 @@ The core primitive types are:
 |---|---|
 | bool | Boolean |
 | int | Signed arbitrary-precision integer in contracts |
+| int32 | Signed 32-bit integer |
+| int64 | Signed 64-bit integer |
+| uint32 | Unsigned 32-bit integer |
+| uint64 | Unsigned 64-bit integer |
 | decimal | Exact decimal number |
+| float32 | IEEE 754 binary32 value; non-finite values require an explicit codec |
+| float64 | IEEE 754 binary64 value; non-finite values require an explicit codec |
 | string | Unicode string |
 | bytes | Arbitrary bytes with an explicit wire codec |
 | uuid | RFC-compatible UUID value |
@@ -3325,6 +3333,13 @@ A message is for humans. Agents MUST branch on code and structured fields, not e
 | SCN3000-SCN3199 | Package, module, and export errors |
 | SCN3200-SCN3399 | Provider instance, entity, and extension errors |
 | SCN4000-SCN4199 | Policy, security, and secret-flow errors |
+| SCN4200-SCN4299 | Runtime policy and middleware-profile errors |
+| SCN5000-SCN5999 | Legacy bridge, migration, and operational-evidence errors |
+| SCN6000-SCN6199 | Go implementation ABI and lowering errors |
+| SCN6200-SCN6299 | Go verification, generation, and artifact-transaction errors |
+| SCN6300-SCN6399 | TypeScript client and codec-generation errors |
+| SCN6400-SCN6499 | Compatibility comparison errors and reserved companion diagnostics |
+| SCN7000-SCN7099 | Profile availability and conformance errors |
 | SCN9000-SCN9099 | Internal compiler errors |
 
 An internal compiler error MUST include a report token but MUST NOT expose secrets.
@@ -3555,7 +3570,7 @@ Application adapters, clients, schemas, and documentation are keyed by contract_
 
 Build verification checks the applicable artifact digest, application contract_revision, package_contract_abi_revision mappings, covered resources, runtime ABI, provider ABIs, and generated package topology. Runtime-bundle verification additionally checks implementation_revision. Any mismatch fails the build or startup before accepting traffic.
 
-Artifact digests are not self-referential. The digest projection sorts normalized artifact paths and hashes their exact bytes while excluding the detached descriptor. implementation_revision and deployment_revision likewise exclude their own descriptor fields. The descriptor itself participates in workspace_revision and may be authenticated by a separate signature.
+Artifact digests are not self-referential. The digest projection sorts normalized UTF-8 artifact paths by byte order and, for each path, hashes an unsigned 64-bit big-endian path-byte length, the path bytes, an unsigned 64-bit big-endian content-byte length, and the exact content bytes. The detached descriptor is excluded. This length framing is mandatory; delimiter-only concatenation is not conformant. implementation_revision and deployment_revision likewise exclude their own descriptor fields. The descriptor itself participates in workspace_revision and may be authenticated by a separate signature.
 
 Generator identity and version are reproducibility provenance. A project policy MAY require an exact generator match; regeneration always records the generator actually used.
 

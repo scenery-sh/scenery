@@ -599,8 +599,7 @@ func DecodeHTTPScalar(kind, value string) (any, error) {
 		if !canonicalUnsignedInteger(value) {
 			return nil, fmt.Errorf("invalid canonical size")
 		}
-		parsed, err := strconv.ParseUint(value, 10, 64)
-		return scenery.Size(parsed), err
+		return scenery.ParseSize(value + "B")
 	case "url":
 		parsed, err := scenery.ParseURL(value)
 		if err != nil || parsed.String() != value {
@@ -637,7 +636,7 @@ func canonicalDigits(value string) bool {
 func decodeHTTPDuration(value string) (scenery.Duration, error) {
 	matches := httpDurationPattern.FindStringSubmatch(value)
 	if matches == nil || (matches[2] == "" && matches[3] == "" && matches[4] == "" && matches[5] == "") || strings.Contains(value, "T") && matches[3] == "" && matches[4] == "" && matches[5] == "" {
-		return 0, fmt.Errorf("invalid HTTP duration")
+		return scenery.Duration{}, fmt.Errorf("invalid HTTP duration")
 	}
 	var source strings.Builder
 	if matches[1] != "" {

@@ -276,4 +276,5 @@ describe("Scenery TypeScript client exact codecs", () => {
 		await expect(client.processScene({ sceneId: "scene-1" }, { signal: controller.signal })).rejects.toMatchObject({ code: "cancelled" });
 		expect(requested).toBe(false);
 	});
+
 });

@@ -12,6 +12,7 @@ import (
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/clientgen"
+	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 )
 
@@ -27,16 +28,28 @@ func generateTypeScriptClients(root, selector string, check, allowActiveChangeTr
 	if result.ContractStatus != "valid" || result.Manifest == nil {
 		return GenerateResult{}, fmt.Errorf("cannot generate from invalid vNext contract: %s", firstError(result.Diagnostics))
 	}
+	files, err := renderTypeScriptClientFiles(result, selector)
+	if err != nil {
+		return GenerateResult{}, err
+	}
+	return finishGeneratedFiles(result.Root, files, check, "generated vNext TypeScript clients are stale")
+}
+
+func renderTypeScriptClientFiles(result *Result, selector string) ([]generatedFile, error) {
+	for _, target := range typescriptTargets(result.Manifest.Resources, "") {
+		if _, err := managedTypeScriptOutputRoot(result, stringValue(target.Spec["output_root"])); err != nil {
+			return nil, fmt.Errorf("TypeScript client %s: %w", target.Name, err)
+		}
+	}
 	targets := typescriptTargets(result.Manifest.Resources, selector)
 	if selector != "" && len(targets) == 0 {
-		return GenerateResult{}, fmt.Errorf("TypeScript client target %q not found", selector)
+		return nil, fmt.Errorf("TypeScript client target %q not found", selector)
 	}
-	generated := GenerateResult{Changed: []string{}, Checked: []string{}}
 	var files []generatedFile
 	for _, target := range targets {
 		targetFiles, err := renderTypeScriptTarget(result, target)
 		if err != nil {
-			return generated, err
+			return nil, err
 		}
 		files = append(files, targetFiles...)
 	}
@@ -55,25 +68,14 @@ func generateTypeScriptClients(root, selector string, check, allowActiveChangeTr
 			protectedDescriptors[filepath.Clean(filepath.Join(outputRoot, "legacy-v0", "scenery.legacy-typescript-client-generated.v1.json"))] = true
 		}
 	}
+	var err error
 	files, err = includeStaleGeneratedFiles(result.Root, files, map[string]bool{
 		"scenery.typescript-client-generated.v1.json": true, "scenery.legacy-typescript-client-generated.v1.json": true,
 	}, protectedDescriptors)
 	if err != nil {
-		return generated, err
+		return nil, err
 	}
-	generated, err = inspectGeneratedFiles(result.Root, files)
-	if err != nil {
-		return generated, err
-	}
-	if !check && len(generated.Changed) > 0 {
-		if err := atomicWriteSet(result.Root, files); err != nil {
-			return generated, err
-		}
-	}
-	if check && len(generated.Changed) > 0 {
-		return generated, fmt.Errorf("generated vNext TypeScript clients are stale: %s", strings.Join(generated.Changed, ", "))
-	}
-	return generated, nil
+	return files, nil
 }
 
 func typescriptTargets(resources []Resource, selector string) []Resource {
@@ -92,7 +94,10 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 	if !ok || outputRoot == "" {
 		return nil, fmt.Errorf("TypeScript client %s requires output_root", target.Name)
 	}
-	root := filepath.Join(result.Root, filepath.FromSlash(outputRoot))
+	root, err := managedTypeScriptOutputRoot(result, outputRoot)
+	if err != nil {
+		return nil, err
+	}
 	bindings := publicHTTPBindings(result.Manifest.Resources, target)
 	legacyBindings := legacyHTTPBindings(result.Manifest.Resources, target, bindings)
 	legacyFiles, legacyRevision, legacyFixtureDigest, err := renderLegacyTypeScriptFamily(result, target, root, legacyBindings)
@@ -128,6 +133,30 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 	b, _ := json.MarshalIndent(descriptor, "", "  ")
 	files = append(files, generatedFile{Path: filepath.Join(root, "scenery.typescript-client-generated.v1.json"), Bytes: append(b, '\n')})
 	return append(files, legacyFiles...), nil
+}
+
+func managedTypeScriptOutputRoot(result *Result, outputRoot string) (string, error) {
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(outputRoot)))
+	if result == nil || outputRoot == "" || filepath.IsAbs(outputRoot) || strings.Contains(outputRoot, "\\") || clean != outputRoot || clean == "." || forbiddenWorkspacePath(clean) {
+		return "", fmt.Errorf("output_root must be a normalized safe workspace-relative path")
+	}
+	for _, source := range result.Sources {
+		if source.Relative != "scenery.scn" {
+			continue
+		}
+		for _, block := range source.Blocks {
+			if block.Type != "workspace" {
+				continue
+			}
+			for _, declared := range literalStringList(block, "managed_generated_roots") {
+				managed := filepath.ToSlash(filepath.Clean(filepath.FromSlash(declared)))
+				if clean == managed || strings.HasPrefix(clean, managed+"/") {
+					return filepath.Join(result.Root, filepath.FromSlash(clean)), nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("output_root must be beneath a declared managed generated root")
 }
 
 func optionalRevisionValue(value string) any {
@@ -396,36 +425,26 @@ func renderLegacyTypeScriptFamily(result *Result, target Resource, root string, 
 	if err != nil {
 		return nil, "", "", fmt.Errorf("discover legacy client app: %w", err)
 	}
-	legacyApp, err := parse.App(result.Root, cfg.Name)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("parse legacy client app: %w", err)
-	}
 	services := map[string]bool{}
-	fixtureEntries := map[string]any{}
 	for _, binding := range bindings {
 		services[binding.Module] = true
 		if name, _ := binding.Origin.LegacyIdentity["service"].(string); name != "" {
 			services[name] = true
 		}
-		fixtureEntries[binding.Address] = binding.Origin.LegacyIdentity
 	}
-	filtered := legacyApp.Services[:0]
-	for _, service := range legacyApp.Services {
-		if services[service.Name] {
-			filtered = append(filtered, service)
-		}
+	legacyApp, err := boundedLegacyClientApp(result, cfg, services)
+	if err != nil {
+		return nil, "", "", err
 	}
-	legacyApp.Services = filtered
 	clientBytes, err := clientgen.GenerateTypeScript(legacyApp, clientgen.TypeScriptOptions{
 		AppSlug: cfg.AppID(), StandardAuth: cfg.Auth.Enabled, StandardAuthGoogle: cfg.Auth.GoogleOAuth.Enabled,
 	})
 	if err != nil {
 		return nil, "", "", fmt.Errorf("generate legacy TypeScript client: %w", err)
 	}
-	fixtureDigest := revisionHash("scenery.legacy-client-fixture-catalog.v1\x00", fixtureEntries)
 	clientDigest := sha256.Sum256(clientBytes)
 	revision := revisionHash("scenery.legacy-typescript-client.v1\x00", map[string]any{
-		"target": target.Address, "bindings": resourceAddresses(bindings), "fixture_catalog_digest": fixtureDigest,
+		"target": target.Address, "bindings": resourceAddresses(bindings),
 		"client_digest": "sha256:" + hex.EncodeToString(clientDigest[:]), "frontend": "scenery.legacy.v0",
 	})
 	legacyRoot := filepath.Join(root, "legacy-v0")
@@ -435,14 +454,68 @@ func renderLegacyTypeScriptFamily(result *Result, target Resource, root string, 
 		"compatibility_frontend": "scenery.legacy.v0", "target": target.Address,
 		"package": fmt.Sprint(target.Spec["package"]) + "-legacy-v0", "import_path": "./legacy-v0/client.js",
 		"contract_revision": result.Manifest.ContractRevision, "legacy_client_revision": revision,
-		"fixture_catalog_digest": fixtureDigest, "covered_bindings": resourceAddresses(bindings),
+		"fixture_catalog_digest": nil, "covered_bindings": resourceAddresses(bindings),
 		"generator": "scenery.legacy.typescript/v0", "files": generatedFilePaths(legacyRoot, files),
 		"content_digest": artifactDigest(legacyRoot, files),
 	}
 	descriptorBytes, _ := json.MarshalIndent(descriptor, "", "  ")
 	files = append(files, generatedFile{Path: filepath.Join(legacyRoot, "scenery.legacy-typescript-client-generated.v1.json"), Bytes: append(descriptorBytes, '\n')})
-	return files, revision, fixtureDigest, nil
+	return files, revision, "", nil
 }
+
+func boundedLegacyClientApp(result *Result, cfg appcfg.Config, selected map[string]bool) (*model.App, error) {
+	if result == nil {
+		return &model.App{Name: cfg.Name}, nil
+	}
+	app := &model.App{Name: cfg.Name, Root: result.Root}
+	if result.Migration == nil || result.Manifest == nil {
+		return app, nil
+	}
+	targetServices := map[string][]MigrationService{}
+	for _, service := range result.Migration.Services {
+		if service.State == "native" || !selected[service.Name] {
+			continue
+		}
+		targetServices[service.LegacyTarget] = append(targetServices[service.LegacyTarget], service)
+	}
+	targetNames := make([]string, 0, len(targetServices))
+	for name := range targetServices {
+		targetNames = append(targetNames, name)
+	}
+	sort.Strings(targetNames)
+	found := map[string]bool{}
+	for _, targetReference := range targetNames {
+		target, err := ResolveGoBuildTarget(result, strings.TrimPrefix(targetReference, "go_target."), "")
+		if err != nil {
+			return nil, fmt.Errorf("resolve legacy client Go target %s: %w", targetReference, err)
+		}
+		packageRoots := make([]string, 0, len(targetServices[targetReference]))
+		for _, service := range targetServices[targetReference] {
+			packageRoots = append(packageRoots, service.Package)
+		}
+		legacy, err := parse.AppPackagesWithTarget(result.Root, cfg.Name, packageRoots, target.Context)
+		if err != nil {
+			return nil, fmt.Errorf("parse bounded legacy client app for %s: %w", targetReference, err)
+		}
+		if app.ModulePath == "" {
+			app.ModulePath = legacy.ModulePath
+		}
+		for _, service := range legacy.Services {
+			if selected[service.Name] {
+				app.Services = append(app.Services, service)
+				found[service.Name] = true
+			}
+		}
+	}
+	for _, service := range result.Migration.Services {
+		if service.State != "native" && selected[service.Name] && !found[service.Name] {
+			return nil, fmt.Errorf("legacy client service %s was not discovered beneath its declared package root and Go target", service.Name)
+		}
+	}
+	sort.Slice(app.Services, func(i, j int) bool { return app.Services[i].Name < app.Services[j].Name })
+	return app, nil
+}
+
 func reachableResources(resources, bindings []Resource) []Resource {
 	byAddress := map[string]Resource{}
 	operations := map[string]Resource{}

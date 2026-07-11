@@ -753,6 +753,7 @@ func traceError(err error) any {
 	if err == nil {
 		return nil
 	}
+	err = contractDiagnosticError(err)
 	return map[string]any{
 		"msg": redact.String(err.Error()),
 	}

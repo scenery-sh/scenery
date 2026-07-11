@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
@@ -13,40 +14,63 @@ import (
 	"scenery.sh/internal/standardauthmeta"
 )
 
-func lowerLegacyResources(root string, migration *Migration, _ []Resource) ([]Resource, []Diagnostic) {
+func lowerLegacyResources(root, applicationName string, migration *Migration, declaredResources []Resource) ([]Resource, []Diagnostic) {
 	if migration == nil {
 		return nil, nil
 	}
-	_, cfg, err := appcfg.DiscoverRoot(root)
-	if err != nil {
-		return nil, []Diagnostic{{Code: "SCN5201", Severity: "error", Message: "load legacy config: " + err.Error()}}
+	cfg := appcfg.Config{Name: applicationName}
+	if migration.LegacyConfig != "" {
+		_, discovered, err := appcfg.DiscoverRoot(root)
+		if err != nil {
+			return nil, []Diagnostic{{Code: "SCN5201", Severity: "error", Message: "load legacy config: " + err.Error()}}
+		}
+		cfg = discovered
 	}
-	packageRoots := make([]string, 0, len(migration.Services))
+	gateway := migration.defaultLegacyGatewayAddress()
+	targetServices := map[string][]MigrationService{}
 	for _, service := range migration.Services {
 		if service.State != "native" {
-			packageRoots = append(packageRoots, service.Package)
+			targetServices[service.LegacyTarget] = append(targetServices[service.LegacyTarget], service)
 		}
-	}
-	legacy, err := parse.AppPackages(root, cfg.Name, packageRoots)
-	if err != nil {
-		return nil, []Diagnostic{{Code: "SCN5202", Severity: "error", Message: "lower legacy frontend: " + err.Error()}}
 	}
 	inventory := map[string]MigrationService{}
 	for _, service := range migration.Services {
 		inventory[service.Name] = service
 	}
-	resources := lowerLegacySharedResources(cfg)
+	resources := lowerLegacySharedResources(cfg, gateway)
 	var diagnostics []Diagnostic
 	seenServices := map[string]bool{}
-	for _, service := range legacy.Services {
-		seenServices[service.Name] = true
-		state, ok := inventory[service.Name]
-		if !ok {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5203", Severity: "error", Message: "legacy service " + service.Name + " is not listed in scenery.migration.scn"})
+	targetNames := make([]string, 0, len(targetServices))
+	for name := range targetServices {
+		targetNames = append(targetNames, name)
+	}
+	sort.Strings(targetNames)
+	for _, targetReference := range targetNames {
+		services := targetServices[targetReference]
+		target, err := ResolveGoBuildTarget(&Result{Root: root, Manifest: &Manifest{Resources: declaredResources}}, strings.TrimPrefix(targetReference, "go_target."), "")
+		if err != nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5202", Severity: "error", Message: "resolve legacy Go target " + targetReference + ": " + err.Error()})
 			continue
 		}
-		resources = append(resources, lowerLegacyService(service, state)...)
-		resources = append(resources, lowerLegacySupplemental(legacy, service, state)...)
+		packageRoots := make([]string, 0, len(services))
+		for _, service := range services {
+			packageRoots = append(packageRoots, service.Package)
+		}
+		legacy, err := parse.AppPackagesWithTarget(root, cfg.Name, packageRoots, target.Context)
+		if err != nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5202", Severity: "error", Message: "lower legacy frontend for " + targetReference + ": " + err.Error()})
+			continue
+		}
+		for _, service := range legacy.Services {
+			seenServices[service.Name] = true
+			state, ok := inventory[service.Name]
+			if !ok {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN5203", Severity: "error", Message: "legacy service " + service.Name + " is not listed in scenery.migration.scn"})
+				continue
+			}
+			resources = append(resources, lowerLegacyService(service, state, gateway)...)
+			resources = append(resources, lowerLegacySupplemental(legacy, service, state)...)
+		}
 	}
 	for _, service := range migration.Services {
 		if service.State != "native" && !seenServices[service.Name] {
@@ -56,7 +80,7 @@ func lowerLegacyResources(root string, migration *Migration, _ []Resource) ([]Re
 	return resources, diagnostics
 }
 
-func lowerLegacySharedResources(config appcfg.Config) []Resource {
+func lowerLegacySharedResources(config appcfg.Config, gateway string) []Resource {
 	if !config.Auth.Enabled {
 		return nil
 	}
@@ -102,7 +126,7 @@ func lowerLegacySharedResources(config appcfg.Config) []Resource {
 				contract = "opaque"
 			}
 			resources = append(resources, legacyResource(module, "binding", bindingName, map[string]any{
-				"gateway": map[string]any{"$ref": "app/http_gateway/public_api"}, "operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName},
+				"gateway": map[string]any{"$ref": gateway}, "operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName},
 				"protocol": "http", "delivery": "call", "exposure": "internet", "authentication": map[string]any{"$ref": authentication}, "authorization": map[string]any{"$ref": authorization}, "pipeline": map[string]any{"$ref": "pipeline.http_default"},
 				"http": map[string]any{"method": method, "path": legacyPathToNative(endpoint.Path), "codec_profile": "scenery.legacy-json/v0", "guarantee": contract},
 			}, endpointOrigin, meta, "legacy_exact", contract))
@@ -113,22 +137,23 @@ func lowerLegacySharedResources(config appcfg.Config) []Resource {
 
 func lowerLegacySupplemental(appModel *model.App, service *model.Service, state MigrationService) []Resource {
 	meta := &MigrationMeta{State: state.State, Active: state.Active}
+	module := migrationServiceNamespace(state)
 	var resources []Resource
 	for _, middleware := range appModel.Middleware {
 		if !middleware.Global || !legacyPackageOwnedByService(middleware.Package, service) {
 			continue
 		}
 		name := "global_" + snakeName(middleware.Name)
-		origin := legacyResourceOrigin(service.Name, middleware.Name, "scenery:middleware global")
-		resources = append(resources, legacyResource(service.Name, "middleware", name, map[string]any{"protocols": []any{"http"}, "phases": []any{"legacy_global"}, "effects": []any{"opaque"}}, origin, meta, "legacy_exact", "advisory"))
+		origin := legacyResourceOrigin(module, middleware.Name, "scenery:middleware global")
+		resources = append(resources, legacyResource(module, "middleware", name, map[string]any{"protocols": []any{"http"}, "phases": []any{"legacy_global"}, "effects": []any{"opaque"}}, origin, meta, "legacy_exact", "advisory"))
 	}
-	resources = append(resources, lowerLegacyRuntimeDeclarations(appModel, service, meta)...)
-	resources = append(resources, lowerLegacyEntities(appModel, service, meta)...)
-	resources = append(resources, lowerLegacyViews(appModel, service, meta)...)
+	resources = append(resources, lowerLegacyRuntimeDeclarations(appModel, service, module, meta)...)
+	resources = append(resources, lowerLegacyEntities(appModel, service, module, meta)...)
+	resources = append(resources, lowerLegacyViews(appModel, service, module, meta)...)
 	return resources
 }
 
-func lowerLegacyRuntimeDeclarations(appModel *model.App, service *model.Service, meta *MigrationMeta) []Resource {
+func lowerLegacyRuntimeDeclarations(appModel *model.App, service *model.Service, module string, meta *MigrationMeta) []Resource {
 	var resources []Resource
 	engineAdded := false
 	for _, declaration := range appModel.Runtime {
@@ -139,7 +164,7 @@ func lowerLegacyRuntimeDeclarations(appModel *model.App, service *model.Service,
 		if name == "" {
 			name = snakeName(declaration.CallName)
 		}
-		origin := legacyResourceOrigin(service.Name, declaration.CallName, string(declaration.Kind))
+		origin := legacyResourceOrigin(module, declaration.CallName, string(declaration.Kind))
 		origin.LegacyIdentity = map[string]any{"input": declaration.InputType, "output": declaration.OutputType}
 		if declaration.Package != nil && declaration.Package.Analysis != nil && declaration.Package.Analysis.Fset != nil {
 			position := declaration.Package.Analysis.Fset.Position(declaration.TokenPos)
@@ -153,30 +178,30 @@ func lowerLegacyRuntimeDeclarations(appModel *model.App, service *model.Service,
 		switch declaration.Kind {
 		case model.RuntimeDeclarationDurableTask:
 			if !engineAdded {
-				resources = append(resources, legacyResource(service.Name, "execution_engine", "legacy_durable", map[string]any{"provider": "scenery.legacy.v0", "lifecycle": "application", "config": map[string]any{"task_queue": declaration.TaskQueue}}, origin, meta, "legacy_exact", "advisory"))
+				resources = append(resources, legacyResource(module, "execution_engine", "legacy_durable", map[string]any{"provider": "scenery.legacy.v0", "lifecycle": "application", "config": map[string]any{"task_queue": declaration.TaskQueue}}, origin, meta, "legacy_exact", "advisory"))
 				engineAdded = true
 			}
 			operationName := "durable_" + name
-			operationAddress := resourceAddress(service.Name, "operation", operationName)
-			operation := map[string]any{"service": map[string]any{"$ref": resourceAddress(service.Name, "service", service.Name)}, "input": map[string]any{"$ref": "legacy.type.advisory"}, "handler": map[string]any{"method": declaration.CallName, "adapter": "legacy_go_v0"}}
+			operationAddress := resourceAddress(module, "operation", operationName)
+			operation := map[string]any{"service": map[string]any{"$ref": resourceAddress(module, "service", service.Name)}, "input": map[string]any{"$ref": "legacy.type.advisory"}, "handler": map[string]any{"method": declaration.CallName, "adapter": "legacy_go_v0"}}
 			if declaration.OutputType != "" {
 				operation["result"] = map[string]any{"name": "success", "type": map[string]any{"$ref": "legacy.type.advisory"}}
 			}
 			resources = append(resources,
-				legacyResource(service.Name, "operation", operationName, operation, origin, meta, "legacy_exact", "advisory"),
-				legacyResource(service.Name, "execution", operationName, map[string]any{
+				legacyResource(module, "operation", operationName, operation, origin, meta, "legacy_exact", "advisory"),
+				legacyResource(module, "execution", operationName, map[string]any{
 					"operation": map[string]any{"$ref": operationAddress}, "mode": "durable", "engine": map[string]any{"$ref": "execution_engine.legacy_durable"}, "revision": 1,
 					"timeout": "24h", "lease": "30s", "attempts": 1, "retry": map[string]any{"backoff": "fixed", "initial": "1s", "maximum": "1s", "jitter": "none"}, "retention": map[string]any{"success": "24h", "failure": "168h"}, "external_name": declaration.Name,
 				}, origin, meta, "legacy_exact", "advisory"),
 			)
 		case model.RuntimeDeclarationCronJob:
 			operationName := "cron_" + name
-			operationAddress := resourceAddress(service.Name, "operation", operationName)
+			operationAddress := resourceAddress(module, "operation", operationName)
 			executionName := operationName + "_direct"
 			resources = append(resources,
-				legacyResource(service.Name, "operation", operationName, map[string]any{"service": map[string]any{"$ref": resourceAddress(service.Name, "service", service.Name)}, "input": map[string]any{"$ref": "legacy.type.advisory"}, "handler": map[string]any{"method": declaration.CallName, "adapter": "legacy_go_v0"}}, origin, meta, "legacy_exact", "opaque"),
-				legacyResource(service.Name, "execution", executionName, map[string]any{"operation": map[string]any{"$ref": operationAddress}, "mode": "direct", "timeout": "24h"}, origin, meta, "legacy_exact", "opaque"),
-				legacyResource(service.Name, "schedule", name, map[string]any{
+				legacyResource(module, "operation", operationName, map[string]any{"service": map[string]any{"$ref": resourceAddress(module, "service", service.Name)}, "input": map[string]any{"$ref": "legacy.type.advisory"}, "handler": map[string]any{"method": declaration.CallName, "adapter": "legacy_go_v0"}}, origin, meta, "legacy_exact", "opaque"),
+				legacyResource(module, "execution", executionName, map[string]any{"operation": map[string]any{"$ref": operationAddress}, "mode": "direct", "timeout": "24h"}, origin, meta, "legacy_exact", "opaque"),
+				legacyResource(module, "schedule", name, map[string]any{
 					"trigger": map[string]any{"calendar": "legacy-v0:" + declaration.Name},
 					"invoke":  map[string]any{"operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName}, "identity": map[string]any{"$ref": "std.authentication.service_identity"}, "authorization": map[string]any{"$ref": "std.authorization.legacy_v0"}, "pipeline": map[string]any{"$ref": "std.pipeline.legacy_v0"}, "input": map[string]any{"legacy": true}},
 					"overlap": "legacy",
@@ -187,7 +212,7 @@ func lowerLegacyRuntimeDeclarations(appModel *model.App, service *model.Service,
 	return resources
 }
 
-func lowerLegacyEntities(appModel *model.App, service *model.Service, meta *MigrationMeta) []Resource {
+func lowerLegacyEntities(appModel *model.App, service *model.Service, module string, meta *MigrationMeta) []Resource {
 	var entities []*model.Entity
 	for _, entity := range appModel.Entities {
 		if legacyPackageOwnedByService(entity.Package, service) {
@@ -197,14 +222,14 @@ func lowerLegacyEntities(appModel *model.App, service *model.Service, meta *Migr
 	if len(entities) == 0 {
 		return nil
 	}
-	origin := legacyResourceOrigin(service.Name, "database", "legacy shared database")
+	origin := legacyResourceOrigin(module, "database", "legacy shared database")
 	resources := []Resource{
-		legacyResource(service.Name, "provider", "legacy_database", map[string]any{"source": "scenery.legacy.v0/database", "version": "1.0.0"}, origin, meta, "legacy_exact", "advisory"),
-		legacyResource(service.Name, "data_source", "legacy_database", map[string]any{"provider": map[string]any{"$ref": "provider.legacy_database"}, "lifecycle": "application", "config": map[string]any{}}, origin, meta, "legacy_exact", "advisory"),
+		legacyResource(module, "provider", "legacy_database", map[string]any{"source": "scenery.legacy.v0/database", "version": "1.0.0"}, origin, meta, "legacy_exact", "advisory"),
+		legacyResource(module, "data_source", "legacy_database", map[string]any{"provider": map[string]any{"$ref": "provider.legacy_database"}, "lifecycle": "application", "config": map[string]any{}}, origin, meta, "legacy_exact", "advisory"),
 	}
 	for _, entity := range entities {
 		name := snakeName(entity.Name)
-		entityOrigin := legacyResourceOrigin(service.Name, entity.Name, "scenery:model")
+		entityOrigin := legacyResourceOrigin(module, entity.Name, "scenery:model")
 		var recordFields, mappings []any
 		primarySelected := false
 		for index, field := range entity.Fields {
@@ -226,15 +251,15 @@ func lowerLegacyEntities(appModel *model.App, service *model.Service, meta *Migr
 			mappings = append(mappings, map[string]any{"name": fieldName, "column": field.Column, "primary_key": primary, "tenant_key": strings.EqualFold(field.Column, "tenant_id"), "immutable": primary || strings.EqualFold(field.Column, "tenant_id")})
 		}
 		resources = append(resources,
-			legacyResource(service.Name, "record", name, map[string]any{"field": recordFields, "unknown_fields": "preserve"}, entityOrigin, meta, "legacy_exact", "advisory"),
-			legacyResource(service.Name, "entity", name, map[string]any{"type": map[string]any{"$ref": "record." + name}, "data_source": map[string]any{"$ref": "data_source.legacy_database"}, "mapping": map[string]any{"relation": entity.Table}, "field": mappings}, entityOrigin, meta, "legacy_exact", "advisory"),
+			legacyResource(module, "record", name, map[string]any{"field": recordFields, "unknown_fields": "preserve"}, entityOrigin, meta, "legacy_exact", "advisory"),
+			legacyResource(module, "entity", name, map[string]any{"type": map[string]any{"$ref": "record." + name}, "data_source": map[string]any{"$ref": "data_source.legacy_database"}, "mapping": map[string]any{"relation": entity.Table}, "field": mappings}, entityOrigin, meta, "legacy_exact", "advisory"),
 		)
 		if len(entity.CRUD.Actions) > 0 {
 			actions := make([]any, 0, len(entity.CRUD.Actions))
 			for _, action := range entity.CRUD.Actions {
 				actions = append(actions, string(action))
 			}
-			resources = append(resources, legacyResource(service.Name, "crud", name, map[string]any{"entity": map[string]any{"$ref": "entity." + name}, "implementation": map[string]any{"$ref": "data_source.legacy_database"}, "actions": actions, "execution": map[string]any{"mode": "direct"}}, entityOrigin, meta, "legacy_exact", "advisory"))
+			resources = append(resources, legacyResource(module, "crud", name, map[string]any{"entity": map[string]any{"$ref": "entity." + name}, "implementation": map[string]any{"$ref": "data_source.legacy_database"}, "actions": actions, "execution": map[string]any{"mode": "direct"}}, entityOrigin, meta, "legacy_exact", "advisory"))
 		}
 		if len(entity.Seeds) > 0 {
 			values := make([]any, 0, len(entity.Seeds))
@@ -245,24 +270,24 @@ func lowerLegacyEntities(appModel *model.App, service *model.Service, meta *Migr
 				}
 				values = append(values, row)
 			}
-			resources = append(resources, legacyResource(service.Name, "fixture", name, map[string]any{"entity": map[string]any{"$ref": "entity." + name}, "environments": []any{"development", "test"}, "mode": "insert", "values": values}, entityOrigin, meta, "legacy_exact", "advisory"))
+			resources = append(resources, legacyResource(module, "fixture", name, map[string]any{"entity": map[string]any{"$ref": "entity." + name}, "environments": []any{"development", "test"}, "mode": "insert", "values": values}, entityOrigin, meta, "legacy_exact", "advisory"))
 		}
 	}
 	return resources
 }
 
-func lowerLegacyViews(appModel *model.App, service *model.Service, meta *MigrationMeta) []Resource {
+func lowerLegacyViews(appModel *model.App, service *model.Service, module string, meta *MigrationMeta) []Resource {
 	var resources []Resource
 	for _, view := range appModel.Views {
 		if !legacyPackageOwnedByService(view.Package, service) {
 			continue
 		}
 		name := snakeName(view.Name)
-		origin := legacyResourceOrigin(service.Name, view.Name, "scenery:page")
+		origin := legacyResourceOrigin(module, view.Name, "scenery:page")
 		pageSpec := map[string]any{"path": view.Route, "load": "legacy.page.load"}
 		resources = append(resources,
-			legacyResource(service.Name, "page", name, pageSpec, origin, meta, "legacy_exact", "advisory"),
-			legacyResource(service.Name, "renderer", name, map[string]any{"page": map[string]any{"$ref": "page." + name}, "runtime": "legacy_v0", "module": "legacy:" + view.Name, "config": map[string]any{"kind": view.Kind, "entity": view.Entity, "columns": append([]string(nil), view.Columns...), "title": view.Title, "slots": len(view.Slots)}}, origin, meta, "legacy_exact", "advisory"),
+			legacyResource(module, "page", name, pageSpec, origin, meta, "legacy_exact", "advisory"),
+			legacyResource(module, "renderer", name, map[string]any{"page": map[string]any{"$ref": "page." + name}, "runtime": "legacy_v0", "module": "legacy:" + view.Name, "config": map[string]any{"kind": view.Kind, "entity": view.Entity, "columns": append([]string(nil), view.Columns...), "title": view.Title, "slots": len(view.Slots)}}, origin, meta, "legacy_exact", "advisory"),
 		)
 	}
 	return resources
@@ -303,6 +328,95 @@ func validateNativeOnlyLegacyAbsence(root string) []Diagnostic {
 		return nil
 	}
 	return []Diagnostic{{Code: "SCN5207", Severity: "error", Message: "native-only project contains legacy ownership; add a bounded scenery.migration.scn inventory", Details: map[string]any{"owners": owners}}}
+}
+
+func validateNativeMigrationLegacyAbsence(root, applicationName string, migration *Migration, resources []Resource) []Diagnostic {
+	if migration == nil {
+		return nil
+	}
+	cfg := appcfg.Config{Name: applicationName}
+	if migration.LegacyConfig != "" {
+		_, discovered, err := appcfg.DiscoverRoot(root)
+		if err != nil {
+			return []Diagnostic{{Code: "SCN5208", Severity: "error", Message: "inspect native migration ownership: " + err.Error()}}
+		}
+		cfg = discovered
+	}
+	target, err := ResolveGoBuildTarget(&Result{Root: root, Manifest: &Manifest{Resources: resources}}, "", "development")
+	if err != nil {
+		return []Diagnostic{{Code: "SCN5208", Severity: "error", Message: "inspect native migration ownership: " + err.Error()}}
+	}
+	moduleRoots := map[string]string{}
+	for _, resource := range resources {
+		if resource.Kind != "scenery.module/v1" {
+			continue
+		}
+		source := stringValue(resource.Spec["workspace_package_root"])
+		if source == "" {
+			source = stringValue(resource.Spec["source"])
+		}
+		moduleRoots[moduleInstancePath(resource)] = source
+	}
+	var diagnostics []Diagnostic
+	for _, service := range migration.Services {
+		if service.State != "native" {
+			continue
+		}
+		module := strings.TrimPrefix(service.Module, "module.")
+		if module == "" {
+			module = service.Name
+		}
+		packageRoot := moduleRoots[module]
+		if packageRoot == "" {
+			continue
+		}
+		legacy, err := parse.InspectPackagesWithTarget(root, cfg.Name, []string{packageRoot}, target.Context)
+		if err != nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5208", Severity: "error", Message: "inspect native migration service " + service.Name + ": " + err.Error()})
+			continue
+		}
+		constructs := make([]string, 0)
+		if len(legacyRuntimeBuilderReferences(legacy)) > 0 {
+			constructs = append(constructs, "runtime_builder_references")
+		}
+		if len(legacy.Runtime) > 0 {
+			constructs = append(constructs, "runtime_declarations")
+		}
+		if len(legacy.Entities) > 0 {
+			constructs = append(constructs, "models")
+		}
+		if len(legacy.Views) > 0 {
+			constructs = append(constructs, "pages")
+		}
+		constructs = canonicalStrings(constructs)
+		if len(constructs) > 0 {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5208", Severity: "error", Message: "native migration service " + service.Name + " still contains hidden legacy runtime ownership", Details: map[string]any{"constructs": constructs}})
+		}
+	}
+	return diagnostics
+}
+
+func legacyRuntimeBuilderReferences(app *model.App) []string {
+	var references []string
+	if app == nil {
+		return references
+	}
+	for _, pkg := range app.Packages {
+		if pkg == nil || pkg.Analysis == nil || pkg.Analysis.TypesInfo == nil {
+			continue
+		}
+		for _, object := range pkg.Analysis.TypesInfo.Uses {
+			function, ok := object.(*types.Func)
+			if !ok || function.Pkg() == nil {
+				continue
+			}
+			path, name := function.Pkg().Path(), function.Name()
+			if path == "scenery.sh/durable" && name == "NewTask" || path == "scenery.sh/cron" && name == "NewJob" {
+				references = append(references, path+"."+name)
+			}
+		}
+	}
+	return canonicalStrings(references)
 }
 
 func nativeGoPackage(appModel *model.App, resources []Resource, module string) *model.Package {
@@ -514,9 +628,10 @@ func packageQualifier(pkg *types.Package) string {
 	return pkg.Path()
 }
 
-func lowerLegacyService(service *model.Service, state MigrationService) []Resource {
+func lowerLegacyService(service *model.Service, state MigrationService, gateway string) []Resource {
 	meta := &MigrationMeta{State: state.State, Active: state.Active}
-	serviceOrigin := legacyResourceOrigin(service.Name, service.Name, "scenery:service")
+	module := migrationServiceNamespace(state)
+	serviceOrigin := legacyResourceOrigin(module, service.Name, "scenery:service")
 	serviceSpec := map[string]any{"runtime": "go", "implementation": map[string]any{"adapter": "legacy_go_v0", "root": service.RootRelDir}}
 	if service.Struct != nil {
 		lifecycle := map[string]any{}
@@ -530,7 +645,7 @@ func lowerLegacyService(service *model.Service, state MigrationService) []Resour
 			serviceSpec["lifecycle"] = lifecycle
 		}
 	}
-	resources := []Resource{legacyResource(service.Name, "service", service.Name, serviceSpec, serviceOrigin, meta, "legacy_exact", "verified")}
+	resources := []Resource{legacyResource(module, "service", service.Name, serviceSpec, serviceOrigin, meta, "legacy_exact", "verified")}
 	typed, candidateDiagnostics := migrationCandidateOperations(service)
 	incompleteOperations := map[string]bool{}
 	for _, diagnostic := range candidateDiagnostics {
@@ -543,18 +658,18 @@ func lowerLegacyService(service *model.Service, state MigrationService) []Resour
 		if incompleteOperations[resourceAddress(service.Name, "operation", operation.Name)] || len(service.Middleware) > 0 {
 			contract = "advisory"
 		}
-		resources = append(resources, lowerLegacyTypedOperation(service.Name, operation, meta, contract)...)
+		resources = append(resources, lowerLegacyTypedOperation(module, service.Name, operation, meta, contract, gateway)...)
 	}
 	for _, endpoint := range service.Endpoints {
 		if !endpoint.Raw && !strings.Contains(endpoint.Path, "*") {
 			continue
 		}
-		origin := legacyResourceOrigin(service.Name, endpoint.Name, "scenery:api raw")
+		origin := legacyResourceOrigin(module, endpoint.Name, "scenery:api raw")
 		origin.LegacyIdentity = legacyEndpointIdentity(endpoint)
-		resources = append(resources, lowerLegacyEndpoint(service.Name, endpoint.Name, endpoint.Path, endpoint.Methods, string(endpoint.Access), true, origin, meta)...)
+		resources = append(resources, lowerLegacyEndpoint(module, service.Name, endpoint.Name, endpoint.Path, endpoint.Methods, string(endpoint.Access), true, origin, meta, gateway)...)
 	}
 	for _, endpoint := range service.Generated {
-		origin := legacyResourceOrigin(service.Name, endpoint.Name, "generated model endpoint")
+		origin := legacyResourceOrigin(module, endpoint.Name, "generated model endpoint")
 		origin.LegacyIdentity = map[string]any{
 			"path": endpoint.Path, "methods": append([]string(nil), endpoint.Methods...), "access": string(endpoint.Access),
 			"has_payload": endpoint.HasPayload, "generated": endpoint.Generated,
@@ -562,24 +677,24 @@ func lowerLegacyService(service *model.Service, state MigrationService) []Resour
 		if endpoint.Package != nil && endpoint.Entity != nil {
 			origin.LegacyIdentity["file"] = legacyModelFile(endpoint.Package, endpoint.Entity.File)
 		}
-		resources = append(resources, lowerLegacyEndpoint(service.Name, endpoint.Name, endpoint.Path, endpoint.Methods, string(endpoint.Access), false, origin, meta)...)
+		resources = append(resources, lowerLegacyEndpoint(module, service.Name, endpoint.Name, endpoint.Path, endpoint.Methods, string(endpoint.Access), false, origin, meta, gateway)...)
 	}
 	if service.AuthHandler != nil {
-		origin := legacyResourceOrigin(service.Name, service.AuthHandler.Name, "scenery:authhandler")
-		resources = append(resources, legacyResource(service.Name, "authentication", "legacy_auth", map[string]any{"provider": "scenery.legacy.v0", "scheme": "legacy_authhandler", "config": map[string]any{"handler": service.AuthHandler.Name}}, origin, meta, "legacy_exact", "verified"))
+		origin := legacyResourceOrigin(module, service.AuthHandler.Name, "scenery:authhandler")
+		resources = append(resources, legacyResource(module, "authentication", "legacy_auth", map[string]any{"provider": "scenery.legacy.v0", "scheme": "legacy_authhandler", "config": map[string]any{"handler": service.AuthHandler.Name}}, origin, meta, "legacy_exact", "verified"))
 	}
 	for _, middleware := range service.Middleware {
 		name := snakeName(middleware.Name)
-		origin := legacyResourceOrigin(service.Name, middleware.Name, "scenery:middleware")
-		resources = append(resources, legacyResource(service.Name, "middleware", name, map[string]any{
+		origin := legacyResourceOrigin(module, middleware.Name, "scenery:middleware")
+		resources = append(resources, legacyResource(module, "middleware", name, map[string]any{
 			"protocols": []any{"http"}, "phases": []any{"legacy"}, "effects": []any{"opaque"},
 		}, origin, meta, "legacy_exact", "advisory"))
 	}
 	return resources
 }
 
-func lowerLegacyTypedOperation(service string, operation migrationCandidateOperation, meta *MigrationMeta, contract string) []Resource {
-	origin := legacyResourceOrigin(service, operation.Method, "scenery:api")
+func lowerLegacyTypedOperation(module, service string, operation migrationCandidateOperation, meta *MigrationMeta, contract, gateway string) []Resource {
+	origin := legacyResourceOrigin(module, operation.Method, "scenery:api")
 	origin.LegacyIdentity = map[string]any{
 		"path": operation.LegacyPath, "methods": append([]string(nil), operation.Methods...), "access": operation.Access,
 		"file": operation.File, "receiver": operation.Receiver, "tags": append([]string(nil), operation.Tags...), "has_payload": operation.HasPayload,
@@ -593,22 +708,22 @@ func lowerLegacyTypedOperation(service string, operation migrationCandidateOpera
 	for _, field := range operation.Output {
 		resultFields = append(resultFields, legacyCandidateFieldSpec(field))
 	}
-	operationAddress := resourceAddress(service, "operation", operation.Name)
+	operationAddress := resourceAddress(module, "operation", operation.Name)
 	executionName := operation.Name + "_direct"
 	resources := []Resource{
-		legacyResource(service, "record", inputName, map[string]any{"field": inputFields, "unknown_fields": "preserve"}, origin, meta, "legacy_exact", contract),
-		legacyResource(service, "record", resultName, map[string]any{"field": resultFields, "unknown_fields": "preserve"}, origin, meta, "legacy_exact", contract),
-		legacyResource(service, "operation", operation.Name, map[string]any{
-			"service": map[string]any{"$ref": resourceAddress(service, "service", service)},
+		legacyResource(module, "record", inputName, map[string]any{"field": inputFields, "unknown_fields": "preserve"}, origin, meta, "legacy_exact", contract),
+		legacyResource(module, "record", resultName, map[string]any{"field": resultFields, "unknown_fields": "preserve"}, origin, meta, "legacy_exact", contract),
+		legacyResource(module, "operation", operation.Name, map[string]any{
+			"service": map[string]any{"$ref": resourceAddress(module, "service", service)},
 			"input":   map[string]any{"$ref": "record." + inputName},
 			"handler": map[string]any{"method": operation.Method, "adapter": "legacy_go_v0"},
 			"result":  map[string]any{"name": "success", "type": map[string]any{"$ref": "record." + resultName}},
 			"error":   map[string]any{"name": "legacy_error", "type": map[string]any{"$ref": "std.type.problem"}},
 		}, origin, meta, "legacy_exact", contract),
-		legacyResource(service, "execution", executionName, map[string]any{"operation": map[string]any{"$ref": operationAddress}, "mode": "direct", "timeout": "30s"}, origin, meta, "legacy_exact", contract),
+		legacyResource(module, "execution", executionName, map[string]any{"operation": map[string]any{"$ref": operationAddress}, "mode": "direct", "timeout": "30s"}, origin, meta, "legacy_exact", contract),
 	}
 	if operation.Access == "private" {
-		resources = append(resources, legacyResource(service, "binding", operation.Name+"_internal", map[string]any{
+		resources = append(resources, legacyResource(module, "binding", operation.Name+"_internal", map[string]any{
 			"operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName},
 			"protocol": "internal", "delivery": "call", "exposure": "local",
 			"authentication": map[string]any{"$ref": "std.authentication.inherit"}, "authorization": map[string]any{"$ref": "std.authorization.legacy_v0"}, "pipeline": map[string]any{"$ref": "std.pipeline.legacy_v0"},
@@ -621,17 +736,17 @@ func lowerLegacyTypedOperation(service string, operation migrationCandidateOpera
 		if len(operation.Methods) > 1 {
 			bindingName += fmt.Sprintf("_%d", index+1)
 		}
-		resources = append(resources, legacyResource(service, "binding", bindingName, legacyHTTPBindingSpec(operation, operationAddress, executionName, method), origin, meta, "legacy_exact", contract))
+		resources = append(resources, legacyResource(module, "binding", bindingName, legacyHTTPBindingSpec(operation, operationAddress, executionName, method, gateway), origin, meta, "legacy_exact", contract))
 	}
 	return resources
 }
 
-func legacyHTTPBindingSpec(operation migrationCandidateOperation, operationAddress, executionName, method string) map[string]any {
+func legacyHTTPBindingSpec(operation migrationCandidateOperation, operationAddress, executionName, method, gateway string) map[string]any {
 	authentication, authorization := "std.authentication.none", "std.authorization.public"
 	if operation.Access == "auth" {
 		authentication, authorization = "std.authentication.legacy_v0", "std.authorization.legacy_v0"
 	}
-	httpSpec := map[string]any{"method": strings.ToUpper(method), "path": operation.Path, "codec_profile": map[string]any{"$ref": "std.codec.http_json_v1"}, "guarantee": "legacy_exact"}
+	httpSpec := map[string]any{"method": strings.ToUpper(method), "path": operation.Path, "codec_profile": map[string]any{"$ref": "std.codec.http_json_v1"}, "guarantee": "advisory"}
 	var bodyFields []any
 	for _, field := range operation.Input {
 		mapping := map[string]any{"name": field.SourceName, "to": map[string]any{"$ref": "operation." + operation.Name + ".input." + field.Name}}
@@ -663,7 +778,7 @@ func legacyHTTPBindingSpec(operation migrationCandidateOperation, operationAddre
 	failure := map[string]any{"name": "legacy_error", "when": map[string]any{"$ref": "error.legacy_error"}, "status": 500, "body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": "error.legacy_error"}}}
 	httpSpec["response"] = []any{success, failure}
 	return map[string]any{
-		"gateway": map[string]any{"$ref": "app/http_gateway/public_api"}, "operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName},
+		"gateway": map[string]any{"$ref": gateway}, "operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName},
 		"protocol": "http", "delivery": "call", "exposure": "internet", "authentication": map[string]any{"$ref": authentication}, "authorization": map[string]any{"$ref": authorization}, "pipeline": map[string]any{"$ref": "std.pipeline.legacy_v0"}, "http": httpSpec,
 	}
 }
@@ -694,10 +809,13 @@ func legacyCandidateTypeValue(value string) any {
 }
 
 func legacyResource(module, kind, name string, spec map[string]any, origin Origin, meta *MigrationMeta, semantics, contract string) Resource {
-	disposition := "legacy_exact"
-	if contract == "advisory" {
-		disposition = "advisory"
-	} else if contract == "opaque" {
+	// Static lowering can verify shape, but only executed behavioral fixtures
+	// can establish exact migration equivalence.
+	if semantics == "legacy_exact" {
+		semantics = "advisory"
+	}
+	disposition := "advisory"
+	if contract == "opaque" {
 		disposition = "opaque"
 	} else if contract == "unsupported" {
 		disposition = "unsupported"
@@ -742,16 +860,16 @@ func shortStableID(value string) string {
 	return digest
 }
 
-func lowerLegacyEndpoint(service, name, path string, methods []string, access string, raw bool, origin Origin, meta *MigrationMeta) []Resource {
+func lowerLegacyEndpoint(module, service, name, path string, methods []string, access string, raw bool, origin Origin, meta *MigrationMeta, gateway string) []Resource {
 	semantic := snakeName(name)
-	operationAddress := resourceAddress(service, "operation", semantic)
+	operationAddress := resourceAddress(module, "operation", semantic)
 	executionName := semantic + "_direct"
 	resources := []Resource{
-		legacyResource(service, "operation", semantic, map[string]any{"service": map[string]any{"$ref": resourceAddress(service, "service", service)}, "input": map[string]any{"$ref": "legacy.type.advisory"}, "handler": map[string]any{"method": name, "adapter": "legacy_go_v0"}}, origin, meta, "legacy_exact", map[bool]string{true: "opaque", false: "advisory"}[raw]),
-		legacyResource(service, "execution", executionName, map[string]any{"operation": map[string]any{"$ref": operationAddress}, "mode": "direct", "timeout": "30s"}, origin, meta, "legacy_exact", "advisory"),
+		legacyResource(module, "operation", semantic, map[string]any{"service": map[string]any{"$ref": resourceAddress(module, "service", service)}, "input": map[string]any{"$ref": "legacy.type.advisory"}, "handler": map[string]any{"method": name, "adapter": "legacy_go_v0"}}, origin, meta, "legacy_exact", map[bool]string{true: "opaque", false: "advisory"}[raw]),
+		legacyResource(module, "execution", executionName, map[string]any{"operation": map[string]any{"$ref": operationAddress}, "mode": "direct", "timeout": "30s"}, origin, meta, "legacy_exact", "advisory"),
 	}
 	if access == "private" {
-		resources = append(resources, legacyResource(service, "binding", semantic+"_internal", map[string]any{
+		resources = append(resources, legacyResource(module, "binding", semantic+"_internal", map[string]any{
 			"operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName}, "protocol": "internal", "delivery": "call", "exposure": "local",
 			"authentication": map[string]any{"$ref": "std.authentication.inherit"}, "authorization": map[string]any{"$ref": "std.authorization.legacy_v0"}, "pipeline": map[string]any{"$ref": "std.pipeline.legacy_v0"}, "internal": map[string]any{"visibility": "package", "principal": "inherit"},
 		}, origin, meta, "legacy_exact", "advisory"))
@@ -762,9 +880,16 @@ func lowerLegacyEndpoint(service, name, path string, methods []string, access st
 		if len(methods) > 1 {
 			bindingName += fmt.Sprintf("_%d", i+1)
 		}
-		resources = append(resources, legacyResource(service, "binding", bindingName, map[string]any{"gateway": map[string]any{"$ref": "app/http_gateway/public_api"}, "operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName}, "protocol": "http", "delivery": "call", "exposure": "internet", "authentication": access, "authorization": map[string]any{"$ref": "std.authorization.legacy_v0"}, "pipeline": map[string]any{"$ref": "std.pipeline.legacy_v0"}, "http": map[string]any{"method": method, "path": legacyPathToNative(path), "codec_profile": map[bool]string{true: "scenery.legacy-raw/v0", false: "scenery.legacy-json/v0"}[raw], "guarantee": map[bool]string{true: "opaque", false: "legacy_exact"}[raw]}}, origin, meta, "legacy_exact", map[bool]string{true: "opaque", false: "advisory"}[raw]))
+		resources = append(resources, legacyResource(module, "binding", bindingName, map[string]any{"gateway": map[string]any{"$ref": gateway}, "operation": map[string]any{"$ref": operationAddress}, "execution": map[string]any{"$ref": "execution." + executionName}, "protocol": "http", "delivery": "call", "exposure": "internet", "authentication": access, "authorization": map[string]any{"$ref": "std.authorization.legacy_v0"}, "pipeline": map[string]any{"$ref": "std.pipeline.legacy_v0"}, "http": map[string]any{"method": method, "path": legacyPathToNative(path), "codec_profile": map[bool]string{true: "scenery.legacy-raw/v0", false: "scenery.legacy-json/v0"}[raw], "guarantee": map[bool]string{true: "opaque", false: "advisory"}[raw]}}, origin, meta, "legacy_exact", map[bool]string{true: "opaque", false: "advisory"}[raw]))
 	}
 	return resources
+}
+
+func migrationServiceNamespace(service MigrationService) string {
+	if service.Namespace != "" {
+		return service.Namespace
+	}
+	return service.Name
 }
 
 func legacyPathToNative(path string) string {

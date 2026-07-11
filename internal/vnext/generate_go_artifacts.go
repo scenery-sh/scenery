@@ -2,6 +2,7 @@ package vnext
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -127,6 +128,30 @@ func rejectGeneratedPathSymlinks(root, target string) error {
 }
 
 func artifactDigest(root string, files []generatedFile) string {
+	sorted := append([]generatedFile(nil), files...)
+	sort.Slice(sorted, func(i, j int) bool {
+		a, _ := filepath.Rel(root, sorted[i].Path)
+		b, _ := filepath.Rel(root, sorted[j].Path)
+		return filepath.ToSlash(a) < filepath.ToSlash(b)
+	})
+	h := sha256.New()
+	var length [8]byte
+	for _, file := range sorted {
+		rel, _ := filepath.Rel(root, file.Path)
+		path := []byte(filepath.ToSlash(rel))
+		binary.BigEndian.PutUint64(length[:], uint64(len(path)))
+		_, _ = h.Write(length[:])
+		_, _ = h.Write(path)
+		binary.BigEndian.PutUint64(length[:], uint64(len(file.Bytes)))
+		_, _ = h.Write(length[:])
+		_, _ = h.Write(file.Bytes)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+// legacyArtifactDigest is accepted only while verifying ownership of artifacts
+// produced before length framing was introduced. New descriptors never emit it.
+func legacyArtifactDigest(root string, files []generatedFile) string {
 	sorted := append([]generatedFile(nil), files...)
 	sort.Slice(sorted, func(i, j int) bool {
 		a, _ := filepath.Rel(root, sorted[i].Path)

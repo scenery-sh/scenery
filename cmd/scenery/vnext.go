@@ -373,17 +373,7 @@ func runVNextGenerate(stdout io.Writer, args []string) error {
 	if strings.HasPrefix(target, "typescript_client.") {
 		result, generateErr = vnext.GenerateTypeScriptClients(root, target, opts.Check)
 	} else if target == "" {
-		goResult, goErr := vnext.GenerateGoContracts(root, opts.Check)
-		tsResult, tsErr := vnext.GenerateTypeScriptClients(root, "", opts.Check)
-		result.Changed = append(goResult.Changed, tsResult.Changed...)
-		result.Checked = append(goResult.Checked, tsResult.Checked...)
-		sort.Strings(result.Changed)
-		sort.Strings(result.Checked)
-		if goErr != nil {
-			generateErr = goErr
-		} else {
-			generateErr = tsErr
-		}
+		result, generateErr = vnext.GenerateAll(root, opts.Check)
 	} else {
 		result, generateErr = vnext.GenerateGoContracts(root, opts.Check)
 	}

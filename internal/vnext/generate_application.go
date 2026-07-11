@@ -811,11 +811,11 @@ func goConfigWireJSON(value any, typeExpression string) ([]byte, error) {
 		case "decimal":
 			return json.Marshal(stringValue(scalar))
 		case "duration":
-			nanoseconds, err := strconv.ParseInt(stringValue(scalar["nanoseconds"]), 10, 64)
+			duration, err := scenery.ParseDuration(stringValue(scalar["nanoseconds"]) + "ns")
 			if err != nil {
 				return nil, err
 			}
-			return json.Marshal(scenery.Duration(nanoseconds).String())
+			return json.Marshal(duration.String())
 		case "size":
 			return json.Marshal(stringValue(scalar["bytes"]))
 		case "bytes":

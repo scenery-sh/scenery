@@ -30,6 +30,10 @@ func TestMigrationShadowPlanAppliesAtomicallyAndBlocksUnprovenActivation(t *test
   frontend      = "scenery.legacy.v0"
   legacy_config = ".scenery.json"
 
+  legacy_gateway "default" {
+    target = http_gateway.public_api
+  }
+
   legacy_service "house" {
     package   = "./house"
     namespace = "house"

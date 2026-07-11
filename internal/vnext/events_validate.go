@@ -41,7 +41,7 @@ func validateScheduleSemantics(resources map[string]Resource, schedule Resource)
 	}
 	if catchup, ok := schedule.Spec["catchup"].(map[string]any); ok {
 		maximumAge, err := scenery.ParseDuration(stringValue(catchup["maximum_age"]))
-		if err != nil || maximumAge <= 0 {
+		if err != nil || maximumAge.Sign() <= 0 || !maximumAge.Nanoseconds().IsInt64() {
 			diagnostics = append(diagnostics, profileDiagnostic("SCN2304", "schedule catchup maximum_age must be positive", schedule))
 		}
 	}
@@ -120,7 +120,7 @@ func validateScheduleTrigger(trigger map[string]any) error {
 		}
 	case "every":
 		value, err := scenery.ParseDuration(stringValue(trigger["every"]))
-		if err != nil || value <= 0 {
+		if err != nil || value.Sign() <= 0 || !value.Nanoseconds().IsInt64() {
 			return fmt.Errorf("schedule every duration must be positive")
 		}
 	case "at":

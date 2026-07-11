@@ -41,6 +41,7 @@ func ContractDurableFailureOutcome(err error) string {
 // scenery.execution/v1 durable execution.
 type ContractDurableRegistration struct {
 	Address                string
+	ExternalName           string
 	EngineAddress          string
 	Service                string
 	Revision               uint32
@@ -61,6 +62,7 @@ type ContractDurableRegistration struct {
 
 func RegisterContractDurableExecution(registration ContractDurableRegistration) error {
 	registration.Address = strings.TrimSpace(registration.Address)
+	registration.ExternalName = strings.TrimSpace(registration.ExternalName)
 	registration.EngineAddress = strings.TrimSpace(registration.EngineAddress)
 	registration.Service = strings.TrimSpace(registration.Service)
 	if registration.Address == "" || registration.EngineAddress == "" || registration.Service == "" {
@@ -71,6 +73,9 @@ func RegisterContractDurableExecution(registration ContractDurableRegistration) 
 	}
 	if registration.Handler == nil {
 		return fmt.Errorf("runtime: contract durable execution %s requires a handler", registration.Address)
+	}
+	if registration.ExternalName == "" {
+		registration.ExternalName = registration.Address
 	}
 	if registration.DefaultTimeout <= 0 || registration.DefaultLease <= 0 || registration.MaxAttempts <= 0 {
 		return fmt.Errorf("runtime: contract durable execution %s has invalid timeout, lease, or attempts", registration.Address)
@@ -102,12 +107,12 @@ func RegisterContractDurableExecution(registration ContractDurableRegistration) 
 	if global.durableTasks == nil {
 		global.durableTasks = make(map[string]*DurableTask)
 	}
-	key := registration.Service + ":" + registration.Address
+	key := registration.Service + ":" + registration.ExternalName
 	if _, exists := global.durableTasks[key]; exists {
 		return fmt.Errorf("runtime: duplicate durable task registration for %s", key)
 	}
 	global.durableTasks[key] = &DurableTask{
-		Name: registration.Address, Service: registration.Service, Version: int(registration.Revision),
+		Name: registration.ExternalName, Service: registration.Service, Version: int(registration.Revision),
 		HandlerRef: registration.Address, Handler: registration.Handler,
 		DefaultTimeout: registration.DefaultTimeout, DefaultLease: registration.DefaultLease,
 		MaxAttempts: registration.MaxAttempts, RetryInitial: registration.RetryInitial,
@@ -138,7 +143,7 @@ func DispatchContractDurableExecutionWithOptions(ctx context.Context, address st
 		return runtimeapi.ExecutionReceipt{}, fmt.Errorf("runtime: contract durable execution %s is not registered", address)
 	}
 	run, err := StartDurableTask(ctx, DurableStartRequest{
-		Service: registration.Service, TaskName: registration.Address,
+		Service: registration.Service, TaskName: registration.ExternalName,
 		DedupeKey: strings.TrimSpace(options.DedupeKey), ConcurrencyKey: strings.TrimSpace(options.ConcurrencyKey), Input: input,
 	})
 	if err != nil {
@@ -162,7 +167,7 @@ func DispatchAndWaitContractDurableExecutionWithOptions(ctx context.Context, add
 	if !ok {
 		return nil, contractDurableFailure("dispatch.rejected", fmt.Errorf("runtime: contract durable execution %s is not registered", address))
 	}
-	result, err := WaitDurableTask(ctx, DurableRun{ID: receipt.ExecutionID, Service: registration.Service, TaskName: registration.Address})
+	result, err := WaitDurableTask(ctx, DurableRun{ID: receipt.ExecutionID, Service: registration.Service, TaskName: registration.ExternalName})
 	if err == nil {
 		return result, nil
 	}

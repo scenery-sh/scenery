@@ -28,6 +28,27 @@ func GenerateGoContracts(root string, check bool) (GenerateResult, error) {
 	return generateGoContracts(root, check, false)
 }
 
+// GenerateAll renders every generated family before committing any artifact,
+// so one invalid target cannot leave the workspace partially updated.
+func GenerateAll(root string, check bool) (GenerateResult, error) {
+	result, err := compile(root, false)
+	if err != nil {
+		return GenerateResult{}, err
+	}
+	if result.ContractStatus != "valid" || result.Manifest == nil {
+		return GenerateResult{}, fmt.Errorf("cannot generate from invalid vNext contract: %s", firstError(result.Diagnostics))
+	}
+	goFiles, err := renderGoContractFiles(result)
+	if err != nil {
+		return GenerateResult{}, err
+	}
+	typeScriptFiles, err := renderTypeScriptClientFiles(result, "")
+	if err != nil {
+		return GenerateResult{}, err
+	}
+	return finishGeneratedFiles(result.Root, append(goFiles, typeScriptFiles...), check, "generated vNext artifacts are stale")
+}
+
 func generateGoContracts(root string, check, allowActiveChangeTransaction bool) (GenerateResult, error) {
 	result, err := compile(root, allowActiveChangeTransaction)
 	if err != nil {
@@ -36,48 +57,59 @@ func generateGoContracts(root string, check, allowActiveChangeTransaction bool) 
 	if result.ContractStatus != "valid" || result.Manifest == nil {
 		return GenerateResult{}, fmt.Errorf("cannot generate from invalid vNext contract: %s", firstError(result.Diagnostics))
 	}
-	if err := validateInvariantPackageABIs(result); err != nil {
+	files, err := renderGoContractFiles(result)
+	if err != nil {
 		return GenerateResult{}, err
 	}
+	return finishGeneratedFiles(result.Root, files, check, "generated vNext contracts are stale")
+}
+
+func renderGoContractFiles(result *Result) ([]generatedFile, error) {
+	if err := validateInvariantPackageABIs(result); err != nil {
+		return nil, err
+	}
 	modules := localModules(result.Manifest.Resources)
-	generated := GenerateResult{Changed: []string{}, Checked: []string{}}
 	var files []generatedFile
 	for _, module := range modules {
 		moduleFiles, err := generateModuleContract(result, module)
 		if err != nil {
-			return generated, err
+			return nil, err
 		}
 		files = append(files, moduleFiles...)
 	}
 	bootstrapOverlay, err := goGenerationBootstrapOverlay(result, files)
 	if err != nil {
-		return generated, err
+		return nil, err
 	}
 	bridgeFiles, err := generateLegacyBridgeArtifacts(result, nativeApplicationServices(result), bootstrapOverlay)
 	if err != nil {
-		return generated, err
+		return nil, err
 	}
 	files = append(files, bridgeFiles...)
 	applicationFiles, err := generateApplicationArtifacts(result)
 	if err != nil {
-		return generated, err
+		return nil, err
 	}
 	files = append(files, applicationFiles...)
 	files, err = includeStaleGeneratedFiles(result.Root, files, goGeneratedDescriptorNames(), protectedGoGeneratedDescriptors(result))
 	if err != nil {
-		return generated, err
+		return nil, err
 	}
-	generated, err = inspectGeneratedFiles(result.Root, files)
+	return files, nil
+}
+
+func finishGeneratedFiles(root string, files []generatedFile, check bool, staleMessage string) (GenerateResult, error) {
+	generated, err := inspectGeneratedFiles(root, files)
 	if err != nil {
 		return generated, err
 	}
 	if !check && len(generated.Changed) > 0 {
-		if err := atomicWriteSet(result.Root, files); err != nil {
+		if err := atomicWriteSet(root, files); err != nil {
 			return generated, err
 		}
 	}
 	if check && len(generated.Changed) > 0 {
-		return generated, fmt.Errorf("generated vNext contracts are stale: %s", strings.Join(generated.Changed, ", "))
+		return generated, fmt.Errorf("%s: %s", staleMessage, strings.Join(generated.Changed, ", "))
 	}
 	return generated, nil
 }
@@ -260,7 +292,7 @@ func verifiedGeneratedDescriptorFiles(path string) ([]string, bool, error) {
 		}
 		artifacts = append(artifacts, generatedFile{Path: owned, Bytes: contents})
 	}
-	if artifactDigest(base, artifacts) != descriptor.ContentDigest {
+	if artifactDigest(base, artifacts) != descriptor.ContentDigest && legacyArtifactDigest(base, artifacts) != descriptor.ContentDigest {
 		return nil, false, nil
 	}
 	return append([]string(nil), descriptor.Files...), true, nil

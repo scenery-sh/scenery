@@ -32,7 +32,7 @@ type directive struct {
 }
 
 func App(root, name string) (*model.App, error) {
-	return app(root, name, nil, []string{"./..."}, nil)
+	return app(root, name, nil, []string{"./..."}, nil, false)
 }
 
 type GoTargetContext struct {
@@ -57,7 +57,7 @@ func AppWithOverlayTarget(root, name string, overlay map[string][]byte, target G
 	if len(target.Patterns) == 0 {
 		return nil, errors.New("Go target has no package patterns")
 	}
-	return app(root, name, overlay, target.Patterns, &target)
+	return app(root, name, overlay, target.Patterns, &target, false)
 }
 
 func GoTargetEnvironment(target GoTargetContext) []string {
@@ -80,6 +80,49 @@ func AppPackagesWithOverlay(root, name string, packageRoots []string, overlay ma
 	return appPackages(root, name, packageRoots, overlay)
 }
 
+// AppPackagesWithTarget loads bounded legacy package roots using the exact Go
+// context declared by their migration target.
+func AppPackagesWithTarget(root, name string, packageRoots []string, target GoTargetContext) (*model.App, error) {
+	return appPackagesWithTarget(root, name, packageRoots, target, false)
+}
+
+// InspectPackagesWithTarget loads bounded packages even when they contain no
+// legacy directives. It is used to prove native ownership is free of hidden
+// package-init registrations.
+func InspectPackagesWithTarget(root, name string, packageRoots []string, target GoTargetContext) (*model.App, error) {
+	return appPackagesWithTarget(root, name, packageRoots, target, true)
+}
+
+func appPackagesWithTarget(root, name string, packageRoots []string, target GoTargetContext, allowEmpty bool) (*model.App, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	moduleRoot, err := filepath.Abs(target.ModuleRoot)
+	if err != nil {
+		return nil, err
+	}
+	patterns := make([]string, 0, len(packageRoots))
+	for _, packageRoot := range packageRoots {
+		clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(packageRoot)))
+		if clean == "" || clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+			return nil, fmt.Errorf("legacy package root must be a bounded workspace-relative directory: %q", packageRoot)
+		}
+		absolute := filepath.Join(root, filepath.FromSlash(clean))
+		relative, err := filepath.Rel(moduleRoot, absolute)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("legacy package root is outside the declared Go module: %q", packageRoot)
+		}
+		patterns = append(patterns, "./"+filepath.ToSlash(relative)+"/...")
+	}
+	if len(patterns) == 0 {
+		return &model.App{Name: name, Root: root}, nil
+	}
+	slices.Sort(patterns)
+	target.Patterns = slices.Compact(patterns)
+	return app(root, name, nil, target.Patterns, &target, allowEmpty)
+}
+
 func appPackages(root, name string, packageRoots []string, overlay map[string][]byte) (*model.App, error) {
 	patterns := make([]string, 0, len(packageRoots))
 	for _, packageRoot := range packageRoots {
@@ -94,10 +137,10 @@ func appPackages(root, name string, packageRoots []string, overlay map[string][]
 	}
 	slices.Sort(patterns)
 	patterns = slices.Compact(patterns)
-	return app(root, name, overlay, patterns, nil)
+	return app(root, name, overlay, patterns, nil, false)
 }
 
-func app(root, name string, overlay map[string][]byte, patterns []string, target *GoTargetContext) (*model.App, error) {
+func app(root, name string, overlay map[string][]byte, patterns []string, target *GoTargetContext, allowEmpty bool) (*model.App, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName |
 			packages.NeedFiles |
@@ -125,7 +168,7 @@ func app(root, name string, overlay map[string][]byte, patterns []string, target
 	if err != nil {
 		return nil, err
 	}
-	if overlay != nil || target != nil {
+	if (overlay != nil || target != nil) && !allowEmpty {
 		var loadErrors []string
 		for _, pkg := range pkgs {
 			for _, pkgErr := range pkg.Errors {
@@ -311,7 +354,7 @@ func app(root, name string, overlay map[string][]byte, patterns []string, target
 	if len(authHandlers) > 1 {
 		errs = append(errs, "only one scenery:authhandler is supported per application")
 	}
-	if !foundDirective && len(app.Runtime) == 0 {
+	if !allowEmpty && !foundDirective && len(app.Runtime) == 0 {
 		errs = append(errs, "no scenery directives found in application")
 	}
 	if len(authHandlers) == 1 {

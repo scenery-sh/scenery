@@ -11,7 +11,7 @@ export const sceneryClientMetadata = freezeMetadata({
     "scenery.http-codec/v1"
   ],
   "compatibilityCatalog": "scenery.compatibility-core/v1",
-  "contractRevision": "sha256:9a104e83809582918fabcdac87e9adf5d15ac22ebd09ed283941ef4e3915f38f",
+  "contractRevision": "sha256:d3766e1e90832fd787c21553dfe70e52ae79c365c3cb0fb83078c97d849bf836",
   "gateways": [
     "http_gateway.public_api"
   ],
@@ -24,7 +24,7 @@ export const sceneryClientMetadata = freezeMetadata({
       "processScene"
     ]
   },
-  "packageVersionRecommendation": "initial",
+  "packageVersionRecommendation": "major",
   "profileDigests": {
     "scenery.http-codec/v1": "sha256:d3c1dcffb81fa67bb8701bff9987bb72f3693f60934d53e30145dee18b5d4dd0",
     "scenery.typescript-client/v1": "sha256:e43afd6807a243334455e7c99b089abddcdd425866e85e29df3bca4fe674bc01"
@@ -40,5 +40,5 @@ export const sceneryClientMetadata = freezeMetadata({
   ],
   "sourceEdition": "2027",
   "target": "app/typescript_client/public_api",
-  "typescriptClientRevision": "sha256:30fc81c4f97438fb0789d214aa78aabbc1a5e880b5ec1165c3868c5a7ae9c690"
+  "typescriptClientRevision": "sha256:642815b18e6950b13f255bdf46b38b1d3797c06fcbc98664d72a58ec737e32cf"
 } as const);

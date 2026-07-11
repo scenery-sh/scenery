@@ -148,9 +148,9 @@ func validateHTTPEffectiveLimits(binding, gateway Resource, httpSpec map[string]
 	for name, gatewayValue := range gatewayTimeouts {
 		gatewayDuration, gatewayErr := scenery.ParseDuration(stringValue(gatewayValue))
 		bindingDuration, bindingErr := scenery.ParseDuration(stringValue(bindingTimeouts[name]))
-		if gatewayErr != nil || bindingErr != nil || bindingDuration < 0 {
+		if gatewayErr != nil || bindingErr != nil || bindingDuration.Sign() < 0 || !gatewayDuration.Nanoseconds().IsInt64() || !bindingDuration.Nanoseconds().IsInt64() {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2122", Severity: "error", Message: "HTTP timeout " + name + " is invalid", Address: binding.Address})
-		} else if bindingDuration > gatewayDuration {
+		} else if bindingDuration.Cmp(gatewayDuration) > 0 {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2123", Severity: "error", Message: "HTTP binding timeout " + name + " cannot widen its gateway", Address: binding.Address})
 		}
 	}

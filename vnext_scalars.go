@@ -215,76 +215,85 @@ func ParseDuration(value string) (Duration, error) {
 	unsigned := strings.TrimPrefix(value, "-")
 	matches := durationPattern.FindAllStringSubmatchIndex(unsigned, -1)
 	if len(matches) == 0 {
-		return 0, fmt.Errorf("invalid duration %q", value)
+		return Duration{}, fmt.Errorf("invalid duration %q", value)
 	}
 	position := 0
 	var total big.Int
 	units := map[string]int64{"ns": 1, "us": 1_000, "ms": 1_000_000, "s": int64(time.Second), "m": int64(time.Minute), "h": int64(time.Hour), "d": int64(24 * time.Hour), "w": int64(7 * 24 * time.Hour)}
 	for _, match := range matches {
 		if match[0] != position {
-			return 0, fmt.Errorf("invalid duration %q", value)
+			return Duration{}, fmt.Errorf("invalid duration %q", value)
 		}
 		position = match[1]
 		count := new(big.Rat)
 		if _, ok := count.SetString(unsigned[match[2]:match[3]]); !ok {
-			return 0, fmt.Errorf("invalid duration %q", value)
+			return Duration{}, fmt.Errorf("invalid duration %q", value)
 		}
 		count.Mul(count, new(big.Rat).SetInt64(units[unsigned[match[4]:match[5]]]))
 		if !count.IsInt() {
-			return 0, fmt.Errorf("duration is not an exact nanosecond")
+			return Duration{}, fmt.Errorf("duration is not an exact nanosecond")
 		}
 		total.Add(&total, count.Num())
 	}
-	if position != len(unsigned) || !total.IsInt64() {
-		return 0, fmt.Errorf("duration out of range")
+	if position != len(unsigned) {
+		return Duration{}, fmt.Errorf("invalid duration %q", value)
 	}
-	result := time.Duration(total.Int64())
 	if negative {
-		result = -result
+		total.Neg(&total)
 	}
-	return Duration(result), nil
+	return Duration{nanoseconds: total}, nil
 }
 
 func (value Duration) String() string {
-	duration := time.Duration(value)
-	negative := duration < 0
-	if negative {
-		duration = -duration
+	remaining := new(big.Int).Set(&value.nanoseconds)
+	negative := remaining.Sign() < 0
+	remaining.Abs(remaining)
+	divide := func(unit int64) *big.Int {
+		quotient, remainder := new(big.Int), new(big.Int)
+		quotient.QuoRem(remaining, big.NewInt(unit), remainder)
+		remaining = remainder
+		return quotient
 	}
-	days := duration / (24 * time.Hour)
-	duration %= 24 * time.Hour
-	hours := duration / time.Hour
-	duration %= time.Hour
-	minutes := duration / time.Minute
-	duration %= time.Minute
-	seconds := duration / time.Second
-	nanos := duration % time.Second
+	days := divide(int64(24 * time.Hour))
+	hours := divide(int64(time.Hour))
+	minutes := divide(int64(time.Minute))
+	seconds := divide(int64(time.Second))
+	nanos := remaining.Int64()
 	var b strings.Builder
 	if negative {
 		b.WriteByte('-')
 	}
 	b.WriteByte('P')
-	if days > 0 {
-		fmt.Fprintf(&b, "%dD", days)
+	if days.Sign() > 0 {
+		b.WriteString(days.String())
+		b.WriteByte('D')
 	}
-	if duration == 0 && days > 0 {
+	if hours.Sign() == 0 && minutes.Sign() == 0 && seconds.Sign() == 0 && nanos == 0 && days.Sign() > 0 {
 		return b.String()
 	}
 	b.WriteByte('T')
-	if hours > 0 {
-		fmt.Fprintf(&b, "%dH", hours)
+	if hours.Sign() > 0 {
+		b.WriteString(hours.String())
+		b.WriteByte('H')
 	}
-	if minutes > 0 {
-		fmt.Fprintf(&b, "%dM", minutes)
+	if minutes.Sign() > 0 {
+		b.WriteString(minutes.String())
+		b.WriteByte('M')
 	}
 	if nanos > 0 {
-		fmt.Fprintf(&b, "%d.%sS", seconds, strings.TrimRight(fmt.Sprintf("%09d", nanos), "0"))
+		fmt.Fprintf(&b, "%s.%sS", seconds.String(), strings.TrimRight(fmt.Sprintf("%09d", nanos), "0"))
 		return b.String()
 	}
-	if seconds > 0 || (days == 0 && hours == 0 && minutes == 0) {
-		fmt.Fprintf(&b, "%dS", seconds)
+	if seconds.Sign() > 0 || (days.Sign() == 0 && hours.Sign() == 0 && minutes.Sign() == 0) {
+		b.WriteString(seconds.String())
+		b.WriteByte('S')
 	}
 	return b.String()
+}
+func (value Duration) Nanoseconds() *big.Int { return new(big.Int).Set(&value.nanoseconds) }
+func (value Duration) Sign() int             { return value.nanoseconds.Sign() }
+func (value Duration) Cmp(other Duration) int {
+	return value.nanoseconds.Cmp(&other.nanoseconds)
 }
 func (value Duration) MarshalJSON() ([]byte, error) { return json.Marshal(value.String()) }
 func (value *Duration) UnmarshalJSON(data []byte) error {
@@ -303,12 +312,12 @@ func (value *Duration) UnmarshalJSON(data []byte) error {
 func decodeJSONDuration(value string) (Duration, error) {
 	original := value
 	if !strings.HasPrefix(value, "P") && !strings.HasPrefix(value, "-P") {
-		return 0, fmt.Errorf("invalid ISO 8601 duration %q", value)
+		return Duration{}, fmt.Errorf("invalid ISO 8601 duration %q", value)
 	}
 	negative := strings.HasPrefix(value, "-")
 	value = strings.TrimPrefix(value, "-")
 	if !strings.HasPrefix(value, "P") {
-		return 0, fmt.Errorf("invalid ISO 8601 duration")
+		return Duration{}, fmt.Errorf("invalid ISO 8601 duration")
 	}
 	value = strings.TrimPrefix(value, "P")
 	datePart, timePart, hasTime := strings.Cut(value, "T")
@@ -318,7 +327,7 @@ func decodeJSONDuration(value string) (Duration, error) {
 	}
 	if datePart != "" {
 		if !strings.HasSuffix(datePart, "D") || strings.ContainsAny(datePart, "YMW") {
-			return 0, fmt.Errorf("duration calendar units are forbidden")
+			return Duration{}, fmt.Errorf("duration calendar units are forbidden")
 		}
 		source.WriteString(strings.TrimSuffix(datePart, "D"))
 		source.WriteByte('d')
@@ -327,7 +336,7 @@ func decodeJSONDuration(value string) (Duration, error) {
 		for _, unit := range []struct{ marker, suffix string }{{"H", "h"}, {"M", "m"}, {"S", "s"}} {
 			if index := strings.Index(timePart, unit.marker); index >= 0 {
 				if index == 0 {
-					return 0, fmt.Errorf("invalid ISO 8601 duration")
+					return Duration{}, fmt.Errorf("invalid ISO 8601 duration")
 				}
 				source.WriteString(timePart[:index])
 				source.WriteString(unit.suffix)
@@ -336,11 +345,11 @@ func decodeJSONDuration(value string) (Duration, error) {
 		}
 	}
 	if timePart != "" || source.Len() == 0 || source.String() == "-" {
-		return 0, fmt.Errorf("invalid ISO 8601 duration")
+		return Duration{}, fmt.Errorf("invalid ISO 8601 duration")
 	}
 	parsed, err := ParseDuration(source.String())
 	if err != nil || parsed.String() != original {
-		return 0, fmt.Errorf("invalid canonical ISO 8601 duration %q", original)
+		return Duration{}, fmt.Errorf("invalid canonical ISO 8601 duration %q", original)
 	}
 	return parsed, nil
 }
@@ -348,32 +357,39 @@ func decodeJSONDuration(value string) (Duration, error) {
 func ParseSize(value string) (Size, error) {
 	units := []struct {
 		suffix     string
-		multiplier uint64
+		multiplier int64
 	}{{"TiB", 1 << 40}, {"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10}, {"TB", 1_000_000_000_000}, {"GB", 1_000_000_000}, {"MB", 1_000_000}, {"kB", 1_000}, {"B", 1}}
 	for _, unit := range units {
 		if strings.HasSuffix(value, unit.suffix) {
-			count, err := strconv.ParseUint(strings.TrimSuffix(value, unit.suffix), 10, 64)
-			if err != nil || count > ^uint64(0)/unit.multiplier {
-				return 0, fmt.Errorf("invalid size %q", value)
+			raw := strings.TrimSuffix(value, unit.suffix)
+			if raw == "" || strings.Trim(raw, "0123456789") != "" {
+				return Size{}, fmt.Errorf("invalid size %q", value)
 			}
-			return Size(count * unit.multiplier), nil
+			var count big.Int
+			if _, ok := count.SetString(raw, 10); !ok {
+				return Size{}, fmt.Errorf("invalid size %q", value)
+			}
+			count.Mul(&count, big.NewInt(unit.multiplier))
+			return Size{bytes: count}, nil
 		}
 	}
-	return 0, fmt.Errorf("invalid size %q", value)
+	return Size{}, fmt.Errorf("invalid size %q", value)
 }
+func (value Size) String() string  { return value.bytes.String() }
+func (value Size) Bytes() *big.Int { return new(big.Int).Set(&value.bytes) }
 func (value Size) MarshalJSON() ([]byte, error) {
-	return json.Marshal(strconv.FormatUint(uint64(value), 10))
+	return json.Marshal(value.String())
 }
 func (value *Size) UnmarshalJSON(data []byte) error {
 	var text string
 	if err := json.Unmarshal(data, &text); err != nil {
 		return err
 	}
-	parsed, err := strconv.ParseUint(text, 10, 64)
-	if err != nil || strconv.FormatUint(parsed, 10) != text {
+	parsed, err := ParseSize(text + "B")
+	if err != nil || parsed.String() != text {
 		return fmt.Errorf("invalid canonical size %q", text)
 	}
-	*value = Size(parsed)
+	*value = parsed
 	return nil
 }
 

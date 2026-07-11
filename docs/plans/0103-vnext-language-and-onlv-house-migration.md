@@ -23,6 +23,9 @@ Implement the migration-capable first release of Scenery language edition 2027, 
 - [x] 2026-07-10 - Closed the second specification review findings with recursive authored-block schemas, UTF-8 TypeScript set ordering, compile-time streaming rejection, normative HTTP limits/outcomes, receipt-backed migration status, and the edition-defined glob matcher.
 - [x] 2026-07-11 - Completed the two-axis standards/specification review, thermo-nuclear maintainability review, and ponytail review/audit; closed every actionable finding.
 - [x] 2026-07-11 - Completed final full-suite, 34-schema self-harness, ONLV repository/app/browser validation, exact ownership verification, and a fresh detached `--wait ready` authenticated House proof.
+- [x] 2026-07-11 - Re-audited the delivered revisions against the independent review and closed the residual arbitrary-precision scalar, artifact framing, path confinement, command-wide generation transaction, declared-target legacy lowering, static compatibility truth, generated-client server proof, and native-runtime ownership gaps.
+- [x] 2026-07-11 - Repeated uncached Scenery/ONLV suites, fixture generation checks, the 14-case exact-codec suite plus a generated-client/generated-Go-server integration, both harnesses, browser-client checks, native durable inspection, and a fresh authenticated source-local runtime proof after the residual fixes.
+- [x] 2026-07-11 - Closed the final independent review findings: stable public system errors, arbitrary-precision formatting, normative bridge gateway/namespace/config lifecycle and normalized paths, symbol-level hidden-builder detection, explicit House constructor config, durable external-name revision safety, and a real generated Go reference server.
 
 ## Surprises & Discoveries
 
@@ -35,6 +38,10 @@ Implement the migration-capable first release of Scenery language edition 2027, 
 - Independent specification review found five wire-boundary defects that focused happy-path tests had missed: nominal same-status response matching, incomplete multipart enforcement, deny-all authorization misclassification, slash aliasing, and non-canonical set mappings. A second pass then found Fetch's inability to preserve repeated request-header lines, response/request compatibility leakage, and `std.authorization.none` still being rejected by compilation. Each now has a focused regression.
 - A source-declared retired native service was incorrectly made dependent on machine-local activation receipts, and detached readiness shared the 30-second registration deadline. Real ONLV validation exposed both: retired House now remains ready after a clean clone, while `--wait ready` has a separate two-minute budget and preserves the real child PID in errors.
 - The first complete self-harness found one schema drift: an empty manifest diagnostic set serialized as `null`. All manifest views now emit `[]`, and the repeated self-harness validated all 34 schema examples.
+- Reopening the completed milestone against the reviewed revisions exposed defects that happy-path conformance did not: machine-width public scalar storage, ambiguous multi-file digest framing, per-family generation commits, host-context legacy parsing, and native packages that could still hide legacy runtime builders. Focused adversarial regressions now cover each boundary.
+- The bridge schema had parsed `namespace` without using it, rejected its own normative `legacy_gateway` example, and could not continue after the shared config was removed. Lowering now derives addresses from the declared namespace, routes through the explicit default gateway, accepts omission only after the config disappears, and rejects non-normalized manifest paths.
+- A package-import ban was too broad for native handlers that legitimately use non-registering durable/cron APIs. Hidden ownership detection now resolves only `durable.NewTask` and `cron.NewJob` symbols through `go/types`, including dot imports and constructor aliases.
+- A hand-written Bun server was not proof of generated server compatibility. The build integration now starts the compiled generated Scenery Go application and runs its generated TypeScript client against that process.
 
 ## Decision Log
 
@@ -68,12 +75,27 @@ Implement the migration-capable first release of Scenery language edition 2027, 
 - Decision: Treat the bridge's product-level release gates as conditional on advertising global no-flag-day migration or bridge retirement, neither of which this mixed-mode plan claims.
   Rationale: The requested acceptance state explicitly keeps forty-three ONLV services legacy-owned. House is fully retired native, while app-wide finish and global bridge-retirement evidence remain independently enforced.
   Date/Author: 2026-07-11 / Codex.
+- Decision: Static legacy lowering may describe verified shape but must classify semantic equivalence and migration disposition as advisory until an exact frontend-and-codec behavioral fixture passes.
+  Rationale: Similar graph fields are not executable parity evidence, and generated metadata must never manufacture a fixture-catalog digest.
+  Date/Author: 2026-07-11 / Codex.
+- Decision: A migration-owned native package may not hide undeclared legacy models, pages, or runtime builders; House background work is declared as native durable executions and dispatched through generated execution addresses. Explicit bridge-visible `legacy_go_v0` handlers remain permitted until retirement.
+  Rationale: Hidden `durable.NewTask` registrations create a second lifecycle owner outside the canonical graph even when HTTP ownership is native.
+  Date/Author: 2026-07-11 / Codex.
+- Decision: One `scenery generate` invocation validates and commits every selected Go and TypeScript family as one confined artifact transaction.
+  Rationale: A later family failure must not leave earlier generated roots updated, and all output roots must be explicitly workspace-managed before any write.
+  Date/Author: 2026-07-11 / Codex.
+- Decision: Make bridge identity and routing entirely manifest-driven: namespace controls lowered addresses, `legacy_gateway "default"` controls HTTP bindings, and `legacy_config` disappears only with the shared config itself.
+  Rationale: Parsed-but-unused identity and a hard-coded gateway contradict the bounded bridge and cannot represent the normative lifecycle.
+  Date/Author: 2026-07-11 / Codex.
+- Decision: Preserve legacy durable task names through `external_name`, while treating `revision` as the persisted input ABI and requiring an explicit drain or migration on incompatible changes.
+  Rationale: ONLV's process worker added a concurrency envelope; revision 2 plus a database-proven empty House queue prevents revision-1 rows from being decoded as the new shape.
+  Date/Author: 2026-07-11 / Codex.
 
 ## Outcomes & Retrospective
 
-Completed on 2026-07-11. The complete six-specification implementation and ONLV migration are present. All eighteen House handlers use generated native ABIs with no House legacy adapter; the merged graph contains exactly forty-four services with House as the sole native owner and forty-three explicit legacy owners. `migrate verify house` reports contract, operational, readiness, and retirement true with zero remaining adapters. Generated Go, TypeScript, application, selection, and descriptor artifacts are byte-current.
+Completed on 2026-07-11. The complete six-specification implementation and ONLV migration are present. All eighteen House HTTP handlers and both House background workers use generated native ABIs and execution addresses with no House legacy adapter or hidden runtime registration; the merged graph contains exactly forty-four services with House as the sole native owner and forty-three explicit legacy owners. `migrate verify house` reports contract, operational, readiness, and retirement true with zero remaining adapters. Generated Go, TypeScript, application, selection, and descriptor artifacts are byte-current.
 
-Final validation passed `go test ./...`, isolated and full `go test ./cmd/scenery`, Bun's 14-test exact-codec suite, generated-client TypeScript checking, docs inspection with zero missing/stale/index drift, and `scenery harness self --summary --write` with `ok=true`, 34/34 schemas, ten fixtures, Postgres/runtime probes, and warning-only timing/known architecture debt. ONLV passed source-local fmt/check/compile/migrate/generate checks, `go test ./house/...`, `go test ./...`, `just repo-harness`, the app harness, and Next lint/typecheck/build. A fresh detached `scenery up --wait ready` returned `running`; a verified disposable user received `/auth/me` 200, and authenticated `POST /api/house/process` with `{}` returned HTTP 400, `application/problem+json`, `invalid_argument`, and `folder_name is required`. The verified detached runtime remains available.
+Final validation passed uncached `go test ./...`, isolated `go test ./cmd/scenery`, Bun's 14-test exact-codec suite, the generated TypeScript client against the compiled generated Go server, generated-client TypeScript checking, docs inspection with zero missing/stale/index drift, and `scenery harness self --summary --write` with `ok=true`, 34/34 schemas, ten fixtures, Postgres/runtime probes, and warning-only timing/known architecture debt. ONLV passed source-local fmt/check/compile/migrate/generate checks, `go test ./house/...`, uncached `go test ./...`, `just repo-harness`, the app harness, and Next lint/Deno check/build. Durable inspection reports both House tasks from `house/scenery.package.scn` and no House Go runtime builder. The process task preserves `house.ProcessRoofmapnet/v1` at revision 2 with concurrency 1; a direct database query returned zero House durable jobs before the revision change. A fresh detached `scenery up --wait ready` returned `running`; an authenticated `POST /api/house/process` with `{}` returned HTTP 400, `application/problem+json`, `invalid_argument`, and the sanitized message `invalid request`. The verified detached runtime remains available.
 
 ## Context and Orientation
 

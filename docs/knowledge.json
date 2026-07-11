@@ -244,7 +244,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Completed ExecPlan implementing the six-specification edition-2027 compiler/runtime surface and migrating all eighteen ONLV House operations to retired native ABIs while forty-three non-House services remain explicitly legacy-owned.",
+      "summary": "Completed ExecPlan implementing the six-specification edition-2027 compiler/runtime surface and migrating all eighteen ONLV House HTTP operations plus two durable workers to retired native ownership while forty-three non-House services remain explicitly legacy-owned.",
       "tags": [
         "plans",
         "execplans",
@@ -263,7 +263,7 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
+      "last_reviewed": "2026-07-11",
       "review_after": "2026-08-09",
       "summary": "Normative umbrella design specification for Scenery language edition 2027, its canonical typed resource graph, profiles, CLI, agent interfaces, revisions, Go ABI summary, and representative House migration.",
       "tags": [

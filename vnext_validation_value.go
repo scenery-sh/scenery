@@ -50,7 +50,9 @@ func contractValidationReflectValue(value reflect.Value, typeValue contractWireT
 		case DateTime:
 			return contractValidationDateTime(time.Time(typed)), nil
 		case Duration:
-			return new(big.Rat).SetInt64(int64(typed)), nil
+			return new(big.Rat).SetInt(new(big.Int).Set(&typed.nanoseconds)), nil
+		case Size:
+			return new(big.Rat).SetInt(new(big.Int).Set(&typed.bytes)), nil
 		case Date:
 			parsed, err := time.Parse("2006-01-02", string(typed))
 			if err != nil {

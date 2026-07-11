@@ -9,6 +9,14 @@ language {
   ]
 }
 
+workspace {
+  managed_generated_roots = [
+    "clients/generated/public_api",
+    "house/scenerycontract",
+    "internal/scenerygen",
+  ]
+}
+
 application "clean_tech" {
   version = "2.0.0-dev"
 }

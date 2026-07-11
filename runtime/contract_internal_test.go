@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -68,8 +69,13 @@ func TestContractInternalBindingEnforcesVisibilityAuthorizationAndPipeline(t *te
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := InvokeContractBindingFrom(ctx, "house/binding/panic", "house", invocation, nil); err == nil || !strings.Contains(err.Error(), "panic in contract invocation") {
-		t.Fatalf("pipeline recovery error = %v", err)
+	if _, err := InvokeContractBindingFrom(ctx, "house/binding/panic", "house", invocation, nil); err == nil {
+		t.Fatal("pipeline recovery returned no error")
+	} else {
+		var transport *ContractTransportError
+		if !errors.As(err, &transport) || transport.Error() != "contract implementation failure" || transport.Cause == nil || !strings.Contains(transport.Cause.Error(), "panic in contract invocation") {
+			t.Fatalf("pipeline recovery error = %#v", err)
+		}
 	}
 }
 
@@ -99,7 +105,7 @@ func TestContractDurableRegistrationCarriesExactRevisionAndReceipt(t *testing.T)
 	t.Cleanup(func() { global = previous })
 
 	registration := ContractDurableRegistration{
-		Address: "house/execution/process", EngineAddress: "app/execution_engine/tasks", Service: "house", Revision: 7,
+		Address: "house/execution/process", ExternalName: "house.Process/v1", EngineAddress: "app/execution_engine/tasks", Service: "house", Revision: 7,
 		DefaultTimeout: 40 * time.Minute, DefaultLease: 20 * time.Minute, MaxAttempts: 6,
 		RetryInitial: 10 * time.Second, RetryMax: 2 * time.Minute, RetryBackoff: 2,
 		SuccessRetention: 7 * 24 * time.Hour, FailureRetention: 30 * 24 * time.Hour,
@@ -113,7 +119,7 @@ func TestContractDurableRegistrationCarriesExactRevisionAndReceipt(t *testing.T)
 		t.Fatal("duplicate durable execution was accepted")
 	}
 	tasks := listDurableTasks()
-	if len(tasks) != 1 || tasks[0].Name != registration.Address || tasks[0].Version != 7 || tasks[0].DefaultTimeout != 40*time.Minute || tasks[0].SuccessRetention != 7*24*time.Hour || tasks[0].MaxConcurrency != 2 || tasks[0].DeduplicationRetention != 24*time.Hour {
+	if len(tasks) != 1 || tasks[0].Name != registration.ExternalName || tasks[0].HandlerRef != registration.Address || tasks[0].Version != 7 || tasks[0].DefaultTimeout != 40*time.Minute || tasks[0].SuccessRetention != 7*24*time.Hour || tasks[0].MaxConcurrency != 2 || tasks[0].DeduplicationRetention != 24*time.Hour {
 		t.Fatalf("tasks = %#v", tasks)
 	}
 	receipt := contractExecutionReceipt(registration, "job-42")

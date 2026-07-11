@@ -17,7 +17,7 @@ truth for stable, beta, dev-only, and compatibility-mode classification.
 Shipped:
 
 - Implemented the complete supported edition-2027 surface from the six normative specifications: compiler/graph/revisions, compatibility, immutable changes and deployments, exact HTTP and TypeScript codecs, generated Go/application composition, durable/events/data/UI profiles, agent operations, and the bounded legacy bridge.
-- Migrated all eighteen ONLV House operations to native generated ABIs and retired every House legacy adapter while preserving forty-three explicit non-House legacy service owners in one mixed graph/runtime.
+- Migrated all eighteen ONLV House HTTP operations and both House durable workers to native generated ABIs, retired every House legacy adapter and hidden runtime registration, and preserved forty-three explicit non-House legacy service owners in one mixed graph/runtime.
 - Added exact generated Go/TypeScript/client-selection artifacts, strict schemas and fixture coverage, clean-clone retired-service readiness, and a readiness waiter that accommodates real application setup without canceling the detached child.
 
 Validation:

@@ -2,7 +2,7 @@
   "api_version": "scenery.package-generated.v1",
   "artifact_kind": "go_package_contract",
   "capability_interface_abi_ranges": {},
-  "content_digest": "sha256:b8628d398e46e3c5cd998299b8ffede7801143c5d68f760eea8efc768fc901c0",
+  "content_digest": "sha256:f8e8f0c69de4a04888be27ac0a1edcdae32f1a6239e6dad530e5ead8883f123a",
   "covered": [
     "binding.process_scene_cli",
     "binding.process_scene_http",

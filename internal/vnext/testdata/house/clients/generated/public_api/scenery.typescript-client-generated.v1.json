@@ -111,7 +111,7 @@
       }
     ]
   },
-  "content_digest": "sha256:4756b3e7832f218f1a2d016f7371e6070d929581befaefd1ab75f249263eb372",
+  "content_digest": "sha256:b74d04d46059a0af710d7fa45d6db75a4022257c13099d83746715c0d1cc6877",
   "contract_revision": "sha256:21fb90797a215784da7c0ca765e4b8378fc6a65696481ae51492bdb5dfde89ed",
   "covered_bindings": [],
   "covered_gateways": [

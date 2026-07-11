@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -72,11 +73,7 @@ type ContractTransportError struct {
 }
 
 func ContractSystemError(err error) error {
-	message := "contract implementation failure"
-	if err != nil {
-		message = err.Error()
-	}
-	return &ContractTransportError{Outcome: "system.internal", Status: http.StatusInternalServerError, Message: message, Cause: err}
+	return &ContractTransportError{Outcome: "system.internal", Status: http.StatusInternalServerError, Message: "contract implementation failure", Cause: err}
 }
 
 func (e *ContractTransportError) Error() string {
@@ -90,6 +87,14 @@ func (e *ContractTransportError) Error() string {
 }
 
 func (e *ContractTransportError) Unwrap() error { return e.Cause }
+
+func contractDiagnosticError(err error) error {
+	var transport *ContractTransportError
+	if errors.As(err, &transport) && transport.Outcome == "system.internal" && transport.Cause != nil {
+		return transport.Cause
+	}
+	return err
+}
 
 func DecodeContractJSON[T any](request *http.Request) (T, error) {
 	return DecodeContractInput[T](request, nil, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json"}})

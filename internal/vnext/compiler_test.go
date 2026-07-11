@@ -1,7 +1,9 @@
 package vnext
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -370,6 +372,258 @@ func TestMixedModeRequiresExplicitTarget(t *testing.T) {
 	}
 }
 
+func TestMixedModeRejectsAConfigOtherThanTheDeclaredAppConfig(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"clean-tech"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "other.json"), []byte(`{"name":"wrong-app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	migration := `migration {
+  frontend = "scenery.legacy.v0"
+  legacy_config = "other.json"
+  native_service "house" { module = module.house }
+}`
+	if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte(migration), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Valid() || !hasDiagnostic(result.Diagnostics, "SCN5106") {
+		t.Fatalf("diagnostics: %#v", result.Diagnostics)
+	}
+}
+
+func TestMixedModeRejectsNonNormalizedManifestPaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		migration  string
+		diagnostic string
+	}{
+		{
+			name: "legacy config",
+			migration: `migration {
+  frontend = "scenery.legacy.v0"
+  legacy_config = "./.scenery.json"
+  native_service "house" { module = module.house }
+}`,
+			diagnostic: "SCN5106",
+		},
+		{
+			name: "legacy package",
+			migration: `migration {
+  frontend = "scenery.legacy.v0"
+  legacy_config = ".scenery.json"
+  legacy_gateway "default" { target = http_gateway.public_api }
+  legacy_service "house" {
+    package = "./house/../house"
+    namespace = "house"
+    target = go_target.development
+  }
+}`,
+			diagnostic: "SCN5105",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			copyTree(t, filepath.Join("testdata", "house"), root)
+			if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"clean-tech"}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte(test.migration), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Compile(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Valid() || !hasDiagnostic(result.Diagnostics, test.diagnostic) {
+				t.Fatalf("diagnostics = %#v", result.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestMixedModeLowersLegacyPackagesWithTheirDeclaredGoTarget(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goMod := "module example.test/clean-tech\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + filepath.ToSlash(repositoryRoot) + "\n"
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"clean-tech"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "jobs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyService := `//go:build legacytarget
+
+package jobs
+
+//scenery:service
+type Service struct{}
+`
+	if err := os.WriteFile(filepath.Join(root, "jobs", "service.go"), []byte(legacyService), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rootSource := filepath.Join(root, "scenery.scn")
+	source, err := os.ReadFile(rootSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source = append(source, []byte(`
+go_module "application" {
+  root = "."
+  import_path = "example.test/clean-tech"
+}
+go_toolchain "application" {
+  version = "1.26.3"
+  experiments = []
+}
+go_target "legacy" {
+  role = "development"
+  platform = "host"
+  toolchain = go_toolchain.application
+  module = go_module.application
+  packages = ["./jobs"]
+  build_tags = ["legacytarget"]
+  cgo = "disabled"
+}
+`)...)
+	if err := os.WriteFile(rootSource, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	migration := `migration {
+  frontend = "scenery.legacy.v0"
+  legacy_config = ".scenery.json"
+  legacy_gateway "default" { target = http_gateway.public_api }
+  legacy_service "jobs" {
+    package = "./jobs"
+    namespace = "legacy_jobs"
+    target = go_target.legacy
+  }
+  native_service "house" { module = module.house }
+}`
+	if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte(migration), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ContractStatus != "valid" || result.Manifest == nil {
+		t.Fatalf("compile: %#v", result.Diagnostics)
+	}
+	if resourcesByAddress(result.Manifest)["legacy_jobs/service/jobs"].Address == "" || len(result.Migration.LegacyCandidates["jobs"]) == 0 {
+		t.Fatalf("declared-target legacy service was not lowered: %#v", result.Manifest.Resources)
+	}
+	if err := os.Remove(filepath.Join(root, ".scenery.json")); err != nil {
+		t.Fatal(err)
+	}
+	migration = strings.Replace(migration, "  legacy_config = \".scenery.json\"\n", "", 1)
+	if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte(migration), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withoutSharedConfig, err := Compile(root)
+	if err != nil || !withoutSharedConfig.Valid() {
+		t.Fatalf("compile after shared legacy config removal: %v %#v", err, withoutSharedConfig.Diagnostics)
+	}
+}
+
+func TestStaticLegacyProjectionDoesNotClaimBehavioralExactness(t *testing.T) {
+	resource := legacyResource("jobs", "operation", "run", map[string]any{}, Origin{}, nil, "legacy_exact", "verified")
+	if resource.Compatibility == nil || resource.Compatibility.Semantics != "advisory" || resource.Compatibility.MigrationDisposition != "advisory" {
+		t.Fatalf("compatibility = %#v", resource.Compatibility)
+	}
+	binding := legacyHTTPBindingSpec(migrationCandidateOperation{Name: "run", Path: "/run", Access: "public"}, "jobs/operation/run", "run_direct", "POST", "app/http_gateway/legacy_api")
+	if refString(binding["gateway"]) != "app/http_gateway/legacy_api" {
+		t.Fatalf("legacy gateway = %#v", binding["gateway"])
+	}
+	httpSpec, _ := binding["http"].(map[string]any)
+	if httpSpec["guarantee"] != "advisory" {
+		t.Fatalf("legacy HTTP guarantee = %#v", httpSpec["guarantee"])
+	}
+}
+
+func TestNativeMigrationServiceRejectsHiddenLegacyRuntimeDeclarations(t *testing.T) {
+	tests := map[string]string{
+		"direct": `package bridge
+
+import (
+  "context"
+  "scenery.sh/durable"
+)
+
+var hiddenTask = durable.NewTask[string, string]("bridge.hidden/v1", durable.TaskConfig{Service: "bridge"}, func(context.Context, string) (string, error) { return "", nil })
+	`,
+		"dot import": `package bridge
+
+import (
+  "context"
+  . "scenery.sh/durable"
+)
+
+var hiddenTask = NewTask[string, string]("bridge.hidden/v1", TaskConfig{Service: "bridge"}, func(context.Context, string) (string, error) { return "", nil })
+`,
+		"constructor alias": `package bridge
+
+import (
+  "context"
+  "scenery.sh/durable"
+)
+
+var makeTask = durable.NewTask[string, string]
+var hiddenTask = makeTask("bridge.hidden/v1", durable.TaskConfig{Service: "bridge"}, func(context.Context, string) (string, error) { return "", nil })
+`,
+	}
+	for name, hidden := range tests {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			copyTree(t, filepath.Join("testdata", "bridge"), root)
+			rewriteFixtureSceneryReplace(t, root)
+			if err := os.WriteFile(filepath.Join(root, "bridge", "hidden_task.go"), []byte(hidden), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Compile(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Valid() || !hasDiagnostic(result.Diagnostics, "SCN5208") {
+				t.Fatalf("diagnostics: %#v", result.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestNativeMigrationServiceAllowsNonRegisteringDurableAPIs(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "bridge"), root)
+	rewriteFixtureSceneryReplace(t, root)
+	source := `package bridge
+
+import "scenery.sh/durable"
+
+var _ durable.TaskConfig
+`
+	if err := os.WriteFile(filepath.Join(root, "bridge", "durable_type.go"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil || !result.Valid() {
+		t.Fatalf("compile = %v diagnostics %#v", err, result.Diagnostics)
+	}
+}
+
 func TestDuplicateParameterizedRoutesConflict(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), temp)
@@ -435,6 +689,31 @@ func TestFormatPreservesCommentsAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestFormatCanonicalizesDurationBeyondMachineIntegerRange(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "scenery.scn")
+	source := `execution "huge" {
+  timeout = "9223372036854775808ns"
+}
+`
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Format(root, false); err != nil {
+		t.Fatal(err)
+	}
+	formatted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(formatted), `timeout = "15250w1d23h47m16s854ms775us808ns"`) {
+		t.Fatalf("formatted source = %s", formatted)
+	}
+	if result, err := Format(root, true); err != nil || len(result.Changed) != 0 {
+		t.Fatalf("idempotent format = %#v, %v", result, err)
+	}
+}
+
 func TestFormatPathsScopesWritesAndFormatsMigration(t *testing.T) {
 	temp := t.TempDir()
 	copyTree(t, filepath.Join("testdata", "house"), temp)
@@ -474,6 +753,52 @@ func TestFormatPathsScopesWritesAndFormatsMigration(t *testing.T) {
 	}
 	if !slices.Contains(result.Changed, "scenery.migration.scn") {
 		t.Fatalf("root format did not include migration source: %#v", result.Changed)
+	}
+}
+
+func TestFormatRejectsEscapingModuleSources(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source string
+		link   bool
+	}{
+		{name: "traversal", source: "../outside"},
+		{name: "symlink", source: "./linked", link: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parent := t.TempDir()
+			root, outside := filepath.Join(parent, "app"), filepath.Join(parent, "outside")
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(outside, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			outsidePath := filepath.Join(outside, "scenery.package.scn")
+			before := []byte("package{version=\"1\"}\n")
+			if err := os.WriteFile(outsidePath, before, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if test.link {
+				if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+					t.Skip(err)
+				}
+			}
+			source := fmt.Sprintf("language { edition = \"2027\" }\nmodule \"x\" { source = %q }\n", test.source)
+			if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte(source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Format(root, false); err == nil {
+				t.Fatal("formatter accepted an escaping module source")
+			}
+			after, err := os.ReadFile(outsidePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(after, before) {
+				t.Fatal("formatter changed source outside the workspace")
+			}
+		})
 	}
 }
 

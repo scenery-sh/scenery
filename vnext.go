@@ -21,8 +21,8 @@ type Decimal struct {
 type UUID string
 type Date string
 type DateTime time.Time
-type Duration time.Duration
-type Size uint64
+type Duration struct{ nanoseconds big.Int }
+type Size struct{ bytes big.Int }
 type URL url.URL
 type RelativePath string
 type JSON = json.RawMessage

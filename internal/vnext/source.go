@@ -134,6 +134,9 @@ func convertExpression(sourceID string, source []byte, expr hclsyntax.Expression
 }
 
 func staticCompositeValue(expression hclsyntax.Expression) (any, bool) {
+	if value, diagnostics := expression.Value(nil); !diagnostics.HasErrors() && value.IsWhollyKnown() {
+		return ctyValue(value), true
+	}
 	if traversal, diagnostics := hcl.AbsTraversalForExpr(expression); !diagnostics.HasErrors() {
 		return map[string]any{"$ref": traversalString(traversal)}, true
 	}
@@ -182,11 +185,7 @@ func staticCompositeValue(expression hclsyntax.Expression) (any, bool) {
 		}
 		return values, true
 	default:
-		value, diagnostics := expression.Value(nil)
-		if diagnostics.HasErrors() || !value.IsWhollyKnown() {
-			return nil, false
-		}
-		return ctyValue(value), true
+		return nil, false
 	}
 }
 
@@ -231,13 +230,13 @@ func evaluatePrimitiveConstructor(expression hclsyntax.Expression) (any, bool) {
 		if err != nil {
 			return nil, false
 		}
-		return map[string]any{"$scalar": "duration", "nanoseconds": fmt.Sprintf("%d", int64(value))}, true
+		return map[string]any{"$scalar": "duration", "nanoseconds": value.Nanoseconds().String()}, true
 	case "size":
 		value, err := scenery.ParseSize(text)
 		if err != nil {
 			return nil, false
 		}
-		return map[string]any{"$scalar": "size", "bytes": fmt.Sprintf("%d", uint64(value))}, true
+		return map[string]any{"$scalar": "size", "bytes": value.Bytes().String()}, true
 	case "url":
 		value, err := scenery.ParseURL(text)
 		if err != nil {

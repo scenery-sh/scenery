@@ -51,6 +51,20 @@ func TestVNextExactScalars(t *testing.T) {
 	assertJSON(t, size, `"2147483648"`)
 }
 
+func TestVNextDurationAndSizeRemainExactBeyondMachineIntegerRange(t *testing.T) {
+	duration, err := ParseDuration("9223372036854775808ns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSON(t, duration, `"P106751DT23H47M16.854775808S"`)
+
+	size, err := ParseSize("18446744073709551616B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSON(t, size, `"18446744073709551616"`)
+}
+
 func TestDecimalExponentIsBoundedBeforeExpansion(t *testing.T) {
 	if _, err := ParseDecimal("1e1000000000"); err == nil {
 		t.Fatal("huge positive exponent was accepted")
@@ -72,7 +86,7 @@ func TestVNextScalarJSONRoundTrips(t *testing.T) {
 		mustScalar(ParseDate("2027-03-14")),
 		mustScalar(ParseDateTime("2027-03-14T09:15:30.123Z")),
 		mustScalar(ParseDuration("1.5s")),
-		Size(12),
+		mustScalar(ParseSize("12B")),
 		mustScalar(ParseURL("https://example.com/a")),
 		mustScalar(ParseRelativePath("models/a")),
 	}

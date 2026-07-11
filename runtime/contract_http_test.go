@@ -26,6 +26,14 @@ type mappedContractInput struct {
 func TestContractSystemFailureUsesStandardProblemOutcome(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
+	cause := errors.New("secret implementation path /private/model.bin")
+	systemError := ContractSystemError(cause)
+	if !errors.Is(systemError, cause) {
+		t.Fatal("system error did not retain its internal cause")
+	}
+	if diagnostic := contractDiagnosticError(systemError); diagnostic != cause {
+		t.Fatalf("diagnostic error = %v, want retained cause", diagnostic)
+	}
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "contract", Name: "Failure", Access: Public, Path: "/failure", Methods: []string{http.MethodGet},
 		PayloadType: reflect.TypeFor[struct{}](), ResponseType: reflect.TypeFor[struct{}](),
@@ -33,7 +41,7 @@ func TestContractSystemFailureUsesStandardProblemOutcome(t *testing.T) {
 			return ContractDecodedRequest{Payload: struct{}{}}, nil
 		},
 		Invoke: func(context.Context, []any, any) (any, error) {
-			return nil, ContractSystemError(errors.New("boom"))
+			return nil, systemError
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -46,6 +54,12 @@ func TestContractSystemFailureUsesStandardProblemOutcome(t *testing.T) {
 	server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/failure", nil))
 	if recorder.Code != http.StatusInternalServerError || recorder.Header().Get("Content-Type") != "application/problem+json" {
 		t.Fatalf("response = %d %#v %q", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+	if got, want := recorder.Body.String(), "{\"code\":\"system.internal\",\"message\":\"contract implementation failure\"}\n"; got != want {
+		t.Fatalf("response body = %q, want %q", got, want)
+	}
+	if strings.Contains(recorder.Body.String(), cause.Error()) {
+		t.Fatal("system error exposed its internal cause")
 	}
 }
 

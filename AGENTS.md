@@ -104,6 +104,8 @@ Do not revive deprecated non-scenery APIs, legacy directive spellings, or compat
 - Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
 - Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
+- Keep edition module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level edition generation is one artifact-set transaction.
+- A migration service declared `native_service` must not retain undeclared legacy models, pages, or references to the package-init builders `durable.NewTask` and `cron.NewJob` in its Go packages; non-registering APIs from those packages remain valid. An explicit `legacy_go_v0` handler adapter may remain only while migration status reports it; declare durable tasks, schedules, and other runtime identities in `.scn` before retiring legacy ownership. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 
 ## Before Making Changes

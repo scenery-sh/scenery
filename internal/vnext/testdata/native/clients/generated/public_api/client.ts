@@ -21,7 +21,7 @@ export class PublicApiClient {
   async processScene(input: Types.ProcessSceneInput, options: CallOptions = {}): Promise<Types.ProcessSceneOutcome> {
     const binding = "house/binding/process_scene_http";
     if (options.signal?.aborted) throw new SceneryClientError("cancelled", binding, "request cancelled");
-    let path = "/house/process";
+    let path = "/api/house/process";
     const query: string[] = [];
     if (query.length > 0) path += `?${query.join("&")}`;
     const headers = mergeHeaders(this.#headers, options.headers, binding);

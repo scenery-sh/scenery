@@ -11,7 +11,7 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:9a104e83809582918fabcdac87e9adf5d15ac22ebd09ed283941ef4e3915f38f"
+const ContractRevision = "sha256:d3766e1e90832fd787c21553dfe70e52ae79c365c3cb0fb83078c97d849bf836"
 const PackageIdentity = "house"
 const PackageContractABIRevision = "sha256:5c180808dd4d9608f6985a306ef4552276ff7aa1f7e3d8481d95c55a069d7c44"
 const PackageVersion = "1.0.0"
@@ -157,7 +157,7 @@ func Register(registry scenery.Registry) error {
 			}}); err != nil {
 				return err
 			}
-			if err := sceneryruntime.RegisterEndpointChecked(&sceneryruntime.Endpoint{Service: "house", Name: "ProcessSceneHttp", Access: sceneryruntime.Public, Path: "/house/process", Methods: []string{"POST"},
+			if err := sceneryruntime.RegisterEndpointChecked(&sceneryruntime.Endpoint{Service: "house", Name: "ProcessSceneHttp", Access: sceneryruntime.Public, Path: "/api/house/process", Methods: []string{"POST"},
 				PayloadType: sceneryruntime.TypeOf[contract.ProcessSceneInput](), ResponseType: sceneryruntime.TypeOf[contract.ProcessSceneOutcome](),
 				ContractPolicy: &sceneryruntime.ContractHTTPPolicy{BindingAddress: "house/binding/process_scene_http", GatewayAddress: "app/http_gateway/public_api", CORS: "none", AllowedOrigins: []string{}, Forwarded: "reject", TrustedProxyPrefixes: []string{}, MaxRequestHeaderBytes: 65536, MaxResponseBytes: 16777216, CompressionAlgorithms: []string{"gzip"}, CompressionThreshold: 1024, TotalInvocationTimeoutNanos: 2400000000000, ReadTimeoutNanos: 30000000000, WriteTimeoutNanos: 30000000000, IdleTimeoutNanos: 120000000000, AuthorizationStrategy: "public", AuthorizationRuleCount: 0, AuthorizationRules: []sceneryruntime.ContractAuthorizationRule{}, PipelineSteps: []string{}, FrameworkGuarantee: "framework_enforced", TransportStatuses: map[string]int{"admission.rate_limited": 429, "result.processed": 200, "system.internal": 500, "transport.invalid_request": 400, "transport.not_acceptable": 406, "transport.unsupported_media_type": 415}},
 				DecodeContractRequest: func(request *http.Request, pathValues map[string]string) (sceneryruntime.ContractDecodedRequest, error) {

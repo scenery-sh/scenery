@@ -32,7 +32,7 @@
         "name": "public_api",
         "module": "app",
         "spec": {
-          "base_path": "/",
+          "base_path": "/api",
           "cors": {
             "$ref": "std.cors.none"
           },
@@ -358,8 +358,8 @@
       }
     ]
   },
-  "content_digest": "sha256:6109124370b7d99f6a7214c456064d23f122beeaa6abfa32996d5986d896e26d",
-  "contract_revision": "sha256:9a104e83809582918fabcdac87e9adf5d15ac22ebd09ed283941ef4e3915f38f",
+  "content_digest": "sha256:8b6cf51a4ad4d821d0a8653b1f097e95915d2daee8f5b1d96df2b20829d1d360",
+  "contract_revision": "sha256:d3766e1e90832fd787c21553dfe70e52ae79c365c3cb0fb83078c97d849bf836",
   "covered_bindings": [
     "house/binding/process_scene_http"
   ],
@@ -383,19 +383,19 @@
   ],
   "generator": "scenery.vnext.typescript/v1",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:7f5dbd4e2edd1ed491677938a2c354be0d0970dc30a4135c5830fc52419ea099"
+    "app/http_gateway/public_api": "sha256:03c8792bdbc2d53d5ac3076f53b6d9f5ae4f33c33d26d4e35a82d615e4ea3e79"
   },
   "javascript_target": null,
   "legacy_client_revision": null,
   "legacy_fixture_catalog_digest": null,
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:10dde5e39e5e52bbf25764fddd79a5c91da794dbd566aa3b47a3f55e3c6c430d"
+    "app/http_gateway/public_api": "sha256:58354b21f1376eca62167255f54e2b5700a8e64f2028f07bb0ede1b3345ee661"
   },
   "package": "@example/native-client",
-  "package_version_recommendation": "initial",
+  "package_version_recommendation": "major",
   "profile": "scenery.typescript-client/v1",
   "profile_digest": "sha256:e43afd6807a243334455e7c99b089abddcdd425866e85e29df3bca4fe674bc01",
   "target": "app/typescript_client/public_api",
-  "typescript_client_revision": "sha256:30fc81c4f97438fb0789d214aa78aabbc1a5e880b5ec1165c3868c5a7ae9c690",
+  "typescript_client_revision": "sha256:642815b18e6950b13f255bdf46b38b1d3797c06fcbc98664d72a58ec737e32cf",
   "typescript_version": null
 }

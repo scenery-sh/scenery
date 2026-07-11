@@ -6,6 +6,29 @@ import (
 	"testing"
 )
 
+func TestStaticCompositeValuesKeepBooleanLiteralsAsValues(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "scenery.scn")
+	if err := os.WriteFile(path, []byte(`module "house" {
+  source = "./house"
+  inputs = {
+    enabled = true
+    gateway = http_gateway.public_api
+  }
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source, diagnostics := parseSource(root, path)
+	if hasErrors(diagnostics) || source == nil || len(source.Blocks) != 1 {
+		t.Fatalf("parse = %#v diagnostics %#v", source, diagnostics)
+	}
+	inputs, _ := source.Blocks[0].Attributes["inputs"].Value.(map[string]any)
+	if inputs["enabled"] != true || refString(inputs["gateway"]) != "http_gateway.public_api" {
+		t.Fatalf("inputs = %#v", inputs)
+	}
+}
+
 func TestPrimitiveConstructorsNormalizeBeforeIR(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "scenery.scn")
@@ -41,6 +64,43 @@ func TestBooleanKeywordsAreLiteralsRatherThanReferences(t *testing.T) {
 	expression := source.Blocks[0].Attributes["open"]
 	if expression.Kind != "literal" || expression.Value != true {
 		t.Fatalf("open = %#v", expression)
+	}
+}
+
+func TestDurableRuntimeKeysRemainTypedInputExpressions(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "scenery.package.scn")
+	sourceText := `operation "run" {
+  idempotency {
+    mode = "keyed"
+    key = [input.queue_key, input.request_id]
+  }
+}
+execution "run_durable" {
+  concurrency {
+    key = input.queue_key
+    limit = 1
+  }
+}
+`
+	if err := os.WriteFile(path, []byte(sourceText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source, diagnostics := parseSource(root, path)
+	if hasErrors(diagnostics) {
+		t.Fatalf("diagnostics: %#v", diagnostics)
+	}
+	if diagnostics := validateStaticExpressions([]*Source{source}); hasErrors(diagnostics) {
+		t.Fatalf("static-expression diagnostics: %#v", diagnostics)
+	}
+	idempotency := blockSpec(source.Blocks[0])["idempotency"].(map[string]any)
+	keys := idempotency["key"].([]any)
+	if len(keys) != 2 || expressionText(keys[0]) != "input.queue_key" || expressionText(keys[1]) != "input.request_id" {
+		t.Fatalf("idempotency keys = %#v", keys)
+	}
+	concurrency := blockSpec(source.Blocks[1])["concurrency"].(map[string]any)
+	if expressionText(concurrency["key"]) != "input.queue_key" {
+		t.Fatalf("concurrency key = %#v", concurrency["key"])
 	}
 }
 
