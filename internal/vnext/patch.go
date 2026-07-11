@@ -79,6 +79,17 @@ func applyPatches(resources []Resource) ([]Resource, []Diagnostic) {
 			continue
 		}
 		target.Origin.Patches = canonicalStrings(append(target.Origin.Patches, patch.Address))
+		if target.Origin.FieldProvenance == nil {
+			target.Origin.FieldProvenance = map[string]FieldProvenance{}
+		}
+		declaredAt := patch.Origin.DeclarationRange
+		if field, ok := patch.Origin.FieldProvenance["/spec/set/value"]; ok && field.DeclaredAt != nil {
+			declaredAt = field.DeclaredAt
+		}
+		target.Origin.FieldProvenance[setPath] = FieldProvenance{
+			Kind: "patch", DeclaredAt: declaredAt, ProvidedBy: patch.Address,
+			SourceAddress: target.Address, Transformations: []string{"exact_patch"},
+		}
 		result[index] = target
 		writers[writerKey] = patch.Address
 	}

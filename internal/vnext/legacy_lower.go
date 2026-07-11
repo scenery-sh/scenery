@@ -543,8 +543,69 @@ func validateNativeGoServices(appModel *model.App, resources []Resource, migrati
 			continue
 		}
 		diagnostics = append(diagnostics, validateLifecycleMethods(resource, named)...)
+		diagnostics = append(diagnostics, validateLegacyBridgeReceiverCompatibility(resource, named, pkg, resources)...)
 	}
 	return diagnostics
+}
+
+func validateLegacyBridgeReceiverCompatibility(service Resource, native *types.Named, pkg *model.Package, resources []Resource) []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, operation := range resources {
+		if operation.Kind != "scenery.operation/v1" || resolveResourceRef(operation, refString(operation.Spec["service"]), "service") != service.Address {
+			continue
+		}
+		handler, _ := operation.Spec["handler"].(map[string]any)
+		if stringValue(handler["adapter"]) != "legacy_go_v0" {
+			continue
+		}
+		legacy, requiresReceiver := legacyBridgeOperationReceiverNamedType(pkg, operation)
+		if !requiresReceiver {
+			continue
+		}
+		if legacy == nil || !types.AssignableTo(types.NewPointer(native), types.NewPointer(legacy)) {
+			nativeType := types.TypeString(types.NewPointer(native), packageQualifier)
+			legacyType := "<unavailable>"
+			if legacy != nil {
+				legacyType = types.TypeString(types.NewPointer(legacy), packageQualifier)
+			}
+			diagnostics = append(diagnostics, Diagnostic{
+				Code: "SCN6116", Severity: "error", Address: operation.Address,
+				Message: fmt.Sprintf("native constructor result %s is not assignable to remaining legacy bridge receiver %s", nativeType, legacyType),
+				Related: []Related{{Address: service.Address}},
+			})
+		}
+	}
+	return diagnostics
+}
+
+func legacyBridgeOperationReceiverNamedType(pkg *model.Package, operation Resource) (*types.Named, bool) {
+	if pkg == nil || pkg.Analysis == nil {
+		return nil, false
+	}
+	handler, _ := operation.Spec["handler"].(map[string]any)
+	receiverName := strings.TrimSpace(stringValue(handler["legacy_receiver"]))
+	method := strings.TrimSpace(stringValue(handler["method"]))
+	if receiverName == "" && pkg.Service != nil {
+		for _, endpoint := range pkg.Service.Endpoints {
+			if endpoint == nil || endpoint.Name != method {
+				continue
+			}
+			if endpoint.Receiver == nil {
+				return nil, false
+			}
+			receiverName = endpoint.Receiver.TypeName
+			break
+		}
+	}
+	if receiverName == "" {
+		return nil, false
+	}
+	object := pkg.Analysis.Types.Scope().Lookup(receiverName)
+	if object == nil {
+		return nil, true
+	}
+	named, _ := types.Unalias(object.Type()).(*types.Named)
+	return named, true
 }
 
 func validateLifecycleMethods(resource Resource, named *types.Named) []Diagnostic {

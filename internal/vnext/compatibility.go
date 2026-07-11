@@ -21,9 +21,11 @@ const (
 var compatibilityDimensions = []string{"source", "request_wire", "response_wire", "generated_client", "internal_call", "runtime", "security", "storage", "deployment"}
 
 type RenameReceipt struct {
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Digest string `json:"digest,omitempty"`
+	From                   string `json:"from"`
+	To                     string `json:"to"`
+	BaseContractRevision   string `json:"base_contract_revision"`
+	TargetContractRevision string `json:"target_contract_revision"`
+	Digest                 string `json:"digest"`
 }
 
 type CompareOptions struct {
@@ -128,13 +130,7 @@ func CompareManifests(base, target *Manifest, options CompareOptions) SemanticDi
 	ctx := comparisonContext{base: resourcesByAddress(base), target: resourcesByAddress(target), dimensions: dimensions}
 	ctx.typePositions = compatibilityTypePositions(ctx.base, ctx.target)
 	consumedBase, consumedTarget := map[string]bool{}, map[string]bool{}
-	renames := append([]RenameReceipt(nil), options.Renames...)
-	sort.Slice(renames, func(i, j int) bool {
-		if renames[i].From != renames[j].From {
-			return renames[i].From < renames[j].From
-		}
-		return renames[i].To < renames[j].To
-	})
+	renames := ValidRenameReceipts(base, target, options.Renames)
 	for _, receipt := range renames {
 		before, beforeOK := ctx.base[receipt.From]
 		after, afterOK := ctx.target[receipt.To]
@@ -143,7 +139,11 @@ func CompareManifests(base, target *Manifest, options CompareOptions) SemanticDi
 		}
 		consumedBase[receipt.From], consumedTarget[receipt.To] = true, true
 		change := classifyChange(ctx, "rename", &before, &after, "/address", receipt.From, receipt.To)
-		change.Evidence = append(change.Evidence, map[string]any{"kind": "rename_receipt", "from": receipt.From, "to": receipt.To, "digest": receipt.Digest})
+		change.Evidence = append(change.Evidence, map[string]any{
+			"kind": "rename_receipt", "from": receipt.From, "to": receipt.To,
+			"base_contract_revision": receipt.BaseContractRevision, "target_contract_revision": receipt.TargetContractRevision,
+			"digest": receipt.Digest,
+		})
 		diff.Changes = append(diff.Changes, change)
 		for _, difference := range semanticDifferences(before.Spec, after.Spec, "/spec") {
 			diff.Changes = append(diff.Changes, classifyChange(ctx, difference.operation, &before, &after, difference.path, difference.base, difference.target))

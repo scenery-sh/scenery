@@ -91,17 +91,27 @@ type Related struct {
 }
 
 type Origin struct {
-	Kind             string           `json:"kind"`
-	SourceID         string           `json:"source_id,omitempty"`
-	Frontend         string           `json:"frontend,omitempty"`
-	LegacySymbol     string           `json:"legacy_symbol,omitempty"`
-	LegacyConstruct  string           `json:"legacy_construct,omitempty"`
-	LegacyIdentity   map[string]any   `json:"legacy_identity,omitempty"`
-	Patches          []string         `json:"patches,omitempty"`
-	DeclarationRange *Range           `json:"declaration_range,omitempty"`
-	AttributeRanges  map[string]Range `json:"attribute_ranges,omitempty"`
-	ModuleChain      []string         `json:"module_instantiation_chain,omitempty"`
-	ExpansionLineage []ExpansionStep  `json:"expansion_lineage,omitempty"`
+	Kind             string                     `json:"kind"`
+	SourceID         string                     `json:"source_id,omitempty"`
+	Frontend         string                     `json:"frontend,omitempty"`
+	LegacySymbol     string                     `json:"legacy_symbol,omitempty"`
+	LegacyConstruct  string                     `json:"legacy_construct,omitempty"`
+	LegacyIdentity   map[string]any             `json:"legacy_identity,omitempty"`
+	Patches          []string                   `json:"patches,omitempty"`
+	DeclarationRange *Range                     `json:"declaration_range,omitempty"`
+	AttributeRanges  map[string]Range           `json:"attribute_ranges,omitempty"`
+	ModuleChain      []string                   `json:"module_instantiation_chain,omitempty"`
+	ExpansionLineage []ExpansionStep            `json:"expansion_lineage,omitempty"`
+	FieldProvenance  map[string]FieldProvenance `json:"field_provenance,omitempty"`
+}
+
+type FieldProvenance struct {
+	Kind            string   `json:"kind"`
+	DeclaredAt      *Range   `json:"declared_at,omitempty"`
+	Input           string   `json:"input,omitempty"`
+	ProvidedBy      string   `json:"provided_by,omitempty"`
+	SourceAddress   string   `json:"source_address,omitempty"`
+	Transformations []string `json:"transformations,omitempty"`
 }
 
 type ExpansionStep struct {

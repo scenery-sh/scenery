@@ -291,6 +291,17 @@ func resolveLockedProviders(root string, resources []Resource, lockfile *Lockfil
 		provider.Spec["capabilities"] = stringsToAny(canonicalStrings(descriptor.Capabilities))
 		provider.Spec["config_schema"] = cloneMapValue(descriptor.ConfigSchema)
 		provider.Spec["instance_kinds"] = providerInstanceKindsValue(descriptor.InstanceKinds)
+		if provider.Origin.FieldProvenance == nil {
+			provider.Origin.FieldProvenance = map[string]FieldProvenance{}
+		}
+		field := FieldProvenance{
+			Kind: "provider_descriptor", DeclaredAt: provider.Origin.DeclarationRange,
+			ProvidedBy: source + "@" + entry.Version, SourceAddress: provider.Address,
+			Transformations: []string{"locked_provider_descriptor"},
+		}
+		for _, name := range []string{"locked_version", "locked_integrity", "compile_descriptor_digest", "runtime_abi", "deployment_abi", "migration_abi", "capabilities", "config_schema", "instance_kinds"} {
+			provider.Origin.FieldProvenance["/spec/"+name] = field
+		}
 	}
 	return resolved, diagnostics
 }
@@ -334,6 +345,12 @@ func enrichProviderInstances(resources []Resource) ([]Resource, []Diagnostic) {
 		instance.Spec = cloneMapValue(instance.Spec)
 		instance.Spec["effective_capabilities"] = stringsToAny(capabilities)
 		instance.Spec["provider_descriptor_digest"] = provider.Spec["compile_descriptor_digest"]
+		if instance.Origin.FieldProvenance == nil {
+			instance.Origin.FieldProvenance = map[string]FieldProvenance{}
+		}
+		field := FieldProvenance{Kind: "provider_descriptor", ProvidedBy: provider.Address, SourceAddress: provider.Address, Transformations: []string{"provider_instance_resolution"}}
+		instance.Origin.FieldProvenance["/spec/effective_capabilities"] = field
+		instance.Origin.FieldProvenance["/spec/provider_descriptor_digest"] = field
 	}
 	return resolved, diagnostics
 }

@@ -271,7 +271,7 @@ func publicAuthoredBlockSchema(schema *authoredBlockSchema) map[string]any {
 			"labels": child.Schema.Labels, "label_source": map[bool]any{true: "name", false: nil}[child.Schema.Labels > 0],
 			"cardinality": map[string]any{"minimum": minimum, "maximum": maximum}, "required": schema.Required[name],
 			"phase": authoredPhase(child.Schema), "revision_domain": domain, "revision_domain_source": domainSource, "default": nil,
-			"default_source": "none", "constraints": map[string]any{"label_pattern": map[bool]string{true: "^[a-z][a-z0-9_]*$", false: ""}[child.Schema.Labels > 0]},
+			"default_source": "none", "constraints": map[string]any{"label_pattern": child.Schema.LabelPattern, "label_policy": child.Schema.LabelPolicy},
 			"sensitive": false, "patchable": true, "patch_scope": "authored_source", "ordered": child.Ordered,
 		}
 	}
@@ -282,7 +282,8 @@ func publicAuthoredBlockSchema(schema *authoredBlockSchema) map[string]any {
 	result := map[string]any{
 		"schema_revision": schema.Revision, "source_shape": shape, "labels": schema.Labels, "fields": fields,
 		"label_source":          map[bool]any{true: "name", false: nil}[schema.Labels > 0],
-		"label_pattern":         map[bool]string{true: "^[a-z][a-z0-9_]*$", false: ""}[schema.Labels > 0],
+		"label_pattern":         schema.LabelPattern,
+		"label_policy":          schema.LabelPolicy,
 		"additional_properties": schema.AllowUnknownAttributes, "ordering": "schema_defined",
 	}
 	var metadataGaps []string

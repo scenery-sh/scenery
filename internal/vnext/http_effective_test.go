@@ -34,6 +34,10 @@ func TestHTTPEffectiveDefaultsMatchCodecProfile(t *testing.T) {
 		if !ok || got != want {
 			t.Errorf("request_limit.%s = %#v; want %d", name, request[name], want)
 		}
+		field := gateway.Origin.FieldProvenance["/spec/request_limit/"+name]
+		if field.Kind != "default" || field.ProvidedBy != "scenery.http-codec/v1" {
+			t.Errorf("request_limit.%s provenance = %#v", name, field)
+		}
 	}
 	if got, ok := integerValue(response["body_bytes"]); !ok || got != 16777216 {
 		t.Errorf("response_limit.body_bytes = %#v; want 16777216", response["body_bytes"])
@@ -42,7 +46,7 @@ func TestHTTPEffectiveDefaultsMatchCodecProfile(t *testing.T) {
 
 func TestHTTPWaitDefaultUsesCanonicalDispatchOutcome(t *testing.T) {
 	httpSpec := map[string]any{}
-	applyHTTPStandardResponses(Resource{Spec: map[string]any{
+	applyHTTPStandardResponses(&Resource{Spec: map[string]any{
 		"delivery":       "wait",
 		"authentication": map[string]any{"$ref": "std.authentication.none"},
 	}}, httpSpec)

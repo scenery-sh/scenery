@@ -220,6 +220,16 @@ describe("Scenery TypeScript client exact codecs", () => {
 		expect(() => encodeTypedJSON("018f47a2-6f45-7c4a-7b31-4cbbe3c99a22", descriptor, registry)).toThrow(SceneryClientError);
 	});
 
+	test("rejects non-conforming datetime lexical forms", () => {
+		const descriptor: TypeDescriptor = { kind: "primitive", name: "datetime" };
+		expect(encodeTypedJSON("2027-03-14T09:15:30.123Z", descriptor, registry)).toBe(
+			'"2027-03-14T09:15:30.123Z"',
+		);
+		for (const value of ["2027-03-14T09:15:30,123Z", "2027-03-14T09:15:30.1234567890Z"]) {
+			expect(() => encodeTypedJSON(value, descriptor, registry)).toThrow(SceneryClientError);
+		}
+	});
+
 	test("decodes repeated response metadata and reconstructs split payloads", () => {
 		const response = new Response(null, { headers: { "x-request-id": "request-1", "set-cookie": "session=hello%20world; Path=/; Secure" } });
 		Object.defineProperty(response.headers, "getAll", {

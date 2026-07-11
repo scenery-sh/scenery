@@ -333,7 +333,8 @@
             "type": {
               "$ref": "string"
             }
-          }
+          },
+          "unknown_fields": "reject"
         },
         "origin": {
           "kind": ""
@@ -350,7 +351,8 @@
             "type": {
               "$ref": "string"
             }
-          }
+          },
+          "unknown_fields": "reject"
         },
         "origin": {
           "kind": ""
@@ -358,8 +360,8 @@
       }
     ]
   },
-  "content_digest": "sha256:6000c8019d64234adbdd3e1771678ec4f97e320b834a0a9879097d41c20d3138",
-  "contract_revision": "sha256:bdcdc3efe46a7ed61994badb8c55c0f7b5a6b7f8311be7f3512efe47c91ea0ae",
+  "content_digest": "sha256:1b2b1711f8de3f361a1d52b685518b1831de660cf01c48290d8dfff96de81d81",
+  "contract_revision": "sha256:fe7e93d91bc599c07fea0d0416d3219745e3c8018251d3b96804d84327115f6c",
   "covered_bindings": [
     "house/binding/process_scene_http"
   ],
@@ -383,19 +385,19 @@
   ],
   "generator": "scenery.vnext.typescript/v1",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:03c8792bdbc2d53d5ac3076f53b6d9f5ae4f33c33d26d4e35a82d615e4ea3e79"
+    "app/http_gateway/public_api": "sha256:8c362f5e3d8ac7035ed57c1deb7e46d84d29bae7d2f884e1991a308fce57fd0a"
   },
   "javascript_target": null,
   "legacy_client_revision": null,
   "legacy_fixture_catalog_digest": null,
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:58354b21f1376eca62167255f54e2b5700a8e64f2028f07bb0ede1b3345ee661"
+    "app/http_gateway/public_api": "sha256:50cf34ba96878f91d323e604864faf4b8eb55e80a29b250a36b5d8f340e47e46"
   },
   "package": "@example/native-client",
   "package_version_recommendation": "major",
   "profile": "scenery.typescript-client/v1",
   "profile_digest": "sha256:e43afd6807a243334455e7c99b089abddcdd425866e85e29df3bca4fe674bc01",
   "target": "app/typescript_client/public_api",
-  "typescript_client_revision": "sha256:642815b18e6950b13f255bdf46b38b1d3797c06fcbc98664d72a58ec737e32cf",
+  "typescript_client_revision": "sha256:13d5ea7001680854c0e5202e0c1234a40dd5265491579f11967bb6ae907f0d64",
   "typescript_version": null
 }

@@ -18,6 +18,7 @@ func applyHTTPEffectiveDefaults(resources []Resource) {
 		gateway := byAddress[resolveResourceRef(*binding, refString(binding.Spec["gateway"]), "http_gateway")]
 		if gateway != nil && stringValue(binding.Spec["exposure"]) == "" {
 			binding.Spec["exposure"] = gateway.Spec["exposure"]
+			setFieldProvenance(&binding.Origin, "/spec/exposure", binding.Spec["exposure"], inheritedHTTPField(gateway, "/spec/exposure"))
 		}
 		httpSpec, _ := binding.Spec["http"].(map[string]any)
 		if httpSpec == nil {
@@ -25,47 +26,55 @@ func applyHTTPEffectiveDefaults(resources []Resource) {
 		}
 		if httpSpec["guarantee"] == nil {
 			httpSpec["guarantee"] = "framework_enforced"
+			setFieldProvenance(&binding.Origin, "/spec/http/guarantee", httpSpec["guarantee"], httpDefaultField())
 		}
 		if gateway != nil {
 			for _, key := range []string{"request_limit", "response_limit", "timeouts"} {
+				path := "/spec/http/" + key
 				if httpSpec[key] == nil {
 					httpSpec[key] = cloneSemanticValue(gateway.Spec[key])
+					setFieldProvenance(&binding.Origin, path, httpSpec[key], inheritedHTTPField(gateway, "/spec/"+key))
 				} else if inherited, ok := gateway.Spec[key].(map[string]any); ok {
-					mergeHTTPDefaults(httpSpec[key], inherited)
+					mergeHTTPDefaultsWithProvenance(binding, httpSpec[key], path, inherited, func(name string) FieldProvenance {
+						return inheritedHTTPField(gateway, "/spec/"+key+"/"+escapeJSONPointer(name))
+					})
 				}
 			}
 		}
-		applyHTTPStandardResponses(*binding, httpSpec)
-		applyHTTPResponseDefaults(httpSpec)
+		applyHTTPStandardResponses(binding, httpSpec)
+		applyHTTPResponseDefaults(binding, httpSpec)
 	}
 }
 
-func applyHTTPResponseDefaults(httpSpec map[string]any) {
-	for _, response := range namedChildren(httpSpec, "response") {
-		for _, header := range namedChildren(response, "header") {
-			if header["encoding"] == nil {
-				header["encoding"] = "repeated"
+func applyHTTPResponseDefaults(binding *Resource, httpSpec map[string]any) {
+	for _, response := range provenanceNamedChildren(httpSpec, "response", "/spec/http") {
+		for _, header := range provenanceNamedChildren(response.Value, "header", response.Path) {
+			if header.Value["encoding"] == nil {
+				header.Value["encoding"] = "repeated"
+				setFieldProvenance(&binding.Origin, provenanceChildPath(header.Path, "encoding"), header.Value["encoding"], httpDefaultField())
 			}
 		}
-		for _, cookie := range namedChildren(response, "cookie") {
+		for _, cookie := range provenanceNamedChildren(response.Value, "cookie", response.Path) {
 			defaults := map[string]any{
 				"path": "/", "domain": "", "max_age": exactNumericScalar("0"), "expires": "",
 				"secure": true, "http_only": true, "same_site": "lax",
 			}
-			mergeHTTPDefaults(cookie, defaults)
+			mergeHTTPDefaultsWithProvenance(binding, cookie.Value, cookie.Path, defaults, func(string) FieldProvenance { return httpDefaultField() })
 		}
 	}
 }
 
-func mergeHTTPDefaults(value any, defaults map[string]any) {
+func mergeHTTPDefaultsWithProvenance(resource *Resource, value any, path string, defaults map[string]any, provenance func(string) FieldProvenance) {
 	target, ok := value.(map[string]any)
 	if !ok {
 		return
 	}
 	for key, fallback := range defaults {
-		if target[key] == nil {
-			target[key] = cloneSemanticValue(fallback)
+		if target[key] != nil {
+			continue
 		}
+		target[key] = cloneSemanticValue(fallback)
+		setFieldProvenance(&resource.Origin, path+"/"+escapeJSONPointer(key), target[key], provenance(key))
 	}
 }
 
@@ -76,34 +85,50 @@ func applyHTTPGatewayDefaults(gateway *Resource) {
 		"multipart_non_file_part_bytes": exactNumericScalar("1048576"), "multipart_parts": exactNumericScalar("128"),
 	}
 	if gateway.Spec["request_limit"] == nil {
-		gateway.Spec["request_limit"] = requestDefaults
+		gateway.Spec["request_limit"] = cloneSemanticValue(requestDefaults)
+		setFieldProvenance(&gateway.Origin, "/spec/request_limit", gateway.Spec["request_limit"], httpDefaultField())
 	} else {
-		mergeHTTPDefaults(gateway.Spec["request_limit"], requestDefaults)
+		mergeHTTPDefaultsWithProvenance(gateway, gateway.Spec["request_limit"], "/spec/request_limit", requestDefaults, func(string) FieldProvenance { return httpDefaultField() })
 	}
 	responseDefaults := map[string]any{
 		"body_bytes": exactNumericScalar("16777216"), "compression_algorithms": []any{"gzip"}, "compression_threshold_bytes": exactNumericScalar("1024"),
 	}
 	if gateway.Spec["response_limit"] == nil {
-		gateway.Spec["response_limit"] = responseDefaults
+		gateway.Spec["response_limit"] = cloneSemanticValue(responseDefaults)
+		setFieldProvenance(&gateway.Origin, "/spec/response_limit", gateway.Spec["response_limit"], httpDefaultField())
 	} else {
-		mergeHTTPDefaults(gateway.Spec["response_limit"], responseDefaults)
+		mergeHTTPDefaultsWithProvenance(gateway, gateway.Spec["response_limit"], "/spec/response_limit", responseDefaults, func(string) FieldProvenance { return httpDefaultField() })
 	}
 	timeoutDefaults := map[string]any{
 		"read": durationSemanticScalar(30_000_000_000), "write": durationSemanticScalar(30_000_000_000),
 		"idle": durationSemanticScalar(120_000_000_000), "total_invocation": durationSemanticScalar(2_400_000_000_000),
 	}
 	if gateway.Spec["timeouts"] == nil {
-		gateway.Spec["timeouts"] = timeoutDefaults
+		gateway.Spec["timeouts"] = cloneSemanticValue(timeoutDefaults)
+		setFieldProvenance(&gateway.Origin, "/spec/timeouts", gateway.Spec["timeouts"], httpDefaultField())
 	} else {
-		mergeHTTPDefaults(gateway.Spec["timeouts"], timeoutDefaults)
+		mergeHTTPDefaultsWithProvenance(gateway, gateway.Spec["timeouts"], "/spec/timeouts", timeoutDefaults, func(string) FieldProvenance { return httpDefaultField() })
 	}
+}
+
+func httpDefaultField() FieldProvenance {
+	return FieldProvenance{Kind: "default", ProvidedBy: "scenery.http-codec/v1", Transformations: []string{"http_profile_default"}}
+}
+
+func inheritedHTTPField(gateway *Resource, path string) FieldProvenance {
+	field := gateway.Origin.FieldProvenance[path]
+	field.Kind = "inheritance"
+	field.ProvidedBy = gateway.Address
+	field.SourceAddress = gateway.Address
+	field.Transformations = append(append([]string(nil), field.Transformations...), "gateway_inheritance")
+	return field
 }
 
 func durationSemanticScalar(nanoseconds int64) map[string]any {
 	return map[string]any{"$scalar": "duration", "nanoseconds": strconv.FormatInt(nanoseconds, 10)}
 }
 
-func applyHTTPStandardResponses(binding Resource, httpSpec map[string]any) {
+func applyHTTPStandardResponses(binding *Resource, httpSpec map[string]any) {
 	existing := map[string]bool{}
 	for _, response := range namedChildren(httpSpec, "response") {
 		existing[refOrString(response["when"])] = true
@@ -160,20 +185,29 @@ func applyHTTPStandardResponses(binding Resource, httpSpec map[string]any) {
 		if existing[item.when] {
 			continue
 		}
-		appendHTTPResponse(httpSpec, map[string]any{
+		appendHTTPResponse(binding, httpSpec, map[string]any{
 			"name": lastRef(item.when), "when": map[string]any{"$ref": item.when}, "status": integerString(item.code),
 			"body": map[string]any{"codec": "problem_json", "from": map[string]any{"$ref": standardProblemSource(item.when)}},
 		})
+		for _, candidate := range provenanceNamedChildren(httpSpec, "response", "/spec/http") {
+			if stringValue(candidate.Value["name"]) == lastRef(item.when) {
+				setFieldProvenance(&binding.Origin, candidate.Path, candidate.Value, httpDefaultField())
+				break
+			}
+		}
 		existing[item.when] = true
 	}
 }
 
-func appendHTTPResponse(httpSpec map[string]any, response map[string]any) {
+func appendHTTPResponse(binding *Resource, httpSpec map[string]any, response map[string]any) {
 	existing := httpSpec["response"]
 	switch typed := existing.(type) {
 	case nil:
 		httpSpec["response"] = response
 	case map[string]any:
+		if binding != nil {
+			rebaseFieldProvenance(&binding.Origin, "/spec/http/response", "/spec/http/response/0")
+		}
 		httpSpec["response"] = []any{typed, response}
 	case []any:
 		httpSpec["response"] = append(typed, response)

@@ -167,13 +167,13 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			"api_version": "scenery.change-plan/v1", "plan_id": digest, "application": "schema-fixture", "base_workspace_revision": digest,
 			"base_contract_revision": digest, "predicted_workspace_revision": digest, "predicted_contract_revision": digest,
 			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "caller": "harness", "capabilities": []any{},
-			"operations_digest": digest, "operations": []any{}, "semantic_diff": map[string]any{}, "affected_resources": []any{}, "diagnostics": []any{},
+			"operations_digest": digest, "operations": []any{}, "rename_receipts": []any{}, "semantic_diff": map[string]any{}, "affected_resources": []any{}, "diagnostics": []any{},
 			"source_edits": []any{}, "formatting_effects": []any{}, "required_approvals": []any{}, "required_capabilities": []any{}, "risk_records": []any{},
 			"expires_at": "2026-07-10T12:00:00Z",
 		})},
 		{name: "vnext.change.receipt", schemaRel: "docs/schemas/scenery.change-receipt.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-receipt.v1.schema.json", map[string]any{
 			"api_version": "scenery.change-receipt/v1", "plan_id": digest, "workspace_revision": digest, "contract_revision": digest,
-			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "applied": []any{},
+			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "applied": []any{}, "rename_receipts": []any{},
 		})},
 		{name: "vnext.cli", schemaRel: "docs/schemas/scenery.cli.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.v1.schema.json", map[string]any{
 			"api_version": "scenery.cli.v1", "diagnostic_catalog": "scenery.diagnostics.2027.v1", "ok": true,

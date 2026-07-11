@@ -3,7 +3,7 @@
   "$id": "https://scenery.sh/schemas/scenery.change-receipt.v1.schema.json",
   "title": "Scenery semantic change receipt",
   "type": "object",
-  "required": ["api_version", "plan_id", "workspace_revision", "contract_revision", "implementation_revision_status", "deployment_revision_status", "applied"],
+  "required": ["api_version", "plan_id", "workspace_revision", "contract_revision", "implementation_revision_status", "deployment_revision_status", "applied", "rename_receipts"],
   "properties": {
     "api_version": { "const": "scenery.change-receipt/v1" },
     "plan_id": { "$ref": "#/$defs/revision" },
@@ -11,8 +11,23 @@
     "contract_revision": { "$ref": "#/$defs/revision" },
     "implementation_revision_status": { "type": "string", "minLength": 1 },
     "deployment_revision_status": { "type": "string", "minLength": 1 },
-    "applied": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+    "applied": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "rename_receipts": { "type": "array", "items": { "$ref": "#/$defs/rename_receipt" } }
   },
-  "$defs": { "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "rename_receipt": {
+      "type": "object",
+      "required": ["from", "to", "base_contract_revision", "target_contract_revision", "digest"],
+      "properties": {
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "base_contract_revision": { "$ref": "#/$defs/revision" },
+        "target_contract_revision": { "$ref": "#/$defs/revision" },
+        "digest": { "$ref": "#/$defs/revision" }
+      },
+      "additionalProperties": false
+    }
+  },
   "additionalProperties": false
 }

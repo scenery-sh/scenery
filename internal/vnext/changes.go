@@ -12,6 +12,7 @@ import (
 	scenery "scenery.sh"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -23,12 +24,14 @@ type ChangePrecondition struct {
 	Equals any   `json:"equals,omitempty"`
 }
 type SemanticOperation struct {
-	Op           string              `json:"op"`
-	Address      string              `json:"address"`
-	View         string              `json:"view,omitempty"`
-	Path         string              `json:"path,omitempty"`
-	Value        any                 `json:"value,omitempty"`
-	Precondition *ChangePrecondition `json:"precondition,omitempty"`
+	Op                     string              `json:"op"`
+	Address                string              `json:"address"`
+	ExpectedKind           string              `json:"expected_kind,omitempty"`
+	ExpectedSchemaRevision string              `json:"expected_schema_revision,omitempty"`
+	View                   string              `json:"view,omitempty"`
+	Path                   string              `json:"path,omitempty"`
+	Value                  any                 `json:"value,omitempty"`
+	Precondition           *ChangePrecondition `json:"precondition,omitempty"`
 }
 type ChangeRequest struct {
 	BaseWorkspaceRevision string              `json:"base_workspace_revision"`
@@ -59,6 +62,7 @@ type ChangePlan struct {
 	Capabilities               []string            `json:"capabilities"`
 	OperationsDigest           string              `json:"operations_digest"`
 	Operations                 []SemanticOperation `json:"operations"`
+	Renames                    []RenameReceipt     `json:"rename_receipts"`
 	SemanticDiff               SemanticDiff        `json:"semantic_diff"`
 	AffectedResources          []string            `json:"affected_resources"`
 	Diagnostics                []Diagnostic        `json:"diagnostics"`
@@ -70,13 +74,14 @@ type ChangePlan struct {
 	ExpiresAt                  time.Time           `json:"expires_at"`
 }
 type ChangeReceipt struct {
-	APIVersion           string   `json:"api_version"`
-	PlanID               string   `json:"plan_id"`
-	WorkspaceRevision    string   `json:"workspace_revision"`
-	ContractRevision     string   `json:"contract_revision"`
-	ImplementationStatus string   `json:"implementation_revision_status"`
-	DeploymentStatus     string   `json:"deployment_revision_status"`
-	Applied              []string `json:"applied"`
+	APIVersion           string          `json:"api_version"`
+	PlanID               string          `json:"plan_id"`
+	WorkspaceRevision    string          `json:"workspace_revision"`
+	ContractRevision     string          `json:"contract_revision"`
+	ImplementationStatus string          `json:"implementation_revision_status"`
+	DeploymentStatus     string          `json:"deployment_revision_status"`
+	Applied              []string        `json:"applied"`
+	Renames              []RenameReceipt `json:"rename_receipts"`
 }
 
 type ApprovalToken = scenery.ApprovalToken
@@ -128,21 +133,36 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 		return ChangePlan{}, err
 	}
 	defer os.RemoveAll(temp)
-	for index, operation := range request.Operations {
+	normalizedOperations := make([]SemanticOperation, 0, len(request.Operations))
+	var finalNormalizationBase *Manifest
+	for index, requestedOperation := range request.Operations {
+		operation, normalizeErr := normalizeSemanticOperationShape(requestedOperation)
+		if normalizeErr != nil {
+			return ChangePlan{}, normalizeErr
+		}
 		if err := rejectSecretMutation(operation); err != nil {
 			return ChangePlan{}, err
 		}
+		if err := validateSemanticOperationExpectation(operation, planningBase.Manifest); err != nil {
+			return ChangePlan{}, err
+		}
+		before := planningBase
+		operation = normalizeSemanticOperationIdentity(operation, before.Manifest)
 		if err := applySemanticOperation(temp, planningBase, operation); err != nil {
 			return ChangePlan{}, err
 		}
 		if index == len(request.Operations)-1 {
+			finalNormalizationBase = before.Manifest
+			normalizedOperations = append(normalizedOperations, operation)
 			continue
 		}
 		if refreshed, compileErr := compileContractGraph(temp, false); compileErr == nil {
 			if next, writableErr := writablePlanningResult(refreshed); writableErr == nil {
+				operation = normalizeSemanticOperationValues(operation, before.Manifest, next.Manifest)
 				planningBase = next
 			}
 		}
+		normalizedOperations = append(normalizedOperations, operation)
 	}
 	if _, err := Format(temp, false); err != nil {
 		return ChangePlan{}, err
@@ -154,6 +174,15 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 	if !predicted.Valid() {
 		predictedEdits, _ := changedWorkspaceFiles(root, temp)
 		return ChangePlan{}, &ChangePlanFailure{Diagnostics: append([]Diagnostic(nil), predicted.Diagnostics...), Edits: predictedEdits, Message: "planned source does not compile: " + firstError(predicted.Diagnostics)}
+	}
+	if len(normalizedOperations) > 0 {
+		last := len(normalizedOperations) - 1
+		normalizedOperations[last] = normalizeSemanticOperationValues(normalizedOperations[last], finalNormalizationBase, predicted.Manifest)
+		for index := range normalizedOperations {
+			if normalizedOperations[index].Op == "resource.create" {
+				normalizedOperations[index] = normalizeSemanticOperationValues(normalizedOperations[index], nil, predicted.Manifest)
+			}
+		}
 	}
 	if _, err := generateGoContractsFromResult(predicted, false); err != nil {
 		return ChangePlan{}, &ChangePlanFailure{Diagnostics: []Diagnostic{{Code: "SCN6205", Severity: "error", Message: err.Error()}}, Message: "planned generated Go artifacts are invalid: " + err.Error()}
@@ -168,7 +197,8 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 	if err != nil {
 		return ChangePlan{}, err
 	}
-	diff := CompareManifests(base.Manifest, predicted.Manifest, CompareOptions{View: "expanded"})
+	renames := plannedRenameReceipts(base.Manifest, predicted.Manifest, normalizedOperations)
+	diff := CompareManifests(base.Manifest, predicted.Manifest, CompareOptions{View: "expanded", Renames: renames})
 	requiredApprovals := make([]string, 0, len(diff.RiskRecords))
 	for _, risk := range diff.RiskRecords {
 		if values, ok := risk.(map[string]any); ok {
@@ -206,7 +236,7 @@ func PlanChanges(root string, request ChangeRequest) (ChangePlan, error) {
 		BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: cloneStringPointer(baseContract),
 		PredictedWorkspaceRevision: predicted.WorkspaceRevision, PredictedContractRevision: predicted.Manifest.ContractRevision,
 		ImplementationStatus: implementationStatus, DeploymentStatus: deploymentStatus,
-		Caller: caller, Capabilities: capabilities, Operations: append([]SemanticOperation(nil), request.Operations...),
+		Caller: caller, Capabilities: capabilities, Operations: normalizedOperations, Renames: renames,
 		SemanticDiff: diff, AffectedResources: affected, Diagnostics: append([]Diagnostic(nil), predicted.Diagnostics...), Edits: edits,
 		FormattingEffects: formatting, RequiredApprovals: canonicalStrings(requiredApprovals), RequiredCapabilities: []string{},
 		RiskRecords: diff.RiskRecords, ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
@@ -279,7 +309,7 @@ func ApplyChangePlanWithOptions(root string, plan ChangePlan, options ApplyOptio
 		applied = append(applied, edit.Path)
 	}
 	sort.Strings(applied)
-	receipt := ChangeReceipt{APIVersion: "scenery.change-receipt/v1", PlanID: plan.PlanID, WorkspaceRevision: actual.WorkspaceRevision, ContractRevision: actual.Manifest.ContractRevision, ImplementationStatus: plan.ImplementationStatus, DeploymentStatus: plan.DeploymentStatus, Applied: applied}
+	receipt := ChangeReceipt{APIVersion: "scenery.change-receipt/v1", PlanID: plan.PlanID, WorkspaceRevision: actual.WorkspaceRevision, ContractRevision: actual.Manifest.ContractRevision, ImplementationStatus: plan.ImplementationStatus, DeploymentStatus: plan.DeploymentStatus, Applied: applied, Renames: append([]RenameReceipt{}, plan.Renames...)}
 	receiptBytes, marshalErr := stdjson.MarshalIndent(receipt, "", "  ")
 	if marshalErr != nil {
 		rollback()
@@ -364,24 +394,28 @@ func validateLocalModuleUpgrade(resource Resource, value any) error {
 }
 
 func renameResource(root string, base *Result, resource Resource, newName string) error {
-	parts := strings.Split(resource.Address, "/")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid resource address")
-	}
-	newAddress := resourceAddress(resource.Module, strings.ReplaceAll(strings.TrimPrefix(strings.TrimSuffix(resource.Kind, "/v1"), "scenery."), "-", "_"), newName)
+	blockType := blockTypeForKind(resource.Kind)
+	newAddress := resourceAddress(resource.Module, blockType, newName)
 	for _, existing := range base.Manifest.Resources {
 		if existing.Address == newAddress {
 			return fmt.Errorf("failed_precondition: resource %s already exists", newAddress)
 		}
+		if existing.Address != resource.Address && existing.Kind == resource.Kind && existing.Name == resource.Name && existing.Origin.SourceID != "" && existing.Origin.SourceID == resource.Origin.SourceID {
+			return fmt.Errorf("failed_precondition: resource source is shared by module instances %s and %s; rename the package declaration explicitly", resource.Address, existing.Address)
+		}
 	}
-	oldTraversal := parts[1] + "." + resource.Name
-	newTraversal := parts[1] + "." + newName
+	oldTraversal := blockType + "." + resource.Name
+	newTraversal := blockType + "." + newName
+	targetSource := sourceByID(base.Sources, resource.Origin.SourceID)
+	if targetSource == nil {
+		return fmt.Errorf("source for %s not found", resource.Address)
+	}
+	targetDirectory := filepath.ToSlash(filepath.Dir(targetSource.Relative))
 	for _, source := range base.Sources {
-		if source.ID == "" {
+		if source.ID == "" || filepath.ToSlash(filepath.Dir(source.Relative)) != targetDirectory {
 			continue
 		}
-		var replacements []traversalReplacement
-		collectTraversalReplacements(source.Blocks, oldTraversal, newTraversal, &replacements)
+		replacements := collectSourceTraversalReplacements(source, oldTraversal, newTraversal)
 		if len(replacements) == 0 {
 			continue
 		}
@@ -438,18 +472,39 @@ type traversalReplacement struct {
 	Value string
 }
 
-func collectTraversalReplacements(blocks []*Block, oldTraversal, newTraversal string, replacements *[]traversalReplacement) {
-	for _, block := range blocks {
-		for _, expression := range block.Attributes {
-			if expression.Kind == "reference" && (expression.Traversal == oldTraversal || strings.HasPrefix(expression.Traversal, oldTraversal+".")) {
-				*replacements = append(*replacements, traversalReplacement{
-					Range: expression.Range,
-					Value: newTraversal + strings.TrimPrefix(expression.Traversal, oldTraversal),
-				})
+func collectSourceTraversalReplacements(source *Source, oldTraversal, newTraversal string) []traversalReplacement {
+	if source == nil || source.File == nil {
+		return nil
+	}
+	body, ok := source.File.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil
+	}
+	seen := map[string]bool{}
+	var replacements []traversalReplacement
+	var visitBody func(*hclsyntax.Body)
+	visitBody = func(current *hclsyntax.Body) {
+		for _, attribute := range current.Attributes {
+			for _, traversal := range attribute.Expr.Variables() {
+				text := traversalString(traversal)
+				if text != oldTraversal && !strings.HasPrefix(text, oldTraversal+".") {
+					continue
+				}
+				rng := convertRange(source.ID, source.Bytes, traversal.SourceRange())
+				key := fmt.Sprintf("%d:%d", rng.Start.ByteOffset, rng.End.ByteOffset)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				replacements = append(replacements, traversalReplacement{Range: rng, Value: newTraversal + strings.TrimPrefix(text, oldTraversal)})
 			}
 		}
-		collectTraversalReplacements(block.Blocks, oldTraversal, newTraversal, replacements)
+		for _, block := range current.Blocks {
+			visitBody(block.Body)
+		}
 	}
+	visitBody(body)
+	return replacements
 }
 
 func validSemanticName(value string) bool {
@@ -593,6 +648,214 @@ func semanticOperationsDigest(operations []SemanticOperation) string {
 	return byteDigest(append([]byte("scenery.semantic-operations.v1\x00"), b...))
 }
 
+func normalizeSemanticOperationShape(operation SemanticOperation) (SemanticOperation, error) {
+	operation.Address = strings.TrimSpace(operation.Address)
+	operation.ExpectedKind = strings.TrimSpace(operation.ExpectedKind)
+	operation.ExpectedSchemaRevision = strings.TrimSpace(operation.ExpectedSchemaRevision)
+	operation.View = strings.TrimSpace(operation.View)
+	if operation.Address == "" {
+		return SemanticOperation{}, fmt.Errorf("invalid_request: mutation address is required")
+	}
+	if operation.View != "" && operation.View != "source" {
+		return SemanticOperation{}, fmt.Errorf("invalid_request: expanded and effective resources are read-only")
+	}
+	operation.View = "source"
+	switch operation.Op {
+	case "resource.create", "resource.delete", "resource.rename":
+		operation.Path = ""
+	case "module.configure":
+		operation.Path = "/spec/inputs"
+	case "module.upgrade":
+		operation.Path = "/spec/version"
+	case "value.set", "value.unset":
+		if !strings.HasPrefix(operation.Path, "/spec/") && operation.Path != "/spec" {
+			return SemanticOperation{}, fmt.Errorf("invalid_request: semantic value path must begin with /spec")
+		}
+	default:
+		return SemanticOperation{}, fmt.Errorf("invalid_request: unsupported semantic operation %q", operation.Op)
+	}
+	if operation.Op == "resource.delete" || operation.Op == "value.unset" {
+		operation.Value = nil
+	}
+	return operation, nil
+}
+
+func normalizeSemanticOperationValues(operation SemanticOperation, base, predicted *Manifest) SemanticOperation {
+	identityManifest := base
+	if operation.Op == "resource.create" && predicted != nil {
+		identityManifest = predicted
+	}
+	operation = normalizeSemanticOperationIdentity(operation, identityManifest)
+	if operation.Precondition != nil {
+		precondition := *operation.Precondition
+		if precondition.Equals != nil {
+			if resource, ok := resourcesByAddress(base)[operation.Address]; ok {
+				if current, exists := resourcePointerValue(resource, operation.Path); exists {
+					precondition.Equals = normalizePresentedSemanticValue(precondition.Equals, current)
+				}
+			}
+		}
+		operation.Precondition = &precondition
+	}
+	if operation.Op == "resource.create" {
+		if resource, ok := resourcesByAddress(predicted)[operation.Address]; ok {
+			operation.Value = normalizePresentedSemanticValue(operation.Value, resource.Spec)
+		}
+		return operation
+	}
+	if operation.Op != "value.set" && operation.Op != "module.configure" && operation.Op != "module.upgrade" {
+		return operation
+	}
+	if resource, ok := resourcesByAddress(predicted)[operation.Address]; ok {
+		if effective, exists := resourcePointerValue(resource, operation.Path); exists {
+			operation.Value = normalizePresentedSemanticValue(operation.Value, effective)
+		}
+	}
+	return operation
+}
+
+func normalizeSemanticOperationIdentity(operation SemanticOperation, manifest *Manifest) SemanticOperation {
+	if kind := semanticOperationKind(operation, manifest); kind != "" {
+		operation.ExpectedKind = kind
+		operation.ExpectedSchemaRevision = resourceSchemaRevision(kind)
+	}
+	return operation
+}
+
+func semanticOperationKind(operation SemanticOperation, manifest *Manifest) string {
+	if operation.Op == "resource.create" {
+		parts := strings.Split(operation.Address, "/")
+		if len(parts) >= 3 {
+			return kindForBlock(parts[len(parts)-2])
+		}
+		return ""
+	}
+	if resource, ok := resourcesByAddress(manifest)[operation.Address]; ok {
+		return resource.Kind
+	}
+	return ""
+}
+
+func validateSemanticOperationExpectation(operation SemanticOperation, manifest *Manifest) error {
+	kind := semanticOperationKind(operation, manifest)
+	if kind == "" {
+		return nil
+	}
+	if operation.ExpectedKind != "" && operation.ExpectedKind != kind {
+		return fmt.Errorf("failed_precondition: expected kind %s, found %s", operation.ExpectedKind, kind)
+	}
+	revision := resourceSchemaRevision(kind)
+	if operation.ExpectedSchemaRevision != "" && operation.ExpectedSchemaRevision != revision {
+		return fmt.Errorf("failed_precondition: expected schema revision %s, found %s", operation.ExpectedSchemaRevision, revision)
+	}
+	return nil
+}
+
+func normalizePresentedSemanticValue(presented, effective any) any {
+	if effectiveMap, ok := effective.(map[string]any); ok {
+		if effectiveMap["$scalar"] != nil || effectiveMap["$ref"] != nil || effectiveMap["$expression"] != nil {
+			return cloneSemanticValue(effective)
+		}
+		presentedMap, ok := presented.(map[string]any)
+		if !ok {
+			return cloneSemanticValue(effective)
+		}
+		result := make(map[string]any, len(presentedMap))
+		for name, value := range presentedMap {
+			if normalized, exists := effectiveMap[name]; exists {
+				result[name] = normalizePresentedSemanticValue(value, normalized)
+			} else {
+				result[name] = cloneSemanticValue(value)
+			}
+		}
+		return result
+	}
+	if effectiveItems, ok := effective.([]any); ok {
+		presentedItems, ok := presented.([]any)
+		if !ok {
+			return cloneSemanticValue(effective)
+		}
+		result := make([]any, len(presentedItems))
+		for index, value := range presentedItems {
+			var exemplar any
+			if child, childOK := value.(map[string]any); childOK && stringValue(child["name"]) != "" {
+				name := stringValue(child["name"])
+				for _, candidate := range effectiveItems {
+					if candidateMap, candidateOK := candidate.(map[string]any); candidateOK && stringValue(candidateMap["name"]) == name {
+						exemplar = candidate
+						break
+					}
+				}
+			} else if index < len(effectiveItems) {
+				exemplar = effectiveItems[index]
+			}
+			if exemplar == nil {
+				result[index] = cloneSemanticValue(value)
+			} else {
+				result[index] = normalizePresentedSemanticValue(value, exemplar)
+			}
+		}
+		return result
+	}
+	return cloneSemanticValue(effective)
+}
+
+func plannedRenameReceipts(base, target *Manifest, operations []SemanticOperation) []RenameReceipt {
+	baseResources := resourcesByAddress(base)
+	targetResources := resourcesByAddress(target)
+	type renameState struct {
+		from     string
+		current  string
+		resource Resource
+	}
+	statesByCurrent := map[string]*renameState{}
+	for _, operation := range operations {
+		if operation.Op != "resource.rename" {
+			continue
+		}
+		state := statesByCurrent[operation.Address]
+		if state == nil {
+			resource, ok := baseResources[operation.Address]
+			if !ok {
+				continue
+			}
+			state = &renameState{from: operation.Address, current: operation.Address, resource: resource}
+		}
+		newName, ok := operation.Value.(string)
+		if !ok {
+			continue
+		}
+		delete(statesByCurrent, state.current)
+		state.current = resourceAddress(state.resource.Module, blockTypeForKind(state.resource.Kind), newName)
+		statesByCurrent[state.current] = state
+	}
+	receipts := []RenameReceipt{}
+	for _, state := range statesByCurrent {
+		if renamed, exists := targetResources[state.current]; !exists || renamed.Kind != state.resource.Kind {
+			continue
+		}
+		receipt := RenameReceipt{
+			From: state.from, To: state.current,
+			BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision,
+		}
+		receipt.Digest = renameReceiptDigest(receipt)
+		receipts = append(receipts, receipt)
+	}
+	sort.Slice(receipts, func(i, j int) bool {
+		if receipts[i].From != receipts[j].From {
+			return receipts[i].From < receipts[j].From
+		}
+		return receipts[i].To < receipts[j].To
+	})
+	return receipts
+}
+
+func renameReceiptDigest(receipt RenameReceipt) string {
+	receipt.Digest = ""
+	b, _ := MarshalCanonical(receipt)
+	return byteDigest(append([]byte("scenery.rename-receipt.v1\x00"), b...))
+}
+
 func rejectSecretMutation(operation SemanticOperation) error {
 	path := strings.ToLower(operation.Path)
 	if text, ok := operation.Value.(string); ok {
@@ -642,6 +905,9 @@ func revalidateChangePreconditions(current *Result, operations []SemanticOperati
 	}
 	byAddress := resourcesByAddress(planning.Manifest)
 	for _, operation := range operations {
+		if err := validateSemanticOperationExpectation(operation, planning.Manifest); err != nil {
+			return err
+		}
 		if operation.Precondition == nil || operation.Op == "resource.create" {
 			continue
 		}
@@ -716,12 +982,13 @@ func changePlanID(plan ChangePlan) string {
 		Capabilities, RequiredApprovals, RequiredCapabilities []string
 		OperationsDigest, ComparisonDigest                    string
 		Operations                                            []SemanticOperation
+		Renames                                               []RenameReceipt
 		Edits                                                 []SourceEdit
 		ExpiresAt                                             time.Time
 	}{
 		plan.Application, plan.BaseWorkspaceRevision, plan.PredictedWorkspaceRevision, plan.PredictedContractRevision,
 		plan.BaseContractRevision, plan.Caller, plan.Capabilities, plan.RequiredApprovals, plan.RequiredCapabilities,
-		plan.OperationsDigest, plan.SemanticDiff.Digest, plan.Operations, plan.Edits, plan.ExpiresAt.UTC(),
+		plan.OperationsDigest, plan.SemanticDiff.Digest, plan.Operations, plan.Renames, plan.Edits, plan.ExpiresAt.UTC(),
 	}
 	b, _ := MarshalCanonical(projection)
 	return byteDigest(append([]byte("scenery.change-plan.v1\x00"), b...))

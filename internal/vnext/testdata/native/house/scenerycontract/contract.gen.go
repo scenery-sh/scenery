@@ -9,7 +9,7 @@ import (
 
 const PackageIdentity = "house"
 const PackageVersion = "1.0.0"
-const PackageContractABIRevision = "sha256:5c180808dd4d9608f6985a306ef4552276ff7aa1f7e3d8481d95c55a069d7c44"
+const PackageContractABIRevision = "sha256:270be1e96cc24b11a1c8ea51ccfe7a746337833789f0822cf47528e7330469e0"
 const PackageImportPath = "example.test/nativeapp/house"
 const GoImplementationABIRange = ">=1.0.0, <2.0.0"
 const RuntimeABIRange = "scenery.go-runtime/v1"

@@ -3,6 +3,7 @@ package vnext
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -232,10 +233,54 @@ func validateAuthorizationResource(resource Resource) []Diagnostic {
 	return diagnostics
 }
 
-func applySecurityEffectiveDefaults(resources []Resource) {
+func applyAuthoredEffectiveDefaults(resources []Resource) {
 	for index := range resources {
-		if resources[index].Kind == "scenery.authorization/v1" && strings.TrimSpace(stringValue(resources[index].Spec["strategy"])) == "" {
-			resources[index].Spec["strategy"] = "deny_unless_allowed"
+		blockType := blockTypeForKind(resources[index].Kind)
+		schema, ok := authoredResourceSourceSchema(blockType)
+		if !ok {
+			continue
+		}
+		applyAuthoredBlockDefaults(&resources[index], resources[index].Spec, schema, "/spec")
+	}
+}
+
+func applyAuthoredBlockDefaults(resource *Resource, spec map[string]any, schema *authoredBlockSchema, path string) {
+	if resource == nil || spec == nil || schema == nil {
+		return
+	}
+	attributeNames := make([]string, 0, len(schema.Attributes))
+	for name := range schema.Attributes {
+		attributeNames = append(attributeNames, name)
+	}
+	sort.Strings(attributeNames)
+	for _, name := range attributeNames {
+		field := schema.Attributes[name]
+		if field.DefaultSource == "none" || field.DefaultSource == "" {
+			continue
+		}
+		if value, exists := spec[name]; exists && value != nil {
+			continue
+		}
+		spec[name] = cloneSemanticValue(field.Default)
+		provider := field.DefaultSource
+		if provider == "edition" {
+			provider = "edition:2027"
+		} else if provider == "http_profile" {
+			provider = "scenery.http-codec/v1"
+		}
+		setFieldProvenance(&resource.Origin, provenanceChildPath(path, name), spec[name], FieldProvenance{
+			Kind: "default", ProvidedBy: provider, SourceAddress: resource.Address,
+			Transformations: []string{field.DefaultSource + "_default"},
+		})
+	}
+	childNames := make([]string, 0, len(schema.Children))
+	for name := range schema.Children {
+		childNames = append(childNames, name)
+	}
+	sort.Strings(childNames)
+	for _, name := range childNames {
+		for _, child := range provenanceNamedChildren(spec, name, path) {
+			applyAuthoredBlockDefaults(resource, child.Value, schema.Children[name].Schema, child.Path)
 		}
 	}
 }

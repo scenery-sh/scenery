@@ -8,7 +8,7 @@ import (
 
 const PackageIdentity = "house"
 const PackageVersion = "1.0.0"
-const PackageContractABIRevision = "sha256:d6c32ac7b2c9d5d5b60ccd7fa9e7d497ef590d67140d7c09a972f4c116f903e6"
+const PackageContractABIRevision = "sha256:6cb7f6946c19487215fa6adab199e86895733ed3e15b7a66546993cd9a0459bf"
 const PackageImportPath = "example.test/clean-tech/house"
 const GoImplementationABIRange = ">=1.0.0, <2.0.0"
 const RuntimeABIRange = "scenery.go-runtime/v1"

@@ -111,8 +111,8 @@
       }
     ]
   },
-  "content_digest": "sha256:f51012691e65f9a03b8de1c6806c9779340b0a386b8df3661570f416c4c93426",
-  "contract_revision": "sha256:21c34102784711303677430c21195714cfec26d290532c8750700994a568b9e5",
+  "content_digest": "sha256:16f04c445525daf93e043398c237d88db0785a2e09cc57a1e32f4ed80bd44b01",
+  "contract_revision": "sha256:416c27cc6b36bffe2e7b012c240c3d7acd220de89f55d01cefdf7215d089deca",
   "covered_bindings": [],
   "covered_gateways": [
     "http_gateway.public_api"
@@ -129,13 +129,13 @@
   ],
   "generator": "scenery.vnext.typescript/v1",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:7f5dbd4e2edd1ed491677938a2c354be0d0970dc30a4135c5830fc52419ea099"
+    "app/http_gateway/public_api": "sha256:a1109bd1f9218d0fe3a605385f090033ef640f5ce56a66b3538d7e286870acf9"
   },
   "javascript_target": null,
   "legacy_client_revision": null,
   "legacy_fixture_catalog_digest": null,
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:10dde5e39e5e52bbf25764fddd79a5c91da794dbd566aa3b47a3f55e3c6c430d"
+    "app/http_gateway/public_api": "sha256:9cdf433db6b0096709fa2dda7bb863eecdd632b63fb950866a0770f4408fe0db"
   },
   "package": "@example/scenery-client",
   "package_version_recommendation": "major",

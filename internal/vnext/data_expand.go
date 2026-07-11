@@ -47,7 +47,9 @@ func expandDataResources(resources []Resource) ([]Resource, []Diagnostic) {
 		if collision {
 			continue
 		}
-		for _, resource := range generated {
+		for index := range generated {
+			markExpansionFieldProvenance(&generated[index], crud)
+			resource := generated[index]
 			occupied[resource.Address] = true
 			byAddress[resource.Address] = resource
 			result = append(result, resource)

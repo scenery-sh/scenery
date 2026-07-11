@@ -316,7 +316,7 @@ Resource labels:
 - MUST be unique within the resource kind and package scope;
 - MUST describe semantic identity, not source position.
 
-Wire names, URL paths, task names, Go symbols, database identifiers, and provider identifiers are strings and follow the rules of their respective domains.
+Wire names, URL paths, task names, Go symbols, database identifiers, and provider identifiers are strings and follow the rules of their respective domains. HTTP path-parameter labels use lower-snake placeholder identities. HTTP header labels use canonical lower-case field-name tokens; query-parameter labels use non-empty wire strings without controls or query delimiters; cookie labels use cookie-name tokens; multipart part labels use non-empty strings without controls. Source validation, schema metadata, formatters, semantic renderers, and HTTP validation MUST use these same label policies.
 
 ### 4.3 Attributes and blocks
 
@@ -386,7 +386,7 @@ Constructors return the named primitive and accept exactly one quoted literal. T
 | bytes | unpadded RFC 4648 base64url without whitespace | decode to bytes; IR re-encodes unpadded base64url |
 | uuid | canonical 8-4-4-4-12 hexadecimal UUID text | require lower-case canonical text and a valid UUID variant |
 | date | YYYY-MM-DD | validate the proleptic Gregorian date and preserve that form |
-| datetime | RFC 3339 with Z or an explicit numeric offset and at most 9 fractional digits | reject leap seconds; normalize the instant to UTC Z and trim trailing fractional zeros |
+| datetime | RFC 3339 with Z or an explicit numeric offset and at most 9 fractional digits using `.` as the fractional separator | reject commas, excess fractional digits, whitespace, and leap seconds; normalize the instant to UTC Z and trim trailing fractional zeros |
 | duration | optional leading minus followed by one or more exact ns, us, ms, s, m, h, d, or w components | convert to signed arbitrary-precision nanoseconds; reject fractions that are not an exact nanosecond |
 | size | non-negative exact number followed by B, kB, MB, GB, TB, KiB, MiB, GiB, or TiB | convert to arbitrary-precision integral bytes; reject fractional bytes |
 | url | absolute hierarchical RFC 3986 URI with a scheme and non-empty host | reject opaque and hostless URIs; lower-case scheme and any DNS host, remove the default port for HTTP or HTTPS, remove dot segments, uppercase percent hex, and unescape percent-encoded unreserved bytes |
@@ -616,6 +616,21 @@ Every effective resource field MUST retain provenance sufficient to answer:
 - which transformations changed it.
 
 Provenance belongs in compiler metadata, not inside the user-visible resource value.
+
+`origin.field_provenance` is indexed by an RFC 6901 pointer into that resource's `spec`. Object names are escaped as JSON Pointer segments and arrays use numeric indexes; labels never replace array indexes. Every emitted key MUST resolve to an existing value in the same graph view. Each entry records a stable origin kind, optional declaring range and package input, supplying resource/export/profile identity, source address, and ordered transformation chain. For example:
+
+~~~json
+{
+  "/spec/config/model_path": {
+    "kind": "module_input",
+    "declared_at": { "source_id": "...", "start": { "line": 8, "column": 4, "byte_offset": 120 }, "end": { "line": 8, "column": 42, "byte_offset": 158 } },
+    "input": "var.roof_model_path",
+    "provided_by": "app/module/house",
+    "source_address": "house/service/house",
+    "transformations": ["module_input_substitution", "contextual_relative_path"]
+  }
+}
+~~~
 
 ## 7. Type system
 
@@ -2476,6 +2491,8 @@ scenery.compiler-core/v1 permits only compiler-builtin functions. Executable ext
 
 An unavailable extension is a compilation error, not an ignored block. A descriptor or lowering failure produces a provider diagnostic and MUST NOT corrupt the compiler process.
 
+The 0.4-draft toolchain recognizes `extension` and generic `resource` as edition-defined syntax but does not claim `scenery.declarative-extensions/v1`; it emits `SCN7001 unsupported_profile` with the unavailable profile identity in structured details rather than `unknown_resource` or `SCN1002`.
+
 ## 18. Deployment and environment configuration
 
 Application contracts are environment-independent. A deployment supplies only values whose schemas explicitly permit deployment binding.
@@ -2623,7 +2640,7 @@ Tools MUST expose three views:
 
 | View | Contents |
 |---|---|
-| source | Resources and values directly authored before defaults and expansion |
+| source | Resources and values directly authored before input substitution, defaults, inheritance, patches, and expansion; authored `var.*` and export expressions remain visible |
 | effective | Module inputs, defaults, inheritance, and exact patches applied |
 | expanded | All effective resources plus generated resources such as CRUD operations |
 
@@ -2975,7 +2992,7 @@ get returns the resource. explain includes effective values, defaults, inputs, e
 ### 21.5 Semantic diff
 
 ~~~text
-scenery diff --semantic BASE TARGET -o json
+scenery diff --semantic BASE TARGET [--rename-receipts CHANGE_PLAN_OR_RECEIPT.json] -o json
 ~~~
 
 The CLI command, change-plan responses, and the agent operation revisions.diff MUST return the same versioned scenery.semantic-diff/v1 value. It contains base and target manifest or retained-revision identities, graph view, compatibility-profile identity, ordered typed changes, explicit rename evidence, per-dimension classifications, generated consequences, and risk records. Changes sort by resource address, schema path, then operation kind.
@@ -2995,7 +3012,7 @@ Text diffs MAY be included as secondary information.
 
 Diff output names a versioned compatibility profile and reports separate source, wire, storage, runtime, and deployment classifications. A classification is compatible, breaking, or unknown. A dimension without normative rules MUST be unknown; tooling may not guess that it is compatible.
 
-A rename is reported as semantic fact only when an explicit rename receipt or supplied rename map links the old and new addresses. Without that evidence, diff reports removal and addition. Heuristic rename candidates MAY be reported separately and MUST be marked unproven.
+A rename is reported as semantic fact only when an explicit rename receipt links the old and new addresses, names the exact base and target contract revisions, and carries the valid canonical receipt digest. Applied change receipts are retained under `.scenery/changes/applied/`; diff loads them automatically when a compared reference is that app root, while `--rename-receipts` supplies a plan or receipt explicitly. A stale, malformed, or fabricated receipt is ignored and the diff reports removal and addition. Heuristic rename candidates MAY be reported separately and MUST be marked unproven.
 
 ### 21.6 Planning and applying changes
 
@@ -3089,7 +3106,7 @@ A tool claiming scenery.agent-read/v1 or scenery.agent-mutation/v1 exposes the c
 
 capabilities MUST return exact profile versions, editions, resource-schema revisions, codec profiles, mutation operations, and transport limits. Agents MUST NOT infer support from edition alone.
 
-revisions.diff is the transport-neutral equivalent of scenery diff --semantic. Its request identifies BASE and TARGET by an available contract_revision, deployment_revision, immutable plan snapshot, or supplied canonical manifest, plus the requested compatibility profile and dimensions. Its response uses the classifications and rename-evidence rules in Section 21.5. Implementations MUST report unavailable snapshots as failed_precondition and MUST NOT silently substitute the current graph.
+revisions.diff is the transport-neutral equivalent of scenery diff --semantic. Its request identifies BASE and TARGET by an available contract_revision, deployment_revision, immutable plan snapshot, or supplied canonical manifest, plus the requested compatibility profile and dimensions. It MAY include `rename_receipts`; an app-local agent server also loads matching applied receipts from its retained change state. Its response uses the classifications and rename-evidence rules in Section 21.5. Implementations MUST report unavailable snapshots as failed_precondition and MUST NOT silently substitute the current graph.
 
 ### 22.2 Agent-mutation operations
 
@@ -3163,7 +3180,7 @@ A mutation targets an address and schema path:
 }
 ~~~
 
-Paths are RFC 6901 JSON Pointers over the explicitly named graph view and address schema fields, not source line numbers. Values are typed. Unknown paths and type mismatches fail during planning.
+Paths are RFC 6901 JSON Pointers over the explicitly named graph view and address schema fields, not source line numbers. Values are typed. An operation may bind `expected_kind` and `expected_schema_revision`; planning validates those identities before simulation, and normalized returned operations always include the resolved values. Unknown paths, stale schema expectations, and type mismatches fail during planning.
 
 The source view is directly writable. Expanded-only resources are read-only. Setting a defaulted effective value either creates a schema-authorized source override with clear provenance or fails. A patch-derived value must be changed through its patch unless its schema explicitly allows a higher-precedence override.
 
@@ -3185,7 +3202,8 @@ Successful planning returns:
 - predicted workspace_revision;
 - predicted contract_revision, always non-null for an applicable plan;
 - implementation_revision and deployment_revision invalidation status;
-- normalized semantic operations;
+- normalized semantic operations, each with mandatory resolved `expected_kind`, `expected_schema_revision`, and `view: "source"` fields;
+- revision-bound rename receipts containing old/new addresses and their digest;
 - semantic diff;
 - affected resources;
 - diagnostics;
@@ -3215,7 +3233,7 @@ A source-only change plan MUST NOT invent a predicted implementation_revision or
 
 If either base revision changed, the agent API returns revision_conflict and the CLI exits with status 3. It MUST NOT attempt a best-effort merge.
 
-A plan is immutable and bound to one application, normalized-operation digest, both base revisions, negotiated capability set, caller identity, required approvals, and expiry. Applying an expired or already-applied plan fails without writing.
+A plan is immutable and bound to one application, normalized-operation digest, rename receipts, both base revisions, negotiated capability set, caller identity, required approvals, and expiry. Presentation-equivalent contextual and tagged scalar values, and source-local versus canonical references, normalize before the operation digest is computed. Applying an expired or already-applied plan fails without writing.
 
 If required_approvals is non-empty, apply MUST reject missing or invalid approval tokens. A token is bound to the plan digest, caller, approved risk scopes, and expiry.
 
@@ -3236,7 +3254,7 @@ It updates:
 
 It does not update arbitrary strings, wire names, routes, task names, or database names unless separately requested.
 
-The resulting plan and apply receipt record the old address, new address, and contract revisions so later diffs can prove the rename. External durable names are unchanged unless separately requested.
+The resulting plan and persisted apply receipt record the old address, new address, base and target contract revisions, and a domain-separated receipt digest so later diffs can prove the rename. Rename traverses every typed reference inside attributes, including object/list/function expressions, exports, and module input maps; it never rewrites lookalike strings. If one physical package declaration is instantiated more than once, a mutation targeting only one instance address MUST fail instead of silently renaming every instance; the caller must edit or refactor the shared declaration explicitly. External durable names are unchanged unless separately requested.
 
 ### 22.7 Agent expectations
 
@@ -3425,7 +3443,13 @@ Core mappings are:
 |---|---|
 | bool | bool |
 | int | scenery.Int |
+| int32 | int32 |
+| int64 | int64 |
+| uint32 | uint32 |
+| uint64 | uint64 |
 | decimal | scenery.Decimal |
+| float32 | float32 |
+| float64 | float64 |
 | string | string |
 | bytes | []byte |
 | uuid | scenery.UUID |
@@ -3455,18 +3479,34 @@ A service constructor has exactly this shape:
 ~~~go
 func NewService(
     context.Context,
-    housecontract.HouseDependencies,
+    housecontract.HouseConstructorInput,
 ) (*Service, error)
 ~~~
 
-The returned service may use another exported named pointer type, but the constructor MUST be exported, non-generic, non-variadic, accept exactly context.Context and the generated service-qualified dependencies value, and return exactly a pointer to one named service type plus error.
+The returned service may use another exported named pointer type, but the constructor MUST be exported, non-generic, non-variadic, accept exactly context.Context and the generated service-qualified constructor-input value, and return exactly a pointer to one named service type plus error.
 
-Each service receives its own generated <ServiceName>Dependencies type. This permits several services to share one implementation package without merging or confusing their injection surfaces. HouseDependencies is generated from service.house dependencies:
+Each service receives generated `<ServiceName>Dependencies`, `<ServiceName>Config`, `<ServiceName>Clients`, and `<ServiceName>ConstructorInput` types. This permits several services to share one implementation package without merging or confusing their injection surfaces. For example:
 
 ~~~go
 type HouseDependencies struct {
     Database datasource.SQL
     Storage  object.Store
+}
+
+type HouseConfig struct {
+    RoofModelPath      scenery.RelativePath
+    ProcessConcurrency uint32
+    ProviderToken      scenery.SecretRef
+}
+
+type HouseClients struct {
+    Audit AuditInternalClient
+}
+
+type HouseConstructorInput struct {
+    Dependencies HouseDependencies
+    Config       HouseConfig
+    Clients      HouseClients
 }
 ~~~
 
@@ -3644,24 +3684,26 @@ Edition 2027 defines semantics independently of implementation completeness. A t
 
 Core profiles are:
 
-| Profile | Scope |
-|---|---|
-| scenery.compiler-core/v1 | Parser, lossless CST, formatter, core types, local packages/modules, semantic graph, canonical IR, source maps, diagnostics, and core compiler CLI |
-| scenery.go-implementation/v1 | Normative unary Go implementation ABI and generated adapters |
-| scenery.http-codec/v1 | HTTP gateways, exact wire codecs, negotiation, limits, and transport conformance |
-| scenery.runtime-http/v1 | Direct execution, HTTP/internal bindings, policies, pipelines, and HTTP runtime behavior |
-| scenery.runtime-durable/v1 | Durable execution, dispatch, retries, leases, retention, and execution engines |
-| scenery.events/v1 | Event contracts, event buses, consumption, and emissions |
-| scenery.data/v1 | Data sources, entities, views, CRUD expansion, and fixtures |
-| scenery.deployment/v1 | Deployment overlays, provider planning, and deployment revisions |
-| scenery.inspection-core/v1 | Schema/list/get/explain over canonical graph views |
-| scenery.agent-read/v1 | Machine graph/context retrieval, semantic diff, retained snapshots, and server mode |
-| scenery.agent-mutation/v1 | CST-aware plans, atomic changes, rename, fixes, approvals, and receipts |
-| scenery.patches/v1 | Version-bounded exact patches of explicitly patchable exports |
-| scenery.ui/v1 | Pages, actions, and renderers |
-| scenery.legacy-bridge/v1 | Temporary bounded legacy-v0 lowering, mixed ownership, shadow comparison, activation, and retirement |
+| Profile | Scope | Dependencies |
+|---|---|---|
+| scenery.compiler-core/v1 | Parser, lossless CST, formatter, core types, local packages/modules, semantic graph, canonical IR, source maps, diagnostics, and core compiler CLI | none |
+| scenery.go-implementation/v1 | Normative unary Go implementation ABI and generated adapters | scenery.compiler-core/v1 |
+| scenery.http-codec/v1 | HTTP gateways, exact wire codecs, negotiation, limits, and transport conformance | scenery.compiler-core/v1 |
+| scenery.runtime-http/v1 | Direct execution, HTTP/internal bindings, policies, pipelines, and HTTP runtime behavior | scenery.compiler-core/v1, scenery.go-implementation/v1, scenery.http-codec/v1 |
+| scenery.runtime-durable/v1 | Durable execution, dispatch, retries, leases, retention, and execution engines | scenery.compiler-core/v1, scenery.go-implementation/v1 |
+| scenery.events/v1 | Event contracts, event buses, consumption, and emissions | scenery.compiler-core/v1 |
+| scenery.data/v1 | Data sources, entities, views, CRUD expansion, and fixtures | scenery.compiler-core/v1 |
+| scenery.deployment/v1 | Deployment overlays, provider planning, and deployment revisions | scenery.compiler-core/v1, scenery.compatibility-core/v1 |
+| scenery.inspection-core/v1 | Schema/list/get/explain over canonical graph views | scenery.compiler-core/v1 |
+| scenery.agent-read/v1 | Machine graph/context retrieval, semantic diff, retained snapshots, and server mode | scenery.inspection-core/v1, scenery.compatibility-core/v1 |
+| scenery.agent-mutation/v1 | CST-aware plans, atomic changes, rename, fixes, approvals, and receipts | scenery.agent-read/v1 |
+| scenery.patches/v1 | Version-bounded exact patches of explicitly patchable exports | scenery.compiler-core/v1 |
+| scenery.ui/v1 | Pages, actions, and renderers | scenery.compiler-core/v1, scenery.data/v1 |
+| scenery.legacy-bridge/v1 | Temporary bounded legacy-v0 lowering, mixed ownership, shadow comparison, activation, and retirement | scenery.compiler-core/v1, scenery.compatibility-core/v1 |
+| scenery.compatibility-core/v1 | Deterministic multidimensional semantic compatibility and rename evidence | scenery.compiler-core/v1 |
+| scenery.typescript-client/v1 | Deterministic public unary HTTP TypeScript clients and artifact revisions | scenery.compiler-core/v1, scenery.compatibility-core/v1, scenery.http-codec/v1 |
 
-Future profiles include workflow execution, registry publication, migration execution, custom middleware ABIs, internal RPC, and sandboxed extensions.
+Future profiles include declarative extensions, workflow execution, registry publication, migration execution, custom middleware ABIs, internal RPC, and sandboxed executable extensions.
 
 ### 26.1 Profile rules
 

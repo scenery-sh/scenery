@@ -118,6 +118,22 @@ Changes sort by address, schema path, then operation. Dimension names and eviden
 
 Removing one address and adding another is removal plus addition unless an explicit rename receipt proves continuous identity and both schemas permit renaming.
 
+A generated receipt has this canonical evidence shape:
+
+~~~json
+{
+  "from": "parent/geometry/operation/process",
+  "to": "parent/geometry/operation/process_roof",
+  "base_contract_revision": "sha256:...",
+  "target_contract_revision": "sha256:...",
+  "digest": "sha256:..."
+}
+~~~
+
+The consumer MUST recompute the domain-separated receipt digest and require exact equality with the compared base and target `contract_revision` values before treating the evidence as a rename. Stale, malformed, or fabricated evidence is not advisory rename evidence: it is ignored, leaving the ordinary removal and addition. Change apply persists generated receipts for later local comparisons; agent and CLI callers may also supply a plan or receipt explicitly.
+
+The digest is domain-separated and covers the old/new addresses and both revisions. Change plans and apply receipts preserve the same evidence; comparison consumes it rather than guessing continuity.
+
 A rename never silently preserves:
 
 - an HTTP route;
@@ -264,7 +280,7 @@ The recommendation never overrides package policy or prove runtime rollout safet
 
 ## 14. Agent and plan integration
 
-`revisions.diff`, `scenery diff --semantic`, migration comparison, and change plans return the same canonical result schema.
+`revisions.diff`, `scenery diff --semantic`, migration comparison, and change plans return the same canonical result schema. `revisions.diff` accepts `rename_receipts`; `scenery diff --semantic` accepts `--rename-receipts <change-plan-or-receipt.json>` and automatically loads matching applied receipts when a compared reference is an app root.
 
 A mutation plan records:
 

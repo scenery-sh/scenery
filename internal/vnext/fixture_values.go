@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	scenery "scenery.sh"
 )
 
 func validateFixtureFieldValue(value any, field map[string]any, module string, resources map[string]Resource) error {
@@ -27,6 +29,26 @@ func validateFixtureFieldValue(value any, field map[string]any, module string, r
 				return fmt.Errorf("string does not match pattern %q", pattern)
 			}
 		}
+		if format := stringValue(field["format"]); format != "" {
+			var err error
+			switch format {
+			case "uuid":
+				_, err = scenery.ParseUUID(text)
+			case "date":
+				_, err = scenery.ParseDate(text)
+			case "datetime":
+				_, err = scenery.ParseDateTime(text)
+			case "duration":
+				_, err = scenery.ParseDuration(text)
+			case "url":
+				_, err = scenery.ParseURL(text)
+			case "relative_path":
+				_, err = scenery.ParseRelativePath(text)
+			}
+			if err != nil {
+				return fmt.Errorf("string does not match format %q: %w", format, err)
+			}
+		}
 	}
 	if items, ok := value.([]any); ok {
 		if minimum, ok := integerValue(field["min_items"]); ok && len(items) < minimum {
@@ -34,6 +56,20 @@ func validateFixtureFieldValue(value any, field map[string]any, module string, r
 		}
 		if maximum, ok := integerValue(field["max_items"]); ok && len(items) > maximum {
 			return fmt.Errorf("item count exceeds %d", maximum)
+		}
+		if field["unique_items"] == true {
+			seen := map[string]bool{}
+			for _, item := range items {
+				canonical, err := MarshalCanonical(item)
+				if err != nil {
+					return err
+				}
+				key := string(canonical)
+				if seen[key] {
+					return fmt.Errorf("items must be unique")
+				}
+				seen[key] = true
+			}
 		}
 	}
 	if number, ok := fixtureNumber(value); ok {

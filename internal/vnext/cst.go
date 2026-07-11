@@ -13,6 +13,7 @@ import (
 )
 
 var sceneryIdentifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var extensionResourceKindPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$`)
 
 type ConcreteSyntaxTree struct {
 	Tokens      []ConcreteToken   `json:"tokens"`
@@ -190,13 +191,6 @@ func commentGapIsContiguous(source []byte, start, end int) bool {
 }
 
 func validateConcreteIdentifiers(sourceID string, source []byte, body *hclsyntax.Body) []Diagnostic {
-	wireLabelBlocks := map[string]bool{
-		"path_parameter":  true,
-		"query_parameter": true,
-		"header":          true,
-		"cookie":          true,
-		"part":            true,
-	}
 	var diagnostics []Diagnostic
 	var visit func(*hclsyntax.Body)
 	visit = func(current *hclsyntax.Body) {
@@ -212,7 +206,10 @@ func validateConcreteIdentifiers(sourceID string, source []byte, body *hclsyntax
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: "block names must use lower_snake_case ASCII", Range: &rng})
 			}
 			for index, label := range block.Labels {
-				if index == 0 && wireLabelBlocks[block.Type] && label != "" {
+				if index == 0 && authoredBlockTypeHasWireLabels(block.Type) && label != "" {
+					continue
+				}
+				if block.Type == "resource" && index == 0 && extensionResourceKindPattern.MatchString(label) {
 					continue
 				}
 				if !sceneryIdentifierPattern.MatchString(label) {

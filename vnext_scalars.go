@@ -21,6 +21,7 @@ import (
 var (
 	decimalPattern  = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`)
 	durationPattern = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)(ns|us|ms|s|m|h|d|w)`)
+	dateTimePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})$`)
 )
 
 const (
@@ -194,6 +195,9 @@ func (value *Date) UnmarshalJSON(data []byte) error {
 }
 
 func ParseDateTime(value string) (DateTime, error) {
+	if !dateTimePattern.MatchString(value) {
+		return DateTime{}, fmt.Errorf("invalid datetime %q", value)
+	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
 		return DateTime{}, err

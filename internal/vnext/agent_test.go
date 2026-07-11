@@ -274,7 +274,7 @@ func TestAgentReadsUseRequestedGraphView(t *testing.T) {
 	}
 	explained := HandleAgentRequest(result, AgentRequest{Method: "resources.explain", Params: json.RawMessage(`{"address":"app/http_gateway/public_api","view":"effective"}`)})
 	encoded, _ = json.Marshal(explained.Result)
-	if explained.Error != nil || !containsJSONText(encoded, `"provenance":{"app/http_gateway/public_api":`) || containsJSONText(encoded, `"provenance":true`) {
+	if explained.Error != nil || !containsJSONText(encoded, `"provenance":{"app/http_gateway/public_api":`) || !containsJSONText(encoded, `"field_provenance":{"/spec/base_path":`) || containsJSONText(encoded, `"provenance":true`) {
 		t.Fatalf("explain response = %s, error = %#v", encoded, explained.Error)
 	}
 }
@@ -327,6 +327,22 @@ func TestAgentSessionRetainsExactRevisionSnapshots(t *testing.T) {
 	response = session.Handle(&Result{Manifest: targetManifest, WorkspaceRevision: "sha256:workspace-target"}, AgentRequest{Method: "revisions.diff", Params: missing})
 	if response.Error == nil || response.Error.Kind != "failed_precondition" {
 		t.Fatalf("missing snapshot response = %#v", response)
+	}
+}
+
+func TestAgentDiffConsumesRevisionBoundRenameReceipts(t *testing.T) {
+	before := Resource{Address: "house/record/old", Kind: "scenery.record/v1", Module: "house", Name: "old", Spec: map[string]any{}}
+	after := before
+	after.Address, after.Name = "house/record/new", "new"
+	base := &Manifest{ContractRevision: "sha256:base", Resources: []Resource{before}}
+	target := &Manifest{ContractRevision: "sha256:target", Resources: []Resource{after}}
+	receipt := RenameReceipt{From: before.Address, To: after.Address, BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision}
+	receipt.Digest = renameReceiptDigest(receipt)
+	params, _ := json.Marshal(map[string]any{"base": base, "target": target, "rename_receipts": []RenameReceipt{receipt}})
+	response := HandleAgentRequest(&Result{Manifest: target}, AgentRequest{Method: "revisions.diff", Params: params})
+	diff, ok := response.Result.(SemanticDiff)
+	if response.Error != nil || !ok || len(diff.Changes) != 1 || diff.Changes[0].Operation != "rename" {
+		t.Fatalf("rename diff response = %#v", response)
 	}
 }
 

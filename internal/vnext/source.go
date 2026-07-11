@@ -40,12 +40,13 @@ type Block struct {
 }
 
 type Expression struct {
-	Kind      string
-	Raw       string
-	Value     any
-	Traversal string
-	Range     Range
-	Static    bool
+	Kind        string
+	Raw         string
+	Value       any
+	Traversal   string
+	Range       Range
+	ValueRanges map[string]Range
+	Static      bool
 }
 
 func parseSource(root, path string) (*Source, []Diagnostic) {
@@ -110,7 +111,7 @@ func convertExpression(sourceID string, source []byte, expr hclsyntax.Expression
 	if rng.Start.Byte >= 0 && rng.End.Byte <= len(source) && rng.Start.Byte <= rng.End.Byte {
 		raw = string(source[rng.Start.Byte:rng.End.Byte])
 	}
-	converted := Expression{Kind: "expression", Raw: raw, Range: convertRange(sourceID, source, rng), Static: staticExpressionAllowed(expr)}
+	converted := Expression{Kind: "expression", Raw: raw, Range: convertRange(sourceID, source, rng), ValueRanges: expressionValueRanges(sourceID, source, expr), Static: staticExpressionAllowed(expr)}
 	if value, diags := expr.Value(nil); !diags.HasErrors() && value.IsWhollyKnown() {
 		converted.Kind = "literal"
 		converted.Value = ctyValue(value)
@@ -136,6 +137,38 @@ func convertExpression(sourceID string, source []byte, expr hclsyntax.Expression
 		return converted
 	}
 	return converted
+}
+
+func expressionValueRanges(sourceID string, source []byte, expression hclsyntax.Expression) map[string]Range {
+	ranges := map[string]Range{}
+	var visit func(hclsyntax.Expression, string)
+	visit = func(current hclsyntax.Expression, path string) {
+		switch typed := current.(type) {
+		case *hclsyntax.ParenthesesExpr:
+			visit(typed.Expression, path)
+		case *hclsyntax.TupleConsExpr:
+			for index, item := range typed.Exprs {
+				childPath := path + "/" + strconv.Itoa(index)
+				ranges[childPath] = convertRange(sourceID, source, item.Range())
+				visit(item, childPath)
+			}
+		case *hclsyntax.ObjectConsExpr:
+			for _, item := range typed.Items {
+				keyValue, diagnostics := item.KeyExpr.Value(nil)
+				if diagnostics.HasErrors() || !keyValue.IsKnown() || keyValue.Type() != cty.String {
+					continue
+				}
+				childPath := path + "/" + escapeJSONPointer(keyValue.AsString())
+				ranges[childPath] = convertRange(sourceID, source, item.ValueExpr.Range())
+				visit(item.ValueExpr, childPath)
+			}
+		}
+	}
+	visit(expression, "")
+	if len(ranges) == 0 {
+		return nil
+	}
+	return ranges
 }
 
 func staticCompositeValue(expression hclsyntax.Expression) (any, bool) {

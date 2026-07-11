@@ -83,7 +83,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 
 - App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
 - Go source is the app model: services, endpoints, auth handlers, middleware, durable tasks, cron jobs, and generated clients are discovered from code.
-- Edition-2027 apps opt into `scenery.scn` plus package-local `scenery.package.scn`; mixed apps add `scenery.migration.scn`. The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions.
+- Edition-2027 apps opt into `scenery.scn` plus package-local `scenery.package.scn`; mixed apps add `scenery.migration.scn`. The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - Edition-2027 apps opt into `scenery.scn`; mixed apps use `scenery.migration.scn` to link native packages and explicitly bounded legacy services into one validated active graph before the existing runtime adapters start.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for durable tasks and cron.
@@ -93,6 +93,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
 - Edition-2027 constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
 - Edition-2027 agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
+- Edition-2027 mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Semantic renames emit revision-bound, digest-checked plan/apply receipts; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
 
 Do not revive deprecated non-scenery APIs, legacy directive spellings, or compatibility aliases unless an active plan explicitly requires compatibility.
 
@@ -160,7 +161,7 @@ scenery fmt --check -o json
 scenery check -o json
 scenery compile --view expanded -o json
 scenery list|get|explain|graph ... -o json
-scenery diff --semantic BASE TARGET -o json
+scenery diff --semantic BASE TARGET [--rename-receipts <change-plan-or-receipt.json>] -o json
 scenery generate --check -o json
 scenery migrate status|compare|verify ... -o json
 scenery changes plan|apply ... -o json

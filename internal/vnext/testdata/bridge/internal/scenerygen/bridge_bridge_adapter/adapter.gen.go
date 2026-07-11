@@ -11,9 +11,9 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:13091d6d1929f10339f55ad03714840fa56e206a063ce1c4e731615ccb19ca41"
+const ContractRevision = "sha256:004e2e130423583d492e4e7e75b245fd7a715c647c618a13714e22493be8acae"
 const PackageIdentity = "bridge"
-const PackageContractABIRevision = "sha256:9520bcdfed16c50869ad259284f57fa71279b11a68925a595712fd4a69343ed4"
+const PackageContractABIRevision = "sha256:c3ab08e744f605127adf60796dacb4b1010800f400a669496d9c605966f9d2e9"
 const PackageVersion = "1.0.0"
 
 type serviceImplementation interface {

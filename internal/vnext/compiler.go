@@ -209,6 +209,7 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 	var language, application *Block
 	var modules []*Block
 	resources := []Resource{}
+	sourceResources := []Resource{}
 	sourceMap := map[string]SourceRecord{}
 	for _, source := range sources {
 		sourceMap[source.ID] = SourceRecord{URI: source.Relative}
@@ -226,12 +227,17 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 			}
 		case block.Type == "module":
 			modules = append(modules, block)
+		case block.Type == "extension" || block.Type == "resource":
+			diagnostic := diagnosticForBlock("SCN7001", "unsupported_profile: declarative extensions require scenery.declarative-extensions/v1", block)
+			diagnostic.Details = map[string]any{"profile": "scenery.declarative-extensions/v1", "syntax": block.Type}
+			diagnostics = append(diagnostics, diagnostic)
 		case rootResourceKinds[block.Type]:
 			resource, diag := resourceFromBlock("app", block, item.Source.ID)
 			if diag != nil {
 				diagnostics = append(diagnostics, *diag)
 			} else {
 				resources = append(resources, resource)
+				sourceResources = append(sourceResources, authoredResourceView(resource))
 			}
 		default:
 			diagnostics = append(diagnostics, diagnosticForBlock("SCN1002", "unknown top-level block "+block.Type, block))
@@ -292,8 +298,9 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 				remaining = append(remaining, module)
 				continue
 			}
-			compiled := compileModuleInstance(root, root, "app", prepared, resources, lockfile, map[string]bool{})
+			compiled := compileModuleInstanceWithSource(root, root, "app", prepared, module, resources, lockfile, map[string]bool{})
 			resources = append(resources, compiled.Resources...)
+			sourceResources = append(sourceResources, compiled.SourceResources...)
 			diagnostics = append(diagnostics, compiled.Diagnostics...)
 			for _, source := range compiled.Sources {
 				sourceMap[source.ID] = SourceRecord{URI: source.Relative}
@@ -317,8 +324,10 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 		if resources[index].Module != "app" || resources[index].Kind == "scenery.module/v1" {
 			continue
 		}
+		before := cloneMapValue(resources[index].Spec)
 		resolved, unresolved := substituteModuleExports(resources[index].Spec, rootModuleExports)
 		resources[index].Spec, _ = resolved.(map[string]any)
+		markResolvedReferenceProvenance(&resources[index], before, resources[index].Spec, "/spec", resources[index].Module, nil)
 		for _, reference := range unresolved {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN3010", Severity: "error", Message: "unknown root module export " + reference, Address: resources[index].Address})
 		}
@@ -328,17 +337,19 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 	diagnostics = append(diagnostics, legacyDiagnostics...)
 	diagnostics = append(diagnostics, validateNativeMigrationLegacyAbsence(root, appName, migration, resources)...)
 	addLegacySourceRecords(sourceMap, legacyResources)
+	sourceNative := cloneResourceView(sourceResources)
+	sourceLegacy := cloneResourceView(legacyResources)
+	preContextNative := cloneResourceView(resources)
 	resources, legacyDiagnostics = contextualizeResourceScalars(resources)
+	markContextualScalarProvenance(preContextNative, resources)
 	diagnostics = append(diagnostics, legacyDiagnostics...)
+	preContextLegacy := cloneResourceView(legacyResources)
 	legacyResources, legacyDiagnostics = contextualizeResourceScalars(legacyResources)
+	markContextualScalarProvenance(preContextLegacy, legacyResources)
 	diagnostics = append(diagnostics, legacyDiagnostics...)
-	applySecurityEffectiveDefaults(resources)
-	applySecurityEffectiveDefaults(legacyResources)
 	if migration == nil {
 		diagnostics = append(diagnostics, validateNativeOnlyLegacyAbsence(root)...)
 	}
-	sourceNative := cloneResourceView(resources)
-	sourceLegacy := cloneResourceView(legacyResources)
 	resources, legacyDiagnostics = applyPatches(resources)
 	diagnostics = append(diagnostics, legacyDiagnostics...)
 	resources, legacyDiagnostics = enrichDataImplementationDigests(root, resources)
@@ -346,9 +357,13 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 	resources, legacyDiagnostics = enrichUIImplementationDigests(root, resources)
 	diagnostics = append(diagnostics, legacyDiagnostics...)
 	applyHTTPEffectiveDefaults(resources)
-	applySecurityEffectiveDefaults(resources)
+	applyAuthoredEffectiveDefaults(resources)
 	applyHTTPEffectiveDefaults(legacyResources)
-	applySecurityEffectiveDefaults(legacyResources)
+	applyAuthoredEffectiveDefaults(legacyResources)
+	completeFieldProvenance(sourceNative, "source")
+	completeFieldProvenance(sourceLegacy, "source")
+	completeFieldProvenance(resources, "effective")
+	completeFieldProvenance(legacyResources, "effective")
 	effectiveNative := cloneResourceView(resources)
 	effectiveLegacy := cloneResourceView(legacyResources)
 	resources, legacyDiagnostics = expandDataResources(resources)
@@ -361,6 +376,7 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 	resources, legacyDiagnostics = linkMigrationResources(resources, legacyResources, migration)
 	diagnostics = append(diagnostics, legacyDiagnostics...)
 	applyMigration(resources, migration)
+	completeFieldProvenance(resources, "expanded")
 	validateMigrationCandidateGraphs(root, resources, migration)
 	diagnostics = append(diagnostics, validateResources(root, resources, migration)...)
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Address < resources[j].Address })
@@ -371,7 +387,7 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 	profiles = normalizeProfiles(profiles, resources)
 	diagnostics = append(diagnostics, validateProfiles(profiles, resources)...)
 	if containsExactString(profiles, "scenery.go-implementation/v1") {
-		diagnostics = append(diagnostics, validateGoContractOwnership(application, sourceNative)...)
+		diagnostics = append(diagnostics, validateGoContractOwnership(application, effectiveNative)...)
 	}
 	revision, err := contractRevision(resources, append([]string(nil), profiles...), appName)
 	if err != nil {
@@ -390,6 +406,26 @@ func cloneResourceView(resources []Resource) []Resource {
 	data, _ := json.Marshal(resources)
 	var cloned []Resource
 	_ = json.Unmarshal(data, &cloned)
+	return cloned
+}
+
+func authoredResourceView(resource Resource) Resource {
+	cloned := cloneResourceView([]Resource{resource})[0]
+	schema, ok := authoredResourceSourceSchema(blockTypeForKind(resource.Kind))
+	if !ok {
+		return cloned
+	}
+	spec := map[string]any{}
+	for name, value := range cloned.Spec {
+		if _, ok := schema.Attributes[name]; ok {
+			spec[name] = value
+			continue
+		}
+		if _, ok := schema.Children[name]; ok {
+			spec[name] = value
+		}
+	}
+	cloned.Spec = spec
 	return cloned
 }
 
@@ -590,7 +626,11 @@ func resourceFromBlock(module string, block *Block, sourceID string) (Resource, 
 	for name, rng := range block.AttributeRanges {
 		attributeRanges["/spec/"+escapeJSONPointer(name)] = rng
 	}
-	return Resource{Address: resourceAddress(module, block.Type, name), Kind: kindForBlock(block.Type), Name: name, Module: module, Spec: spec, Origin: Origin{Kind: "authored", SourceID: sourceID, DeclarationRange: &declarationRange, AttributeRanges: attributeRanges, ModuleChain: moduleChain}}, nil
+	address := resourceAddress(module, block.Type, name)
+	return Resource{Address: address, Kind: kindForBlock(block.Type), Name: name, Module: module, Spec: spec, Origin: Origin{
+		Kind: "authored", SourceID: sourceID, DeclarationRange: &declarationRange, AttributeRanges: attributeRanges,
+		ModuleChain: moduleChain, FieldProvenance: authoredFieldProvenance(block, "/spec", address, module),
+	}}, nil
 }
 
 func moduleInstantiationChain(instance string) []string {

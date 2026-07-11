@@ -1,8 +1,8 @@
 {
   "api_version": "scenery.generated.v1",
   "artifact_kind": "go_application_adapters",
-  "content_digest": "sha256:79bc02c1e7e18967f32c14682278ce726c81025ad9db6849e692aee6bc04b96b",
-  "contract_revision": "sha256:bdcdc3efe46a7ed61994badb8c55c0f7b5a6b7f8311be7f3512efe47c91ea0ae",
+  "content_digest": "sha256:35b2688a312507667471664601928f17b83869a8dfb44e3e3f3a621951ac4635",
+  "contract_revision": "sha256:fe7e93d91bc599c07fea0d0416d3219745e3c8018251d3b96804d84327115f6c",
   "covered": [
     "house/binding/process_scene_http",
     "house/binding/process_scene_internal",
@@ -17,14 +17,14 @@
   "generator": "scenery.vnext.go-application",
   "generator_version": "1",
   "http_surface_revisions": {
-    "app/http_gateway/public_api": "sha256:03c8792bdbc2d53d5ac3076f53b6d9f5ae4f33c33d26d4e35a82d615e4ea3e79"
+    "app/http_gateway/public_api": "sha256:8c362f5e3d8ac7035ed57c1deb7e46d84d29bae7d2f884e1991a308fce57fd0a"
   },
   "implementation_revision": null,
   "openapi_revisions": {
-    "app/http_gateway/public_api": "sha256:58354b21f1376eca62167255f54e2b5700a8e64f2028f07bb0ede1b3345ee661"
+    "app/http_gateway/public_api": "sha256:50cf34ba96878f91d323e604864faf4b8eb55e80a29b250a36b5d8f340e47e46"
   },
   "package_contract_abi_revisions": {
-    "example.test/nativeapp/house/scenerycontract": "sha256:5c180808dd4d9608f6985a306ef4552276ff7aa1f7e3d8481d95c55a069d7c44"
+    "example.test/nativeapp/house/scenerycontract": "sha256:270be1e96cc24b11a1c8ea51ccfe7a746337833789f0822cf47528e7330469e0"
   },
   "provider_capability_abis": {},
   "runtime_abi": "scenery.go-runtime/v1",

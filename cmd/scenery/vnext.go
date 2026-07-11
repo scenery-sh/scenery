@@ -294,13 +294,14 @@ func runVNextGraph(stdout io.Writer, args []string) error {
 }
 
 func runVNextDiff(stdout io.Writer, args []string) error {
-	var output, view string
+	var output, view, renameReceiptsPath string
 	var semantic, exitCode, nonInteractive, quiet bool
 	flags := newCLIFlagSet("diff")
 	flags.BoolVar(&semantic, "semantic", false, "")
 	flags.BoolVar(&exitCode, "exit-code", false, "")
 	flags.StringVar(&output, "o", "human", "")
 	flags.StringVar(&view, "view", "expanded", "")
+	flags.StringVar(&renameReceiptsPath, "rename-receipts", "", "")
 	flags.BoolVar(&nonInteractive, "non-interactive", false, "")
 	flags.BoolVar(&quiet, "quiet", false, "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -311,7 +312,7 @@ func runVNextDiff(stdout io.Writer, args []string) error {
 		return err
 	}
 	if !semantic || len(positionals) != 2 {
-		return fmt.Errorf("usage: scenery diff --semantic BASE TARGET [-o human|json]")
+		return fmt.Errorf("usage: scenery diff --semantic BASE TARGET [--rename-receipts change-plan-or-receipt.json] [-o human|json]")
 	}
 	base, err := vnext.LoadManifestReference(positionals[0])
 	if err != nil {
@@ -321,7 +322,24 @@ func runVNextDiff(stdout io.Writer, args []string) error {
 	if err != nil {
 		return fmt.Errorf("load target: %w", err)
 	}
-	diff := vnext.CompareManifests(base, target, vnext.CompareOptions{View: view})
+	var renames []vnext.RenameReceipt
+	if renameReceiptsPath != "" {
+		renames, err = vnext.LoadRenameReceipts(renameReceiptsPath)
+		if err != nil {
+			return fmt.Errorf("load rename receipts: %w", err)
+		}
+	}
+	for _, reference := range []string{positionals[1], positionals[0]} {
+		if info, statErr := os.Stat(reference); statErr == nil && info.IsDir() {
+			persisted, loadErr := vnext.LoadAppliedRenameReceipts(reference, base, target)
+			if loadErr != nil {
+				return fmt.Errorf("load applied rename receipts: %w", loadErr)
+			}
+			renames = append(renames, persisted...)
+			break
+		}
+	}
+	diff := vnext.CompareManifests(base, target, vnext.CompareOptions{View: view, Renames: renames})
 	if output == "json" {
 		envelope := vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: true, ContractRevision: target.ContractRevision, ImplementationRevision: nil, DeploymentRevision: nil, Data: diff, Diagnostics: []vnext.Diagnostic{}}
 		if err := json.NewEncoder(stdout).Encode(envelope); err != nil {

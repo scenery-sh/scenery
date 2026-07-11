@@ -3,7 +3,7 @@
   "$id": "https://scenery.sh/schemas/scenery.change-plan.v1.schema.json",
   "title": "Scenery semantic change plan",
   "type": "object",
-  "required": ["api_version", "plan_id", "application", "base_workspace_revision", "base_contract_revision", "predicted_workspace_revision", "predicted_contract_revision", "implementation_revision_status", "deployment_revision_status", "caller", "capabilities", "operations_digest", "operations", "semantic_diff", "affected_resources", "diagnostics", "source_edits", "formatting_effects", "required_approvals", "required_capabilities", "risk_records", "expires_at"],
+  "required": ["api_version", "plan_id", "application", "base_workspace_revision", "base_contract_revision", "predicted_workspace_revision", "predicted_contract_revision", "implementation_revision_status", "deployment_revision_status", "caller", "capabilities", "operations_digest", "operations", "rename_receipts", "semantic_diff", "affected_resources", "diagnostics", "source_edits", "formatting_effects", "required_approvals", "required_capabilities", "risk_records", "expires_at"],
   "properties": {
     "api_version": { "const": "scenery.change-plan/v1" },
     "plan_id": { "$ref": "#/$defs/revision" },
@@ -18,6 +18,7 @@
     "capabilities": { "$ref": "#/$defs/string_list" },
     "operations_digest": { "$ref": "#/$defs/revision" },
     "operations": { "type": "array", "items": { "$ref": "#/$defs/operation" } },
+    "rename_receipts": { "type": "array", "items": { "$ref": "#/$defs/rename_receipt" } },
     "semantic_diff": { "type": "object" },
     "affected_resources": { "$ref": "#/$defs/string_list" },
     "diagnostics": { "type": "array", "items": { "type": "object" } },
@@ -32,8 +33,20 @@
     "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "string_list": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
     "operation": {
-      "type": "object", "required": ["op", "address"],
-      "properties": { "op": { "type": "string" }, "address": { "type": "string" }, "view": { "type": "string" }, "path": { "type": "string" }, "value": {}, "precondition": { "type": "object" } },
+      "type": "object", "required": ["op", "address", "expected_kind", "expected_schema_revision", "view"],
+      "properties": { "op": { "type": "string" }, "address": { "type": "string" }, "expected_kind": { "type": "string", "minLength": 1 }, "expected_schema_revision": { "$ref": "#/$defs/revision" }, "view": { "const": "source" }, "path": { "type": "string" }, "value": {}, "precondition": { "type": "object" } },
+      "additionalProperties": false
+    },
+    "rename_receipt": {
+      "type": "object",
+      "required": ["from", "to", "base_contract_revision", "target_contract_revision", "digest"],
+      "properties": {
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "base_contract_revision": { "$ref": "#/$defs/revision" },
+        "target_contract_revision": { "$ref": "#/$defs/revision" },
+        "digest": { "$ref": "#/$defs/revision" }
+      },
       "additionalProperties": false
     },
     "source_edit": {

@@ -51,6 +51,23 @@ func TestVNextExactScalars(t *testing.T) {
 	assertJSON(t, size, `"2147483648"`)
 }
 
+func TestVNextDateTimeRejectsBroaderGoLexicalForms(t *testing.T) {
+	for _, value := range []string{
+		"2027-03-14T10:15:30,123Z",
+		"2027-03-14T10:15:30.1234567890Z",
+		" 2027-03-14T10:15:30Z",
+		"2027-03-14T10:15:30Z ",
+	} {
+		if _, err := ParseDateTime(value); err == nil {
+			t.Errorf("accepted non-conforming datetime %q", value)
+		}
+	}
+	value, err := ParseDateTime("2027-03-14T10:15:30.123+01:00")
+	if err != nil || value.String() != "2027-03-14T09:15:30.123Z" {
+		t.Fatalf("offset datetime = %q, %v", value.String(), err)
+	}
+}
+
 func TestVNextDurationAndSizeRemainExactBeyondMachineIntegerRange(t *testing.T) {
 	duration, err := ParseDuration("9223372036854775808ns")
 	if err != nil {

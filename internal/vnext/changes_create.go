@@ -114,7 +114,7 @@ func renderAuthoredResourceBlock(blockType string, labels []string, spec map[str
 				return nil, err
 			}
 			for _, value := range children {
-				childLabels, childSpec, err := authoredChildBlockValue(key, value, child.Schema.Labels)
+				childLabels, childSpec, err := authoredChildBlockValue(key, value, child.Schema)
 				if err != nil {
 					return nil, err
 				}
@@ -217,17 +217,17 @@ func authoredChildValues(name string, value any, child authoredChildSchema) ([]m
 	return values, nil
 }
 
-func authoredChildBlockValue(name string, value map[string]any, labels int) ([]string, map[string]any, error) {
+func authoredChildBlockValue(name string, value map[string]any, schema *authoredBlockSchema) ([]string, map[string]any, error) {
 	spec := cloneMapValue(value)
-	if labels == 0 {
+	if schema.Labels == 0 {
 		return nil, spec, nil
 	}
-	if labels != 1 {
-		return nil, nil, fmt.Errorf("%s uses unsupported label arity %d", name, labels)
+	if schema.Labels != 1 {
+		return nil, nil, fmt.Errorf("%s uses unsupported label arity %d", name, schema.Labels)
 	}
 	label, ok := spec["name"].(string)
-	if !ok || !validSemanticName(label) {
-		return nil, nil, fmt.Errorf("%s block requires a lower_snake name", name)
+	if !ok || !validAuthoredLabel(schema, label) {
+		return nil, nil, fmt.Errorf("%s block label %q violates %s policy", name, label, schema.LabelPolicy)
 	}
 	delete(spec, "name")
 	return []string{label}, spec, nil

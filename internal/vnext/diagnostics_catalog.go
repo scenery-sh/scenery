@@ -350,6 +350,7 @@ SCN6112|go_runtime_abi|A Go runtime ABI requirement is invalid
 SCN6113|go_capability_abi|A Go capability ABI requirement is invalid
 SCN6114|go_contract_descriptor|A generated Go contract descriptor is invalid
 SCN6115|go_composition_contract|A Go composition registration or ownership contract is invalid
+SCN6116|go_bridge_receiver|A native Go service cannot satisfy a remaining legacy operation receiver
 SCN6120|go_contract_declaration|A source unit declares the wrong Go contract boundary
 SCN6121|go_contract_import_ownership|A Go contract import path is owned by multiple source units
 SCN6122|implementation_revision_input|A Go implementation revision input or generated adapter digest is invalid

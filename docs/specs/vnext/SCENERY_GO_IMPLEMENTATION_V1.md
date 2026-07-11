@@ -390,7 +390,7 @@ Dependency fields expose stable provider capability interfaces, never concrete p
 
 ### 10.2 Configuration
 
-Config fields come from the service's explicit config attributes after module/deployment resolution. They retain optional/null semantics and sensitive taint. Secrets arrive only as runtime-resolvable `scenery.SecretRef` or a narrower declared secret capability, never plaintext in generated artifacts, manifests, diagnostics, or logs.
+Config fields come from the service's explicit config attributes after module/deployment resolution. The config attribute supplies the generated field identity; its referenced typed package input supplies type, phase, constraints, and sensitivity, so aliases such as `model_path = var.roof_model_path` are valid. They retain optional/null semantics and sensitive taint. Secrets arrive only as runtime-resolvable `scenery.SecretRef` or a narrower declared secret capability, never plaintext in generated artifacts, manifests, diagnostics, or logs.
 
 Implementations MUST NOT recover configuration from environment variables, package globals, `context.Context`, current working directory, or ambient files.
 
@@ -677,6 +677,8 @@ Tests need not start a Scenery runtime. Their build context extends but never re
 `adapter = "legacy_go_v0"` is not native ABI conformance. It is a temporary bridge-owned adapter described by [SCENERY_LEGACY_BRIDGE_V1.md](SCENERY_LEGACY_BRIDGE_V1.md).
 
 A service may first migrate declarations while retaining existing handlers, then later remove the adapter and implement this native ABI. Exactly one adapter is active for each operation.
+
+When a native constructor supplies the service lifecycle while an operation still uses `legacy_go_v0`, staged verification MUST prove that the constructor's returned pointer is assignable to that operation's legacy endpoint receiver pointer. An incompatible mixed receiver is a compile-time implementation diagnostic, never a runtime assertion failure.
 
 ## 23. Conformance requirements
 

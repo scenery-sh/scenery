@@ -50,7 +50,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "JSON Schema for immutable semantic change plans, predicted revisions, source edits, risks, capabilities, and approvals.",
+      "summary": "JSON Schema for immutable semantic change plans, normalized operations, revision-bound rename receipts, predicted revisions, source edits, risks, capabilities, and approvals.",
       "tags": ["schema", "vnext", "changes", "transactions"]
     },
     {
@@ -62,7 +62,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "JSON Schema for applied semantic change receipts and their resulting revisions.",
+      "summary": "JSON Schema for applied semantic change receipts, durable rename evidence, and resulting revisions.",
       "tags": ["schema", "vnext", "changes", "transactions"]
     },
     {
@@ -265,7 +265,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Completed conformance hardening for Go config, incremental bridge handlers, structured mutation and schemas, diagnostics, portable source maps, exact scalars, and final review gaps.",
+      "summary": "Completed exact-SHA conformance hardening for truthful graph views and field provenance, semantic rename receipts, structured authoring and wire labels, static bridge safety, exact scalars, normalized plans, Go config aliases, diagnostics, source maps, and normative consistency.",
       "tags": [
         "plans",
         "execplans",
@@ -285,7 +285,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-09",
-      "summary": "Normative umbrella design specification for Scenery language edition 2027, its canonical typed resource graph, profiles, CLI, agent interfaces, revisions, Go ABI summary, and representative House migration.",
+      "summary": "Normative umbrella design specification for Scenery language edition 2027, truthful graph views and field provenance, profiles/dependencies, CLI and normalized agent transactions, revisions, synchronized Go ABI summary, and representative House migration.",
       "tags": [
         "spec",
         "vnext",
@@ -304,7 +304,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-09",
-      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, constructor inputs, handlers, outcomes, adapters, descriptors, and staged verification.",
+      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, aliased typed config inputs, constructor inputs, handlers, mixed-receiver static safety, outcomes, adapters, descriptors, and staged verification.",
       "tags": [
         "spec",
         "vnext",
@@ -355,9 +355,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-09",
-      "summary": "Normative multidimensional semantic compatibility comparison rules for canonical Scenery resource graphs.",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Normative multidimensional semantic compatibility comparison rules for canonical Scenery resource graphs, including revision-bound rename receipts.",
       "tags": [
         "spec",
         "vnext",
@@ -372,9 +372,9 @@
       "status": "reference",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-09",
-      "summary": "Normative bounded service-by-service migration profile linking frozen legacy declarations and edition-2027 native source into one active graph and runtime plan.",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Normative bounded service-by-service migration profile linking frozen legacy declarations and edition-2027 native source into one active graph, with per-operation adapters and static mixed-receiver safety.",
       "tags": [
         "spec",
         "vnext",
@@ -611,7 +611,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Concise installed-skill entrypoint for using current scenery apps through app-root config, watch.ignore dev-loop exclusions, dev runtimes, and capabilities, including target-app AGENTS hierarchy checks, CLI JSON, standard auth Google sign-in and Google connection endpoints, beta public deploy status/setup commands, local filesystem storage inspection with offsite S3 replication, Postgres-only database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, scoped observability queries, managed toolchain diagnostics and upgrade flow, browser UI harness validation, cached/fresh/release timing interpretation with locally measured package parallelism, app validation profiles, docs review-due signals, debugging, generated clients, and validation loops.",
+      "summary": "Concise installed-skill entrypoint for current scenery apps, including target-app AGENTS checks, CLI JSON, edition-2027 graph views/provenance, schema-driven authoring and normalized transactions, mixed bridge safety, dev runtimes/capabilities, auth, public deploy, local storage, Postgres, durable/event workflows, observability, toolchains, browser validation, generated clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -650,7 +650,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Agent workflow guide for using CLI JSON, app-root config, watch.ignore dev-loop exclusions, runtime capabilities, standard auth Google connections for Gmail-style integrations, beta public deploy readiness commands, local filesystem storage inspect/CLI surfaces with offsite S3 replication, scoped observability queries, managed toolchain and upgrade commands, fresh test execution from content-addressed linked binaries, cached/fresh/release timing lanes, app validation profiles, Postgres-only app database services and schemas, internal dashboard cache artifacts including the Symphony Postgres store, WORKFLOW.md auto-run policy, and run-detail evidence, Victoria-backed trace/log history, TypeScript clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for CLI JSON and app roots, including edition-2027 source/effective/expanded provenance, schema-driven wire-label authoring, normalized plans and rename receipts, typed Go config aliases, static mixed bridge checks, runtime capabilities, auth, deploy, local storage, Postgres, observability, toolchains, fresh tests, dashboard evidence, generated clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -721,7 +721,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-11",
       "review_after": "2026-08-10",
-      "summary": "Frozen local developer and agent-facing contract for scenery CLI, JSON schemas, app-root config discovery including .config.json aliasing, watch.ignore, deploy.domain/root, runtime capabilities, standard auth Google connection endpoints and encrypted token storage, beta public deploy registry/status schemas, Postgres-only app database services and schemas, durable task declarations backed by the scenery schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, remote durable worker execution, durable worker token creation, durable job admin CLI, and durable inspect metadata, local filesystem storage config/CLI schemas with offsite S3 replication, scoped observability queries, Victoria-backed trace/log history, Symphony dashboard board persistence, WORKFLOW.md auto-run policy, and run-detail diffs, harness evidence artifacts including fresh execution from content-addressed test binaries and cached/fresh/release timing lanes, validation profile artifacts, UI harness journey artifacts, internal cache artifacts including devdash app-model blobs, toolchain store and upgrade flow, generators, configured tasks, code tasks, and local runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for the v0 and edition-2027 CLI/JSON surfaces, including graph provenance, recursive authoring schemas, normalized change and rename receipts, Go config aliases and mixed bridge checks, app-root discovery, runtimes/capabilities, auth/deploy, Postgres/durable/event/storage, observability, Symphony/dashboard evidence, harness timing lanes, toolchains, generators, tasks, and local runtime surfaces.",
       "tags": [
         "contract",
         "cli",
@@ -846,9 +846,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-02",
-      "review_after": "2026-08-02",
-      "summary": "Practical recipes for building scenery apps, app config including top-level frontends and watch.ignore, endpoints, storage objects, auth, Google Gmail connections via standard auth, middleware, Postgres database services and schemas, durable workers on the scenery schema, cron, configured generators, code tasks, generated clients, scoped observability debugging, and validation workflows.",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Practical recipes for building scenery apps, including safe native/legacy per-operation migration, app config and frontends, endpoints, storage, auth and Google connections, middleware, Postgres, durable/cron work, generators, code tasks, clients, scoped observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -1824,9 +1824,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-06-23",
-      "review_after": "2026-07-23",
-      "summary": "Completed milestones and shipped behavior, including devdash control-plane store slimming, the devdash app-model blob store, audited active-plan retirements, the Neon dev-cell/selfhost driver work, CLI observability query surface, and implemented browser UI harness baseline.",
+      "last_reviewed": "2026-07-11",
+      "review_after": "2026-08-10",
+      "summary": "Completed milestones and shipped behavior, including edition-2027 exact-SHA conformance hardening, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",

@@ -173,12 +173,13 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 		response.Result = graph
 	case "revisions.diff":
 		var params struct {
-			Base           *Manifest `json:"base"`
-			Target         *Manifest `json:"target"`
-			BaseRevision   string    `json:"base_revision"`
-			TargetRevision string    `json:"target_revision"`
-			View           string    `json:"view"`
-			Dimensions     []string  `json:"dimensions"`
+			Base           *Manifest       `json:"base"`
+			Target         *Manifest       `json:"target"`
+			BaseRevision   string          `json:"base_revision"`
+			TargetRevision string          `json:"target_revision"`
+			View           string          `json:"view"`
+			Dimensions     []string        `json:"dimensions"`
+			Renames        []RenameReceipt `json:"rename_receipts"`
 		}
 		if err := decodeAgentParams(request.Params, &params); err != nil {
 			response.Error = agentError("invalid_request", err.Error())
@@ -194,7 +195,16 @@ func (session *AgentSession) Handle(result *Result, request AgentRequest) AgentR
 			response.Error = agentError("failed_precondition", err.Error())
 			break
 		}
-		response.Result = CompareManifests(base, target, CompareOptions{View: params.View, Dimensions: params.Dimensions})
+		renames := append([]RenameReceipt(nil), params.Renames...)
+		if result.Root != "" {
+			persisted, loadErr := LoadAppliedRenameReceipts(result.Root, base, target)
+			if loadErr != nil {
+				response.Error = agentError("failed_precondition", loadErr.Error())
+				break
+			}
+			renames = append(renames, persisted...)
+		}
+		response.Result = CompareManifests(base, target, CompareOptions{View: params.View, Dimensions: params.Dimensions, Renames: renames})
 	case "diagnostics.get":
 		var contractRevision any
 		if result.Manifest != nil {
@@ -414,6 +424,7 @@ func agentCapabilities(manifest *Manifest) map[string]any {
 		"codec_profiles":            []string{"scenery.http-codec/v1"},
 		"unsupported_draft_surfaces": []string{
 			"compatibility_source_and_wire_classification",
+			"declarative_extensions",
 			"entity_evolution_migration",
 			"legacy_v0_fixture_catalog_and_bridge_removal",
 			"native_toolchain_identity",
@@ -450,29 +461,10 @@ func validateAgentSemanticOperation(result *Result, operation SemanticOperation)
 	if result == nil || result.Manifest == nil || result.Root == "" {
 		return SemanticOperation{}, fmt.Errorf("failed_precondition: no writable graph is available")
 	}
-	operation.Address = strings.TrimSpace(operation.Address)
-	if operation.Address == "" {
-		return SemanticOperation{}, fmt.Errorf("invalid_request: mutation address is required")
-	}
-	if operation.View == "" {
-		operation.View = "source"
-	}
-	switch operation.Op {
-	case "resource.create", "resource.delete", "resource.rename":
-		operation.Path = ""
-	case "module.configure":
-		operation.Path = "/spec/inputs"
-	case "module.upgrade":
-		operation.Path = "/spec/version"
-	case "value.set", "value.unset":
-		if !strings.HasPrefix(operation.Path, "/spec/") && operation.Path != "/spec" {
-			return SemanticOperation{}, fmt.Errorf("invalid_request: semantic value path must begin with /spec")
-		}
-	default:
-		return SemanticOperation{}, fmt.Errorf("invalid_request: unsupported semantic operation %q", operation.Op)
-	}
-	if operation.Op == "resource.delete" || operation.Op == "value.unset" {
-		operation.Value = nil
+	var err error
+	operation, err = normalizeSemanticOperationShape(operation)
+	if err != nil {
+		return SemanticOperation{}, err
 	}
 	if err := rejectSecretMutation(operation); err != nil {
 		return SemanticOperation{}, fmt.Errorf("invalid_request: %w", err)
@@ -480,6 +472,9 @@ func validateAgentSemanticOperation(result *Result, operation SemanticOperation)
 	planningBase, err := writablePlanningResult(result)
 	if err != nil {
 		return SemanticOperation{}, fmt.Errorf("failed_precondition: %w", err)
+	}
+	if err := validateSemanticOperationExpectation(operation, planningBase.Manifest); err != nil {
+		return SemanticOperation{}, err
 	}
 	temp, err := cloneWorkspace(result.Root)
 	if err != nil {
@@ -502,7 +497,7 @@ func validateAgentSemanticOperation(result *Result, operation SemanticOperation)
 	if !predicted.Valid() {
 		return SemanticOperation{}, fmt.Errorf("failed_precondition: semantic operation does not produce a valid graph: %s", firstError(predicted.Diagnostics))
 	}
-	return operation, nil
+	return normalizeSemanticOperationValues(operation, result.Manifest, predicted.Manifest), nil
 }
 
 func agentError(kind, message string) *AgentError {

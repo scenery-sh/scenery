@@ -66,8 +66,9 @@ input "roof_model_path" {
 }
 
 input "process_concurrency" {
-  type  = uint32
-  phase = "deployment"
+  type    = uint32
+  phase   = "deployment"
+  minimum = 2
 }
 
 input "provider_token" {
@@ -114,8 +115,13 @@ provider "vault" {
 	}
 	service := resourcesByAddress(result.Manifest)["house/service/house"]
 	schema := namedChildren(service.Spec, "config_schema")
-	if len(schema) != 3 || schema[0]["name"] != "process_concurrency" || schema[0]["phase"] != "deployment" || schema[1]["name"] != "provider_token" || schema[1]["sensitive"] != true || schema[2]["name"] != "roof_model_path" {
+	if len(schema) != 3 || schema[0]["name"] != "process_concurrency" || schema[0]["phase"] != "deployment" || schema[0]["minimum"] == nil || schema[1]["name"] != "provider_token" || schema[1]["sensitive"] != true || schema[2]["name"] != "roof_model_path" {
 		t.Fatalf("config schema = %#v", schema)
+	}
+	provider := resourcesByAddress(result.Manifest)["app/provider/vault"]
+	field := provider.Origin.FieldProvenance["/spec/compile_descriptor_digest"]
+	if field.Kind != "provider_descriptor" || field.ProvidedBy != "registry.scenery.dev/core/vault@"+version {
+		t.Fatalf("provider-derived provenance = %#v", field)
 	}
 }
 
@@ -140,6 +146,12 @@ func TestGoServiceConfigRejectsInvalidDynamicAttributes(t *testing.T) {
 	resources[0].Spec["config_schema"] = []any{map[string]any{"name": "count", "type": "uint32", "phase": "deployment"}}
 	if diagnostics := validateGoServiceConfiguration(resources); !diagnosticsContain(diagnostics, "SCN3407") {
 		t.Fatalf("resolved value diagnostics = %#v", diagnostics)
+	}
+
+	resources[0].Spec["config"] = map[string]any{"count": exactNumericScalar("1")}
+	resources[0].Spec["config_schema"] = []any{map[string]any{"name": "count", "type": "uint32", "phase": "deployment", "minimum": exactNumericScalar("2")}}
+	if diagnostics := validateGoServiceConfiguration(resources); !diagnosticsContain(diagnostics, "SCN3407") {
+		t.Fatalf("aliased config constraint diagnostics = %#v", diagnostics)
 	}
 }
 
@@ -181,7 +193,7 @@ service "house" {
 
 func TestGoServiceConfigSchemaComesFromTypedPackageInputs(t *testing.T) {
 	sources := []*Source{{Blocks: []*Block{
-		{Type: "input", Labels: []string{"model_path"}, Attributes: map[string]Expression{
+		{Type: "input", Labels: []string{"roof_model_path"}, Attributes: map[string]Expression{
 			"type": {Raw: "relative_path"},
 		}},
 		{Type: "input", Labels: []string{"token"}, Attributes: map[string]Expression{
@@ -191,7 +203,7 @@ func TestGoServiceConfigSchemaComesFromTypedPackageInputs(t *testing.T) {
 	}}}
 	service := Resource{Address: "house/service/house", Module: "house", Kind: "scenery.service/v1", Spec: map[string]any{
 		"runtime": "go", "config": map[string]any{
-			"model_path": map[string]any{"$ref": "var.model_path"},
+			"model_path": map[string]any{"$ref": "var.roof_model_path"},
 			"token":      map[string]any{"$ref": "var.token"},
 		},
 	}}

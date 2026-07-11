@@ -80,6 +80,7 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, validateHTTPEffectiveLimits(binding, gateway, httpSpec)...)
 		}
 		if strictNative {
+			diagnostics = append(diagnostics, validateHTTPWireLabels(binding, httpSpec)...)
 			diagnostics = append(diagnostics, validateHTTPPathMappings(binding, httpSpec, bindingPath)...)
 			if operation, ok := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]; ok {
 				diagnostics = append(diagnostics, validateHTTPInputMappings(byAddress, binding, operation, httpSpec)...)
@@ -94,6 +95,30 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 		} else {
 			routes[key] = binding.Address
 		}
+	}
+	return diagnostics
+}
+
+func validateHTTPWireLabels(binding Resource, httpSpec map[string]any) []Diagnostic {
+	var diagnostics []Diagnostic
+	validate := func(blockType string, schema *authoredBlockSchema, children []map[string]any) {
+		for _, child := range children {
+			label := stringValue(child["name"])
+			if !validAuthoredLabel(schema, label) {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1013", Severity: "error", Message: fmt.Sprintf("HTTP %s label %q violates %s policy", blockType, label, schema.LabelPolicy), Address: binding.Address})
+			}
+		}
+	}
+	validate("path_parameter", httpPathParameterSourceSchema, namedChildren(httpSpec, "path_parameter"))
+	validate("query_parameter", httpQueryParameterSourceSchema, namedChildren(httpSpec, "query_parameter"))
+	validate("header", httpHeaderSourceSchema, namedChildren(httpSpec, "header"))
+	validate("cookie", httpCookieSourceSchema, namedChildren(httpSpec, "cookie"))
+	if body, _ := httpSpec["body"].(map[string]any); body != nil {
+		validate("multipart part", httpMultipartPartSourceSchema, namedChildren(body, "part"))
+	}
+	for _, response := range namedChildren(httpSpec, "response") {
+		validate("response header", httpResponseHeaderSourceSchema, namedChildren(response, "header"))
+		validate("response cookie", httpResponseCookieSourceSchema, namedChildren(response, "cookie"))
 	}
 	return diagnostics
 }

@@ -189,7 +189,11 @@ func TestSemanticDiffUsesExplicitRenameEvidence(t *testing.T) {
 	before := Resource{Address: "house/operation/old", Kind: "scenery.operation/v1", Name: "old", Module: "house", Spec: map[string]any{"input": map[string]any{"$ref": "string"}}}
 	after := before
 	after.Address, after.Name = "house/operation/new", "new"
-	diff := CompareManifests(manifestWith(before), manifestWith(after), CompareOptions{Renames: []RenameReceipt{{From: before.Address, To: after.Address, Digest: "sha256:receipt"}}})
+	base, target := manifestWith(before), manifestWith(after)
+	base.ContractRevision, target.ContractRevision = "sha256:base", "sha256:target"
+	receipt := RenameReceipt{From: before.Address, To: after.Address, BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision}
+	receipt.Digest = renameReceiptDigest(receipt)
+	diff := CompareManifests(base, target, CompareOptions{Renames: []RenameReceipt{receipt}})
 	if len(diff.Changes) != 1 || diff.Changes[0].Operation != "rename" {
 		t.Fatalf("rename changes = %#v", diff.Changes)
 	}
@@ -201,6 +205,12 @@ func TestSemanticDiffUsesExplicitRenameEvidence(t *testing.T) {
 	}
 	if len(diff.Changes[0].Evidence) != 1 {
 		t.Fatalf("rename evidence = %#v", diff.Changes[0].Evidence)
+	}
+	forged := receipt
+	forged.Digest = byteDigest([]byte("forged"))
+	diff = CompareManifests(base, target, CompareOptions{Renames: []RenameReceipt{forged}})
+	if len(diff.Changes) != 2 || diff.Changes[0].Operation == "rename" || diff.Changes[1].Operation == "rename" {
+		t.Fatalf("forged rename evidence was trusted: %#v", diff.Changes)
 	}
 }
 

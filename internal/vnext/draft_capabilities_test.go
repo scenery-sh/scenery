@@ -24,6 +24,7 @@ func TestAgentCapabilitiesAdvertiseOpenDraftSurfacesAsUnsupported(t *testing.T) 
 	}
 	want := []string{
 		"compatibility_source_and_wire_classification",
+		"declarative_extensions",
 		"entity_evolution_migration",
 		"legacy_v0_fixture_catalog_and_bridge_removal",
 		"native_toolchain_identity",
@@ -43,6 +44,45 @@ func TestAgentCapabilitiesAdvertiseOpenDraftSurfacesAsUnsupported(t *testing.T) 
 		if !containsString(surfaces, item) {
 			t.Errorf("missing unsupported draft surface %q in %#v", item, surfaces)
 		}
+	}
+}
+
+func TestDeclarativeExtensionSyntaxIsKnownButUnsupported(t *testing.T) {
+	root := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "house"), root)
+	path := filepath.Join(root, "scenery.scn")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, []byte(`
+
+extension "maps" {
+  source  = "registry.scenery.dev/geo/maps"
+  version = ">= 1.4.0, < 2.0.0"
+}
+
+resource "maps.roof_model" "production" {
+  config = { model_path = "models/roofmapnet" }
+}
+`)...)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDiagnostic(result.Diagnostics, "SCN7001") {
+		t.Fatalf("extension syntax did not produce unsupported_profile: %#v", result.Diagnostics)
+	}
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "SCN7001" && diagnostic.Details["profile"] != "scenery.declarative-extensions/v1" {
+			t.Fatalf("extension diagnostic details = %#v", diagnostic.Details)
+		}
+	}
+	if hasDiagnostic(result.Diagnostics, "SCN1002") {
+		t.Fatalf("extension syntax was classified as unknown: %#v", result.Diagnostics)
 	}
 }
 

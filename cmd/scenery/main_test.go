@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -155,6 +157,47 @@ func TestVNextSchemaPublishesDiagnosticCatalog(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("catalog definitions = %#v", catalog["definitions"])
+	}
+}
+
+func TestVNextDiffConsumesRenameReceiptFile(t *testing.T) {
+	root := t.TempDir()
+	before := vnext.Resource{Address: "house/record/old", Kind: "scenery.record/v1", Module: "house", Name: "old", Spec: map[string]any{}}
+	after := before
+	after.Address, after.Name = "house/record/new", "new"
+	base := &vnext.Manifest{APIVersion: vnext.ManifestVersion, ContractRevision: "sha256:base", Resources: []vnext.Resource{before}}
+	target := &vnext.Manifest{APIVersion: vnext.ManifestVersion, ContractRevision: "sha256:target", Resources: []vnext.Resource{after}}
+	receipt := vnext.RenameReceipt{From: before.Address, To: after.Address, BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision}
+	canonical, err := vnext.MarshalCanonical(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(append([]byte("scenery.rename-receipt.v1\x00"), canonical...))
+	receipt.Digest = "sha256:" + hex.EncodeToString(digest[:])
+	writeJSON := func(name string, value any) string {
+		t.Helper()
+		path := filepath.Join(root, name)
+		encoded, marshalErr := json.Marshal(value)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if writeErr := os.WriteFile(path, encoded, 0o644); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		return path
+	}
+	basePath := writeJSON("base.json", base)
+	targetPath := writeJSON("target.json", target)
+	receiptPath := writeJSON("receipt.json", map[string]any{"rename_receipts": []vnext.RenameReceipt{receipt}})
+	var output strings.Builder
+	if err := runVNextDiff(&output, []string{"--semantic", basePath, targetPath, "--rename-receipts", receiptPath, "-o", "json"}); err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Data vnext.SemanticDiff `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil || len(envelope.Data.Changes) != 1 || envelope.Data.Changes[0].Operation != "rename" {
+		t.Fatalf("diff output = %s, %v", output.String(), err)
 	}
 }
 

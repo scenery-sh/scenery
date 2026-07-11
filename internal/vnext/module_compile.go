@@ -8,13 +8,14 @@ import (
 )
 
 type moduleInstanceCompilation struct {
-	Resources      []Resource
-	Sources        []*Source
-	ModuleResource Resource
-	Diagnostics    []Diagnostic
+	Resources       []Resource
+	SourceResources []Resource
+	Sources         []*Source
+	ModuleResource  Resource
+	Diagnostics     []Diagnostic
 }
 
-func compileModuleInstance(root, callerDirectory, callerModule string, module *Block, callerResources []Resource, lockfile *Lockfile, stack map[string]bool) moduleInstanceCompilation {
+func compileModuleInstanceWithSource(root, callerDirectory, callerModule string, module, sourceModule *Block, callerResources []Resource, lockfile *Lockfile, stack map[string]bool) moduleInstanceCompilation {
 	var result moduleInstanceCompilation
 	if module == nil || len(module.Labels) != 1 {
 		if module != nil {
@@ -53,6 +54,10 @@ func compileModuleInstance(root, callerDirectory, callerModule string, module *B
 	defer delete(stack, identity)
 
 	packageResources, packageSources, diagnostics := compilePackageLogical(root, location.Directory, instancePath, location.LogicalBase)
+	authoredResources := make([]Resource, len(packageResources))
+	for index, resource := range packageResources {
+		authoredResources[index] = authoredResourceView(resource)
+	}
 	result.Diagnostics = append(result.Diagnostics, diagnostics...)
 	packageVersion := packageVersionFromSources(packageSources)
 	if location.LockEntry == nil && hasConstraint && (packageVersion == "" || !semanticVersionSatisfies(packageVersion, constraint)) {
@@ -64,9 +69,9 @@ func compileModuleInstance(root, callerDirectory, callerModule string, module *B
 			result.Diagnostics = append(result.Diagnostics, diagnosticForBlock("SCN3103", "locked module compile descriptor identity does not match cached package", module))
 		}
 	}
-	inputValues, inputDiagnostics := resolveModuleInputValues(callerResources, packageResources, packageSources, module, callerModule)
+	inputValues, inputProvenance, inputDiagnostics := resolveModuleInputValuesWithSourceProvenance(callerResources, packageResources, packageSources, module, sourceModule, callerModule)
 	result.Diagnostics = append(result.Diagnostics, inputDiagnostics...)
-	resolvedResources, substitutionDiagnostics := substituteResolvedModuleInputs(packageResources, inputValues)
+	resolvedResources, substitutionDiagnostics := substituteResolvedModuleInputsWithProvenance(packageResources, inputValues, inputProvenance)
 	result.Diagnostics = append(result.Diagnostics, substitutionDiagnostics...)
 
 	nestedBlocks := packageModuleBlocks(packageSources)
@@ -83,9 +88,10 @@ func compileModuleInstance(root, callerDirectory, callerModule string, module *B
 			}
 			available := append(append([]Resource(nil), callerResources...), resolvedResources...)
 			available = append(available, result.Resources...)
-			child := compileModuleInstance(root, location.Directory, instancePath, prepared, available, lockfile, stack)
+			child := compileModuleInstanceWithSource(root, location.Directory, instancePath, prepared, nested, available, lockfile, stack)
 			result.Diagnostics = append(result.Diagnostics, child.Diagnostics...)
 			result.Resources = append(result.Resources, child.Resources...)
+			result.SourceResources = append(result.SourceResources, child.SourceResources...)
 			result.Sources = append(result.Sources, child.Sources...)
 			if child.ModuleResource.Address != "" {
 				exports, _ := child.ModuleResource.Spec["exports"].(map[string]any)
@@ -103,19 +109,29 @@ func compileModuleInstance(root, callerDirectory, callerModule string, module *B
 	}
 
 	for index := range resolvedResources {
-		resolved := cloneMapValue(resolvedResources[index].Spec)
+		before := cloneMapValue(resolvedResources[index].Spec)
+		resolved := cloneMapValue(before)
 		value, unresolved := substituteModuleExports(resolved, exportsByModule)
 		resolvedResources[index].Spec, _ = value.(map[string]any)
+		markResolvedReferenceProvenance(&resolvedResources[index], before, resolvedResources[index].Spec, "/spec", instancePath, inputProvenance)
 		for _, reference := range unresolved {
 			result.Diagnostics = append(result.Diagnostics, Diagnostic{Code: "SCN3010", Severity: "error", Message: "unknown nested module export " + reference, Address: resolvedResources[index].Address})
 		}
 	}
 
 	moduleResource, moduleDiagnostic := resourceFromBlock(callerModule, module, sourceIDForRange(module.Range))
+	var sourceModuleResource Resource
 	if moduleDiagnostic != nil {
 		result.Diagnostics = append(result.Diagnostics, *moduleDiagnostic)
 	} else {
 		moduleResource.Origin.ModuleChain = moduleInstantiationChain(instancePath)
+		authoredModuleResource, authoredDiagnostic := resourceFromBlock(callerModule, sourceModule, sourceIDForRange(sourceModule.Range))
+		if authoredDiagnostic != nil {
+			result.Diagnostics = append(result.Diagnostics, *authoredDiagnostic)
+		} else {
+			authoredModuleResource.Origin.ModuleChain = moduleInstantiationChain(instancePath)
+			sourceModuleResource = authoredResourceView(authoredModuleResource)
+		}
 		packageMetadata, interfaceInputs, exports, exportMetadata := packageInterfaceMetadata(packageSources)
 		interfaceInputsValue, _ := substituteModuleInputs(interfaceInputs, inputValues)
 		exportsValue, unresolvedInputs := substituteModuleInputs(exports, inputValues)
@@ -145,6 +161,20 @@ func compileModuleInstance(root, callerDirectory, callerModule string, module *B
 		moduleResource.Spec["interface_inputs"], _ = interfaceInputsValue.(map[string]any)
 		moduleResource.Spec["exports"] = normalizedExports
 		moduleResource.Spec["export_metadata"], _ = exportMetadataValue.(map[string]any)
+		attachPackageInterfaceProvenance(&moduleResource, packageSources, instancePath)
+		markResolvedReferenceProvenance(&moduleResource, interfaceInputs, moduleResource.Spec["interface_inputs"], "/spec/interface_inputs", instancePath, inputProvenance)
+		if expression, ok := sourceModule.Attributes["inputs"]; ok {
+			markResolvedReferenceProvenance(&moduleResource, expressionValue(expression), moduleResource.Spec["inputs"], "/spec/inputs", callerModule, nil)
+		}
+		markResolvedReferenceProvenance(&moduleResource, exports, normalizedExports, "/spec/exports", instancePath, inputProvenance)
+		markResolvedReferenceProvenance(&moduleResource, exportMetadata, moduleResource.Spec["export_metadata"], "/spec/export_metadata", instancePath, inputProvenance)
+		if sourceModuleResource.Address != "" {
+			sourceModuleResource.Spec["package"] = cloneMapValue(packageMetadata)
+			sourceModuleResource.Spec["interface_inputs"] = cloneMapValue(interfaceInputs)
+			sourceModuleResource.Spec["exports"] = cloneMapValue(exports)
+			sourceModuleResource.Spec["export_metadata"] = cloneMapValue(exportMetadata)
+			attachPackageInterfaceProvenance(&sourceModuleResource, packageSources, instancePath)
+		}
 		if location.LockEntry != nil {
 			moduleResource.Spec["locked_version"] = location.LockEntry.Version
 			moduleResource.Spec["locked_integrity"] = location.LockEntry.Integrity
@@ -156,8 +186,10 @@ func compileModuleInstance(root, callerDirectory, callerModule string, module *B
 		result.ModuleResource = moduleResource
 	}
 	result.Resources = append(resolvedResources, result.Resources...)
+	result.SourceResources = append(authoredResources, result.SourceResources...)
 	if result.ModuleResource.Address != "" {
 		result.Resources = append(result.Resources, result.ModuleResource)
+		result.SourceResources = append(result.SourceResources, sourceModuleResource)
 	}
 	result.Sources = append(packageSources, result.Sources...)
 	return result
@@ -194,7 +226,7 @@ func prepareNestedModuleBlock(block *Block, parentInputs map[string]any, moduleE
 		value, missingModules := substituteModuleExports(value, moduleExports)
 		unresolved = append(unresolved, missingInputs...)
 		unresolved = append(unresolved, missingModules...)
-		prepared.Attributes[name] = Expression{Kind: "literal", Value: value, Range: expression.Range, Static: true}
+		prepared.Attributes[name] = Expression{Kind: "literal", Value: value, Range: expression.Range, ValueRanges: expression.ValueRanges, Static: true}
 	}
 	return prepared, canonicalStrings(unresolved)
 }

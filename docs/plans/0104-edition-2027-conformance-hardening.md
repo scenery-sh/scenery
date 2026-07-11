@@ -4,7 +4,7 @@ This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, 
 
 ## Purpose / Big Picture
 
-Close the seven remaining conformance gaps found by an independent review of commit `1dcba0536b307aa0411e8a26df865178881cc426`. The delivered compiler must accept normative Go service configuration, support per-operation bridge retirement, render structured resources through agent mutation, expose authoring-complete schemas, keep diagnostic identities stable, emit portable Unicode-correct source locations, and implement the exact scalar rules. Advertised profile claims must describe only resolved normative behavior; Appendix E draft surfaces remain explicit unsupported capabilities.
+Close the conformance gaps found by independent reviews of commits `1dcba0536b307aa0411e8a26df865178881cc426` and `9dbc245faa048928f1c9642012733d08641e505c`. The delivered compiler must preserve truthful source/effective/expanded views with field provenance, provide complete semantic rename receipts and reference rewriting, keep wire-label schemas and authoring aligned, reject unsafe mixed Go receivers statically, normalize exact datetimes and semantic plans, support aliased Go config inputs, classify declarative extensions as known unsupported syntax, and keep the umbrella specification mechanically consistent with its companions.
 
 ## Progress
 
@@ -15,7 +15,11 @@ Close the seven remaining conformance gaps found by an independent review of com
 - [x] 2026-07-11 - Closed diagnostic catalog and source-map portability gaps, including Unicode/CRLF coverage.
 - [x] 2026-07-11 - Reconciled specifications and public profile claims with the feature-complete draft and explicit Appendix E boundary.
 - [x] 2026-07-11 - Passed targeted, full-suite, generated-artifact, schema/docs, ONLV regeneration, and self-harness validation.
-- [x] 2026-07-11 - Completed the two-axis standards/specification review, fixed every review finding, and prepared the final commit.
+- [x] 2026-07-11 - Completed the initial two-axis standards/specification review, fixed its findings, and produced reviewed commit `9dbc245f`.
+- [x] 2026-07-11 - Preserved authored source values separately from resolved/defaulted effective values and exposed RFC 6901 field provenance with exact suppliers and ranges.
+- [x] 2026-07-11 - Completed nested semantic rename, typed traversal rewriting, revision/digest-bound evidence, durable plan/apply receipts, and shared-package safety.
+- [x] 2026-07-11 - Aligned wire-label metadata, mixed bridge receiver checking, datetime lexing, plan normalization, config aliases/constraints, extensions, and normative summaries.
+- [x] 2026-07-11 - Re-ran generated artifacts, full validation, and the two-axis review; both final review passes reported no remaining actionable findings.
 
 ## Surprises & Discoveries
 
@@ -26,6 +30,8 @@ Close the seven remaining conformance gaps found by an independent review of com
 - The final specification review found two catalog-level gaps beyond the original seven: mandatory binding fields and the HTTP-only gateway condition were under-described, and idempotency keys were described as one reference instead of an ordered composite. The shared schema definitions and mutation fixture now enforce both contracts.
 - Focused re-review then exposed two deeper enforcement seams: keyed idempotency still tolerated missing or scalar keys, and unresolved platform listener/certificate fields were advertised as unsupported without compile-time rejection. Conditional authored schemas, canonical validation, mutation validation, retry/generator guards, and unsupported-draft diagnostics now close those seams.
 - The next focused pass found that syntactically valid `input.*` key paths were not resolved against the operation input graph. Idempotency now resolves the input record and accepts only existing direct fields; missing, computed, nested, unit-input, and non-input paths fail before retry selection or generation.
+- The follow-up two-axis review found that provenance labels were not RFC 6901 pointers, prepared module blocks still contaminated source-module values, config aliases dropped input constraints, and rename evidence was trusted without binding validation. Provenance now resolves against the exact view, source compilation retains original module/export expressions, config aliases carry and enforce constraints, and compatibility consumes only digest-valid receipts for the compared revisions.
+- A physical package can be instantiated more than once, so one instance-address rename would otherwise edit shared source while pretending only one graph address changed. Semantic rename now rejects that ambiguous mutation and requires an explicit package-level refactor.
 
 ## Decision Log
 
@@ -41,11 +47,9 @@ Close the seven remaining conformance gaps found by an independent review of com
 
 ## Outcomes & Retrospective
 
-The seven exact-SHA findings are closed. Authored Go service config compiles from real source; bridge lifecycle and handler adapters can retire independently per operation; mutation renders nested structured resources from canonical typed values; schema discovery is recursive and operation-specific; diagnostics have one checked catalog and internal report tokens; source IDs and columns are portable; exact size/path/URL behavior matches the clarified language contract.
+Every finding against both reviewed SHAs is closed. Source, effective, and expanded graphs now preserve their distinct meanings; package/module expressions remain authored in source, every provenance key resolves into its graph value, schema defaults appear only in effective/expanded, and supplier/range chains cover inputs, exports, patches, expansions, and providers. Semantic rename handles nested modules and composite traversals, emits durable digest-checked receipts, supports future CLI/agent diffs, and rejects ambiguous shared-package edits. Wire-label creation, mixed bridge receiver safety (including receiver-free package handlers), exact datetime parsing, normalized multi-operation plans, aliased constrained Go config, extension classification, and companion/umbrella consistency are enforced with regressions.
 
-The final standards review reported no hard rule violations and two maintainability judgments. Migration status code was split from the parser/lowering module, and field metadata switches were consolidated into one checked override catalog. The specification review passes found and drove closure of every schema, enforcement, and typed-graph seam above with public-schema, authored-source, canonical-validation, mutation, retry, generator, and source-round-trip tests before the clean final recheck.
-
-Validation passed with `go test ./... -count=1`, all three fixture `generate --check` runs, fourteen Bun TypeScript codec tests, generated-client TypeScript checking, docs inspection with 98 documents and zero missing/stale entries, and `scenery harness self --summary --write` with `ok: true` and `can_proceed: true`. The harness retained advisory review-date, timing, and existing large-file warnings only. An isolated clean ONLV copy regenerated to the new contract revision, passed a second zero-change generation check, compiled generated Go composition packages, and typechecked the generated TypeScript entrypoint. The live clean ONLV checkout was intentionally not modified.
+The final standards and specification re-reviews reported no remaining actionable findings. Validation passed with `go test ./... -count=1`, zero-drift generation checks for the house/native/bridge fixtures, fifteen Bun TypeScript codec tests, generated-client TypeScript checking, docs inspection with 98 documents and zero missing/stale entries, and self-harness `ok: true` with all 34 schemas valid, no failing steps, and no timing or drift findings.
 
 ## Context and Orientation
 

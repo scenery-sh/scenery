@@ -33,7 +33,7 @@ func TestAuthorizationDefaultsAndAcceptsDenyRules(t *testing.T) {
 			map[string]any{"name": "deny_blocked", "deny": map[string]any{"$expression": `principal.uid == "blocked"`}},
 		},
 	}}}
-	applySecurityEffectiveDefaults(resources)
+	applyAuthoredEffectiveDefaults(resources)
 	if resources[0].Spec["strategy"] != "deny_unless_allowed" {
 		t.Fatalf("strategy = %#v", resources[0].Spec["strategy"])
 	}

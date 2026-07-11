@@ -1,10 +1,23 @@
 package vnext
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
+
+const (
+	semanticLabelPattern   = "^[a-z][a-z0-9_]*$"
+	httpHeaderLabelPattern = "^[!#$%&'*+.^_`|~0-9a-z-]+$"
+	httpQueryLabelPattern  = "^[^\\x00-\\x20\\x7f&=#]+$"
+	httpCookieLabelPattern = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+	multipartLabelPattern  = "^[^\\x00-\\x1f\\x7f]+$"
+)
 
 type authoredBlockSchema struct {
 	Revision               string
 	Labels                 int
+	LabelPattern           string
+	LabelPolicy            string
 	Attributes             map[string]authoredAttributeSchema
 	Required               map[string]bool
 	Children               map[string]authoredChildSchema
@@ -20,6 +33,10 @@ type authoredChildSchema struct {
 
 func sourceSchema(revision string, labels int, attributes, required []string, children map[string]authoredChildSchema) *authoredBlockSchema {
 	schema := &authoredBlockSchema{Revision: revision, Labels: labels, Attributes: map[string]authoredAttributeSchema{}, Required: map[string]bool{}, Children: children}
+	if labels > 0 {
+		schema.LabelPattern = semanticLabelPattern
+		schema.LabelPolicy = "semantic_name"
+	}
 	for _, name := range attributes {
 		schema.Attributes[name] = authoredAttributeDefinition(revision, name)
 	}
@@ -29,6 +46,12 @@ func sourceSchema(revision string, labels int, attributes, required []string, ch
 	if schema.Children == nil {
 		schema.Children = map[string]authoredChildSchema{}
 	}
+	return schema
+}
+
+func wireLabelSchema(schema *authoredBlockSchema, pattern, policy string) *authoredBlockSchema {
+	schema.LabelPattern = pattern
+	schema.LabelPolicy = policy
 	return schema
 }
 
@@ -103,26 +126,28 @@ var (
 	executionDeduplicationSourceSchema = sourceSchema("scenery.execution.deduplication/v1", 0, []string{"retention", "conflict"}, []string{"retention", "conflict"}, nil)
 
 	httpPathParameterSourceSchema  = sourceSchema("scenery.binding.http.path-parameter/v1", 1, []string{"to"}, []string{"to"}, nil)
-	httpValueParameterSourceSchema = sourceSchema("scenery.binding.http.value-parameter/v1", 1, []string{"to", "encoding"}, []string{"to"}, nil)
+	httpQueryParameterSourceSchema = wireLabelSchema(sourceSchema("scenery.binding.http.query-parameter/v1", 1, []string{"to", "encoding"}, []string{"to"}, nil), httpQueryLabelPattern, "http_query_name")
+	httpHeaderSourceSchema         = wireLabelSchema(sourceSchema("scenery.binding.http.request-header/v1", 1, []string{"to", "encoding"}, []string{"to"}, nil), httpHeaderLabelPattern, "http_field_name")
+	httpCookieSourceSchema         = wireLabelSchema(sourceSchema("scenery.binding.http.request-cookie/v1", 1, []string{"to", "encoding"}, []string{"to"}, nil), httpCookieLabelPattern, "cookie_name")
 	httpContextSourceSchema        = sourceSchema("scenery.binding.http.context/v1", 1, []string{"from", "to"}, []string{"from", "to"}, nil)
-	httpMultipartPartSourceSchema  = sourceSchema("scenery.binding.http.multipart-part/v1", 1,
-		[]string{"to", "kind", "media_types", "max_bytes", "multiple", "retain_filename"}, []string{"to", "kind"}, nil)
+	httpMultipartPartSourceSchema  = wireLabelSchema(sourceSchema("scenery.binding.http.multipart-part/v1", 1,
+		[]string{"to", "kind", "media_types", "max_bytes", "multiple", "retain_filename"}, []string{"to", "kind"}, nil), multipartLabelPattern, "multipart_field_name")
 	httpBodySourceSchema = sourceSchema("scenery.binding.http.body/v1", 0,
 		[]string{"codec", "to", "from", "include", "except", "accepted_media_types", "produced_media_types", "content_encodings", "max_compressed_bytes", "max_decompressed_bytes", "max_parts"}, []string{"codec"},
 		map[string]authoredChildSchema{"part": repeated(httpMultipartPartSourceSchema)})
 	httpResponseBodySourceSchema = sourceSchema("scenery.binding.http.response-body/v1", 0,
 		[]string{"codec", "from", "produced_media_types", "content_encodings", "max_compressed_bytes", "max_decompressed_bytes"}, []string{"codec", "from"}, nil)
-	httpResponseHeaderSourceSchema = sourceSchema("scenery.binding.http.response-header/v1", 1,
-		[]string{"from", "encoding"}, []string{"from"}, nil)
-	httpResponseCookieSourceSchema = sourceSchema("scenery.binding.http.response-cookie/v1", 1,
-		[]string{"from", "path", "domain", "max_age", "expires", "secure", "http_only", "same_site"}, []string{"from"}, nil)
+	httpResponseHeaderSourceSchema = wireLabelSchema(sourceSchema("scenery.binding.http.response-header/v1", 1,
+		[]string{"from", "encoding"}, []string{"from"}, nil), httpHeaderLabelPattern, "http_field_name")
+	httpResponseCookieSourceSchema = wireLabelSchema(sourceSchema("scenery.binding.http.response-cookie/v1", 1,
+		[]string{"from", "path", "domain", "max_age", "expires", "secure", "http_only", "same_site"}, []string{"from"}, nil), httpCookieLabelPattern, "cookie_name")
 	httpResponseSourceSchema = sourceSchema("scenery.binding.http.response/v1", 1,
 		[]string{"when", "status"}, []string{"when", "status"}, map[string]authoredChildSchema{"header": repeated(httpResponseHeaderSourceSchema), "cookie": repeated(httpResponseCookieSourceSchema), "body": singleton(httpResponseBodySourceSchema)})
 	httpSourceSchema = sourceSchema("scenery.binding.http/v1", 0,
 		[]string{"method", "path", "codec_profile", "guarantee", "request_limit", "response_limit", "timeouts"}, []string{"method", "path", "codec_profile"},
 		map[string]authoredChildSchema{
-			"path_parameter": repeated(httpPathParameterSourceSchema), "query_parameter": repeated(httpValueParameterSourceSchema),
-			"header": repeated(httpValueParameterSourceSchema), "cookie": repeated(httpValueParameterSourceSchema),
+			"path_parameter": repeated(httpPathParameterSourceSchema), "query_parameter": repeated(httpQueryParameterSourceSchema),
+			"header": repeated(httpHeaderSourceSchema), "cookie": repeated(httpCookieSourceSchema),
 			"context": repeated(httpContextSourceSchema), "body": singleton(httpBodySourceSchema), "response": repeated(httpResponseSourceSchema),
 		})
 	internalSourceSchema = sourceSchema("scenery.binding.internal/v1", 0, []string{"visibility", "principal"}, []string{"visibility", "principal"}, nil)
@@ -246,6 +271,11 @@ func validateAuthoredBlock(block *Block, schema *authoredBlockSchema) []Diagnost
 	if len(block.Labels) != schema.Labels {
 		add("SCN1016", fmt.Sprintf("%s requires exactly %d labels; found %d", block.Type, schema.Labels, len(block.Labels)), block)
 	}
+	for _, label := range block.Labels {
+		if !validAuthoredLabel(schema, label) {
+			add("SCN1013", fmt.Sprintf("%s label %q violates %s policy", block.Type, label, schema.LabelPolicy), block)
+		}
+	}
 	for name := range block.Attributes {
 		if _, expectsBlock := schema.Children[name]; expectsBlock {
 			add("SCN1017", "field "+name+" must be authored as a block", block)
@@ -307,6 +337,32 @@ func validateAuthoredBlock(block *Block, schema *authoredBlockSchema) []Diagnost
 		}
 	}
 	return diagnostics
+}
+
+func validAuthoredLabel(schema *authoredBlockSchema, label string) bool {
+	if schema == nil {
+		return false
+	}
+	if schema.Labels == 0 {
+		return label == ""
+	}
+	if label == "" {
+		return false
+	}
+	if schema.LabelPattern == "" {
+		return true
+	}
+	matched, err := regexp.MatchString(schema.LabelPattern, label)
+	return err == nil && matched
+}
+
+func authoredBlockTypeHasWireLabels(blockType string) bool {
+	switch blockType {
+	case "query_parameter", "header", "cookie", "part":
+		return true
+	default:
+		return false
+	}
 }
 
 func authoredEnumAllows(field authoredAttributeSchema, value string) bool {

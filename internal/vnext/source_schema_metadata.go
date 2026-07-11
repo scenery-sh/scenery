@@ -554,7 +554,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 		}
 	case "scenery.binding.http.path-parameter/v1":
 		return typedReference()
-	case "scenery.binding.http.value-parameter/v1":
+	case "scenery.binding.http.value-parameter/v1", "scenery.binding.http.query-parameter/v1", "scenery.binding.http.request-header/v1", "scenery.binding.http.request-cookie/v1":
 		if name == "to" {
 			return typedReference()
 		}

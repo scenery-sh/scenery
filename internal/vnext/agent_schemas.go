@@ -73,6 +73,7 @@ func semanticOperationSchema(revision, operation string) map[string]any {
 	}
 	properties := map[string]any{
 		"op": op, "address": map[string]any{"type": "string"}, "view": map[string]any{"enum": []string{"source"}},
+		"expected_kind": map[string]any{"type": "string"}, "expected_schema_revision": map[string]any{"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
 		"path": map[string]any{"type": "string", "format": "json-pointer", "pattern": "^/spec(?:/|$)"}, "value": map[string]any{"$ref": "scenery.value/v1"},
 		"precondition": map[string]any{"type": "object", "additional_properties": false, "properties": map[string]any{"exists": map[string]any{"type": "boolean"}, "absent": map[string]any{"type": "boolean"}, "equals": map[string]any{"$ref": "scenery.value/v1"}}},
 	}

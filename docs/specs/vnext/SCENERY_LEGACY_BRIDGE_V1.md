@@ -537,6 +537,8 @@ func (s *Service) LatestOffers(
 
 The source removes `adapter = "legacy_go_v0"`. Contract activation and implementation-ABI activation may be separate plans, but one operation has exactly one active adapter at a time.
 
+If the service lifecycle is already native while this operation remains bridge-backed, the Go verifier MUST prove that the native constructor result is assignable to the legacy endpoint receiver. A bridge that would require a failing runtime type assertion is invalid before generation or startup.
+
 ## 14. Native candidate generation
 
 ~~~text

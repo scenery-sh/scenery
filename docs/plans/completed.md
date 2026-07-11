@@ -17,12 +17,13 @@ truth for stable, beta, dev-only, and compatibility-mode classification.
 Shipped:
 
 - Closed all seven findings from the corrected review of `1dcba053`: source-level typed Go service config, mixed native/bridge operation handlers, schema-driven structured mutation, recursive agent schemas, a checked diagnostic catalog, collision-resistant Unicode-correct source maps, and exact scalar normalization.
+- Closed all follow-up findings from the exact review of `9dbc245f`: truthful source/effective/expanded graphs with RFC 6901 field provenance and complete schema defaults, nested/composite semantic rename with durable validated receipts, wire-label authoring parity, static receiver-aware mixed bridge verification, strict datetime lexing, normalized plan identities, constrained Go config aliases, known unsupported extension syntax, and mechanically checked normative summaries.
 - Added explicit Appendix E capability rejection, clarified hierarchical network URL semantics, and kept public claims at feature-complete draft / conformance hardening rather than stable.
 - Closed the final two-axis review findings by splitting migration status from lowering, consolidating field metadata, requiring complete binding authoring metadata, and exposing ordered composite idempotency keys through schema discovery and mutation.
 
 Validation:
 
-- Passed full Go, fixture generation, TypeScript codec/client, docs/schema, isolated ONLV regeneration/compilation, and self-harness gates. Self-harness reported `ok: true` and `can_proceed: true`; remaining findings were advisory review-date/timing warnings.
+- Passed full Go, zero-drift house/native/bridge generation, fifteen TypeScript codec tests, generated-client typechecking, docs/schema, and self-harness gates. Final self-harness reported `ok: true`, 34/34 schemas valid, no failing steps, and no timing or drift findings; both final review axes reported no remaining actionable findings.
 
 ## Scenery vNext Language and ONLV House Migration
 

@@ -8,7 +8,7 @@ import (
 
 const PackageIdentity = "bridge"
 const PackageVersion = "1.0.0"
-const PackageContractABIRevision = "sha256:9520bcdfed16c50869ad259284f57fa71279b11a68925a595712fd4a69343ed4"
+const PackageContractABIRevision = "sha256:c3ab08e744f605127adf60796dacb4b1010800f400a669496d9c605966f9d2e9"
 const PackageImportPath = "example.test/bridgeapp/bridge"
 const GoImplementationABIRange = ">=1.0.0, <2.0.0"
 const RuntimeABIRange = "scenery.go-runtime/v1"

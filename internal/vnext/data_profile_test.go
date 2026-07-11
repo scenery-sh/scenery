@@ -51,11 +51,27 @@ func TestCRUDExpansionProducesOrdinaryStableResourcesWithLineage(t *testing.T) {
 		if resource.Origin.Kind != "expanded" || len(resource.Origin.ExpansionLineage) != 1 || resource.Origin.ExpansionLineage[0].Generator != "house/crud/scene_api" {
 			t.Errorf("origin for %s = %#v", address, resource.Origin)
 		}
+		for path, field := range resource.Origin.FieldProvenance {
+			if field.Kind != "expansion" || field.ProvidedBy != "house/crud/scene_api" || path == "" {
+				t.Errorf("expanded field provenance for %s at %s = %#v", address, path, field)
+			}
+		}
+		if len(resource.Origin.FieldProvenance) == 0 {
+			t.Errorf("expanded field provenance for %s is empty", address)
+		}
 	}
 	getInput := resourcesByAddress(&Manifest{Resources: expanded})["house/record/scene_api_get_input"]
 	fields := namedChildren(getInput.Spec, "field")
 	if len(fields) != 2 || fields[0]["name"] != "id" || fields[1]["name"] != "tenant_id" {
 		t.Fatalf("tenant-scoped get input fields = %#v", fields)
+	}
+	getOperation := resourcesByAddress(&Manifest{Resources: expanded})["house/operation/scene_api_get"]
+	resultName := stringValue(namedChildren(getOperation.Spec, "result")[0]["name"])
+	if _, ok := getOperation.Origin.FieldProvenance["/spec/result/type"]; !ok {
+		t.Fatalf("result provenance paths = %#v", getOperation.Origin.FieldProvenance)
+	}
+	if _, wrong := getOperation.Origin.FieldProvenance["/spec/result/"+resultName+"/type"]; wrong {
+		t.Fatalf("provenance path is not an RFC 6901 pointer: %#v", getOperation.Origin.FieldProvenance)
 	}
 	getBinding := resourcesByAddress(&Manifest{Resources: expanded})["house/binding/scene_api_get_http"]
 	contexts := namedChildren(getBinding.Spec["http"].(map[string]any), "context")

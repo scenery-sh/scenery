@@ -6,7 +6,7 @@ import (
 	scenery "scenery.sh"
 )
 
-const ContractRevision = "sha256:bdcdc3efe46a7ed61994badb8c55c0f7b5a6b7f8311be7f3512efe47c91ea0ae"
+const ContractRevision = "sha256:fe7e93d91bc599c07fea0d0416d3219745e3c8018251d3b96804d84327115f6c"
 
 var RequiredAddresses = []string{"house/binding/process_scene_http", "house/binding/process_scene_internal", "house/execution/process_scene_direct", "house/operation/process_scene", "house/service/house"}
 

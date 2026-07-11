@@ -201,6 +201,9 @@ func canonicalFormatSource(source []byte, filename string) ([]byte, error) {
 		return nil, fmt.Errorf("cannot format invalid Scenery source: %s", diagnostics.Error())
 	}
 	body := file.Body.(*hclsyntax.Body)
+	if err := validateFormatterBlockLabels(body, ""); err != nil {
+		return nil, err
+	}
 	var replacements []formatReplacement
 	collectContextualFormatReplacements(formatted, body, nil, &replacements)
 	sort.Slice(replacements, func(i, j int) bool { return replacements[i].start > replacements[j].start })
@@ -211,6 +214,22 @@ func canonicalFormatSource(source []byte, filename string) ([]byte, error) {
 		formatted = append(append(append([]byte(nil), formatted[:replacement.start]...), replacement.value...), formatted[replacement.end:]...)
 	}
 	return hclwrite.Format(formatted), nil
+}
+
+func validateFormatterBlockLabels(body *hclsyntax.Body, parent string) error {
+	for _, block := range body.Blocks {
+		if schema, ok := authoredSchemaForBlock(parent, block.Type); ok && len(block.Labels) == schema.Labels {
+			for _, label := range block.Labels {
+				if !validAuthoredLabel(schema, label) {
+					return fmt.Errorf("cannot format %s label %q: violates %s policy", block.Type, label, schema.LabelPolicy)
+				}
+			}
+		}
+		if err := validateFormatterBlockLabels(block.Body, block.Type); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func canonicalizeCommentTokens(source []byte, filename string) []byte {

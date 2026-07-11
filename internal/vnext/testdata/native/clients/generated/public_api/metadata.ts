@@ -11,7 +11,7 @@ export const sceneryClientMetadata = freezeMetadata({
     "scenery.http-codec/v1"
   ],
   "compatibilityCatalog": "scenery.compatibility-core/v1",
-  "contractRevision": "sha256:bdcdc3efe46a7ed61994badb8c55c0f7b5a6b7f8311be7f3512efe47c91ea0ae",
+  "contractRevision": "sha256:fe7e93d91bc599c07fea0d0416d3219745e3c8018251d3b96804d84327115f6c",
   "gateways": [
     "http_gateway.public_api"
   ],
@@ -40,5 +40,5 @@ export const sceneryClientMetadata = freezeMetadata({
   ],
   "sourceEdition": "2027",
   "target": "app/typescript_client/public_api",
-  "typescriptClientRevision": "sha256:642815b18e6950b13f255bdf46b38b1d3797c06fcbc98664d72a58ec737e32cf"
+  "typescriptClientRevision": "sha256:13d5ea7001680854c0e5202e0c1234a40dd5265491579f11967bb6ae907f0d64"
 } as const);

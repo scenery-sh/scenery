@@ -26,6 +26,10 @@ func TestApplyPatchesRequiresExactPrecondition(t *testing.T) {
 	if len(patched[0].Origin.Patches) != 1 || patched[0].Origin.Patches[0] != "app/patch/timeout" {
 		t.Fatalf("patch provenance = %#v", patched[0].Origin)
 	}
+	field := patched[0].Origin.FieldProvenance["/spec/timeout"]
+	if field.Kind != "patch" || field.ProvidedBy != "app/patch/timeout" || field.SourceAddress != "house/execution/process" {
+		t.Fatalf("patch field provenance = %#v", field)
+	}
 	resources[2].Spec["expect"].(map[string]any)["value"] = "30m"
 	_, diagnostics = applyPatches(resources)
 	if !hasDiagnostic(diagnostics, "SCN2903") {

@@ -176,6 +176,44 @@ func (service *Service) LegacyStatus(_ context.Context, input *LegacyStatusParam
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("mixed generated application compile: %v\n%s", err, output)
 	}
+
+	incompatibleSource, err := os.ReadFile(servicePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incompatibleSource = []byte(strings.Replace(string(incompatibleSource), "type Service struct{}", "type Service struct{}\n\ntype NativeService struct{}", 1))
+	incompatibleSource = []byte(strings.Replace(string(incompatibleSource), "(*Service, error) {\n\treturn &Service{}", "(*NativeService, error) {\n\treturn &NativeService{}", 1))
+	incompatibleSource = []byte(strings.Replace(string(incompatibleSource), "func (service *Service) ProcessScene", "func (service *NativeService) ProcessScene", 1))
+	if err := os.WriteFile(servicePath, incompatibleSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	incompatible, err := Compile(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasDiagnostic(incompatible.Diagnostics, "SCN6116") {
+		t.Fatalf("incompatible mixed receiver was not rejected before runtime: %#v", incompatible.Diagnostics)
+	}
+
+	packageHandlerSource := []byte(strings.Replace(string(incompatibleSource), "func (service *Service) LegacyStatus", "func LegacyStatus", 1))
+	if err := os.WriteFile(servicePath, packageHandlerSource, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packageHandler, err := Compile(root)
+	if err != nil || !packageHandler.Valid() {
+		t.Fatalf("package-level legacy handler with native lifecycle: %v diagnostics=%#v", err, packageHandler.Diagnostics)
+	}
+	if hasDiagnostic(packageHandler.Diagnostics, "SCN6116") {
+		t.Fatalf("package-level legacy handler was treated as receiver-bound: %#v", packageHandler.Diagnostics)
+	}
+	if _, err := generateGoContractsFromResult(packageHandler, false); err != nil {
+		t.Fatal(err)
+	}
+	command = boundedGoCommand("test", "./...")
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("package-level mixed generated application compile: %v\n%s", err, output)
+	}
 }
 
 func TestMixedHandlersCompileWithBridgeLifecycle(t *testing.T) {

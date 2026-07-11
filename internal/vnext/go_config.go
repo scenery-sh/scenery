@@ -36,7 +36,7 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 			}
 			inputName := strings.TrimPrefix(reference, "var.")
 			declaration, ok := declarations[inputName]
-			if !ok || declaration.Type == "" || inputName != name {
+			if !ok || declaration.Type == "" {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3402", Severity: "error", Message: "Go service config " + name + " references an unavailable typed input", Address: service.Address, Path: "/spec/config/" + name})
 				continue
 			}
@@ -47,7 +47,11 @@ func enrichPackageGoServiceSchemas(resources []Resource, sources []*Source) ([]R
 			if phase != "contract" && phase != "implementation" && phase != "deployment" {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN3406", Severity: "error", Message: "Go service config " + name + " uses an invalid package input phase", Address: service.Address, Path: "/spec/config/" + name})
 			}
-			schema = append(schema, map[string]any{"name": name, "type": declaration.Type, "phase": phase, "sensitive": declaration.Sensitive})
+			field := map[string]any{"name": name, "type": declaration.Type, "phase": phase, "sensitive": declaration.Sensitive}
+			for constraint, value := range declaration.Constraints {
+				field[constraint] = cloneSemanticValue(value)
+			}
+			schema = append(schema, field)
 		}
 		service.Spec["config_schema"] = schema
 	}
@@ -88,7 +92,7 @@ func validateGoServiceConfiguration(resources []Resource) []Diagnostic {
 			if field["sensitive"] == true {
 				diagnostics = append(diagnostics, goConfigDiagnostic("SCN4003", "sensitive Go configuration must use resource_ref(\"secret\")", service, name))
 			}
-			if err := validateFixtureValue(value, typeExpression, service.Module, byAddress); err != nil {
+			if err := validateFixtureFieldValue(value, field, service.Module, byAddress); err != nil {
 				diagnostics = append(diagnostics, goConfigDiagnostic("SCN3407", "Go service config value does not match its package input type: "+err.Error(), service, name))
 			}
 		}
