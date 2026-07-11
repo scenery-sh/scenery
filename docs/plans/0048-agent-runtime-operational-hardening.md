@@ -40,7 +40,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - 2026-05-27: Agent home is decoupled from `SCENERY_DEV_CACHE_DIR`, but `cmd/scenery/devdash_store.go` still checks `SCENERY_DEV_CACHE_DIR` before the active agent. `cmd/scenery/watch.go` only forces the agent dashboard store when `SCENERY_DEV_CACHE_DIR` is empty, so a globally exported old cache dir can still split logs/traces/dashboard state. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/agent.go` implements `scenery prune --older-than` without `--db`, `--state`, or `--all`. The current command deletes stale runtime records and state roots, but it does not drop managed runtime Postgres databases or prune `session.<id>` substrate metadata. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-28: The stale-session cleanup command is now `scenery prune` with no compatibility alias. The obsolete spelling is intentionally removed.
-- 2026-05-27: `internal/agent/server.go` verifies substrate owners before signaling, but `Server.Close()` still walks registered substrates and interrupts verified component PIDs. An ordinary `scenery agent restart` can therefore disrupt live shared Postgres, sync, legacy async runtime, Victoria, or Grafana substrates used by running app runtimes. Source review on 2026-05-28 confirmed this is still open.
+- 2026-05-27: `internal/agent/server.go` verifies substrate owners before signaling, but `Server.Close()` still walks registered substrates and interrupts verified component PIDs. An ordinary `scenery agent restart` can therefore disrupt live shared Postgres, legacy async runtime, Victoria, or Grafana substrates used by running app runtimes. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/main.go` still lets `scenery dev --proxy` enable the legacy local proxy path after printing a warning. The underlying `internal/localproxy` defaults remain machine-global ports `80` and `443`, so warning-only behavior is still a footgun for parallel worktrees. Source review on 2026-05-28 confirmed this is still open.
 - 2026-07-07: The current local runtime command is `scenery up`. Source grep found no `SCENERY_LOCAL_PROXY` in production `cmd/scenery` or `internal` source, and focused tests now guard that `--proxy` and `--trust` stay rejected by the dev parser. `--trust` still exists only on `scenery system agent`, where it controls direct router TLS trust instead of the removed legacy dev proxy.
 - 2026-05-27: `cmd/scenery/dev_supervisor.go` runs all `dev.setup` commands inside every `RebuildAndRestart` after compile and before app start. This is fine for fast idempotent scripts but will become expensive once setup includes migrations, seed data, imports, or codegen. Source review on 2026-05-28 confirmed this is still open.
@@ -103,7 +103,7 @@ Relevant implementation files:
 - `cmd/scenery/devdash_store.go` owns dashboard/log/trace store root selection through `openDevdashStore()` and `devdashCacheRoot()`.
 - `cmd/scenery/agent.go` owns `scenery agent`, `scenery agent restart`, `scenery down`, and `scenery prune` argument parsing and command behavior.
 - `internal/agent/server.go` owns the agent control/router server lifecycle and currently signals verified substrate component processes from `Server.Close()`.
-- `cmd/scenery/dev_services.go` owns managed Postgres and sync substrate setup and the runtime database metadata that must be pruned.
+- `cmd/scenery/dev_services.go` owns managed Postgres substrate setup and the runtime database metadata that must be pruned.
 - `cmd/scenery/dev_supervisor.go` owns `RebuildAndRestart` and the current unconditional `dev.setup` execution.
 - `internal/app/root.go` and `docs/schemas/scenery.config.v1.schema.json` define `.scenery.json` config shape, including the current `dev.setup` string list.
 - `cmd/scenery/harness_parallel.go` contains the existing self-harness parallel worktree runtime check.
@@ -113,7 +113,7 @@ Terms used in this plan:
 
 - Agent mode means the default local-dev path where `scenery dev` ensures the local scenery agent, registers an app-root runtime, and routes public URLs through the agent router.
 - Dev dashboard store means the SQLite-backed local dashboard/log/trace store opened by `openDevdashStore()`.
-- Substrate means an agent-managed shared dependency such as Postgres, sync, legacy async runtime, Victoria, or Grafana.
+- Substrate means an agent-managed shared dependency such as Postgres, legacy async runtime, Victoria, or Grafana.
 - Managed runtime database means the per-runtime Postgres database recorded in substrate metadata as `session.<id>`.
 - Legacy local proxy means the older local HTTPS proxy enabled through `--proxy`, `--trust`, or `SCENERY_LOCAL_PROXY`, with machine-global HTTP/HTTPS ports.
 
@@ -146,7 +146,7 @@ Finally add setup policies and keep parallel runtime proof in the Scenery repo. 
 1. Phase 0 baseline:
    - Run from `/Users/petrbrazdil/Repos/scenery`: `go test ./...` and `scenery harness self --json --write`. Do not run `go install ./cmd/scenery` during agent validation unless a human explicitly asks.
    - Run from `/Users/petrbrazdil/Repos/onlv`: `just dev`, `just urls`, and `just psql`.
-   - Record in this plan whether the default ONLV URLs are agent-routed runtime URLs for API, `pulse`, `blog`, sync, and console, and confirm the default path does not require fixed `4000`, `4321`, `5173`, `5433`, `3000`, `9401`, `8428`, `9428`, `10428`, or `10429`.
+   - Record in this plan whether the default ONLV URLs are agent-routed runtime URLs for API, `pulse`, `blog`, and console, and confirm the default path does not require fixed `4000`, `4321`, `5173`, `5433`, `3000`, `9401`, `8428`, `9428`, `10428`, or `10429`.
 2. Dev dashboard store ownership:
    - Change `devdashCacheRoot()` semantics to use `SCENERY_DEVDASH_CACHE_DIR` first, then `<agent-dir>/dashboard` when the agent is active, then `SCENERY_DEV_CACHE_DIR`, then the existing legacy user-cache fallback.
    - Stop setting `SCENERY_DEV_CACHE_DIR` to the dashboard path in `prepareDevAgentSession`; if an override is needed for child process store selection, use `SCENERY_DEVDASH_CACHE_DIR`.

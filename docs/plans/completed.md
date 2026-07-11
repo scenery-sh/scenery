@@ -163,24 +163,6 @@ Validation:
 - Focused tests passed during implementation: `go test ./cmd/scenery ./internal/app ./internal/postgresdb ./db ./internal/toolchain`.
 - Final validation passed: `go test ./...`, `go test ./cmd/scenery`, and `go run ./cmd/scenery harness self --summary --write`. Self-harness reported `pass_with_warnings` and `can_proceed: true`; Docker was unavailable, so the live Postgres probe recorded an explicit skip warning.
 
-## Remove Former Realtime Service and Reserve Entity Stream
-
-- Status: completed
-- Owner: scenery runtime / generated web
-- Completed: 2026-06-27
-- Quality: B
-- ExecPlan: [0087 Remove Former Realtime Service and Reserve Entity Stream](0087-remove-former-realtime-service-and-reserve-entity-stream.md)
-
-Shipped:
-
-- Removed the former managed realtime service from dev service validation, managed process startup, agent route/backend registration, app and frontend env injection, current docs, schemas, env policy, UI labels, and fixtures.
-- Renamed generated web shape/runtime contracts to neutral source metadata while preserving generated row types, projection records, materializers, route helpers, and collection runtimes.
-- Kept `/sync` reserved for a future Scenery-native entity stream without adding a placeholder API.
-
-Validation:
-
-- Passed focused package tests, `go test ./...`, generated-data dry-run, docs inspection, dashboard typecheck/test/build, and `go run ./cmd/scenery harness self --summary --write` with warning-class harness findings only.
-
 ## SQLite Durable Execution Runtime Per Service
 
 - Status: completed
@@ -277,7 +259,7 @@ Shipped:
 - Added beta `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, parser diagnostics, and `scenery inspect models|views --json`.
 - Added generated desired Atlas HCL, `scenery generate data --dry-run --json`, `scenery db diff --generated --json`, generated seed SQL, and `scenery check` drift diagnostics.
 - Added generated model CRUD endpoints/stores with explicit action policy, generated endpoint markers, app-owned schema/table targeting, auth-by-default access, tenant scoping, UUID tenant support, configured DB URL env support, shared pgx pools, and bounded list pagination.
-- Added generated hidden frontend packages with row/create/patch types, sync shape metadata, collection/materializer definitions, runtime adapter factories, route registration helpers, default collection pages, slot assertions, and fixture typecheck/render proof.
+- Added generated hidden frontend packages with row/create/patch types, entity source metadata, collection/materializer definitions, runtime adapter factories, route registration helpers, default collection pages, slot assertions, and fixture typecheck/render proof.
 - Closed production-readiness follow-ups discovered by the ONLV pilot: app-owned schemas, safe route bases, Atlas label collisions, access defaults, UUID tenants, database URL env selection, reserved route diagnostics, timestamp payloads, shared pools, and bounded list results.
 
 Validation:
@@ -298,27 +280,8 @@ Shipped:
 
 - Added internal page-record projection IR for collection views.
 - `scenery inspect views --json` now exposes each view projection record type, source row, and projected fields.
-- Generated web packages now include `projections.ts`; generated collections/runtime/routes use page record types while sync shapes keep storage row types.
+- Generated web packages now include `projections.ts`; generated collections/runtime/routes use page record types while entity sources keep storage row types.
 - Computed page columns now fail with a deterministic diagnostic instead of being silently skipped.
-
-## sync Page Projection Materializers
-
-- Status: completed
-- Owner: scenery app model / generators
-- Completed: 2026-06-26
-- Quality: B
-- ExecPlan: [0082 sync Page Projection Materializers](0082-sync-page-projection-materializers.md)
-
-Shipped:
-
-- Proved the generated sync-backed web package keeps raw source rows and page records separate.
-- `projections.ts` materializes `TaskRow` values into `TaskListRecord` values from `ViewProjection` fields.
-- Generated collections/runtime keep `TanStackDBCollectionDefinition<TaskListRecord, TaskRow>` and `CollectionRuntime<TaskListRecord, TaskRow>` boundaries.
-- Generated routes and slots consume `TaskListRecord` page records, while runtime row sources remain `TaskRow`.
-
-Validation:
-
-- Passed focused generated-web and model tests, full `go test ./...`, docs inspection, generated data dry-run, and temporary model DSL web typecheck/render proof.
 
 ## Generated Page Mount Surface
 
@@ -389,7 +352,7 @@ Shipped:
 - Added `model.ExistingTable(schema, table)` as the explicit existing physical table binding API.
 - Added entity source ownership metadata to the model IR and `scenery inspect models --json`.
 - Kept `model.Table(name)` backward-compatible as a generated Scenery-owned table in the service schema.
-- Made generated schema and seed output skip existing-table entities while generated read-only endpoints, sync shape metadata, projections, collections, pages, routes, and barrel exports continue to target the explicit schema-qualified table.
+- Made generated schema and seed output skip existing-table entities while generated read-only endpoints, entity source metadata, projections, collections, pages, routes, and barrel exports continue to target the explicit schema-qualified table.
 - Added `testdata/apps/existing-table-dsl` with a handwritten `legacy.customers` schema source and read-only generated Customer page proof.
 
 Validation:
@@ -430,7 +393,7 @@ Shipped:
 - Removed Neon as an active Scenery database substrate, including lifecycle commands, schemas, selfhost driver/runtime code, image/toolchain refs, fixtures, and active docs guidance.
 - Added local PostgreSQL 18 managed branch databases through provider-neutral branch commands and `scenery db postgres install|start|status|logs|stop|restart|uninstall`.
 - Added Postgres registry v2 under the agent Postgres state root, with endpoint metadata instead of persisted raw connection URLs.
-- Preserved app-facing `DatabaseURL`, `SCENERY_MANAGED_DATABASE_URL`, `SCENERY_MANAGED_DATABASE_NAME`, DB lifecycle, sync, auth, worktree, and session behavior.
+- Preserved app-facing `DatabaseURL`, `SCENERY_MANAGED_DATABASE_URL`, `SCENERY_MANAGED_DATABASE_NAME`, DB lifecycle, auth, worktree, and session behavior.
 - Implemented the phase-one `template_database` branch strategy with checkout, reset, delete, expire, prune, restore-as-template-reset, and schema-catalog diff.
 - Recorded `dump_restore`, `cluster_basebackup`, PITR, filesystem snapshots, and deeper data diff as explicit future strategies that fail closed until implemented.
 
@@ -588,24 +551,6 @@ Validation:
 
 - See the ExecPlan Outcomes for the recorded self-harness evidence.
 
-## ONLV Agent Native Dev Migration
-
-- Status: completed
-- Owner: scenery runtime / ONLV integration
-- Completed: 2026-05-27
-- Quality: B
-- ExecPlan: [0045 ONLV Agent Native Dev Migration](0045-onlv-agent-native-dev-migration.md)
-
-Shipped:
-
-- ONLV defaults to the scenery agent path for local development.
-- ONLV declares managed Postgres/sync dev services and setup hooks, with session-routed API, dashboard, sync, Grafana, legacy async runtime, and frontend URLs.
-- Parallel ONLV worktree validation proved isolated hidden ports, databases, sync slots, and legacy async runtime task queues.
-
-Validation:
-
-- See the ExecPlan Outcomes for ONLV harness, scenery check/inspect, live-session smoke, and parallel-session validation.
-
 ## legacy async runtime Worker Production Hardening
 
 - Status: completed
@@ -689,28 +634,6 @@ Validation:
 - Focused `internal/neonselfhost` and `cmd/scenery` tests passed during implementation.
 - `go test ./...` passed.
 - `scenery harness self --json --write` passed with warnings only during implementation.
-
-## Scenery-Managed Neon Dev Cell and Branch Isolation
-
-- Status: completed
-- Owner: scenery runtime / agent DX
-- Completed: 2026-06-09
-- Quality: B+
-- ExecPlan: [0065 Scenery-Managed Neon Dev Cell and Branch Isolation](0065-scenery-managed-neon-dev-cell.md)
-
-Shipped:
-
-- `.scenery.json` accepts self-hosted Neon branch isolation under `dev.services.postgres`.
-- `scenery db neon`, `scenery db branch`, and `scenery worktree` expose the local dev-cell, branch pin, lease, and worktree workflows.
-- `scenery up`, DB lifecycle commands, `scenery db psql`, and managed sync consume non-parent ready Neon branch leases.
-- Parent branches, foreign leases, current-branch deletion, and destructive reset/restore operations have explicit safety gates.
-- Self-harness coverage now proves real branch-local DB lifecycle, branch data isolation, branch mutations, and sync branch/stream/slot isolation.
-
-Validation:
-
-- Focused Neon, branch, worktree, and sync tests passed during implementation.
-- `go test ./cmd/scenery` and `go test ./...` passed.
-- The default Docker-backed `scenery harness self --json --write` Neon proof passed during implementation.
 
 ## CLI Observability Query Surface
 
@@ -956,24 +879,6 @@ Shipped:
 - Direct/per-session dashboard fallback for agent-disabled, unavailable-agent, and explicit local-proxy paths.
 - Local contract updates, focused tests, full Go test suite, binary install, and self-harness snapshot refresh.
 
-## Agent Managed Postgres and sync
-
-- Status: completed
-- Owner: scenery runtime / dev services
-- Completed: 2026-05-27
-- Quality: B+
-- ExecPlan: [0041 Agent Managed Postgres and sync](0041-agent-managed-postgres-and-sync.md)
-
-Shipped:
-
-- Managed `dev.services.postgres` defaults for version `18` and database isolation.
-- Explicit admin URL reuse plus agent substrate reuse for Postgres.
-- Local Postgres startup from `initdb`/`postgres` without a mandatory Docker dependency, using an agent-private Unix socket.
-- Deterministic per-session database creation and app env injection for `DatabaseURL` when not explicitly provided.
-- `scenery db psql`, `scenery db reset`, and `scenery db snapshot create|restore` against the current managed session database.
-- sync as an agent-routed hidden session backend through explicit upstreams, local binary startup, or an explicitly configured Docker image.
-- Contract/schema docs, focused unit coverage, full `go test ./...`, binary install, and self-harness snapshot refresh.
-
 ## Agent Shared Substrates and Dev Services
 
 - Status: completed
@@ -989,9 +894,8 @@ Shipped:
 - Grafana dashboards with a `Session` variable backed by `scenery_session_id`.
 - Session-scoped legacy async runtime task queue/deployment/build env for app child processes.
 - Agent-routed frontend URLs for configured frontend upstreams.
-- Beta `.scenery.json` `dev.services` declarations for Postgres and sync.
+- Beta `.scenery.json` `dev.services` declarations for Postgres.
 - `scenery db psql` as the current managed database shell helper.
-- Follow-up Postgres/sync lifecycle work split to [0041 Agent Managed Postgres and sync](0041-agent-managed-postgres-and-sync.md).
 
 ## Grafana Dev Hardening
 
@@ -1351,7 +1255,7 @@ Shipped:
 
 Follow-ups:
 
-- [0008 Data Platform Migration and Live Hardening](0008-data-platform-migration-and-live-hardening.md) for migration edge cases, live-sync correctness, and public `data` API cleanup.
+- [0008 Data Platform Migration and Live Hardening](0008-data-platform-migration-and-live-hardening.md) for migration edge cases, live-data correctness, and public `data` API cleanup.
 - [0009 Trigger-Backed Outbox](0009-trigger-backed-outbox.md) after migration/live hardening.
 
 ## Data Platform Migration and Live Hardening
@@ -1537,21 +1441,6 @@ Shipped:
 - Added `.ts` public entrypoint re-exports for migrated primitives that Vite may still request during hot reload.
 - `apps/app/scripts/check-scenery-ui-registry.mjs`, wired into `bun run typecheck`, to prevent future drift back to local raw shadcn imports.
 - ONLV app visual harness remained stable with 24/24 snapshots passing.
-
-## SQLite Service Databases and Postgres Removal
-
-- Status: completed
-- Owner: scenery runtime / database
-- Completed: 2026-06-27
-- Quality: B
-- ExecPlan: [0088 SQLite Service Databases and Postgres Removal](0088-sqlite-service-databases.md)
-
-Shipped:
-
-- Replaced built-in managed Postgres with per-service managed SQLite database files.
-- Added SQLite service resolution, env injection, DB CLI list/path/shell/snapshot/reset/drop flows, and branch lifecycle based on file copies.
-- Ported standard auth, generated model stores, self-harness branch proof, schemas, docs, toolchain manifest, and public DB helper to SQLite.
-- Removed pgx/libpq dependencies, the public `pgxpool` wrapper, internal Postgres test helper, Postgres DB CLI/provider code, Atlas Postgres defaults, and the Postgres image artifact.
 
 ## Remove Pub/Sub Package
 

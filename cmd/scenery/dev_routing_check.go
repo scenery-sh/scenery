@@ -26,7 +26,6 @@ func devRouteConfigDiagnostics(cfg app.Config) []checkDiagnostic {
 		"console":   "the dev console route",
 		"root":      "the local route index",
 		"runtime":   "the local runtime route prefix",
-		"sync":      "the realtime sync route",
 		"__scenery": "the legacy internal Scenery route prefix",
 	}
 	seen := map[string]string{}

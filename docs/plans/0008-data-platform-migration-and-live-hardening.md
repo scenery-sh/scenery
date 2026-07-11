@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-After PostgreSQL validation and inspectability are in place, the next data-platform priority is correctness under stress. The risky areas are schema migration, physical name derivation, concurrent DDL, drift detection, and live-sync matching. These are foundation concerns; product UI, reporting, dynamic GraphQL, workflow automation, and extra CRM features should wait.
+After PostgreSQL validation and inspectability are in place, the next data-platform priority is correctness under stress. The risky areas are schema migration, physical name derivation, concurrent DDL, drift detection, and live-data matching. These are foundation concerns; product UI, reporting, dynamic GraphQL, workflow automation, and extra CRM features should wait.
 
 This plan hardens the existing vertical slice:
 
@@ -48,7 +48,7 @@ Success means the migration layer fails clearly and recovers predictably, live u
 
 ## Decision Log
 
-- Decision: Do not add more field types or product features until migration and live-sync correctness are hardened.
+- Decision: Do not add more field types or product features until migration and live-data correctness are hardened.
   Rationale: More product surface would hide foundation bugs. The current high-leverage work is correctness under concurrency, retries, drift, and live query movement.
   Date/Author: 2026-05-08 / Codex
 
@@ -168,7 +168,7 @@ Milestone 2: Migration hardening.
 
 Add tests for repeated bootstrap, repeated object creation, repeated field creation, concurrent object creation for the same tenant, concurrent field creation for the same object, failed DDL status, retry after failure, drift detection, lossy type changes, and conservative field deletion behavior.
 
-Milestone 3: Live-sync hardening.
+Milestone 3: Live-data hardening.
 
 Add tests for matching update delivery, non-matching update suppression, reconnect via `after_seq`, reconnect via `Last-Event-ID`, multiple clients with different queries, selected-field stripping, permission row filters, permission changes, record movement into/out of queries, delete delivery to previously matching queries, heartbeat delivery, and slow/disconnected client cleanup.
 

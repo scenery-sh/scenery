@@ -30,9 +30,6 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("    return Environment(`pr${pr}`)\n")
 	buf.WriteString("}\n\n")
 	buf.WriteString(`const BROWSER = typeof globalThis === "object" && ("window" in globalThis)` + "\n\n")
-	buf.WriteString(fmt.Sprintf("const CLIENT_APP_SLUG = %q\n", slug))
-	buf.WriteString("\n")
-
 	serviceNames := make([]string, 0, len(g.namespaces))
 	serviceNames = append(serviceNames, namespaceNamesWithMethods(g.namespaces)...)
 	if g.opts.StandardAuth {
@@ -199,9 +196,7 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("    headers: Headers\n")
 	buf.WriteString("    status: number\n")
 	buf.WriteString("    response: Response\n")
-	buf.WriteString("    txid: Txid | null\n")
 	buf.WriteString("}\n\n")
-	buf.WriteString("export type Txid = number\n\n")
 	buf.WriteString("export type AuthDataGenerator = () =>\n")
 	buf.WriteString("  | string\n")
 	buf.WriteString("  | Promise<string | undefined>\n")
@@ -265,7 +260,6 @@ func (g *tsGenerator) render() ([]byte, error) {
 	buf.WriteString("            headers: response.headers,\n")
 	buf.WriteString("            status: response.status,\n")
 	buf.WriteString("            response,\n")
-	buf.WriteString("            txid: txidFromHeaders(response.headers),\n")
 	buf.WriteString("        }\n")
 	buf.WriteString("    }\n\n")
 	buf.WriteString("    public async callAPI(method: string, path: string, body?: RequestInit[\"body\"], params?: CallParameters): Promise<Response> {\n")
@@ -326,193 +320,6 @@ interface TypedEndpointResultWithMeta {
     headers: Headers
     status: number
     response: Response
-    txid?: Txid | null
-}
-
-export interface SyncObservationContext {
-    app?: string
-    appRoot?: string
-    sessionID?: string
-    apiURL?: string
-    syncURL?: string
-    syncStreamID?: string
-    source?: string
-    timeoutMs?: number
-    details?: Record<string, unknown>
-}
-
-export type TxidObserver = (txid: Txid, timeoutMs?: number) => boolean | Promise<boolean>
-
-export interface SyncObservationDiagnostic {
-    kind: "sync_observation_failure"
-    mutation_committed: true
-    txid: Txid | null
-    app?: string
-    app_root?: string
-    session_id?: string
-    api_url?: string
-    sync_url?: string
-    sync_stream_id?: string
-    source?: string
-    timeout_ms?: number
-    details?: Record<string, unknown>
-    observer_error?: {
-        name?: string
-        message: string
-    }
-}
-
-export class SyncObservationError extends Error {
-    public readonly kind = "sync_observation_failure"
-    public readonly mutationCommitted = true
-    public readonly txid: Txid | null
-    public readonly diagnostic: SyncObservationDiagnostic
-    public readonly cause?: unknown
-
-    constructor(txid: Txid | null, context?: SyncObservationContext, cause?: unknown) {
-        const diagnostic = buildSyncObservationDiagnostic(txid, context, cause)
-        super(formatSyncObservationMessage(diagnostic))
-        Object.defineProperty(this, "name", {
-            value: "SyncObservationError",
-            enumerable: false,
-            configurable: true,
-        })
-        if ((Object as any).setPrototypeOf === undefined) {
-            ;(this as any).__proto__ = SyncObservationError.prototype
-        } else {
-            Object.setPrototypeOf(this, SyncObservationError.prototype)
-        }
-        if ((Error as any).captureStackTrace !== undefined) {
-            ;(Error as any).captureStackTrace(this, this.constructor)
-        }
-        this.txid = txid
-        this.diagnostic = diagnostic
-        this.cause = cause
-    }
-}
-
-export function isSyncObservationError(err: any): err is SyncObservationError {
-    return err instanceof SyncObservationError || !!err && err.kind === "sync_observation_failure"
-}
-
-export function txidFromHeaders(headers: Headers): Txid | null {
-    const raw = headers.get("x-txid") ?? headers.get("X-Txid") ?? headers.get("X-TXID")
-    if (!raw) {
-        return null
-    }
-    const parsed = Number(raw)
-    return Number.isFinite(parsed) ? parsed : null
-}
-
-export function requireTxidFromHeaders(headers: Headers): Txid {
-    const txid = txidFromHeaders(headers)
-    if (txid === null) {
-        throw new SyncObservationError(null, { source: "response-headers" })
-    }
-    return txid
-}
-
-export function txidFromAPIResponse<T>(response: APIResponse<T>): Txid | null {
-    return response.txid ?? txidFromHeaders(response.headers)
-}
-
-export function requireTxidFromAPIResponse<T>(response: APIResponse<T>): Txid {
-    const txid = txidFromAPIResponse(response)
-    if (txid === null) {
-        throw new SyncObservationError(null, contextFromAPIResponse(response, { source: "api-response" }))
-    }
-    return txid
-}
-
-export async function observeAPIResponseTxid<T>(response: APIResponse<T>, observer: TxidObserver, context?: SyncObservationContext): Promise<APIResponse<T>> {
-    const mergedContext = contextFromAPIResponse(response, context)
-    const txid = txidFromAPIResponse(response)
-    if (txid === null) {
-        throw new SyncObservationError(null, mergedContext)
-    }
-    try {
-        const observed = await observer(txid, mergedContext.timeoutMs)
-        if (!observed) {
-            throw new SyncObservationError(txid, mergedContext, new Error("txid was not observed"))
-        }
-        return response
-    } catch (err) {
-        if (err instanceof SyncObservationError) {
-            throw err
-        }
-        throw new SyncObservationError(txid, mergedContext, err)
-    }
-}
-
-function contextFromAPIResponse<T>(response: APIResponse<T>, context?: SyncObservationContext): SyncObservationContext {
-    return {
-        ...inferSyncObservationContext(response.response.url),
-        ...context,
-    }
-}
-
-function inferSyncObservationContext(apiURL?: string): SyncObservationContext {
-    const context: SyncObservationContext = { app: CLIENT_APP_SLUG }
-    if (!apiURL) {
-        return context
-    }
-    context.apiURL = apiURL
-    const match = /^https?:\/\/api\.([^.]+)\.[^/:]+(?:\.[^/:]+)*(?::\d+)?(?:\/|$)/.exec(apiURL)
-    if (match) {
-        context.sessionID = match[1]
-        context.syncURL = apiURL.replace("://api.", "://sync.").replace(/\/[^/]*$/, "/")
-    }
-    return context
-}
-
-function buildSyncObservationDiagnostic(txid: Txid | null, context?: SyncObservationContext, cause?: unknown): SyncObservationDiagnostic {
-    const diagnostic: SyncObservationDiagnostic = {
-        kind: "sync_observation_failure",
-        mutation_committed: true,
-        txid,
-    }
-    if (context?.app) diagnostic.app = context.app
-    if (context?.appRoot) diagnostic.app_root = context.appRoot
-    if (context?.sessionID) diagnostic.session_id = context.sessionID
-    if (context?.apiURL) diagnostic.api_url = context.apiURL
-    if (context?.syncURL) diagnostic.sync_url = context.syncURL
-    if (context?.syncStreamID) diagnostic.sync_stream_id = context.syncStreamID
-    if (context?.source) diagnostic.source = context.source
-    if (context?.timeoutMs !== undefined) diagnostic.timeout_ms = context.timeoutMs
-    if (context?.details) diagnostic.details = context.details
-    const observerError = observerErrorDiagnostic(cause)
-    if (observerError) {
-        diagnostic.observer_error = observerError
-    }
-    return diagnostic
-}
-
-function observerErrorDiagnostic(cause: unknown): { name?: string; message: string } | undefined {
-    if (cause === undefined || cause === null) {
-        return undefined
-    }
-    if (cause instanceof Error) {
-        return { name: cause.name, message: cause.message }
-    }
-    return { message: String(cause) }
-}
-
-function formatSyncObservationMessage(diagnostic: SyncObservationDiagnostic): string {
-    const txid = diagnostic.txid === null ? "unknown txid" : "txid " + String(diagnostic.txid)
-    const parts = ["sync observation failed after committed API mutation (" + txid + ")"]
-    const details = [
-        diagnostic.app ? "app=" + diagnostic.app : "",
-        diagnostic.session_id ? "session=" + diagnostic.session_id : "",
-        diagnostic.sync_url ? "sync=" + diagnostic.sync_url : "",
-        diagnostic.sync_stream_id ? "stream=" + diagnostic.sync_stream_id : "",
-    ].filter((part) => part !== "")
-    if (details.length > 0) {
-        parts.push(details.join(" "))
-    }
-    if (diagnostic.observer_error?.message) {
-        parts.push("observer=" + diagnostic.observer_error.message)
-    }
-    return parts.join("; ")
 }
 
 async function decodeTypedResponse(value: Response | unknown): Promise<unknown> {
@@ -528,7 +335,6 @@ async function decodeTypedAPIResponse(value: TypedEndpointResultWithMeta): Promi
         headers: value.headers,
         status: value.status,
         response: value.response,
-        txid: value.txid ?? txidFromHeaders(value.headers),
     }
 }
 
@@ -538,7 +344,6 @@ function typedVoidAPIResponse(value: TypedEndpointResultWithMeta): APIResponse<v
         headers: value.headers,
         status: value.status,
         response: value.response,
-        txid: value.txid ?? txidFromHeaders(value.headers),
     }
 }
 

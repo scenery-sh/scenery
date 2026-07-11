@@ -51,7 +51,6 @@ Update this section at every meaningful stopping point. Every update must includ
 ## Surprises & Discoveries
 
 * `go run ./cmd/scenery inspect docs --json` reported `review_due_count: 0`, `stale_count: 0`, and one AGENTS scope before this plan was created.
-* Existing active plan `0088-sqlite-service-databases.md` is adjacent and should be treated as the database foundation plan. This durable plan should build on that per-service SQLite model rather than inventing a second database layout.
 * The supplied draft is intentionally explicit that no NATS dependency should be added, remote workers should long-poll over HTTPS, table names in durable SQLite databases must not contain `scenery`, and the durable database filename must contain the service name.
 * The repo had no SQLite driver dependency before this slice. The store uses `modernc.org/sqlite` through `database/sql`, keeping the rest of the durable store driver-neutral.
 * Runtime declarations were already resource-bearing for codegen, but `parse.App` still rejected an app with no `//scenery:` directives. Durable inspect exposed that mismatch, so runtime declarations now satisfy the "app has Scenery content" check.
@@ -126,7 +125,6 @@ Read these files before implementation:
 AGENTS.md
 PLANS.md
 docs/plans/active.md
-docs/plans/0088-sqlite-service-databases.md
 docs/plans/0047-typescript-legacy-async-runtime-workers.md
 docs/plans/0035-legacy-async-runtime-worker-production-hardening.md
 docs/local-contract.md

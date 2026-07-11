@@ -26,7 +26,7 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
-		<-release // hold the stream open like a live sync feed
+		<-release // hold the stream open like a live event feed
 		_, _ = io.WriteString(w, "data: second\n\n")
 	}))
 	defer stream.Close()
@@ -58,13 +58,13 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 		AppRoot:   t.TempDir(),
 		Branch:    "main",
 		Backends: map[string]Backend{
-			"sync": {Network: "tcp", Addr: streamAddr},
+			RouteAPI: {Network: "tcp", Addr: streamAddr},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := testRouteHost(t, session.Routes["sync"])
+	host := testRouteHost(t, session.Routes[RouteAPI])
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/v1/shape?live=true", nil)
 	if err != nil {
@@ -149,7 +149,7 @@ func TestRouterReturnsRetryableServiceUnavailableWhileBackendRestarts(t *testing
 	}
 	host := testRouteHost(t, session.Routes[RouteAPI])
 
-	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/sync/tasks", nil)
+	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/tasks", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -189,7 +189,7 @@ app-specific, stays in ONLV:
   job-specific cards
   viewer/canvas-specific HUDs
   business-specific copy or data loaders
-  sync/TanStack DB data wiring
+  TanStack DB data wiring
 ```
 
 Non-goals:
@@ -198,7 +198,7 @@ Non-goals:
 visual redesign
 CRM rewrite
 moving ONLV product logic into scenery
-migrating ONLV data fetching or sync logic
+migrating ONLV data-fetching logic
 replacing all ONLV UI components
 adding new shadcn primitives unless needed by a migrated layout
 ```
@@ -450,7 +450,7 @@ Generic:
   could be used by scenery dashboard, data explorer, CRM prototype, or another app
 
 App-specific:
-  depends on ONLV entities, sync state, copy, or product workflows
+  depends on ONLV entities, server state, copy, or product workflows
 
 Borderline:
   port the structural shell to scenery; keep feature content in ONLV

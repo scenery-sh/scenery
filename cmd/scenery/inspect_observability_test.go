@@ -18,7 +18,7 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
 	store := openTestObservabilityStore(t, cacheRoot, root)
-	endpoint := "SyncGet"
+	endpoint := "List"
 	now := time.Now().UTC()
 	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
 		AppID:         "obs-id",
@@ -32,7 +32,7 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 		IsRoot:        true,
 		StartedAt:     now.Add(-2 * time.Minute),
 		DurationNanos: uint64(10 * time.Millisecond),
-		ServiceName:   "sync",
+		ServiceName:   "tasks",
 		EndpointName:  &endpoint,
 	}); err != nil {
 		t.Fatalf("append fast trace: %v", err)
@@ -49,7 +49,7 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 		IsRoot:        true,
 		StartedAt:     now.Add(-time.Minute),
 		DurationNanos: uint64(2500 * time.Millisecond),
-		ServiceName:   "sync",
+		ServiceName:   "tasks",
 		EndpointName:  &endpoint,
 	}); err != nil {
 		t.Fatalf("append slow trace: %v", err)
@@ -60,7 +60,7 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 		"--app-root", root,
 		"--json",
 		"--session", "session-a",
-		"--endpoint", "SyncGet",
+		"--endpoint", "List",
 		"--min-duration-ms", "2000",
 		"--slowest",
 	}); err != nil {
@@ -235,7 +235,7 @@ func TestRunSceneryInspectUsesSessionAppRecordWhenLatestAppRootDiffers(t *testin
 		IsRoot:        true,
 		StartedAt:     time.Now().UTC(),
 		DurationNanos: uint64(time.Millisecond),
-		ServiceName:   "sync",
+		ServiceName:   "tasks",
 	}); err != nil {
 		t.Fatalf("AppendTraceSummary() error = %v", err)
 	}

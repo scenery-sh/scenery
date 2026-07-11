@@ -75,7 +75,7 @@ M5 proves the fixture through Go tests, inspect JSON, generated data dry-run, an
 
 ## Plan of Work
 
-Start from the existing generated collection page path. Add no new runtime service, no new dependency, and no new page framework. The static DSL should only describe field-level query/display metadata. The generator should continue to use the source row type for sync/TanStack DB input, materialize page records through the generated projection function, and expose mountable generated pages through the existing barrel.
+Start from the existing generated collection page path. Add no new runtime service, no new dependency, and no new page framework. The static DSL should only describe field-level query/display metadata. The generator should continue to use the source row type for TanStack DB input, materialize page records through the generated projection function, and expose mountable generated pages through the existing barrel.
 
 If Tasks requires relationships, computed fields, joins, custom renderers, or mutation behavior, record that as follow-up work rather than expanding this plan.
 

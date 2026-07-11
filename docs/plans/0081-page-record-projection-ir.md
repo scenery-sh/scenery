@@ -4,9 +4,9 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-Static `//scenery:model` and `//scenery:page` generation currently has one useful but limiting assumption: a collection page row is the same TypeScript type as the generated database/sync row. That collapses storage entity, sync shape row, runtime row source, and page record into one contract.
+Static `//scenery:model` and `//scenery:page` generation currently has one useful but limiting assumption: a collection page row is the same TypeScript type as the generated database row. That collapses storage entity, runtime row source, and page record into one contract.
 
-This plan adds the first explicit page-record projection seam. A `page.Collection[T]` now has a generated projection record derived from its columns plus the ID field. Generated sync shapes still use the storage row, but generated layout/runtime code consumes the page record.
+This plan adds the first explicit page-record projection seam. A `page.Collection[T]` now has a generated projection record derived from its columns plus the ID field. Generated entity sources still use the storage row, but generated layout/runtime code consumes the page record.
 
 ## Progress
 
@@ -58,7 +58,7 @@ M1 adds the internal projection record and parser validation.
 
 M2 exposes projection data through inspect JSON and schema docs.
 
-M3 generates `projections.ts` and makes generated runtime/routes consume page records while preserving storage rows for sync.
+M3 generates `projections.ts` and makes generated runtime/routes consume page records while preserving storage rows for entity sources.
 
 ## Plan of Work
 

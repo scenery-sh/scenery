@@ -78,14 +78,6 @@ func TestBuildGeneratesFrontendBundle(t *testing.T) {
 		!strings.Contains(files[".scenery/gen/web/web/shapes.ts"], `export const entitySources`) {
 		t.Fatalf("shapes missing schema-qualified source metadata:\n%s", files[".scenery/gen/web/web/shapes.ts"])
 	}
-	removedUpper := "Elec" + "tric"
-	removedLower := "elec" + "tric"
-	for path, contents := range files {
-		if strings.Contains(contents, removedUpper) || strings.Contains(contents, removedLower) ||
-			strings.Contains(contents, `shapeURL`) || strings.Contains(contents, `options.`+removedLower) {
-			t.Fatalf("generated file %s contains removed sync vocabulary:\n%s", path, contents)
-		}
-	}
 	if !strings.Contains(files[".scenery/gen/web/web/routes.tsx"], `export function registerGeneratedRoutes`) {
 		t.Fatalf("routes missing registration helper:\n%s", files[".scenery/gen/web/web/routes.tsx"])
 	}

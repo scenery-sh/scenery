@@ -6,7 +6,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 The first data-platform slice writes outbox events from the explicit Go mutation path. That is correct for app-driven changes, but it leaves a known local-development gap: direct SQL edits to physical dynamic object tables do not emit outbox rows, so SSE live updates and replay miss those changes.
 
-This plan adds optional trigger-backed outbox support after validation, inspectability, migration hardening, and live-sync hardening are complete.
+This plan adds optional trigger-backed outbox support after validation, inspectability, migration hardening, and live-data hardening are complete.
 
 Target flow:
 
@@ -46,7 +46,7 @@ The trigger path should be compatible with existing event payloads. It may produ
 ## Decision Log
 
 - Decision: Trigger-backed outbox is later work, not part of the immediate hardening plans.
-  Rationale: The migration and live-sync foundations should be proven first. Trigger-backed outbox touches DDL generation, event semantics, actor context, and direct SQL behavior.
+  Rationale: The migration and live-data foundations should be proven first. Trigger-backed outbox touches DDL generation, event semantics, actor context, and direct SQL behavior.
   Date/Author: 2026-05-08 / Codex
 
 - Decision: Make trigger-backed outbox optional per object at first.

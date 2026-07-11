@@ -4,7 +4,7 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-Scenery now has static model/view IR, page-record projections, and generated sync-backed materializers. A host frontend can inspect and typecheck those pieces, but the next adoption blocker is a stable generated surface that lets an app mount a generated page without importing deep cache paths or reassembling generated internals.
+Scenery now has static model/view IR, page-record projections, and generated row-backed materializers. A host frontend can inspect and typecheck those pieces, but the next adoption blocker is a stable generated surface that lets an app mount a generated page without importing deep cache paths or reassembling generated internals.
 
 This plan makes each `//scenery:page` collection view produce a boring mountable default page through the hidden generated web package. The page consumes materialized projection records, not raw source rows, and exports through the package barrel that host apps can alias.
 
@@ -24,7 +24,7 @@ This plan makes each `//scenery:page` collection view produce a boring mountable
 ## Decision Log
 
 - Decision: Keep 0083 limited to the mountable generated page contract.
-  Rationale: The existing DSL already has IR, projection records, and sync materializers; projects now need a stable import/mount boundary, not more DSL expressiveness.
+  Rationale: The existing DSL already has IR, projection records, and row materializers; projects now need a stable import/mount boundary, not more DSL expressiveness.
   Date/Author: 2026-06-26 / Codex.
 
 - Decision: Do not add computed fields, mutations, custom layouts, server-side read endpoints, or Tasks-specific behavior in this plan.
@@ -44,7 +44,7 @@ Relevant files:
 - `cmd/scenery/generated_schema_test.go` covers fixture-generated web output determinism.
 - `testdata/apps/model-dsl/web` is the TypeScript fixture with alias and layout-kit wiring.
 - `docs/local-contract.md`, `docs/agent-guide.md`, and `SKILL.md` describe generated package adoption for host apps.
-- `docs/plans/0081-page-record-projection-ir.md` and `docs/plans/0082-sync-page-projection-materializers.md` define the projection/materializer boundary this plan must preserve.
+- `docs/plans/0081-page-record-projection-ir.md` defines the projection/materializer boundary this plan must preserve.
 
 Current generated code already exposes route helpers and runtime adapters. Start by auditing whether those helpers are enough or whether the generated page should move into a clearer `pages/` module. Prefer the smallest stable barrel surface over a broad generated package reshuffle.
 
@@ -95,7 +95,7 @@ Call this complete when the model DSL fixture proves:
 - a generated default page component consumes projection records,
 - a generated route or route manifest can mount that page,
 - a stable alias/barrel import reaches the generated page or route,
-- no host app code needs raw sync/source row types for normal page mounting,
+- no host app code needs raw source row types for normal page mounting,
 - TypeScript typecheck and render smoke pass.
 
 ## Idempotence and Recovery
@@ -106,7 +106,7 @@ Temporary frontend dependency installs for validation must stay inside `testdata
 
 ## Artifacts and Notes
 
-The source note recommends this sequence: 0081 projection IR, 0082 sync materializers, 0083 generated page mount surface, 0084 simple entity page pilot, then a later Tasks stress test.
+The source note recommends this sequence: projection IR, row materializers, generated page mount surface, a simple entity page pilot, then a later Tasks stress test.
 
 ## Interfaces and Dependencies
 
@@ -118,4 +118,4 @@ This plan affects beta generated frontend contracts:
 - host-app TypeScript alias guidance,
 - layout-kit compile-time compatibility checks.
 
-It must preserve the 0082 boundary: sync/TanStack source rows stay raw, while generated pages consume projection records.
+It must preserve the 0082 boundary: source/TanStack source rows stay raw, while generated pages consume projection records.

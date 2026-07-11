@@ -484,7 +484,7 @@ func normalizeRouteName(name string) string {
 
 func isFrontendRouteName(name string) bool {
 	switch name {
-	case "", "root", RouteAPI, RouteDashboard, "sync":
+	case "", "root", RouteAPI, RouteDashboard:
 		return false
 	default:
 		return true

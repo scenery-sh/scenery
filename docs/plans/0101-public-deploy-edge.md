@@ -42,7 +42,7 @@ macOS is the supported platform for this plan. Linux code paths may compile but 
 * [x] 2026-07-07: Milestone 4 status/reload completion slice implemented: Caddy reload uses the admin socket with a fake-Caddy test, failed reload falls back to full edge restart, and `scenery deploy status` reports certificate presence from pinned Caddy storage (`go test ./cmd/scenery`).
 * [x] Milestone 3: privileged helper v2 — public `0.0.0.0` binding, port 80 forwarding, versioned install metadata, `scenery deploy setup` sudo flow, and loopback teardown.
 * [x] Milestone 4: Caddy edge config v2 — public ACME site blocks alongside local internal certs, pinned cert storage, graceful reload on enable/disable.
-* [x] 2026-07-07: Milestone 5 implemented: public-edge requests require the valid edge token plus `X-Scenery-Public-Edge: 1`, exact-match enabled deploy domains from the machine registry, route to the verified running session for the target app root, dispatch `/`, `/api/`, `/sync/`, and frontend prefixes through a public path manifest, return 503 for enabled-but-down domains, and block runtime/dashboard/control/session-header escape paths. Focused agent tests pass (`go test ./internal/agent`).
+* [x] 2026-07-07: Milestone 5 implemented: public-edge requests require the valid edge token plus `X-Scenery-Public-Edge: 1`, exact-match enabled deploy domains from the machine registry, route to the verified running session for the target app root, dispatch `/`, `/api/`, and frontend prefixes through a public path manifest, return 503 for enabled-but-down domains, and block runtime/dashboard/control/session-header escape paths. Focused agent tests pass (`go test ./internal/agent`).
 * [x] Milestone 5: agent public host routing with path dispatch and strict containment of Scenery-owned surfaces.
 * [x] 2026-07-07: Milestone 6 implemented: `scenery deploy setup` installs the user LaunchAgent plist for `scenery deploy resume`, harness binaries are rejected for that plist, `deploy resume` ensures the agent and edge are running, starts missing enabled app roots with `scenery up --detach`, skips already-live sessions, records per-target failures, and appends `<agent home>/deploy-resume.log`. Focused tests pass (`go test ./cmd/scenery`).
 * [x] Milestone 6: login resume LaunchAgent + `scenery deploy resume`.
@@ -117,7 +117,7 @@ Initial known facts from source review (2026-07-07):
   * Rationale: The question "does upgrading scenery affect the privileged part?" needs a designed answer: normally no (helper logic is version-stable), and when yes, it is detected and requires one explicit sudo re-setup. Cert storage stability protects Let's Encrypt rate limits.
   * Date: 2026-07-07. Author: initial ExecPlan.
 
-* Decision: Public requests are containment-checked in the agent. Caddy tags public-edge requests (`X-Scenery-Public-Edge: 1` plus the existing edge token); the agent routes them only to app surfaces (root service, `/api/`, frontends, sync). Console/dashboard route kinds, `/runtime/*`, and path-mode session headers are rejected on public hosts. Unknown public domains 404; enabled domains without a live session get a minimal 503 page.
+* Decision: Public requests are containment-checked in the agent. Caddy tags public-edge requests (`X-Scenery-Public-Edge: 1` plus the existing edge token); the agent routes them only to app surfaces (root service, `/api/`, and frontends). Console/dashboard route kinds, `/runtime/*`, and path-mode session headers are rejected on public hosts. Unknown public domains 404; enabled domains without a live session get a minimal 503 page.
   * Rationale: Exposing a dev runtime to the internet is the feature, but Scenery-owned control surfaces must never be part of it. `scenery deploy enable` is the explicit consent step.
   * Date: 2026-07-07. Author: initial ExecPlan.
 
@@ -185,7 +185,7 @@ wired as `Deploy DeployConfig \`json:"deploy"\`` on `Config` (and in `MarshalJSO
 
 * `deploy.domain` must be a valid lowercase FQDN (reuse `normalizeRouteNamespaceHost` semantics), must not end in `.local.dev` or the configured local route base domain, must not be `localhost` or an IP.
 * `deploy.root`, when set, must name the API backend (`api`) or a frontend configured in the top-level `frontends` map; when unset and the app has exactly one frontend, that frontend is the implied root; when unset with zero or multiple frontends, `/` on the public domain serves a minimal 404/landing (not an error — `scenery check` emits an info diagnostic suggesting `deploy.root`).
-* `deploy.root` may not name reserved segments (`console`, `dashboard`, `runtime`, `sync`, `__scenery`).
+* `deploy.root` may not name reserved segments (`console`, `dashboard`, `runtime`, `__scenery`).
 
 Update `docs/schemas/scenery.config.v1.schema.json`. Acceptance: `go test ./internal/app ./cmd/scenery`; a fixture config with `deploy.domain` passes `scenery check --json`; invalid domains produce pointed diagnostics.
 
@@ -292,7 +292,7 @@ Acceptance: golden-ish unit tests for generation with 0, 1, and 2 public domains
 
 * New route kind `RoutePublic` (`internal/agent/types.go`). The agent loads the deploy registry (`<agent home>/deploy.json`) at start and re-reads it on registry change signal (a control-socket RPC `deploy/reload` invoked by `scenery deploy enable|disable`; simplest correct alternative: mtime check per lookup miss — decide during implementation and record).
 * `RouteTargetForHost` fallback: exact-match an enabled deploy domain → find the newest live session whose `AppRoot` matches the target's app root → route kind `RoutePublic`. Enabled domain with no live session → serve minimal 503 "app is not running" (no Scenery branding leakage beyond a plain page). Unknown host → 404 as today.
-* `RoutePublic` dispatch reuses plan 0090's path-mode machinery against the session's route manifest, but with a public manifest derived per request: `/` → `root_service` (from registry/config resolution), `/api/` → API backend, `/<frontend>/` → frontends, `/sync/` if present. Explicitly rejected on public hosts: console/dashboard kinds, `/runtime/*`, `/__scenery/*`, and any `X-Scenery-Session` path-mode header (public requests must never select arbitrary sessions).
+* `RoutePublic` dispatch reuses plan 0090's path-mode machinery against the session's route manifest, but with a public manifest derived per request: `/` → `root_service` (from registry/config resolution), `/api/` → API backend, and `/<frontend>/` → frontends. Explicitly rejected on public hosts: console/dashboard kinds, `/runtime/*`, `/__scenery/*`, and any `X-Scenery-Session` path-mode header (public requests must never select arbitrary sessions).
 * Requests only qualify as public when they carry the valid `X-Scenery-Edge-Token` and `X-Scenery-Public-Edge: 1` (set by Caddy, Milestone 4); a matching Host without the token is not routed publicly.
 * WebSocket upgrades already pass through the TCP forwarder and Caddy `reverse_proxy` with `flush_interval -1`; router proxying must not buffer them differently for `RoutePublic`.
 
@@ -434,7 +434,7 @@ CLI (new, all beta): `scenery deploy setup|status|enable|disable|resume|teardown
 
 JSON contracts (new): `scenery.deploy.registry.v1`, `scenery.deploy.status.v1`; additive field `http_target_addr` on the edge target state; app config gains `deploy.domain` / `deploy.root`.
 
-HTTP: public domains serve `/` (root service), `/api/*`, `/<frontend>/*`, `/sync/*`; explicitly not `/runtime/*`, console, dashboard. Headers to backends match local path mode plus `X-Forwarded-Proto: https`, `X-Forwarded-Port: 443`. Trusted edge-internal headers: existing `X-Scenery-Edge-Token` plus new `X-Scenery-Public-Edge`.
+HTTP: public domains serve `/` (root service), `/api/*`, and `/<frontend>/*`; explicitly not `/runtime/*`, console, dashboard. Headers to backends match local path mode plus `X-Forwarded-Proto: https`, `X-Forwarded-Port: 443`. Trusted edge-internal headers: existing `X-Scenery-Edge-Token` plus new `X-Scenery-Public-Edge`.
 
 Dependencies: no new Go modules. Caddy (existing managed toolchain artifact) gains ACME duty; dnsmasq is untouched by this plan. launchd (`launchctl`), `ipconfig`, `netstat`, `pmset`, `socketfilterfw` are consulted on macOS only.
 

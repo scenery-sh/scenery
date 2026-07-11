@@ -28,7 +28,6 @@ http://localhost:4001/api/      app API
 http://localhost:4001/ui/       frontend named ui
 http://localhost:4001/blog/     frontend named blog
 http://localhost:4001/pulse/    frontend named pulse
-http://localhost:4001/sync/     sync/entity stream route when present
 http://localhost:4001/runtime/ Scenery-owned internal runtime surface
 ```
 
@@ -594,8 +593,7 @@ Dispatch order matters:
    * `/runtime/health`
    * future `/runtime/routes`
 3. Handle `/api` and `/api/*`.
-4. Handle `/sync` and `/sync/*` if a sync backend exists.
-5. Handle frontend routes by longest prefix:
+4. Handle frontend routes by longest prefix:
 
    * `/pulse`
    * `/pulse/*`
@@ -603,12 +601,12 @@ Dispatch order matters:
    * `/blog/*`
    * `/ui`
    * `/ui/*`
-6. Handle `/console` and `/console/*`.
-7. Handle `/`:
+5. Handle `/console` and `/console/*`.
+6. Handle `/`:
 
    * dev mode: Scenery runtime console / launcher
    * production mode later: configured root route
-8. Return 404 with a helpful plain text or minimal HTML page listing available routes.
+7. Return 404 with a helpful plain text or minimal HTML page listing available routes.
 
 Prefix rules:
 
@@ -630,7 +628,7 @@ Prefix rules:
 
 Important frontend behavior:
 
-The existing frontend handler blocks reserved paths such as `/runtime`, `/__scenery`, `/api`, and `/sync` from being handled by a frontend. Keep that invariant for path mode.
+The existing frontend handler blocks reserved paths such as `/runtime`, `/__scenery`, and `/api` from being handled by a frontend. Keep that invariant for path mode.
 
 SPA fallback:
 
@@ -650,7 +648,7 @@ and if that 404s with `Accept: text/html`, SPA fallback should request backend `
 
 Route conflict rules:
 
-* `api`, `console`, `dashboard`, `runtime`, `sync`, and `__scenery` are reserved top-level path segments.
+* `api`, `console`, `dashboard`, `runtime`, and `__scenery` are reserved top-level path segments.
 * Frontend or dev service route names must sanitize to safe path labels.
 * If two backends want the same route path, `scenery check` must fail before runtime.
 * If a route name contains unsafe characters, use existing `sanitizeLabel` behavior and expose the sanitized route in inspect output.
@@ -698,7 +696,6 @@ or extend existing dashboard/devdash code if appropriate.
   <li><a href="/ui/">ui</a></li>
   <li><a href="/blog/">blog</a></li>
   <li><a href="/pulse/">pulse</a></li>
-  <li><a href="/sync/">sync</a></li>
   <li><a href="/console/">Scenery console</a></li>
 </ul>
 ```
@@ -1632,7 +1629,6 @@ docs/schemas/scenery.config.v1.schema.json
 In `scenery check`, add diagnostics for:
 
 * frontend named `api`
-* frontend named `sync`
 * frontend named `console`
 * frontend named `dashboard`
 * frontend named `runtime` or `__scenery`
@@ -2084,7 +2080,6 @@ GET  /
 GET  /runtime/health
 GET  /runtime/routes
 ANY  /api/*
-ANY  /sync/*
 ANY  /console/*
 ANY  /<frontend>/*
 ```

@@ -942,7 +942,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Completed ExecPlan that made the real neon-selfhost branch driver a built-in Scenery CLI capability that auto-records, auto-resolves, owns tenant/timeline/compute lifecycle, implements branch mutations and schema diff, and proves branch/sync isolation.",
+      "summary": "Completed ExecPlan that made the real neon-selfhost branch driver a built-in Scenery CLI capability that auto-records, auto-resolves, owns tenant/timeline/compute lifecycle, implements branch mutations and schema diff, and proves branch isolation.",
       "tags": [
         "plans",
         "execplans",
@@ -1121,14 +1121,13 @@
       "freshness": "current",
       "last_reviewed": "2026-06-10",
       "review_after": "2026-07-10",
-      "summary": "Completed ExecPlan that removed Neon as a Scenery substrate while preserving worktree/session database branching, managed DatabaseURL injection, DB lifecycle, sync, auth, and harness behavior on PostgreSQL 18.",
+      "summary": "Completed ExecPlan that removed Neon as a Scenery substrate while preserving worktree/session database branching, managed DatabaseURL injection, DB lifecycle, auth, and harness behavior on PostgreSQL 18.",
       "tags": [
         "plans",
         "execplans",
         "database",
         "postgres",
         "branching",
-        "sync",
         "agents"
       ]
     },
@@ -1185,7 +1184,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-26",
       "review_after": "2026-07-26",
-      "summary": "Completed ExecPlan that split generated collection page records from storage/sync rows with internal projection IR, inspect views projection output, generated projections.ts, and computed-column diagnostics.",
+      "summary": "Completed ExecPlan that split generated collection page records from storage rows with internal projection IR, inspect views projection output, generated projections.ts, and computed-column diagnostics.",
       "tags": [
         "plans",
         "execplans",
@@ -1193,30 +1192,6 @@
         "views",
         "generators",
         "projections",
-        "agents"
-      ],
-      "schema_refs": [
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
-      ]
-    },
-    {
-      "path": "docs/plans/0082-sync-page-projection-materializers.md",
-      "title": "sync Page Projection Materializers",
-      "owner": "scenery app model / generators",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-26",
-      "review_after": "2026-07-26",
-      "summary": "Completed ExecPlan proving generated sync-backed frontend code realizes page-record projection IR with raw source rows, generated page records, and client-side materializers.",
-      "tags": [
-        "plans",
-        "execplans",
-        "models",
-        "views",
-        "generators",
-        "projections",
-        "sync",
         "agents"
       ],
       "schema_refs": [
@@ -1320,45 +1295,6 @@
       "schema_refs": [
         "docs/schemas/scenery.inspect.models.v1.schema.json",
         "docs/schemas/scenery.inspect.views.v1.schema.json"
-      ]
-    },
-    {
-      "path": "docs/plans/0087-remove-former-realtime-service-and-reserve-entity-stream.md",
-      "title": "Remove Former Realtime Service and Reserve Entity Stream",
-      "owner": "scenery runtime / generated web",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-27",
-      "review_after": "2026-07-27",
-      "summary": "Completed ExecPlan that deleted the former managed realtime service from runtime startup, config, generated web contracts, docs, UI, fixtures, and environment policy while preserving /sync as a reserved future entity stream path.",
-      "tags": [
-        "plans",
-        "execplans",
-        "dev-services",
-        "generated-web",
-        "frontend",
-        "agents"
-      ]
-    },
-    {
-      "path": "docs/plans/0088-sqlite-service-databases.md",
-      "title": "SQLite Service Databases and Postgres Removal",
-      "owner": "scenery runtime / database",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-27",
-      "review_after": "2026-07-27",
-      "summary": "Completed historical ExecPlan that replaced built-in managed Postgres with per-service database files across config, runtime env injection, DB CLI, branch lifecycle, standard auth, docs, schemas, and dependency cleanup; its database model is superseded by 0097.",
-      "tags": [
-        "plans",
-        "execplans",
-        "database",
-        "sqlite",
-        "auth",
-        "runtime",
-        "agents"
       ]
     },
     {
@@ -1519,42 +1455,6 @@
       ]
     },
     {
-      "path": "docs/plans/0065-scenery-managed-neon-dev-cell.md",
-      "title": "Scenery-Managed Neon Dev Cell and Branch Isolation",
-      "owner": "scenery runtime / agent DX",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-09",
-      "review_after": "2026-07-07",
-      "summary": "Completed ExecPlan for a Scenery-owned local Neon dev cell, branch-isolated managed Postgres provider, worktree/session branch pins, agent-safe worktree workflows, and default harness proof of branch/sync isolation.",
-      "tags": [
-        "plans",
-        "execplans",
-        "database",
-        "neon",
-        "agents"
-      ]
-    },
-    {
-      "path": "docs/plans/0045-onlv-agent-native-dev-migration.md",
-      "title": "ONLV Agent Native Dev Migration",
-      "owner": "scenery runtime / ONLV integration",
-      "status": "completed",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-09",
-      "review_after": "2026-07-09",
-      "summary": "Completed ExecPlan for making ONLV consume the agent-native local development model by default through scenery-owned dev runtimes, routes, Postgres, sync, and docs.",
-      "tags": [
-        "plans",
-        "execplans",
-        "agents",
-        "onlv",
-        "dev"
-      ]
-    },
-    {
       "path": "docs/plans/0046-prd5-dev-safety-hardening.md",
       "title": "Agent Dev Safety Hardening",
       "owner": "scenery runtime",
@@ -1588,24 +1488,6 @@
         "agents",
         "runtime",
         "hardening"
-      ]
-    },
-    {
-      "path": "docs/plans/0049-browser-direct-api-routing.md",
-      "title": "Browser Direct API Routing",
-      "owner": "scenery runtime / ONLV Pulse integration",
-      "status": "active",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-07",
-      "review_after": "2026-07-07",
-      "summary": "Active ExecPlan for replacing Pulse's same-origin Vite API proxy with direct browser calls to the agent-routed API origin, with explicit auth, CORS, and sync validation.",
-      "tags": [
-        "plans",
-        "execplans",
-        "browser",
-        "api",
-        "onlv"
       ]
     },
     {

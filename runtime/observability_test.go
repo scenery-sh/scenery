@@ -21,16 +21,16 @@ func TestNewExternalStateAppliesSeparateLogAndTraceFilters(t *testing.T) {
 		ListenAddr: "127.0.0.1:4000",
 		Observability: ObservabilityConfig{
 			Logs: EndpointFilterConfig{
-				ExcludeEndpoints: []string{"sync.*"},
+				ExcludeEndpoints: []string{"tasks.*"},
 			},
 			Tracing: EndpointFilterConfig{
-				IncludeEndpoints: []string{"sync.SyncGet"},
+				IncludeEndpoints: []string{"tasks.List"},
 			},
 		},
 	})
 
-	ep := &Endpoint{Service: "sync", Name: "SyncGet", Access: Public}
-	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:4000/sync", nil)
+	ep := &Endpoint{Service: "tasks", Name: "List", Access: Public}
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:4000/tasks", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestSceneryConsoleHandlerSkipsLogsForFilteredEndpoint(t *testing.T) {
 	var out bytes.Buffer
 	handler := newSceneryConsoleHandler(&out)
 	state := &requestState{
-		request: sharedRequest("sync", "SyncGet", "/sync"),
+		request: sharedRequest("tasks", "List", "/tasks"),
 		trace: &traceSpan{
 			traceID: "trace-1",
 			spanID:  "span-1",
@@ -75,7 +75,7 @@ func TestSceneryConsoleHandlerSkipsLogsForFilteredEndpoint(t *testing.T) {
 	defer restore()
 
 	record := slog.NewRecord(time.Date(2026, time.April, 14, 15, 13, 0, 0, time.Local), levelTrace, "request completed", 0)
-	record.AddAttrs(slog.String("endpoint", "SyncGet"))
+	record.AddAttrs(slog.String("endpoint", "List"))
 	if err := handler.Handle(context.Background(), record); err != nil {
 		t.Fatalf("Handle returned error: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestEndpointFilterAllowsPathAndServiceEndpointPatterns(t *testing.T) {
 	if !endpointFilterAllows(EndpointFilterConfig{IncludeEndpoints: []string{"/tenants/*"}}, req) {
 		t.Fatal("path glob should match")
 	}
-	if endpointFilterAllows(EndpointFilterConfig{ExcludeEndpoints: []string{"sync.*"}}, req) != true {
+	if endpointFilterAllows(EndpointFilterConfig{ExcludeEndpoints: []string{"jobs.*"}}, req) != true {
 		t.Fatal("unrelated exclude pattern should not block request")
 	}
 	if endpointFilterAllows(EndpointFilterConfig{ExcludeEndpoints: []string{"tenants.*"}}, req) {

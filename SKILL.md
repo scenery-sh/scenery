@@ -150,7 +150,7 @@ Use `scenery system edge dns install`, `scenery system edge privileged install`,
 
 For service databases, app processes, setup commands, DB setup, and workers receive Postgres URLs for the app database. An app-level `DATABASE_URL` wins and is treated as external; otherwise `scenery up` uses the shared managed Postgres dev server and creates one database per app root/worktree with one schema per service plus `scenery`. Scenery injects `DATABASE_URL`, `<SERVICE>_DATABASE_URL`, and `SCENERY_DATABASE_JSON`. A standalone `scenery worker` requires an explicit Postgres `DATABASE_URL`; it does not start the managed dev server.
 
-For sync-backed frontend writes, generated TypeScript `WithMeta` methods include parsed `txid` metadata. Use `observeAPIResponseTxid` around the app's sync/TanStack observer so a post-commit sync timeout is reported as `SyncObservationError` instead of an API mutation failure.
+Generated TypeScript `WithMeta` methods expose response headers, status, and the raw `Response` alongside decoded data.
 
 ## UI Work
 
@@ -231,7 +231,7 @@ env, defaulting to `DatabaseURL`, or Scenery's managed database env and target
 the app-owned service schema rather than `public`. Generated CRUD endpoints default to `auth` for every
 action. Generated CRUD route bases default to `/<service>/<table>`
 and `scenery check` reports collisions with reserved route prefixes
-(`/runtime`, `/__scenery`, `/api`, `/sync`) or handwritten/generated app routes.
+(`/runtime`, `/__scenery`, `/api`) or handwritten/generated app routes.
 Use `model.ExistingTable(schema, table)` for read-only generated pages/endpoints
 over an existing physical table; inspect models exposes source metadata, schema/seed
 generation skips that table, and generated mutations or `model.Seed(...)` rows are rejected.
@@ -241,8 +241,8 @@ multi-schema HCL.
 `scenery generate data --dry-run --json`
  also writes beta generated frontend packages under `.scenery/gen/web/<frontend>/`
  for configured frontends with static collection pages, including runtime adapter
-factories, page projection records in `projections.ts`, static page filter/sort/display metadata, default page components, and route registration helpers for app-owned sync/TanStack/layout-kit wiring;
-generated sync shape metadata uses the same schema-qualified table as the DB artifacts.
+factories, page projection records in `projections.ts`, static page filter/sort/display metadata, default page components, and route registration helpers for app-owned data/TanStack/layout-kit wiring;
+generated entity source metadata uses the same schema-qualified table as the DB artifacts.
 
 To mount a generated page, declare the entity/page in Go, run `scenery generate data --dry-run --json`, point a frontend alias such as `@scenery/generated` at `.scenery/gen/web/<frontend>/index.ts`, import the generated page or route from that alias, mount it, and run the host typecheck/render or build command.
 

@@ -194,9 +194,6 @@ func publicRouteManifest(session Session, target DeployTarget) RouteManifest {
 	if _, ok := session.Backends[RouteAPI]; ok {
 		records[RouteAPI] = RouteRecord{Name: RouteAPI, Kind: RouteAPI, URL: joinRouteURL(baseURL, "/api/"), Path: "/api/", StripPrefix: "/api", Backend: RouteAPI}
 	}
-	if _, ok := session.Backends["sync"]; ok {
-		records["sync"] = RouteRecord{Name: "sync", Kind: "sync", URL: joinRouteURL(baseURL, "/sync/"), Path: "/sync/", StripPrefix: "/sync", Backend: "sync"}
-	}
 	for name := range session.Backends {
 		name = normalizeRouteName(name)
 		if !isFrontendRouteName(name) {
@@ -393,7 +390,7 @@ func isBackendUnavailableError(err error) bool {
 
 func isFrontendSessionBackend(kind string) bool {
 	switch kind {
-	case "", RouteAPI, RouteDashboard, "removed-agent-transport", "sync":
+	case "", RouteAPI, RouteDashboard, "removed-agent-transport":
 		return false
 	default:
 		return true
@@ -402,7 +399,7 @@ func isFrontendSessionBackend(kind string) bool {
 
 func isProtectedFrontendPath(value string) bool {
 	value = cleanRequestPath(value)
-	for _, prefix := range []string{PathModeRuntimePrefix, "/__scenery", "/api", "/sync"} {
+	for _, prefix := range []string{PathModeRuntimePrefix, "/__scenery", "/api"} {
 		if value == prefix || strings.HasPrefix(value, prefix+"/") {
 			return true
 		}

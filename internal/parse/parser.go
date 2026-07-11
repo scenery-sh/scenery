@@ -771,7 +771,7 @@ func routeMethodsCollide(a, b []string) bool {
 	return false
 }
 
-var generatedEndpointReservedRoutePrefixes = []string{"/runtime", "/__scenery", "/api", "/sync"}
+var generatedEndpointReservedRoutePrefixes = []string{"/runtime", "/__scenery", "/api"}
 
 func generatedEndpointReservedRoutePrefix(path string) string {
 	for _, prefix := range generatedEndpointReservedRoutePrefixes {

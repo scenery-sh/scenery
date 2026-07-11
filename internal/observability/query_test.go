@@ -25,7 +25,7 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 			t.Fatalf("ParseForm: %v", err)
 		}
 		form = r.Form
-		_, _ = io.WriteString(w, `{"_time":"2026-06-08T10:00:00Z","level":"error","source_id":"api","message":"failed","fields_json":"{\"route\":\"/sync\"}","trace_id":"trace-1","span_id":"span-1"}`+"\n")
+		_, _ = io.WriteString(w, `{"_time":"2026-06-08T10:00:00Z","level":"error","source_id":"api","message":"failed","fields_json":"{\"route\":\"/tasks\"}","trace_id":"trace-1","span_id":"span-1"}`+"\n")
 	}))
 	defer server.Close()
 
@@ -57,7 +57,7 @@ func TestQueryLogsAppliesVictoriaLogsScope(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	entry := result.Logs[0]
-	if entry.Time != "2026-06-08T10:00:00Z" || entry.Level != "error" || entry.Source != "api" || entry.Message != "failed" || entry.TraceID != "trace-1" || entry.Fields["route"] != "/sync" {
+	if entry.Time != "2026-06-08T10:00:00Z" || entry.Level != "error" || entry.Source != "api" || entry.Message != "failed" || entry.TraceID != "trace-1" || entry.Fields["route"] != "/tasks" {
 		t.Fatalf("unexpected log entry: %+v", entry)
 	}
 	if len(entry.Raw) != 1 || entry.Raw["message"] != "failed" {

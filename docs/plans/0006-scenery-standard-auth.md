@@ -47,7 +47,7 @@ The user-visible behavior should remain stable for ONLV: existing frontend calls
 ## Surprises & Discoveries
 
 - scenery already has a public package named `auth` with functions `UserID()` and `Data()`. Go package identifiers share one namespace, so the moved auth package cannot also define `type UserID` or `type Data`. The new concrete auth payload type should use a distinct name such as `AuthData`, while preserving `auth.UserID()` and `auth.Data()` for framework compatibility.
-- ONLV auth is not isolated to the `auth/` directory. Other ONLV services import `clean.tech/auth` for request auth data and generated auth DB types. Examples include `contacts`, `tasks`, `invoices`, `tenants`, `console`, `sync`, and `pkg/db/audit_context.go`.
+- ONLV auth is not isolated to the `auth/` directory. Other ONLV services import `clean.tech/auth` for request auth data and generated auth DB types. Examples include `contacts`, `tasks`, `invoices`, `tenants`, `console`, and `pkg/db/audit_context.go`.
 - ONLV auth email delivery imports `clean.tech/mail`. scenery cannot import ONLV mail. Auth email delivery must become a Scenery-level interface, event hook, SMTP/webhook option, or a small ONLV adapter that contains no auth business logic.
 - ONLV uses schema names `users` and `tenants`. A standard scenery module should not bake ONLV-specific schema names into a public framework. The scenery-owned schema should use a Scenery name, for example `scenery_auth`, and ONLV needs an explicit data migration.
 - ONLV currently uses `github.com/golang-jwt/jwt/v5` directly. scenery does not have that dependency. Adding it as a direct scenery dependency is justified if the standard auth module owns JWT signing and validation.
@@ -156,7 +156,7 @@ Relevant ONLV files to move or remove:
 - `users/db/schema.hcl`, `users/db/queries.sql`, `users/db/gen/*`, if no remaining ONLV-owned users service needs them.
 - `atlas.hcl`, `sqlc.yaml`, `justfile`: remove auth/users entries after scenery owns auth schema generation.
 - `apps/app/src/auth/*`, `apps/app/src/app-client.ts`: update only as required by generated client or cookie/name changes.
-- ONLV service imports of `clean.tech/auth` in `contacts`, `tasks`, `invoices`, `tenants`, `console`, `sync`, and `pkg/db/audit_context.go`.
+- ONLV service imports of `clean.tech/auth` in `contacts`, `tasks`, `invoices`, `tenants`, `console`, and `pkg/db/audit_context.go`.
 
 Current ONLV auth endpoint inventory:
 

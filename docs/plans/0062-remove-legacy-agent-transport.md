@@ -12,7 +12,7 @@ The desired final state:
 
 - scenery does not start, route, configure, expose, document, test, or ship the removed transport.
 - Stale config keys for the removed transport fail validation through strict `.scenery.json` decoding.
-- Session manifests and local proxy routes expose API, dashboard, frontends, Grafana, legacy async runtime, sync, and other real app/dev services only.
+- Session manifests and local proxy routes expose API, dashboard, frontends, Grafana, legacy async runtime, and other real app/dev services only.
 - Self-harness fails on reintroduction of the removed transport surface.
 
 ## Progress

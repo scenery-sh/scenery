@@ -223,7 +223,7 @@ Current audit:
 
 | Class | Decision | Notes |
 | --- | --- | --- |
-| App identity and routing injection | keep | Injected variables such as `SCENERY_APP_ID`, `SCENERY_LISTEN_ADDR`, session IDs, routed API/sync URLs, and legacy async runtime task-queue/build metadata are process identity, not user configuration. |
+| App identity and routing injection | keep | Injected variables such as `SCENERY_APP_ID`, `SCENERY_LISTEN_ADDR`, session IDs, routed API URLs, and legacy async runtime task-queue/build metadata are process identity, not user configuration. |
 | Secrets and service URLs | keep | Secret or credential-bearing variables such as `DATABASE_URL`, `SCENERY_AUTH_JWT_SECRET`, and `LEGACY_ASYNC_RUNTIME_API_KEY` stay env-backed and are marked secret for harness redaction. |
 | Managed toolchain controls | keep for now | `SCENERY_TOOLCHAIN_DIR`, `SCENERY_TOOLCHAIN_DOWNLOAD`, and explicit per-tool binary/download overrides stay registered escape hatches because plan 0059 owns the typed managed-toolchain surface. |
 | Grafana/Victoria controls | keep for now | Local dev sidecar knobs remain registered `dev_escape_hatch` variables; future promotion should prefer `.scenery.json dev.observability` or managed manifests. |

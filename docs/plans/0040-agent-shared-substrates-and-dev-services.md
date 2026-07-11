@@ -4,9 +4,9 @@ This ExecPlan is a living document. Update Progress, Surprises & Discoveries, De
 
 ## Purpose / Big Picture
 
-the agent-native local-dev ExecPlan series targets one machine-local daemon/router with shared or hidden substrates instead of each worktree publishing its own Grafana, Victoria, legacy async runtime, Postgres, sync, frontend, and proxy ports. Earlier agent-native local-dev work establishes the agent and private app backends; this plan moves the remaining local platform pieces under daemon/session ownership.
+the agent-native local-dev ExecPlan series targets one machine-local daemon/router with shared or hidden substrates instead of each worktree publishing its own Grafana, Victoria, legacy async runtime, Postgres, frontend, and proxy ports. Earlier agent-native local-dev work establishes the agent and private app backends; this plan moves the remaining local platform pieces under daemon/session ownership.
 
-After this work, Grafana and Victoria are daemon-owned shared observability substrates, legacy async runtime local dev is shared with session isolation, Postgres can be shared with a per-session database, sync and frontend tools are routed through the daemon, and checked-in app config no longer needs per-worktree port orchestration.
+After this work, Grafana and Victoria are daemon-owned shared observability substrates, legacy async runtime local dev is shared with session isolation, Postgres can be shared with a per-session database, frontend tools are routed through the daemon, and checked-in app config no longer needs per-worktree port orchestration.
 
 ## Progress
 
@@ -16,10 +16,10 @@ After this work, Grafana and Victoria are daemon-owned shared observability subs
 * [x] 2026-05-26: Add an agent shared-substrate registry and use it for Victoria endpoint ownership/reuse across dev sessions.
 * [x] 2026-05-26: Move VictoriaMetrics, VictoriaLogs, VictoriaTraces, and Grafana to agent-registered shared processes by default when the local agent is active.
 * [x] 2026-05-26: Move legacy async runtime dev server ownership to the agent substrate registry while keeping per-session task queue prefixes for isolation.
-* [x] 2026-05-26: Design and implement the `.scenery.json` `dev.services` config surface for Postgres and sync declarations.
+* [x] 2026-05-26: Design and implement the `.scenery.json` `dev.services` config surface for Postgres declarations.
 * [x] 2026-05-26: Add `scenery db psql` as the current-contract alias for the existing beta Postgres shell helper.
 * [x] 2026-05-26: Route configured frontend upstreams through the agent router and expose stable `<frontend>.<session>.scenery.localhost` URLs.
-* [x] 2026-05-26: Split scenery-managed Postgres/sync lifecycle plus `db reset`/snapshot commands into ExecPlan 0041.
+* [x] 2026-05-26: Split scenery-managed Postgres lifecycle plus `db reset`/snapshot commands into ExecPlan 0041.
 * [x] 2026-05-27: Register shared Grafana and legacy async runtime UI upstreams as per-session agent routes so live sessions expose `grafana` and `legacy-async-runtime` URLs in their manifests.
 * [x] 2026-05-27: Start supported Vite/Astro frontends on hidden loopback ports for agent sessions instead of depending on fixed checked-in upstream ports.
 
@@ -38,12 +38,12 @@ Record implementation findings here with commands, test output, or file referenc
 
 ## Decision Log
 
-* Decision: Treat Postgres/sync as a separate milestone from observability/legacy async runtime.
-  Rationale: Observability and legacy async runtime already have scenery dev supervisors; Postgres/sync require a local service declaration and database lifecycle contract.
+* Decision: Treat Postgres as a separate milestone from observability/legacy async runtime.
+  Rationale: Observability and legacy async runtime already have scenery dev supervisors; Postgres require a local service declaration and database lifecycle contract.
   Date/Author: 2026-05-26 / Codex
 
 * Decision: Introduce an agent substrate registry before moving process launch code fully into the daemon.
-  Rationale: It creates the control-plane contract needed by Victoria, Grafana, legacy async runtime, Postgres, sync, and frontend routing while keeping this slice testable and avoiding a premature package split of the large dev supervisor.
+  Rationale: It creates the control-plane contract needed by Victoria, Grafana, legacy async runtime, Postgres, and frontend routing while keeping this slice testable and avoiding a premature package split of the large dev supervisor.
   Date/Author: 2026-05-26 / Codex
 
 * Decision: Let the first dev supervisor start shared observability processes, then transfer lifecycle ownership to the agent registry.
@@ -54,9 +54,9 @@ Record implementation findings here with commands, test output, or file referenc
 
 Completed 2026-05-26.
 
-This plan delivered the agent substrate control-plane contract and used it for shared Victoria, Grafana, and legacy async runtime dev processes. It also added session-aware Grafana dashboards, registered configured frontend upstreams plus shared Grafana and legacy async runtime UI upstreams with the agent router, started supported frontends on hidden agent-owned loopback ports, introduced the beta `dev.services` config surface for Postgres/sync declarations, and added the current-contract `scenery db psql` command alias.
+This plan delivered the agent substrate control-plane contract and used it for shared Victoria, Grafana, and legacy async runtime dev processes. It also added session-aware Grafana dashboards, registered configured frontend upstreams plus shared Grafana and legacy async runtime UI upstreams with the agent router, started supported frontends on hidden agent-owned loopback ports, introduced the beta `dev.services` config surface for Postgres declarations, and added the current-contract `scenery db psql` command alias.
 
-Full scenery-managed Postgres cluster lifecycle, per-session database reset/snapshot behavior, and sync process ownership are intentionally split to [0041 Agent Managed Postgres and sync](0041-agent-managed-postgres-and-sync.md) because that work needs its own database lifecycle contract and validation strategy.
+Full scenery-managed Postgres cluster lifecycle and per-session database reset/snapshot behavior require their own database lifecycle contract and validation strategy.
 
 ## Context and Orientation
 
@@ -83,7 +83,7 @@ Milestone 2 moves legacy async runtime local dev startup behind the agent and ad
 
 Milestone 3 adds app config for scenery-owned dev services and implements shared Postgres cluster/per-session database lifecycle.
 
-Milestone 4 adds sync and frontend daemon routing with stable session URLs.
+Milestone 4 adds frontend daemon routing with stable session URLs.
 
 Milestone 5 updates docs, schemas, harness checks, and ONLV-facing runbooks.
 
@@ -98,7 +98,6 @@ Prefer reusing current component startup code by moving ownership boundaries fir
 3. Extract legacy async runtime local dev startup into an agent substrate with session namespaces or strict task queue prefixes.
 4. Add app config parsing and schema support for scenery-owned dev services.
 5. Implement shared Postgres cluster/per-session database lifecycle and wire `scenery db` commands to session identity.
-6. Implement sync as a hidden per-session backend registered with the daemon router.
 7. Register frontend backends with daemon host routing and remove checked-in per-worktree port assumptions from effective dev config.
 8. Add fake-backed unit tests for substrate ownership and practical integration checks where local dependencies are available.
 
@@ -116,11 +115,11 @@ git diff --check
 
 Observable behavior:
 
-* Multiple worktrees can run `scenery dev` without competing for Grafana, Victoria, legacy async runtime, app, dashboard, proxy, frontend, Postgres, or sync public ports.
+* Multiple worktrees can run `scenery dev` without competing for Grafana, Victoria, legacy async runtime, app, dashboard, proxy, frontend, or Postgres public ports.
 * Grafana dashboards include a session variable and can show one session or compare sessions.
 * legacy async runtime workers from one worktree cannot consume another worktree's tasks.
 * Postgres state is isolated per session by default.
-* sync, frontend, Grafana, and legacy async runtime UI URLs are stable daemon-routed session URLs.
+* frontend, Grafana, and legacy async runtime UI URLs are stable daemon-routed session URLs.
 
 ## Idempotence and Recovery
 

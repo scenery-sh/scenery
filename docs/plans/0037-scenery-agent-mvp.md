@@ -27,7 +27,7 @@ Record implementation findings here with commands, test output, or file referenc
 
 ## Decision Log
 
-* Decision: Ship an agent MVP without moving legacy async runtime, Victoria, Grafana, Postgres, or sync into daemon-owned shared substrates.
+* Decision: Ship an agent MVP without moving legacy async runtime, Victoria, Grafana, or Postgres into daemon-owned shared substrates.
   Rationale: The agent-native local-dev plan explicitly phases those moves after the daemon/router/session model. Keeping current supervision intact makes the first change testable and preserves current dev workflows.
   Date/Author: 2026-05-26 / Codex
 

@@ -13,7 +13,7 @@ worktree or session branch
 -> isolated PostgreSQL database
 -> deterministic DatabaseURL injection
 -> DB setup/apply/seed
--> sync, auth, and dev harnesses work
+-> auth and dev harnesses work
 -> deterministic cleanup
 ```
 
@@ -47,7 +47,7 @@ lane only while it is beta.
 - [x] 2026-06-10: Replaced the remaining Neon-named branch-provider files/types with provider-neutral branch names and a Postgres-only provider dispatch.
 - [x] Implement a local Postgres 18 dev cell and database-per-worktree branch registry.
 - [x] 2026-06-10: Recorded `cluster_basebackup` as a future high-fidelity branch strategy; phase-one completion remains `template_database` plus schema-only diff, with full-cluster clone implementation intentionally outside this removal slice.
-- [x] Preserve app-facing `DatabaseURL` injection, DB lifecycle, sync, auth, and running ONLV behavior for the Postgres branch path.
+- [x] Preserve app-facing `DatabaseURL` injection, DB lifecycle, auth, and running ONLV behavior for the Postgres branch path.
 - [x] 2026-06-10: Removed Neon lifecycle commands, schemas, selfhost driver/runtime code, image/toolchain refs, active docs guidance, and replaced the default self-harness Neon proof with a Postgres branch lifecycle proof.
 - [x] 2026-06-10: Validated in Scenery and ONLV with the commands in `Validation and Acceptance`.
 
@@ -59,7 +59,7 @@ lane only while it is beta.
 - 2026-06-10: Comparing this plan with `Neon Versus Vanilla PostgreSQL 18 and 19 for scenery` showed one important gap: this plan already covers template databases, dump/restore, PITR, logical replication, and future filesystem snapshots, but it did not explicitly name `pg_basebackup` as the portable full-cluster branch lane. Add it as a distinct strategy for large or high-fidelity branches rather than forcing all branches through database-level cloning.
 - 2026-06-10: The same comparison expanded the cleanup and validation surface: `README.md`, all `cmd/scenery/db_neon*.go` files, adjacent dev service/psql/self-harness files, CI integration jobs, backup/restore drills, and replication-slot/WAL monitoring must be inspected during implementation.
 - 2026-06-10: The first implementation slice intentionally kept Neon-named structs and files while dispatching by provider. This got ONLV onto Postgres quickly, but a follow-up rename/delete pass is still needed before calling Neon removal complete.
-- 2026-06-10: ONLV's `scenery up --json --detach` reached `running` with API, sync, frontends, and TypeScript worker registered. Logs showed `database branch lease ready` from provider `postgres`, and `curl -k https://api.main-dbe32e.onlv.dev/healthy` returned HTTP 200.
+- 2026-06-10: ONLV's `scenery up --json --detach` reached `running` with API, frontends, and TypeScript worker registered. Logs showed `database branch lease ready` from provider `postgres`, and `curl -k https://api.main-dbe32e.onlv.dev/healthy` returned HTTP 200.
 - 2026-06-10: The cleanup pass removed `internal/neonselfhost`, `cmd/scenery/db_neon*.go`, Neon status/driver/backend schemas, Neon image refs, and the self-harness Neon proof. Current docs now describe Postgres branch leases under `~/.scenery/agent/postgres/branches.json` with registry schema v2.
 - 2026-06-10: Final validation passed `go test ./...`, `scenery inspect docs --json`, `scenery doctor --json`, and `scenery harness self --summary --write` in this repo. ONLV passed `scenery check --json`, `go test ./...`, `just repo-harness`, `just db`, a managed-branch SQL smoke for database `onlv_onlv_runtime_0074`, and a restarted `scenery up --json --detach` session whose `/healthy` endpoint returned `{"status":"ok"}`.
 
@@ -118,7 +118,7 @@ The current ONLV app configuration uses `.scenery.json`
 `dev.services.postgres.kind: "postgres"`, `mode: "local"`,
 `isolation: "database"`, `branch_strategy: "template_database"`, project
 `onlv`, parent database `onlv_main`, `branch_policy: "worktree"`, a worktree
-branch template, and a sibling sync service. The app-facing contract is the
+branch template. The app-facing contract is the
 same managed database URL contract as before:
 
 ```json
@@ -290,7 +290,7 @@ completion slice.
 Milestone 7 implements reset, delete, expire, and prune. Reset terminates branch
 connections, drops and recreates the branch database from the parent template or
 dump, and updates the registry. Delete terminates branch connections, drops the
-database, drops owned objects and the role, cleans up sync publications or
+database, drops owned objects and the role, cleans up owned publications or
 replication slots owned by that branch, removes the registry entry, and removes
 the current worktree pin only when the current branch is explicitly forced.
 Expire and prune become registry-driven operations that actually delete expired
@@ -317,10 +317,8 @@ level 3: future table-specific data diff by explicit opt-in
 Do not describe this as Neon timeline diff.
 
 Milestone 9 preserves app/dev integration. `scenery up`, `scenery db psql`,
-database setup/apply/seed, auth bootstrap, sync startup, workers, and
-harnesses must keep consuming the same app-facing managed database URL contract.
-sync must receive a deterministic session- or branch-scoped replication
-stream identifier so publications and replication slots do not collide.
+database setup/apply/seed, auth bootstrap, workers, and harnesses must keep
+consuming the same app-facing managed database URL contract.
 
 Milestone 10 removes Neon code and docs after the Postgres path is proven.
 Delete or rename/adapt these areas:
@@ -372,7 +370,7 @@ Avoid a compatibility layer that simply puts Postgres behind Neon type names.
 
 Next, implement the Postgres dev cell and branch registry. Prefer existing
 managed-Postgres startup code for cluster creation, readiness, env injection,
-and sync-friendly logical replication settings. Add only the branch-specific
+and logical replication settings. Add only the branch-specific
 parts that ordinary per-session database isolation does not already provide.
 
 After the basic checkout path is working, add reset/delete/prune safety and the
@@ -385,7 +383,7 @@ explicit confirmation, and current branch deletion needs `--force`.
 Change the self-harness after the Postgres proof exists, not before. Replace
 the Docker-backed Neon proof with a Postgres branch proof that creates a branch,
 proves isolation, resets or reclones it, runs a backup/restore drill, and checks
-logical replication behavior needed by sync.
+logical replication behavior.
 
 Once the Postgres path passes focused validation, remove the Neon substrate
 surface. Update `README.md`, `docs/local-contract.md`, `docs/agent-guide.md`,
@@ -395,8 +393,7 @@ harness docs in the same change that removes or renames behavior.
 
 Finally, prove ONLV still works through the Scenery workflow. The important
 acceptance is that app code does not care: it receives `DatabaseURL`, setup
-runs, sync starts against the branch database, and `uuidv7()` is available
-on PostgreSQL 18.
+runs, and `uuidv7()` is available on PostgreSQL 18.
 
 ## Concrete Steps
 
@@ -460,7 +457,7 @@ on PostgreSQL 18.
    `filesystem_snapshot`, deeper restore levels, and data diff as explicit
    future strategies that fail closed until implemented.
 
-8. Update sync/logical-replication ownership. Ensure local Postgres starts
+8. Update logical-replication ownership. Ensure local Postgres starts
    with logical replication settings and that per-branch publication and slot
    names are deterministic, unique, and removed during delete/prune/down.
 
@@ -512,7 +509,7 @@ branch-create-and-start
 branch-isolation-after-source-mutation
 branch-reset-or-reclone
 backup-and-restore-drill
-logical-replication-smoke-for-sync
+logical-replication-smoke
 replication-slot-and-publication-cleanup
 PITR-restore-to-timestamp when restore level 3 is implemented
 filesystem-snapshot-smoke on a capable self-hosted runner only
@@ -598,7 +595,7 @@ Reference facts checked when this plan was created:
   management than database-per-branch strategies.
 - Postgres continuous archiving/PITR and `pg_basebackup` can support future
   branch-from-past workflows through a temporary restored cluster.
-- Postgres logical replication supports sync-like publish/subscribe flows,
+- Postgres logical replication supports publish/subscribe flows,
   but Scenery must own publication and replication-slot lifecycle.
 
 Useful upstream docs:
@@ -628,7 +625,7 @@ Public Scenery interfaces to preserve:
   configuration surface.
 - `scenery db branch status|list|checkout|reset|delete|restore|diff|expire|prune`.
 - `scenery db psql`.
-- `scenery up`, DB setup/apply/seed, auth bootstrap, sync startup, workers,
+- `scenery up`, DB setup/apply/seed, auth bootstrap, workers,
   and app env injection.
 - `.scenery/worktree-db.json` as the worktree branch pin in phase one.
 - JSON schemas for branch status/list/restore/diff, updated honestly for
@@ -647,7 +644,6 @@ Internal dependencies:
 - Managed local Postgres substrate startup and readiness.
 - App-session env injection.
 - Database lifecycle setup/apply/seed.
-- sync process/container startup and replication stream naming.
 - Worktree creation/removal.
 - Self-harness runtime proofs.
 - Docs knowledge index and schema validation.

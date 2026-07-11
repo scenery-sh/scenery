@@ -101,7 +101,6 @@ Initial known facts from source review:
 
 * `PLANS.md` requires every ExecPlan to be self-contained and to include the exact required section headings. Do not rely on chat history or hidden context.
 * The user explicitly allocated `0091`. At plan-add time in this worktree, `docs/plans/active.md` did not contain `0090` and no `docs/plans/0090-local-path-routing.md` file existed.
-* `docs/plans/0088-sqlite-service-databases.md` is active and targets Postgres removal. Grafana removal should avoid reintroducing database assumptions while that migration is in flight.
 * `docs/plans/0090-local-path-routing.md` may exist on another implementation branch and, if present, changes local routing defaults. Grafana removal must not assume host/domain routing is the default path.
 * Current `docs/grafana.md` says `scenery up` can supervise local Grafana alongside Victoria sidecars, that managed Grafana starts by default, and that it is provisioned with stable datasource and dashboard UIDs.
 * Current `scenery.toolchain.json` contains a managed `grafana` binary artifact and Grafana datasource plugin artifacts for VictoriaMetrics and VictoriaLogs.
@@ -277,7 +276,6 @@ Outcome:
 * The dashboard Observability, Traces, Requests, Services, Cron, and Home routes now use Scenery-native links and status. `ui/src/lib/grafana.ts` was deleted.
 * Grafana binary/plugin artifacts were removed from `scenery.toolchain.json` and regenerated toolchain metadata. Grafana env vars were removed from the environment registry and human docs.
 * Current docs and root agent instructions now describe Victoria plus the Scenery console/CLI as the local observability surface. Historical completed plans remain as provenance.
-* A separate pre-existing active plan contract issue was fixed by adding the required living-document statement to `docs/plans/0088-sqlite-service-databases.md`; this was necessary for self-harness knowledge-contract validation.
 
 Validation:
 
@@ -309,7 +307,6 @@ PLANS.md
 docs/plans/active.md
 docs/plans/0067-cli-observability-query.md
 docs/plans/0079-victoria-shared-substrate-visibility.md
-docs/plans/0088-sqlite-service-databases.md
 docs/plans/0090-local-path-routing.md (if present on the implementation branch)
 docs/local-contract.md
 docs/agent-guide.md

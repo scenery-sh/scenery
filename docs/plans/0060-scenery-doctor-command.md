@@ -211,7 +211,7 @@ Baseline checks:
 - `tool.bun`: optional unless app config or discovered TypeScript worker/frontend workflows make it relevant.
 - `tool.psql`: optional, required only for explicit database shell/snapshot flows.
 - `tool.pg_dump`: optional, required only for database snapshot create flows.
-- `tool.docker`: optional, relevant for Docker-backed managed Postgres/sync and some generator dev URLs.
+- `tool.docker`: optional, relevant for Docker-backed managed Postgres and some generator dev URLs.
 - `tool.atlas`: optional globally, relevant when configured SQLC schema refresh uses Atlas source files.
 - `tool.sqlc`: optional globally, relevant when `generators.sqlc` is configured.
 - `tool.git`: optional, useful for source checkouts and release/debug metadata, but should not block app development if the installed binary and Go toolchain are otherwise usable.

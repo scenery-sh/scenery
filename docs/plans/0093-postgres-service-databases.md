@@ -82,7 +82,7 @@ Add new surprises here with the command, test, or file that exposed them.
   Rationale: A named volume is the boring Docker-native choice and survives container recreation; bind mounts into the agent home have ownership/permission friction (Linux container UID vs host UID) for no inspectability gain — the inspection surface is SQL, not files.
   Date/Author: 2026-07-02 / this plan.
 
-* Decision: Out of scope for this plan: standard auth on Postgres, durable/cron store on Postgres, `scenery db branch` for postgres services, dashboard DB explorer for Postgres, any sync/replication subsystem.
+* Decision: Out of scope for this plan: standard auth on Postgres, durable/cron store on Postgres, `scenery db branch` for postgres services, dashboard DB explorer for Postgres, or any replication subsystem.
   Rationale: Auth and the durable store are SQLite-native since 0088/0089 and work fine alongside postgres app services. Per-worktree databases already deliver the isolation `db branch` provides for SQLite; a template-database branch provider is a follow-up plan if demand appears. Keeping the first cut small keeps it shippable.
   Date/Author: 2026-07-02 / repo owner + this plan.
 
@@ -148,7 +148,6 @@ Read before editing (the plan-0088 file is the map of everything that was delete
 
 ```text
 AGENTS.md
-docs/plans/0088-sqlite-service-databases.md
 docs/plans/0079-victoria-shared-substrate-visibility.md
 docs/local-contract.md
 internal/app/root.go            (DevServiceConfig, validateDevServices ~line 493, SQLiteServices ~line 143)
@@ -226,15 +225,11 @@ Milestones 1–2 are pure Go with unit tests (config + resolver). Milestone 3 in
 
 Coordination note: plan 0094 also rewrote `dev_supervisor.go`/`dev_services.go` for ZeroFS removal, so this branch was rebased after that work before completion.
 
-Interplay with plan 0088: 0088's outcome ("Scenery does not ship a built-in Postgres substrate coupled to auth/branching/Electric") remains true. What returns here is narrower: an opt-in service kind, an isolated shared dev server, and DSN passthrough. Auth, durable execution, and branching stay SQLite-native.
-
 ## Concrete Steps
 
 All commands run from the repository root. Compile-check order matches milestone order.
 
-1. **0088 closure.** Edit `docs/plans/0088-sqlite-service-databases.md` (Progress checkboxes, Outcomes & Retrospective citing commit `2c23508d`), move its entry from `docs/plans/active.md` to `docs/plans/completed.md`, refresh its `docs/knowledge.json` entry (`status: "completed"`, summary noting partial supersession by 0093).
-
-2. **Config.** `internal/app/root.go`: extend the `validateDevServices` kind switch to `case "", "sqlite", "postgres":`; delete the `removedDatabaseKind` string-splitting special case (a bare `dev.services.postgres` entry with empty kind now means a postgres service named `postgres` — verify this is acceptable or require explicit kind; record the choice). Add `PostgresServiceConfig`, `PostgresServices()`, `PostgresService(name)` next to the SQLite helpers. Reject legacy fields for postgres kind. Update `docs/schemas/scenery.config.v1.schema.json` and `internal/app/root_test.go`.
+1. **Config.** `internal/app/root.go`: extend the `validateDevServices` kind switch to `case "", "sqlite", "postgres":`; delete the `removedDatabaseKind` string-splitting special case (a bare `dev.services.postgres` entry with empty kind now means a postgres service named `postgres` — verify this is acceptable or require explicit kind; record the choice). Add `PostgresServiceConfig`, `PostgresServices()`, `PostgresService(name)` next to the SQLite helpers. Reject legacy fields for postgres kind. Update `docs/schemas/scenery.config.v1.schema.json` and `internal/app/root_test.go`.
 
 3. **Resolver.** `go get github.com/jackc/pgx/v5@latest`; create `internal/postgresdb/` per Milestone 2. Keep the blank driver import isolated in this package. Name derivation:
 

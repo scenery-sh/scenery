@@ -505,12 +505,8 @@ func (c Config) validateWatch() error {
 }
 
 func (c Config) validateDevServices() error {
-	removedSyncKind := "elec" + "tric"
 	schemaOwners := map[string]string{}
 	for name, svc := range c.Dev.Services {
-		if name == removedSyncKind || strings.TrimSpace(svc.Kind) == removedSyncKind {
-			return fmt.Errorf("dev.services.%s uses a removed legacy sync service kind; delete this service declaration", name)
-		}
 		if !isStorageIdentifier(name) {
 			return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
 		}
@@ -594,7 +590,7 @@ func (c Config) validateDeploy() error {
 		return nil
 	}
 	switch root {
-	case "console", "dashboard", "runtime", "sync", "__scenery":
+	case "console", "dashboard", "runtime", "__scenery":
 		return fmt.Errorf("deploy.root %q is reserved by Scenery", root)
 	case "api":
 		return nil

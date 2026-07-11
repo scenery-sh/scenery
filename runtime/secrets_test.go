@@ -167,7 +167,7 @@ func TestFlushMissingSecretsWarningsCombinesFields(t *testing.T) {
 		ResendAPIKey string
 	}
 	var second struct {
-		SyncURL string
+		APIBaseURL string
 	}
 	if err := PopulateSecrets(&first); err != nil {
 		t.Fatalf("PopulateSecrets returned error: %v", err)
@@ -181,7 +181,7 @@ func TestFlushMissingSecretsWarningsCombinesFields(t *testing.T) {
 	if strings.Count(gotLogs, "scenery secrets missing") != 1 {
 		t.Fatalf("expected single warning, got logs %q", gotLogs)
 	}
-	for _, want := range []string{"ResendAPIKey", "SyncURL"} {
+	for _, want := range []string{"ResendAPIKey", "APIBaseURL"} {
 		if !strings.Contains(gotLogs, want) {
 			t.Fatalf("logs %q do not contain %q", gotLogs, want)
 		}

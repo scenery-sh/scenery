@@ -536,7 +536,6 @@ Related active plans:
 
 - `docs/plans/0050-test-suite-speed-hardening.md`: owns making the full suite fast enough for strict timing budgets.
 - `docs/plans/0048-agent-runtime-operational-hardening.md`: owns dev runtime safety and prune/restart behavior that the harness should eventually inspect.
-- `docs/plans/0049-browser-direct-api-routing.md`: owns Pulse routing changes that fixture and browser-facing checks may cover later.
 
 ## Interfaces and Dependencies
 

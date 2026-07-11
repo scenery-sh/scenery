@@ -322,7 +322,7 @@ scenery generate client --lang typescript --output ./src/scenery-client.ts
 
 The generated client understands the app's route model.
 
-`WithMeta` methods also expose parsed `txid` metadata from `X-Txid`/`X-TXID`. sync-backed write flows can use `observeAPIResponseTxid` to report later sync observation failures as sync/substrate failures after a committed mutation, rather than as API mutation failures.
+`WithMeta` methods expose response headers, status, and the raw `Response` alongside decoded data.
 
 Apps can also configure `generators.clients` and use `scenery generate client` or `scenery generate --dry-run --json` to inspect and run configured generators. `scenery generate sqlc` is for generated source artifacts; it must not apply database schema or seed data.
 

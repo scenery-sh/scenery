@@ -8,7 +8,7 @@ import (
 	"scenery.sh/internal/runtimeapi"
 )
 
-func TestTypeScriptClientIncludesTxidSyncObservationDiagnostics(t *testing.T) {
+func TestTypeScriptClientWithMetaIncludesResponseMetadata(t *testing.T) {
 	t.Parallel()
 
 	service := &model.Service{Name: "tasks"}
@@ -30,24 +30,11 @@ func TestTypeScriptClientIncludesTxidSyncObservationDiagnostics(t *testing.T) {
 	}
 	got := string(out)
 	for _, want := range []string{
-		`const CLIENT_APP_SLUG = "pulse"`,
-		`export type Txid = number`,
-		`txid: Txid | null`,
-		`export class SyncObservationError extends Error`,
-		`public readonly kind = "sync_observation_failure"`,
-		`public readonly mutationCommitted = true`,
-		`mutation_committed: true`,
-		`export function txidFromHeaders(headers: Headers): Txid | null`,
-		`export async function observeAPIResponseTxid<T>(response: APIResponse<T>, observer: TxidObserver, context?: SyncObservationContext): Promise<APIResponse<T>>`,
-		`sync observation failed after committed API mutation`,
-		`api_url?: string`,
-		`sync_url?: string`,
-		`sync_stream_id?: string`,
-		`context.syncURL = apiURL.replace("://api.", "://sync.")`,
-		`txid: txidFromHeaders(response.headers)`,
+		"export interface APIResponse<T> {\n    data: T\n    headers: Headers\n    status: number\n    response: Response\n}",
+		"interface TypedEndpointResultWithMeta {\n    body: unknown\n    headers: Headers\n    status: number\n    response: Response\n}",
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("generated client missing %q\n%s", want, got)
+			t.Fatalf("generated client missing response metadata %q\n%s", want, got)
 		}
 	}
 }
