@@ -150,6 +150,9 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 
 func renderHTTPResponseCase(b *strings.Builder, resources map[string]Resource, operation Resource, outcome, caseType string, status int, rootExpression string, rootType any, response map[string]any, httpSpec map[string]any) error {
 	fmt.Fprintf(b, "\t\t\t\tcase %s:\n", caseType)
+	if response["body"] == nil && len(namedChildren(response, "header")) == 0 && len(namedChildren(response, "cookie")) == 0 {
+		b.WriteString("\t\t\t\t\t_ = typed\n")
+	}
 	if responseBody, _ := response["body"].(map[string]any); responseBody != nil {
 		valueExpression, valueType, err := httpOutcomeValueExpression(resources, operation, outcome, refOrString(responseBody["from"]), rootExpression, rootType)
 		if err != nil {

@@ -7,6 +7,16 @@ import (
 	"testing"
 )
 
+func TestEmptyHTTPResponseDoesNotLeaveOutcomeVariableUnused(t *testing.T) {
+	var source strings.Builder
+	if err := renderHTTPResponseCase(&source, nil, Resource{}, "result.success", "contract.DeleteSuccess", 204, "typed", map[string]any{"$ref": "std.type.unit"}, map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(source.String(), "_ = typed") {
+		t.Fatalf("empty response case did not consume its outcome variable:\n%s", source.String())
+	}
+}
+
 func TestMixedNativeAndLegacyOperationHandlersCompile(t *testing.T) {
 	parallelVNextIntegrationTest(t)
 

@@ -242,9 +242,9 @@
       "status": "completed",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
+      "last_reviewed": "2026-07-12",
       "review_after": "2026-08-10",
-      "summary": "Completed conformance hardening for authenticated exact plan issuance and strict apply, truthful migration evidence and predicted candidate graphs, complete mixed rename and config-free client generation, default-before-patch ordering, exact generated config provenance, and indexed source positions.",
+      "summary": "Completed conformance hardening for authenticated exact plan issuance and strict apply, truthful migration evidence and predicted candidate graphs, complete mixed rename and config-free client generation, default-before-patch ordering, exact generated config provenance, indexed source positions, and follow-up native migration generation/provider fixes.",
       "tags": [
         "plans",
         "execplans",

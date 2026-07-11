@@ -35,6 +35,7 @@ func TestBuiltinProviderLockDigestsAreStable(t *testing.T) {
 	want := map[string]string{
 		"registry.scenery.dev/core/durable":  "1.0.0 sha256:bd3b09a61fe989b3261d8a50f91021a0919f1d37f6d228605bb1613e25a1dd55",
 		"registry.scenery.dev/core/postgres": "2.1.0 sha256:ef86899a2d565d65e88a47a9d1099c3fd0fc8b9cdc021a9c5e54ce19636e0ec6",
+		"registry.scenery.dev/core/storage":  "2.0.0 sha256:149487d34c247011cd930d911d54278a1cd9ff91b3b032b1d809b66dabd3a497",
 	}
 	for source, expected := range want {
 		version, integrity, ok := BuiltinProviderLock(source)

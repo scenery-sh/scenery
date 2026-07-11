@@ -45,9 +45,9 @@ type EchoResponse struct {
 //scenery:api public method=GET path=/ping
 func (service *Service) Ping(context.Context) error { return nil }
 
-//scenery:api public method=GET,POST path=/echo/:name
-func (service *Service) Echo(_ context.Context, name string, input *EchoRequest) (*EchoResponse, error) {
-	return &EchoResponse{Message: name + input.Title}, nil
+//scenery:api public method=GET,POST path=/echo/:displayName
+func (service *Service) Echo(_ context.Context, displayName string, input *EchoRequest) (*EchoResponse, error) {
+	return &EchoResponse{Message: displayName + input.Title}, nil
 }
 
 //scenery:api private
@@ -117,6 +117,28 @@ func (service *Service) Secret(context.Context) (*EchoResponse, error) {
 	}
 	if candidatePlan.NativeCandidateDigest == "" || len(candidatePlan.Edits) < 3 {
 		t.Fatalf("candidate plan = %#v", candidatePlan)
+	}
+	var candidatePackage, candidateRoot string
+	for _, edit := range candidatePlan.Edits {
+		switch edit.Path {
+		case "service/scenery.package.scn":
+			candidatePackage = string(edit.After)
+		case "scenery.scn":
+			candidateRoot = string(edit.After)
+		}
+	}
+	for _, required := range []string{
+		"authentication = std.authentication.none",
+		"authentication = std.authentication.inherit",
+		"authorization  = std.authorization.public",
+		"pipeline       = std.pipeline.legacy_v0",
+	} {
+		if !strings.Contains(candidatePackage, required) {
+			t.Fatalf("candidate package missing %q:\n%s", required, candidatePackage)
+		}
+	}
+	if strings.Contains(candidatePackage+candidateRoot, "std.authentication.legacy_v0") {
+		t.Fatalf("candidate retains unsupported legacy authentication:\n%s\n%s", candidatePackage, candidateRoot)
 	}
 	if _, err := os.Stat(filepath.Join(root, "service", "scenery.package.scn")); !os.IsNotExist(err) {
 		t.Fatalf("candidate planning wrote package source: %v", err)
@@ -207,6 +229,44 @@ func (service *Service) Secret(context.Context) (*EchoResponse, error) {
 	}
 	if rollbackReceipt.Active != "legacy" || rollbackReceipt.ReverseAction != "activate_native" {
 		t.Fatalf("rollback receipt = %#v", rollbackReceipt)
+	}
+}
+
+func TestMigrationCandidateUsesSupportedNativeSecurityProfiles(t *testing.T) {
+	var binding strings.Builder
+	renderMigrationCandidateHTTPBinding(&binding, migrationCandidateOperation{
+		Name: "account", Path: "/account", Access: "auth", HasOutput: true,
+	}, "account_http", "GET")
+	for _, required := range []string{
+		"authentication = var.authentication",
+		"authorization  = std.authorization.legacy_v0",
+		"pipeline       = std.pipeline.legacy_v0",
+	} {
+		if !strings.Contains(binding.String(), required) {
+			t.Fatalf("candidate binding missing %q:\n%s", required, binding.String())
+		}
+	}
+	if strings.Contains(binding.String(), "std.authentication.legacy_v0") {
+		t.Fatalf("candidate binding retains unsupported legacy authentication:\n%s", binding.String())
+	}
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte("language { edition = \"2027\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendMigrationCandidateModule(root, MigrationService{Name: "account", Package: "./account"}, true); err != nil {
+		t.Fatal(err)
+	}
+	rootSource, err := os.ReadFile(filepath.Join(root, "scenery.scn"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"authentication = authentication.standard",
+	} {
+		if !strings.Contains(string(rootSource), required) {
+			t.Fatalf("candidate module missing %q:\n%s", required, rootSource)
+		}
 	}
 }
 

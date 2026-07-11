@@ -79,7 +79,7 @@ func PlanMigrationCandidate(root string, request MigrationCandidateRequest) (Mig
 	if len(base.Migration.NativeCandidates[service.Name]) > 0 {
 		return MigrationCandidatePlan{}, fmt.Errorf("failed_precondition: migration service %s already has a native candidate", service.Name)
 	}
-	packageSource, diagnostics, err := renderMigrationCandidatePackage(base.Root, service)
+	packageSource, requiresAuthentication, diagnostics, err := renderMigrationCandidatePackage(base.Root, service)
 	if err != nil {
 		return MigrationCandidatePlan{}, err
 	}
@@ -95,7 +95,7 @@ func PlanMigrationCandidate(root string, request MigrationCandidateRequest) (Mig
 	if err := atomicWrite(packagePath, packageSource); err != nil {
 		return MigrationCandidatePlan{}, err
 	}
-	if err := appendMigrationCandidateModule(temp, service); err != nil {
+	if err := appendMigrationCandidateModule(temp, service, requiresAuthentication); err != nil {
 		return MigrationCandidatePlan{}, err
 	}
 	if err := mutateMigrationOwnership(temp, service.Name, "shadow"); err != nil {
@@ -233,14 +233,14 @@ type migrationCandidateOperation struct {
 	Raw                                    bool
 }
 
-func renderMigrationCandidatePackage(root string, migrationService MigrationService) ([]byte, []Diagnostic, error) {
+func renderMigrationCandidatePackage(root string, migrationService MigrationService) ([]byte, bool, []Diagnostic, error) {
 	_, config, err := appcfg.DiscoverRoot(root)
 	if err != nil {
-		return nil, nil, err
+		return nil, false, nil, err
 	}
 	appModel, err := parse.AppPackages(root, config.Name, []string{migrationService.Package})
 	if err != nil {
-		return nil, nil, fmt.Errorf("discover legacy candidate: %w", err)
+		return nil, false, nil, fmt.Errorf("discover legacy candidate: %w", err)
 	}
 	var legacyService *model.Service
 	for _, service := range appModel.Services {
@@ -250,28 +250,35 @@ func renderMigrationCandidatePackage(root string, migrationService MigrationServ
 		}
 	}
 	if legacyService == nil {
-		return nil, nil, fmt.Errorf("failed_precondition: legacy service %s was not discovered", migrationService.Name)
+		return nil, false, nil, fmt.Errorf("failed_precondition: legacy service %s was not discovered", migrationService.Name)
 	}
 	goModBytes, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
-		return nil, nil, err
+		return nil, false, nil, err
 	}
 	goMod, err := modfile.Parse("go.mod", goModBytes, nil)
 	if err != nil || goMod.Module == nil {
-		return nil, nil, fmt.Errorf("failed_precondition: go.mod requires a module path")
+		return nil, false, nil, fmt.Errorf("failed_precondition: go.mod requires a module path")
 	}
 	packageRelative := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(migrationService.Package)), "./")
 	importPath := strings.TrimSuffix(goMod.Module.Mod.Path, "/") + "/" + packageRelative
 	operations, diagnostics := migrationCandidateOperations(legacyService)
+	requiresAuthentication := false
+	for _, operation := range operations {
+		requiresAuthentication = requiresAuthentication || operation.Access == "auth"
+	}
 
 	var source strings.Builder
 	fmt.Fprintf(&source, "package %q {\n  version         = \"0.1.0\"\n  scenery_version = \">= 2.0.0, < 3.0.0\"\n\n  go_contract {\n    import_path = %q\n  }\n}\n\n", migrationService.Name, importPath)
 	source.WriteString("input \"gateway\" {\n  type = resource_ref(\"http_gateway\")\n}\n\n")
+	if requiresAuthentication {
+		source.WriteString("input \"authentication\" {\n  type = resource_ref(\"authentication\")\n}\n\n")
+	}
 	fmt.Fprintf(&source, "service %q {\n  runtime = \"go\"\n\n  implementation {\n    adapter = \"legacy_go_v0\"\n    root    = %q\n  }\n}\n", migrationService.Name, packageRelative)
 	for _, operation := range operations {
 		renderMigrationCandidateOperation(&source, migrationService.Name, operation)
 	}
-	return []byte(source.String()), diagnostics, nil
+	return []byte(source.String()), requiresAuthentication, diagnostics, nil
 }
 
 func migrationCandidateOperations(service *model.Service) ([]migrationCandidateOperation, []Diagnostic) {
@@ -301,7 +308,8 @@ func migrationCandidateOperations(service *model.Service) ([]migrationCandidateO
 			if !complete {
 				diagnostics = append(diagnostics, candidateTypeDiagnostic(service.Name, name, parameter.Name, field.TypeExpr))
 			}
-			operation.Input = append(operation.Input, migrationCandidateField{Name: snakeName(parameter.Name), WireName: parameter.Name, Type: typeExpression, Source: "path", SourceName: parameter.Name})
+			name := snakeName(parameter.Name)
+			operation.Input = append(operation.Input, migrationCandidateField{Name: name, WireName: name, Type: typeExpression, Source: "path", SourceName: name})
 		}
 		if endpoint.Payload != nil {
 			fields, fieldDiagnostics := migrationCandidatePayloadFields(service.Name, name, endpoint.Payload.Type)
@@ -522,7 +530,7 @@ func renderMigrationCandidateInternalBinding(source *strings.Builder, operation 
 func renderMigrationCandidateHTTPBinding(source *strings.Builder, operation migrationCandidateOperation, bindingName, method string) {
 	authentication, authorization := "std.authentication.none", "std.authorization.public"
 	if operation.Access == "auth" {
-		authentication, authorization = "std.authentication.legacy_v0", "std.authorization.legacy_v0"
+		authentication, authorization = "var.authentication", "std.authorization.legacy_v0"
 	}
 	fmt.Fprintf(source, "\nbinding %q {\n  gateway   = var.gateway\n  operation = operation.%s\n  execution = execution.%s_direct\n  protocol  = \"http\"\n  delivery  = \"call\"\n\n  authentication = %s\n  authorization  = %s\n  pipeline       = std.pipeline.legacy_v0\n\n  http {\n    method        = %q\n    path          = %q\n    codec_profile = std.codec.http_json_v1\n", bindingName, operation.Name, operation.Name, authentication, authorization, strings.ToUpper(method), operation.Path)
 	var bodyFields []string
@@ -558,13 +566,17 @@ func renderMigrationCandidateHTTPBinding(source *strings.Builder, operation migr
 	source.WriteString("    }\n\n    response \"legacy_error\" {\n      when   = error.legacy_error\n      status = 500\n\n      body {\n        codec = \"problem_json\"\n        from  = error.legacy_error\n      }\n    }\n  }\n}\n")
 }
 
-func appendMigrationCandidateModule(root string, service MigrationService) error {
+func appendMigrationCandidateModule(root string, service MigrationService, requiresAuthentication bool) error {
 	path := filepath.Join(root, "scenery.scn")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	moduleSource := fmt.Sprintf("\nmodule %q {\n  source = %q\n\n  inputs = {\n    gateway = http_gateway.public_api\n  }\n}\n", service.Name, service.Package)
+	inputs := "    gateway = http_gateway.public_api\n"
+	if requiresAuthentication {
+		inputs += "    authentication = authentication.standard\n"
+	}
+	moduleSource := fmt.Sprintf("\nmodule %q {\n  source = %q\n\n  inputs = {\n%s  }\n}\n", service.Name, service.Package, inputs)
 	data = append(append(data, '\n'), []byte(moduleSource)...)
 	formatted, err := canonicalFormatSource(data, "scenery.scn")
 	if err != nil {

@@ -16,6 +16,7 @@ Close the independent re-review findings against commit `e5164b1f8833d643d68d3c1
 - [x] 2026-07-11 - Ran independent standards and specification reviews, then closed their follow-up findings: canonical-only client auth, typed evidence, unioned cutover classes, exact cross-owner fixtures, retained migration apply, and independently valid durable collision coverage.
 - [x] 2026-07-11 - Passed full validation and repeated independent standards/specification review until both axes reported no actionable findings.
 - [x] 2026-07-11 - Committed the completed change on `main`.
+- [x] 2026-07-12 - Follow-up ONLV migration proof fixed candidate authentication/path normalization, bodyless adapter generation, and added the already-specified built-in `core/storage` provider descriptor and runtime ABI registration with stable lock/runtime coverage.
 
 ## Surprises & Discoveries
 
@@ -32,6 +33,7 @@ Close the independent re-review findings against commit `e5164b1f8833d643d68d3c1
 - Exact supplied-plan decoding is one transaction-family invariant. Change, migration, and deployment apply must share the same unknown-field and single-JSON-value boundary rather than letting only the newest command satisfy the normative rule.
 - A line-start source index plus per-line rune decoding preserves Unicode-scalar columns while the many-token benchmark scales near-linearly when source size doubles.
 - Self-harness correctly flagged the touched mutation and test files after they crossed the 1,000-line warning threshold. Moving rename receipts, legacy compatibility construction, and the new conformance tests into focused files restored every changed source file below the threshold without changing behavior.
+- A storage runtime ABI and object-store constructor resolver already existed, but the built-in provider catalog omitted `registry.scenery.dev/core/storage`; the missing descriptor—not a new resource kind—was the only compiler gap blocking explicit native object-store injection.
 
 ## Decision Log
 

@@ -503,6 +503,17 @@ func builtinProviderDescriptors() map[string]ProviderDescriptor {
 			InstanceKinds: map[string]ProviderInstanceDescriptor{"data_source": {Capabilities: []string{"sql.fixture/v1", "sql.migration/v1", "sql.query/v1", "sql.transaction/v1"}, Lifecycles: lifecycles}},
 			RuntimeABI:    "scenery.data-runtime/v1", DeploymentABI: deploymentProviderABI, MigrationABI: "scenery.data-migration/v1",
 		},
+		"registry.scenery.dev/core/storage": {
+			APIVersion: "scenery.provider-descriptor/v1", Source: "registry.scenery.dev/core/storage", Version: "2.0.0", Editions: []string{Edition},
+			Profiles: []string{"scenery.data/v1", "scenery.deployment/v1"},
+			ConfigSchema: map[string]any{
+				"bucket": field("string", true, true),
+				"scope":  field("string", false, false),
+				"limit":  field("size", false, true),
+			},
+			InstanceKinds: map[string]ProviderInstanceDescriptor{"data_source": {Capabilities: []string{"object.delete/v1", "object.read/v1", "object.write/v1"}, Lifecycles: lifecycles}},
+			RuntimeABI:    "scenery.object/v1", DeploymentABI: deploymentProviderABI,
+		},
 		"registry.scenery.dev/core/durable": {
 			APIVersion: "scenery.provider-descriptor/v1", Source: "registry.scenery.dev/core/durable", Version: "1.0.0", Editions: []string{Edition},
 			Profiles: []string{"scenery.runtime-durable/v1", "scenery.deployment/v1"}, ConfigSchema: map[string]any{},
