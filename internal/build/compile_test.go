@@ -129,7 +129,7 @@ func TestCompileRunsTidyOnlyAfterBuildFailure(t *testing.T) {
 	var commands []string
 	tidied := false
 	old := runGo
-	runGo = func(_ context.Context, _ string, args ...string) error {
+	runGo = func(_ context.Context, _ string, _ []string, args ...string) error {
 		commands = append(commands, strings.Join(args, " "))
 		if len(args) >= 2 && args[0] == "mod" && args[1] == "tidy" {
 			tidied = true
@@ -182,7 +182,7 @@ func TestCompilePassesConfiguredGoBuildFlags(t *testing.T) {
 
 	var got []string
 	old := runGo
-	runGo = func(_ context.Context, _ string, args ...string) error {
+	runGo = func(_ context.Context, _ string, _ []string, args ...string) error {
 		got = append([]string(nil), args...)
 		out, ok := fakeGoBuildOutput(args)
 		if !ok {
@@ -225,7 +225,7 @@ func TestCompileRetriesTidyWhenBuildReportsStaleGoMod(t *testing.T) {
 	var commands []string
 	tidied := false
 	old := runGo
-	runGo = func(_ context.Context, _ string, args ...string) error {
+	runGo = func(_ context.Context, _ string, _ []string, args ...string) error {
 		commands = append(commands, strings.Join(args, " "))
 		if len(args) >= 2 && args[0] == "mod" && args[1] == "tidy" {
 			tidied = true

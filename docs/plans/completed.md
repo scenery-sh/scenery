@@ -6,6 +6,25 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## Scenery vNext Language and ONLV House Migration
+
+- Status: completed
+- Owner: scenery compiler / runtime / ONLV integration
+- Completed: 2026-07-11
+- Quality: B
+- ExecPlan: [0103 Scenery vNext Language and ONLV House Migration](0103-vnext-language-and-onlv-house-migration.md)
+
+Shipped:
+
+- Implemented the complete supported edition-2027 surface from the six normative specifications: compiler/graph/revisions, compatibility, immutable changes and deployments, exact HTTP and TypeScript codecs, generated Go/application composition, durable/events/data/UI profiles, agent operations, and the bounded legacy bridge.
+- Migrated all eighteen ONLV House operations to native generated ABIs and retired every House legacy adapter while preserving forty-three explicit non-House legacy service owners in one mixed graph/runtime.
+- Added exact generated Go/TypeScript/client-selection artifacts, strict schemas and fixture coverage, clean-clone retired-service readiness, and a readiness waiter that accommodates real application setup without canceling the detached child.
+
+Validation:
+
+- Passed full Go, focused CLI/vNext/runtime, Bun codec, generated TypeScript, docs, 34-schema, ten-fixture, Postgres/runtime, ONLV repo/app/browser, ownership, and fresh detached authenticated House HTTP proof gates.
+- Completed standards, specification, thermo-nuclear maintainability, ponytail diff, and whole-repo ponytail reviews with no remaining actionable defect.
+
 ## Ponytail Cleanup
 
 - Status: completed

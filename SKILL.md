@@ -193,7 +193,21 @@ Do not introduce new scenery-owned production environment variables by default. 
 
 ## Generated TypeScript Client
 
-Edition-2027 apps use generated targets declared in `scenery.scn`. Run `scenery migrate status -o json` before changing a mixed app, edit `.scn` declarations rather than generated files, and verify exact Go/TypeScript artifacts with `scenery generate --check`. A native ownership switch covers the whole service, not selected endpoints. Legacy-only apps continue using the stable generator workflow below.
+Edition-2027 apps use generated targets declared in `scenery.scn`. Read root/package declarations and `scenery.migration.scn`, then use:
+
+```sh
+scenery fmt --check -o json
+scenery check -o json
+scenery compile --view expanded -o json
+scenery migrate status -o json
+scenery generate --check -o json
+```
+
+Edit `.scn` declarations, never generated `scenerycontract`, `internal/scenerygen`, or TypeScript files. Use `scenery list|get|explain|graph ... -o json` and `scenery diff --semantic` for graph and compatibility facts. Native ownership switches the whole service, including routes, lifecycle, durable/schedule, schema/event, external identity, and generated-client surfaces. Activation/rollback/retirement are receipt-producing plans and stateful classes require `--evidence class=reference`; once committed as `native_service`, the retired service stays ready without machine-local activation receipts. App-wide `migrate finish` also requires v0 CLI/client-consumer clearance and closed rollback ownership. Semantic changes and deployments likewise use immutable revision-bound plan/apply. For `required_approvals`, pass a project-issued detached token with `--approval-token`; Scenery verifies it against uncommitted public keys in `.scenery/approval-trust.json`, and agents must never generate or store the private signing key. Legacy-only apps continue using the stable generator workflow below.
+
+`scenery compile` intentionally reports no `implementation_revision`; run `scenery build --target <go-target>` for the exact content-addressed Go input/toolchain identity and runtime-bundle sidecar. Fixed non-host CGO targets are rejected until a native-toolchain schema exists. Use exact `std.type.unit` for no-input operations. Authored CLI bindings execute as their declared non-reserved lower-kebab `scenery <command...>` path with generated help/completion, typed arguments/flags, runtime-trusted context, outcome output, and exit codes. Use `scenery db seed --env <environment>` so local fixture selection matches deployment.
+
+Edition-2027 TypeScript clients reconstruct typed outcomes split across response body, headers, and cookies. Same-status business outcomes are selected by their typed wire mappings and exactly one mapping must decode; ambiguous observable wire shapes are compile errors. Query/header sets use canonical semantic order and reject duplicates; multipart requests use only the declared part names, kinds, media types, filename policy, multiplicity, and byte limits. Fetch cannot preserve repeated request-header field lines, so TypeScript targets reject repeated list/set request headers; use comma encoding only for compatible scalar codecs. Repeated response headers need Fetch `Headers.getAll`; response cookies need `Headers.getSetCookie`; absence of either required extension fails as `unsupported_runtime`. Declared transport/admission/dispatch failures are returned as typed outcomes and generated clients do not add retries.
 
 ```sh
 scenery inspect endpoints --json
@@ -327,7 +341,7 @@ scenery generate client [<app-id>] --lang typescript --output <path> [--app-root
 scenery db list [--app-root <path>] [--json]
 scenery db shell [--app-root <path>] [--service <name>] [psql args...]
 scenery db apply [--app-root <path>] [--json]
-scenery db seed [--app-root <path>] [--dry-run] [--json]
+scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [--json]
 scenery db setup [--app-root <path>] [--json]
 scenery db reset|drop|snapshot [--app-root <path>] [--yes]
 scenery db server status|start|stop|logs [--json] [--yes]

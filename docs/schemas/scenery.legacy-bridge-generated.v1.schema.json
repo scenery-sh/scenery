@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.legacy-bridge-generated.v1.schema.json",
+  "title": "Scenery generated legacy bridge descriptor",
+  "type": "object",
+  "required": ["api_version", "artifact_kind", "contract_revision", "runtime_abi_range", "services", "generator", "generator_version", "content_digest", "files"],
+  "properties": {
+    "api_version": { "const": "scenery.legacy-bridge-generated.v1" },
+    "artifact_kind": { "const": "go_legacy_compatibility_adapter" },
+    "contract_revision": { "$ref": "#/$defs/revision" },
+    "runtime_abi_range": { "type": "string", "minLength": 1 },
+    "services": { "$ref": "#/$defs/string_list" },
+    "generator": { "type": "string", "minLength": 1 },
+    "generator_version": { "type": "string", "minLength": 1 },
+    "content_digest": { "$ref": "#/$defs/revision" },
+    "files": { "$ref": "#/$defs/string_list" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "string_list": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+  },
+  "additionalProperties": false
+}

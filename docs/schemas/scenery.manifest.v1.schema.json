@@ -28,7 +28,17 @@
           "module": { "type": "string" },
           "spec": { "type": "object" },
           "origin": { "type": "object" },
-          "migration": { "type": "object" }
+          "migration": { "type": "object" },
+          "compatibility": {
+            "type": "object",
+            "required": ["semantics", "contract", "migration_disposition"],
+            "properties": {
+              "semantics": { "type": "string" },
+              "contract": { "type": "string" },
+              "migration_disposition": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
         },
         "additionalProperties": false
       }

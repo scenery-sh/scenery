@@ -529,6 +529,9 @@ func helpCommand(args []string) error {
 	}
 	entry, ok := findHelpCommand(args)
 	if !ok {
+		if handled, err := runVNextBindingCLI(os.Stdout, os.Stderr, append(append([]string(nil), args...), "--help")); handled {
+			return err
+		}
 		return fmt.Errorf("unknown help topic %q", strings.Join(args, " "))
 	}
 	writeCommandHelp(os.Stdout, entry)

@@ -2,7 +2,7 @@
 
 **One CLI for building, running, and inspecting Go services — built for humans and AI agents.**
 
-Edition-2027 vNext apps may opt into `scenery.scn`, a canonical typed resource graph, and a bounded `scenery.migration.scn` bridge that keeps explicitly listed services legacy-owned while one service moves natively without a second runtime.
+Edition-2027 apps may opt into `scenery.scn`, a canonical typed resource graph with Go and TypeScript generation, HTTP/durable/event/data/deployment/UI profiles, semantic inspection and mutation, and a bounded `scenery.migration.scn` bridge. Mixed apps keep explicitly listed services legacy-owned while services move natively through one compiler graph and one runtime—never a second route table or lifecycle.
 
 scenery is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
@@ -23,6 +23,12 @@ scenery is used in production. The stable v0 surface is intentionally small and 
 
 Available now:
 
+- edition-2027 lossless source, typed source/effective/expanded graphs, stable revisions, schemas, semantic diff, dependency graph, and agent read/mutation protocol
+- edition-2027 Go contract/application/composition generation and exact TypeScript clients with descriptor, selection-manifest, constraint, cross-field validation, canonical HTTP sets, Fetch-safe header validation, declared multipart, and structurally disjoint typed response-map coverage
+- edition-2027 exact Go build-input/toolchain identities and runtime-bundle sidecars, with host-CGO native-tool identities and fail-closed fixed-target CGO
+- edition-2027 authored CLI execution with generated help/completion and typed outcomes, plus environment-selected typed fixtures shared by deployment and local database seeding
+- edition-2027 HTTP, durable execution, schedules, events, data/CRUD/provider, deployment plan/apply, patches, UI validation, compatibility, and bounded legacy-bridge profiles
+- revision-bound semantic change, deployment, migration activation/rollback/retirement, and evidence-bound migration-finish transactions
 - `.scenery.json` root discovery, with `.config.json` accepted as an alias
 - `scenery up`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
 - typed and raw HTTP endpoints
@@ -43,7 +49,7 @@ Available now:
 - TypeScript client generation
 - benchmark fixture
 
-Stable v0 API details live in [docs/local-contract.md](docs/local-contract.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
+Exact v0 and edition-2027 API details live in [docs/local-contract.md](docs/local-contract.md). The normative edition-2027 design set begins at [docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md](docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Requirements
 
@@ -194,7 +200,7 @@ scenery logs --follow
 scenery console
 ```
 
-`--detach` starts the app root's agent-backed dev runtime in the background and returns after it is registered. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime; for shared storage cells, it releases only that runtime's lease and preserves shared data. Use Git worktrees when you need multiple live code copies.
+`--detach` starts the app root's agent-backed dev runtime in the background and, by default, returns after the API and configured frontends are ready; use `--wait registered` for the faster registration-only path. `scenery logs --follow` follows that app root's logs from VictoriaLogs. `scenery console` opens a source-aware terminal console when attached to a real TTY. `scenery down` stops the app root's one live runtime; for shared storage cells, it releases only that runtime's lease and preserves shared data. Use Git worktrees when you need multiple live code copies.
 
 `scenery up` defaults to path routing: one live app root gets one browser-facing base URL such as `http://localhost:4001`, and services live under paths such as `/api/`, `/consolenext/`, `/web/`, `/blog/`, and `/runtime/`. `scenery ps` and `scenery ps --json` report the base URL plus service routes. `dev.routing.port`, `dev.routing.port_start`, and `dev.routing.port_end` may pin or constrain the assigned localhost port; otherwise Scenery chooses a stable free port for the app root/session. Set `dev.routing.mode` to `host` only when you intentionally want the default `local.dev` edge/DNS route path.
 
@@ -273,7 +279,7 @@ scenery generate client [<app-id>] --lang typescript --output <path> [--app-root
 scenery db list [--app-root <path>] [--json]
 scenery db shell [--app-root <path>] [--service <name>] [psql args...]
 scenery db apply [--app-root <path>] [--json]
-scenery db seed [--app-root <path>] [--dry-run] [--json]
+scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [--json]
 scenery db setup [--app-root <path>] [--json]
 scenery db reset [--app-root <path>] [--service <name>] [--yes]
 scenery db drop [--app-root <path>] [--service <name>] [--yes]

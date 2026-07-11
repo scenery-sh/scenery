@@ -199,7 +199,8 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if pathExists(filepath.Join(appRoot, "scenery.scn")) && (opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints") {
+	var merged *vnext.Result
+	if pathExists(filepath.Join(appRoot, "scenery.scn")) && (opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable") {
 		compiled, compileErr := vnext.Compile(appRoot)
 		if compileErr != nil {
 			return compileErr
@@ -207,10 +208,14 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		if !compiled.Valid() {
 			return fmt.Errorf("vNext merged graph is invalid: %s", firstVNextDiagnostic(compiled.Diagnostics))
 		}
+		merged = compiled
 	}
 
 	switch opts.Subject {
 	case "app":
+		if merged != nil {
+			return writeInspectJSON(stdout, buildVNextInspectAppResponse(appRoot, cfg, merged))
+		}
 		if payload, ok, err := inspectdata.ReadGeneratedApp(appRoot); err != nil {
 			return err
 		} else if ok {
@@ -222,6 +227,9 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, inspectdata.BuildAppResponse(appRoot, cfg, model))
 	case "services":
+		if merged != nil {
+			return writeInspectJSON(stdout, buildVNextInspectServicesResponse(appRoot, cfg, merged))
+		}
 		if payload, ok, err := inspectdata.ReadGeneratedServices(appRoot); err != nil {
 			return err
 		} else if ok {
@@ -233,6 +241,13 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, inspectdata.BuildServicesResponse(appRoot, cfg, model))
 	case "routes":
+		if merged != nil {
+			response, err := buildVNextInspectRoutesResponse(appRoot, cfg, merged)
+			if err != nil {
+				return err
+			}
+			return writeInspectJSON(stdout, response)
+		}
 		if payload, ok, err := inspectdata.ReadGeneratedRoutes(appRoot); err != nil {
 			return err
 		} else if ok {
@@ -244,6 +259,13 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, inspectdata.BuildRoutesResponse(appRoot, cfg, model))
 	case "endpoints":
+		if merged != nil {
+			response, err := buildVNextInspectEndpointsResponse(appRoot, cfg, merged)
+			if err != nil {
+				return err
+			}
+			return writeInspectJSON(stdout, response)
+		}
 		if payload, ok, err := inspectdata.ReadGeneratedEndpoints(appRoot); err != nil {
 			return err
 		} else if ok {
@@ -295,6 +317,9 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "durable":
+		if merged != nil {
+			return writeInspectJSON(stdout, buildVNextInspectDurableResponse(appRoot, cfg, merged))
+		}
 		model, err := cachedInspectAppModel(appRoot, cfg.Name)
 		if err != nil {
 			return err

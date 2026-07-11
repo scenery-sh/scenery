@@ -1,0 +1,8 @@
+migration {
+  frontend      = "scenery.legacy.v0"
+  legacy_config = ".scenery.json"
+
+  native_service "bridge" {
+    module = module.bridge
+  }
+}

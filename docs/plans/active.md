@@ -7,11 +7,6 @@ reuse IDs; this list can still be ordered by current priority.
 
 ## Active ExecPlans
 
-- [0103 Scenery vNext Language and ONLV House Migration](0103-vnext-language-and-onlv-house-migration.md)
-  - Status: active
-  - Owner: scenery compiler / runtime / ONLV integration
-  - Created: 2026-07-10
-  - Focus: implement the edition-2027 kernel and bounded legacy bridge, activate ONLV House as the first native service, keep every other ONLV service explicitly legacy-owned, and prove one merged runtime with generated Go and TypeScript contracts.
 - [0101 Public Deploy Edge](0101-public-deploy-edge.md)
   - Status: active
   - Owner: scenery runtime / edge

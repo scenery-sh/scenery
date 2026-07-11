@@ -9,6 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
+	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
 )
 
@@ -83,6 +86,34 @@ func withState(ctx context.Context, state *requestState) context.Context {
 	return context.WithValue(ctx, requestStateKey{}, state)
 }
 
+func withRuntimeInvocation(ctx context.Context, state *requestState) context.Context {
+	if current, ok := runtimeapi.InvocationFromContext(ctx); ok && current.Valid() {
+		return ctx
+	}
+	if state == nil {
+		return ctx
+	}
+	id := state.request.InvocationID
+	if id == "" {
+		id = uuid.NewString()
+		state.request.InvocationID = id
+	}
+	tenantID := ""
+	if claims, ok := state.auth.Data.(map[string]any); ok {
+		tenantID, _ = claims["tenant_id"].(string)
+	}
+	deadline := state.request.Deadline
+	if deadline.IsZero() {
+		deadline, _ = ctx.Deadline()
+	}
+	return runtimeapi.WithInvocation(ctx, runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{
+		ID: id, Principal: state.auth.UID, TenantID: tenantID, TraceID: state.request.TraceID,
+		Deadline: deadline, CallerBinding: state.request.CallerBinding,
+		ExecutionID: state.request.ExecutionID, Deployment: state.request.Deployment,
+		Locale: state.request.Locale,
+	}))
+}
+
 func currentState() *requestState {
 	id := goroutineID()
 	state, ok := stateStore.Load(id)
@@ -121,15 +152,16 @@ func newExternalState(ep *Endpoint, req *http.Request, path shared.PathParams, p
 	}
 	started := time.Now()
 	request := shared.Request{
-		Type:       requestType,
-		Started:    started,
-		Service:    ep.Service,
-		Endpoint:   ep.Name,
-		Method:     req.Method,
-		Path:       req.URL.Path,
-		PathParams: path,
-		Headers:    req.Header.Clone(),
-		Payload:    payload,
+		Type:         requestType,
+		Started:      started,
+		InvocationID: uuid.NewString(),
+		Service:      ep.Service,
+		Endpoint:     ep.Name,
+		Method:       req.Method,
+		Path:         req.URL.Path,
+		PathParams:   path,
+		Headers:      req.Header.Clone(),
+		Payload:      payload,
 		API: &shared.APIDesc{
 			RequestType:  ep.PayloadType,
 			ResponseType: ep.ResponseType,
@@ -137,6 +169,12 @@ func newExternalState(ep *Endpoint, req *http.Request, path shared.PathParams, p
 			Exposed:      ep.Access != Private,
 			AuthRequired: ep.Access == Auth,
 		},
+	}
+	if ep.ContractPolicy != nil {
+		request.CallerBinding = ep.ContractPolicy.BindingAddress
+	}
+	if deadline, ok := req.Context().Deadline(); ok {
+		request.Deadline = deadline.UTC()
 	}
 	return &requestState{
 		started:      started,

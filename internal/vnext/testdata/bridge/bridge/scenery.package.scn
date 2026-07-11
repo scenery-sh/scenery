@@ -1,0 +1,98 @@
+package "bridge" {
+  version         = "1.0.0"
+  scenery_version = ">= 2.0.0, < 3.0.0"
+
+  go_contract {
+    import_path = "example.test/bridgeapp/bridge"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+service "bridge" {
+  runtime = "go"
+
+  implementation {
+    adapter = "legacy_go_v0"
+    root    = "./bridge"
+  }
+}
+
+record "echo_input" {
+  field "message" { type = string }
+}
+
+record "echo_result" {
+  field "message" { type = string }
+}
+
+operation "echo" {
+  service = service.bridge
+  input   = record.echo_input
+
+  handler {
+    method  = "Echo"
+    adapter = "legacy_go_v0"
+  }
+
+  result "success" {
+    type = record.echo_result
+  }
+
+  error "legacy_error" {
+    type = std.type.problem
+  }
+}
+
+execution "echo_direct" {
+  operation = operation.echo
+  mode      = "direct"
+  timeout   = "15s"
+}
+
+binding "echo_http" {
+  gateway   = var.gateway
+  operation = operation.echo
+  execution = execution.echo_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/echo"
+    codec_profile = std.codec.http_json_v1
+
+    body {
+      codec = "json"
+      to    = operation.echo.input
+    }
+
+    response "success" {
+      when   = result.success
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.success
+      }
+    }
+
+    response "legacy_error" {
+      when   = error.legacy_error
+      status = 500
+
+      body {
+        codec = "problem_json"
+        from  = error.legacy_error
+      }
+    }
+  }
+}
+
+export "service" { value = service.bridge }

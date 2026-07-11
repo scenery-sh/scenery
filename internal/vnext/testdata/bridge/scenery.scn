@@ -1,0 +1,61 @@
+language {
+  edition = "2027"
+
+  require_profiles = [
+    "scenery.compiler-core/v1",
+    "scenery.go-implementation/v1",
+    "scenery.runtime-http/v1",
+    "scenery.legacy-bridge/v1",
+  ]
+}
+
+workspace {
+  implementation_root "application" {
+    path             = "."
+    revision_include = ["**/*.go", "go.mod"]
+  }
+
+  managed_generated_roots = [
+    "bridge/scenerycontract",
+    "internal/scenerygen",
+  ]
+}
+
+go_module "application" {
+  root        = "."
+  import_path = "example.test/bridgeapp"
+}
+
+go_toolchain "application" {
+  version     = "1.26.3"
+  experiments = []
+}
+
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+
+application "bridgeapp" {
+  version = "1.0.0"
+}
+
+http_gateway "public_api" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+
+module "bridge" {
+  source = "./bridge"
+
+  inputs = {
+    gateway = http_gateway.public_api
+  }
+}

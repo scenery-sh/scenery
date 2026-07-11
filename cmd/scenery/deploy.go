@@ -209,6 +209,9 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 		return fmt.Errorf("usage: scenery deploy setup|status|enable|disable|resume|teardown [--json]")
 	}
 	subcommand := args[0]
+	if subcommand == "plan" || subcommand == "apply" {
+		return runVNextDeploy(stdout, args)
+	}
 	opts, err := parseDeployOptions(subcommand, args[1:])
 	if err != nil {
 		return err

@@ -109,6 +109,9 @@ func workerCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateVNextRuntimePlan(opts.AppRoot); err != nil {
+		return err
+	}
 	return runWorkerFunc(opts)
 }
 

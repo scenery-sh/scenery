@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"scenery.sh/errs"
+	"scenery.sh/internal/calendartrigger"
 	"scenery.sh/runtime/shared"
 )
 
@@ -49,19 +50,40 @@ type parsedCronPlan struct {
 	dom    cronField
 	month  cronField
 	dow    cronField
+	zone   *time.Location
 }
 
 func (p parsedCronPlan) Next(after time.Time) time.Time {
-	next := after.UTC().Truncate(time.Minute).Add(time.Minute)
+	zone := p.zone
+	if zone == nil {
+		zone = time.UTC
+	}
+	next := after.In(zone).Truncate(time.Minute).Add(time.Minute)
 	deadline := next.Add(maxCronScheduleHorizon)
 	for !next.After(deadline) {
 		if p.matches(next) {
-			return next
+			return next.UTC()
 		}
 		next = next.Add(time.Minute)
 	}
 	return time.Time{}
 }
+
+type atCronPlan struct{ at time.Time }
+
+func (p atCronPlan) Next(after time.Time) time.Time {
+	if p.at.After(after) {
+		return p.at.UTC()
+	}
+	return time.Time{}
+}
+
+type calendarCronPlan struct {
+	rule calendartrigger.Rule
+	zone *time.Location
+}
+
+func (p calendarCronPlan) Next(after time.Time) time.Time { return p.rule.Next(after, p.zone) }
 
 func (p parsedCronPlan) matches(t time.Time) bool {
 	if !p.minute.Has(t.Minute()) || !p.hour.Has(t.Hour()) || !p.month.Has(int(t.Month())) {
@@ -162,35 +184,109 @@ func (s *cronScheduler) Stop(ctx context.Context) error {
 }
 
 func runCronJobLoop(ctx context.Context, job *CronJob) {
-	for {
-		next := job.plan.Next(time.Now().UTC())
-		if next.IsZero() {
-			slog.Error("scenery cron job disabled after failing to compute next execution", "id", job.ID)
+	type completion struct{ id string }
+	done := make(chan completion, 64)
+	running := map[string]context.CancelFunc{}
+	queued := []time.Time{}
+	var workers sync.WaitGroup
+	start := func(scheduledAt time.Time) {
+		executionID, err := newCronExecutionID(job.ID, scheduledAt)
+		if err != nil {
+			slog.Error("scenery cron job failed to allocate execution id", "id", job.ID, "err", err)
 			return
 		}
+		callCtx, cancel := context.WithCancel(withCronInvocation(ctx, job, scheduledAt, executionID))
+		running[executionID] = cancel
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			if err := safeInvokeCronJob(callCtx, job); err != nil && callCtx.Err() == nil {
+				slog.Error("scenery cron job failed", "id", job.ID, "err", err)
+			}
+			select {
+			case done <- completion{id: executionID}:
+			case <-ctx.Done():
+			}
+		}()
+	}
+	stopRunning := func() {
+		for _, cancel := range running {
+			cancel()
+		}
+	}
+	defer func() {
+		stopRunning()
+		workers.Wait()
+	}()
 
-		timer := time.NewTimer(time.Until(next))
+	next := job.plan.Next(time.Now().UTC())
+	for {
+		var timer *time.Timer
+		var timerChannel <-chan time.Time
+		if !next.IsZero() {
+			timer = time.NewTimer(max(time.Until(next), 0))
+			timerChannel = timer.C
+		} else if len(running) == 0 && len(queued) == 0 {
+			return
+		}
 		select {
 		case <-ctx.Done():
-			if !timer.Stop() {
+			if timer != nil && !timer.Stop() {
 				select {
 				case <-timer.C:
 				default:
 				}
 			}
 			return
-		case <-timer.C:
-		}
-
-		executionID, err := newCronExecutionID(job.ID, next)
-		if err != nil {
-			slog.Error("scenery cron job failed to allocate execution id", "id", job.ID, "err", err)
-			continue
-		}
-		callCtx := withCronInvocation(ctx, job, next, executionID)
-		if err := safeInvokeCronJob(callCtx, job); err != nil {
-			slog.Error("scenery cron job failed", "id", job.ID, "err", err)
-			continue
+		case finished := <-done:
+			if timer != nil && !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			if cancel := running[finished.id]; cancel != nil {
+				cancel()
+				delete(running, finished.id)
+			}
+			if len(running) == 0 && len(queued) > 0 {
+				for len(queued) > 0 {
+					scheduledAt := queued[0]
+					queued = queued[1:]
+					if job.CatchupWindow > 0 && time.Since(scheduledAt) > job.CatchupWindow {
+						continue
+					}
+					start(scheduledAt)
+					break
+				}
+			}
+		case <-timerChannel:
+			scheduledAt := next
+			next = job.plan.Next(scheduledAt)
+			switch job.OverlapPolicy {
+			case "allow_all":
+				start(scheduledAt)
+			case "cancel_other", "terminate_other":
+				stopRunning()
+				queued = queued[:0]
+				start(scheduledAt)
+			case "buffer_all":
+				if len(running) == 0 {
+					start(scheduledAt)
+				} else {
+					queued = append(queued, scheduledAt)
+				}
+			case "buffer_one":
+				if len(running) == 0 {
+					start(scheduledAt)
+				} else if len(queued) == 0 {
+					queued = append(queued, scheduledAt)
+				}
+			default:
+				if len(running) == 0 {
+					start(scheduledAt)
+				}
+			}
 		}
 	}
 }
@@ -198,6 +294,8 @@ func runCronJobLoop(ctx context.Context, job *CronJob) {
 func safeInvokeCronJob(ctx context.Context, job *CronJob) (err error) {
 	state := stateFromContext(ctx)
 	if state != nil {
+		restore := enterState(state)
+		defer restore()
 		if state.request.Service == "" {
 			state.request.Service = "cron"
 		}
@@ -226,6 +324,7 @@ func withCronInvocation(ctx context.Context, job *CronJob, scheduledAt time.Time
 	request := shared.Request{
 		Type:               shared.APICall,
 		Started:            scheduledAt,
+		InvocationID:       executionID,
 		Method:             "CRON",
 		Headers:            headers,
 		CronIdempotencyKey: executionID,
@@ -249,6 +348,12 @@ func newCronExecutionID(jobID string, scheduledAt time.Time) (string, error) {
 func cronScheduleSummary(job *CronJob) string {
 	if job.Every > 0 {
 		return "every " + job.Every.String()
+	}
+	if !job.At.IsZero() {
+		return "at " + job.At.UTC().Format(time.RFC3339Nano)
+	}
+	if job.Calendar != "" {
+		return "calendar " + job.Calendar
 	}
 	return job.Schedule
 }
@@ -297,8 +402,16 @@ func validateCronJob(job *CronJob) error {
 
 	hasEvery := job.Every > 0
 	hasSchedule := strings.TrimSpace(job.Schedule) != ""
-	if hasEvery == hasSchedule {
-		return fmt.Errorf("runtime: cron job %s must define exactly one of Every or Schedule", job.ID)
+	hasCalendar := strings.TrimSpace(job.Calendar) != ""
+	hasAt := !job.At.IsZero()
+	selectors := 0
+	for _, selected := range []bool{hasEvery, hasSchedule, hasCalendar, hasAt} {
+		if selected {
+			selectors++
+		}
+	}
+	if selectors != 1 {
+		return fmt.Errorf("runtime: cron job %s must define exactly one of Every, Schedule, Calendar, or At", job.ID)
 	}
 	if err := validateCronOverlapPolicy(job.OverlapPolicy); err != nil {
 		return err
@@ -316,12 +429,37 @@ func validateCronJob(job *CronJob) error {
 		job.plan = everyCronPlan{interval: job.Every}
 		return nil
 	}
+	if hasAt {
+		job.plan = atCronPlan{at: job.At.UTC()}
+		return nil
+	}
+	zone := strings.TrimSpace(job.Timezone)
+	if zone == "" {
+		zone = "UTC"
+	}
+	location, err := time.LoadLocation(zone)
+	if err != nil {
+		return fmt.Errorf("runtime: cron job %s timezone %q is invalid: %w", job.ID, zone, err)
+	}
+	if hasCalendar {
+		rule, err := calendartrigger.Parse(job.Calendar)
+		if err != nil {
+			return fmt.Errorf("runtime: cron job %s: %w", job.ID, err)
+		}
+		job.plan = calendarCronPlan{rule: rule, zone: location}
+		return nil
+	}
 
 	plan, err := parseCronSchedule(job.Schedule)
 	if err != nil {
 		return fmt.Errorf("runtime: cron job %s: %w", job.ID, err)
 	}
-	job.plan = plan
+	parsed, ok := plan.(parsedCronPlan)
+	if !ok {
+		return fmt.Errorf("runtime: cron job %s produced an invalid cron plan", job.ID)
+	}
+	parsed.zone = location
+	job.plan = parsed
 	return nil
 }
 

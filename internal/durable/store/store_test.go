@@ -33,6 +33,13 @@ func TestNormalizeServiceNameRejectsUnsafeServiceNames(t *testing.T) {
 	}
 }
 
+func TestNormalizeTaskSuppliesDurableRetentionDefaults(t *testing.T) {
+	task := normalizeTask(TaskDeclaration{Name: "house/process", Version: 2, HandlerRef: "house/process"})
+	if task.SuccessRetentionMS != int64((7*24*time.Hour)/time.Millisecond) || task.FailureRetentionMS != int64((30*24*time.Hour)/time.Millisecond) {
+		t.Fatalf("retention = %d/%d", task.SuccessRetentionMS, task.FailureRetentionMS)
+	}
+}
+
 func TestOpenCreatesPostgresSchemaWithExpectedTables(t *testing.T) {
 	ctx := context.Background()
 	s := openLiveTestStore(t, "maps")

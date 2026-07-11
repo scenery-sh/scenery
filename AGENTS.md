@@ -83,6 +83,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 
 - App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
 - Go source is the app model: services, endpoints, auth handlers, middleware, durable tasks, cron jobs, and generated clients are discovered from code.
+- Edition-2027 apps opt into `scenery.scn` plus package-local `scenery.package.scn`; mixed apps add `scenery.migration.scn`. The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions.
 - Edition-2027 apps opt into `scenery.scn`; mixed apps use `scenery.migration.scn` to link native packages and explicitly bounded legacy services into one validated active graph before the existing runtime adapters start.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
 - `scenery worker` builds once and starts a worker-role runtime for durable tasks and cron.
@@ -90,6 +91,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
+- Edition-2027 constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
 
 Do not revive deprecated non-scenery APIs, legacy directive spellings, or compatibility aliases unless an active plan explicitly requires compatibility.
 
@@ -147,6 +149,22 @@ scenery harness self --summary --write
 scenery upgrade --json
 ```
 
+For edition-2027 apps, prefer the current protocol and immutable transaction surfaces:
+
+```text
+scenery fmt --check -o json
+scenery check -o json
+scenery compile --view expanded -o json
+scenery list|get|explain|graph ... -o json
+scenery diff --semantic BASE TARGET -o json
+scenery generate --check -o json
+scenery migrate status|compare|verify ... -o json
+scenery changes plan|apply ... -o json
+scenery deploy plan|apply ... -o json
+```
+
+`-o json` selects `scenery.cli.v1`; `--json` retains the exact v0 protocol. Never mix selectors. Migration ownership changes at service granularity, stateful cutovers require evidence references, and bridge finish requires all native retirement plus v0 CLI/client-consumer and rollback-receipt clearance.
+
 Use `scenery doctor --json` before expensive troubleshooting when the failure may be local environment readiness: missing or old Go, low disk or memory, absent optional tools, or an app root that is not discoverable.
 
 Use runtime commands according to intent:
@@ -160,10 +178,11 @@ scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [--json
 scenery task run <name> [--app-root <path>]
 scenery task run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<name> [-- task args...]
 scenery worker [--app-root <path>] [--env <name>]
-scenery build [--app-root <path>] [-o <path>]
+scenery build [--app-root <path>] [--target <go-target>] [-o <path>]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot [--app-root <path>]
+scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [--json]
 ```
 
 `scenery up` is the preferred local loop for agents because it runs the app root's one live dev runtime and exposes safe capabilities: dashboard, logs, traces, metrics, routed local URLs, and managed dev services. Use a Git worktree for another live code copy. `scenery task` is for configured tasks and app-local code tasks.
@@ -223,6 +242,8 @@ For generated TypeScript client changes:
 ```sh
 scenery inspect endpoints --json
 scenery generate client --lang typescript --output <expected-output>
+bun test internal/vnext/testdata/typescript_client_conformance.test.ts
+apps/consolenext/node_modules/.bin/tsc -p internal/vnext/testdata/tsconfig.generated-clients.json
 ```
 
 For dashboard UI changes:
@@ -268,9 +289,11 @@ When editing source that changes the public app model, confirm the docs and test
 - `//scenery:api public|auth|private [raw] [path=/...] [method=...]`
 - `//scenery:service`
 - `//scenery:authhandler`
+- edition-2027 CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
+- edition-2027 `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
 - request tags: `json`, `header`, `query`, `qs`, `cookie`
 - response tag: `scenery:"httpstatus"`
-- public packages: `scenery`, `auth`, `errs`, `middleware`, `durable`, `cron`, `db`, `et`
+- public packages: `scenery`, `auth`, `errs`, `middleware`, `durable`, `cron`, `db`, `datasource`, `object`, `et`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
 - worker, durable, cron, middleware, and generated TypeScript client behavior when touched

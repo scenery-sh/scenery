@@ -1,9 +1,11 @@
 package scenery
 
 import (
+	"context"
 	"encoding/json"
 	"math/big"
 	"net/url"
+	"scenery.sh/internal/runtimeapi"
 	"time"
 )
 
@@ -24,6 +26,9 @@ type Size uint64
 type URL url.URL
 type RelativePath string
 type JSON = json.RawMessage
+
+// Unit is the canonical value for a contract with no semantic fields.
+type Unit struct{}
 
 // Optional distinguishes an absent field from a present zero value.
 type Optional[T any] struct {
@@ -50,20 +55,19 @@ type SecretRef struct {
 	Address string
 }
 
+type ExecutionReceipt = runtimeapi.ExecutionReceipt
+
 type Problem struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Path    string `json:"path,omitempty"`
 }
 
-type Invocation struct {
-	ID       UUID
-	TenantID Optional[string]
-	TraceID  Optional[string]
-	Deadline Optional[DateTime]
+type Invocation = runtimeapi.Invocation
+
+func InvocationFromContext(ctx context.Context) (Invocation, bool) {
+	return runtimeapi.InvocationFromContext(ctx)
 }
 
 // Registry is the generated-adapter registration boundary.
-type Registry interface {
-	Register(address string, implementation any) error
-}
+type Registry = runtimeapi.Registry

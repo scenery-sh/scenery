@@ -2,22 +2,44 @@
 package scenerycontract
 
 import (
-	"context"
+	"fmt"
 	scenery "scenery.sh"
 )
 
-const PackageContractABIRevision = "sha256:c82469adfc80a4656205af09881f5ffd1f4c9331373577ca5c675d1161baa2a5"
+const PackageIdentity = "house"
+const PackageVersion = "1.0.0"
+const PackageContractABIRevision = "sha256:d6c32ac7b2c9d5d5b60ccd7fa9e7d497ef590d67140d7c09a972f4c116f903e6"
 const PackageImportPath = "example.test/clean-tech/house"
+const GoImplementationABIRange = ">=1.0.0, <2.0.0"
+const RuntimeABIRange = "scenery.go-runtime/v1"
 
 type HouseDependencies struct {
 }
 
-type HouseConfig struct{}
-type HouseClients struct{}
+type HouseConfig struct {
+}
+type HouseClients struct {
+}
 type HouseConstructorInput struct {
 	Dependencies HouseDependencies
 	Config       HouseConfig
 	Clients      HouseClients
+}
+
+func UnmarshalProcessSceneInput(data []byte) (ProcessSceneInput, error) {
+	var value ProcessSceneInput
+	if err := unmarshalGeneratedContractValue(data, &value, "record.process_scene_input"); err != nil {
+		return value, err
+	}
+	return value, nil
+}
+
+func CloneProcessSceneInput(value ProcessSceneInput) (ProcessSceneInput, error) {
+	raw, err := scenery.MarshalContractValue(value, "record.process_scene_input")
+	if err != nil {
+		return value, err
+	}
+	return UnmarshalProcessSceneInput(raw)
 }
 
 type ProcessSceneOutcome interface{ isProcessSceneOutcome() }
@@ -26,6 +48,41 @@ type ProcessSceneProcessed struct{ Value ProcessSceneResult }
 
 func (ProcessSceneProcessed) isProcessSceneOutcome() {}
 
-type InternalClient interface {
-	Invoke(context.Context, scenery.Invocation, any) (any, error)
+func MarshalProcessSceneOutcome(value ProcessSceneOutcome) ([]byte, error) {
+	switch typed := value.(type) {
+	case ProcessSceneProcessed:
+		return scenery.MarshalContractOutcomeVariant("result", "processed", typed.Value, "record.process_scene_result")
+	case *ProcessSceneProcessed:
+		if typed == nil {
+			return nil, fmt.Errorf("nil ProcessSceneProcessed outcome")
+		}
+		return scenery.MarshalContractOutcomeVariant("result", "processed", typed.Value, "record.process_scene_result")
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %T", value)
+	}
+}
+
+func UnmarshalProcessSceneOutcome(data []byte) (ProcessSceneOutcome, error) {
+	kind, name, payload, err := scenery.DecodeContractOutcomeEnvelope(data)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case kind == "result" && name == "processed":
+		var value ProcessSceneResult
+		if err := unmarshalGeneratedContractValue(payload, &value, "record.process_scene_result"); err != nil {
+			return nil, err
+		}
+		return ProcessSceneProcessed{Value: value}, nil
+	default:
+		return nil, fmt.Errorf("unknown operation outcome %s.%s", kind, name)
+	}
+}
+
+func CloneProcessSceneOutcome(value ProcessSceneOutcome) (ProcessSceneOutcome, error) {
+	raw, err := MarshalProcessSceneOutcome(value)
+	if err != nil {
+		return nil, err
+	}
+	return UnmarshalProcessSceneOutcome(raw)
 }

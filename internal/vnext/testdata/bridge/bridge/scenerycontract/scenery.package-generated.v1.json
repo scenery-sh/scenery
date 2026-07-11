@@ -1,0 +1,27 @@
+{
+  "api_version": "scenery.package-generated.v1",
+  "artifact_kind": "go_package_contract",
+  "capability_interface_abi_ranges": {},
+  "content_digest": "sha256:eff393afbd01cff4970b16ed0e093e314b9eb88d7479a820aa6a0be31963a788",
+  "covered": [
+    "binding.echo_http",
+    "execution.echo_direct",
+    "operation.echo",
+    "record.echo_input",
+    "record.echo_result",
+    "service.bridge"
+  ],
+  "files": [
+    "contract.gen.go",
+    "types.gen.go"
+  ],
+  "generator": "scenery.vnext.go",
+  "generator_version": "1",
+  "go_implementation_abi_range": "\u003e=1.0.0, \u003c2.0.0",
+  "import_path": "example.test/bridgeapp/bridge/scenerycontract",
+  "package": "bridge",
+  "package_contract_abi_revision": "sha256:9520bcdfed16c50869ad259284f57fa71279b11a68925a595712fd4a69343ed4",
+  "package_identity": "bridge",
+  "package_version": "1.0.0",
+  "runtime_abi_range": "scenery.go-runtime/v1"
+}

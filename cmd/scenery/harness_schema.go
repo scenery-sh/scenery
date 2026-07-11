@@ -2,15 +2,20 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"scenery.sh/internal/vnext"
 )
 
 const harnessSchemaValidationSchema = "scenery.harness.schema_validation.v1"
@@ -101,11 +106,117 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 	if err := writeHelpJSON(&helpJSON); err == nil {
 		_ = json.Unmarshal(helpJSON.Bytes(), &helpPayload)
 	}
+	digest := "sha256:" + strings.Repeat("0", 64)
+	whenSchemaExists := func(schemaRel string, payload any) any {
+		if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(schemaRel))); err != nil {
+			return nil
+		}
+		return payload
+	}
+	fixturePayload := func(schemaRel, fixtureRel string) any {
+		if whenSchemaExists(schemaRel, true) == nil {
+			return nil
+		}
+		payload, err := harnessJSONFilePayload(filepath.Join(repoRoot, filepath.FromSlash(fixtureRel)))
+		if err == nil {
+			return payload
+		}
+		report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+			Stage:           "schema validation",
+			Severity:        "error",
+			File:            fixtureRel,
+			Message:         "failed to load vNext schema fixture: " + err.Error(),
+			SuggestedAction: "Regenerate the committed vNext conformance fixtures.",
+		})
+		return nil
+	}
+	buildInputManifest := map[string]any{
+		"api_version": "scenery.go-build-input-manifest/v1", "target": "development", "entries": []any{}, "digest": digest,
+	}
+	var vnextManifestPayload, vnextMigrationPayload any
+	if whenSchemaExists("docs/schemas/scenery.manifest.v1.schema.json", true) != nil || whenSchemaExists("docs/schemas/scenery.migrate.status.v1.schema.json", true) != nil {
+		fixtureRoot := filepath.Join(repoRoot, "internal", "vnext", "testdata", "house")
+		compiled, err := vnext.Compile(fixtureRoot)
+		if err != nil || compiled == nil || compiled.Manifest == nil {
+			message := "compiler returned no manifest"
+			if err != nil {
+				message = err.Error()
+			}
+			report.Diagnostics = append(report.Diagnostics, checkDiagnostic{
+				Stage: "schema validation", Severity: "error", File: filepath.ToSlash(fixtureRoot),
+				Message: "failed to build vNext manifest/status schema fixtures: " + message, SuggestedAction: "Repair the committed House compiler fixture.",
+			})
+		} else {
+			vnextManifestPayload = compiled.Manifest
+			vnextMigrationPayload = vnext.BuildMigrationStatus(compiled)
+		}
+	}
 	items := []struct {
 		name      string
 		schemaRel string
 		payload   any
 	}{
+		{name: "approval.trust", schemaRel: "docs/schemas/scenery.approval-trust.v1.schema.json", payload: map[string]any{
+			"api_version": "scenery.approval-trust.v1", "keys": map[string]any{"maintainer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		}},
+		{name: "approval.token", schemaRel: "docs/schemas/scenery.approval-token.v1.schema.json", payload: map[string]any{
+			"plan_id": "sha256:" + strings.Repeat("0", 64), "caller": "local", "risk_scopes": []any{"deployment.destructive:app/data_source/database"},
+			"expires_at": "2026-07-10T12:00:00Z", "signature": "ed25519:maintainer:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		}},
+		{name: "vnext.change.plan", schemaRel: "docs/schemas/scenery.change-plan.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-plan.v1.schema.json", map[string]any{
+			"api_version": "scenery.change-plan/v1", "plan_id": digest, "application": "schema-fixture", "base_workspace_revision": digest,
+			"base_contract_revision": digest, "predicted_workspace_revision": digest, "predicted_contract_revision": digest,
+			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "caller": "harness", "capabilities": []any{},
+			"operations_digest": digest, "operations": []any{}, "semantic_diff": map[string]any{}, "affected_resources": []any{}, "diagnostics": []any{},
+			"source_edits": []any{}, "formatting_effects": []any{}, "required_approvals": []any{}, "required_capabilities": []any{}, "risk_records": []any{},
+			"expires_at": "2026-07-10T12:00:00Z",
+		})},
+		{name: "vnext.change.receipt", schemaRel: "docs/schemas/scenery.change-receipt.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.change-receipt.v1.schema.json", map[string]any{
+			"api_version": "scenery.change-receipt/v1", "plan_id": digest, "workspace_revision": digest, "contract_revision": digest,
+			"implementation_revision_status": "not_built", "deployment_revision_status": "not_planned", "applied": []any{},
+		})},
+		{name: "vnext.cli", schemaRel: "docs/schemas/scenery.cli.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.v1.schema.json", map[string]any{
+			"api_version": "scenery.cli.v1", "diagnostic_catalog": "scenery.diagnostics.2027.v1", "ok": true,
+			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": nil, "deployment_revision": nil,
+			"data": map[string]any{"fixture": true}, "diagnostics": []any{},
+		})},
+		{name: "vnext.client.selection", schemaRel: "docs/schemas/scenery.client-selection.v1.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.client-selection.v1.schema.json", "internal/vnext/testdata/native/clients/generated/public_api/scenery.client-selection.v1.json",
+		)},
+		{name: "vnext.deployment.plan", schemaRel: "docs/schemas/scenery.deployment-plan.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-plan.v1.schema.json", map[string]any{
+			"api_version": "scenery.deployment-plan/v1", "plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
+			"deployment_name": "local", "environment": "development", "base_workspace_revision": digest, "contract_revision": digest,
+			"implementation_revision": map[string]any{"development": digest}, "deployment_revision": digest,
+			"projection":     map[string]any{"api_version": "scenery.deployment-projection/v1", "deployment": "app/deployment/local", "environment": "development", "contract_revision": digest, "resources": map[string]any{}},
+			"provider_plans": []any{}, "caller": "harness", "capabilities": []any{}, "required_approvals": []any{}, "risk_records": []any{}, "expires_at": "2026-07-10T12:00:00Z",
+		})},
+		{name: "vnext.deployment.receipt", schemaRel: "docs/schemas/scenery.deployment-receipt.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-receipt.v1.schema.json", map[string]any{
+			"api_version": "scenery.deployment-receipt/v1", "plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
+			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": map[string]any{"development": digest},
+			"deployment_revision": digest, "provider_plan_digests": []any{}, "applied_at": "2026-07-10T12:00:00Z",
+		})},
+		{name: "vnext.generated.application", schemaRel: "docs/schemas/scenery.generated.v1.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.generated.v1.schema.json", "internal/vnext/testdata/native/internal/scenerygen/scenery.generated.v1.json",
+		)},
+		{name: "vnext.go.build-input", schemaRel: "docs/schemas/scenery.go-build-input-manifest.v1.schema.json", payload: whenSchemaExists(
+			"docs/schemas/scenery.go-build-input-manifest.v1.schema.json", buildInputManifest,
+		)},
+		{name: "vnext.generated.legacy-bridge", schemaRel: "docs/schemas/scenery.legacy-bridge-generated.v1.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.legacy-bridge-generated.v1.schema.json", "internal/vnext/testdata/bridge/bridge/scenery.legacy-bridge-generated.v1.json",
+		)},
+		{name: "vnext.manifest", schemaRel: "docs/schemas/scenery.manifest.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.manifest.v1.schema.json", vnextManifestPayload)},
+		{name: "vnext.migrate.status", schemaRel: "docs/schemas/scenery.migrate.status.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.migrate.status.v1.schema.json", vnextMigrationPayload)},
+		{name: "vnext.generated.package", schemaRel: "docs/schemas/scenery.package-generated.v1.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.package-generated.v1.schema.json", "internal/vnext/testdata/native/house/scenerycontract/scenery.package-generated.v1.json",
+		)},
+		{name: "vnext.runtime.bundle", schemaRel: "docs/schemas/scenery.runtime-bundle.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.runtime-bundle.v1.schema.json", map[string]any{
+			"api_version": "scenery.runtime-bundle/v1", "artifact_kind": "go_runtime_bundle", "application": "schema-fixture", "target": "development",
+			"contract_revision": digest, "implementation_revision": digest, "build_input_manifest": buildInputManifest,
+			"resolved_go_target": map[string]any{"resolved_platform": map[string]any{}, "resolved_toolchain": map[string]any{}}, "runtime_abi": "scenery.go-runtime/v1",
+		})},
+		{name: "vnext.generated.typescript", schemaRel: "docs/schemas/scenery.typescript-client-generated.v1.schema.json", payload: fixturePayload(
+			"docs/schemas/scenery.typescript-client-generated.v1.schema.json", "internal/vnext/testdata/native/clients/generated/public_api/scenery.typescript-client-generated.v1.json",
+		)},
 		{name: "environment.registry", schemaRel: "docs/schemas/scenery.environment.registry.v1.schema.json", payload: environmentRegistryPayload},
 		{name: "help", schemaRel: "docs/schemas/scenery.help.v1.schema.json", payload: helpPayload},
 		{name: "version", schemaRel: "docs/schemas/scenery.version.v1.schema.json", payload: versionPayload},
@@ -364,6 +475,12 @@ type harnessSchemaValidator struct {
 }
 
 func (v harnessSchemaValidator) validate(schema any, value any, path string) []string {
+	if allowed, ok := schema.(bool); ok {
+		if allowed {
+			return nil
+		}
+		return []string{path + ": value is rejected by false schema"}
+	}
 	node, ok := schema.(map[string]any)
 	if !ok {
 		return []string{path + ": schema node is not an object"}
@@ -375,8 +492,10 @@ func (v harnessSchemaValidator) validate(schema any, value any, path string) []s
 		}
 		return validator.validate(resolved, value, path)
 	}
+	var diagnostics []string
+	diagnostics = append(diagnostics, v.validateCompositions(node, value, path)...)
 	if constValue, ok := node["const"]; ok && !reflect.DeepEqual(constValue, value) {
-		return []string{fmt.Sprintf("%s: value %s does not equal const %s", path, compactJSON(value), compactJSON(constValue))}
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: value %s does not equal const %s", path, compactJSON(value), compactJSON(constValue)))
 	}
 	if enumValues, ok := node["enum"].([]any); ok {
 		matched := false
@@ -387,26 +506,68 @@ func (v harnessSchemaValidator) validate(schema any, value any, path string) []s
 			}
 		}
 		if !matched {
-			return []string{fmt.Sprintf("%s: value %s is not in enum", path, compactJSON(value))}
+			diagnostics = append(diagnostics, fmt.Sprintf("%s: value %s is not in enum", path, compactJSON(value)))
 		}
 	}
 	types := schemaTypes(node["type"])
 	if len(types) > 0 && !jsonValueMatchesAnyType(value, types) {
-		return []string{fmt.Sprintf("%s: value has type %s, want %s", path, jsonValueType(value), strings.Join(types, "|"))}
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: value has type %s, want %s", path, jsonValueType(value), strings.Join(types, "|")))
+		return diagnostics
 	}
-	var diagnostics []string
 	if jsonValueMatchesAnyType(value, []string{"object"}) {
 		diagnostics = append(diagnostics, v.validateObject(node, value.(map[string]any), path)...)
 	}
 	if jsonValueMatchesAnyType(value, []string{"array"}) {
 		diagnostics = append(diagnostics, v.validateArray(node, value.([]any), path)...)
 	}
+	if text, ok := value.(string); ok {
+		diagnostics = append(diagnostics, validateStringConstraints(node, text, path)...)
+	}
 	diagnostics = append(diagnostics, validateNumericBounds(node, value, path)...)
+	return diagnostics
+}
+
+func (v harnessSchemaValidator) validateCompositions(schema map[string]any, value any, path string) []string {
+	var diagnostics []string
+	if alternatives, ok := schema["oneOf"].([]any); ok {
+		matches := 0
+		for _, alternative := range alternatives {
+			if len(v.validate(alternative, value, path)) == 0 {
+				matches++
+			}
+		}
+		if matches != 1 {
+			diagnostics = append(diagnostics, fmt.Sprintf("%s: value matches %d oneOf alternatives, want exactly 1", path, matches))
+		}
+	}
+	if alternatives, ok := schema["anyOf"].([]any); ok {
+		matched := false
+		for _, alternative := range alternatives {
+			if len(v.validate(alternative, value, path)) == 0 {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			diagnostics = append(diagnostics, path+": value does not match anyOf alternatives")
+		}
+	}
+	if requirements, ok := schema["allOf"].([]any); ok {
+		for _, requirement := range requirements {
+			diagnostics = append(diagnostics, v.validate(requirement, value, path)...)
+		}
+	}
+	if rejected, ok := schema["not"]; ok && len(v.validate(rejected, value, path)) == 0 {
+		diagnostics = append(diagnostics, path+": value matches forbidden not schema")
+	}
 	return diagnostics
 }
 
 func (v harnessSchemaValidator) validateObject(schema map[string]any, value map[string]any, path string) []string {
 	var diagnostics []string
+	if minimum, ok := schema["minProperties"].(float64); ok && len(value) < int(minimum) {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: object has %d properties, want at least %d", path, len(value), int(minimum)))
+	}
 	if required, ok := schema["required"].([]any); ok {
 		for _, raw := range required {
 			key, _ := raw.(string)
@@ -419,6 +580,27 @@ func (v harnessSchemaValidator) validateObject(schema map[string]any, value map[
 		}
 	}
 	properties, _ := schema["properties"].(map[string]any)
+	propertyNames := schema["propertyNames"]
+	patternProperties, _ := schema["patternProperties"].(map[string]any)
+	compiledPatterns := map[string]*regexp.Regexp{}
+	for pattern := range patternProperties {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			diagnostics = append(diagnostics, path+": invalid patternProperties expression "+pattern)
+			continue
+		}
+		compiledPatterns[pattern] = compiled
+	}
+	for key, propertyValue := range value {
+		if propertyNames != nil {
+			diagnostics = append(diagnostics, v.validate(propertyNames, key, path+".<property-name>")...)
+		}
+		for pattern, propertySchema := range patternProperties {
+			if compiledPatterns[pattern] != nil && compiledPatterns[pattern].MatchString(key) {
+				diagnostics = append(diagnostics, v.validate(propertySchema, propertyValue, path+"."+key)...)
+			}
+		}
+	}
 	for key, propertySchema := range properties {
 		propertyValue, ok := value[key]
 		if !ok {
@@ -431,14 +613,14 @@ func (v harnessSchemaValidator) validateObject(schema map[string]any, value map[
 		case bool:
 			if !additional {
 				for key := range value {
-					if _, ok := properties[key]; !ok {
+					if _, ok := properties[key]; !ok && !matchesSchemaPattern(key, compiledPatterns) {
 						diagnostics = append(diagnostics, path+"."+key+": additional property is not allowed")
 					}
 				}
 			}
 		case map[string]any:
 			for key, propertyValue := range value {
-				if _, ok := properties[key]; ok {
+				if _, ok := properties[key]; ok || matchesSchemaPattern(key, compiledPatterns) {
 					continue
 				}
 				diagnostics = append(diagnostics, v.validate(additional, propertyValue, path+"."+key)...)
@@ -449,14 +631,68 @@ func (v harnessSchemaValidator) validateObject(schema map[string]any, value map[
 	return diagnostics
 }
 
-func (v harnessSchemaValidator) validateArray(schema map[string]any, value []any, path string) []string {
-	items, ok := schema["items"]
-	if !ok {
-		return nil
+func matchesSchemaPattern(value string, patterns map[string]*regexp.Regexp) bool {
+	for _, pattern := range patterns {
+		if pattern != nil && pattern.MatchString(value) {
+			return true
+		}
 	}
+	return false
+}
+
+func (v harnessSchemaValidator) validateArray(schema map[string]any, value []any, path string) []string {
 	var diagnostics []string
-	for i, item := range value {
-		diagnostics = append(diagnostics, v.validate(items, item, fmt.Sprintf("%s[%d]", path, i))...)
+	if minimum, ok := schema["minItems"].(float64); ok && len(value) < int(minimum) {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: array has %d items, want at least %d", path, len(value), int(minimum)))
+	}
+	if maximum, ok := schema["maxItems"].(float64); ok && len(value) > int(maximum) {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: array has %d items, want at most %d", path, len(value), int(maximum)))
+	}
+	if unique, _ := schema["uniqueItems"].(bool); unique {
+		seen := map[string]bool{}
+		for _, item := range value {
+			key := compactJSON(item)
+			if seen[key] {
+				diagnostics = append(diagnostics, path+": array items must be unique")
+				break
+			}
+			seen[key] = true
+		}
+	}
+	if items, ok := schema["items"]; ok {
+		for i, item := range value {
+			diagnostics = append(diagnostics, v.validate(items, item, fmt.Sprintf("%s[%d]", path, i))...)
+		}
+	}
+	return diagnostics
+}
+
+func validateStringConstraints(schema map[string]any, value, path string) []string {
+	var diagnostics []string
+	length := utf8.RuneCountInString(value)
+	if minimum, ok := schema["minLength"].(float64); ok && length < int(minimum) {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: string length %d is less than minimum %d", path, length, int(minimum)))
+	}
+	if maximum, ok := schema["maxLength"].(float64); ok && length > int(maximum) {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s: string length %d exceeds maximum %d", path, length, int(maximum)))
+	}
+	if pattern, ok := schema["pattern"].(string); ok {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			diagnostics = append(diagnostics, path+": schema pattern is invalid")
+		} else if !compiled.MatchString(value) {
+			diagnostics = append(diagnostics, path+": string does not match pattern "+pattern)
+		}
+	}
+	if format, _ := schema["format"].(string); format == "date-time" {
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			diagnostics = append(diagnostics, path+": string is not an RFC 3339 date-time")
+		}
+	}
+	if encoding, _ := schema["contentEncoding"].(string); encoding == "base64" {
+		if _, err := base64.StdEncoding.DecodeString(value); err != nil {
+			diagnostics = append(diagnostics, path+": string is not valid base64")
+		}
 	}
 	return diagnostics
 }

@@ -26,7 +26,7 @@ func PrimeWorkspaceContext(ctx context.Context, result *Result) error {
 }
 
 func tidyWorkspace(ctx context.Context, result *Result) error {
-	if err := runGoContext(ctx, result.Dir, "mod", "tidy"); err != nil {
+	if err := runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, "mod", "tidy"); err != nil {
 		return err
 	}
 	fingerprint, err := dependencyFingerprintFromWorkspace(result.Dir)
@@ -78,6 +78,14 @@ func CompileContext(ctx context.Context, result *Result) error {
 		}
 		return WriteLatestBuildManifest(result, "compiled")
 	}
+	if result.VNextTarget != nil && result.NeedsTidy {
+		if err := tidyWorkspace(ctx, result); err != nil {
+			return err
+		}
+	}
+	if err := prepareVNextRuntimeBundle(ctx, result); err != nil {
+		return err
+	}
 	if !result.NeedsTidy {
 		if err := savePrimedWorkspace(result); err != nil {
 			return err
@@ -94,6 +102,9 @@ func CompileContext(ctx context.Context, result *Result) error {
 		err = runGoBuildContext(ctx, result)
 	}
 	if err != nil {
+		return err
+	}
+	if err := writeVNextRuntimeBundle(result); err != nil {
 		return err
 	}
 	if result.NeedsTidy {
@@ -117,7 +128,7 @@ func runGoBuildContext(ctx context.Context, result *Result) error {
 	if err := os.Remove(result.Binary); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale build output %s: %w", result.Binary, err)
 	}
-	return runGoContext(ctx, result.Dir, goBuildArgs(result.Binary, result.GoBuildFlags)...)
+	return runGoContextWithEnvironment(ctx, result.Dir, result.GoEnvironment, goBuildArgs(result.Binary, result.GoBuildFlags)...)
 }
 
 func goBuildNeedsWorkspaceTidy(err error) bool {
@@ -134,15 +145,20 @@ var runGo = runRealGo
 
 func SetGoRunnerForTesting(runner func(context.Context, string, ...string) error) func() {
 	old := runGo
-	runGo = runner
+	runGo = func(ctx context.Context, dir string, _ []string, args ...string) error {
+		return runner(ctx, dir, args...)
+	}
 	return func() {
 		runGo = old
 	}
 }
 
-func runRealGo(ctx context.Context, dir string, args ...string) error {
+func runRealGo(ctx context.Context, dir string, environment []string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
+	if environment != nil {
+		cmd.Env = environment
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("go %s failed: %w\n%s", strings.Join(args, " "), err, output)
@@ -150,8 +166,8 @@ func runRealGo(ctx context.Context, dir string, args ...string) error {
 	return nil
 }
 
-func runGoContext(ctx context.Context, dir string, args ...string) error {
-	return runGo(ctx, dir, args...)
+func runGoContextWithEnvironment(ctx context.Context, dir string, environment []string, args ...string) error {
+	return runGo(ctx, dir, environment, args...)
 }
 
 func normalizeGoBuildFlags(flags []string) []string {

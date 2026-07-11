@@ -108,7 +108,7 @@ func (s *Store) init(ctx context.Context) error {
 INSERT INTO scenery.durable_schema_migrations (version, name, checksum)
 VALUES ($1, $2, $3)
 ON CONFLICT(version) DO NOTHING
-`, schemaVersion, "init", "durable-postgres-v1"); err != nil {
+`, schemaVersion, "retention", "durable-postgres-v2"); err != nil {
 		return rollback(tx, fmt.Errorf("durable store: record schema migration: %w", err))
 	}
 	if err := tx.Commit(); err != nil {
@@ -125,25 +125,80 @@ func rollback(tx *sql.Tx, err error) error {
 }
 
 type TaskDeclaration struct {
-	Name             string
-	Version          int
-	HandlerRef       string
-	InputCodec       string
-	ResultCodec      string
-	DefaultTimeoutMS int
-	DefaultLeaseMS   int
-	MaxAttempts      int
-	RetryInitialMS   int
-	RetryMaxMS       int
-	RetryBackoff     float64
-	RetryJitter      float64
-	RequirementsJSON string
+	Name                     string
+	Version                  int
+	HandlerRef               string
+	InputCodec               string
+	ResultCodec              string
+	DefaultTimeoutMS         int
+	DefaultLeaseMS           int
+	MaxAttempts              int
+	RetryInitialMS           int
+	RetryMaxMS               int
+	RetryBackoff             float64
+	RetryJitter              float64
+	SuccessRetentionMS       int64
+	FailureRetentionMS       int64
+	MaxConcurrency           int
+	DeduplicationRetentionMS int64
+	DeduplicationConflict    string
+	RequirementsJSON         string
 }
 
 func (s *Store) ReconcileTasks(ctx context.Context, tasks []TaskDeclaration) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("durable store: begin task reconciliation: %w", err)
+	}
+	declared := make(map[string]int, len(tasks))
+	for _, task := range tasks {
+		task = normalizeTask(task)
+		if task.Name == "" {
+			return rollback(tx, fmt.Errorf("durable store: task name is required"))
+		}
+		if previous, exists := declared[task.Name]; exists && previous != task.Version {
+			return rollback(tx, fmt.Errorf("durable store: task %q has conflicting revisions", task.Name))
+		}
+		declared[task.Name] = task.Version
+	}
+	rows, err := tx.QueryContext(ctx, `
+SELECT task_name, task_version, count(*)
+FROM scenery.durable_jobs
+WHERE service = $1 AND state IN ('queued', 'running')
+GROUP BY task_name, task_version
+`, s.Service)
+	if err != nil {
+		return rollback(tx, fmt.Errorf("durable store: inspect active task revisions: %w", err))
+	}
+	type activeRevision struct {
+		name           string
+		version, count int
+	}
+	var active []activeRevision
+	for rows.Next() {
+		var name string
+		var version, count int
+		if err := rows.Scan(&name, &version, &count); err != nil {
+			_ = rows.Close()
+			return rollback(tx, fmt.Errorf("durable store: scan active task revision: %w", err))
+		}
+		active = append(active, activeRevision{name: name, version: version, count: count})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return rollback(tx, fmt.Errorf("durable store: inspect active task revision rows: %w", err))
+	}
+	if err := rows.Close(); err != nil {
+		return rollback(tx, fmt.Errorf("durable store: close active task revision rows: %w", err))
+	}
+	for _, item := range active {
+		wanted, exists := declared[item.name]
+		if !exists || wanted != item.version {
+			return rollback(tx, fmt.Errorf("durable store: migration_required: task %q has %d active jobs at revision %d but runtime provides revision %d", item.name, item.count, item.version, wanted))
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE scenery.durable_tasks SET enabled = false, updated_at = now() WHERE service = $1`, s.Service); err != nil {
+		return rollback(tx, fmt.Errorf("durable store: disable previous task declarations: %w", err))
 	}
 	for _, task := range tasks {
 		task = normalizeTask(task)
@@ -153,13 +208,18 @@ func (s *Store) ReconcileTasks(ctx context.Context, tasks []TaskDeclaration) err
 		if task.HandlerRef == "" {
 			return rollback(tx, fmt.Errorf("durable store: task %q handler ref is required", task.Name))
 		}
+		if task.DeduplicationConflict != "return_existing" {
+			return rollback(tx, fmt.Errorf("durable store: task %q has unsupported deduplication conflict policy %q", task.Name, task.DeduplicationConflict))
+		}
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO scenery.durable_tasks (
   service, name, version, handler_ref, input_codec, result_codec,
   default_timeout_ms, default_lease_ms, max_attempts, retry_initial_ms,
-  retry_max_ms, retry_backoff, retry_jitter, requirements_json, updated_at
+  retry_max_ms, retry_backoff, retry_jitter, success_retention_ms,
+  failure_retention_ms, max_concurrency, deduplication_retention_ms,
+  deduplication_conflict, requirements_json, updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, now())
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, now())
 ON CONFLICT(service, name) DO UPDATE SET
   version = excluded.version,
   handler_ref = excluded.handler_ref,
@@ -172,10 +232,15 @@ ON CONFLICT(service, name) DO UPDATE SET
   retry_max_ms = excluded.retry_max_ms,
   retry_backoff = excluded.retry_backoff,
   retry_jitter = excluded.retry_jitter,
+  success_retention_ms = excluded.success_retention_ms,
+  failure_retention_ms = excluded.failure_retention_ms,
+  max_concurrency = excluded.max_concurrency,
+  deduplication_retention_ms = excluded.deduplication_retention_ms,
+  deduplication_conflict = excluded.deduplication_conflict,
   requirements_json = excluded.requirements_json,
   enabled = true,
   updated_at = now()
-`, s.Service, task.Name, task.Version, task.HandlerRef, task.InputCodec, task.ResultCodec, task.DefaultTimeoutMS, task.DefaultLeaseMS, task.MaxAttempts, task.RetryInitialMS, task.RetryMaxMS, task.RetryBackoff, task.RetryJitter, task.RequirementsJSON); err != nil {
+`, s.Service, task.Name, task.Version, task.HandlerRef, task.InputCodec, task.ResultCodec, task.DefaultTimeoutMS, task.DefaultLeaseMS, task.MaxAttempts, task.RetryInitialMS, task.RetryMaxMS, task.RetryBackoff, task.RetryJitter, task.SuccessRetentionMS, task.FailureRetentionMS, task.MaxConcurrency, task.DeduplicationRetentionMS, task.DeduplicationConflict, task.RequirementsJSON); err != nil {
 			return rollback(tx, fmt.Errorf("durable store: reconcile task %q: %w", task.Name, err))
 		}
 	}
@@ -218,6 +283,18 @@ func normalizeTask(task TaskDeclaration) TaskDeclaration {
 	if task.RetryJitter == 0 {
 		task.RetryJitter = 0.1
 	}
+	if task.SuccessRetentionMS == 0 {
+		task.SuccessRetentionMS = int64((7 * 24 * time.Hour) / time.Millisecond)
+	}
+	if task.FailureRetentionMS == 0 {
+		task.FailureRetentionMS = int64((30 * 24 * time.Hour) / time.Millisecond)
+	}
+	if task.DeduplicationRetentionMS == 0 {
+		task.DeduplicationRetentionMS = task.SuccessRetentionMS
+	}
+	if task.DeduplicationConflict == "" {
+		task.DeduplicationConflict = "return_existing"
+	}
 	if task.RequirementsJSON == "" {
 		task.RequirementsJSON = "{}"
 	}
@@ -229,6 +306,7 @@ type StartRequest struct {
 	TaskName         string
 	TaskVersion      int
 	DedupeKey        string
+	ConcurrencyKey   string
 	Priority         int
 	InputCodec       string
 	InputBlob        []byte
@@ -255,6 +333,8 @@ type JobDetail struct {
 	CreatedAt   string
 	UpdatedAt   string
 	CompletedAt string
+	ResultCodec string
+	ResultBlob  []byte
 	ErrorCodec  string
 	ErrorBlob   []byte
 }
@@ -282,8 +362,11 @@ type LeasedJob struct {
 	TaskName   string
 	Attempt    int
 	LeaseID    string
+	LeaseMS    int
+	TimeoutMS  int
 	InputCodec string
 	InputBlob  []byte
+	MemoJSON   string
 }
 
 func (s *Store) Start(ctx context.Context, req StartRequest) (Job, error) {
@@ -302,6 +385,14 @@ func (s *Store) Start(ctx context.Context, req StartRequest) (Job, error) {
 		return Job{}, fmt.Errorf("durable store: begin start job: %w", err)
 	}
 	if req.DedupeKey != "" {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE scenery.durable_jobs
+SET dedupe_key = NULL, dedupe_expires_at = NULL, updated_at = now()
+WHERE service = $1 AND task_name = $2 AND dedupe_key = $3
+  AND dedupe_expires_at IS NOT NULL AND dedupe_expires_at <= now()
+`, s.Service, req.TaskName, req.DedupeKey); err != nil {
+			return Job{}, rollback(tx, fmt.Errorf("durable store: expire deduplication key: %w", err))
+		}
 		job, ok, err := s.jobByDedupeKey(ctx, tx, req.TaskName, req.DedupeKey)
 		if err != nil {
 			return Job{}, rollback(tx, err)
@@ -316,12 +407,17 @@ func (s *Store) Start(ctx context.Context, req StartRequest) (Job, error) {
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO scenery.durable_jobs (
   service, id, task_name, task_version, state, dedupe_key, priority,
+  dedupe_expires_at, concurrency_key,
   input_codec, input_blob, requirements_json, labels_json, memo_json,
-  max_attempts, created_by
+  max_attempts, success_retention_ms, failure_retention_ms, created_by
 )
-VALUES ($1, $2, $3, $4, 'queued', NULLIF($5, ''), $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb,
-  COALESCE((SELECT max_attempts FROM scenery.durable_tasks WHERE service = $1 AND name = $3), 1), $12)
-`, s.Service, req.ID, req.TaskName, req.TaskVersion, req.DedupeKey, req.Priority, req.InputCodec, req.InputBlob, req.RequirementsJSON, req.LabelsJSON, req.MemoJSON, req.CreatedBy); err != nil {
+VALUES ($1, $2, $3, $4, 'queued', NULLIF($5, ''), $6,
+  CASE WHEN $5 = '' THEN NULL ELSE now() + (COALESCE((SELECT deduplication_retention_ms FROM scenery.durable_tasks WHERE service = $1 AND name = $3 AND version = $4), 604800000) * interval '1 millisecond') END,
+  NULLIF($7, ''), $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
+  COALESCE((SELECT max_attempts FROM scenery.durable_tasks WHERE service = $1 AND name = $3), 1),
+  COALESCE((SELECT success_retention_ms FROM scenery.durable_tasks WHERE service = $1 AND name = $3), 604800000),
+  COALESCE((SELECT failure_retention_ms FROM scenery.durable_tasks WHERE service = $1 AND name = $3), 2592000000), $13)
+`, s.Service, req.ID, req.TaskName, req.TaskVersion, req.DedupeKey, req.Priority, req.ConcurrencyKey, req.InputCodec, req.InputBlob, req.RequirementsJSON, req.LabelsJSON, req.MemoJSON, req.CreatedBy); err != nil {
 		return Job{}, rollback(tx, fmt.Errorf("durable store: insert job %q: %w", req.ID, err))
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -353,18 +449,26 @@ func (s *Store) LeaseReadyJobWithToken(ctx context.Context, workerID, leaseID, t
 	if err != nil {
 		return LeasedJob{}, false, fmt.Errorf("durable store: begin lease job: %w", err)
 	}
+	if err := s.recoverExpiredJobs(ctx, tx); err != nil {
+		return LeasedJob{}, false, rollback(tx, err)
+	}
 	var job LeasedJob
-	var leaseMS int
 	err = tx.QueryRowContext(ctx, `
-SELECT j.id, j.task_name, j.attempt + 1, j.input_codec, j.input_blob,
-       CASE WHEN t.default_lease_ms > 0 THEN t.default_lease_ms ELSE 60000 END
+SELECT j.id, j.task_name, j.attempt + 1, j.input_codec, j.input_blob, j.memo_json::text,
+       CASE WHEN t.default_lease_ms > 0 THEN t.default_lease_ms ELSE 60000 END,
+       CASE WHEN t.default_timeout_ms > 0 THEN t.default_timeout_ms ELSE 60000 END
 FROM scenery.durable_jobs j
-LEFT JOIN scenery.durable_tasks t ON t.service = j.service AND t.name = j.task_name
-WHERE j.service = $1 AND j.state = 'queued' AND j.run_after <= now()
+JOIN scenery.durable_tasks t ON t.service = j.service AND t.name = j.task_name AND t.version = j.task_version
+WHERE j.service = $1 AND j.state = 'queued' AND j.run_after <= now() AND t.enabled
+  AND (t.max_concurrency <= 0 OR (
+    SELECT count(*) FROM scenery.durable_jobs running
+    WHERE running.service = j.service AND running.task_name = j.task_name AND running.state = 'running'
+      AND COALESCE(running.concurrency_key, '') = COALESCE(j.concurrency_key, '')
+  ) < t.max_concurrency)
 ORDER BY j.priority DESC, j.created_at, j.id
 LIMIT 1
-FOR UPDATE OF j SKIP LOCKED
-`, s.Service).Scan(&job.ID, &job.TaskName, &job.Attempt, &job.InputCodec, &job.InputBlob, &leaseMS)
+FOR UPDATE OF t, j SKIP LOCKED
+`, s.Service).Scan(&job.ID, &job.TaskName, &job.Attempt, &job.InputCodec, &job.InputBlob, &job.MemoJSON, &job.LeaseMS, &job.TimeoutMS)
 	if errors.Is(err, sql.ErrNoRows) {
 		if commitErr := tx.Commit(); commitErr != nil {
 			return LeasedJob{}, false, fmt.Errorf("durable store: commit empty lease: %w", commitErr)
@@ -377,9 +481,10 @@ FOR UPDATE OF j SKIP LOCKED
 	res, err := tx.ExecContext(ctx, `
 UPDATE scenery.durable_jobs
 SET state = 'running', attempt = $1, lease_id = $2, lease_owner = $3,
-    lease_token_hash = $4, lease_until = now() + ($5 * interval '1 millisecond'), updated_at = now()
-WHERE service = $6 AND id = $7 AND state = 'queued'
-`, job.Attempt, leaseID, workerID, strings.TrimSpace(tokenHash), leaseMS, s.Service, job.ID)
+    lease_token_hash = $4, lease_until = now() + ($5 * interval '1 millisecond'),
+    timeout_at = now() + ($6 * interval '1 millisecond'), updated_at = now()
+WHERE service = $7 AND id = $8 AND state = 'queued'
+`, job.Attempt, leaseID, workerID, strings.TrimSpace(tokenHash), job.LeaseMS, job.TimeoutMS, s.Service, job.ID)
 	if err != nil {
 		return LeasedJob{}, false, rollback(tx, fmt.Errorf("durable store: mark job %q running: %w", job.ID, err))
 	}
@@ -399,6 +504,59 @@ VALUES ($1, $2, $3, 'job.leased', 'json', '{}'::bytea)
 	}
 	job.LeaseID = leaseID
 	return job, true, nil
+}
+
+func (s *Store) recoverExpiredJobs(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `
+UPDATE scenery.durable_jobs
+SET state = CASE WHEN attempt < max_attempts THEN 'queued' ELSE 'failed' END,
+    run_after = CASE WHEN attempt < max_attempts THEN now() ELSE run_after END,
+    error_codec = 'text', error_blob = 'durable lease or timeout expired'::bytea,
+    lease_id = NULL, lease_owner = NULL, lease_token_hash = NULL, lease_until = NULL,
+    timeout_at = NULL,
+    completed_at = CASE WHEN attempt < max_attempts THEN NULL ELSE now() END,
+    updated_at = now()
+WHERE service = $1 AND state = 'running'
+  AND ((lease_until IS NOT NULL AND lease_until <= now()) OR (timeout_at IS NOT NULL AND timeout_at <= now()))
+RETURNING id, attempt, state
+`, s.Service)
+	if err != nil {
+		return fmt.Errorf("durable store: recover expired jobs: %w", err)
+	}
+	type recoveredJob struct {
+		id      string
+		attempt int
+		state   string
+	}
+	var recovered []recoveredJob
+	for rows.Next() {
+		var item recoveredJob
+		if err := rows.Scan(&item.id, &item.attempt, &item.state); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("durable store: scan expired job: %w", err)
+		}
+		recovered = append(recovered, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("durable store: recover expired job rows: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("durable store: close expired job rows: %w", err)
+	}
+	for _, item := range recovered {
+		eventType := "job.lease_expired"
+		if item.state == "failed" {
+			eventType = "job.failed"
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO scenery.durable_job_events (service, job_id, attempt, event_type, payload_codec, payload_blob)
+VALUES ($1, $2, $3, $4, 'json', '{}'::bytea)
+`, s.Service, item.id, item.attempt, eventType); err != nil {
+			return fmt.Errorf("durable store: append %s event: %w", eventType, err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) CompleteJob(ctx context.Context, jobID string, resultBlob []byte) error {
@@ -424,7 +582,7 @@ func (s *Store) ListJobs(ctx context.Context, limit int) ([]JobDetail, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, task_name, state, COALESCE(dedupe_key, ''), attempt, max_attempts,
        created_at::text, updated_at::text, COALESCE(completed_at::text, ''),
-       COALESCE(error_codec, ''), error_blob
+       COALESCE(result_codec, ''), result_blob, COALESCE(error_codec, ''), error_blob
 FROM scenery.durable_jobs
 WHERE service = $1
 ORDER BY created_at DESC, id DESC
@@ -437,7 +595,7 @@ LIMIT $2
 	var jobs []JobDetail
 	for rows.Next() {
 		var job JobDetail
-		if err := rows.Scan(&job.ID, &job.TaskName, &job.State, &job.DedupeKey, &job.Attempt, &job.MaxAttempts, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt, &job.ErrorCodec, &job.ErrorBlob); err != nil {
+		if err := rows.Scan(&job.ID, &job.TaskName, &job.State, &job.DedupeKey, &job.Attempt, &job.MaxAttempts, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt, &job.ResultCodec, &job.ResultBlob, &job.ErrorCodec, &job.ErrorBlob); err != nil {
 			return nil, fmt.Errorf("durable store: scan job: %w", err)
 		}
 		jobs = append(jobs, job)
@@ -457,10 +615,10 @@ func (s *Store) GetJob(ctx context.Context, jobID string) (JobDetail, bool, erro
 	err := s.db.QueryRowContext(ctx, `
 SELECT id, task_name, state, COALESCE(dedupe_key, ''), attempt, max_attempts,
        created_at::text, updated_at::text, COALESCE(completed_at::text, ''),
-       COALESCE(error_codec, ''), error_blob
+       COALESCE(result_codec, ''), result_blob, COALESCE(error_codec, ''), error_blob
 FROM scenery.durable_jobs
 WHERE service = $1 AND id = $2
-`, s.Service, jobID).Scan(&job.ID, &job.TaskName, &job.State, &job.DedupeKey, &job.Attempt, &job.MaxAttempts, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt, &job.ErrorCodec, &job.ErrorBlob)
+`, s.Service, jobID).Scan(&job.ID, &job.TaskName, &job.State, &job.DedupeKey, &job.Attempt, &job.MaxAttempts, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt, &job.ResultCodec, &job.ResultBlob, &job.ErrorCodec, &job.ErrorBlob)
 	if errors.Is(err, sql.ErrNoRows) {
 		return JobDetail{}, false, nil
 	}
@@ -468,6 +626,26 @@ WHERE service = $1 AND id = $2
 		return JobDetail{}, false, fmt.Errorf("durable store: get job %q: %w", jobID, err)
 	}
 	return job, true, nil
+}
+
+func (s *Store) PurgeExpiredJobs(ctx context.Context) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `
+DELETE FROM scenery.durable_jobs
+WHERE service = $1 AND completed_at IS NOT NULL
+  AND (
+    (state = 'succeeded' AND success_retention_ms > 0 AND completed_at <= now() - (success_retention_ms * interval '1 millisecond'))
+    OR
+    (state IN ('failed', 'canceled') AND failure_retention_ms > 0 AND completed_at <= now() - (failure_retention_ms * interval '1 millisecond'))
+  )
+`, s.Service)
+	if err != nil {
+		return 0, fmt.Errorf("durable store: purge expired jobs: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("durable store: purge expired jobs rows affected: %w", err)
+	}
+	return count, nil
 }
 
 func (s *Store) JobEvents(ctx context.Context, jobID string) ([]JobEvent, error) {
@@ -671,14 +849,15 @@ func (s *Store) HeartbeatJob(ctx context.Context, jobID, workerID, leaseID strin
 	}
 	res, err := s.db.ExecContext(ctx, `
 UPDATE scenery.durable_jobs
-SET lease_until = now() + (
+SET lease_until = LEAST(COALESCE(timeout_at, 'infinity'::timestamptz), now() + (
   COALESCE((
     SELECT t.default_lease_ms
     FROM scenery.durable_tasks t
     WHERE t.service = scenery.durable_jobs.service AND t.name = scenery.durable_jobs.task_name
+      AND t.version = scenery.durable_jobs.task_version
       AND t.default_lease_ms > 0
   ), 60000) * interval '1 millisecond'
-), updated_at = now()
+)), updated_at = now()
 WHERE service = $1 AND id = $2 AND state = 'running' AND lease_owner = $3 AND lease_id = $4
 `, s.Service, jobID, workerID, leaseID)
 	if err != nil {
@@ -1003,6 +1182,8 @@ func retryDelaySeconds(attempt, initialMS, maxMS int, backoff float64) float64 {
 func normalizeStart(req StartRequest) StartRequest {
 	req.ID = strings.TrimSpace(req.ID)
 	req.TaskName = strings.TrimSpace(req.TaskName)
+	req.DedupeKey = strings.TrimSpace(req.DedupeKey)
+	req.ConcurrencyKey = strings.TrimSpace(req.ConcurrencyKey)
 	if req.TaskVersion == 0 {
 		req.TaskVersion = 1
 	}

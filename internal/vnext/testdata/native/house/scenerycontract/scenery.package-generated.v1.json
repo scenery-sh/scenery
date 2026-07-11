@@ -1,0 +1,33 @@
+{
+  "api_version": "scenery.package-generated.v1",
+  "artifact_kind": "go_package_contract",
+  "capability_interface_abi_ranges": {},
+  "content_digest": "sha256:b8628d398e46e3c5cd998299b8ffede7801143c5d68f760eea8efc768fc901c0",
+  "covered": [
+    "binding.process_scene_cli",
+    "binding.process_scene_http",
+    "binding.process_scene_internal",
+    "enum.process_mode",
+    "execution.process_scene_direct",
+    "operation.process_scene",
+    "record.process_scene_input",
+    "record.process_scene_result",
+    "record.ready_state",
+    "record.wire_profile",
+    "service.house",
+    "union.process_state"
+  ],
+  "files": [
+    "contract.gen.go",
+    "types.gen.go"
+  ],
+  "generator": "scenery.vnext.go",
+  "generator_version": "1",
+  "go_implementation_abi_range": "\u003e=1.0.0, \u003c2.0.0",
+  "import_path": "example.test/nativeapp/house/scenerycontract",
+  "package": "house",
+  "package_contract_abi_revision": "sha256:5c180808dd4d9608f6985a306ef4552276ff7aa1f7e3d8481d95c55a069d7c44",
+  "package_identity": "house",
+  "package_version": "1.0.0",
+  "runtime_abi_range": "scenery.go-runtime/v1"
+}

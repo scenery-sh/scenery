@@ -2,9 +2,19 @@
 
 ## Working in an edition-2027 mixed app
 
-When `scenery.scn` exists, read it together with `scenery.migration.scn` and each installed package's `scenery.package.scn`. Use `scenery migrate status -o json` to see active frontend ownership, then query canonical resources with `scenery list|get|explain ... -o json`. Do not infer ownership from Go directives or file order.
+When `scenery.scn` exists, read it together with `scenery.migration.scn` and each installed package's `scenery.package.scn`. Use `scenery migrate status -o json` to see active frontend ownership and receipt-bound operational gates, then query canonical resources with `scenery list|get|explain ... -o json`. Treat `operational_ready=false` as a real missing drain, fence, cursor, consumer, alias, or other cutover proof; native source ownership alone does not make a migration ready. Do not infer ownership from Go directives or file order.
 
-For native contract edits, run `scenery fmt`, `scenery check -o json`, and `scenery generate --check`. Edit `.scn` source rather than generated `scenerycontract` or TypeScript files. A service is the minimum bridge activation unit: all of its routes and lifecycle keys must match before native activation. Existing legacy-only apps continue using the stable `--json` workflow.
+For native contract edits, run `scenery fmt`, `scenery check -o json`, `scenery compile --view expanded -o json`, and `scenery generate --check`. Edit `.scn` source rather than generated `scenerycontract`, `internal/scenerygen`, or TypeScript files. Use `scenery diff --semantic` for compatibility review and `scenery graph` or `scenery agent serve` for dependency/context discovery; do not recover semantic facts through source-text search when the graph exposes them.
+
+Compilation deliberately leaves `implementation_revision` null. Use `scenery build --target <name>` when exact implementation identity matters; the build hashes the declared target's complete Go input graph and records the resolved Go distribution/compiler and any host-CGO native tools in `.scenery/build/vnext/<target>.json`. Do not infer implementation identity from source globs or the ambient shell. A fixed non-host CGO target is unsupported until it can declare a content-addressed native toolchain.
+
+No-input operations use exact `std.type.unit`, represented as `{}` / `scenery.Unit` / TypeScript `Unit`. Native CLI bindings run as their declared `scenery <command...>` path and derive help, completion, typed input, output, and exit status from the contract; use lower-kebab command/flag names and do not reuse built-in Scenery commands. Context-mapped fields are runtime-trusted and must never be accepted from caller flags or arguments. For local fixture data, select the same environment used by deployment with `scenery db seed --env <environment>`; Scenery projects only matching typed fixtures into deterministic PostgreSQL seed statements.
+
+A service is the minimum bridge activation unit: all routes, lifecycle keys, durable/schedule identities, schema/event ownership, and generated-client projections transfer together. Use `migrate compare` before activation, supply content-addressed `--evidence class=reference` for non-stateless cutovers, and retain the activation receipt for a rollback plan. Retirement closes the legacy candidate and rollback ownership; a committed `native_service` remains ready after a clean clone without machine-local activation receipts. `migrate finish` is an app-wide transaction and also needs evidence for `v0_cli_consumers`, `legacy_generated_client_consumers` when applicable, and every stateful class reported by status. Existing legacy-only apps continue using the stable `--json` workflow.
+
+Semantic changes and deployments use plan/apply rather than direct writes: create a plan against exact base revisions, inspect its semantic/runtime consequences and required approvals, then apply it with the expected revisions and same caller. A plan expires, is single-use, and is invalid after source, generated-artifact, provider, capability, operational-receipt, or approval binding changes.
+
+When a plan reports `required_approvals`, obtain a detached token from the project's approval service and pass its file with repeatable `--approval-token`. The token is bound to the exact plan ID, caller, sorted risk scopes, and expiry. Scenery verifies `ed25519:<key-id>:<base64>` against raw Ed25519 public keys in the uncommitted `.scenery/approval-trust.json`; see `docs/local-contract.md` and the `scenery.approval-token.v1` / `scenery.approval-trust.v1` schemas. Never ask an agent to invent a signature or place a private signing key in the app workspace.
 
 This guide is for AI agents using scenery or changing scenery. It explains how to combine repo-local instructions, the installable skill, CLI JSON, scenery capabilities, and app-local instructions.
 
@@ -58,6 +68,16 @@ scenery check --json
 go test ./...
 scenery harness --json --write
 scenery validate quick --json --write
+```
+
+For an edition-2027 app, add:
+
+```sh
+scenery fmt --check -o json
+scenery check -o json
+scenery compile --view expanded -o json
+scenery migrate status -o json   # mixed apps only
+scenery generate --check -o json
 ```
 
 Before finishing scenery repo work:
@@ -247,7 +267,7 @@ Use non-JSON output only for human inspection.
 - Use `scenery up` to run the app root's one live dev runtime and expose capabilities for local development, debugging, agents, dashboard, logs, traces, metrics, managed dev services, and frontend routing. Default local dev routing is path mode: discover the runtime base URL from `scenery ps --json` or the session route manifest, then use `/api/`, `/consolenext/`, frontend paths, and `/runtime/` under that base URL. Paths ignored by `.gitignore` or app config `watch.ignore` are outside the watcher/rebuild surface; `watch.ignore` is Scenery-only and does not affect Git tracking. Use a Git worktree for another live code copy.
 - During a watcher rebuild restart, the runtime drains in-flight streaming raw responses (SSE/long-poll) by canceling their request contexts so they end with a clean terminator, and the agent router answers requests for a restarting backend with `503` plus `Retry-After: 1` instead of `502`; clients should treat that as a brief retryable window.
 - Managed Vite/Astro frontend dev servers are runtime children; if one exits unexpectedly, the dev supervisor restarts it on a new hidden loopback port and updates the agent route backend.
-- Use `scenery up --detach` when the local agent should keep that dev runtime running in the background. By default it returns only when the runtime is actually ready (session `running`, API backend accepting, frontends registered and accepting), so agents can call the API immediately after it returns; pass `--wait registered` for the old fast return at session registration.
+- Use `scenery up --detach` when the local agent should keep that dev runtime running in the background. By default it waits up to two minutes and returns only when the runtime is actually ready (session `running`, API backend accepting, frontends registered and accepting), so agents can call the API immediately after it returns; pass `--wait registered` for the 30-second fast registration path.
 - Use `dev.routing.mode = "host"` plus `scenery system edge dns install`, `scenery system edge privileged install`, `scenery system edge install`, and `scenery system edge trust` when the browser needs trusted wildcard local HTTPS on `127.0.0.1:443`; dnsmasq owns wildcard local DNS, the privileged helper owns that port, forwards raw TCP to user-owned Caddy, and the edge syncs managed dnsmasq/Caddy as needed. Default path mode needs none of that.
 - Use `scenery logs --follow` to follow the current app root's detached or agent-backed runtime.
 - Use `scenery down` to stop the current app root's dev runtime; add `--db`, `--state`, or `--all` only when destructive cleanup is intended.
@@ -316,6 +336,8 @@ scenery generate client --lang typescript --output <frontend-or-package-path>/sc
 Client apps should commit generated clients only if that is their established workflow. If committed, app-local `AGENTS.md` must state the output path and require regeneration after endpoint changes.
 
 Generated TypeScript `WithMeta` methods expose response headers, status, the raw `Response`, and parsed `txid` metadata from `X-Txid`/`X-TXID`. For sync-backed mutations, keep the phases separate: first handle the successful API response as the committed mutation, then call `observeAPIResponseTxid(response, collection.utils.awaitTxId, context)` or an equivalent app-local observer. If the observer fails or times out, the generated client throws `SyncObservationError` with `kind: "sync_observation_failure"` and `mutation_committed: true`, so UI and agents do not report the committed mutation itself as rolled back.
+
+Edition-2027 clients additionally reconstruct outcome values split across response bodies, headers, and cookies. Same-status outcomes are decoded against every distinct typed mapping and exactly one must match; compile-time disjointness uses observable media and structural wire shape, not nominal type or destination names. Canonical set ordering applies to JSON, query, form, and header encodings, and declared multipart parts enforce their names, kinds, accepted media, filename policy, multiplicity, and limits. Optional absent metadata remains absent. Fetch cannot preserve repeated request-header field lines, so TypeScript targets reject repeated list/set request headers; use comma encoding only for codecs that cannot contain unescaped commas. Repeated response headers require a Fetch runtime exposing `Headers.getAll(name)` and response cookies require `Headers.getSetCookie()`; otherwise the client reports `unsupported_runtime` instead of accepting a collapsed value. Declared transport/admission/dispatch failures are typed outcomes, while undeclared system failures throw. Generated clients do not retry implicitly.
 
 ### ONLV sync Txid Validation
 

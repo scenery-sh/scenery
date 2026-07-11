@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
+	"scenery.sh/internal/parse"
+	"scenery.sh/internal/vnext"
 )
 
 func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) {
@@ -18,11 +21,47 @@ func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) 
 
 func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
 	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
+	var contract *vnext.Result
+	var target *vnext.GoBuildTarget
 	artifacts, err := writeGeneratedInspectArtifacts(appRoot, cfg, model)
 	if err != nil {
 		return nil, err
 	}
-	gen, err := codegen.GenerateWithConfig(model, cfg)
+	codegenOptions := codegen.Options{NativeServices: map[string]bool{}, BridgeServices: map[string]bool{}}
+	if pathExists(filepath.Join(appRoot, "scenery.scn")) {
+		contractResult, contractErr := vnext.Check(appRoot)
+		if contractErr != nil {
+			return nil, contractErr
+		}
+		contract = contractResult
+		if !contract.Valid() {
+			message := "edition-2027 contract or generated artifacts are invalid"
+			for _, diagnostic := range contract.Diagnostics {
+				if diagnostic.Severity == "error" {
+					message = diagnostic.Code + ": " + diagnostic.Message
+					break
+				}
+			}
+			return nil, fmt.Errorf("vNext build preparation failed: %s", message)
+		}
+		runtimePlan, planErr := vnext.BuildRuntimeIntegrationPlan(contract)
+		if planErr != nil {
+			return nil, planErr
+		}
+		codegenOptions.NativeServices = runtimePlan.NativeServices
+		codegenOptions.BridgeServices = runtimePlan.BridgeServices
+		codegenOptions.CompositionImport = runtimePlan.CompositionImport
+		resolvedTarget, targetErr := vnext.ResolveGoBuildTarget(contract, "", "development")
+		if targetErr != nil {
+			return nil, targetErr
+		}
+		target = &resolvedTarget
+		goBuildFlags = append([]string(nil), target.Context.BuildFlags...)
+		if len(target.Context.BuildTags) > 0 {
+			goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
+		}
+	}
+	gen, err := codegen.GenerateWithOptions(model, cfg, codegenOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +140,14 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
+		VNextContract:             contract,
+		VNextTarget:               target,
+	}
+	if target != nil {
+		result.GoEnvironment = parse.GoTargetEnvironment(target.Context)
+		// vNext reuse is disabled until the runtime-bundle target and input
+		// manifest are persisted in the existing cache key.
+		result.ReuseCompiled = false
 	}
 	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
 		return nil, err

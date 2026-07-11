@@ -1,0 +1,9 @@
+{
+  "api_version": "scenery.client-selection.v1",
+  "operations": {
+    "house/operation/process_scene": {
+      "family": "native",
+      "revision": "sha256:30fc81c4f97438fb0789d214aa78aabbc1a5e880b5ec1165c3868c5a7ae9c690"
+    }
+  }
+}

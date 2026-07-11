@@ -18,10 +18,12 @@ import (
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/vnext"
 )
 
 type dbSeedOptions struct {
 	AppRoot string
+	Env     string
 	DryRun  bool
 	JSON    bool
 }
@@ -30,6 +32,7 @@ type dbSeedResult struct {
 	SchemaVersion string             `json:"schema_version"`
 	App           inspectdata.AppRef `json:"app"`
 	DryRun        bool               `json:"dry_run"`
+	Environment   string             `json:"environment"`
 	Seeds         []dbSeedRecord     `json:"seeds"`
 	Summary       dbSeedSummary      `json:"summary"`
 }
@@ -132,9 +135,10 @@ func runDBSeedWithHooks(ctx context.Context, stdout io.Writer, args []string, ho
 }
 
 func parseDBSeedArgs(args []string) (dbSeedOptions, error) {
-	var opts dbSeedOptions
+	opts := dbSeedOptions{Env: "development"}
 	flags := newCLIFlagSet("db seed")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
+	flags.StringVar(&opts.Env, "env", opts.Env, "")
 	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
 	flags.BoolVar(&opts.JSON, "json", false, "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -143,6 +147,10 @@ func parseDBSeedArgs(args []string) (dbSeedOptions, error) {
 	}
 	if err := rejectCLIPositionals(positionals); err != nil {
 		return dbSeedOptions{}, err
+	}
+	opts.Env = strings.TrimSpace(opts.Env)
+	if opts.Env == "" {
+		return dbSeedOptions{}, fmt.Errorf("environment is required")
 	}
 	return opts, nil
 }
@@ -162,6 +170,10 @@ func buildDBSeedResultWithEnv(ctx context.Context, appRoot string, cfg appcfg.Co
 
 func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts dbSeedOptions, baseEnv []string, useManaged bool, hooks dbSeedHooks) (dbSeedResult, error) {
 	hooks = hooks.withDefaults()
+	opts.Env = strings.TrimSpace(opts.Env)
+	if opts.Env == "" {
+		opts.Env = "development"
+	}
 	result := dbSeedResult{
 		SchemaVersion: "scenery.db.seed.result.v1",
 		App: inspectdata.AppRef{
@@ -170,10 +182,11 @@ func buildDBSeedResultWithEnvHooks(ctx context.Context, appRoot string, cfg appc
 			Root:       appRoot,
 			ConfigPath: cfg.SourcePath(appRoot),
 		},
-		DryRun: opts.DryRun,
-		Seeds:  []dbSeedRecord{},
+		DryRun:      opts.DryRun,
+		Environment: opts.Env,
+		Seeds:       []dbSeedRecord{},
 	}
-	plans, err := discoverDBSeedPlans(appRoot, cfg)
+	plans, err := discoverDBSeedPlansForEnvironment(appRoot, cfg, opts.Env)
 	if err != nil {
 		return result, err
 	}
@@ -305,12 +318,17 @@ func emptyDBSeedResult(appRoot string, cfg appcfg.Config, opts dbSeedOptions) db
 			Root:       appRoot,
 			ConfigPath: cfg.SourcePath(appRoot),
 		},
-		DryRun: opts.DryRun,
-		Seeds:  []dbSeedRecord{},
+		DryRun:      opts.DryRun,
+		Environment: opts.Env,
+		Seeds:       []dbSeedRecord{},
 	}
 }
 
 func discoverDBSeedPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan, error) {
+	return discoverDBSeedPlansForEnvironment(appRoot, cfg, "development")
+}
+
+func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, environment string) ([]dbSeedPlan, error) {
 	if !cfg.Database.Seed.IsEnabled() {
 		return nil, nil
 	}
@@ -338,6 +356,21 @@ func discoverDBSeedPlans(appRoot string, cfg appcfg.Config) ([]dbSeedPlan, error
 			SQL:     string(data),
 			SHA256:  hex.EncodeToString(sum[:]),
 		})
+	}
+	if _, statErr := os.Stat(filepath.Join(appRoot, "scenery.scn")); statErr == nil {
+		compiled, compileErr := vnext.Compile(appRoot)
+		if compileErr != nil {
+			return nil, compileErr
+		}
+		fixturePlans, fixtureErr := vnext.BuildFixtureSeedPlans(compiled, environment)
+		if fixtureErr != nil {
+			return nil, fixtureErr
+		}
+		for _, fixture := range fixturePlans {
+			plans = append(plans, dbSeedPlan{Service: fixture.Database, Path: fixture.Path, SQL: fixture.SQL, SHA256: fixture.SHA256})
+		}
+	} else if !os.IsNotExist(statErr) {
+		return nil, statErr
 	}
 	sort.Slice(plans, func(i, j int) bool {
 		if plans[i].Service != plans[j].Service {

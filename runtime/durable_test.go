@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -12,7 +13,37 @@ import (
 	"time"
 
 	"scenery.sh/internal/postgresdb"
+	"scenery.sh/internal/runtimeapi"
 )
+
+func TestDurableInvocationMetadataSurvivesDispatchBoundary(t *testing.T) {
+	base := runtimeapi.NewInvocationWithMetadata(runtimeapi.InvocationMetadata{
+		ID: "http-1", Principal: "user-1", TenantID: "tenant-1", TraceID: "trace-1",
+		CallerBinding: "house/binding/process", Deployment: "app/deployment/preview", Locale: "en-GB",
+	})
+	encoded, err := durableInvocationMetadataJSON(runtimeapi.WithInvocation(context.Background(), base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, restore := enterDurableInvocation(context.Background(), "house", "house/execution/process", "job-1", time.Minute, durableInvocationMetadataFromJSON(encoded))
+	defer restore()
+	_, err = runDurableTaskHandler(ctx, time.Minute, func(handlerCtx context.Context, _ []byte) ([]byte, error) {
+		invocation, ok := runtimeapi.InvocationFromContext(handlerCtx)
+		if !ok {
+			t.Fatal("durable handler has no invocation")
+		}
+		if invocation.ID() != "job-1" || invocation.ExecutionID() != "job-1" || invocation.Principal() != "user-1" || invocation.TenantID() != "tenant-1" || invocation.TraceID() != "trace-1" || invocation.CallerBinding() != "house/binding/process" || invocation.Deployment() != "app/deployment/preview" || invocation.Locale() != "en-GB" {
+			t.Fatalf("durable invocation = %#v", invocation)
+		}
+		if request := CurrentRequest(); request.Type != "durable-call" || request.ExecutionID != "job-1" {
+			t.Fatalf("durable request = %#v", request)
+		}
+		return []byte(`{}`), nil
+	}, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestStartDurableRuntimeReconcilesTasks(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
@@ -137,6 +168,23 @@ func TestStartDurableRuntimeRequiresDatabaseURLForTasks(t *testing.T) {
 	})
 	if _, err := startDurableRuntime(context.Background(), AppConfig{Name: "demo"}); err == nil {
 		t.Fatal("expected missing DATABASE_URL error")
+	}
+}
+
+func TestRunDurableTaskHandlerEnforcesDeclaredTimeout(t *testing.T) {
+	started := make(chan struct{})
+	_, err := runDurableTaskHandler(context.Background(), 10*time.Millisecond, func(ctx context.Context, _ []byte) ([]byte, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("handler error = %v, want deadline exceeded", err)
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("handler was not invoked")
 	}
 }
 

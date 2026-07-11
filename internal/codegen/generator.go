@@ -20,13 +20,19 @@ type Output struct {
 	Generated map[string][]byte
 }
 
-func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error) {
+type Options struct {
+	NativeServices    map[string]bool
+	BridgeServices    map[string]bool
+	CompositionImport string
+}
+
+func GenerateWithOptions(appModel *model.App, cfg appcfg.Config, options Options) (*Output, error) {
 	out := &Output{
 		Rewritten: make(map[string][]byte),
 		Generated: make(map[string][]byte),
 	}
 
-	restoreEndpointDecls := rewriteEndpointDecls(appModel)
+	restoreEndpointDecls := rewriteEndpointDecls(appModel, options.NativeServices, options.BridgeServices)
 	defer restoreEndpointDecls()
 	for _, pkg := range appModel.Packages {
 		for _, file := range pkg.Files {
@@ -59,7 +65,7 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 				out.Generated[rel] = data
 			}
 		}
-		data, err := generatePackageFile(pkg, cfg)
+		data, err := generatePackageFile(pkg, cfg, options.NativeServices, options.BridgeServices)
 		if err != nil {
 			return nil, err
 		}
@@ -72,7 +78,7 @@ func GenerateWithConfig(appModel *model.App, cfg appcfg.Config) (*Output, error)
 		}
 	}
 
-	mainFile, err := generateMain(appModel, cfg)
+	mainFile, err := generateMain(appModel, cfg, options)
 	if err != nil {
 		return nil, err
 	}
@@ -95,13 +101,16 @@ func generateEarlyConfigFile(pkg *model.Package, hasSecrets bool) ([]byte, error
 	return format.Source([]byte(buf.String()))
 }
 
-func rewriteEndpointDecls(app *model.App) func() {
+func rewriteEndpointDecls(app *model.App, nativeServices, _ map[string]bool) func() {
 	type rewrittenDecl struct {
 		ident *ast.Ident
 		name  string
 	}
 	var rewritten []rewrittenDecl
 	for _, svc := range app.Services {
+		if nativeServices[svc.Name] {
+			continue
+		}
 		for _, ep := range svc.Endpoints {
 			if ep.Decl == nil || ep.Decl.Name == nil {
 				continue
@@ -137,7 +146,10 @@ func renderFile(fset *token.FileSet, file any) ([]byte, error) {
 	return format.Source(buf.Bytes())
 }
 
-func generatePackageFile(pkg *model.Package, cfg appcfg.Config) ([]byte, error) {
+func generatePackageFile(pkg *model.Package, cfg appcfg.Config, nativeServices, _ map[string]bool) ([]byte, error) {
+	if pkg.Service != nil && nativeServices[pkg.Service.Name] {
+		return nil, nil
+	}
 	var pkgEndpoints []*model.Endpoint
 	for _, ep := range pkg.Service.Endpoints {
 		if ep.Package == pkg {

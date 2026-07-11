@@ -31,6 +31,7 @@ var allowedDirectGoDeps = map[string]string{
 	"github.com/zclconf/go-cty":    "typed literal values exposed by the HCL v2 syntax API",
 	"golang.org/x/crypto":          "password hashing primitives for standard auth",
 	"golang.org/x/mod":             "Go module parsing for self-harness dependency checks",
+	"golang.org/x/net":             "IDNA2008 non-transitional URL host normalization required by the edition-2027 scalar contract",
 	"golang.org/x/sys":             "portable OS syscalls for doctor disk and memory readiness probes",
 	"golang.org/x/tools":           "Go package loading/parser pipeline",
 	"gopkg.in/yaml.v3":             "SQLC generator graph inspection from sqlc.yaml without shell parsing",

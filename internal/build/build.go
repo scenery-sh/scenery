@@ -2,14 +2,17 @@ package build
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"scenery.sh/internal/app"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
+	"scenery.sh/internal/vnext"
 )
 
 type Result struct {
@@ -34,6 +37,11 @@ type Result struct {
 	ReuseCompiled             bool
 	Ephemeral                 bool
 	GoBuildFlags              []string
+	GoEnvironment             []string
+	VNextContract             *vnext.Result
+	VNextTarget               *vnext.GoBuildTarget
+	VNextBuildInput           *VNextBuildInputManifest
+	ImplementationRevisions   map[string]string
 }
 
 // SourceStamp records the size/mtime/permissions of an app source file as
@@ -188,11 +196,52 @@ func App(appRoot string, cfg app.Config) (*Result, error) {
 	return result, nil
 }
 
+func AppForVNextTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
+	contract, err := vnext.Check(appRoot)
+	if err != nil {
+		return nil, err
+	}
+	if !contract.Valid() {
+		return nil, fmt.Errorf("vNext contract or generated artifacts are invalid")
+	}
+	target, err := vnext.ResolveGoBuildTarget(contract, targetName, defaultRole)
+	if err != nil {
+		return nil, err
+	}
+	if target.Role == "contract" {
+		return nil, fmt.Errorf("Go contract target %s does not produce a runtime binary", target.Name)
+	}
+	appModel, err := parse.AppWithOverlayTarget(appRoot, cfg.Name, nil, target.Context)
+	if err != nil {
+		return nil, err
+	}
+	result, err := Prepare(appRoot, appModel, cfg)
+	if err != nil {
+		return nil, err
+	}
+	result.VNextContract, result.VNextTarget = contract, &target
+	result.GoBuildFlags = append([]string(nil), target.Context.BuildFlags...)
+	if len(target.Context.BuildTags) > 0 {
+		result.GoBuildFlags = append(result.GoBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
+	}
+	result.GoEnvironment = parse.GoTargetEnvironment(target.Context)
+	result.ReuseCompiled = false
+	if err := Compile(result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
 	return LoadReusableBinaryWithSnapshot(appRoot, cfg, nil)
 }
 
 func LoadReusableBinaryWithSnapshot(appRoot string, cfg app.Config, snapshot *SourceSnapshot) (*Result, bool, error) {
+	if pathExists(filepath.Join(appRoot, "scenery.scn")) {
+		// ponytail: rebuild vNext bundles until target/input metadata is part of
+		// the persisted cache key; reusing an unbound binary is not safe.
+		return nil, false, nil
+	}
 	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
 	sourceFingerprint, err := currentAppSourceFingerprintWithSnapshot(appRoot, snapshot)
 	if err != nil {

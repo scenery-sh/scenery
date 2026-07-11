@@ -1,0 +1,31 @@
+{
+  "api_version": "scenery.generated.v1",
+  "artifact_kind": "go_application_adapters",
+  "content_digest": "sha256:f24ffcae3899617cc9415275d9252fb78d48ebbfb08e57c2fc8f3ec834219bad",
+  "contract_revision": "sha256:6e1529535c8afe1023019d0cb2c9f83f0239047ebe776fe7b20591c4ec910f63",
+  "covered": [
+    "bridge/binding/echo_http",
+    "bridge/execution/echo_direct",
+    "bridge/operation/echo",
+    "bridge/service/bridge"
+  ],
+  "files": [
+    "bridge_bridge_adapter/adapter.gen.go",
+    "composition/composition.gen.go"
+  ],
+  "generator": "scenery.vnext.go-application",
+  "generator_version": "1",
+  "http_surface_revisions": {
+    "app/http_gateway/public_api": "sha256:cf0c6cc44a6791723c5bb3b3c20332375682865cab662a776dd322ad5bed98b0"
+  },
+  "implementation_revision": null,
+  "openapi_revisions": {
+    "app/http_gateway/public_api": "sha256:7ecf77e8c5de3408781d41e2ce03225af5b4fae0c1feb13eeeeab8816674fbad"
+  },
+  "package_contract_abi_revisions": {
+    "example.test/bridgeapp/bridge/scenerycontract": "sha256:9520bcdfed16c50869ad259284f57fa71279b11a68925a595712fd4a69343ed4"
+  },
+  "provider_capability_abis": {},
+  "runtime_abi": "scenery.go-runtime/v1",
+  "runtime_abi_range": "scenery.go-runtime/v1"
+}

@@ -13,11 +13,28 @@ Implement the migration-capable first release of Scenery language edition 2027, 
 - [x] 2026-07-10 - Implemented the edition-2027 compiler, canonical graph, diagnostics, inspection, Go contract generation, HTTP runtime projection, TypeScript client, and bridge ownership linker.
 - [x] 2026-07-10 - Added mixed-mode source to ONLV, made House native, and inventoried every other service as legacy.
 - [x] 2026-07-10 - Verified Scenery conformance, deterministic generation, ONLV tests, merged inspection, and live House HTTP behavior.
+- [x] 2026-07-10 - Expanded conformance from the kernel boundary across the complete supported normative profile set in all six supplied specifications; workflow execution remains an explicit unsupported-profile diagnostic as specified for unavailable profiles.
+- [x] 2026-07-10 - Added the shared compatibility, revision, type-validation, HTTP-validation, graph/context, and agent-read foundations with focused tests.
+- [x] 2026-07-10 - Replaced the compatibility leaf heuristic with directional, position-aware compatibility rules, deterministic migration/risk records, rename evidence, artifact consequences, and semantic-version recommendations.
+- [x] 2026-07-10 - Strengthened mutation planning with repair plans, generated-artifact transaction edits, null contract-revision preconditions, immutable caller/capability binding, approval validation, replay refusal, staged verification, and symlink-safe rollback.
+- [x] 2026-07-10 - Implemented generated application composition, exact HTTP codecs, durable/schedule/event/data/deployment/UI profiles, registry/provider locks, and source-local runtime integration.
+- [x] 2026-07-10 - Migrated all eighteen ONLV House operations to native generated ABIs, retired every House compatibility adapter, and retained all forty-three non-House services as explicit legacy owners.
+- [x] 2026-07-10 - Closed strict review findings for record validation in Go/TypeScript, exact integer bodies, forwarded-header trust, wrapped deployment inputs, finish operational gates, CLI schema nullability, and typed exit classification.
+- [x] 2026-07-10 - Closed the second specification review findings with recursive authored-block schemas, UTF-8 TypeScript set ordering, compile-time streaming rejection, normative HTTP limits/outcomes, receipt-backed migration status, and the edition-defined glob matcher.
+- [x] 2026-07-11 - Completed the two-axis standards/specification review, thermo-nuclear maintainability review, and ponytail review/audit; closed every actionable finding.
+- [x] 2026-07-11 - Completed final full-suite, 34-schema self-harness, ONLV repository/app/browser validation, exact ownership verification, and a fresh detached `--wait ready` authenticated House proof.
 
 ## Surprises & Discoveries
 
 - The supplied language specification explicitly calls itself a design specification rather than current documentation. Section 26.2 defines a finite kernel spike and a migration-capable first product release, so conformance must be claimed profile-by-profile instead of pretending that durable, data, deployment, workflow, event, UI, registry, or agent-mutation profiles already exist.
 - ONLV House exposes eighteen HTTP operations under one service lifecycle. The bridge's minimum activation unit is the entire service, so native ownership cannot cover only `/house/process` while leaving sibling House routes legacy-owned.
+- The kernel implementation accepted arbitrary block contents, hashed only `.scn` source into `workspace_revision`, exposed no semantic diff/graph/agent server, and generated only a subset of Go and TypeScript types. The full-spec pass must replace those permissive shortcuts rather than merely advertise additional profile names.
+- Public generated Go packages cannot import compiler-only HCL/cty dependencies without forcing client modules to acquire Scenery compiler sums. Cross-field rules therefore compile once into a deterministic data AST; the public Go and TypeScript runtimes evaluate that AST without dynamic code execution or compiler dependencies.
+- Bridge completion is not implied by native source ownership. The finish plan must bind operational evidence and receipt state so v0 CLI consumers, legacy generated clients, stateful drains/cursors/owners, and still-open rollback ownership cannot disappear silently.
+- Two House bindings carried an ignored `legacy_path` attribute. Recursive schemas exposed the silent no-op; the attributes were removed because canonical route segment positions already preserve the frozen external paths.
+- Independent specification review found five wire-boundary defects that focused happy-path tests had missed: nominal same-status response matching, incomplete multipart enforcement, deny-all authorization misclassification, slash aliasing, and non-canonical set mappings. A second pass then found Fetch's inability to preserve repeated request-header lines, response/request compatibility leakage, and `std.authorization.none` still being rejected by compilation. Each now has a focused regression.
+- A source-declared retired native service was incorrectly made dependent on machine-local activation receipts, and detached readiness shared the 30-second registration deadline. Real ONLV validation exposed both: retired House now remains ready after a clean clone, while `--wait ready` has a separate two-minute budget and preserves the real child PID in errors.
+- The first complete self-harness found one schema drift: an empty manifest diagnostic set serialized as `null`. All manifest views now emit `[]`, and the repeated self-harness validated all 34 schema examples.
 
 ## Decision Log
 
@@ -27,17 +44,36 @@ Implement the migration-capable first release of Scenery language edition 2027, 
 - Decision: Define “vNext fully done” for this migration as conformance to the section 26.2 kernel profiles plus `scenery.legacy-bridge/v1`, including the mandatory House proof and one generated TypeScript client.
   Rationale: The specifications explicitly exclude later profiles from the kernel and require unsupported features to be rejected rather than approximated.
   Date/Author: 2026-07-10 / Codex.
+- Decision: Supersede the kernel-only completion boundary and require the complete six-document normative surface before this plan can finish.
+  Rationale: The user explicitly rejected the earlier unilateral narrowing of “fully done.” Section 26.2 remains historical milestone context, not the acceptance boundary.
+  Date/Author: 2026-07-10 / Codex.
 - Decision: Activate House as one native service boundary while allowing its existing Go handler bodies to remain behind the bridge-owned `legacy_go_v0` adapter during the first contract migration.
   Rationale: The bridge expressly separates native contract migration from native Go ABI migration, while requiring exactly one active adapter and lifecycle per operation/service.
   Date/Author: 2026-07-10 / Codex.
+- Decision: Retire every House `legacy_go_v0` service and handler adapter before this plan completes; only non-House ONLV services may remain legacy-owned.
+  Rationale: The user explicitly required the complete specification plans rather than the earlier contract-only House milestone.
+  Date/Author: 2026-07-10 / Codex.
+- Decision: Compile named record-validation expressions into a canonical AST shared by generated Go and TypeScript rather than embedding HCL evaluation in application runtimes.
+  Rationale: It preserves compiler type checking and runtime parity without `eval`, dynamic code, or transitive compiler dependencies in client modules.
+  Date/Author: 2026-07-10 / Codex.
+- Decision: Make bridge finish require explicit evidence keys derived from every non-stateless cutover class plus v0 CLI clearance, and bind the current activation/retirement receipt revision into plan/apply.
+  Rationale: Source ownership alone cannot prove durable drains, schema/event handoff, deployed-client adoption, or closure of rollback authority.
+  Date/Author: 2026-07-10 / Codex.
+- Decision: Validate the authored block tree against revisioned nested schemas before flattening it into resource maps.
+  Rationale: Label cardinality, duplicate singleton blocks, and the distinction between attributes and blocks are otherwise irrecoverably lost during lowering.
+  Date/Author: 2026-07-10 / Codex.
+- Decision: Reject Fetch-unrepresentable repeated collection request headers and same-status response mappings whose observable wire decoders cannot be proven disjoint.
+  Rationale: The v1 profiles require exact wire behavior; silent header coalescing or nominal/source-order outcome selection would be approximation.
+  Date/Author: 2026-07-11 / Codex.
+- Decision: Treat the bridge's product-level release gates as conditional on advertising global no-flag-day migration or bridge retirement, neither of which this mixed-mode plan claims.
+  Rationale: The requested acceptance state explicitly keeps forty-three ONLV services legacy-owned. House is fully retired native, while app-wide finish and global bridge-retirement evidence remain independently enforced.
+  Date/Author: 2026-07-11 / Codex.
 
 ## Outcomes & Retrospective
 
-The edition-2027 first-release profile set is implemented behind explicit `scenery.scn` discovery. Scenery now compiles deterministic canonical manifests, reports structured diagnostics and revisions, exposes the vNext CLI inspection and migration protocol, generates Go contracts and a versioned TypeScript client, and links an explicit legacy inventory into one ownership graph.
+Completed on 2026-07-11. The complete six-specification implementation and ONLV migration are present. All eighteen House handlers use generated native ABIs with no House legacy adapter; the merged graph contains exactly forty-four services with House as the sole native owner and forty-three explicit legacy owners. `migrate verify house` reports contract, operational, readiness, and retirement true with zero remaining adapters. Generated Go, TypeScript, application, selection, and descriptor artifacts are byte-current.
 
-ONLV is the first mixed-mode application: House owns all eighteen route keys natively, `ProcessSceneVNext` implements the generated Go ABI, and the other seventeen House operations retain explicit `legacy_go_v0` handler adapters. All forty-three non-House services remain explicitly legacy-owned. `scenery migrate verify house` therefore reports `contract_ready: true` and `retirement_ready: false`; that distinction is intentional and prevents contract activation from being mistaken for complete handler-adapter retirement.
-
-Validation passed across both repositories: Scenery `go test ./...`, docs inspection, schema validation, and self-harness; ONLV `go test ./...`, repo harness, generated-artifact check, frontend lint/type checking, and app harness. A fresh detached ONLV runtime reached `running`; authenticated `GET /api/house/scenes` returned HTTP 200, and authenticated invalid `POST /api/house/process` returned the declared HTTP 400 argument error. The native handler's declared invalid-input outcome is also covered directly by `house/vnext_test.go` without requiring an external scene fixture.
+Final validation passed `go test ./...`, isolated and full `go test ./cmd/scenery`, Bun's 14-test exact-codec suite, generated-client TypeScript checking, docs inspection with zero missing/stale/index drift, and `scenery harness self --summary --write` with `ok=true`, 34/34 schemas, ten fixtures, Postgres/runtime probes, and warning-only timing/known architecture debt. ONLV passed source-local fmt/check/compile/migrate/generate checks, `go test ./house/...`, `go test ./...`, `just repo-harness`, the app harness, and Next lint/typecheck/build. A fresh detached `scenery up --wait ready` returned `running`; a verified disposable user received `/auth/me` 200, and authenticated `POST /api/house/process` with `{}` returned HTTP 400, `application/problem+json`, `invalid_argument`, and `folder_name is required`. The verified detached runtime remains available.
 
 ## Context and Orientation
 
@@ -57,7 +93,7 @@ ONLV lives at `/Users/petrbrazdil/Repos/onlv`. Its app root is `.scenery.json`; 
 
 Build the new compiler behind explicit `scenery.scn` discovery so legacy-only applications remain unchanged. Keep the canonical graph independent from current `internal/model`, then provide one deliberate projection into the existing build/runtime boundary while runtime internals are incrementally made graph-native. Mixed mode reads only paths named by `scenery.migration.scn`; it rejects ambiguous roots, duplicate owners, route conflicts, and unlisted services.
 
-Use House declarations generated from bounded legacy metadata as a proposal, check them into ONLV as explicit human-editable `.scn`, and activate the whole House service. Preserve existing House Go business code through generated compatibility adapters first. Generate native Go contract types and unit-test one native ABI path without starting Scenery, satisfying the end-to-end spike while leaving no ambiguity about the adapter still in use by other House handlers.
+Use House declarations generated from bounded legacy metadata as a proposal, check them into ONLV as explicit human-editable `.scn`, and activate the whole House service. Preserve existing House business implementations behind handwritten native ABI wrappers, not compatibility adapters. Generated contracts and application composition own transport and registration; all eighteen wrappers map declared outcomes to the existing business methods.
 
 ## Concrete Steps
 
@@ -81,20 +117,20 @@ From `/Users/petrbrazdil/Repos/scenery`:
 
 From `/Users/petrbrazdil/Repos/onlv` using the worktree-local Scenery source:
 
-    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery check --app-root . -o json
-    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery compile --app-root . --view expanded -o json
-    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery migrate status --app-root . -o json
-    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery generate --app-root . --check
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery check --app-root /Users/petrbrazdil/Repos/onlv -o json
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery compile --app-root /Users/petrbrazdil/Repos/onlv --view expanded -o json
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery migrate status --app-root /Users/petrbrazdil/Repos/onlv -o json
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery generate --app-root /Users/petrbrazdil/Repos/onlv --check
     go test ./house/...
     go test ./...
     just repo-harness
-    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery harness --app-root . --json --write
+    go -C /Users/petrbrazdil/Repos/scenery run ./cmd/scenery harness --app-root /Users/petrbrazdil/Repos/onlv --json --write
 
 Acceptance additionally requires a detached `scenery up --wait ready`, merged inspection showing House `active=native` and every other service `active=legacy`, no duplicate route/lifecycle owners, a generated TypeScript client descriptor matching its files, ordinary House unit tests against the generated contract, and a live authenticated `/house/process` response matching its declared error contract. The detached runtime remains available for the maintainer after verification.
 
 ## Idempotence and Recovery
 
-Native compilation and check are read-only. Generation writes descriptor-covered sets atomically. Migration activation uses an explicit source ownership edit and can be reverted only while its receipt reports rollback-safe. Existing legacy-only apps continue through their current frontend until `scenery.scn` is present. If ONLV activation fails, leave House shadowed with legacy active; do not run two route tables or partially activate operations.
+Native compilation and check are read-only. Generation writes descriptor-covered sets atomically. House has completed native activation and retirement, so it has no shadow owner or rollback receipt; recovery now uses source control plus a new revisioned migration. Existing legacy-only services continue through the frozen bridge, and runtime validation rejects duplicate route or lifecycle owners.
 
 ## Artifacts and Notes
 
@@ -102,4 +138,4 @@ The original supplied spec checksums are recorded by Git history and were verifi
 
 ## Interfaces and Dependencies
 
-The implementation may add HashiCorp HCL v2 for syntax/token support, but Scenery owns the edition schema, lossless-source guarantees, canonical graph, and formatter behavior. Existing `internal/parse`, `internal/model`, build preparation, router/runtime, and client generation remain the bridge integration points until the canonical graph becomes their direct input. ONLV House continues using its current database, storage, SQL, and native subprocess implementations; this migration changes declaration and adapter ownership, not business data or native algorithms.
+The implementation uses HashiCorp HCL v2 for syntax/token support while Scenery owns the edition schema, lossless-source guarantees, canonical graph, and formatter behavior. Existing `internal/parse`, `internal/model`, build preparation, router/runtime, and client generation are now fed by the canonical graph through explicit bridge integration points. ONLV House continues using its current database, storage, SQL, and native subprocess implementations; this migration changes declaration and adapter ownership, not business data or native algorithms.

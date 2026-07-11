@@ -31,6 +31,36 @@ func TestRouteTablePrefersStaticRoute(t *testing.T) {
 	}
 }
 
+func TestRouteTableUsesSegmentWiseLiteralPrecedence(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		router := newRouteTable()
+		got := ""
+		parameterFirst := func(w http.ResponseWriter, _ *http.Request, _ routeParams) {
+			got = "parameter-first"
+			w.WriteHeader(http.StatusOK)
+		}
+		literalFirst := func(w http.ResponseWriter, _ *http.Request, _ routeParams) {
+			got = "literal-first"
+			w.WriteHeader(http.StatusOK)
+		}
+		register := func(first bool) {
+			if first {
+				router.Handle([]string{http.MethodGet}, "/a/:value/c", parameterFirst)
+				router.Handle([]string{http.MethodGet}, "/a/b/:value", literalFirst)
+			} else {
+				router.Handle([]string{http.MethodGet}, "/a/b/:value", literalFirst)
+				router.Handle([]string{http.MethodGet}, "/a/:value/c", parameterFirst)
+			}
+		}
+		register(reverse)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/a/b/c", nil))
+		if got != "literal-first" {
+			t.Fatalf("reverse=%t selected %q", reverse, got)
+		}
+	}
+}
+
 func TestRouteTableCapturesParamsAndWildcard(t *testing.T) {
 	router := newRouteTable()
 
@@ -92,5 +122,20 @@ func TestRouteTableMethodHandling(t *testing.T) {
 	}
 	if allow := rec.Header().Get("Allow"); allow != "GET, HEAD, OPTIONS" {
 		t.Fatalf("Allow = %q, want %q", allow, "GET, HEAD, OPTIONS")
+	}
+}
+
+func TestRouteTableDoesNotAliasSlashVariants(t *testing.T) {
+	router := newRouteTable()
+	router.Handle([]string{http.MethodGet}, "/house/process", func(w http.ResponseWriter, _ *http.Request, _ routeParams) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	for _, path := range []string{"/house/process/", "//house/process", "/house//process"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Errorf("path %q status = %d, want %d", path, recorder.Code, http.StatusNotFound)
+		}
 	}
 }

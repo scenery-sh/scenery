@@ -66,6 +66,75 @@ func TestInitializeServicesPropagatesErrors(t *testing.T) {
 	}
 }
 
+func TestInitializeNativeServicesRespectsDependencies(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+
+	var mu sync.Mutex
+	var calls []string
+	register := func(address string, dependencies ...string) {
+		t.Helper()
+		if err := RegisterNativeService(NativeServiceRegistration{Address: address, Dependencies: dependencies, Initialize: func(context.Context) error {
+			mu.Lock()
+			defer mu.Unlock()
+			calls = append(calls, address)
+			return nil
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	register("database")
+	register("house", "database")
+	if err := InitializeServices(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := calls, []string{"database", "house"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("initialization calls = %v, want %v", got, want)
+	}
+}
+
+func TestInitializeNativeServicesRejectsMissingDependencyAndCycle(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	if err := RegisterNativeService(NativeServiceRegistration{Address: "house", Dependencies: []string{"database"}, Initialize: func(context.Context) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if err := InitializeServices(); err == nil {
+		t.Fatal("missing dependency initialized")
+	}
+	restore()
+
+	restore = replaceGlobalRegistryForTest()
+	defer restore()
+	for _, registration := range []NativeServiceRegistration{
+		{Address: "house", Dependencies: []string{"audit"}, Initialize: func(context.Context) error { return nil }},
+		{Address: "audit", Dependencies: []string{"house"}, Initialize: func(context.Context) error { return nil }},
+	} {
+		if err := RegisterNativeService(registration); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := InitializeServices(); err == nil || err.Error() != "initialize services: dependency cycle" {
+		t.Fatalf("cycle error = %v", err)
+	}
+}
+
+func TestNativeServiceShutdownErrorsAreAggregated(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	if err := RegisterNativeService(NativeServiceRegistration{
+		Address: "house", Initialize: func(context.Context) error { return nil },
+		Shutdown: func(context.Context) error { return errors.New("stop failed") },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := InitializeServices(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ShutdownServices(context.Background()); err == nil || err.Error() != "shutdown service house: stop failed" {
+		t.Fatalf("shutdown error = %v", err)
+	}
+}
+
 func TestShutdownServicesRunsInReverseInitializerOrder(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
@@ -160,13 +229,20 @@ func TestSetAppConfigUsesSessionIdentityEnv(t *testing.T) {
 func replaceGlobalRegistryForTest() func() {
 	prev := global
 	global = &registry{
-		endpoints:           make(map[string]*Endpoint),
-		middlewares:         make(map[string]*Middleware),
-		cronJobs:            make(map[string]*CronJob),
-		durableTasks:        make(map[string]*DurableTask),
-		serviceInitializers: make(map[string]func() error),
-		serviceInitOrder:    make(map[string]int),
-		serviceShutdowns:    make(map[string]serviceShutdown),
+		endpoints:                 make(map[string]*Endpoint),
+		middlewares:               make(map[string]*Middleware),
+		cronJobs:                  make(map[string]*CronJob),
+		durableTasks:              make(map[string]*DurableTask),
+		contractDurableExecutions: make(map[string]ContractDurableRegistration),
+		contractBindings:          make(map[string]ContractInternalBindingRegistration),
+		contractCLIBindings:       make(map[string]ContractCLIBindingRegistration),
+		contractPages:             make(map[string]ContractPageRegistration),
+		contractEventBuses:        make(map[string]ContractEventBus),
+		contractEventConsumers:    make(map[string]ContractEventConsumerRegistration),
+		contractEventEmissions:    make(map[string]ContractEventEmissionRegistration),
+		serviceInitializers:       make(map[string]serviceInitializer),
+		serviceInitOrder:          make(map[string]int),
+		serviceShutdowns:          make(map[string]serviceShutdown),
 		meta: shared.AppMetadata{
 			Environment: defaultEnvironment(),
 		},

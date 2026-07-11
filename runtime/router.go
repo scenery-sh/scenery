@@ -82,8 +82,9 @@ func (r *routeTable) Handle(methods []string, path string, handler routeHandle) 
 }
 
 func (r *routeTable) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	requestPath := req.URL.EscapedPath()
 	if req.Method != http.MethodOptions {
-		if routes := r.exact[req.URL.Path]; len(routes) > 0 {
+		if routes := r.exact[requestPath]; len(routes) > 0 {
 			for _, route := range routes {
 				if routeAllowsMethod(route.methods, req.Method) {
 					w.Header().Set("Allow", strings.Join(expandedAllowedMethods(routes), ", "))
@@ -94,7 +95,7 @@ func (r *routeTable) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	pathMatches := r.matchingRoutes(req.URL.Path)
+	pathMatches := r.matchingRoutes(requestPath)
 	if len(pathMatches) == 0 {
 		r.serveNotFound(w, req)
 		return
@@ -188,6 +189,15 @@ func routeAllowsMethod(methods []string, method string) bool {
 }
 
 func compareRoutes(a, b *route) int {
+	for index := 0; index < len(a.pattern.segments) && index < len(b.pattern.segments); index++ {
+		left, right := a.pattern.segments[index].kind, b.pattern.segments[index].kind
+		if left < right {
+			return -1
+		}
+		if left > right {
+			return 1
+		}
+	}
 	switch {
 	case a.pattern.literals > b.pattern.literals:
 		return -1
@@ -229,11 +239,10 @@ func parseRoutePattern(path string) routePattern {
 }
 
 func splitRoutePath(path string) []string {
-	path = strings.Trim(path, "/")
-	if path == "" {
+	if path == "" || path == "/" {
 		return nil
 	}
-	return strings.Split(path, "/")
+	return strings.Split(strings.TrimPrefix(path, "/"), "/")
 }
 
 func (p routePattern) match(path string) (routeParams, bool) {

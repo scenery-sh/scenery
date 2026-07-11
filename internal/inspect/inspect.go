@@ -202,6 +202,9 @@ type EndpointRecord struct {
 	Methods    []string `json:"methods"`
 	Generated  bool     `json:"generated,omitempty"`
 	HasPayload bool     `json:"has_payload"`
+	File       string   `json:"-"`
+	Receiver   string   `json:"-"`
+	Tags       []string `json:"-"`
 }
 
 func BuildAppResponse(appRoot string, cfg appcfg.Config, app *model.App) AppResponse {

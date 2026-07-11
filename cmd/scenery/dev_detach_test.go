@@ -52,6 +52,16 @@ func TestParseDevArgsWaitModes(t *testing.T) {
 	}
 }
 
+func TestDetachedDevWaitTimeoutsSeparateRegistrationFromReadiness(t *testing.T) {
+	t.Parallel()
+	if got := detachedDevWaitTimeout(detachedDevWaitRegistered); got != 30*time.Second {
+		t.Fatalf("registered timeout = %s", got)
+	}
+	if got := detachedDevWaitTimeout(detachedDevWaitReady); got != 2*time.Minute {
+		t.Fatalf("ready timeout = %s", got)
+	}
+}
+
 func TestDetachedDevChildMode(t *testing.T) {
 	t.Setenv(detachedDevChildEnv, "yes")
 	if !detachedDevChildMode() {

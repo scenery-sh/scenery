@@ -2,6 +2,65 @@
 
 This cookbook is the practical "how do I build this?" companion to `docs/local-contract.md`. The local contract is the source of truth for exact CLI and JSON contracts; this file gives agents and developers common recipes.
 
+## Edition-2027 Native Or Mixed App
+
+Create `scenery.scn` with `language`, `application`, installed `module` blocks, gateways, and declared generation targets. Each local module owns a `scenery.package.scn`. A mixed app also keeps its legacy app config and an explicit `scenery.migration.scn`; every discovered service must appear as `legacy_service`, `shadow_service`, or `native_service`.
+
+Use the compiler and committed-generation loop:
+
+```sh
+scenery fmt --check -o json
+scenery check -o json
+scenery compile --view expanded -o json
+scenery migrate status -o json     # mixed mode
+scenery generate -o json
+scenery generate --check -o json
+go test ./...
+scenery harness --json --write
+```
+
+Treat `scenerycontract`, `internal/scenerygen`, generated TypeScript roots, and their descriptors as one atomically generated set. Implement the generated Go handler interfaces in ordinary app code; exact HTTP scalar/body/status behavior remains owned by the generated adapter and runtime codec.
+
+Use exact `std.type.unit` for an operation with no input or response body. To prove an implementation rather than only its contract, build a declared target and keep the runtime-bundle sidecar with the binary:
+
+```sh
+scenery build --target release -o ./dist/app
+jq . ./dist/app.scenery.runtime-bundle.v1.json
+```
+
+The descriptor contains the exact Go build-input manifest and resolved tool identities. Do not substitute source globs or an ambient compiler fingerprint. Host CGO records C/C++ tool identities; fixed non-host CGO is deliberately unavailable until it has a typed native-toolchain contract.
+
+An authored CLI binding is invoked directly through its declared command path. Help, completion, typed decoding, output selection, and exit status come from the binding:
+
+```sh
+scenery house process-scene scene-42 --mode all --help
+scenery completion house process-scene
+scenery house process-scene scene-42 --mode all -o json
+```
+
+Use lower-kebab command and flag names below a non-reserved first segment. Context mappings are supplied from the runtime-minted local-developer principal and cannot be overridden by caller input.
+
+For typed fixtures, use the same environment name as the deployment. Only matching fixtures are projected, and the existing seed ledger still prevents changed or destructive reapplication:
+
+```sh
+scenery db seed --env development --dry-run --json
+scenery db seed --env development --json
+```
+
+To migrate a service, generate a native candidate, shadow and compare it, activate native ownership with evidence for every reported non-stateless cutover class, verify the service, then retire the legacy candidate. Keep the activation receipt until retirement because rollback is a new receipt-bound plan, not a runtime toggle. Finish the whole bridge only after all services are native and retired, all adapters/incomplete constructs are gone, v0 CLI and legacy generated-client consumers are cleared, and every stateful retirement has an evidence reference:
+
+```sh
+scenery migrate service house --generate --dry-run -o json
+scenery migrate service house --shadow --dry-run -o json
+scenery migrate compare house -o json
+scenery migrate activate house --native --dry-run --evidence generated_client=artifact://consumer-gate -o json
+scenery migrate verify house -o json
+scenery migrate service house --retire --dry-run -o json
+scenery migrate finish --dry-run --evidence v0_cli_consumers=artifact://cli-audit -o json
+```
+
+Status output is authoritative for the complete evidence key set; the abbreviated example does not invent evidence for classes the service does not report. Workflow execution and unknown profiles fail compilation rather than degrading to an approximation.
+
 ## Minimal App
 
 Create `.scenery.json`:
@@ -575,6 +634,8 @@ scenery generate client
 ```
 
 Common failure: committing generated clients without regenerating after endpoint changes.
+
+Edition-2027 response mappings may rebuild one typed outcome from its body, response headers, and cookies. When outcomes share a status, the client validates each distinct typed mapping and accepts exactly one match; mappings that are not provably disjoint from observable media and structural wire shape are compile errors. Query/header sets are canonical and duplicate-free. Multipart request generation follows each declared part's exact name, kind, media types, byte limit, filename retention, and multiplicity instead of deriving parts from record fields. Optional absent metadata remains absent. Fetch cannot preserve repeated request-header field lines, so use comma encoding for list/set headers only when the scalar codec permits commas to remain unambiguous. A Fetch runtime must expose `Headers.getAll(name)` for repeated response headers and `Headers.getSetCookie()` for response cookies; generated clients return `unsupported_runtime` when the declared wire shape cannot be observed exactly. Declared transport/admission/dispatch failures are typed outcomes and no retry is added implicitly.
 
 ## Code Tasks
 

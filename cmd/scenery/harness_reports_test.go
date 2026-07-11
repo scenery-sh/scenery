@@ -94,6 +94,8 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`,
 		"scenery.agent_context.v1.schema.json",
+		"scenery.approval-token.v1.schema.json",
+		"scenery.approval-trust.v1.schema.json",
 		"scenery.deploy.registry.v1.schema.json",
 		"scenery.deploy.status.v1.schema.json",
 		"scenery.doctor.result.v1.schema.json",
@@ -132,7 +134,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".scenery/harness/self-latest.json", Exists: true}},
 	}
 	report := buildHarnessSchemaValidationReport(root, resp)
-	if len(report.Validated) != 15 {
+	if len(report.Validated) != 17 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

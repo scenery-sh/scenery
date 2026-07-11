@@ -1,6 +1,6 @@
 package store
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 const initSchemaSQL = `
 CREATE SCHEMA IF NOT EXISTS scenery;
@@ -22,10 +22,15 @@ CREATE TABLE IF NOT EXISTS scenery.durable_tasks (
   default_timeout_ms INTEGER NOT NULL DEFAULT 60000,
   default_lease_ms INTEGER NOT NULL DEFAULT 60000,
   max_attempts INTEGER NOT NULL DEFAULT 1,
+  max_concurrency INTEGER NOT NULL DEFAULT 0,
+  deduplication_retention_ms BIGINT NOT NULL DEFAULT 604800000,
+  deduplication_conflict TEXT NOT NULL DEFAULT 'return_existing',
   retry_initial_ms INTEGER NOT NULL DEFAULT 1000,
   retry_max_ms INTEGER NOT NULL DEFAULT 60000,
   retry_backoff REAL NOT NULL DEFAULT 2.0,
   retry_jitter REAL NOT NULL DEFAULT 0.1,
+  success_retention_ms BIGINT NOT NULL DEFAULT 604800000,
+  failure_retention_ms BIGINT NOT NULL DEFAULT 2592000000,
   requirements_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   enabled BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -40,10 +45,14 @@ CREATE TABLE IF NOT EXISTS scenery.durable_jobs (
   task_version INTEGER NOT NULL DEFAULT 1,
   state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
   dedupe_key TEXT,
+  dedupe_expires_at TIMESTAMPTZ,
+  concurrency_key TEXT,
   priority INTEGER NOT NULL DEFAULT 0,
   run_after TIMESTAMPTZ NOT NULL DEFAULT now(),
   attempt INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 1,
+  success_retention_ms BIGINT NOT NULL DEFAULT 604800000,
+  failure_retention_ms BIGINT NOT NULL DEFAULT 2592000000,
   timeout_at TIMESTAMPTZ,
   deadline_at TIMESTAMPTZ,
   lease_id TEXT,
@@ -161,4 +170,17 @@ CREATE TABLE IF NOT EXISTS scenery.durable_worker_tokens (
   last_used_at TIMESTAMPTZ,
   PRIMARY KEY (service, id)
 );
+
+ALTER TABLE scenery.durable_tasks
+  ADD COLUMN IF NOT EXISTS success_retention_ms BIGINT NOT NULL DEFAULT 604800000,
+  ADD COLUMN IF NOT EXISTS failure_retention_ms BIGINT NOT NULL DEFAULT 2592000000,
+  ADD COLUMN IF NOT EXISTS max_concurrency INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS deduplication_retention_ms BIGINT NOT NULL DEFAULT 604800000,
+  ADD COLUMN IF NOT EXISTS deduplication_conflict TEXT NOT NULL DEFAULT 'return_existing';
+
+ALTER TABLE scenery.durable_jobs
+  ADD COLUMN IF NOT EXISTS success_retention_ms BIGINT NOT NULL DEFAULT 604800000,
+  ADD COLUMN IF NOT EXISTS failure_retention_ms BIGINT NOT NULL DEFAULT 2592000000,
+  ADD COLUMN IF NOT EXISTS dedupe_expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS concurrency_key TEXT;
 `

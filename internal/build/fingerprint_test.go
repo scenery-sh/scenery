@@ -12,7 +12,7 @@ import (
 
 func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 	old := runGo
-	runGo = func(_ context.Context, dir string, args ...string) error {
+	runGo = func(_ context.Context, dir string, _ []string, args ...string) error {
 		if len(args) == 5 && args[0] == "build" && args[1] == "-buildvcs=false" && args[2] == "-o" && args[4] == "./scenery_internal_main" {
 			if err := os.WriteFile(filepath.Join(dir, "go.sum"), []byte("example.com/dep v1.0.0 h1:dep\n"), 0o644); err != nil {
 				return err
@@ -65,7 +65,7 @@ func TestCompileUpdatesDependencyFingerprintAfterSuccessfulBuild(t *testing.T) {
 
 func TestCompileReusesExistingBinaryDespiteDependencyFingerprintDrift(t *testing.T) {
 	old := runGo
-	runGo = func(_ context.Context, dir string, args ...string) error {
+	runGo = func(_ context.Context, dir string, _ []string, args ...string) error {
 		return fmt.Errorf("unexpected fake go command in %s: go %s", dir, strings.Join(args, " "))
 	}
 	t.Cleanup(func() { runGo = old })

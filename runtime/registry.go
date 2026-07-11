@@ -51,18 +51,32 @@ type AuthInfo struct {
 }
 
 type Endpoint struct {
-	Service       string
-	Name          string
-	Access        Access
-	Raw           bool
-	Path          string
-	Methods       []string
-	MiddlewareIDs []string
-	PathParams    []ParamSpec
-	PayloadType   reflect.Type
-	ResponseType  reflect.Type
-	Invoke        func(context.Context, []any, any) (any, error)
-	RawHandler    func(http.ResponseWriter, *http.Request)
+	Service               string
+	Name                  string
+	Access                Access
+	Raw                   bool
+	Path                  string
+	Methods               []string
+	MiddlewareIDs         []string
+	PathParams            []ParamSpec
+	PayloadType           reflect.Type
+	ResponseType          reflect.Type
+	Invoke                func(context.Context, []any, any) (any, error)
+	RawHandler            func(http.ResponseWriter, *http.Request)
+	DecodeContractRequest func(*http.Request, map[string]string) (ContractDecodedRequest, error)
+	EncodeContractOutcome func(*http.Request, any) (ContractHTTPResponse, error)
+	ContractPolicy        *ContractHTTPPolicy
+}
+
+type ContractDecodedRequest struct {
+	Payload  any
+	PathArgs []any
+}
+
+type ContractHTTPResponse struct {
+	Status  int
+	Headers http.Header
+	Body    []byte
 }
 
 type Middleware struct {
@@ -83,6 +97,9 @@ type CronJob struct {
 	Title          string
 	Every          time.Duration
 	Schedule       string
+	Calendar       string
+	At             time.Time
+	Timezone       string
 	OverlapPolicy  string
 	CatchupWindow  time.Duration
 	PauseOnFailure bool
@@ -92,18 +109,24 @@ type CronJob struct {
 }
 
 type DurableTask struct {
-	Name             string
-	Service          string
-	HandlerRef       string
-	Handler          func(context.Context, []byte) ([]byte, error)
-	DefaultTimeout   time.Duration
-	DefaultLease     time.Duration
-	MaxAttempts      int
-	RetryInitial     time.Duration
-	RetryMax         time.Duration
-	RetryBackoff     float64
-	RetryJitter      float64
-	RequirementsJSON string
+	Name                   string
+	Service                string
+	Version                int
+	HandlerRef             string
+	Handler                func(context.Context, []byte) ([]byte, error)
+	DefaultTimeout         time.Duration
+	DefaultLease           time.Duration
+	MaxAttempts            int
+	RetryInitial           time.Duration
+	RetryMax               time.Duration
+	RetryBackoff           float64
+	RetryJitter            float64
+	SuccessRetention       time.Duration
+	FailureRetention       time.Duration
+	MaxConcurrency         int
+	DeduplicationRetention time.Duration
+	DeduplicationConflict  string
+	RequirementsJSON       string
 }
 
 type AppConfig struct {
@@ -116,31 +139,59 @@ type AppConfig struct {
 type serviceShutdown struct {
 	service  string
 	order    int
-	shutdown func(context.Context)
+	shutdown func(context.Context) error
+}
+
+type serviceInitializer struct {
+	service      string
+	dependencies []string
+	initialize   func(context.Context) error
+	shutdown     func(context.Context) error
+}
+
+type NativeServiceRegistration struct {
+	Address      string
+	Dependencies []string
+	Initialize   func(context.Context) error
+	Shutdown     func(context.Context) error
 }
 
 type registry struct {
-	mu                  sync.RWMutex
-	meta                shared.AppMetadata
-	endpoints           map[string]*Endpoint
-	middlewares         map[string]*Middleware
-	authHandler         *AuthHandler
-	cronJobs            map[string]*CronJob
-	durableTasks        map[string]*DurableTask
-	serviceInitializers map[string]func() error
-	serviceInitOrder    map[string]int
-	serviceShutdowns    map[string]serviceShutdown
-	observability       ObservabilityConfig
+	mu                        sync.RWMutex
+	meta                      shared.AppMetadata
+	endpoints                 map[string]*Endpoint
+	middlewares               map[string]*Middleware
+	authHandler               *AuthHandler
+	cronJobs                  map[string]*CronJob
+	durableTasks              map[string]*DurableTask
+	contractDurableExecutions map[string]ContractDurableRegistration
+	contractBindings          map[string]ContractInternalBindingRegistration
+	contractCLIBindings       map[string]ContractCLIBindingRegistration
+	contractPages             map[string]ContractPageRegistration
+	contractEventBuses        map[string]ContractEventBus
+	contractEventConsumers    map[string]ContractEventConsumerRegistration
+	contractEventEmissions    map[string]ContractEventEmissionRegistration
+	serviceInitializers       map[string]serviceInitializer
+	serviceInitOrder          map[string]int
+	serviceShutdowns          map[string]serviceShutdown
+	observability             ObservabilityConfig
 }
 
 var global = &registry{
-	endpoints:           make(map[string]*Endpoint),
-	middlewares:         make(map[string]*Middleware),
-	cronJobs:            make(map[string]*CronJob),
-	durableTasks:        make(map[string]*DurableTask),
-	serviceInitializers: make(map[string]func() error),
-	serviceInitOrder:    make(map[string]int),
-	serviceShutdowns:    make(map[string]serviceShutdown),
+	endpoints:                 make(map[string]*Endpoint),
+	middlewares:               make(map[string]*Middleware),
+	cronJobs:                  make(map[string]*CronJob),
+	durableTasks:              make(map[string]*DurableTask),
+	contractDurableExecutions: make(map[string]ContractDurableRegistration),
+	contractBindings:          make(map[string]ContractInternalBindingRegistration),
+	contractCLIBindings:       make(map[string]ContractCLIBindingRegistration),
+	contractPages:             make(map[string]ContractPageRegistration),
+	contractEventBuses:        make(map[string]ContractEventBus),
+	contractEventConsumers:    make(map[string]ContractEventConsumerRegistration),
+	contractEventEmissions:    make(map[string]ContractEventEmissionRegistration),
+	serviceInitializers:       make(map[string]serviceInitializer),
+	serviceInitOrder:          make(map[string]int),
+	serviceShutdowns:          make(map[string]serviceShutdown),
 	meta: shared.AppMetadata{
 		Environment: defaultEnvironment(),
 	},
@@ -199,16 +250,32 @@ func defaultEnvironment() shared.Environment {
 }
 
 func RegisterEndpoint(ep *Endpoint) {
+	if err := RegisterEndpointChecked(ep); err != nil {
+		panic(err)
+	}
+}
+
+func RegisterEndpointChecked(ep *Endpoint) error {
+	if ep == nil {
+		return fmt.Errorf("runtime: endpoint registration is nil")
+	}
 	key := endpointKey(ep.Service, ep.Name)
+	if strings.TrimSpace(ep.Service) == "" || strings.TrimSpace(ep.Name) == "" {
+		return fmt.Errorf("runtime: endpoint registration is missing service or name")
+	}
+	if err := validateContractHTTPPolicy(ep.ContractPolicy); err != nil {
+		return fmt.Errorf("runtime: endpoint %s contract policy: %w", key, err)
+	}
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, exists := global.endpoints[key]; exists {
-		panic(fmt.Sprintf("runtime: duplicate endpoint registration for %s", key))
+		return fmt.Errorf("runtime: duplicate endpoint registration for %s", key)
 	}
 	if len(ep.Methods) == 0 {
-		panic(fmt.Sprintf("runtime: endpoint %s missing methods", key))
+		return fmt.Errorf("runtime: endpoint %s missing methods", key)
 	}
 	global.endpoints[key] = ep
+	return nil
 }
 
 func RegisterMiddleware(mw *Middleware) {
@@ -230,58 +297,113 @@ func RegisterAuthHandler(handler *AuthHandler) {
 }
 
 func RegisterCronJob(job *CronJob) {
+	if err := RegisterCronJobChecked(job); err != nil {
+		panic(err)
+	}
+}
+
+func RegisterCronJobChecked(job *CronJob) error {
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if err := validateCronJob(job); err != nil {
-		panic(err)
+		return err
 	}
 	if _, exists := global.cronJobs[job.ID]; exists {
-		panic(fmt.Sprintf("runtime: duplicate cron job registration for %s", job.ID))
+		return fmt.Errorf("runtime: duplicate cron job registration for %s", job.ID)
 	}
 	global.cronJobs[job.ID] = job
+	return nil
 }
 
 func RegisterDurableTask(task *DurableTask) {
+	if err := RegisterDurableTaskChecked(task); err != nil {
+		panic(err)
+	}
+}
+
+func RegisterDurableTaskChecked(task *DurableTask) error {
 	if task == nil {
-		panic("runtime: durable task cannot be nil")
+		return fmt.Errorf("runtime: durable task cannot be nil")
 	}
 	task.Name = strings.TrimSpace(task.Name)
 	task.Service = strings.TrimSpace(task.Service)
 	if task.Name == "" {
-		panic("runtime: durable task name must not be empty")
+		return fmt.Errorf("runtime: durable task name must not be empty")
 	}
 	if task.Service == "" {
-		panic(fmt.Sprintf("runtime: durable task %s service must not be empty", task.Name))
+		return fmt.Errorf("runtime: durable task %s service must not be empty", task.Name)
 	}
 	if task.Handler == nil {
-		panic(fmt.Sprintf("runtime: durable task %s handler must not be nil", task.Name))
+		return fmt.Errorf("runtime: durable task %s handler must not be nil", task.Name)
+	}
+	if task.Version < 0 {
+		return fmt.Errorf("runtime: durable task %s version must not be negative", task.Name)
+	}
+	if task.Version == 0 {
+		task.Version = 1
+	}
+	if task.DeduplicationConflict == "" {
+		task.DeduplicationConflict = "return_existing"
+	}
+	if task.DeduplicationConflict != "return_existing" {
+		return fmt.Errorf("runtime: durable task %s has unsupported deduplication conflict policy %q", task.Name, task.DeduplicationConflict)
 	}
 	key := task.Service + ":" + task.Name
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, exists := global.durableTasks[key]; exists {
-		panic(fmt.Sprintf("runtime: duplicate durable task registration for %s", key))
+		return fmt.Errorf("runtime: duplicate durable task registration for %s", key)
 	}
 	cp := *task
 	global.durableTasks[key] = &cp
+	return nil
 }
 
 func RegisterServiceInitializer(service string, init func() error) {
-	if strings.TrimSpace(service) == "" {
-		panic("runtime: service initializer missing service name")
-	}
 	if init == nil {
 		panic(fmt.Sprintf("runtime: service initializer for %s is nil", service))
 	}
+	err := RegisterNativeService(NativeServiceRegistration{Address: service, Initialize: func(context.Context) error { return init() }})
+	if err != nil {
+		panic(err)
+	}
+}
+
+func RegisterNativeService(registration NativeServiceRegistration) error {
+	registration.Address = strings.TrimSpace(registration.Address)
+	if registration.Address == "" {
+		return fmt.Errorf("runtime: service initializer missing service name")
+	}
+	if registration.Initialize == nil {
+		return fmt.Errorf("runtime: service initializer for %s is nil", registration.Address)
+	}
+	registration.Dependencies = canonicalContractAddresses(registration.Dependencies)
+	for _, dependency := range registration.Dependencies {
+		if dependency == registration.Address {
+			return fmt.Errorf("runtime: service %s depends on itself", registration.Address)
+		}
+	}
 	global.mu.Lock()
 	defer global.mu.Unlock()
-	if _, exists := global.serviceInitializers[service]; exists {
-		panic(fmt.Sprintf("runtime: duplicate service initializer for %s", service))
+	if _, exists := global.serviceInitializers[registration.Address]; exists {
+		return fmt.Errorf("runtime: duplicate service initializer for %s", registration.Address)
 	}
-	global.serviceInitializers[service] = init
+	global.serviceInitializers[registration.Address] = serviceInitializer{
+		service: registration.Address, dependencies: registration.Dependencies,
+		initialize: registration.Initialize, shutdown: registration.Shutdown,
+	}
+	return nil
 }
 
 func MarkServiceInitialized(service string, shutdown func(context.Context)) {
+	var wrapped func(context.Context) error
+	if shutdown != nil {
+		wrapped = func(ctx context.Context) error { shutdown(ctx); return nil }
+	}
+	MarkServiceInitializedWithError(service, wrapped)
+}
+
+func MarkServiceInitializedWithError(service string, shutdown func(context.Context) error) {
 	if strings.TrimSpace(service) == "" {
 		panic("runtime: service shutdown missing service name")
 	}
@@ -369,45 +491,74 @@ func listDurableTasks() []*DurableTask {
 
 func InitializeServices() error {
 	global.mu.RLock()
-	initializers := make([]struct {
-		service string
-		init    func() error
-	}, 0, len(global.serviceInitializers))
-	for service, init := range global.serviceInitializers {
-		initializers = append(initializers, struct {
-			service string
-			init    func() error
-		}{service: service, init: init})
+	initializers := make(map[string]serviceInitializer, len(global.serviceInitializers))
+	for service, initializer := range global.serviceInitializers {
+		initializers[service] = initializer
 	}
 	global.mu.RUnlock()
-
-	slices.SortFunc(initializers, func(a, b struct {
-		service string
-		init    func() error
-	}) int {
-		return compare(a.service, b.service)
-	})
-
+	for service, initializer := range initializers {
+		for _, dependency := range initializer.dependencies {
+			if _, ok := initializers[dependency]; !ok {
+				return fmt.Errorf("initialize service %s: dependency %s is not registered", service, dependency)
+			}
+		}
+	}
 	global.mu.Lock()
 	global.serviceInitOrder = make(map[string]int, len(initializers))
-	for i, initializer := range initializers {
-		global.serviceInitOrder[initializer.service] = i + 1
-	}
 	global.mu.Unlock()
-
-	results := make(chan error, len(initializers))
-	for _, initializer := range initializers {
-		go func() {
-			if err := initializer.init(); err != nil {
-				results <- fmt.Errorf("initialize service %s: %w", initializer.service, err)
-				return
+	completed := map[string]bool{}
+	order := 0
+	for len(completed) < len(initializers) {
+		var ready []serviceInitializer
+		for service, initializer := range initializers {
+			if completed[service] {
+				continue
 			}
-			results <- nil
-		}()
-	}
-	for range initializers {
-		if err := <-results; err != nil {
-			return err
+			dependenciesReady := true
+			for _, dependency := range initializer.dependencies {
+				if !completed[dependency] {
+					dependenciesReady = false
+					break
+				}
+			}
+			if dependenciesReady {
+				ready = append(ready, initializer)
+			}
+		}
+		if len(ready) == 0 {
+			return fmt.Errorf("initialize services: dependency cycle")
+		}
+		slices.SortFunc(ready, func(a, b serviceInitializer) int { return compare(a.service, b.service) })
+		global.mu.Lock()
+		for _, initializer := range ready {
+			order++
+			global.serviceInitOrder[initializer.service] = order
+		}
+		global.mu.Unlock()
+		type initializationResult struct {
+			service string
+			err     error
+		}
+		results := make(chan initializationResult, len(ready))
+		for _, initializer := range ready {
+			go func() {
+				err := initializer.initialize(context.Background())
+				if err == nil && initializer.shutdown != nil {
+					MarkServiceInitializedWithError(initializer.service, initializer.shutdown)
+				}
+				results <- initializationResult{service: initializer.service, err: err}
+			}()
+		}
+		batch := make([]initializationResult, 0, len(ready))
+		for range ready {
+			batch = append(batch, <-results)
+		}
+		slices.SortFunc(batch, func(a, b initializationResult) int { return compare(a.service, b.service) })
+		for _, result := range batch {
+			if result.err != nil {
+				return fmt.Errorf("initialize service %s: %w", result.service, result.err)
+			}
+			completed[result.service] = true
 		}
 	}
 	return nil
@@ -446,7 +597,9 @@ func ShutdownServices(ctx context.Context) error {
 					errsList = append(errsList, fmt.Errorf("shutdown service %s: panic: %v", hook.service, recovered))
 				}
 			}()
-			hook.shutdown(ctx)
+			if err := hook.shutdown(ctx); err != nil {
+				errsList = append(errsList, fmt.Errorf("shutdown service %s: %w", hook.service, err))
+			}
 		}()
 	}
 	return errorsJoin(errsList...)

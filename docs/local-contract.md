@@ -4,7 +4,7 @@
 
 An app containing `scenery.scn` opts into the edition-2027 compiler described by [the normative vNext specification set](specs/vnext/SCENERY_LANGUAGE_SPEC.md). A mixed app that also retains `.scenery.json` or `.config.json` must contain `scenery.migration.scn`; compilation fails rather than choosing implicit frontend precedence.
 
-The migration-capable kernel currently exposes:
+The implemented edition-2027 command surface is:
 
 ```text
 scenery fmt [--check] [--app-root <path>] [-o human|json]
@@ -14,13 +14,48 @@ scenery schema <kind> [-o human|json]
 scenery list <kind> [--module <name>] [--view source|effective|expanded] [-o human|json]
 scenery get <address> [--view source|effective|expanded] [-o human|json]
 scenery explain <address> [--view source|effective|expanded] [-o human|json]
-scenery migrate status|verify [--app-root <path>] [-o human|json]
+scenery diff --semantic <base-manifest-or-revision> <target-manifest-or-revision> [--view source|effective|expanded] [--exit-code] [-o human|json]
+scenery graph <address> [--direction dependencies|dependents|both] [--depth <n>] [--max-resources <n>] [-o human|json]
+scenery agent serve [--app-root <path>]
+scenery changes plan --changes <file> --base-workspace-revision <rev> --base-contract-revision <rev|null> --out <plan> [-o human|json]
+scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev|null> [--approval-token <file>] [-o human|json]
+scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
+scenery migrate init|status|verify|compare [<service>] [--app-root <path>] [-o human|json]
+scenery migrate service <service> --generate|--shadow|--retire [--dry-run] [--evidence <class>=<reference>] [-o human|json]
+scenery migrate activate <service> --native [--dry-run] [--evidence <class>=<reference>] [-o human|json]
+scenery migrate rollback <service> --legacy --activation-receipt <plan-id> [--evidence <class>=<reference>] [-o human|json]
+scenery migrate finish [--dry-run] [--evidence <class>=<reference>] [-o human|json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
+scenery build [--target <go-target>] [-o <binary>]
+scenery deploy plan <deployment> --out <plan> [-o human|json]
+scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev> [--approval-token <file>] [-o human|json]
 ```
 
-`-o json` selects the `scenery.cli.v1` edition-2027 envelope. Existing `--json` commands retain their stable v0 schemas and project the same validated active graph in mixed mode. The compiler reports separate `workspace_revision` and `contract_revision`; generated Go contracts and TypeScript clients are descriptor-covered committed artifacts, and `scenery generate --check` verifies exact bytes without writing.
+`-o json` selects the `scenery.cli.v1` edition-2027 envelope. Existing `--json` commands retain their exact v0 schemas and project the same validated active graph in mixed mode. `--api-version scenery.cli.v0|scenery.cli.v1` is an explicit override; conflicting v0/v1 selectors fail. A v1 envelope always carries `api_version`, `diagnostic_catalog`, `ok`, nullable revision fields, `data`, and ordered `diagnostics`. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
 
-The current first-release profile boundary is the section 26.2 kernel plus `scenery.legacy-bridge/v1`. Unsupported later profiles are rejected; they are not approximated. Mixed startup validates one active owner for every discovered service and the complete route parity of native services before the existing runtime adapters are allowed to start.
+The implemented profile set is `scenery.compiler-core/v1`, `scenery.go-implementation/v1`, `scenery.http-codec/v1`, `scenery.runtime-http/v1`, `scenery.runtime-durable/v1`, `scenery.events/v1`, `scenery.data/v1`, `scenery.deployment/v1`, `scenery.inspection-core/v1`, `scenery.agent-read/v1`, `scenery.agent-mutation/v1`, `scenery.patches/v1`, `scenery.ui/v1`, `scenery.legacy-bridge/v1`, `scenery.compatibility-core/v1`, and `scenery.typescript-client/v1`. Profile dependencies are resolved into the manifest. Workflow execution and unknown profiles are rejected; they are never approximated.
+
+Edition schemas are enforced recursively against authored blocks before lowering. Unknown nested attributes or blocks, wrong label counts, repeated singleton blocks, and duplicate named children are errors. Workspace revision globs implement only `*`, `?`, and whole-segment `**`; character classes, escapes, embedded `**`, and host glob semantics are rejected.
+
+The compiler retains lossless CST/source maps and exposes source, effective, and expanded graphs. Canonical `contract_revision` excludes implementation and deployment inputs; compilation therefore reports `implementation_revision` as null. `scenery build` selects an exact declared Go target, hashes its complete non-standard package/module/embed/native-input graph, and combines that build-input digest with the resolved target to produce the target-specific `implementation_revision`. The resolved target records the selected Go command and compiler paths and SHA-256 identities; host CGO additionally records the resolved C and C++ compiler paths and identities while ambient compiler, linker, include, library, and pkg-config settings are scrubbed. A fixed non-host target with CGO enabled fails until the separately versioned native-toolchain schema exists. The runtime bundle is written to `.scenery/build/vnext/<target>.json` and copied beside an explicit build output as `<binary>.scenery.runtime-bundle.v1.json`; its schemas are `scenery.go-build-input-manifest.v1` and `scenery.runtime-bundle.v1`.
+
+Resolved `deployment_revision` and artifact/profile revisions are reported independently. Semantic diff, agent reads, and mutation plans use the same canonical graph and compatibility classifications. Change, deployment, activation, rollback, and finish plans are immutable, revision-bound, caller-bound, expiring, single-use transactions with staged validation and receipt output.
+
+Risk-bearing apply commands accept repeatable `--approval-token <file>` values. Each file conforms to `docs/schemas/scenery.approval-token.v1.schema.json`. Scenery verifies its detached Ed25519 signature against the app-local, non-symlink trust store `.scenery/approval-trust.json`, whose exact shape is `docs/schemas/scenery.approval-trust.v1.schema.json`. Key values are raw 32-byte Ed25519 public keys encoded with standard padded or unpadded base64. A signature has the form `ed25519:<key-id>:<base64-signature>`.
+
+The signed bytes are canonical JSON of exactly `plan_id`, `caller`, the sorted unique `risk_scopes`, and UTC `expires_at`; `signature` is excluded. A trusted approval service uses the public `scenery.ApprovalTokenPayload` function to produce those bytes, signs them with Ed25519, and writes the token file. Tokens are accepted only for the exact plan, caller, requested scopes, and unexpired timestamp. Trust stores and private signing keys are operational state and must not be committed; only public keys belong in the trust store.
+
+Source, lockfile, migration, and generated-artifact sets use one recoverable per-workspace transaction. Scenery readers honor its process-fingerprinted lock; a durable journal restores the prior byte-for-byte state after interruption unless the synced receipt proves commit.
+
+Go generation stages contract packages, provider/application adapters, composition, ABI/provider locks, and descriptor coverage before atomically materializing verified bytes. `std.type.unit` is the exact no-input/no-body type and encodes as `{}` in Go (`scenery.Unit`) and TypeScript (`Unit`); user types merely ending in `unit`, `problem`, or `execution_receipt` are not standard types. TypeScript generation provides exact scalar codecs, immutable decoded values, typed outcomes/errors, record constraints and cross-field validation, retry semantics, metadata, and one selection-manifest owner per active operation. Data, durable, schedule, event, HTTP, CLI, page/renderer, and internal-call runtime adapters register through the same generated composition root.
+
+The HTTP effective graph fixes the v1 defaults at 64 KiB request headers, 8 MiB buffered request bodies, 16 MiB decompressed requests, 32 MiB multipart bodies, 16 MiB file parts, 1 MiB non-file parts, 128 parts, and 16 MiB buffered responses. Typed responses may split one outcome across body, header, and cookie mappings; generated Go adapters encode every declared scalar and generated TypeScript clients reconstruct the original camel-cased typed payload. Distinct same-status completion mappings are decoded independently and exactly one must validate; the compiler proves disjointness from observable media types and structural wire shapes, never nominal type or destination names, and rejects mappings where overlap cannot be excluded. Multipart clients encode only declared parts and enforce their exact names, kinds, accepted media, byte limits, filename retention, and multiplicity. Optional absent metadata stays absent. Effective response-cookie defaults are path `/`, empty domain, session expiry (`max_age=0`, no `expires`), `secure=true`, `http_only=true`, and `same_site=lax`. Fetch cannot preserve repeated request-header field lines, so a TypeScript target selecting a repeated list/set request header is rejected with `SCN6316`; use explicit comma encoding only when the scalar codec permits it. Repeated response headers require a Fetch `Headers.getAll(name)` extension, and response cookies require `Headers.getSetCookie()`; a runtime that cannot preserve the declared repetitions fails with `unsupported_runtime` instead of silently collapsing values. `std.authorization.none` is a valid explicit deny-all policy; it does not make a binding anonymous. `dispatch.wait_timeout` is the canonical wait outcome. Stream delivery and `server_sent_events` declarations fail with `unsupported_profile` until a separately negotiated streaming profile exists. Generated TypeScript sets encode and validate canonical JSON element order by UTF-8 bytes across JSON, query, form, and header mappings. Declared transport, admission, and dispatch failures are returned as closed typed failure outcomes; only undeclared/system failures throw, and clients never add an implicit retry.
+
+Native `protocol = "cli"` bindings execute directly as `scenery <declared command...>` from the app root. Command and flag names are lower-kebab-case, command paths are unique, and their first segment cannot collide with a built-in Scenery command. `--help`, `scenery completion <words...>`, human output, `-o json`, and exit codes are derived from the binding outcome map. Argument and flag values are decoded with the operation's declared type; required fields must be mapped exactly once. Scenery builds the declared development target, mints the local-developer principal from the OS user, injects only runtime-trusted context fields, runs authorization, and invokes call, wait, or enqueue delivery through the generated composition. Caller input cannot overwrite a context-mapped field.
+
+Edition-2027 fixtures are typed contract resources, not arbitrary SQL. Deployment projection includes only fixtures whose `environments` contain the selected deployment environment. `scenery db seed --env <environment>` uses the same selection and deterministically projects validated PostgreSQL `INSERT`/`ON CONFLICT` statements under `.scenery/vnext/fixtures/`; the ordinary seed ledger and destructive-SQL checks still apply.
+
+Mixed startup validates exactly one active owner for every service, route, lifecycle, durable identity, schedule, schema/event owner, and generated-client surface. `migrate status` projects receipt-bound drain, fence, and cursor state, external identities and aliases, deployed-client gates, CLI protocol dependencies, rollback safety, and blocking diagnostics for every construct; missing required operational evidence makes active shadow-cutover readiness false. A source-declared `native_service` is already retired, has no rollback owner, and remains operationally ready without machine-local activation receipts. `migrate finish` additionally requires every service retired to native, no compatibility adapter or incomplete construct, explicit evidence clearing v0 CLI and legacy generated-client consumers plus every stateful cutover class, and no activation receipt that still authorizes rollback. Operational receipt state and evidence are included in the finish plan identity and rechecked at apply.
 
 This document freezes the local developer and agent-facing contract for scenery v0.
 
@@ -371,7 +406,7 @@ scenery check [--app-root <path>] [--json]
 scenery db list [--app-root <path>] [--json]
 scenery db shell [service] [--app-root <path>] [psql args...]
 scenery db apply [--app-root <path>] [--json]
-scenery db seed [--app-root <path>] [--dry-run] [--json]
+scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [--json]
 scenery db setup [--app-root <path>] [--json]
 scenery db reset [service] [--app-root <path>] [--yes]
 scenery db drop [--app-root <path>] [--yes]
@@ -498,7 +533,7 @@ Toolchain rules:
 Command split:
 
 - `scenery up` starts the app root's one live dev runtime: app process, file watching, and rebuild/restart supervision. The file watcher treats `.gitignore`-ignored paths and app config `watch.ignore` paths as outside the watch surface and does not descend into ignored directories. `watch.ignore` also excludes those paths from the rebuild/change fingerprint used by the dev loop, but it does not affect Git tracking. A second live code copy requires a separate Git worktree.
-- `scenery up --detach` requires the local agent, starts the same dev supervisor in a background child process, and by default (`--wait ready`) waits until the child session is registered, its status is `running`, the API backend accepts connections, and configured frontend backends are registered and accepting, then prints a Docker-style app action summary, status/log/stop commands, and currently registered routes/aliases before returning. `--wait registered` returns as soon as the child PID registers as the app root's runtime owner, without waiting for readiness. Wait timeout errors report the last reached state. Detached child stdout/stderr from the supervisor is written under the agent directory; app process output continues to flow through the scoped dashboard log store.
+- `scenery up --detach` requires the local agent, starts the same dev supervisor in a background child process, and by default (`--wait ready`) waits up to two minutes until the child session is registered, its status is `running`, the API backend accepts connections, and configured frontend backends are registered and accepting, then prints a Docker-style app action summary, status/log/stop commands, and currently registered routes/aliases before returning. `--wait registered` keeps the 30-second registration budget and returns as soon as the child PID registers as the app root's runtime owner, without waiting for readiness. Wait timeout errors report the real child PID and last reached state. Detached child stdout/stderr from the supervisor is written under the agent directory; app process output continues to flow through the scoped dashboard log store.
 - `scenery logs --follow` follows the app root's live runtime logs by default with the same app-root, limit, stream, source, kind, level, grep, since, and JSONL options, and it does not mutate runtime state.
 - `scenery logs`, plain `scenery logs --follow`, and `scenery console` read structured dev events from the Victoria-backed substrate for the selected app root's live runtime.
 - If the backing dev-event substrate is unavailable, structured dev-event read commands fail loudly instead of falling back to the deprecated local process-output cache.
@@ -648,6 +683,7 @@ scenery harness self --json --write
 - green summary output should stay under 12 KB; failed summary output should stay under 32 KB while preserving the first actionable failure and artifact references
 - it validates the scenery repo itself instead of a target app
 - it runs docs knowledge validation, `scenery inspect docs --json`, architecture checks, UI static architecture checks, Go package tests, parallel dev-session safety, dashboard UI typecheck/build, UI freshness checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks
+- it validates committed examples for every edition-2027 JSON schema, runs the Bun TypeScript client conformance suite, and typechecks both committed native and mixed/House generated clients against the shared generated-client configuration
 - self-harness Go test steps discover the complete `./...` graph, reuse linked test binaries by Go build ID, and execute every test body with `-test.count=1`. The cache never reuses test results. Packages without tests remain represented in JSON evidence.
 - cached and `--fresh-tests` lanes have the same fresh execution semantics. The flag retains the explicit fresh timing-lane label; both lanes use package parallelism three, selected by repeated measurement on the maintainer machine.
 - linked binaries, the workspace manifest, and package timing estimates are disposable under `.scenery/harness/test-binaries/`. The manifest covers toolchain/build environment and tracked/untracked workspace contents. Disposable test binaries disable VCS stamping so committing unchanged contents does not relink the repository.
@@ -768,6 +804,8 @@ Implemented now:
     manifest.json
   build/
     latest.json
+    vnext/
+      <go-target>.json
   harness/
     latest.json
     validation/
@@ -793,12 +831,29 @@ Rules:
 - `manifest.json` ties generated cache artifacts to schema versions, artifact paths, and deterministic content hashes for debugging generation.
 - Agent/global dashboard state uses `<dashboard-cache-root>/devdash.json` for compact control-plane records and `<dashboard-cache-root>/app-model/<metadata|api-encoding>/sha256/<hash>.json` for large app-model blobs. The agent dashboard process is the global dashboard-store writer; other agent-backed runtime processes mutate it through the internal dashboard control-plane endpoint. Treat these files as internal cache artifacts; use dashboard APIs and CLI JSON instead of reading them directly.
 - Use `scenery inspect build --json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
+- Edition-2027 `build/vnext/<go-target>.json` is the exact runtime-bundle descriptor for the latest local build of that target. Treat it as build output, not a contract source; distribute the copied `<binary>.scenery.runtime-bundle.v1.json` sidecar with an explicit binary output.
 - Use `scenery harness --json` for framework app-model proof, `scenery validate <profile> --json` for app-owned quality gates, and `scenery harness self --summary` for scenery repo validation. `harness/latest.json`, `harness/validation/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `--json=full` is the explicit full archive stdout mode.
 - Future implementation should keep cache paths predictable for debugging, but external tools and agents should integrate through command JSON output.
 
 ## JSON Schemas
 
 Implemented now:
+- [scenery.approval-token.v1.schema.json](schemas/scenery.approval-token.v1.schema.json)
+- [scenery.approval-trust.v1.schema.json](schemas/scenery.approval-trust.v1.schema.json)
+- [scenery.change-plan.v1.schema.json](schemas/scenery.change-plan.v1.schema.json)
+- [scenery.change-receipt.v1.schema.json](schemas/scenery.change-receipt.v1.schema.json)
+- [scenery.cli.v1.schema.json](schemas/scenery.cli.v1.schema.json)
+- [scenery.client-selection.v1.schema.json](schemas/scenery.client-selection.v1.schema.json)
+- [scenery.deployment-plan.v1.schema.json](schemas/scenery.deployment-plan.v1.schema.json)
+- [scenery.deployment-receipt.v1.schema.json](schemas/scenery.deployment-receipt.v1.schema.json)
+- [scenery.generated.v1.schema.json](schemas/scenery.generated.v1.schema.json)
+- [scenery.go-build-input-manifest.v1.schema.json](schemas/scenery.go-build-input-manifest.v1.schema.json)
+- [scenery.legacy-bridge-generated.v1.schema.json](schemas/scenery.legacy-bridge-generated.v1.schema.json)
+- [scenery.manifest.v1.schema.json](schemas/scenery.manifest.v1.schema.json)
+- [scenery.migrate.status.v1.schema.json](schemas/scenery.migrate.status.v1.schema.json)
+- [scenery.package-generated.v1.schema.json](schemas/scenery.package-generated.v1.schema.json)
+- [scenery.runtime-bundle.v1.schema.json](schemas/scenery.runtime-bundle.v1.schema.json)
+- [scenery.typescript-client-generated.v1.schema.json](schemas/scenery.typescript-client-generated.v1.schema.json)
 - [scenery.inspect.app.v1.schema.json](schemas/scenery.inspect.app.v1.schema.json)
 - [scenery.inspect.routes.v1.schema.json](schemas/scenery.inspect.routes.v1.schema.json)
 - [scenery.inspect.services.v1.schema.json](schemas/scenery.inspect.services.v1.schema.json)

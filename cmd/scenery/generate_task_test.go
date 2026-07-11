@@ -444,6 +444,9 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 	if result.Summary.Applied != 2 {
 		t.Fatalf("result = %+v", result)
 	}
+	if result.Environment != "development" {
+		t.Fatalf("default seed environment = %q", result.Environment)
+	}
 	if got := strings.Join(stores[authURL].applied, ","); got != "auth/db/seed.sql" {
 		t.Fatalf("auth store applied %q", got)
 	}

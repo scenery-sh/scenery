@@ -3,18 +3,71 @@
   "$id": "https://scenery.sh/schemas/scenery.typescript-client-generated.v1.schema.json",
   "title": "Scenery generated TypeScript client descriptor",
   "type": "object",
-  "required": ["api_version", "target", "package", "contract_revision", "typescript_client_revision", "content_digest", "profile", "codec_profiles", "covered_bindings", "generator"],
+  "required": [
+    "api_version",
+    "target",
+    "package",
+    "contract_revision",
+    "typescript_client_revision",
+    "http_surface_revisions",
+    "openapi_revisions",
+    "content_digest",
+    "profile",
+    "profile_digest",
+    "codec_profiles",
+    "covered_gateways",
+    "covered_bindings",
+    "covered_operations",
+    "covered_types",
+    "compatibility_catalog",
+    "compatibility_projection",
+    "package_version_recommendation",
+    "generator",
+    "files"
+  ],
   "properties": {
     "api_version": { "const": "scenery.typescript-client-generated/v1" },
     "target": { "type": "string" },
     "package": { "type": "string" },
-    "contract_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "typescript_client_revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "content_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "contract_revision": { "$ref": "#/$defs/revision" },
+    "typescript_client_revision": { "$ref": "#/$defs/revision" },
+    "legacy_client_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "legacy_fixture_catalog_digest": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "http_surface_revisions": { "$ref": "#/$defs/revision_map" },
+    "openapi_revisions": { "$ref": "#/$defs/revision_map" },
+    "content_digest": { "$ref": "#/$defs/revision" },
     "profile": { "const": "scenery.typescript-client/v1" },
-    "codec_profiles": { "type": "array", "items": { "type": "string" } },
-    "covered_bindings": { "type": "array", "items": { "type": "string" } },
-    "generator": { "type": "string" }
+    "profile_digest": { "$ref": "#/$defs/revision" },
+    "codec_profiles": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/revision" }
+    },
+    "compatibility_catalog": { "const": "scenery.compatibility-core/v1" },
+    "compatibility_projection": { "type": "object" },
+    "package_version_recommendation": {
+      "enum": ["initial", "none", "patch", "minor", "major"]
+    },
+    "covered_gateways": { "$ref": "#/$defs/string_list" },
+    "covered_bindings": { "$ref": "#/$defs/string_list" },
+    "covered_operations": { "$ref": "#/$defs/string_list" },
+    "covered_types": { "$ref": "#/$defs/string_list" },
+    "typescript_version": { "type": ["string", "null"] },
+    "javascript_target": { "type": ["string", "null"] },
+    "generator": { "type": "string" },
+    "files": { "$ref": "#/$defs/string_list" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "revision_map": {
+      "type": "object",
+      "propertyNames": { "type": "string" },
+      "additionalProperties": { "$ref": "#/$defs/revision" }
+    },
+    "string_list": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    }
   },
   "additionalProperties": false
 }

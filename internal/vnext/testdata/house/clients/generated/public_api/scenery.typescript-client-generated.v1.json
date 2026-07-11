@@ -1,15 +1,147 @@
 {
   "api_version": "scenery.typescript-client-generated/v1",
-  "codec_profiles": [
-    "scenery.http-codec/v1"
+  "codec_profiles": {
+    "scenery.http-codec/v1": "sha256:d3c1dcffb81fa67bb8701bff9987bb72f3693f60934d53e30145dee18b5d4dd0"
+  },
+  "compatibility_catalog": "scenery.compatibility-core/v1",
+  "compatibility_projection": {
+    "target": {
+      "address": "app/typescript_client/public_api",
+      "kind": "scenery.typescript-client/v1",
+      "name": "public_api",
+      "module": "app",
+      "spec": {
+        "gateways": [
+          {
+            "$ref": "http_gateway.public_api"
+          }
+        ],
+        "module": "esm",
+        "output_root": "clients/generated/public_api",
+        "package": "@example/scenery-client",
+        "runtime": "fetch"
+      },
+      "origin": {
+        "kind": ""
+      }
+    },
+    "resources": [
+      {
+        "address": "app/http_gateway/public_api",
+        "kind": "scenery.http-gateway/v1",
+        "name": "public_api",
+        "module": "app",
+        "spec": {
+          "base_path": "/",
+          "cors": {
+            "$ref": "std.cors.none"
+          },
+          "exposure": "internet",
+          "forwarded": {
+            "$ref": "std.forwarded_headers.reject"
+          },
+          "request_limit": {
+            "body_bytes": {
+              "$scalar": "int",
+              "value": "8388608"
+            },
+            "decompressed_body_bytes": {
+              "$scalar": "int",
+              "value": "16777216"
+            },
+            "header_bytes": {
+              "$scalar": "int",
+              "value": "65536"
+            },
+            "multipart_body_bytes": {
+              "$scalar": "int",
+              "value": "33554432"
+            },
+            "multipart_file_part_bytes": {
+              "$scalar": "int",
+              "value": "16777216"
+            },
+            "multipart_non_file_part_bytes": {
+              "$scalar": "int",
+              "value": "1048576"
+            },
+            "multipart_parts": {
+              "$scalar": "int",
+              "value": "128"
+            }
+          },
+          "response_limit": {
+            "body_bytes": {
+              "$scalar": "int",
+              "value": "16777216"
+            },
+            "compression_algorithms": [
+              "gzip"
+            ],
+            "compression_threshold_bytes": {
+              "$scalar": "int",
+              "value": "1024"
+            }
+          },
+          "timeouts": {
+            "idle": {
+              "$scalar": "duration",
+              "nanoseconds": "120000000000"
+            },
+            "read": {
+              "$scalar": "duration",
+              "nanoseconds": "30000000000"
+            },
+            "total_invocation": {
+              "$scalar": "duration",
+              "nanoseconds": "2400000000000"
+            },
+            "write": {
+              "$scalar": "duration",
+              "nanoseconds": "30000000000"
+            }
+          },
+          "trusted_proxies": {
+            "$ref": "std.trusted_proxies.none"
+          }
+        },
+        "origin": {
+          "kind": ""
+        }
+      }
+    ]
+  },
+  "content_digest": "sha256:4756b3e7832f218f1a2d016f7371e6070d929581befaefd1ab75f249263eb372",
+  "contract_revision": "sha256:21fb90797a215784da7c0ca765e4b8378fc6a65696481ae51492bdb5dfde89ed",
+  "covered_bindings": [],
+  "covered_gateways": [
+    "http_gateway.public_api"
   ],
-  "contract_revision": "sha256:3fafc7dab21a6f2eb6f24ee5908cc22057487a4aa51a61d444bb1103feef00c1",
-  "covered_bindings": [
-    "house/binding/process_scene_http"
+  "covered_operations": [],
+  "covered_types": [],
+  "files": [
+    "client.ts",
+    "index.ts",
+    "metadata.ts",
+    "runtime.ts",
+    "scenery.client-selection.v1.json",
+    "types.ts"
   ],
   "generator": "scenery.vnext.typescript/v1",
+  "http_surface_revisions": {
+    "app/http_gateway/public_api": "sha256:7f5dbd4e2edd1ed491677938a2c354be0d0970dc30a4135c5830fc52419ea099"
+  },
+  "javascript_target": null,
+  "legacy_client_revision": null,
+  "legacy_fixture_catalog_digest": null,
+  "openapi_revisions": {
+    "app/http_gateway/public_api": "sha256:10dde5e39e5e52bbf25764fddd79a5c91da794dbd566aa3b47a3f55e3c6c430d"
+  },
   "package": "@example/scenery-client",
+  "package_version_recommendation": "major",
   "profile": "scenery.typescript-client/v1",
+  "profile_digest": "sha256:e43afd6807a243334455e7c99b089abddcdd425866e85e29df3bca4fe674bc01",
   "target": "app/typescript_client/public_api",
-  "typescript_client_revision": "sha256:597b11ae4d0215a4ac02e62cd1b66c2e2c4c6c28fe0fd4573c3775b615402eb7"
+  "typescript_client_revision": "sha256:e1ca0557bc4226ec5b4844f52d7e6e54836c309893c7b2ff8384ec67c49200b2",
+  "typescript_version": null
 }

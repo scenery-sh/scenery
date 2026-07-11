@@ -32,6 +32,8 @@ type TaskConfig struct {
 	Retry          RetryPolicy
 	Requirements   Requirements
 	MaxConcurrency int
+	Retention      RetentionPolicy
+	Deduplication  DeduplicationPolicy
 }
 
 type RetryPolicy struct {
@@ -39,6 +41,16 @@ type RetryPolicy struct {
 	MaxInterval     time.Duration
 	BackoffFactor   float64
 	Jitter          float64
+}
+
+type RetentionPolicy struct {
+	Success time.Duration
+	Failure time.Duration
+}
+
+type DeduplicationPolicy struct {
+	Retention time.Duration
+	Conflict  string
 }
 
 type Requirements struct {
@@ -64,18 +76,23 @@ func NewTask[I, O any](name string, cfg TaskConfig, handler func(context.Context
 	}
 	task := &Task[I, O]{name: name, config: cfg, handler: handler}
 	sceneryruntime.RegisterDurableTask(&sceneryruntime.DurableTask{
-		Name:             name,
-		Service:          cfg.Service,
-		HandlerRef:       name,
-		Handler:          task.runtimeHandler,
-		DefaultTimeout:   cfg.Timeout,
-		DefaultLease:     cfg.LeaseDuration,
-		MaxAttempts:      cfg.MaxAttempts,
-		RetryInitial:     cfg.Retry.InitialInterval,
-		RetryMax:         cfg.Retry.MaxInterval,
-		RetryBackoff:     cfg.Retry.BackoffFactor,
-		RetryJitter:      cfg.Retry.Jitter,
-		RequirementsJSON: requirementsJSON(cfg.Requirements),
+		Name:                   name,
+		Service:                cfg.Service,
+		HandlerRef:             name,
+		Handler:                task.runtimeHandler,
+		DefaultTimeout:         cfg.Timeout,
+		DefaultLease:           cfg.LeaseDuration,
+		MaxAttempts:            cfg.MaxAttempts,
+		RetryInitial:           cfg.Retry.InitialInterval,
+		RetryMax:               cfg.Retry.MaxInterval,
+		RetryBackoff:           cfg.Retry.BackoffFactor,
+		RetryJitter:            cfg.Retry.Jitter,
+		SuccessRetention:       cfg.Retention.Success,
+		FailureRetention:       cfg.Retention.Failure,
+		MaxConcurrency:         cfg.MaxConcurrency,
+		DeduplicationRetention: cfg.Deduplication.Retention,
+		DeduplicationConflict:  cfg.Deduplication.Conflict,
+		RequirementsJSON:       requirementsJSON(cfg.Requirements),
 	})
 	return task
 }

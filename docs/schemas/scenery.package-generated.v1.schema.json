@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.package-generated.v1.schema.json",
+  "title": "Scenery generated Go package contract descriptor",
+  "type": "object",
+  "required": ["api_version", "artifact_kind", "package", "package_identity", "package_version", "import_path", "package_contract_abi_revision", "go_implementation_abi_range", "runtime_abi_range", "capability_interface_abi_ranges", "content_digest", "generator", "generator_version", "covered", "files"],
+  "properties": {
+    "api_version": { "const": "scenery.package-generated.v1" },
+    "artifact_kind": { "const": "go_package_contract" },
+    "package": { "type": "string", "minLength": 1 },
+    "package_identity": { "type": "string", "minLength": 1 },
+    "package_version": { "type": "string" },
+    "import_path": { "type": "string", "minLength": 1 },
+    "package_contract_abi_revision": { "$ref": "#/$defs/revision" },
+    "go_implementation_abi_range": { "type": "string", "minLength": 1 },
+    "runtime_abi_range": { "type": "string", "minLength": 1 },
+    "capability_interface_abi_ranges": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+    "content_digest": { "$ref": "#/$defs/revision" },
+    "generator": { "type": "string", "minLength": 1 },
+    "generator_version": { "type": "string", "minLength": 1 },
+    "covered": { "$ref": "#/$defs/string_list" },
+    "files": { "$ref": "#/$defs/string_list" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "string_list": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+  },
+  "additionalProperties": false
+}

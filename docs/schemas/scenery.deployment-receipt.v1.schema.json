@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.deployment-receipt.v1.schema.json",
+  "title": "Scenery deployment receipt",
+  "type": "object",
+  "required": ["api_version", "plan_id", "application", "deployment", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "provider_plan_digests", "applied_at"],
+  "properties": {
+    "api_version": { "const": "scenery.deployment-receipt/v1" },
+    "plan_id": { "$ref": "#/$defs/revision" },
+    "application": { "type": "string", "minLength": 1 },
+    "deployment": { "type": "string", "minLength": 1 },
+    "workspace_revision": { "$ref": "#/$defs/revision" },
+    "contract_revision": { "$ref": "#/$defs/revision" },
+    "implementation_revision": { "$ref": "#/$defs/revision_map" },
+    "deployment_revision": { "$ref": "#/$defs/revision" },
+    "provider_plan_digests": { "type": "array", "items": { "$ref": "#/$defs/revision" }, "uniqueItems": true },
+    "applied_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "revision_map": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/$defs/revision" } }
+  },
+  "additionalProperties": false
+}

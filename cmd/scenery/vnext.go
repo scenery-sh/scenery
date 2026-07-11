@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,8 +17,8 @@ type vnextEnvelope struct {
 	APIVersion             string             `json:"api_version"`
 	DiagnosticCatalog      string             `json:"diagnostic_catalog"`
 	OK                     bool               `json:"ok"`
-	WorkspaceRevision      string             `json:"workspace_revision,omitempty"`
-	ContractRevision       string             `json:"contract_revision,omitempty"`
+	WorkspaceRevision      any                `json:"workspace_revision"`
+	ContractRevision       any                `json:"contract_revision"`
 	ImplementationRevision any                `json:"implementation_revision"`
 	DeploymentRevision     any                `json:"deployment_revision"`
 	Data                   any                `json:"data"`
@@ -25,11 +26,13 @@ type vnextEnvelope struct {
 }
 
 type vnextOptions struct {
-	AppRoot string
-	Output  string
-	View    string
-	Module  string
-	Check   bool
+	AppRoot        string
+	Output         string
+	View           string
+	Module         string
+	Check          bool
+	NonInteractive bool
+	Quiet          bool
 }
 
 func compileCommand(args []string) error { return runVNextCompile(os.Stdout, args) }
@@ -39,6 +42,304 @@ func getCommand(args []string) error     { return runVNextGet(os.Stdout, args, f
 func explainCommand(args []string) error { return runVNextGet(os.Stdout, args, true) }
 func fmtCommand(args []string) error     { return runVNextFmt(os.Stdout, args) }
 func migrateCommand(args []string) error { return runVNextMigrate(os.Stdout, args) }
+func diffCommand(args []string) error    { return runVNextDiff(os.Stdout, args) }
+func graphCommand(args []string) error   { return runVNextGraph(os.Stdout, args) }
+func changesCommand(args []string) error { return runVNextChanges(os.Stdout, args) }
+func runVNextAgentServer(stdin io.Reader, stdout io.Writer, args []string) error {
+	if len(args) == 0 || args[0] != "serve" {
+		return fmt.Errorf("usage: scenery agent serve --stdio [--app-root <path>]")
+	}
+	var appRoot string
+	var stdio bool
+	flags := newCLIFlagSet("agent serve")
+	flags.BoolVar(&stdio, "stdio", false, "")
+	flags.StringVar(&appRoot, "app-root", "", "")
+	positionals, err := parseCLIFlags(flags, args[1:])
+	if err != nil {
+		return err
+	}
+	if !stdio || len(positionals) != 0 {
+		return fmt.Errorf("usage: scenery agent serve --stdio [--app-root <path>]")
+	}
+	scanner := bufio.NewScanner(stdin)
+	scanner.Buffer(make([]byte, 64*1024), 2_000_000)
+	encoder := json.NewEncoder(stdout)
+	session := vnext.NewAgentSession()
+	for scanner.Scan() {
+		var request vnext.AgentRequest
+		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+			if encodeErr := encoder.Encode(vnext.AgentResponse{JSONRPC: "2.0", Error: &vnext.AgentError{Code: -32700, Kind: "invalid_request", Message: "invalid JSON"}}); encodeErr != nil {
+				return encodeErr
+			}
+			continue
+		}
+		result, compileErr := compileVNextRoot(appRoot)
+		if compileErr != nil {
+			return compileErr
+		}
+		if err := encoder.Encode(session.Handle(result, request)); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func runVNextChanges(stdout io.Writer, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: scenery changes plan|apply")
+	}
+	subcommand := args[0]
+	var appRoot, output, changesPath, planPath, outPath string
+	var baseWorkspace, baseContract, expectWorkspace, expectContract string
+	var approvalTokenPaths []string
+	var dryRun, nonInteractive, quiet bool
+	flags := newCLIFlagSet("changes " + subcommand)
+	flags.StringVar(&appRoot, "app-root", "", "")
+	flags.StringVar(&output, "o", "human", "")
+	flags.StringVar(&changesPath, "changes", "", "")
+	flags.StringVar(&planPath, "plan", "", "")
+	flags.StringVar(&outPath, "out", "", "")
+	flags.StringVar(&baseWorkspace, "base-workspace-revision", "", "")
+	flags.StringVar(&baseContract, "base-contract-revision", "", "")
+	flags.StringVar(&expectWorkspace, "expect-workspace-revision", "", "")
+	flags.StringVar(&expectContract, "expect-contract-revision", "", "")
+	flags.BoolVar(&dryRun, "dry-run", false, "")
+	flags.BoolVar(&nonInteractive, "non-interactive", false, "")
+	flags.BoolVar(&quiet, "quiet", false, "")
+	flags.Func("approval-token", "", func(value string) error { approvalTokenPaths = append(approvalTokenPaths, value); return nil })
+	positionals, err := parseCLIFlags(flags, args[1:])
+	if err != nil {
+		return err
+	}
+	if err := validateVNextOutput(output); err != nil {
+		return err
+	}
+	root, err := vnextRoot(appRoot)
+	if err != nil {
+		return err
+	}
+	switch subcommand {
+	case "plan":
+		if changesPath == "" || outPath == "" || len(positionals) > 0 {
+			return fmt.Errorf("usage: scenery changes plan --changes FILE --base-workspace-revision REV --base-contract-revision REV --out PLAN")
+		}
+		operations, err := readSemanticOperations(changesPath)
+		if err != nil {
+			return err
+		}
+		plan, err := vnext.PlanChanges(root, vnext.ChangeRequest{BaseWorkspaceRevision: baseWorkspace, BaseContractRevision: revisionFlag(baseContract), Caller: "local", Operations: operations})
+		if err != nil {
+			return err
+		}
+		b, _ := json.MarshalIndent(plan, "", "  ")
+		b = append(b, '\n')
+		temporary := outPath + ".tmp"
+		if err := os.WriteFile(temporary, b, 0o644); err != nil {
+			return err
+		}
+		if err := os.Rename(temporary, outPath); err != nil {
+			return err
+		}
+		if output == "json" {
+			return json.NewEncoder(stdout).Encode(vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: true, WorkspaceRevision: plan.BaseWorkspaceRevision, ContractRevision: plan.BaseContractRevision, ImplementationRevision: nil, DeploymentRevision: nil, Data: plan, Diagnostics: []vnext.Diagnostic{}})
+		}
+		if !quiet {
+			_, err = fmt.Fprintln(stdout, plan.PlanID)
+		}
+		return err
+	case "apply":
+		if planPath == "" && len(positionals) == 1 {
+			planPath = positionals[0]
+		} else if planPath == "" || len(positionals) > 0 {
+			return fmt.Errorf("usage: scenery changes apply PLAN --expect-workspace-revision REV --expect-contract-revision REV")
+		}
+		b, err := os.ReadFile(planPath)
+		if err != nil {
+			return err
+		}
+		var plan vnext.ChangePlan
+		if err := json.Unmarshal(b, &plan); err != nil {
+			return err
+		}
+		approvalTokens, err := readMigrationApprovalTokens(approvalTokenPaths)
+		if err != nil {
+			return err
+		}
+		approvalVerifier, err := approvalVerifierForTokens(root, approvalTokens)
+		if err != nil {
+			return err
+		}
+		receipt, err := vnext.ApplyChangePlanWithOptions(root, plan, vnext.ApplyOptions{ExpectedWorkspaceRevision: expectWorkspace, ExpectedContractRevision: revisionFlag(expectContract), Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier})
+		if err != nil {
+			return err
+		}
+		if output == "json" {
+			return json.NewEncoder(stdout).Encode(vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: true, WorkspaceRevision: receipt.WorkspaceRevision, ContractRevision: receipt.ContractRevision, ImplementationRevision: nil, DeploymentRevision: nil, Data: receipt, Diagnostics: []vnext.Diagnostic{}})
+		}
+		if !quiet {
+			_, err = fmt.Fprintln(stdout, receipt.PlanID)
+		}
+		return err
+	case "rename":
+		if len(positionals) != 2 {
+			return fmt.Errorf("usage: scenery changes rename ADDRESS NEW_NAME [--dry-run] [-o json]")
+		}
+		base, err := vnext.Compile(root)
+		if err != nil {
+			return err
+		}
+		if !base.Valid() {
+			return fmt.Errorf("current contract is invalid")
+		}
+		plan, err := vnext.PlanChanges(root, vnext.ChangeRequest{BaseWorkspaceRevision: base.WorkspaceRevision, BaseContractRevision: revisionFlag(base.Manifest.ContractRevision), Caller: "local", Operations: []vnext.SemanticOperation{{Op: "resource.rename", Address: positionals[0], Value: positionals[1]}}})
+		if err != nil {
+			return err
+		}
+		data := any(plan)
+		workspaceRevision, contractRevision := base.WorkspaceRevision, base.Manifest.ContractRevision
+		if !dryRun {
+			approvalTokens, tokenErr := readMigrationApprovalTokens(approvalTokenPaths)
+			if tokenErr != nil {
+				return tokenErr
+			}
+			approvalVerifier, verifierErr := approvalVerifierForTokens(root, approvalTokens)
+			if verifierErr != nil {
+				return verifierErr
+			}
+			receipt, applyErr := vnext.ApplyChangePlanWithOptions(root, plan, vnext.ApplyOptions{
+				ExpectedWorkspaceRevision: base.WorkspaceRevision, ExpectedContractRevision: revisionFlag(base.Manifest.ContractRevision),
+				Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier,
+			})
+			if applyErr != nil {
+				return applyErr
+			}
+			data = receipt
+			workspaceRevision, contractRevision = receipt.WorkspaceRevision, receipt.ContractRevision
+		}
+		if output == "json" {
+			return json.NewEncoder(stdout).Encode(vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: true, WorkspaceRevision: workspaceRevision, ContractRevision: contractRevision, ImplementationRevision: nil, DeploymentRevision: nil, Data: data, Diagnostics: []vnext.Diagnostic{}})
+		}
+		if !quiet {
+			_, err = fmt.Fprintln(stdout, plan.PlanID)
+		}
+		return err
+	default:
+		return fmt.Errorf("unknown scenery changes subcommand %q", subcommand)
+	}
+}
+
+func readSemanticOperations(path string) ([]vnext.SemanticOperation, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var operations []vnext.SemanticOperation
+	if err := json.Unmarshal(b, &operations); err == nil {
+		return operations, nil
+	}
+	var request vnext.ChangeRequest
+	if err := json.Unmarshal(b, &request); err != nil {
+		return nil, err
+	}
+	return request.Operations, nil
+}
+
+func revisionFlag(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.EqualFold(value, "none") || strings.EqualFold(value, "null") {
+		return nil
+	}
+	return &value
+}
+
+func runVNextGraph(stdout io.Writer, args []string) error {
+	var appRoot, output, direction, view string
+	var depth, maxResources int
+	var nonInteractive, quiet bool
+	flags := newCLIFlagSet("graph")
+	flags.StringVar(&appRoot, "app-root", "", "")
+	flags.StringVar(&output, "o", "human", "")
+	flags.StringVar(&direction, "direction", "both", "")
+	flags.StringVar(&view, "view", "effective", "")
+	flags.IntVar(&depth, "depth", 1, "")
+	flags.IntVar(&maxResources, "max-resources", 100, "")
+	flags.BoolVar(&nonInteractive, "non-interactive", false, "")
+	flags.BoolVar(&quiet, "quiet", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return err
+	}
+	if err := validateVNextOutput(output); err != nil {
+		return err
+	}
+	if len(positionals) != 1 {
+		return fmt.Errorf("usage: scenery graph ADDRESS [--direction dependencies|dependents|both]")
+	}
+	result, err := compileVNextRoot(appRoot)
+	if err != nil {
+		return err
+	}
+	if !result.Valid() {
+		return writeVNextResult(stdout, output, quiet, result, nil)
+	}
+	manifest, err := result.ManifestForView(view)
+	if err != nil {
+		return err
+	}
+	graph, err := vnext.Graph(manifest, positionals[0], vnext.GraphOptions{Direction: direction, Depth: depth, MaxResources: maxResources})
+	if err != nil {
+		return err
+	}
+	return writeVNextResult(stdout, output, quiet, result, graph)
+}
+
+func runVNextDiff(stdout io.Writer, args []string) error {
+	var output, view string
+	var semantic, exitCode, nonInteractive, quiet bool
+	flags := newCLIFlagSet("diff")
+	flags.BoolVar(&semantic, "semantic", false, "")
+	flags.BoolVar(&exitCode, "exit-code", false, "")
+	flags.StringVar(&output, "o", "human", "")
+	flags.StringVar(&view, "view", "expanded", "")
+	flags.BoolVar(&nonInteractive, "non-interactive", false, "")
+	flags.BoolVar(&quiet, "quiet", false, "")
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return err
+	}
+	if err := validateVNextOutput(output); err != nil {
+		return err
+	}
+	if !semantic || len(positionals) != 2 {
+		return fmt.Errorf("usage: scenery diff --semantic BASE TARGET [-o human|json]")
+	}
+	base, err := vnext.LoadManifestReference(positionals[0])
+	if err != nil {
+		return fmt.Errorf("load base: %w", err)
+	}
+	target, err := vnext.LoadManifestReference(positionals[1])
+	if err != nil {
+		return fmt.Errorf("load target: %w", err)
+	}
+	diff := vnext.CompareManifests(base, target, vnext.CompareOptions{View: view})
+	if output == "json" {
+		envelope := vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: true, ContractRevision: target.ContractRevision, ImplementationRevision: nil, DeploymentRevision: nil, Data: diff, Diagnostics: []vnext.Diagnostic{}}
+		if err := json.NewEncoder(stdout).Encode(envelope); err != nil {
+			return err
+		}
+	} else if output == "human" && !quiet {
+		_, err = fmt.Fprintf(stdout, "%d compatible, %d breaking, %d migration required, %d unknown\n", diff.Summary.Compatible, diff.Summary.Breaking, diff.Summary.MigrationRequired, diff.Summary.Unknown)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("unsupported output %q", output)
+	}
+	if exitCode && len(diff.Changes) > 0 {
+		return &silentCLIError{err: fmt.Errorf("semantic differences found")}
+	}
+	return nil
+}
 
 func runVNextGenerate(stdout io.Writer, args []string) error {
 	opts := vnextOptions{Output: "human"}
@@ -48,8 +349,13 @@ func runVNextGenerate(stdout io.Writer, args []string) error {
 	flags.StringVar(&opts.Output, "o", opts.Output, "")
 	flags.StringVar(&target, "target", "", "")
 	flags.BoolVar(&opts.Check, "check", false, "")
+	flags.BoolVar(&opts.NonInteractive, "non-interactive", false, "")
+	flags.BoolVar(&opts.Quiet, "quiet", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
+		return err
+	}
+	if err := validateVNextOutput(opts.Output); err != nil {
 		return err
 	}
 	if len(positionals) > 0 {
@@ -82,12 +388,39 @@ func runVNextGenerate(stdout io.Writer, args []string) error {
 		result, generateErr = vnext.GenerateGoContracts(root, opts.Check)
 	}
 	if opts.Output == "json" {
-		_ = json.NewEncoder(stdout).Encode(map[string]any{"api_version": "scenery.generate.vnext.v1", "ok": generateErr == nil, "target": target, "data": result})
+		compilation, _ := vnext.Compile(root)
+		envelope := vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: generateErr == nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil, Data: map[string]any{"target": target, "generation": result}, Diagnostics: []vnext.Diagnostic{}}
+		if compilation != nil {
+			envelope.WorkspaceRevision = compilation.WorkspaceRevision
+			if compilation.Manifest != nil {
+				envelope.ContractRevision = compilation.Manifest.ContractRevision
+			}
+			if len(compilation.ImplementationRevisions) > 0 {
+				envelope.ImplementationRevision = compilation.ImplementationRevisions
+			}
+			if len(compilation.DeploymentRevisions) > 0 {
+				envelope.DeploymentRevision = compilation.DeploymentRevisions
+			}
+			envelope.Diagnostics = append(envelope.Diagnostics, compilation.Diagnostics...)
+		}
+		if generateErr != nil {
+			envelope.Diagnostics = append(envelope.Diagnostics, vnext.Diagnostic{Code: "SCN6207", Severity: "error", Message: generateErr.Error()})
+		}
+		_ = json.NewEncoder(stdout).Encode(envelope)
 	}
 	if generateErr != nil {
+		if opts.Check && len(result.Changed) > 0 {
+			if opts.Output == "json" {
+				return &silentCLIError{err: generateErr, code: 1}
+			}
+			return &codedCLIError{err: generateErr, code: 1}
+		}
+		if opts.Output == "json" {
+			return &silentCLIError{err: generateErr, code: cliExitCode(generateErr)}
+		}
 		return generateErr
 	}
-	if opts.Output == "human" {
+	if opts.Output == "human" && !opts.Quiet {
 		if len(result.Changed) == 0 {
 			_, _ = fmt.Fprintln(stdout, "scenery: generated contracts are current")
 		} else {
@@ -105,14 +438,26 @@ func parseVNextOptions(name string, args []string) (vnextOptions, []string, erro
 	flags.StringVar(&opts.View, "view", opts.View, "")
 	flags.StringVar(&opts.Module, "module", "", "")
 	flags.BoolVar(&opts.Check, "check", false, "")
+	flags.BoolVar(&opts.NonInteractive, "non-interactive", false, "")
+	flags.BoolVar(&opts.Quiet, "quiet", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return vnextOptions{}, nil, err
 	}
-	if opts.Output != "human" && opts.Output != "json" {
-		return vnextOptions{}, nil, fmt.Errorf("unsupported output %q", opts.Output)
+	if err := validateVNextOutput(opts.Output); err != nil {
+		return vnextOptions{}, nil, err
+	}
+	if opts.View != "source" && opts.View != "effective" && opts.View != "expanded" {
+		return vnextOptions{}, nil, fmt.Errorf("invalid_request: unsupported graph view %q", opts.View)
 	}
 	return opts, positionals, nil
+}
+
+func validateVNextOutput(output string) error {
+	if output != "human" && output != "json" {
+		return fmt.Errorf("unsupported output %q", output)
+	}
+	return nil
 }
 
 func vnextRoot(value string) (string, error) {
@@ -144,12 +489,19 @@ func runVNextCheck(stdout io.Writer, args []string) error {
 	if len(positionals) > 0 {
 		return fmt.Errorf("unexpected argument %q", positionals[0])
 	}
-	result, err := compileVNextRoot(opts.AppRoot)
+	root, err := vnextRoot(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	data := map[string]any{"contract_status": map[bool]string{true: "valid", false: "invalid"}[result.Valid()], "implementation_status": "not_requested", "manifest": result.Manifest}
-	return writeVNextResult(stdout, opts.Output, result, data)
+	result, err := vnext.Check(root)
+	if err != nil {
+		return err
+	}
+	data := map[string]any{"contract_status": result.ContractStatus, "implementation_status": result.ImplementationStatus, "manifest": result.Manifest, "http_surface_revision": result.HTTPSurfaceRevisions, "openapi_revision": result.OpenAPIRevisions}
+	if result.PartialGraph != nil {
+		data["partial_graph"] = result.PartialGraph
+	}
+	return writeVNextResult(stdout, opts.Output, opts.Quiet, result, data)
 }
 
 func runVNextCompile(stdout io.Writer, args []string) error {
@@ -164,7 +516,18 @@ func runVNextCompile(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	return writeVNextResult(stdout, opts.Output, result, map[string]any{"contract_status": map[bool]string{true: "valid", false: "invalid"}[result.Valid()], "implementation_status": "not_requested", "manifest": result.Manifest})
+	manifest := result.Manifest
+	if result.Valid() {
+		manifest, err = result.ManifestForView(opts.View)
+		if err != nil {
+			return err
+		}
+	}
+	data := map[string]any{"contract_status": result.ContractStatus, "implementation_status": result.ImplementationStatus, "view": opts.View, "manifest": manifest}
+	if result.PartialGraph != nil {
+		data["partial_graph"] = result.PartialGraph
+	}
+	return writeVNextResult(stdout, opts.Output, opts.Quiet, result, data)
 }
 
 func runVNextList(stdout io.Writer, args []string) error {
@@ -179,15 +542,19 @@ func runVNextList(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
+	manifest, err := result.ManifestForView(opts.View)
+	if err != nil {
+		return err
+	}
 	var resources []vnext.Resource
-	if result.Manifest != nil {
-		for _, resource := range result.Manifest.Resources {
+	if manifest != nil {
+		for _, resource := range manifest.Resources {
 			if resourceKindMatches(resource, positionals[0]) && (opts.Module == "" || resource.Module == opts.Module) {
 				resources = append(resources, resource)
 			}
 		}
 	}
-	return writeVNextResult(stdout, opts.Output, result, map[string]any{"view": opts.View, "resources": resources})
+	return writeVNextResult(stdout, opts.Output, opts.Quiet, result, map[string]any{"view": opts.View, "resources": resources})
 }
 
 func runVNextGet(stdout io.Writer, args []string, explain bool) error {
@@ -206,11 +573,15 @@ func runVNextGet(stdout io.Writer, args []string, explain bool) error {
 	if err != nil {
 		return err
 	}
+	manifest, err := result.ManifestForView(opts.View)
+	if err != nil {
+		return err
+	}
 	var found *vnext.Resource
-	if result.Manifest != nil {
-		for i := range result.Manifest.Resources {
-			if result.Manifest.Resources[i].Address == positionals[0] {
-				found = &result.Manifest.Resources[i]
+	if manifest != nil {
+		for i := range manifest.Resources {
+			if manifest.Resources[i].Address == positionals[0] {
+				found = &manifest.Resources[i]
 				break
 			}
 		}
@@ -222,7 +593,7 @@ func runVNextGet(stdout io.Writer, args []string, explain bool) error {
 	if explain {
 		data["provenance"] = found.Origin
 	}
-	return writeVNextResult(stdout, opts.Output, result, data)
+	return writeVNextResult(stdout, opts.Output, opts.Quiet, result, data)
 }
 
 func runVNextSchema(stdout io.Writer, args []string) error {
@@ -241,6 +612,9 @@ func runVNextSchema(stdout io.Writer, args []string) error {
 		return json.NewEncoder(stdout).Encode(vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: true, ImplementationRevision: nil, DeploymentRevision: nil, Data: schema, Diagnostics: []vnext.Diagnostic{}})
 	}
 	b, _ := json.MarshalIndent(schema, "", "  ")
+	if opts.Quiet {
+		return nil
+	}
 	_, err = fmt.Fprintln(stdout, string(b))
 	return err
 }
@@ -250,21 +624,28 @@ func runVNextFmt(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(positionals) > 0 {
-		return fmt.Errorf("path-scoped formatting is not implemented yet")
-	}
 	root, err := vnextRoot(opts.AppRoot)
 	if err != nil {
 		return err
 	}
-	result, formatErr := vnext.Format(root, opts.Check)
+	result, formatErr := vnext.FormatPaths(root, positionals, opts.Check)
 	if opts.Output == "json" {
-		_ = json.NewEncoder(stdout).Encode(map[string]any{"api_version": "scenery.cli.v1", "ok": formatErr == nil, "data": result})
+		diagnostics := []vnext.Diagnostic{}
+		if formatErr != nil {
+			diagnostics = append(diagnostics, vnext.Diagnostic{Code: "SCN6208", Severity: "error", Message: formatErr.Error()})
+		}
+		_ = json.NewEncoder(stdout).Encode(vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: formatErr == nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil, Data: result, Diagnostics: diagnostics})
 	}
 	if formatErr != nil {
-		return formatErr
+		if opts.Check && len(result.Changed) > 0 {
+			return &silentCLIError{err: formatErr, code: 1}
+		}
+		if opts.Output == "json" {
+			return &silentCLIError{err: formatErr, code: 2}
+		}
+		return &codedCLIError{err: formatErr, code: 2}
 	}
-	if opts.Output == "human" {
+	if opts.Output == "human" && !opts.Quiet {
 		if len(result.Changed) == 0 {
 			_, _ = fmt.Fprintln(stdout, "scenery: format ok")
 		} else {
@@ -281,19 +662,77 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 	}
 	subject := args[0]
 	opts := vnextOptions{Output: "human"}
-	var dryRun, native, generate, shadow bool
+	var dryRun, native, legacy, generate, shadow, retire, allowSkipShadow bool
+	var approvedComparisonDigest, activationReceipt string
+	var evidenceValues, approvalTokenPaths []string
 	flags := newCLIFlagSet("migrate " + subject)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Output, "o", opts.Output, "")
 	flags.BoolVar(&dryRun, "dry-run", false, "")
 	flags.BoolVar(&native, "native", false, "")
+	flags.BoolVar(&legacy, "legacy", false, "")
 	flags.BoolVar(&generate, "generate", false, "")
 	flags.BoolVar(&shadow, "shadow", false, "")
+	flags.BoolVar(&retire, "retire", false, "")
+	flags.BoolVar(&allowSkipShadow, "allow-skip-shadow", false, "")
+	flags.StringVar(&approvedComparisonDigest, "approve-comparison-digest", "", "")
+	flags.StringVar(&activationReceipt, "activation-receipt", "", "")
+	flags.Func("evidence", "", func(value string) error { evidenceValues = append(evidenceValues, value); return nil })
+	flags.Func("approval-token", "", func(value string) error { approvalTokenPaths = append(approvalTokenPaths, value); return nil })
+	flags.BoolVar(&opts.NonInteractive, "non-interactive", false, "")
+	flags.BoolVar(&opts.Quiet, "quiet", false, "")
 	positionals, err := parseCLIFlags(flags, args[1:])
 	if err != nil {
 		return err
 	}
+	if opts.Output != "human" && opts.Output != "json" {
+		return fmt.Errorf("unsupported output %q", opts.Output)
+	}
+	operationalEvidence, err := parseMigrationEvidence(evidenceValues)
+	if err != nil {
+		return err
+	}
+	approvalTokens, err := readMigrationApprovalTokens(approvalTokenPaths)
+	if err != nil {
+		return err
+	}
+	if subject == "init" {
+		if len(positionals) > 0 {
+			return fmt.Errorf("unexpected argument %q", positionals[0])
+		}
+		start := opts.AppRoot
+		if start == "" {
+			start = "."
+		}
+		plan, planErr := vnext.PlanMigrationInitialization(start, "local")
+		if planErr != nil {
+			return planErr
+		}
+		data := any(plan)
+		if !dryRun {
+			receipt, applyErr := vnext.ApplyMigrationInitialization(start, plan, vnext.MigrationInitializationApplyOptions{ExpectedWorkspaceRevision: plan.BaseWorkspaceRevision, Caller: "local"})
+			if applyErr != nil {
+				return applyErr
+			}
+			data = receipt
+		}
+		if opts.Output == "json" {
+			return json.NewEncoder(stdout).Encode(vnextEnvelope{
+				APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: true,
+				WorkspaceRevision: plan.PredictedWorkspaceRevision, ContractRevision: plan.PredictedContractRevision,
+				ImplementationRevision: nil, DeploymentRevision: nil, Data: data, Diagnostics: []vnext.Diagnostic{},
+			})
+		}
+		if !opts.Quiet {
+			_, err = fmt.Fprintf(stdout, "migration initialization planned=%t services=%d\n", dryRun, len(plan.Services))
+		}
+		return err
+	}
 	result, err := compileVNextRoot(opts.AppRoot)
+	if err != nil {
+		return err
+	}
+	approvalVerifier, err := approvalVerifierForTokens(result.Root, approvalTokens)
 	if err != nil {
 		return err
 	}
@@ -314,15 +753,33 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 			return err
 		}
 		remainingLegacyAdapters := countLegacyAdapters(result, service.Name)
-		contractReady := result.Valid() && service.Active == "native"
+		candidateComplete := service.GuaranteeClassification == "verified"
+		contractReady := result.Valid() && service.Active == "native" && candidateComplete
+		operationalReady := true
+		constructs := make([]vnext.MigrationConstructStatus, 0)
+		for _, construct := range status.Constructs {
+			if construct.Service != service.Name {
+				continue
+			}
+			constructs = append(constructs, construct)
+			if construct.Blocking {
+				operationalReady = false
+			}
+		}
 		data = map[string]any{
 			"api_version":               "scenery.migrate.verify.v1",
 			"service":                   service,
 			"contract_valid":            result.Valid(),
 			"contract_ready":            contractReady,
-			"retirement_ready":          contractReady && remainingLegacyAdapters == 0,
+			"candidate_complete":        candidateComplete,
+			"candidate_digests":         map[string]string{"legacy": service.LegacyCandidateDigest, "native": service.NativeCandidateDigest},
+			"cutover_classes":           service.CutoverClasses,
+			"rollback_safety":           service.RollbackSafety,
+			"constructs":                constructs,
+			"operational_ready":         operationalReady,
+			"retirement_ready":          contractReady && operationalReady && service.State == "native" && remainingLegacyAdapters == 0,
 			"remaining_legacy_adapters": remainingLegacyAdapters,
-			"ready":                     contractReady,
+			"ready":                     contractReady && operationalReady,
 		}
 	case "compare":
 		if len(positionals) != 1 {
@@ -332,16 +789,60 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 		if serviceErr != nil {
 			return serviceErr
 		}
-		data = map[string]any{"api_version": "scenery.migrate.compare.v1", "service": service.Name, "state": service.State, "active": service.Active, "equal": result.Valid(), "differences": []any{}, "contract_revision": status.ContractRevision}
+		comparison, compareErr := vnext.CompareMigrationService(result, service.Name)
+		if compareErr != nil {
+			return compareErr
+		}
+		data = comparison
 	case "service":
-		if len(positionals) != 1 || (!generate && !shadow) {
-			return fmt.Errorf("usage: scenery migrate service SERVICE --generate|--shadow [--dry-run]")
+		if len(positionals) != 1 || boolCount(generate, shadow, retire) != 1 {
+			return fmt.Errorf("usage: scenery migrate service SERVICE --generate|--shadow|--retire [--dry-run]")
 		}
 		service, serviceErr := status.Service(positionals[0])
 		if serviceErr != nil {
 			return serviceErr
 		}
-		data = map[string]any{"api_version": "scenery.migrate.service-plan.v1", "service": service, "generate": generate, "shadow": shadow, "dry_run": dryRun, "writes": []string{}}
+		if generate {
+			plan, planErr := vnext.PlanMigrationCandidate(result.Root, vnext.MigrationCandidateRequest{Service: service.Name, Caller: "local", BaseWorkspaceRevision: status.WorkspaceRevision, BaseContractRevision: status.ContractRevision})
+			if planErr != nil {
+				return planErr
+			}
+			data = plan
+			if !dryRun {
+				receipt, applyErr := vnext.ApplyMigrationCandidate(result.Root, plan, vnext.MigrationCandidateApplyOptions{ExpectedWorkspaceRevision: status.WorkspaceRevision, ExpectedContractRevision: status.ContractRevision, Caller: "local"})
+				if applyErr != nil {
+					return applyErr
+				}
+				data = receipt
+				result, err = vnext.Compile(result.Root)
+				if err != nil {
+					return err
+				}
+				status = vnext.BuildMigrationStatus(result)
+			}
+			break
+		}
+		action := "shadow"
+		if retire {
+			action = "retire"
+		}
+		plan, planErr := vnext.PlanMigrationTransition(result.Root, vnext.MigrationPlanRequest{Action: action, Service: service.Name, Caller: "local", BaseWorkspaceRevision: status.WorkspaceRevision, BaseContractRevision: status.ContractRevision, ApprovedComparisonDigest: approvedComparisonDigest, OperationalEvidence: operationalEvidence})
+		if planErr != nil {
+			return planErr
+		}
+		data = plan
+		if !dryRun {
+			receipt, applyErr := vnext.ApplyMigrationPlan(result.Root, plan, vnext.MigrationApplyOptions{ExpectedWorkspaceRevision: status.WorkspaceRevision, ExpectedContractRevision: status.ContractRevision, Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier})
+			if applyErr != nil {
+				return applyErr
+			}
+			data = receipt
+			result, err = vnext.Compile(result.Root)
+			if err != nil {
+				return err
+			}
+			status = vnext.BuildMigrationStatus(result)
+		}
 	case "activate":
 		if len(positionals) != 1 || !native {
 			return fmt.Errorf("usage: scenery migrate activate SERVICE --native [--dry-run]")
@@ -350,122 +851,78 @@ func runVNextMigrate(stdout io.Writer, args []string) error {
 		if serviceErr != nil {
 			return serviceErr
 		}
-		if service.Active != "native" {
-			return fmt.Errorf("service %s is not ready for idempotent native activation; author a validated shadow candidate first", service.Name)
+		plan, planErr := vnext.PlanMigrationTransition(result.Root, vnext.MigrationPlanRequest{Action: "activate_native", Service: service.Name, Caller: "local", BaseWorkspaceRevision: status.WorkspaceRevision, BaseContractRevision: status.ContractRevision, ApprovedComparisonDigest: approvedComparisonDigest, OperationalEvidence: operationalEvidence, AllowSkipShadow: allowSkipShadow})
+		if planErr != nil {
+			return planErr
 		}
-		data = map[string]any{"api_version": "scenery.migrate.activation-receipt.v1", "service": service.Name, "active": "native", "dry_run": dryRun, "workspace_revision": status.WorkspaceRevision, "contract_revision": status.ContractRevision, "changed": false, "rollback_safe": service.State == "shadow"}
+		data = plan
+		if !dryRun {
+			receipt, applyErr := vnext.ApplyMigrationPlan(result.Root, plan, vnext.MigrationApplyOptions{ExpectedWorkspaceRevision: status.WorkspaceRevision, ExpectedContractRevision: status.ContractRevision, Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier})
+			if applyErr != nil {
+				return applyErr
+			}
+			data = receipt
+			result, err = vnext.Compile(result.Root)
+			if err != nil {
+				return err
+			}
+			status = vnext.BuildMigrationStatus(result)
+		}
+	case "rollback":
+		if len(positionals) != 1 || !legacy {
+			return fmt.Errorf("usage: scenery migrate rollback SERVICE --legacy --activation-receipt PLAN_ID [--dry-run]")
+		}
+		service, serviceErr := status.Service(positionals[0])
+		if serviceErr != nil {
+			return serviceErr
+		}
+		plan, planErr := vnext.PlanMigrationTransition(result.Root, vnext.MigrationPlanRequest{Action: "activate_legacy", Service: service.Name, Caller: "local", BaseWorkspaceRevision: status.WorkspaceRevision, BaseContractRevision: status.ContractRevision, ApprovedComparisonDigest: approvedComparisonDigest, ActivationReceiptPlanID: activationReceipt, OperationalEvidence: operationalEvidence})
+		if planErr != nil {
+			return planErr
+		}
+		data = plan
+		if !dryRun {
+			receipt, applyErr := vnext.ApplyMigrationPlan(result.Root, plan, vnext.MigrationApplyOptions{ExpectedWorkspaceRevision: status.WorkspaceRevision, ExpectedContractRevision: status.ContractRevision, Caller: "local", ApprovalTokens: approvalTokens, VerifyApproval: approvalVerifier})
+			if applyErr != nil {
+				return applyErr
+			}
+			data = receipt
+			result, err = vnext.Compile(result.Root)
+			if err != nil {
+				return err
+			}
+			status = vnext.BuildMigrationStatus(result)
+		}
 	case "finish":
 		if len(positionals) > 0 {
 			return fmt.Errorf("unexpected argument %q", positionals[0])
 		}
-		legacyCount := 0
-		for _, service := range status.Services {
-			if service.Active == "legacy" || service.State == "shadow" {
-				legacyCount++
+		plan, planErr := vnext.PlanMigrationFinish(result.Root, vnext.MigrationFinishRequest{Caller: "local", BaseWorkspaceRevision: status.WorkspaceRevision, BaseContractRevision: status.ContractRevision, OperationalEvidence: operationalEvidence})
+		if planErr != nil {
+			return planErr
+		}
+		data = plan
+		if !dryRun {
+			receipt, applyErr := vnext.ApplyMigrationFinish(result.Root, plan, vnext.MigrationFinishApplyOptions{Caller: "local", ExpectedWorkspaceRevision: status.WorkspaceRevision, ExpectedContractRevision: status.ContractRevision})
+			if applyErr != nil {
+				return applyErr
 			}
+			data = receipt
+			result, err = vnext.Compile(result.Root)
+			if err != nil {
+				return err
+			}
+			status = vnext.BuildMigrationStatus(result)
 		}
-		data = map[string]any{"api_version": "scenery.migrate.finish.v1", "ready": legacyCount == 0, "remaining_services": legacyCount}
-		if legacyCount > 0 && opts.Output == "human" {
-			return fmt.Errorf("migration cannot finish: %d legacy or shadow services remain", legacyCount)
-		}
-	case "init":
-		if len(positionals) > 0 {
-			return fmt.Errorf("unexpected argument %q", positionals[0])
-		}
-		data = map[string]any{"api_version": "scenery.migrate.init.v1", "initialized": result.Migration != nil, "changed": false, "message": "workspace already has explicit native and migration source"}
 	default:
 		return fmt.Errorf("migrate %s is not implemented yet", subject)
 	}
 	if opts.Output == "json" {
-		return json.NewEncoder(stdout).Encode(data)
+		return writeVNextResult(stdout, opts.Output, opts.Quiet, result, data)
+	}
+	if opts.Quiet {
+		return nil
 	}
 	_, err = fmt.Fprintf(stdout, "mode=%s ready=%t services=%d\n", status.Mode, status.Ready, len(status.Services))
 	return err
-}
-
-func countLegacyAdapters(result *vnext.Result, module string) int {
-	count := 0
-	if result == nil || result.Manifest == nil {
-		return 0
-	}
-	for _, resource := range result.Manifest.Resources {
-		if resource.Module != module || resource.Kind != "scenery.operation/v1" {
-			continue
-		}
-		handler, _ := resource.Spec["handler"].(map[string]any)
-		if adapter, _ := handler["adapter"].(string); adapter == "legacy_go_v0" {
-			count++
-		}
-	}
-	return count
-}
-
-func compileVNextRoot(value string) (*vnext.Result, error) {
-	root, err := vnextRoot(value)
-	if err != nil {
-		return nil, err
-	}
-	return vnext.Compile(root)
-}
-
-func writeVNextResult(stdout io.Writer, output string, result *vnext.Result, data any) error {
-	if output == "json" {
-		env := vnextEnvelope{APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: result.Valid(), WorkspaceRevision: result.WorkspaceRevision, ImplementationRevision: nil, DeploymentRevision: nil, Data: data, Diagnostics: result.Diagnostics}
-		if result.Manifest != nil {
-			env.ContractRevision = result.Manifest.ContractRevision
-		}
-		if err := json.NewEncoder(stdout).Encode(env); err != nil {
-			return err
-		}
-		if !env.OK {
-			return &silentCLIError{err: fmt.Errorf("vNext compilation failed")}
-		}
-		return nil
-	}
-	if !result.Valid() {
-		for _, diag := range result.Diagnostics {
-			if diag.Severity == "error" {
-				_, _ = fmt.Fprintf(stdout, "%s: %s\n", diag.Code, diag.Message)
-			}
-		}
-		return fmt.Errorf("vNext compilation failed")
-	}
-	_, err := fmt.Fprintln(stdout, "scenery: vNext contract ok", result.Manifest.ContractRevision)
-	return err
-}
-
-func resourceKindMatches(resource vnext.Resource, value string) bool {
-	return resource.Kind == value || strings.TrimPrefix(strings.TrimSuffix(resource.Kind, "/v1"), "scenery.") == strings.ReplaceAll(value, "_", "-")
-}
-func pathExistsLocal(path string) bool { _, err := os.Stat(path); return err == nil }
-
-func hasCLIArg(args []string, names ...string) bool {
-	for _, arg := range args {
-		for _, name := range names {
-			if arg == name || strings.HasPrefix(arg, name+"=") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func isVNextGenerate(args []string) bool {
-	root := "."
-	for i, arg := range args {
-		if arg == "client" || arg == "sqlc" || arg == "data" {
-			return false
-		}
-		if arg == "--app-root" && i+1 < len(args) {
-			root = args[i+1]
-		}
-		if strings.HasPrefix(arg, "--app-root=") {
-			root = strings.TrimPrefix(arg, "--app-root=")
-		}
-	}
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return false
-	}
-	return pathExistsLocal(filepath.Join(abs, "scenery.scn"))
 }

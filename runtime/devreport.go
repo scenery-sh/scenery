@@ -351,6 +351,7 @@ func startRequestTrace(state *requestState) {
 		state.request.Started = span.started
 	}
 	state.trace = span
+	state.request.TraceID = span.traceID
 	reporter := activeReporter()
 	if reporter == nil || !state.traceEnabled {
 		return

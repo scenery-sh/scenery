@@ -9,44 +9,67 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	appcfg "scenery.sh/internal/app"
+	"scenery.sh/internal/clientgen"
+	"scenery.sh/internal/parse"
 )
 
 func GenerateTypeScriptClients(root, selector string, check bool) (GenerateResult, error) {
-	result, err := Compile(root)
+	return generateTypeScriptClients(root, selector, check, false)
+}
+
+func generateTypeScriptClients(root, selector string, check, allowActiveChangeTransaction bool) (GenerateResult, error) {
+	result, err := compile(root, allowActiveChangeTransaction)
 	if err != nil {
 		return GenerateResult{}, err
 	}
-	if !result.Valid() {
-		return GenerateResult{}, fmt.Errorf("cannot generate from invalid vNext contract")
+	if result.ContractStatus != "valid" || result.Manifest == nil {
+		return GenerateResult{}, fmt.Errorf("cannot generate from invalid vNext contract: %s", firstError(result.Diagnostics))
 	}
 	targets := typescriptTargets(result.Manifest.Resources, selector)
 	if selector != "" && len(targets) == 0 {
 		return GenerateResult{}, fmt.Errorf("TypeScript client target %q not found", selector)
 	}
 	generated := GenerateResult{Changed: []string{}, Checked: []string{}}
+	var files []generatedFile
 	for _, target := range targets {
-		files, err := renderTypeScriptTarget(result, target)
+		targetFiles, err := renderTypeScriptTarget(result, target)
 		if err != nil {
 			return generated, err
 		}
-		for _, file := range files {
-			rel, _ := filepath.Rel(result.Root, file.Path)
-			rel = filepath.ToSlash(rel)
-			generated.Checked = append(generated.Checked, rel)
-			current, readErr := os.ReadFile(file.Path)
-			if readErr == nil && string(current) == string(file.Bytes) {
+		files = append(files, targetFiles...)
+	}
+	protectedDescriptors := map[string]bool{}
+	if selector != "" {
+		selected := map[string]bool{}
+		for _, target := range targets {
+			selected[target.Address] = true
+		}
+		for _, target := range typescriptTargets(result.Manifest.Resources, "") {
+			if selected[target.Address] {
 				continue
 			}
-			generated.Changed = append(generated.Changed, rel)
-			if !check {
-				if err := atomicWrite(file.Path, file.Bytes); err != nil {
-					return generated, err
-				}
-			}
+			outputRoot := filepath.Join(result.Root, filepath.FromSlash(stringValue(target.Spec["output_root"])))
+			protectedDescriptors[filepath.Clean(filepath.Join(outputRoot, "scenery.typescript-client-generated.v1.json"))] = true
+			protectedDescriptors[filepath.Clean(filepath.Join(outputRoot, "legacy-v0", "scenery.legacy-typescript-client-generated.v1.json"))] = true
 		}
 	}
-	sort.Strings(generated.Changed)
-	sort.Strings(generated.Checked)
+	files, err = includeStaleGeneratedFiles(result.Root, files, map[string]bool{
+		"scenery.typescript-client-generated.v1.json": true, "scenery.legacy-typescript-client-generated.v1.json": true,
+	}, protectedDescriptors)
+	if err != nil {
+		return generated, err
+	}
+	generated, err = inspectGeneratedFiles(result.Root, files)
+	if err != nil {
+		return generated, err
+	}
+	if !check && len(generated.Changed) > 0 {
+		if err := atomicWriteSet(result.Root, files); err != nil {
+			return generated, err
+		}
+	}
 	if check && len(generated.Changed) > 0 {
 		return generated, fmt.Errorf("generated vNext TypeScript clients are stale: %s", strings.Join(generated.Changed, ", "))
 	}
@@ -70,21 +93,165 @@ func renderTypeScriptTarget(result *Result, target Resource) ([]generatedFile, e
 		return nil, fmt.Errorf("TypeScript client %s requires output_root", target.Name)
 	}
 	root := filepath.Join(result.Root, filepath.FromSlash(outputRoot))
-	bindings := publicHTTPBindings(result.Manifest.Resources)
+	bindings := publicHTTPBindings(result.Manifest.Resources, target)
+	legacyBindings := legacyHTTPBindings(result.Manifest.Resources, target, bindings)
+	legacyFiles, legacyRevision, legacyFixtureDigest, err := renderLegacyTypeScriptFamily(result, target, root, legacyBindings)
+	if err != nil {
+		return nil, err
+	}
 	reachable := reachableResources(result.Manifest.Resources, bindings)
-	revision := typescriptRevision(target, reachable)
-	selectionBytes, _ := json.MarshalIndent(clientSelectionManifest(result.Manifest.Resources, bindings, revision), "", "  ")
+	projectionResources := typescriptProjectionResources(result.Manifest.Resources, bindings, reachable, target)
+	revision := typescriptRevision(target, projectionResources)
+	projection := typescriptCompatibilityProjection(target, projectionResources)
+	recommendation := typescriptVersionRecommendation(filepath.Join(root, "scenery.typescript-client-generated.v1.json"), revision, projection)
+	selection, err := clientSelectionManifest(bindings, legacyBindings, revision, legacyRevision)
+	if err != nil {
+		return nil, err
+	}
+	selectionBytes, _ := json.MarshalIndent(selection, "", "  ")
 	selectionBytes = append(selectionBytes, '\n')
-	files := []generatedFile{{filepath.Join(root, "types.ts"), []byte(renderTSTypes(reachable))}, {filepath.Join(root, "runtime.ts"), []byte(renderTSRuntime())}, {filepath.Join(root, "client.ts"), []byte(renderTSClient(target, bindings, reachable))}, {filepath.Join(root, "metadata.ts"), []byte(renderTSMetadata(target, result.Manifest, bindings, revision))}, {filepath.Join(root, "index.ts"), []byte("// Code generated by Scenery vNext. DO NOT EDIT.\nexport * from \"./client.js\";\nexport * from \"./types.js\";\nexport * from \"./runtime.js\";\nexport * from \"./metadata.js\";\n")}, {filepath.Join(root, "scenery.client-selection.v1.json"), selectionBytes}}
-	descriptor := map[string]any{"api_version": "scenery.typescript-client-generated/v1", "target": target.Address, "package": target.Spec["package"], "contract_revision": result.Manifest.ContractRevision, "typescript_client_revision": revision, "content_digest": artifactDigest(root, files), "profile": "scenery.typescript-client/v1", "codec_profiles": []string{"scenery.http-codec/v1"}, "covered_bindings": resourceAddresses(bindings), "generator": "scenery.vnext.typescript/v1"}
+	files := []generatedFile{{Path: filepath.Join(root, "types.ts"), Bytes: []byte(renderTSTypes(reachable, bindings))}, {Path: filepath.Join(root, "runtime.ts"), Bytes: []byte(renderTSRuntime())}, {Path: filepath.Join(root, "client.ts"), Bytes: []byte(renderTSClient(target, bindings, result.Manifest.Resources))}, {Path: filepath.Join(root, "metadata.ts"), Bytes: []byte(renderTSMetadata(target, result.Manifest, bindings, reachable, revision, recommendation))}, {Path: filepath.Join(root, "index.ts"), Bytes: []byte("// Code generated by Scenery vNext. DO NOT EDIT.\nexport * from \"./client.js\";\nexport * from \"./types.js\";\nexport { date, dateTime, decimal, duration, jsonNumber, isJsonNumber, relativePath, SceneryClientError, url, uuid } from \"./runtime.js\";\nexport type { AuthenticationOptions, CallOptions, RetryRuntime } from \"./runtime.js\";\nexport * from \"./metadata.js\";\n")}, {Path: filepath.Join(root, "scenery.client-selection.v1.json"), Bytes: selectionBytes}}
+	descriptor := map[string]any{
+		"api_version": "scenery.typescript-client-generated/v1", "target": target.Address, "package": target.Spec["package"],
+		"contract_revision": result.Manifest.ContractRevision, "typescript_client_revision": revision, "content_digest": artifactDigest(root, files),
+		"profile": "scenery.typescript-client/v1", "profile_digest": profileIdentityDigest("scenery.typescript-client/v1"),
+		"codec_profiles":        map[string]string{"scenery.http-codec/v1": profileIdentityDigest("scenery.http-codec/v1")},
+		"compatibility_catalog": "scenery.compatibility-core/v1", "package_version_recommendation": recommendation, "compatibility_projection": projection,
+		"covered_gateways": literalReferenceList(target.Spec["gateways"]), "covered_bindings": resourceAddresses(bindings),
+		"covered_operations": resourceAddressesByKinds(reachable, "scenery.operation/v1"), "covered_types": resourceAddressesByKinds(reachable, "scenery.record/v1", "scenery.enum/v1", "scenery.union/v1"),
+		"http_surface_revisions": projectionRevisionsForGateways(result, literalReferenceList(target.Spec["gateways"]), result.HTTPSurfaceRevisions),
+		"openapi_revisions":      projectionRevisionsForGateways(result, literalReferenceList(target.Spec["gateways"]), result.OpenAPIRevisions),
+		"typescript_version":     target.Spec["typescript_version"], "javascript_target": target.Spec["javascript_target"],
+		"generator": "scenery.vnext.typescript/v1", "files": generatedFilePaths(root, files),
+		"legacy_client_revision": optionalRevisionValue(legacyRevision), "legacy_fixture_catalog_digest": optionalRevisionValue(legacyFixtureDigest),
+	}
 	b, _ := json.MarshalIndent(descriptor, "", "  ")
-	files = append(files, generatedFile{filepath.Join(root, "scenery.typescript-client-generated.v1.json"), append(b, '\n')})
-	return files, nil
+	files = append(files, generatedFile{Path: filepath.Join(root, "scenery.typescript-client-generated.v1.json"), Bytes: append(b, '\n')})
+	return append(files, legacyFiles...), nil
 }
 
-func publicHTTPBindings(resources []Resource) []Resource {
+func optionalRevisionValue(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+type typescriptClientProjection struct {
+	Target    Resource   `json:"target"`
+	Resources []Resource `json:"resources"`
+}
+
+func typescriptCompatibilityProjection(target Resource, resources []Resource) typescriptClientProjection {
+	projected := make([]Resource, 0, len(resources))
+	for _, resource := range resources {
+		projection, include := contractResourceProjection(resource)
+		if include {
+			projected = append(projected, projection)
+		}
+	}
+	return typescriptClientProjection{
+		Target:    Resource{Address: target.Address, Kind: target.Kind, Name: target.Name, Module: target.Module, Spec: target.Spec},
+		Resources: projected,
+	}
+}
+
+func typescriptVersionRecommendation(path, revision string, projection typescriptClientProjection) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "initial"
+	}
+	var previous struct {
+		Revision       string                     `json:"typescript_client_revision"`
+		Recommendation string                     `json:"package_version_recommendation"`
+		Projection     typescriptClientProjection `json:"compatibility_projection"`
+	}
+	if json.Unmarshal(b, &previous) != nil {
+		return "major"
+	}
+	if previous.Revision == revision {
+		if previous.Recommendation != "" {
+			return previous.Recommendation
+		}
+		return "none"
+	}
+	if previous.Projection.Target.Address == "" || !semanticEqual(previous.Projection.Target, projection.Target) {
+		return "major"
+	}
+	diff := CompareManifests(&Manifest{Resources: previous.Projection.Resources}, &Manifest{Resources: projection.Resources}, CompareOptions{View: "artifact"})
+	if diff.Summary.Breaking > 0 || diff.Summary.Unknown > 0 || diff.Summary.MigrationRequired > 0 {
+		return "major"
+	}
+	if len(diff.Changes) > 0 {
+		return "minor"
+	}
+	return "patch"
+}
+
+func typescriptProjectionResources(all, bindings, reachable []Resource, target Resource) []Resource {
+	selected := map[string]Resource{}
+	for _, resource := range append(append([]Resource(nil), reachable...), bindings...) {
+		selected[resource.Address] = resource
+	}
+	gateways := map[string]bool{}
+	for _, value := range anyList(target.Spec["gateways"]) {
+		gateways[lastRef(refOrString(value))] = true
+	}
+	for _, resource := range all {
+		if resource.Kind == "scenery.http-gateway/v1" && gateways[resource.Name] {
+			selected[resource.Address] = resource
+		}
+	}
+	result := make([]Resource, 0, len(selected))
+	for _, resource := range selected {
+		result = append(result, resource)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Address < result[j].Address })
+	return result
+}
+
+func profileIdentityDigest(identity string) string {
+	sum := sha256.Sum256([]byte("scenery.profile.v1\x00" + identity))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func literalReferenceList(value any) []string {
+	var result []string
+	for _, item := range anyList(value) {
+		result = append(result, refOrString(item))
+	}
+	sort.Strings(result)
+	return result
+}
+
+func resourceAddressesByKinds(resources []Resource, kinds ...string) []string {
+	allowed := map[string]bool{}
+	for _, kind := range kinds {
+		allowed[kind] = true
+	}
+	var filtered []Resource
+	for _, resource := range resources {
+		if allowed[resource.Kind] {
+			filtered = append(filtered, resource)
+		}
+	}
+	return resourceAddresses(filtered)
+}
+
+func publicHTTPBindings(resources []Resource, target Resource) []Resource {
 	var out []Resource
 	operations := map[string]Resource{}
+	exported, exportDeclared := exportedOperations(resources)
+	gateways := map[string]bool{}
+	for _, gateway := range anyList(target.Spec["gateways"]) {
+		gateways[refOrString(gateway)] = true
+		gateways[lastRef(refOrString(gateway))] = true
+	}
+	include := map[string]bool{}
+	for _, value := range anyList(target.Spec["include"]) {
+		include[refOrString(value)] = true
+		include[lastRef(refOrString(value))] = true
+	}
 	for _, resource := range resources {
 		if resource.Kind == "scenery.operation/v1" {
 			operations[resource.Address] = resource
@@ -110,8 +277,21 @@ func publicHTTPBindings(resources []Resource) []Resource {
 		if protocol, _ := r.Spec["protocol"].(string); protocol != "http" {
 			continue
 		}
+		if exportDeclared[r.Module] && !exported[op.Address] {
+			continue
+		}
+		gateway := refOrString(r.Spec["gateway"])
+		if len(gateways) > 0 && !gateways[gateway] && !gateways[lastRef(gateway)] {
+			continue
+		}
+		if len(include) > 0 && !include[r.Address] && !include[r.Name] && !include[op.Address] && !include[op.Name] {
+			continue
+		}
 		httpSpec, _ := r.Spec["http"].(map[string]any)
 		if httpSpec == nil {
+			continue
+		}
+		if guarantee, _ := httpSpec["guarantee"].(string); guarantee == "implementation_declared" || guarantee == "opaque" || guarantee == "advisory" {
 			continue
 		}
 		out = append(out, r)
@@ -120,52 +300,248 @@ func publicHTTPBindings(resources []Resource) []Resource {
 	return out
 }
 
-func clientSelectionManifest(resources, nativeBindings []Resource, revision string) map[string]any {
-	native := map[string]bool{}
+func exportedOperations(resources []Resource) (map[string]bool, map[string]bool) {
+	exported := map[string]bool{}
+	declared := map[string]bool{}
+	for _, resource := range resources {
+		if resource.Kind != "scenery.module/v1" {
+			continue
+		}
+		module := resource.Name
+		values, exists := resource.Spec["exports"]
+		if !exists {
+			continue
+		}
+		declared[module] = true
+		walkRefs(values, "/exports", func(_ string, reference string) {
+			if parts := strings.Split(reference, "/"); len(parts) == 3 && parts[0] == module && parts[1] == "operation" {
+				exported[reference] = true
+				return
+			}
+			parts := strings.Split(reference, ".")
+			if len(parts) >= 2 && parts[0] == "operation" {
+				exported[resourceAddress(module, "operation", parts[1])] = true
+			}
+		})
+	}
+	return exported, declared
+}
+
+func clientSelectionManifest(nativeBindings, legacyBindings []Resource, nativeRevision, legacyRevision string) (map[string]any, error) {
+	selection := map[string]any{}
+	for _, family := range []struct {
+		name     string
+		revision string
+		bindings []Resource
+	}{{"native", nativeRevision, nativeBindings}, {"legacy_v0", legacyRevision, legacyBindings}} {
+		for _, binding := range family.bindings {
+			operation := refString(binding.Spec["operation"])
+			if !strings.Contains(operation, "/") {
+				operation = resourceAddress(binding.Module, "operation", lastRef(operation))
+			}
+			if previous, exists := selection[operation].(map[string]any); exists && (previous["family"] != family.name || previous["revision"] != family.revision) {
+				return nil, fmt.Errorf("client operation %s is selected by conflicting artifact families", operation)
+			}
+			selection[operation] = map[string]any{"family": family.name, "revision": family.revision}
+		}
+	}
+	return map[string]any{"api_version": "scenery.client-selection.v1", "operations": selection}, nil
+}
+
+func legacyHTTPBindings(resources []Resource, target Resource, nativeBindings []Resource) []Resource {
+	native := make(map[string]bool, len(nativeBindings))
 	for _, binding := range nativeBindings {
 		native[binding.Address] = true
 	}
-	selection := map[string]any{}
+	gateways := map[string]bool{}
+	for _, gateway := range anyList(target.Spec["gateways"]) {
+		gateways[refOrString(gateway)] = true
+		gateways[lastRef(refOrString(gateway))] = true
+	}
+	include := map[string]bool{}
+	for _, value := range anyList(target.Spec["include"]) {
+		include[refOrString(value)] = true
+		include[lastRef(refOrString(value))] = true
+	}
+	var bindings []Resource
 	for _, binding := range resources {
-		if binding.Kind != "scenery.binding/v1" {
+		if binding.Kind != "scenery.binding/v1" || binding.Origin.Kind != "legacy_v0" || native[binding.Address] {
 			continue
 		}
 		if httpSpec, _ := binding.Spec["http"].(map[string]any); httpSpec == nil {
 			continue
 		}
-		family, bindingRevision := "legacy_v0", "scenery.legacy.v0"
-		if native[binding.Address] {
-			family, bindingRevision = "native", revision
+		if access, _ := binding.Origin.LegacyIdentity["access"].(string); access == "private" {
+			continue
 		}
-		selection[binding.Address] = map[string]any{"family": family, "revision": bindingRevision}
+		gateway := refOrString(binding.Spec["gateway"])
+		if len(gateways) > 0 && !gateways[gateway] && !gateways[lastRef(gateway)] {
+			continue
+		}
+		operation := refString(binding.Spec["operation"])
+		if len(include) > 0 && !include[binding.Address] && !include[binding.Name] && !include[operation] && !include[lastRef(operation)] {
+			continue
+		}
+		bindings = append(bindings, binding)
 	}
-	return map[string]any{"api_version": "scenery.client-selection.v1", "operations": selection}
+	sort.Slice(bindings, func(i, j int) bool { return bindings[i].Address < bindings[j].Address })
+	return bindings
+}
+
+func renderLegacyTypeScriptFamily(result *Result, target Resource, root string, bindings []Resource) ([]generatedFile, string, string, error) {
+	if len(bindings) == 0 {
+		return nil, "", "", nil
+	}
+	_, cfg, err := appcfg.DiscoverRoot(result.Root)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("discover legacy client app: %w", err)
+	}
+	legacyApp, err := parse.App(result.Root, cfg.Name)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("parse legacy client app: %w", err)
+	}
+	services := map[string]bool{}
+	fixtureEntries := map[string]any{}
+	for _, binding := range bindings {
+		services[binding.Module] = true
+		if name, _ := binding.Origin.LegacyIdentity["service"].(string); name != "" {
+			services[name] = true
+		}
+		fixtureEntries[binding.Address] = binding.Origin.LegacyIdentity
+	}
+	filtered := legacyApp.Services[:0]
+	for _, service := range legacyApp.Services {
+		if services[service.Name] {
+			filtered = append(filtered, service)
+		}
+	}
+	legacyApp.Services = filtered
+	clientBytes, err := clientgen.GenerateTypeScript(legacyApp, clientgen.TypeScriptOptions{
+		AppSlug: cfg.AppID(), StandardAuth: cfg.Auth.Enabled, StandardAuthGoogle: cfg.Auth.GoogleOAuth.Enabled,
+	})
+	if err != nil {
+		return nil, "", "", fmt.Errorf("generate legacy TypeScript client: %w", err)
+	}
+	fixtureDigest := revisionHash("scenery.legacy-client-fixture-catalog.v1\x00", fixtureEntries)
+	clientDigest := sha256.Sum256(clientBytes)
+	revision := revisionHash("scenery.legacy-typescript-client.v1\x00", map[string]any{
+		"target": target.Address, "bindings": resourceAddresses(bindings), "fixture_catalog_digest": fixtureDigest,
+		"client_digest": "sha256:" + hex.EncodeToString(clientDigest[:]), "frontend": "scenery.legacy.v0",
+	})
+	legacyRoot := filepath.Join(root, "legacy-v0")
+	files := []generatedFile{{Path: filepath.Join(legacyRoot, "client.ts"), Bytes: clientBytes}}
+	descriptor := map[string]any{
+		"api_version": "scenery.legacy-typescript-client-generated/v1", "artifact_family": "legacy_v0",
+		"compatibility_frontend": "scenery.legacy.v0", "target": target.Address,
+		"package": fmt.Sprint(target.Spec["package"]) + "-legacy-v0", "import_path": "./legacy-v0/client.js",
+		"contract_revision": result.Manifest.ContractRevision, "legacy_client_revision": revision,
+		"fixture_catalog_digest": fixtureDigest, "covered_bindings": resourceAddresses(bindings),
+		"generator": "scenery.legacy.typescript/v0", "files": generatedFilePaths(legacyRoot, files),
+		"content_digest": artifactDigest(legacyRoot, files),
+	}
+	descriptorBytes, _ := json.MarshalIndent(descriptor, "", "  ")
+	files = append(files, generatedFile{Path: filepath.Join(legacyRoot, "scenery.legacy-typescript-client-generated.v1.json"), Bytes: append(descriptorBytes, '\n')})
+	return files, revision, fixtureDigest, nil
 }
 func reachableResources(resources, bindings []Resource) []Resource {
-	modules := map[string]bool{}
-	operations := map[string]bool{}
+	byAddress := map[string]Resource{}
+	operations := map[string]Resource{}
 	for _, b := range bindings {
-		modules[b.Module] = true
-		operations[b.Module+"/operation/"+lastRef(refString(b.Spec["operation"]))] = true
+		address := resolveResourceRef(b, refString(b.Spec["operation"]), "operation")
+		operations[address] = Resource{}
 	}
-	var out []Resource
 	for _, r := range resources {
-		if modules[r.Module] && (r.Kind == "scenery.record/v1" || r.Kind == "scenery.enum/v1" || r.Kind == "scenery.union/v1" || (r.Kind == "scenery.operation/v1" && operations[r.Address])) {
-			out = append(out, r)
+		byAddress[r.Address] = r
+		if _, selected := operations[r.Address]; selected {
+			operations[r.Address] = r
 		}
+	}
+	selected := map[string]Resource{}
+	var addType func(string, any)
+	addType = func(module string, value any) {
+		for _, name := range typeValueNames(value) {
+			address := ""
+			if strings.Contains(name, "/") {
+				address = name
+			} else {
+				parts := strings.Split(name, ".")
+				if len(parts) != 2 || (parts[0] != "record" && parts[0] != "enum" && parts[0] != "union") {
+					continue
+				}
+				address = resourceAddress(module, parts[0], parts[1])
+			}
+			if _, exists := selected[address]; exists {
+				continue
+			}
+			resource, exists := byAddress[address]
+			if !exists {
+				continue
+			}
+			selected[address] = resource
+			switch resource.Kind {
+			case "scenery.record/v1":
+				for _, field := range namedChildren(resource.Spec, "field") {
+					addType(resource.Module, field["type"])
+				}
+			case "scenery.union/v1":
+				for _, variant := range namedChildren(resource.Spec, "variant") {
+					addType(resource.Module, variant["type"])
+				}
+			}
+		}
+	}
+	for address, operation := range operations {
+		if operation.Address == "" {
+			continue
+		}
+		selected[address] = operation
+		addType(operation.Module, operation.Spec["input"])
+		for _, kind := range []string{"result", "error"} {
+			for _, variant := range namedChildren(operation.Spec, kind) {
+				addType(operation.Module, variant["type"])
+			}
+		}
+	}
+	out := make([]Resource, 0, len(selected))
+	for _, resource := range selected {
+		out = append(out, resource)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
 	return out
 }
+
+func typeValueNames(value any) []string {
+	if reference := refString(value); reference != "" {
+		return []string{reference}
+	}
+	if expression, ok := value.(map[string]any); ok {
+		if raw, ok := expression["$expression"].(string); ok {
+			return typeExpressionNames(raw)
+		}
+	}
+	return nil
+}
 func typescriptRevision(target Resource, resources []Resource) string {
-	b, _ := json.Marshal(map[string]any{"target": target, "resources": resources, "profile": "scenery.typescript-client/v1"})
+	projected := make([]Resource, 0, len(resources))
+	for _, resource := range resources {
+		projection, include := contractResourceProjection(resource)
+		if include {
+			projected = append(projected, projection)
+		}
+	}
+	targetProjection := Resource{Address: target.Address, Kind: target.Kind, Name: target.Name, Module: target.Module, Spec: target.Spec}
+	b, _ := MarshalCanonical(map[string]any{"target": targetProjection, "resources": projected, "profile": "scenery.typescript-client/v1", "codec": "scenery.http-codec/v1"})
 	sum := sha256.Sum256(append([]byte("scenery.typescript-client-revision.v1\x00"), b...))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func renderTSTypes(resources []Resource) string {
+func renderTSTypes(resources []Resource, bindingSets ...[]Resource) string {
+	var bindings []Resource
+	for _, set := range bindingSets {
+		bindings = append(bindings, set...)
+	}
 	var b strings.Builder
-	b.WriteString("// Code generated by Scenery vNext. DO NOT EDIT.\n\nexport type JsonValue = null | boolean | string | JsonNumber | readonly JsonValue[] | { readonly [key: string]: JsonValue };\nexport interface JsonNumber { readonly coefficient: string; readonly scale: number }\nexport type UUIDString = string & { readonly __uuid: unique symbol };\nexport type DateString = string & { readonly __date: unique symbol };\nexport type DateTimeString = string & { readonly __datetime: unique symbol };\nexport type DurationString = string & { readonly __duration: unique symbol };\nexport type DecimalString = string & { readonly __decimal: unique symbol };\nexport type URLString = string & { readonly __url: unique symbol };\nexport type RelativePathString = string & { readonly __relativePath: unique symbol };\n\n")
+	b.WriteString("// Code generated by Scenery vNext. DO NOT EDIT.\n\ndeclare const jsonNumberBrand: unique symbol;\nexport type JsonValue = null | boolean | string | JsonNumber | readonly JsonValue[] | { readonly [key: string]: JsonValue };\nexport interface JsonNumber { readonly coefficient: string; readonly scale: number; readonly [jsonNumberBrand]: true }\nexport type Unit = Readonly<Record<never, never>>;\nexport type UUIDString = string & { readonly __uuid: unique symbol };\nexport type DateString = string & { readonly __date: unique symbol };\nexport type DateTimeString = string & { readonly __datetime: unique symbol };\nexport type DurationString = string & { readonly __duration: unique symbol };\nexport type DecimalString = string & { readonly __decimal: unique symbol };\nexport type URLString = string & { readonly __url: unique symbol };\nexport type RelativePathString = string & { readonly __relativePath: unique symbol };\nexport interface Problem { readonly code: string; readonly message: string; readonly path?: string }\nexport interface EnqueueReceipt { readonly durableIdentity: string; readonly executionId: string; readonly acceptedRevision: string; readonly statusUrl?: URLString }\n\n")
 	for _, r := range resources {
 		switch r.Kind {
 		case "scenery.record/v1":
@@ -174,6 +550,9 @@ func renderTSTypes(resources []Resource) string {
 				name, _ := field["name"].(string)
 				optional := tsOptional(field["type"])
 				fmt.Fprintf(&b, "  readonly %s%s: %s;\n", tsName(name), optional, tsType(field["type"]))
+			}
+			if r.Spec["unknown_fields"] == "preserve" {
+				b.WriteString("  readonly unknownFields: Readonly<Record<string, JsonValue>>;\n")
 			}
 			b.WriteString("}\n\n")
 		case "scenery.enum/v1":
@@ -184,7 +563,32 @@ func renderTSTypes(resources []Resource) string {
 					b.WriteString(" | ")
 				}
 				name, _ := v["name"].(string)
-				fmt.Fprintf(&b, "%q", name)
+				wire := wireName(v, name)
+				fmt.Fprintf(&b, "%q", wire)
+			}
+			if r.Spec["open"] == true {
+				if len(values) > 0 {
+					b.WriteString(" | ")
+				}
+				fmt.Fprintf(&b, "(string & { readonly __%sUnknown: unique symbol })", tsName(r.Name))
+			}
+			b.WriteString(";\n\n")
+			fmt.Fprintf(&b, "export const %s = {\n", goName(r.Name))
+			for _, value := range values {
+				name, _ := value["name"].(string)
+				fmt.Fprintf(&b, "  %s: %q,\n", goName(name), wireName(value, name))
+			}
+			b.WriteString("} as const;\n")
+			fmt.Fprintf(&b, "export function isKnown%s(value: %s): boolean { return (Object.values(%s) as readonly string[]).includes(value); }\n\n", goName(r.Name), goName(r.Name), goName(r.Name))
+		case "scenery.union/v1":
+			fmt.Fprintf(&b, "export type %s =\n", goName(r.Name))
+			for _, variant := range namedChildren(r.Spec, "variant") {
+				name, _ := variant["name"].(string)
+				tag := wireName(variant, name)
+				fmt.Fprintf(&b, "  | { readonly kind: %q; readonly value: %s }\n", tag, tsType(variant["type"]))
+			}
+			if r.Spec["open"] == true {
+				b.WriteString("  | { readonly kind: string; readonly value: JsonValue; readonly unknown: true }\n")
 			}
 			b.WriteString(";\n\n")
 		}
@@ -200,7 +604,8 @@ func renderTSTypes(resources []Resource) string {
 		}
 		fmt.Fprintf(&b, "export type %sOutcome =\n", name)
 		variants := append(namedChildren(r.Spec, "result"), namedChildren(r.Spec, "error")...)
-		if len(variants) == 0 {
+		transportVariants := tsTransportOutcomeVariants(r, bindings)
+		if len(variants) == 0 && len(transportVariants) == 0 {
 			b.WriteString("  never\n")
 		}
 		for i, v := range variants {
@@ -213,159 +618,199 @@ func renderTSTypes(resources []Resource) string {
 			}
 			fmt.Fprintf(&b, "  | { readonly kind: %q; readonly name: %q; readonly %s: %s }\n", kind, variant, field, tsType(v["type"]))
 		}
+		for _, variant := range transportVariants {
+			fmt.Fprintf(&b, "  | { readonly kind: %q; readonly name: %q; readonly %s: %s }\n", variant.Kind, variant.Name, variant.Field, variant.Type)
+		}
 		b.WriteString(";\n\n")
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-func renderTSRuntime() string {
-	return `// Code generated by Scenery vNext. DO NOT EDIT.
-export class SceneryClientError extends Error {
-  constructor(readonly code: string, readonly bindingAddress: string, message: string, readonly cause?: unknown) { super(message); this.name = "SceneryClientError"; }
-}
-export interface CallOptions { readonly signal?: AbortSignal; readonly headers?: Readonly<Record<string, string>> }
-`
+type tsOutcomeVariant struct{ Kind, Name, Field, Type string }
+
+func tsTransportOutcomeVariants(operation Resource, bindings []Resource) []tsOutcomeVariant {
+	seen := map[string]bool{}
+	var variants []tsOutcomeVariant
+	for _, binding := range bindings {
+		if binding.Module != operation.Module || lastRef(refString(binding.Spec["operation"])) != operation.Name {
+			continue
+		}
+		httpSpec, _ := binding.Spec["http"].(map[string]any)
+		for _, response := range namedChildren(httpSpec, "response") {
+			when := refString(response["when"])
+			if strings.HasPrefix(when, "result.") || strings.HasPrefix(when, "error.") || strings.HasPrefix(when, "system.") {
+				continue
+			}
+			name := stringValue(response["name"])
+			if name == "" {
+				name = lastRef(when)
+			}
+			key := when + "\x00" + name
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if when == "dispatch.enqueued" {
+				variants = append(variants, tsOutcomeVariant{Kind: "enqueue", Name: name, Field: "receipt", Type: "EnqueueReceipt"})
+			} else {
+				variants = append(variants, tsOutcomeVariant{Kind: "failure", Name: name, Field: "problem", Type: "Problem"})
+			}
+		}
+	}
+	sort.Slice(variants, func(i, j int) bool {
+		if variants[i].Kind != variants[j].Kind {
+			return variants[i].Kind < variants[j].Kind
+		}
+		return variants[i].Name < variants[j].Name
+	})
+	return variants
 }
 
 func renderTSClient(target Resource, bindings, resources []Resource) string {
 	className := goName(target.Name) + "Client"
+	retry := tsRetryTarget(target)
 	var b strings.Builder
-	b.WriteString("// Code generated by Scenery vNext. DO NOT EDIT.\nimport { SceneryClientError, type CallOptions } from \"./runtime.js\";\nimport type * as Types from \"./types.js\";\n\nexport interface " + className + "Options { readonly baseUrl: string; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string,string>> }\n\nexport class " + className + " {\n  readonly #baseUrl: string; readonly #fetch: typeof globalThis.fetch; readonly #headers: Readonly<Record<string,string>>;\n  constructor(options: " + className + "Options) { this.#baseUrl=options.baseUrl.replace(/\\/$/, \"\"); this.#fetch=options.fetch ?? globalThis.fetch; this.#headers=Object.freeze({...(options.defaultHeaders ?? {})}); }\n")
+	b.WriteString("// Code generated by Scenery vNext. DO NOT EDIT.\n")
+	b.WriteString("import { appendCookie, appendHeader, appendQuery, assertEmptyResponse, decodeResponseBody, decodeResponseCookie, decodeResponseHeader, encodeHTTPValue, encodeMultipartRequestBody, encodeRFC3986, encodeRequestBody, fetchWithRetry, isProblemCode, mergeHeaders, mergeResponseValue, SceneryClientError, type AuthenticationOptions, type CallOptions, type RetryRuntime, type TypeRegistry } from \"./runtime.js\";\n")
+	b.WriteString("import type * as Types from \"./types.js\";\n\n")
+	fmt.Fprintf(&b, "export interface %sOptions { readonly baseUrl: Types.URLString; readonly fetch?: typeof globalThis.fetch; readonly defaultHeaders?: Readonly<Record<string, string>>; readonly authentication?: AuthenticationOptions", className)
+	if retry.Enabled {
+		b.WriteString("; readonly retryRuntime: RetryRuntime")
+	}
+	b.WriteString(" }\n\n")
+	b.WriteString(renderTSRegistry(reachableResources(resources, bindings)))
+	fmt.Fprintf(&b, "\nexport class %s {\n", className)
+	b.WriteString("  readonly #baseUrl: string;\n  readonly #fetch: typeof globalThis.fetch;\n  readonly #headers: Readonly<Record<string, string>>;\n  readonly #authentication?: AuthenticationOptions;\n")
+	if retry.Enabled {
+		b.WriteString("  readonly #retryRuntime: RetryRuntime;\n")
+	}
+	fmt.Fprintf(&b, "  constructor(options: %sOptions) {\n", className)
+	b.WriteString("    if (!/^https?:\\/\\/[^/?#]+(?:\\/[^?#]*)?$/.test(options.baseUrl)) throw new SceneryClientError(\"invalid_options\", \"\", \"baseUrl must be an absolute hierarchical HTTP URL without query or fragment\");\n")
+	b.WriteString("    this.#baseUrl = options.baseUrl.replace(/\\/$/, \"\");\n    this.#fetch = options.fetch ?? globalThis.fetch;\n    this.#headers = Object.freeze({ ...(options.defaultHeaders ?? {}) });\n    this.#authentication = options.authentication === undefined ? undefined : Object.freeze({ ...options.authentication });\n")
+	if retry.Enabled {
+		b.WriteString("    this.#retryRuntime = options.retryRuntime;\n")
+	}
+	b.WriteString("  }\n")
 	ops := map[string]Resource{}
 	for _, r := range resources {
 		if r.Kind == "scenery.operation/v1" {
 			ops[r.Name] = r
 		}
 	}
+	operationCounts := map[string]int{}
+	for _, binding := range bindings {
+		operationCounts[lastRef(refString(binding.Spec["operation"]))]++
+	}
 	for _, binding := range bindings {
 		opRef := refString(binding.Spec["operation"])
 		opName := lastRef(opRef)
 		op := ops[opName]
 		methodName := tsName(opName)
+		if operationCounts[opName] > 1 {
+			methodName += "Via" + goName(binding.Name)
+		}
 		httpSpec, _ := binding.Spec["http"].(map[string]any)
 		method, _ := httpSpec["method"].(string)
 		path, _ := httpSpec["path"].(string)
+		path = tsBindingPath(binding, path, resources)
 		fmt.Fprintf(&b, "  async %s(input: Types.%sInput, options: CallOptions = {}): Promise<Types.%sOutcome> {\n", methodName, goName(opName), goName(opName))
-		fmt.Fprintf(&b, "    const binding = %q; if (options.signal?.aborted) throw new SceneryClientError(\"cancelled\", binding, \"request cancelled\");\n", binding.Address)
-		fmt.Fprintf(&b, "    let path = %q; path = path.replace(/\\{([a-z0-9_]+)\\}/g, (_, key: string) => encodeURIComponent(String((input as unknown as Record<string, unknown>)[key])));\n", path)
-		fmt.Fprintf(&b, "    let response: Response; try { response = await this.#fetch(this.#baseUrl + path, { method: %q, signal: options.signal, headers: { ...this.#headers, ...options.headers, \"content-type\": \"application/json\" }, body: %s }); } catch (cause) { throw new SceneryClientError(options.signal?.aborted ? \"cancelled\" : \"network\", binding, \"request failed\", cause); }\n", method, tsRequestBody(method))
-		b.WriteString("    const payload = await response.json().catch(() => undefined) as unknown;\n")
-		results := namedChildren(op.Spec, "result")
-		errors := namedChildren(op.Spec, "error")
-		for _, v := range results {
-			name, _ := v["name"].(string)
-			fmt.Fprintf(&b, "    if (response.ok) return { kind: \"result\", name: %q, value: payload as %s } as Types.%sOutcome;\n", name, tsClientType(v["type"]), goName(opName))
+		fmt.Fprintf(&b, "    const binding = %q;\n", binding.Address)
+		b.WriteString("    if (options.signal?.aborted) throw new SceneryClientError(\"cancelled\", binding, \"request cancelled\");\n")
+		fmt.Fprintf(&b, "    let path = %q;\n", path)
+		for _, mapping := range namedChildren(httpSpec, "path_parameter") {
+			fmt.Fprintf(&b, "    path = path.replace(%q, encodeRFC3986(encodeHTTPValue(input.%s, %s, typeRegistry)));\n", "{"+stringValue(mapping["name"])+"}", tsInputTargetProperty(mapping["to"]), tsDescriptorLiteral(tsOperationFieldType(op, resources, mapping["to"]), op.Module))
 		}
-		for _, v := range errors {
-			name, _ := v["name"].(string)
-			fmt.Fprintf(&b, "    if (response.status >= 400 && response.status < 500) return { kind: \"error\", name: %q, problem: payload as %s } as Types.%sOutcome;\n", name, tsClientType(v["type"]), goName(opName))
+		b.WriteString("    const query: string[] = [];\n")
+		for _, mapping := range namedChildren(httpSpec, "query_parameter") {
+			fmt.Fprintf(&b, "    appendQuery(query, %q, input.%s, %q, %s, typeRegistry);\n", stringValue(mapping["name"]), tsInputTargetProperty(mapping["to"]), defaultTSQueryEncoding(stringValue(mapping["encoding"])), tsDescriptorLiteral(tsOperationFieldType(op, resources, mapping["to"]), op.Module))
 		}
+		b.WriteString("    if (query.length > 0) path += `?${query.join(\"&\")}`;\n")
+		b.WriteString("    const headers = mergeHeaders(this.#headers, options.headers, binding);\n")
+		b.WriteString("    if (this.#authentication?.authorization !== undefined) headers.set(\"authorization\", this.#authentication.authorization);\n")
+		for _, mapping := range namedChildren(httpSpec, "header") {
+			fmt.Fprintf(&b, "    appendHeader(headers, %q, input.%s, %q, %s, typeRegistry);\n", stringValue(mapping["name"]), tsInputTargetProperty(mapping["to"]), defaultTSQueryEncoding(stringValue(mapping["encoding"])), tsDescriptorLiteral(tsOperationFieldType(op, resources, mapping["to"]), op.Module))
+		}
+		b.WriteString("    const cookies: string[] = [];\n")
+		for _, mapping := range namedChildren(httpSpec, "cookie") {
+			fmt.Fprintf(&b, "    appendCookie(cookies, %q, input.%s, %s, typeRegistry);\n", stringValue(mapping["name"]), tsInputTargetProperty(mapping["to"]), tsDescriptorLiteral(tsOperationFieldType(op, resources, mapping["to"]), op.Module))
+		}
+		b.WriteString("    if (cookies.length > 0) headers.set(\"cookie\", cookies.join(\"; \"));\n")
+		bodyExpression, bodyCodec, bodyDescriptor := tsRequestBody(httpSpec, op, resources)
+		if bodyCodec != "" && bodyCodec != "multipart" {
+			requestMediaTypes := []string(nil)
+			if bodySpec, _ := httpSpec["body"].(map[string]any); bodySpec != nil {
+				requestMediaTypes = literalStringListFromValue(bodySpec["accepted_media_types"])
+			}
+			if len(requestMediaTypes) == 0 {
+				requestMediaTypes = []string{defaultHTTPMediaType(bodyCodec)}
+			}
+			fmt.Fprintf(&b, "    headers.set(\"content-type\", %q);\n", requestMediaTypes[0])
+		}
+		body := "undefined"
+		if bodyCodec == "multipart" {
+			fmt.Fprintf(&b, "    const multipartBody = encodeMultipartRequestBody(%s, %s, typeRegistry);\n", bodyExpression, tsMultipartBodyDescriptor(httpSpec, op, resources))
+			b.WriteString("    headers.set(\"content-type\", multipartBody.contentType);\n")
+			body = "multipartBody.body"
+		} else if bodyCodec != "" {
+			body = fmt.Sprintf("encodeRequestBody(%s, %q, %s, typeRegistry)", bodyExpression, bodyCodec, bodyDescriptor)
+		}
+		fmt.Fprintf(&b, "    let response: Response;\n    try {\n")
+		requestInit := fmt.Sprintf("{ method: %q, signal: options.signal, headers, body: %s, credentials: this.#authentication?.credentials }", method, body)
+		if retry.Enabled {
+			fmt.Fprintf(&b, "      response = await fetchWithRetry(this.#fetch, this.#baseUrl + path, %s, options.signal, this.#retryRuntime, { maximumAttempts: %d, statuses: %s, maximumDelayMilliseconds: %d });\n", requestInit, retry.MaximumAttempts, retry.StatusesLiteral, retry.MaximumDelayMilliseconds)
+		} else {
+			fmt.Fprintf(&b, "      response = await this.#fetch(this.#baseUrl + path, %s);\n", requestInit)
+		}
+		b.WriteString("    } catch (cause) {\n      throw new SceneryClientError(options.signal?.aborted ? \"cancelled\" : \"network\", binding, \"request failed\", cause);\n    }\n")
+		renderTSResponseCases(&b, op, httpSpec, resources)
 		b.WriteString("    throw new SceneryClientError(\"contract_violation\", binding, `unexpected response ${response.status}`);\n  }\n")
 	}
 	b.WriteString("}\n")
 	return b.String()
 }
 
-func renderTSMetadata(target Resource, manifest *Manifest, bindings []Resource, revision string) string {
-	methods := map[string]string{}
-	for _, binding := range bindings {
-		methods[binding.Address] = tsName(lastRef(refString(binding.Spec["operation"])))
-	}
-	b, _ := json.MarshalIndent(map[string]any{"target": target.Address, "contractRevision": manifest.ContractRevision, "typescriptClientRevision": revision, "profiles": []string{"scenery.typescript-client/v1", "scenery.http-codec/v1"}, "operationMethods": methods}, "", "  ")
-	return "// Code generated by Scenery vNext. DO NOT EDIT.\nexport const sceneryClientMetadata = Object.freeze(" + string(b) + " as const);\n"
+type tsRetryConfiguration struct {
+	Enabled                  bool
+	MaximumAttempts          int
+	StatusesLiteral          string
+	MaximumDelayMilliseconds int
 }
 
-func tsType(value any) string {
-	ref := refString(value)
-	if ref != "" {
-		parts := strings.Split(ref, ".")
-		if len(parts) >= 2 && (parts[0] == "record" || parts[0] == "enum" || parts[0] == "union") {
-			return goName(parts[1])
+func tsRetryTarget(target Resource) tsRetryConfiguration {
+	retry, _ := target.Spec["retry"].(map[string]any)
+	if retry == nil {
+		return tsRetryConfiguration{}
+	}
+	attempts, _ := integerValue(retry["maximum_attempts"])
+	maximumDelay, ok := integerValue(retry["maximum_delay_milliseconds"])
+	if !ok {
+		maximumDelay = 60_000
+	}
+	statuses := []int{408, 429, 500, 502, 503, 504}
+	if configured := anyList(retry["statuses"]); len(configured) > 0 {
+		statuses = statuses[:0]
+		for _, value := range configured {
+			if status, valid := integerValue(value); valid {
+				statuses = append(statuses, status)
+			}
 		}
-		if strings.HasSuffix(ref, ".problem") {
-			return "{ readonly code: string; readonly message: string; readonly path?: string }"
-		}
-		switch ref {
-		case "bool":
-			return "boolean"
-		case "int", "int64", "uint64", "size":
-			return "bigint"
-		case "int32", "uint32", "float32", "float64":
-			return "number"
-		case "decimal":
-			return "DecimalString"
-		case "string":
-			return "string"
-		case "bytes":
-			return "Uint8Array"
-		case "uuid":
-			return "UUIDString"
-		case "date":
-			return "DateString"
-		case "datetime":
-			return "DateTimeString"
-		case "duration":
-			return "DurationString"
-		case "url":
-			return "URLString"
-		case "relative_path":
-			return "RelativePathString"
-		case "json":
-			return "JsonValue"
+		sort.Ints(statuses)
+	}
+	encoded, _ := json.Marshal(statuses)
+	return tsRetryConfiguration{Enabled: true, MaximumAttempts: attempts, StatusesLiteral: string(encoded), MaximumDelayMilliseconds: maximumDelay}
+}
+
+func tsBindingPath(binding Resource, path string, resources []Resource) string {
+	gatewayName := lastRef(refOrString(binding.Spec["gateway"]))
+	base := "/"
+	for _, resource := range resources {
+		if resource.Kind == "scenery.http-gateway/v1" && resource.Name == gatewayName {
+			base = stringValue(resource.Spec["base_path"])
+			break
 		}
 	}
-	if m, ok := value.(map[string]any); ok {
-		if raw, ok := m["$expression"].(string); ok {
-			return tsTypeExpression(raw)
-		}
+	if base == "" || base == "/" {
+		return path
 	}
-	return "unknown"
-}
-func tsTypeExpression(raw string) string {
-	raw = strings.TrimSpace(raw)
-	for _, wrapper := range []struct{ prefix, before, after string }{{"optional(", "", ""}, {"nullable(", "", " | null"}, {"list(", "readonly ", "[]"}, {"set(", "readonly ", "[]"}, {"map(", "Readonly<Record<string, ", ">>"}} {
-		if strings.HasPrefix(raw, wrapper.prefix) && strings.HasSuffix(raw, ")") {
-			inner := tsTypeExpression(strings.TrimSuffix(strings.TrimPrefix(raw, wrapper.prefix), ")"))
-			return wrapper.before + inner + wrapper.after
-		}
-	}
-	return tsType(map[string]any{"$ref": raw})
-}
-func tsOptional(value any) string {
-	if m, ok := value.(map[string]any); ok {
-		if raw, ok := m["$expression"].(string); ok && strings.HasPrefix(strings.TrimSpace(raw), "optional(") {
-			return "?"
-		}
-	}
-	return ""
-}
-func tsName(value string) string {
-	name := goName(value)
-	if name == "" {
-		return ""
-	}
-	return strings.ToLower(name[:1]) + name[1:]
-}
-func lastRef(value string) string {
-	value = strings.TrimSpace(value)
-	if slash := strings.LastIndex(value, "/"); slash >= 0 {
-		value = value[slash+1:]
-	}
-	parts := strings.Split(value, ".")
-	return parts[len(parts)-1]
-}
-func tsClientType(value any) string {
-	typeName := tsType(value)
-	if strings.HasPrefix(typeName, "{") || typeName == "unknown" || typeName == "never" {
-		return typeName
-	}
-	return "Types." + typeName
-}
-func tsRequestBody(method string) string {
-	switch strings.ToUpper(method) {
-	case "GET", "HEAD":
-		return "undefined"
-	default:
-		return "JSON.stringify(input)"
-	}
+	return strings.TrimSuffix(base, "/") + "/" + strings.TrimPrefix(path, "/")
 }

@@ -295,7 +295,7 @@ func sourceSnapshotForTest(t *testing.T, root string, files map[string]bool) *So
 func useFakeGoRunner(t *testing.T) {
 	t.Helper()
 	old := runGo
-	runGo = func(_ context.Context, _ string, args ...string) error {
+	runGo = func(_ context.Context, _ string, _ []string, args ...string) error {
 		if len(args) >= 2 && args[0] == "mod" && args[1] == "tidy" {
 			return nil
 		}

@@ -63,6 +63,9 @@ type pruneOptions struct {
 }
 
 func agentCommand(args []string) error {
+	if len(args) > 0 && args[0] == "serve" {
+		return runVNextAgentServer(os.Stdin, os.Stdout, args)
+	}
 	if len(args) > 0 && args[0] == "restart" {
 		return agentRestartCommand(args[1:])
 	}

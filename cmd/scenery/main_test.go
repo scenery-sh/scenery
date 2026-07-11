@@ -1,12 +1,174 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
+	tests := []struct {
+		err  error
+		want int
+	}{
+		{nil, 0},
+		{&silentCLIError{err: errors.New("predicate false")}, 1},
+		{errors.New("invalid_request: malformed change"), 2},
+		{errors.New("revision_conflict: stale graph"), 3},
+		{errors.New("failed_precondition: stale plan"), 3},
+		{errors.New("capability_unavailable: provider missing"), 4},
+		{errors.New("permission_denied: approval missing"), 5},
+		{errors.New("internal: compiler panic"), 10},
+		{errors.New("usage: scenery get ADDRESS"), 2},
+		{errors.New("provider log mentioned permission_denied"), 10},
+	}
+	for _, test := range tests {
+		if got := cliExitCode(test.err); got != test.want {
+			t.Errorf("cliExitCode(%v) = %d, want %d", test.err, got, test.want)
+		}
+	}
+}
+
+func TestCLIAPIVersionSelectorsAreExactAndConflictSafe(t *testing.T) {
+	args, version, err := normalizeCLIAPIVersion([]string{"check", "--api-version", "scenery.cli.v1"})
+	if err != nil || version != "scenery.cli.v1" || strings.Join(args, " ") != "check" {
+		t.Fatalf("v1 selector = %#v %q %v", args, version, err)
+	}
+	args, version, err = normalizeCLIAPIVersion([]string{"check", "--api-version=scenery.cli.v0", "--json"})
+	if err != nil || version != "scenery.cli.v0" || strings.Join(args, " ") != "check --json" {
+		t.Fatalf("v0 selector = %#v %q %v", args, version, err)
+	}
+	args, version, err = normalizeCLIAPIVersion([]string{"storage", "get", "app", "key", "--output", "result.json", "--json"})
+	if err != nil || version != "" || strings.Join(args, " ") != "storage get app key --output result.json --json" {
+		t.Fatalf("v0 file output = %#v %q %v", args, version, err)
+	}
+	args, version, err = normalizeCLIAPIVersion([]string{"build", "-o", "scenery-app"})
+	if err != nil || version != "" || strings.Join(args, " ") != "build -o scenery-app" {
+		t.Fatalf("v0 build output = %#v %q %v", args, version, err)
+	}
+	for _, input := range [][]string{
+		{"check", "--json", "-o", "json"},
+		{"check", "--api-version", "scenery.cli.v0", "-o", "json"},
+		{"check", "--api-version", "scenery.cli.v1", "--json"},
+		{"check", "--api-version", "scenery.cli.v2"},
+	} {
+		if _, _, err := normalizeCLIAPIVersion(input); err == nil {
+			t.Fatalf("conflicting selector accepted: %#v", input)
+		}
+	}
+}
+
+func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{name: "success", args: nil, want: 0},
+		{name: "invalid usage", args: []string{"not-a-command"}, want: 2},
+		{name: "missing resource", args: []string{"get", "missing/operation/nope", "--app-root", vnextFixtureRoot(t)}, want: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := []string{"-test.run=^TestCLIProcessHelper$", "--"}
+			args = append(args, test.args...)
+			command := exec.Command(os.Args[0], args...)
+			command.Env = append(os.Environ(), "SCENERY_TEST_CLI_PROCESS=1")
+			err := command.Run()
+			got := 0
+			if exitError, ok := err.(*exec.ExitError); ok {
+				got = exitError.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("exit code = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
+func TestCLIProcessHelper(t *testing.T) {
+	if os.Getenv("SCENERY_TEST_CLI_PROCESS") != "1" {
+		return
+	}
+	separator := -1
+	for index, argument := range os.Args {
+		if argument == "--" {
+			separator = index
+			break
+		}
+	}
+	if separator < 0 {
+		os.Exit(97)
+	}
+	os.Args = append([]string{"scenery"}, os.Args[separator+1:]...)
+	main()
+}
+
+func TestVNextJSONEnvelopeHasStableFields(t *testing.T) {
+	var output strings.Builder
+	err := runVNextCompile(&output, []string{"--app-root", vnextFixtureRoot(t), "-o", "json", "--non-interactive", "--quiet"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"api_version", "diagnostic_catalog", "ok", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "data", "diagnostics"} {
+		if _, ok := envelope[field]; !ok {
+			t.Errorf("missing stable envelope field %q in %s", field, output.String())
+		}
+	}
+	if envelope["api_version"] != "scenery.cli.v1" {
+		t.Fatalf("api_version = %v", envelope["api_version"])
+	}
+}
+
+func TestVNextJSONFailureWritesExactlyOneStableEnvelope(t *testing.T) {
+	var output strings.Builder
+	err := renderVNextMachineError(&output, []string{"migrate", "activate", "missing", "-o", "json"}, errors.New("failed_precondition: candidate unavailable"))
+	if err == nil || cliExitCode(err) != 3 {
+		t.Fatalf("render error = %v, code %d", err, cliExitCode(err))
+	}
+	decoder := json.NewDecoder(strings.NewReader(output.String()))
+	var envelope vnextEnvelope
+	if err := decoder.Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.OK || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Code != "SCN9005" {
+		t.Fatalf("failure envelope = %#v", envelope)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err == nil {
+		t.Fatalf("failure output contains more than one document: %q", output.String())
+	}
+}
+
+func TestVNextQuietSuppressesHumanOutput(t *testing.T) {
+	var output strings.Builder
+	if err := runVNextCompile(&output, []string{"--app-root", vnextFixtureRoot(t), "--quiet"}); err != nil {
+		t.Fatal(err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("quiet output = %q", output.String())
+	}
+}
+
+func vnextFixtureRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..", "internal", "vnext", "testdata", "house")
+}
 
 func TestResolveAppRoot(t *testing.T) {
 	t.Parallel()

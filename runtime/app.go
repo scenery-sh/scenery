@@ -36,6 +36,10 @@ func ListenNetworkFromEnv() string {
 }
 
 func Main(cfg AppConfig) error {
+	cliRequestPath, err := contractCLIRequestPath(os.Args[1:])
+	if err != nil {
+		return err
+	}
 	role, err := runtimeRoleFromEnv()
 	if err != nil {
 		return err
@@ -55,16 +59,34 @@ func Main(cfg AppConfig) error {
 	stopSupervisorMonitor := startSupervisorParentMonitor(cancelRun)
 	defer stopSupervisorMonitor()
 
+	if err := InitializeServices(); err != nil {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
+		return errorsJoin(err, ShutdownServices(shutdownCtx))
+	}
 	stopDurable, err := startDurableRuntime(runCtx, cfg)
 	if err != nil {
-		return err
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
+		return errorsJoin(err, ShutdownServices(shutdownCtx))
 	}
-	if err := InitializeServices(); err != nil {
+	if cliRequestPath != "" {
+		invokeErr := ExecuteContractCLIRequest(cliRequestPath, os.Stdout)
+		cancelRun()
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
+		return errorsJoin(invokeErr, stopDurable(shutdownCtx), ShutdownServices(shutdownCtx))
+	}
+	events, err := StartContractEventRuntime(runCtx)
+	if err != nil {
 		_ = stopDurable(context.Background())
-		return err
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
+		return errorsJoin(err, ShutdownServices(shutdownCtx))
 	}
 	scheduler, err := startCronScheduler(runCtx, cfg)
 	if err != nil {
+		_ = events.Stop(context.Background())
 		_ = stopDurable(context.Background())
 		return err
 	}
@@ -81,18 +103,18 @@ func Main(cfg AppConfig) error {
 		logTrace(context.Background(), "worker runtime started")
 		<-runCtx.Done()
 		cancelRun()
-		return shutdownRuntime(nil, scheduler, stopDurable)
+		return shutdownRuntime(nil, scheduler, events, stopDurable)
 	}
 
 	server, err := newServer(cfg.ListenAddr)
 	if err != nil {
 		cancelRun()
-		return shutdownRuntime(nil, scheduler, stopDurable)
+		return shutdownRuntime(nil, scheduler, events, stopDurable)
 	}
 	ln, err := listenRuntime(listenNetwork, cfg.ListenAddr)
 	if err != nil {
 		cancelRun()
-		return errorsJoin(err, shutdownRuntime(nil, scheduler, stopDurable))
+		return errorsJoin(err, shutdownRuntime(nil, scheduler, events, stopDurable))
 	}
 
 	errCh := make(chan error, 1)
@@ -110,15 +132,33 @@ func Main(cfg AppConfig) error {
 	select {
 	case <-runCtx.Done():
 		cancelRun()
-		return shutdownRuntime(server, scheduler, stopDurable)
+		return shutdownRuntime(server, scheduler, events, stopDurable)
 	case err := <-errCh:
 		cancelRun()
-		stopErr := shutdownRuntime(server, scheduler, stopDurable)
+		stopErr := shutdownRuntime(server, scheduler, events, stopDurable)
 		if errors.Is(err, http.ErrServerClosed) {
 			return stopErr
 		}
 		return errorsJoin(err, stopErr)
 	}
+}
+
+func contractCLIRequestPath(arguments []string) (string, error) {
+	for _, argument := range arguments {
+		if argument == "--scenery-contract-cli-request" || strings.HasPrefix(argument, "--scenery-contract-cli-request=") {
+			if len(arguments) == 2 && arguments[0] == "--scenery-contract-cli-request" && strings.TrimSpace(arguments[1]) != "" {
+				return arguments[1], nil
+			}
+			if len(arguments) == 1 && strings.HasPrefix(arguments[0], "--scenery-contract-cli-request=") {
+				path := strings.TrimSpace(strings.TrimPrefix(arguments[0], "--scenery-contract-cli-request="))
+				if path != "" {
+					return path, nil
+				}
+			}
+			return "", fmt.Errorf("runtime: invalid contract CLI request arguments")
+		}
+	}
+	return "", nil
 }
 
 func listenRuntime(network, addr string) (net.Listener, error) {
@@ -163,7 +203,7 @@ func runtimeRoleFromEnv() (runtimeRole, error) {
 	}
 }
 
-func shutdownRuntime(server *http.Server, scheduler *cronScheduler, stopDurable func(context.Context) error) error {
+func shutdownRuntime(server *http.Server, scheduler *cronScheduler, events *ContractEventRuntime, stopDurable func(context.Context) error) error {
 	var shutdownErrs []error
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -178,6 +218,14 @@ func shutdownRuntime(server *http.Server, scheduler *cronScheduler, stopDurable 
 	defer cronCancel()
 	if scheduler != nil {
 		if err := scheduler.Stop(cronCtx); err != nil && !errors.Is(err, context.Canceled) {
+			shutdownErrs = append(shutdownErrs, err)
+		}
+	}
+
+	eventCtx, eventCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer eventCancel()
+	if events != nil {
+		if err := events.Stop(eventCtx); err != nil && !errors.Is(err, context.Canceled) {
 			shutdownErrs = append(shutdownErrs, err)
 		}
 	}

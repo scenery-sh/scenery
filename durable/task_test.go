@@ -41,6 +41,15 @@ func TestNewTaskPanicsForMissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestNewTaskRejectsUnsupportedDeduplicationConflictPolicy(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewTask did not reject unsupported deduplication conflict policy")
+		}
+	}()
+	NewTask("maps.echo.unsupported", TaskConfig{Service: "maps", Deduplication: DeduplicationPolicy{Conflict: "replace"}}, func(context.Context, string) (string, error) { return "", nil })
+}
+
 func TestStartRejectsNilTask(t *testing.T) {
 	if _, err := Start[string, string](context.Background(), nil, "input"); err == nil {
 		t.Fatal("expected nil task error")

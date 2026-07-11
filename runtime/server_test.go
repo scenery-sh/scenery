@@ -6,10 +6,20 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+type contractTestInput struct {
+	Name string `json:"name"`
+}
+
+type contractTestOutcome interface{ contractTestOutcome() }
+type contractTestCreated struct{ Value contractTestInput }
+
+func (contractTestCreated) contractTestOutcome() {}
 
 func TestSceneryConfigEndpoint(t *testing.T) {
 	t.Setenv("SCENERY_DEV_ENDPOINTS", "1")
@@ -69,6 +79,39 @@ func TestDevEndpointsAreDisabledByDefault(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s %s status = %d, want %d", tt.method, tt.path, rec.Code, http.StatusNotFound)
 		}
+	}
+}
+
+func TestContractEndpointUsesGeneratedDecodeAndOutcomeMapping(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+
+	if err := RegisterEndpointChecked(&Endpoint{
+		Service: "contract", Name: "Create", Access: Public, Path: "/contract", Methods: []string{http.MethodPost},
+		PayloadType: reflect.TypeFor[contractTestInput](), ResponseType: reflect.TypeFor[contractTestOutcome](),
+		DecodeContractRequest: func(request *http.Request, _ map[string]string) (ContractDecodedRequest, error) {
+			input, err := DecodeContractJSON[contractTestInput](request)
+			return ContractDecodedRequest{Payload: input}, err
+		},
+		Invoke: func(_ context.Context, _ []any, payload any) (any, error) {
+			return contractTestCreated{Value: payload.(contractTestInput)}, nil
+		},
+		EncodeContractOutcome: func(_ *http.Request, outcome any) (ContractHTTPResponse, error) {
+			return EncodeContractJSON(http.StatusCreated, outcome.(contractTestCreated).Value)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/contract", strings.NewReader(`{"name":"roof"}`))
+	request.Header.Set("Content-Type", "application/json; charset=utf-8")
+	server.Handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated || recorder.Header().Get("Content-Type") != "application/json" || recorder.Body.String() != `{"name":"roof"}` {
+		t.Fatalf("response = %d %#v %q", recorder.Code, recorder.Header(), recorder.Body.String())
 	}
 }
 

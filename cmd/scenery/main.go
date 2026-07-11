@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
@@ -19,12 +21,53 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := renderVNextMachineError(os.Stdout, os.Args[1:], run(os.Args[1:])); err != nil {
 		if _, ok := errors.AsType[*silentCLIError](err); !ok {
 			fmt.Fprintln(os.Stderr, err)
 		}
-		os.Exit(1)
+		os.Exit(cliExitCode(err))
 	}
+}
+
+func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
+	if err == nil || !requestsVNextJSON(args) {
+		return err
+	}
+	if _, alreadyRendered := errors.AsType[*silentCLIError](err); alreadyRendered {
+		return err
+	}
+	code := cliExitCode(err)
+	diagnosticCode := "SCN9004"
+	if code == 3 {
+		diagnosticCode = "SCN9005"
+	} else if code == 4 {
+		diagnosticCode = "SCN9006"
+	} else if code == 5 {
+		diagnosticCode = "SCN9007"
+	} else if code == 10 {
+		diagnosticCode = "SCN9008"
+	}
+	envelope := vnextEnvelope{
+		APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: false,
+		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
+		Data: nil, Diagnostics: []vnext.Diagnostic{{Code: diagnosticCode, Severity: "error", Message: err.Error()}},
+	}
+	if encodeErr := json.NewEncoder(stdout).Encode(envelope); encodeErr != nil {
+		return &silentCLIError{err: fmt.Errorf("internal: encode CLI error envelope: %w", encodeErr), code: 10}
+	}
+	return &silentCLIError{err: err, code: code}
+}
+
+func requestsVNextJSON(args []string) bool {
+	for index, argument := range args {
+		if argument == "-o" {
+			return index+1 < len(args) && args[index+1] == "json"
+		}
+		if argument == "-o=json" {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
@@ -37,9 +80,22 @@ func run(args []string) error {
 		writeRootHelp(os.Stdout)
 		return nil
 	}
+	normalized, apiVersion, err := normalizeCLIAPIVersion(args)
+	if err != nil {
+		return err
+	}
+	args = normalized
+	if apiVersion == "scenery.cli.v0" && v1OnlyCommand(args) {
+		return fmt.Errorf("invalid_request: SCN_LEGACY_CLI_UNREPRESENTABLE: %s has no scenery.cli.v0 representation", strings.Join(args[:minInt(2, len(args))], " "))
+	}
+	if apiVersion == "scenery.cli.v1" && args[0] == "check" && !hasVNextOutputSelector(args[1:]) {
+		args = append(args, "-o", "human")
+	}
 	switch args[0] {
 	case "help":
 		return helpCommand(args[1:])
+	case "completion":
+		return runVNextCompletion(os.Stdout, args[1:])
 	case "up":
 		return upCommand(args[1:])
 	case "ps":
@@ -93,6 +149,14 @@ func run(args []string) error {
 		return getCommand(args[1:])
 	case "explain":
 		return explainCommand(args[1:])
+	case "diff":
+		return diffCommand(args[1:])
+	case "graph":
+		return graphCommand(args[1:])
+	case "agent":
+		return agentCommand(args[1:])
+	case "changes":
+		return changesCommand(args[1:])
 	case "migrate":
 		return migrateCommand(args[1:])
 	case "harness":
@@ -112,12 +176,151 @@ func run(args []string) error {
 	case "internal":
 		return internalCommand(args[1:])
 	default:
+		if handled, err := runVNextBindingCLI(os.Stdout, os.Stderr, args); handled {
+			return err
+		}
 		return fmt.Errorf("unknown command %q; use `scenery help`", args[0])
 	}
 }
 
+func normalizeCLIAPIVersion(args []string) ([]string, string, error) {
+	clean := make([]string, 0, len(args))
+	selected := ""
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		value := ""
+		switch {
+		case argument == "--api-version":
+			if index+1 >= len(args) {
+				return nil, "", fmt.Errorf("invalid_request: --api-version requires scenery.cli.v0 or scenery.cli.v1")
+			}
+			index++
+			value = args[index]
+		case strings.HasPrefix(argument, "--api-version="):
+			value = strings.TrimPrefix(argument, "--api-version=")
+		default:
+			clean = append(clean, argument)
+			continue
+		}
+		if value != "scenery.cli.v0" && value != "scenery.cli.v1" {
+			return nil, "", fmt.Errorf("invalid_request: unknown CLI API version %q", value)
+		}
+		if selected != "" && selected != value {
+			return nil, "", fmt.Errorf("invalid_request: conflicting CLI API versions")
+		}
+		selected = value
+	}
+	legacyJSON, currentOutput := hasCLIArg(clean, "--json"), hasVNextOutputSelector(clean)
+	if legacyJSON && currentOutput {
+		return nil, "", fmt.Errorf("invalid_request: conflicting scenery.cli.v0 --json and scenery.cli.v1 -o selectors")
+	}
+	if selected == "scenery.cli.v0" && currentOutput || selected == "scenery.cli.v1" && legacyJSON {
+		return nil, "", fmt.Errorf("invalid_request: CLI API version conflicts with the output selector")
+	}
+	return clean, selected, nil
+}
+
+func hasVNextOutputSelector(args []string) bool {
+	for index, argument := range args {
+		value := ""
+		switch {
+		case argument == "-o" && index+1 < len(args):
+			value = args[index+1]
+		case strings.HasPrefix(argument, "-o="):
+			value = strings.TrimPrefix(argument, "-o=")
+		}
+		switch value {
+		case "human", "json", "jsonl":
+			return true
+		}
+	}
+	return false
+}
+
+func v1OnlyCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "compile", "schema", "list", "get", "explain", "diff", "graph", "changes", "migrate":
+		return true
+	case "agent":
+		return len(args) > 1 && args[1] == "serve"
+	case "deploy":
+		return len(args) > 1 && (args[1] == "plan" || args[1] == "apply")
+	default:
+		return false
+	}
+}
+
 type silentCLIError struct {
-	err error
+	err  error
+	code int
+}
+
+func (e *silentCLIError) ExitCode() int {
+	if e != nil && e.code != 0 {
+		return e.code
+	}
+	return 1
+}
+
+type codedCLIError struct {
+	err  error
+	code int
+}
+
+func (e *codedCLIError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *codedCLIError) Unwrap() error { return e.err }
+func (e *codedCLIError) ExitCode() int { return e.code }
+
+func cliExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	type exitCoder interface {
+		error
+		ExitCode() int
+	}
+	if coded, ok := errors.AsType[exitCoder](err); ok {
+		return coded.ExitCode()
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	kind, _, _ := strings.Cut(message, ":")
+	switch kind {
+	case "permission_denied":
+		return 5
+	case "capability_unavailable", "unsupported_profile":
+		return 4
+	case "revision_conflict", "failed_precondition":
+		return 3
+	case "invalid_request":
+		return 2
+	case "internal":
+		return 10
+	}
+	if strings.HasPrefix(message, "usage:") || strings.HasPrefix(message, "unknown command ") || strings.HasPrefix(message, "unknown subcommand ") || strings.HasPrefix(message, "unexpected argument ") || strings.HasPrefix(message, "unsupported output ") || knownCLINotFound(message) {
+		return 2
+	}
+	return 10
+}
+
+func knownCLINotFound(message string) bool {
+	if !strings.HasSuffix(message, " not found") {
+		return false
+	}
+	for _, prefix := range []string{"resource ", "schema ", "migration service ", "typescript client target ", "http gateway "} {
+		if strings.HasPrefix(message, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *silentCLIError) Error() string {
@@ -162,7 +365,7 @@ func validateVNextRuntimePlan(appRootOption string) error {
 	if !pathExists(filepath.Join(appRoot, "scenery.scn")) {
 		return nil
 	}
-	result, err := vnext.Compile(appRoot)
+	result, err := vnext.Check(appRoot)
 	if err != nil {
 		return err
 	}

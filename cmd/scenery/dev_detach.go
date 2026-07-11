@@ -24,6 +24,7 @@ import (
 const (
 	detachedDevChildEnv       = "SCENERY_DEV_DETACHED_CHILD"
 	detachedDevStartupTimeout = 30 * time.Second
+	detachedDevReadyTimeout   = 2 * time.Minute
 	detachedDevWaitReady      = "ready"
 	detachedDevWaitRegistered = "registered"
 )
@@ -104,14 +105,16 @@ func runDetachedDev(args []string, opts devOptions) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	childPID := cmd.Process.Pid
 
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), detachedDevStartupTimeout)
+	waitTimeout := detachedDevWaitTimeout(waitMode)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer waitCancel()
-	session, err := waitForDetachedDevSession(waitCtx, client, root, cmd.Process.Pid, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
+	session, err := waitForDetachedDevSession(waitCtx, client, root, childPID, waitMode, detachedDevExpectedFrontendRoutes(cfg.Frontends))
 	if err != nil {
 		_ = interruptProcessTree(cmd)
 		_ = cmd.Process.Release()
-		return fmt.Errorf("detached scenery up process %d did not reach %s within %s: %w; see %s", cmd.Process.Pid, waitMode, detachedDevStartupTimeout, err, logPath)
+		return fmt.Errorf("detached scenery up process %d did not reach %s within %s: %w; see %s", childPID, waitMode, waitTimeout, err, logPath)
 	}
 	if err := cmd.Process.Release(); err != nil {
 		return err
@@ -125,6 +128,13 @@ func runDetachedDev(args []string, opts devOptions) error {
 		DownCommand:   fmt.Sprintf("scenery down --app-root %q", root),
 		Session:       session,
 	})
+}
+
+func detachedDevWaitTimeout(waitMode string) time.Duration {
+	if waitMode == detachedDevWaitReady {
+		return detachedDevReadyTimeout
+	}
+	return detachedDevStartupTimeout
 }
 
 func rejectDetachedDuplicateDevSession(ctx context.Context, client *localagent.Client, root string, opts devOptions) error {

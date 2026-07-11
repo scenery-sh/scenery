@@ -9,7 +9,7 @@ import (
 	"scenery.sh/internal/model"
 )
 
-func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
+func generateMain(appModel *model.App, cfg appcfg.Config, options Options) ([]byte, error) {
 	var buf strings.Builder
 	buf.WriteString("package main\n\n")
 	buf.WriteString("import (\n")
@@ -19,8 +19,11 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
 	}
 	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
+	if options.CompositionImport != "" {
+		fmt.Fprintf(&buf, "\tscenerycomposition %q\n", options.CompositionImport)
+	}
 	for _, pkg := range appModel.Packages {
-		if hasResources(pkg) {
+		if hasResources(pkg) && (pkg.Service == nil || !options.NativeServices[pkg.Service.Name]) {
 			fmt.Fprintf(&buf, "\t_ %q\n", pkg.ImportPath)
 		}
 	}
@@ -31,6 +34,13 @@ func generateMain(appModel *model.App, cfg appcfg.Config) ([]byte, error) {
 		buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")
 		buf.WriteString("\t\tos.Exit(1)\n")
 		buf.WriteString("\t}\n")
+	}
+	if options.CompositionImport != "" {
+		buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
+		buf.WriteString("\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: scenerycomposition.ContractRevision, RequiredAddresses: scenerycomposition.RequiredAddresses, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n")
+		buf.WriteString("\tif err == nil { err = scenerycomposition.Register(contractRegistry) }\n")
+		buf.WriteString("\tif err == nil { err = contractRegistry.Seal() }\n")
+		buf.WriteString("\tif err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 	}
 	fmt.Fprintf(&buf, "\tif err := sceneryruntime.Main(%s); err != nil {\n", appConfigLiteral(appModel.Name, cfg))
 	buf.WriteString("\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n")

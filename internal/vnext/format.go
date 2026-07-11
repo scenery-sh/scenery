@@ -4,8 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 type FormatResult struct {
@@ -13,34 +20,73 @@ type FormatResult struct {
 }
 
 func Format(root string, check bool) (FormatResult, error) {
+	return FormatPaths(root, nil, check)
+}
+
+func FormatPaths(root string, selected []string, check bool) (FormatResult, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return FormatResult{}, err
 	}
-	rootPaths, err := sourceFiles(absRoot, true)
+	paths, err := formattingPaths(absRoot, selected)
 	if err != nil {
 		return FormatResult{}, err
 	}
-	paths := append([]string(nil), rootPaths...)
-	for _, path := range rootPaths {
-		source, diagnostics := parseSource(absRoot, path)
-		if hasErrors(diagnostics) || source == nil {
+	if len(selected) > 0 {
+		return formatSourcePaths(absRoot, paths, check)
+	}
+	packagePaths, packageErr := localModuleFormattingPaths(absRoot, paths)
+	if packageErr != nil {
+		return FormatResult{}, packageErr
+	}
+	paths = append(paths, packagePaths...)
+	return formatSourcePaths(absRoot, paths, check)
+}
+
+func formattingPaths(root string, selected []string) ([]string, error) {
+	if len(selected) == 0 {
+		paths, err := sourceFiles(root, true)
+		if err != nil {
+			return nil, err
+		}
+		migration := filepath.Join(root, "scenery.migration.scn")
+		if pathExists(migration) {
+			paths = append(paths, migration)
+		}
+		return paths, nil
+	}
+	var paths []string
+	for _, item := range selected {
+		path := item
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		path = filepath.Clean(path)
+		relative, err := filepath.Rel(root, path)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("format path %q escapes app root", item)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			directoryPaths, err := sourceFiles(path, true)
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, directoryPaths...)
 			continue
 		}
-		for _, block := range source.Blocks {
-			if block.Type != "module" {
-				continue
-			}
-			moduleSource, ok := literalString(block, "source")
-			if !ok || filepath.IsAbs(moduleSource) {
-				continue
-			}
-			packagePaths, packageErr := sourceFiles(filepath.Join(absRoot, filepath.FromSlash(moduleSource)), false)
-			if packageErr == nil {
-				paths = append(paths, packagePaths...)
-			}
+		if filepath.Ext(path) != ".scn" {
+			return nil, fmt.Errorf("format path %q is not Scenery source", item)
 		}
+		paths = append(paths, path)
 	}
+	return paths, nil
+}
+
+func formatSourcePaths(root string, paths []string, check bool) (FormatResult, error) {
 	seen := map[string]bool{}
 	result := FormatResult{Changed: []string{}}
 	for _, path := range paths {
@@ -48,21 +94,28 @@ func Format(root string, check bool) (FormatResult, error) {
 			continue
 		}
 		seen[path] = true
+		info, err := os.Stat(path)
+		if err != nil {
+			return result, err
+		}
 		before, err := os.ReadFile(path)
 		if err != nil {
 			return result, err
 		}
-		after := hclwrite.Format(before)
+		after, err := canonicalFormatSource(before, filepath.ToSlash(path))
+		if err != nil {
+			return result, err
+		}
 		if string(before) == string(after) {
 			continue
 		}
-		rel, _ := filepath.Rel(absRoot, path)
+		rel, _ := filepath.Rel(root, path)
 		result.Changed = append(result.Changed, filepath.ToSlash(rel))
 		if check {
 			continue
 		}
 		tmp := path + ".scenery-fmt-tmp"
-		if err := os.WriteFile(tmp, after, 0o644); err != nil {
+		if err := os.WriteFile(tmp, after, info.Mode().Perm()); err != nil {
 			return result, err
 		}
 		if err := os.Rename(tmp, path); err != nil {
@@ -76,14 +129,248 @@ func Format(root string, check bool) (FormatResult, error) {
 	return result, nil
 }
 
-func CoreSchema(kind string) (map[string]any, bool) {
-	kinds := map[string]map[string]any{
-		"scenery.operation/v1": {"kind": "scenery.operation/v1", "required": []string{"service", "input", "handler", "result"}},
-		"scenery.binding/v1":   {"kind": "scenery.binding/v1", "required": []string{"operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline"}},
-		"scenery.service/v1":   {"kind": "scenery.service/v1", "required": []string{"runtime", "implementation"}},
-		"scenery.record/v1":    {"kind": "scenery.record/v1", "children": map[string]any{"field": "named"}},
-		"scenery.execution/v1": {"kind": "scenery.execution/v1", "required": []string{"operation", "mode"}},
+func localModuleFormattingPaths(root string, rootPaths []string) ([]string, error) {
+	queue := append([]string(nil), rootPaths...)
+	seenDirectories := map[string]bool{filepath.Clean(root): true}
+	var result []string
+	for len(queue) > 0 {
+		path := queue[0]
+		queue = queue[1:]
+		source, diagnostics := parseSource(root, path)
+		if hasErrors(diagnostics) || source == nil {
+			continue
+		}
+		callerDirectory := filepath.Dir(path)
+		for _, block := range source.Blocks {
+			if block.Type != "module" {
+				continue
+			}
+			moduleSource, ok := literalString(block, "source")
+			if !ok || filepath.IsAbs(moduleSource) {
+				continue
+			}
+			directory := filepath.Clean(filepath.Join(callerDirectory, filepath.FromSlash(moduleSource)))
+			if seenDirectories[directory] || !pathWithin(root, directory) {
+				continue
+			}
+			info, err := os.Stat(directory)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			seenDirectories[directory] = true
+			paths, err := sourceFiles(directory, false)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, paths...)
+			queue = append(queue, paths...)
+		}
 	}
-	value, ok := kinds[kind]
-	return value, ok
+	return result, nil
+}
+
+type formatReplacement struct {
+	start int
+	end   int
+	value []byte
+}
+
+func canonicalFormatSource(source []byte, filename string) ([]byte, error) {
+	source = canonicalizeCommentTokens(source, filename)
+	formatted := hclwrite.Format(source)
+	file, diagnostics := hclsyntax.ParseConfig(formatted, filename, hcl.Pos{Line: 1, Column: 1})
+	if diagnostics.HasErrors() || file == nil {
+		return nil, fmt.Errorf("cannot format invalid Scenery source: %s", diagnostics.Error())
+	}
+	body := file.Body.(*hclsyntax.Body)
+	var replacements []formatReplacement
+	collectContextualFormatReplacements(formatted, body, nil, &replacements)
+	sort.Slice(replacements, func(i, j int) bool { return replacements[i].start > replacements[j].start })
+	for _, replacement := range replacements {
+		if replacement.start < 0 || replacement.end < replacement.start || replacement.end > len(formatted) {
+			return nil, fmt.Errorf("formatter replacement is outside source")
+		}
+		formatted = append(append(append([]byte(nil), formatted[:replacement.start]...), replacement.value...), formatted[replacement.end:]...)
+	}
+	return hclwrite.Format(formatted), nil
+}
+
+func canonicalizeCommentTokens(source []byte, filename string) []byte {
+	tokens, _ := hclsyntax.LexConfig(source, filename, hcl.Pos{Line: 1, Column: 1})
+	var replacements []formatReplacement
+	for _, token := range tokens {
+		if token.Type != hclsyntax.TokenComment {
+			continue
+		}
+		trimmed := strings.TrimSpace(string(token.Bytes))
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		value := canonicalComment(string(token.Bytes), token.Range.Start.Column-1)
+		replacements = append(replacements, formatReplacement{start: token.Range.Start.Byte, end: token.Range.Start.Byte + len(token.Bytes), value: []byte(value)})
+	}
+	sort.Slice(replacements, func(i, j int) bool { return replacements[i].start > replacements[j].start })
+	for _, replacement := range replacements {
+		source = append(append(append([]byte(nil), source[:replacement.start]...), replacement.value...), source[replacement.end:]...)
+	}
+	return source
+}
+
+func canonicalComment(comment string, indentation int) string {
+	lineEnding := ""
+	if strings.HasSuffix(comment, "\r\n") {
+		lineEnding = "\r\n"
+	} else if strings.HasSuffix(comment, "\n") {
+		lineEnding = "\n"
+	}
+	trimmed := strings.TrimSpace(comment)
+	if strings.HasPrefix(trimmed, "//") {
+		content := strings.TrimSpace(strings.TrimPrefix(trimmed, "//"))
+		if content == "" {
+			return "#" + lineEnding
+		}
+		return "# " + content + lineEnding
+	}
+	trimmed = strings.TrimPrefix(strings.TrimSuffix(trimmed, "*/"), "/*")
+	lines := strings.Split(strings.ReplaceAll(trimmed, "\r\n", "\n"), "\n")
+	prefix := strings.Repeat(" ", max(0, indentation))
+	for index, line := range lines {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "*"))
+		if line == "" {
+			lines[index] = "#"
+		} else {
+			lines[index] = "# " + line
+		}
+		if index > 0 {
+			lines[index] = prefix + lines[index]
+		}
+	}
+	return strings.Join(lines, "\n") + lineEnding
+}
+
+func collectContextualFormatReplacements(source []byte, body *hclsyntax.Body, ancestors []string, replacements *[]formatReplacement) {
+	for _, block := range body.Blocks {
+		path := append(append([]string(nil), ancestors...), block.Type)
+		for name, attribute := range block.Body.Attributes {
+			expected := formatterExpectedPrimitive(source, block, path, name)
+			if expected == "" {
+				continue
+			}
+			expression := convertExpression("format", source, attribute.Expr)
+			value := expressionValue(expression)
+			canonical, ok := canonicalPrimitiveSourceLiteral(value, expected)
+			if !ok {
+				continue
+			}
+			rng := attribute.Expr.Range()
+			*replacements = append(*replacements, formatReplacement{start: rng.Start.Byte, end: rng.End.Byte, value: canonical})
+		}
+		collectContextualFormatReplacements(source, block.Body, path, replacements)
+	}
+}
+
+func formatterExpectedPrimitive(source []byte, block *hclsyntax.Block, path []string, attribute string) string {
+	if attribute == "default" && (block.Type == "field" || block.Type == "input" || block.Type == "config_schema") {
+		if typeAttribute := block.Body.Attributes["type"]; typeAttribute != nil {
+			expression := convertExpression("format", source, typeAttribute.Expr)
+			typeName := typeExpressionText(expressionValue(expression))
+			for _, wrapper := range []string{"optional", "nullable"} {
+				prefix := wrapper + "("
+				if strings.HasPrefix(typeName, prefix) && strings.HasSuffix(typeName, ")") {
+					typeName = strings.TrimSpace(typeName[len(prefix) : len(typeName)-1])
+				}
+			}
+			if contextualPrimitiveTypes[typeName] {
+				return typeName
+			}
+		}
+	}
+	parent := ""
+	if len(path) > 1 {
+		parent = path[len(path)-2]
+	}
+	switch {
+	case block.Type == "execution" && (attribute == "timeout" || attribute == "lease"):
+		return "duration"
+	case block.Type == "retry" && (attribute == "initial" || attribute == "maximum"):
+		return "duration"
+	case block.Type == "retention" && (attribute == "success" || attribute == "failure"):
+		return "duration"
+	case block.Type == "deduplication" && attribute == "retention":
+		return "duration"
+	case block.Type == "trigger" && attribute == "every":
+		return "duration"
+	case block.Type == "trigger" && attribute == "at":
+		return "datetime"
+	case block.Type == "catchup" && attribute == "maximum_age":
+		return "duration"
+	case block.Type == "timeouts" && (attribute == "read" || attribute == "write" || attribute == "idle" || attribute == "total_invocation"):
+		return "duration"
+	case block.Type == "typescript_client" && attribute == "output_root":
+		return "relative_path"
+	case block.Type == "implementation" && parent == "view" && attribute == "file":
+		return "relative_path"
+	case block.Type == "renderer" && attribute == "module":
+		return "relative_path"
+	}
+	return ""
+}
+
+var contextualPrimitiveTypes = map[string]bool{"bytes": true, "uuid": true, "date": true, "datetime": true, "duration": true, "size": true, "url": true, "relative_path": true}
+
+func canonicalPrimitiveSourceLiteral(value any, expected string) ([]byte, bool) {
+	if text, ok := value.(string); ok {
+		converted, err := contextualizeValue(text, expected, "app", nil)
+		if err != nil {
+			return nil, false
+		}
+		value = converted
+	}
+	scalar, ok := value.(map[string]any)
+	if !ok || stringValue(scalar["$scalar"]) != expected {
+		return nil, false
+	}
+	text := stringValue(scalar["value"])
+	switch expected {
+	case "duration":
+		nanoseconds, err := strconv.ParseInt(stringValue(scalar["nanoseconds"]), 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		text = formatDurationSource(nanoseconds)
+	case "size":
+		text = stringValue(scalar["bytes"]) + "B"
+	}
+	if text == "" && expected != "bytes" {
+		return nil, false
+	}
+	return hclwrite.TokensForValue(cty.StringVal(text)).Bytes(), true
+}
+
+func formatDurationSource(nanoseconds int64) string {
+	if nanoseconds == 0 {
+		return "0s"
+	}
+	negative := nanoseconds < 0
+	if negative {
+		nanoseconds = -nanoseconds
+	}
+	units := []struct {
+		suffix string
+		value  int64
+	}{{"w", int64(7 * 24 * time.Hour)}, {"d", int64(24 * time.Hour)}, {"h", int64(time.Hour)}, {"m", int64(time.Minute)}, {"s", int64(time.Second)}, {"ms", int64(time.Millisecond)}, {"us", int64(time.Microsecond)}, {"ns", 1}}
+	var result strings.Builder
+	if negative {
+		result.WriteByte('-')
+	}
+	for _, unit := range units {
+		if nanoseconds < unit.value {
+			continue
+		}
+		count := nanoseconds / unit.value
+		nanoseconds %= unit.value
+		result.WriteString(strconv.FormatInt(count, 10))
+		result.WriteString(unit.suffix)
+	}
+	return result.String()
 }

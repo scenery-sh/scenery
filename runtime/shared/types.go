@@ -47,6 +47,8 @@ const (
 	APICall      RequestType = "api-call"
 	InternalCall RequestType = "internal-call"
 	RawAPICall   RequestType = "raw-api-call"
+	EventCall    RequestType = "event-call"
+	DurableCall  RequestType = "durable-call"
 )
 
 type APIDesc struct {
@@ -74,16 +76,23 @@ func (p PathParams) Get(name string) string {
 }
 
 type Request struct {
-	Type       RequestType
-	Started    time.Time
-	API        *APIDesc
-	Service    string
-	Endpoint   string
-	Path       string
-	PathParams PathParams
-	Method     string
-	Headers    http.Header
-	Payload    any
+	Type          RequestType
+	Started       time.Time
+	InvocationID  string
+	TraceID       string
+	CallerBinding string
+	ExecutionID   string
+	Deployment    string
+	Locale        string
+	Deadline      time.Time
+	API           *APIDesc
+	Service       string
+	Endpoint      string
+	Path          string
+	PathParams    PathParams
+	Method        string
+	Headers       http.Header
+	Payload       any
 
 	// CronIdempotencyKey is set when the current request was triggered by a cron job.
 	CronIdempotencyKey string

@@ -16,12 +16,19 @@ func executeTypedEndpoint(ep *Endpoint, ctx context.Context, pathArgs []any, pay
 		if callCtx == nil {
 			callCtx = context.Background()
 		}
-		out, mocked, err := invokeTypedEndpointMock(ep, callCtx, pathArgs, payload)
-		if !mocked {
-			out, err = ep.Invoke(callCtx, pathArgs, payload)
-		}
+		out, err := invokeContractPipeline(callCtx, ep.ContractPolicy, func(invocationCtx context.Context) (any, error) {
+			out, mocked, invokeErr := invokeTypedEndpointMock(ep, invocationCtx, pathArgs, payload)
+			if !mocked {
+				out, invokeErr = ep.Invoke(invocationCtx, pathArgs, payload)
+			}
+			return out, invokeErr
+		})
 		if err != nil {
-			return scenerymiddleware.Response{Err: err, HTTPStatus: errs.HTTPStatus(err)}
+			status := errs.HTTPStatus(err)
+			if transportStatus, ok := contractTransportHTTPStatus(err); ok {
+				status = transportStatus
+			}
+			return scenerymiddleware.Response{Err: err, HTTPStatus: status}
 		}
 		return scenerymiddleware.Response{Payload: out}
 	})

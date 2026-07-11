@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -47,7 +48,7 @@ func durableRemoteWorkerConfigFromEnv() durableRemoteWorkerConfig {
 	return cfg
 }
 
-func startDurableRemoteWorkers(parent context.Context, handlers map[string]map[string]func(context.Context, []byte) ([]byte, error), cfg durableRemoteWorkerConfig) func(context.Context) error {
+func startDurableRemoteWorkers(parent context.Context, handlers map[string]map[string]durableRegisteredHandler, cfg durableRemoteWorkerConfig) func(context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	client := &http.Client{Timeout: 65 * time.Second}
 	services := cfg.Services
@@ -64,7 +65,7 @@ func startDurableRemoteWorkers(parent context.Context, handlers map[string]map[s
 			continue
 		}
 		wg.Add(1)
-		go func(service string, serviceHandlers map[string]func(context.Context, []byte) ([]byte, error)) {
+		go func(service string, serviceHandlers map[string]durableRegisteredHandler) {
 			defer wg.Done()
 			runDurableRemoteWorker(ctx, client, cfg, service, serviceHandlers)
 		}(service, serviceHandlers)
@@ -85,7 +86,7 @@ func startDurableRemoteWorkers(parent context.Context, handlers map[string]map[s
 	}
 }
 
-func runDurableRemoteWorker(ctx context.Context, client *http.Client, cfg durableRemoteWorkerConfig, service string, handlers map[string]func(context.Context, []byte) ([]byte, error)) {
+func runDurableRemoteWorker(ctx context.Context, client *http.Client, cfg durableRemoteWorkerConfig, service string, handlers map[string]durableRegisteredHandler) {
 	for {
 		if ctx.Err() != nil {
 			return
@@ -95,15 +96,28 @@ func runDurableRemoteWorker(ctx context.Context, client *http.Client, cfg durabl
 			sleepDurableWorker(ctx)
 			continue
 		}
-		handler := handlers[lease.Job.TaskName]
-		if handler == nil {
+		handler, exists := handlers[lease.Job.TaskName]
+		if !exists || handler.handler == nil {
 			_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, "missing durable task handler")
 			continue
 		}
-		_ = durableRemoteHeartbeat(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID)
-		result, err := handler(ctx, []byte(lease.Job.Input))
+		stopHeartbeat := startDurableHeartbeat(ctx, time.Duration(lease.Job.LeaseMS)*time.Millisecond, func(heartbeatCtx context.Context) error {
+			return durableRemoteHeartbeat(heartbeatCtx, client, cfg, service, lease.Job.ID, lease.LeaseID)
+		})
+		timeout := handler.timeout
+		if lease.Job.TimeoutMS > 0 {
+			timeout = time.Duration(lease.Job.TimeoutMS) * time.Millisecond
+		}
+		jobCtx, restore := enterDurableInvocation(ctx, service, lease.Job.TaskName, lease.Job.ID, timeout, lease.Job.Invocation)
+		result, err := runDurableTaskHandler(jobCtx, timeout, handler.handler, []byte(lease.Job.Input))
+		stopHeartbeat()
+		restore()
 		if err != nil {
-			_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, err.Error())
+			message := "durable task failed"
+			if errors.Is(err, context.DeadlineExceeded) {
+				message = "durable task timed out"
+			}
+			_ = durableRemoteFail(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, message)
 			continue
 		}
 		if err := durableRemoteComplete(ctx, client, cfg, service, lease.Job.ID, lease.LeaseID, result); err != nil {

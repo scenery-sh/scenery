@@ -16,10 +16,12 @@ import (
 func buildCommand(args []string) error {
 	outputPath := ""
 	appRootFlag := ""
+	targetName := ""
 	flags := newCLIFlagSet("build")
 	flags.StringVar(&outputPath, "output", "", "")
 	flags.StringVar(&outputPath, "o", "", "")
 	flags.StringVar(&appRootFlag, "app-root", "", "")
+	flags.StringVar(&targetName, "target", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return err
@@ -36,30 +38,53 @@ func buildCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if outputPath == "" {
-		outputPath = filepath.Join(appRoot, defaultBuildBinaryName(cfg.Name))
-	} else if !filepath.IsAbs(outputPath) {
+	if err := validateVNextRuntimePlan(appRoot); err != nil {
+		return err
+	}
+	if outputPath != "" && !filepath.IsAbs(outputPath) {
 		outputPath, err = filepath.Abs(outputPath)
 		if err != nil {
 			return err
 		}
 	}
-	if info, err := os.Stat(outputPath); err == nil && info.IsDir() {
-		outputPath = filepath.Join(outputPath, defaultBuildBinaryName(cfg.Name))
-	} else if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	result, ok, err := build.LoadReusableBinary(appRoot, cfg)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		result, err = build.App(appRoot, cfg)
+	var result *build.Result
+	if _, statErr := os.Stat(filepath.Join(appRoot, "scenery.scn")); statErr == nil {
+		result, err = build.AppForVNextTarget(appRoot, cfg, targetName, "artifact")
 		if err != nil {
 			return err
 		}
-	} else if err := build.WriteLatestBuildManifest(result, "compiled"); err != nil {
+	} else {
+		if targetName != "" {
+			return fmt.Errorf("--target requires an edition-2027 scenery.scn")
+		}
+		var ok bool
+		result, ok, err = build.LoadReusableBinary(appRoot, cfg)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			result, err = build.App(appRoot, cfg)
+			if err != nil {
+				return err
+			}
+		} else if err := build.WriteLatestBuildManifest(result, "compiled"); err != nil {
+			return err
+		}
+	}
+	if outputPath == "" {
+		goos := goruntime.GOOS
+		if result.VNextTarget != nil {
+			goos = result.VNextTarget.Context.GOOS
+		}
+		outputPath = filepath.Join(appRoot, defaultBuildBinaryNameForGOOS(cfg.Name, goos))
+	}
+	if info, err := os.Stat(outputPath); err == nil && info.IsDir() {
+		goos := goruntime.GOOS
+		if result.VNextTarget != nil {
+			goos = result.VNextTarget.Context.GOOS
+		}
+		outputPath = filepath.Join(outputPath, defaultBuildBinaryNameForGOOS(cfg.Name, goos))
+	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
@@ -69,6 +94,12 @@ func buildCommand(args []string) error {
 	}
 	if copied {
 		if err := signBuiltBinaryIfNeeded(outputPath); err != nil {
+			return err
+		}
+	}
+	if result.VNextTarget != nil {
+		descriptor := build.VNextRuntimeBundlePath(appRoot, result.VNextTarget.Name)
+		if _, err := copyBinary(descriptor, outputPath+".scenery.runtime-bundle.v1.json"); err != nil {
 			return err
 		}
 	}
@@ -167,10 +198,14 @@ func readersEqual(left, right io.Reader) (bool, error) {
 }
 
 func defaultBuildBinaryName(appName string) string {
+	return defaultBuildBinaryNameForGOOS(appName, goruntime.GOOS)
+}
+
+func defaultBuildBinaryNameForGOOS(appName, goos string) string {
 	if appName == "" {
 		appName = "scenery-app"
 	}
-	if goruntime.GOOS == "windows" && filepath.Ext(appName) != ".exe" {
+	if goos == "windows" && filepath.Ext(appName) != ".exe" {
 		return appName + ".exe"
 	}
 	return appName

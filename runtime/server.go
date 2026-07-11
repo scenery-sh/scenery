@@ -9,17 +9,24 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"scenery.sh/errs"
 	"scenery.sh/runtime/shared"
 )
 
 type server struct {
-	public    *routeTable
-	private   *routeTable
-	http      *http.Server
-	drainOnce sync.Once
-	drainCh   chan struct{}
+	public       *routeTable
+	private      *routeTable
+	contractCORS []contractCORSRoute
+	http         *http.Server
+	drainOnce    sync.Once
+	drainCh      chan struct{}
+}
+
+type contractCORSRoute struct {
+	path   string
+	policy *ContractHTTPPolicy
 }
 
 // beginDrain cancels the contexts of in-flight streaming raw requests so
@@ -39,7 +46,11 @@ func newServer(listenAddr string) (*http.Server, error) {
 		drainCh: make(chan struct{}),
 	}
 	s.public.GlobalOPTIONS = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		applyCORSHeaders(w.Header(), req)
+		if policy := s.contractCORSPolicy(req.URL.Path); policy != nil {
+			applyContractCORSHeaders(w.Header(), req, policy)
+		} else {
+			applyCORSHeaders(w.Header(), req)
+		}
 		if allow := w.Header().Get("Allow"); allow != "" {
 			w.Header().Set("Access-Control-Allow-Methods", allow)
 		}
@@ -75,6 +86,24 @@ func newServer(listenAddr string) (*http.Server, error) {
 	httpServer := &http.Server{
 		Addr:    listenAddr,
 		Handler: withCORS(withGzip(s.public)),
+	}
+	for _, endpoint := range endpoints {
+		policy := endpoint.ContractPolicy
+		if policy == nil {
+			continue
+		}
+		if policy.MaxRequestHeaderBytes > int64(httpServer.MaxHeaderBytes) && policy.MaxRequestHeaderBytes <= int64(^uint(0)>>1) {
+			httpServer.MaxHeaderBytes = int(policy.MaxRequestHeaderBytes)
+		}
+		if timeout := time.Duration(policy.ReadTimeoutNanos); timeout > httpServer.ReadTimeout {
+			httpServer.ReadTimeout, httpServer.ReadHeaderTimeout = timeout, timeout
+		}
+		if timeout := time.Duration(policy.WriteTimeoutNanos); timeout > httpServer.WriteTimeout {
+			httpServer.WriteTimeout = timeout
+		}
+		if timeout := time.Duration(policy.IdleTimeoutNanos); timeout > httpServer.IdleTimeout {
+			httpServer.IdleTimeout = timeout
+		}
 	}
 	httpServer.RegisterOnShutdown(s.beginDrain)
 	s.http = httpServer
@@ -243,10 +272,13 @@ func (s *server) registerRaw(ep *Endpoint) {
 		if err != nil {
 			logRequestStart(state)
 			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
-			errs.HTTPError(w, err)
+			if !writeContractAdmissionError(w, ep, err) {
+				errs.HTTPError(w, err)
+			}
 			return
 		}
 		state.auth = authInfo
+		ctx = withRuntimeInvocation(ctx, state)
 		logRequestStart(state)
 
 		if canStreamRawEndpoint(ep) {
@@ -291,16 +323,49 @@ func (s *server) registerRaw(ep *Endpoint) {
 
 func (s *server) registerTyped(ep *Endpoint) {
 	handler := func(w http.ResponseWriter, req *http.Request, params routeParams) {
-		pathValues, pathParams, err := decodePathParams(ep, params)
-		if err != nil {
-			errs.HTTPError(w, err)
+		controller := http.NewResponseController(w)
+		if ep.ContractPolicy != nil && ep.ContractPolicy.ReadTimeoutNanos > 0 {
+			_ = controller.SetReadDeadline(time.Now().Add(time.Duration(ep.ContractPolicy.ReadTimeoutNanos)))
+		}
+		if ep.ContractPolicy != nil && ep.ContractPolicy.WriteTimeoutNanos > 0 {
+			_ = controller.SetWriteDeadline(time.Now().Add(time.Duration(ep.ContractPolicy.WriteTimeoutNanos)))
+		}
+		applyContractForwardedPolicy(req, ep.ContractPolicy)
+		applyContractCORSHeaders(w.Header(), req, ep.ContractPolicy)
+		if ep.ContractPolicy != nil && ep.ContractPolicy.MaxRequestHeaderBytes > 0 && contractRequestHeaderBytes(req) > ep.ContractPolicy.MaxRequestHeaderBytes {
+			_ = writeContractTransportError(w, &ContractTransportError{Outcome: "transport.invalid_request", Status: http.StatusRequestHeaderFieldsTooLarge, Message: "request headers exceed gateway limit"})
 			return
 		}
+		if ep.ContractPolicy != nil && ep.ContractPolicy.TotalInvocationTimeoutNanos > 0 {
+			ctx, cancel := context.WithTimeout(req.Context(), time.Duration(ep.ContractPolicy.TotalInvocationTimeoutNanos))
+			defer cancel()
+			req = req.WithContext(ctx)
+		}
+		var pathValues []any
+		var pathParams shared.PathParams
+		var payload any
+		var err error
+		var contractPathValues map[string]string
+		if ep.DecodeContractRequest != nil {
+			contractPathValues = make(map[string]string, len(params))
+			pathParams = make(shared.PathParams, 0, len(params))
+			for _, param := range params {
+				value := strings.TrimPrefix(param.Value, "/")
+				contractPathValues[param.Key] = value
+				pathParams = append(pathParams, shared.PathParam{Name: param.Key, Value: value})
+			}
+		} else {
+			pathValues, pathParams, err = decodePathParams(ep, params)
+			if err != nil {
+				errs.HTTPError(w, err)
+				return
+			}
 
-		payload, err := decodePayload(req, ep.PayloadType)
-		if err != nil {
-			errs.HTTPError(w, err)
-			return
+			payload, err = decodePayload(req, ep.PayloadType)
+			if err != nil {
+				errs.HTTPError(w, err)
+				return
+			}
 		}
 
 		state := newExternalState(ep, req, pathParams, payload, AuthInfo{})
@@ -317,13 +382,83 @@ func (s *server) registerTyped(ep *Endpoint) {
 			return
 		}
 		state.auth = authInfo
+		ctx = withRuntimeInvocation(ctx, state)
+		if ep.DecodeContractRequest != nil {
+			decoded, decodeErr := ep.DecodeContractRequest(req.WithContext(ctx), contractPathValues)
+			if decodeErr != nil {
+				logRequestStart(state)
+				decodeStatus := errs.HTTPStatus(decodeErr)
+				if transportStatus, ok := contractTransportHTTPStatus(decodeErr); ok {
+					decodeStatus = transportStatus
+				}
+				finishRequestTrace(state, decodeStatus, nil, decodeErr)
+				if writeContractTransportError(w, decodeErr) {
+					return
+				}
+				errs.HTTPError(w, decodeErr)
+				return
+			}
+			pathValues, payload = decoded.PathArgs, decoded.Payload
+			state.request.Payload = payload
+			state.request.PathParams = pathParams
+		}
+		if authorizationErr := authorizeContractInvocation(ep.ContractPolicy, payload); authorizationErr != nil {
+			logRequestStart(state)
+			authorizationStatus := errs.HTTPStatus(authorizationErr)
+			if admissionStatus, ok := contractAdmissionHTTPStatus(ep, authorizationErr); ok {
+				authorizationStatus = admissionStatus
+			}
+			finishRequestTrace(state, authorizationStatus, nil, authorizationErr)
+			if !writeContractAdmissionError(w, ep, authorizationErr) {
+				errs.HTTPError(w, authorizationErr)
+			}
+			return
+		}
 		logRequestStart(state)
 
 		resp, status, headers, callErr := executeTypedEndpoint(ep, ctx, pathValues, payload)
+		if transportStatus, ok := contractTransportHTTPStatus(callErr); ok {
+			status = transportStatus
+		} else if admissionStatus, ok := contractAdmissionHTTPStatus(ep, callErr); ok {
+			status = admissionStatus
+		}
 		applyHeaders(w.Header(), headers)
-		defer finishRequestTrace(state, status, resp, callErr)
+		defer func() { finishRequestTrace(state, status, resp, callErr) }()
 		if callErr != nil {
+			if writeContractTransportError(w, callErr) {
+				return
+			}
+			if writeContractAdmissionError(w, ep, callErr) {
+				return
+			}
 			errs.HTTPErrorWithCode(w, callErr, status)
+			return
+		}
+		if ep.EncodeContractOutcome != nil {
+			encoded, encodeErr := ep.EncodeContractOutcome(req, resp)
+			if encodeErr != nil {
+				callErr = encodeErr
+				status = errs.HTTPStatus(encodeErr)
+				if transportStatus, ok := contractTransportHTTPStatus(encodeErr); ok {
+					status = transportStatus
+				}
+				if writeContractTransportError(w, encodeErr) {
+					return
+				}
+				errs.HTTPError(w, errs.Wrap(encodeErr, "encode contract outcome"))
+				return
+			}
+			if encoded.Status != 0 {
+				status = encoded.Status
+			}
+			if status == 0 {
+				status = http.StatusOK
+			}
+			applyHeaders(w.Header(), encoded.Headers)
+			w.WriteHeader(status)
+			if req.Method != http.MethodHead {
+				_, _ = w.Write(encoded.Body)
+			}
 			return
 		}
 		if err := encodeResponseWithStatus(w, resp, status); err != nil {
@@ -332,7 +467,68 @@ func (s *server) registerTyped(ep *Endpoint) {
 		}
 	}
 
+	if ep.ContractPolicy != nil && ep.Access != Private {
+		s.contractCORS = append(s.contractCORS, contractCORSRoute{path: ep.Path, policy: ep.ContractPolicy})
+	}
 	registerRoute(s.selectRouter(ep), ep.Path, ep.Methods, handler)
+}
+
+func writeContractAdmissionError(writer http.ResponseWriter, endpoint *Endpoint, err error) bool {
+	status, ok := contractAdmissionHTTPStatus(endpoint, err)
+	if !ok {
+		return false
+	}
+	outcome := ""
+	switch errs.Code(err) {
+	case errs.Unauthenticated:
+		outcome = "admission.unauthenticated"
+	case errs.PermissionDenied:
+		outcome = "admission.forbidden"
+	case errs.ResourceExhausted:
+		outcome = "admission.rate_limited"
+	}
+	return writeContractTransportError(writer, &ContractTransportError{Outcome: outcome, Status: status, Message: err.Error(), Cause: err})
+}
+
+func contractAdmissionHTTPStatus(endpoint *Endpoint, err error) (int, bool) {
+	if endpoint == nil || endpoint.ContractPolicy == nil || err == nil {
+		return 0, false
+	}
+	outcome, fallback := "", 0
+	switch errs.Code(err) {
+	case errs.Unauthenticated:
+		outcome, fallback = "admission.unauthenticated", http.StatusUnauthorized
+	case errs.PermissionDenied:
+		outcome, fallback = "admission.forbidden", http.StatusForbidden
+	case errs.ResourceExhausted:
+		outcome, fallback = "admission.rate_limited", http.StatusTooManyRequests
+	default:
+		return 0, false
+	}
+	if status := endpoint.ContractPolicy.TransportStatuses[outcome]; status != 0 {
+		return status, true
+	}
+	return fallback, true
+}
+
+func (s *server) contractCORSPolicy(requestPath string) *ContractHTTPPolicy {
+	for _, route := range s.contractCORS {
+		pattern, value := strings.Split(strings.Trim(route.path, "/"), "/"), strings.Split(strings.Trim(requestPath, "/"), "/")
+		if len(pattern) != len(value) {
+			continue
+		}
+		matched := true
+		for index := range pattern {
+			if !strings.HasPrefix(pattern[index], ":") && pattern[index] != value[index] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return route.policy
+		}
+	}
+	return nil
 }
 
 func (s *server) selectRouter(ep *Endpoint) *routeTable {

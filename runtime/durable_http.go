@@ -22,11 +22,14 @@ type durableLeaseResponse struct {
 }
 
 type durableHTTPJob struct {
-	ID         string          `json:"id"`
-	TaskName   string          `json:"task_name"`
-	Attempt    int             `json:"attempt"`
-	InputCodec string          `json:"input_codec"`
-	Input      json.RawMessage `json:"input,omitempty"`
+	ID         string                     `json:"id"`
+	TaskName   string                     `json:"task_name"`
+	Attempt    int                        `json:"attempt"`
+	LeaseMS    int                        `json:"lease_ms"`
+	TimeoutMS  int                        `json:"timeout_ms"`
+	InputCodec string                     `json:"input_codec"`
+	Input      json.RawMessage            `json:"input,omitempty"`
+	Invocation *durableInvocationMetadata `json:"invocation,omitempty"`
 }
 
 type durableLeaseActionRequest struct {
@@ -84,8 +87,11 @@ func (s *server) handleDurableLease(w http.ResponseWriter, req *http.Request, pa
 			ID:         job.ID,
 			TaskName:   job.TaskName,
 			Attempt:    job.Attempt,
+			LeaseMS:    job.LeaseMS,
+			TimeoutMS:  job.TimeoutMS,
 			InputCodec: job.InputCodec,
 			Input:      json.RawMessage(job.InputBlob),
+			Invocation: durableInvocationMetadataFromJSON(job.MemoJSON),
 		}
 	}
 	writeDurableJSON(w, http.StatusOK, resp)
