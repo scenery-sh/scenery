@@ -8,37 +8,7 @@ import (
 	"testing"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/parse"
 )
-
-func TestPrepareMarksTidyNeededWhenGoModChanges(t *testing.T) {
-	t.Parallel()
-
-	cfg := appcfg.Config{Name: "buildtest"}
-	appDir, _ := newReusableBinaryBuildTestWorkspace(t, cfg)
-	model, err := parse.App(appDir, "buildtest")
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
-
-	goModPath := filepath.Join(appDir, "go.mod")
-	data, err := os.ReadFile(goModPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data = append(data, []byte("\nrequire golang.org/x/text v0.22.0\n")...)
-	if err := os.WriteFile(goModPath, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	next, err := Prepare(appDir, model, cfg)
-	if err != nil {
-		t.Fatalf("prepare after go.mod change: %v", err)
-	}
-	if !next.NeedsTidy {
-		t.Fatal("expected go.mod change to require go mod tidy")
-	}
-}
 
 func TestSyncWorkspaceRemovesStaleFiles(t *testing.T) {
 	t.Parallel()

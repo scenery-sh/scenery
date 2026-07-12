@@ -1,0 +1,31 @@
+{
+  "api_version": "scenery.generated.v1",
+  "artifact_kind": "go_application_adapters",
+  "content_digest": "sha256:b760836440eeab9d86a5aeb91a5f43fd3e75358bc46c78a02b45faf13936cc56",
+  "contract_revision": "sha256:fdaae469a19495c4916fe4a67172bb99d21ab177d3d008eca633308fabac3c07",
+  "covered": [
+    "service/binding/echo_http",
+    "service/execution/echo_direct",
+    "service/operation/echo",
+    "service/service/service"
+  ],
+  "files": [
+    "composition/composition.gen.go",
+    "service_service_adapter/adapter.gen.go"
+  ],
+  "generator": "scenery.vnext.go-application",
+  "generator_version": "1",
+  "http_surface_revisions": {
+    "app/http_gateway/public_api": "sha256:e7991c9287fe89a2bef00d7cf925d908e41a85aa94c345e7f681f2c4e5ad2b09"
+  },
+  "implementation_revision": null,
+  "openapi_revisions": {
+    "app/http_gateway/public_api": "sha256:4d6863261a0c095eb0b5511595276370ee7e959b1c00a2bd5b2385d30f0e5e71"
+  },
+  "package_contract_abi_revisions": {
+    "example.com/basicapp/service/scenerycontract": "sha256:bebdbf44e826dda7f4efdca6c9347434cf4b43ec8a9c810a79dc54188896159c"
+  },
+  "provider_capability_abis": {},
+  "runtime_abi": "scenery.go-runtime/v1",
+  "runtime_abi_range": "scenery.go-runtime/v1"
+}

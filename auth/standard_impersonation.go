@@ -13,8 +13,6 @@ type StartImpersonationParams struct {
 }
 
 // StartImpersonation starts a short-lived platform support impersonation session.
-//
-//scenery:api auth method=POST path=/auth/impersonation/start
 func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersonationParams) (*AuthSessionResponse, error) {
 	if params == nil || strings.TrimSpace(params.TargetUserID) == "" {
 		return nil, invalidArgument("target_user_id is required")
@@ -81,8 +79,6 @@ func (s *Service) StartImpersonation(ctx context.Context, params *StartImpersona
 }
 
 // StopImpersonation stops an impersonation session and starts a normal actor session.
-//
-//scenery:api auth method=POST path=/auth/impersonation/stop
 func (s *Service) StopImpersonation(ctx context.Context, params *RefreshParams) (*AuthSessionResponse, error) {
 	authData, err := currentAuthData()
 	if err != nil {

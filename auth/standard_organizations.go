@@ -62,8 +62,6 @@ type DisableMemberParams struct {
 }
 
 // ListOrganizations returns all active workspaces for the current user.
-//
-//scenery:api auth method=GET path=/auth/organizations
 func (s *Service) ListOrganizations(ctx context.Context) (*ListOrganizationsResponse, error) {
 	authData, err := currentAuthData()
 	if err != nil {
@@ -88,8 +86,6 @@ func (s *Service) ListOrganizations(ctx context.Context) (*ListOrganizationsResp
 }
 
 // CreateOrganization creates a new first-party workspace owned by the current user.
-//
-//scenery:api auth method=POST path=/auth/organizations
 func (s *Service) CreateOrganization(ctx context.Context, params *CreateOrganizationParams) (*AuthBootstrapResponse, error) {
 	if params == nil || strings.TrimSpace(params.Name) == "" {
 		return nil, invalidArgument("name is required")
@@ -156,8 +152,6 @@ func (s *Service) CreateOrganization(ctx context.Context, params *CreateOrganiza
 }
 
 // SwitchOrganization scopes the current session to another active workspace.
-//
-//scenery:api auth method=POST path=/auth/organizations/switch
 func (s *Service) SwitchOrganization(ctx context.Context, params *SwitchOrganizationParams) (*AuthBootstrapResponse, error) {
 	if params == nil || strings.TrimSpace(params.TenantID) == "" {
 		return nil, invalidArgument("tenant_id is required")
@@ -208,8 +202,6 @@ func (s *Service) SwitchOrganization(ctx context.Context, params *SwitchOrganiza
 }
 
 // UpdateOrganization renames a workspace. Owners only.
-//
-//scenery:api auth method=PATCH path=/auth/organizations/:tenantID
 func (s *Service) UpdateOrganization(ctx context.Context, tenantID string, params *UpdateOrganizationParams) (*AuthBootstrapResponse, error) {
 	if params == nil || strings.TrimSpace(params.Name) == "" {
 		return nil, invalidArgument("name is required")
@@ -260,8 +252,6 @@ func (s *Service) UpdateOrganization(ctx context.Context, tenantID string, param
 }
 
 // DeleteOrganization soft-deletes a workspace. Owners only.
-//
-//scenery:api auth method=DELETE path=/auth/organizations/:tenantID
 func (s *Service) DeleteOrganization(ctx context.Context, tenantID string) (*AuthBootstrapResponse, error) {
 	authData, err := currentAuthData()
 	if err != nil {
@@ -313,8 +303,6 @@ func (s *Service) DeleteOrganization(ctx context.Context, tenantID string) (*Aut
 }
 
 // ListOrganizationMembers lists members in a workspace.
-//
-//scenery:api auth method=GET path=/auth/organizations/:tenantID/members
 func (s *Service) ListOrganizationMembers(ctx context.Context, tenantID string) (*ListOrganizationMembersResponse, error) {
 	authData, err := currentAuthData()
 	if err != nil {
@@ -353,8 +341,6 @@ func (s *Service) ListOrganizationMembers(ctx context.Context, tenantID string) 
 }
 
 // InviteOrganizationMember creates an email invite for a workspace. Owners only.
-//
-//scenery:api auth method=POST path=/auth/organizations/:tenantID/invites
 func (s *Service) InviteOrganizationMember(ctx context.Context, tenantID string, params *InviteMemberParams) (*InviteMemberResponse, error) {
 	if params == nil {
 		return nil, invalidArgument("request body is required")
@@ -410,8 +396,6 @@ func (s *Service) InviteOrganizationMember(ctx context.Context, tenantID string,
 }
 
 // AcceptInvite accepts an invite for the signed-in verified user.
-//
-//scenery:api auth method=POST path=/auth/invites/accept
 func (s *Service) AcceptInvite(ctx context.Context, params *AcceptInviteParams) (*AuthBootstrapResponse, error) {
 	if params == nil || strings.TrimSpace(params.Token) == "" {
 		return nil, invalidArgument("token is required")
@@ -492,8 +476,6 @@ func (s *Service) AcceptInvite(ctx context.Context, params *AcceptInviteParams) 
 }
 
 // UpdateOrganizationMemberRole changes a member role while preserving at least one owner.
-//
-//scenery:api auth method=PATCH path=/auth/organizations/:tenantID/members/:userID
 func (s *Service) UpdateOrganizationMemberRole(ctx context.Context, tenantID string, userID string, params *UpdateMemberRoleParams) (*ListOrganizationMembersResponse, error) {
 	if params == nil || (params.Role != roleOwner && params.Role != roleMember) {
 		return nil, invalidArgument("role must be owner or member")
@@ -531,8 +513,6 @@ func (s *Service) UpdateOrganizationMemberRole(ctx context.Context, tenantID str
 }
 
 // DisableOrganizationMember disables a member in one workspace while preserving at least one owner.
-//
-//scenery:api auth method=POST path=/auth/organizations/:tenantID/members/disable
 func (s *Service) DisableOrganizationMember(ctx context.Context, tenantID string, params *DisableMemberParams) (*ListOrganizationMembersResponse, error) {
 	if params == nil || strings.TrimSpace(params.UserID) == "" {
 		return nil, invalidArgument("user_id is required")

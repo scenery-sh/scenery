@@ -142,7 +142,6 @@ import (
   contract "example.test/cross/parent/scenerycontract"
 )
 
-//scenery:service
 type Service struct{}
 
 func NewService(context.Context, contract.ParentConstructorInput) (*Service, error) {

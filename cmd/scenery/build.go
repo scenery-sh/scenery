@@ -47,29 +47,9 @@ func buildCommand(args []string) error {
 			return err
 		}
 	}
-	var result *build.Result
-	if _, statErr := os.Stat(filepath.Join(appRoot, "scenery.scn")); statErr == nil {
-		result, err = build.AppForVNextTarget(appRoot, cfg, targetName, "artifact")
-		if err != nil {
-			return err
-		}
-	} else {
-		if targetName != "" {
-			return fmt.Errorf("--target requires an edition-2027 scenery.scn")
-		}
-		var ok bool
-		result, ok, err = build.LoadReusableBinary(appRoot, cfg)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			result, err = build.App(appRoot, cfg)
-			if err != nil {
-				return err
-			}
-		} else if err := build.WriteLatestBuildManifest(result, "compiled"); err != nil {
-			return err
-		}
+	result, err := build.AppForVNextTarget(appRoot, cfg, targetName, "artifact")
+	if err != nil {
+		return err
 	}
 	if outputPath == "" {
 		goos := goruntime.GOOS

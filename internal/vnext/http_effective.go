@@ -6,13 +6,13 @@ func applyHTTPEffectiveDefaults(resources []Resource) {
 	byAddress := map[string]*Resource{}
 	for index := range resources {
 		byAddress[resources[index].Address] = &resources[index]
-		if resources[index].Kind == "scenery.http-gateway/v1" && resources[index].Origin.Kind != "legacy_v0" {
+		if resources[index].Kind == "scenery.http-gateway/v1" {
 			applyHTTPGatewayDefaults(&resources[index])
 		}
 	}
 	for index := range resources {
 		binding := &resources[index]
-		if binding.Kind != "scenery.binding/v1" || binding.Origin.Kind == "legacy_v0" || binding.Spec["protocol"] != "http" {
+		if binding.Kind != "scenery.binding/v1" || binding.Spec["protocol"] != "http" {
 			continue
 		}
 		gateway := byAddress[resolveResourceRef(*binding, refString(binding.Spec["gateway"]), "http_gateway")]

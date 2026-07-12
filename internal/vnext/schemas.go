@@ -419,9 +419,6 @@ func validateResourceSchemas(resources []Resource) []Diagnostic {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1007", Severity: "error", Message: "unknown field " + name + " for " + resource.Kind, Address: resource.Address})
 			}
 		}
-		if resource.Origin.Kind == "legacy_v0" {
-			continue
-		}
 		for _, name := range schema.Required {
 			if resource.Spec[name] == nil {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1009", Severity: "error", Message: "missing required field " + name, Address: resource.Address})

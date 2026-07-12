@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	appcfg "scenery.sh/internal/app"
 )
 
 func TestCachedFrameworkFingerprintChangesWhenFrameworkSourceChanges(t *testing.T) {
@@ -25,22 +23,6 @@ func TestCachedFrameworkFingerprintChangesWhenFrameworkSourceChanges(t *testing.
 	}
 	if second == first {
 		t.Fatalf("framework fingerprint did not change after source edit: %q", second)
-	}
-}
-
-func TestLoadReusableBinaryRejectsFrameworkFingerprintMismatch(t *testing.T) {
-	t.Parallel()
-
-	repo := newFrameworkFingerprintRepo(t)
-	cfg := appcfg.Config{Name: "buildtest"}
-	appDir, _ := newReusableBinaryBuildTestWorkspaceWithFrameworkRoot(t, cfg, repo)
-
-	if reused, ok, err := LoadReusableBinary(appDir, cfg); err != nil || !ok || reused == nil {
-		t.Fatalf("expected reusable binary before framework edit, ok=%v result=%#v err=%v", ok, reused, err)
-	}
-	touchFrameworkFile(t, repo, "auth/standard_dev.go", "package auth\n\nfunc Changed() {}\n")
-	if reused, ok, err := LoadReusableBinary(appDir, cfg); err != nil || ok || reused != nil {
-		t.Fatalf("expected framework edit to reject reusable binary, ok=%v result=%#v err=%v", ok, reused, err)
 	}
 }
 

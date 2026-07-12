@@ -55,7 +55,6 @@ Child `AGENTS.md` files:
 
 - `apps/consolenext/AGENTS.md` owns the Vite/React Astryx + StyleX dashboard and frontend validation commands.
 - `internal/edge/AGENTS.md` owns the managed Caddy edge process lifecycle and its real-process validation.
-- `internal/generateddata/AGENTS.md` owns model-derived schema, seed, generated web, and drift lifecycles.
 - `internal/testsuite/AGENTS.md` owns content-addressed Go test binaries, fresh test execution, and Go JSON event output.
 - `docs/specs/vnext/AGENTS.md` owns the edition-2027 normative specification set and profile-conformance update rules.
 
@@ -82,11 +81,10 @@ Use a multi-context domain docs layout with root `CONTEXT-MAP.md` plus per-conte
 scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Victoria, agent routing, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
 - App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
-- Go source is the app model: services, endpoints, auth handlers, middleware, durable tasks, cron jobs, and generated clients are discovered from code.
-- Edition-2027 apps opt into `scenery.scn` plus package-local `scenery.package.scn`; mixed apps add `scenery.migration.scn`. The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
-- Edition-2027 apps opt into `scenery.scn`; mixed apps use `scenery.migration.scn` to link native packages and explicitly bounded legacy services into one validated active graph before the existing runtime adapters start.
+- Edition-2027 `.scn` source is the singular app model. Root `scenery.scn` installs package-local `scenery.package.scn` modules; Go source implements the generated native contracts but is not scanned for declarations.
+- The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
-- `scenery worker` builds once and starts a worker-role runtime for durable tasks and cron.
+- `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
 - `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing.
 - Route manifests expose the API, Scenery-owned runtime/dashboard surfaces where appropriate, and configured frontends; arbitrary backend names do not receive reserved route behavior.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
@@ -96,9 +94,8 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Edition-2027 constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
 - Edition-2027 agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.
 - Edition-2027 mutation plans normalize typed values/references and resolved kind/schema identities before hashing. Planning retains the exact canonical plan under app-local trusted state, and apply rejects caller-recomputed plans before trusting expiry, approvals, operations, edits, or provider actions. Approval-bearing migration transitions use `--out <plan>` followed by `migrate apply <plan>` so the detached token binds the exact issued plan instead of a replanned expiry. Semantic renames emit revision-bound, digest-checked plan/apply receipts, including migration-manifest references and containing-module descendants; later diffs load matching app-local receipts or accept `--rename-receipts` explicitly.
-- Mixed-service candidate validation uses the predicted active graph: current owners other than the candidate service remain present while that service's active owner is replaced. Static contract equality is reported separately from behavioral and operational evidence; advisory behavior never becomes verified native equivalence and requires an explicit risk approval at activation. Cutover classes union both candidates so a legacy stateful resource removed by native source still requires evidence, and config-free compatibility clients derive auth only from structured canonical resources.
 
-Do not revive deprecated non-scenery APIs, legacy directive spellings, or compatibility aliases unless an active plan explicitly requires compatibility.
+Do not add deprecated non-scenery APIs or compatibility aliases unless an active plan explicitly requires compatibility.
 
 ## Engineering Rules
 
@@ -107,10 +104,10 @@ Do not revive deprecated non-scenery APIs, legacy directive spellings, or compat
 - Keep `internal/app` free of the PostgreSQL driver layer; deterministic database/schema/env naming belongs in `internal/postgresname`.
 - Keep `golang.org/x/tools/go/packages` inside `internal/parse`; `internal/model` exposes only model-owned analysis data.
 - Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
-- Preserve scenery-native naming: `.scenery.json`, `//scenery:*`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
+- Preserve scenery-native naming: `scenery.scn`, `scenery.package.scn`, `.scenery.json`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
 - Keep edition module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level edition generation is one artifact-set transaction.
-- A migration service declared `native_service` must not retain undeclared legacy models, pages, or references to the package-init builders `durable.NewTask` and `cron.NewJob` in its Go packages; non-registering APIs from those packages remain valid. The service implementation selects the one lifecycle adapter while each operation independently selects its handler adapter. An explicit `legacy_go_v0` handler adapter may remain only while migration status reports it; declare durable tasks, schedules, and other runtime identities in `.scn` before retiring legacy ownership. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
+- Declare every service, operation, binding, durable execution, schedule, data resource, page, renderer, and middleware identity in `.scn`. Go package comments and package-init builders do not register application behavior. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
 - Keep every edition diagnostic in the checked-in catalog with one stable identity. Request-protocol failures use SCN8000-range codes; SCN9000-range codes are internal-only and must carry an opaque report token with a sanitized public message.
 - Do not commit machine-local state or generated cache output from `.scenery/`, Victoria, node modules, coverage, `.DS_Store`, or local environment files.
 
@@ -166,12 +163,11 @@ scenery compile --view expanded -o json
 scenery list|get|explain|graph ... -o json
 scenery diff --semantic BASE TARGET [--rename-receipts <change-plan-or-receipt.json>] -o json
 scenery generate --check -o json
-scenery migrate status|compare|verify ... -o json
 scenery changes plan|apply ... -o json
 scenery deploy plan|apply ... -o json
 ```
 
-`-o json` selects `scenery.cli.v1`; `--json` retains the exact v0 protocol. Never mix selectors. Migration ownership changes at service granularity, stateful cutovers require evidence references, and bridge finish requires all native retirement plus v0 CLI/client-consumer and rollback-receipt clearance.
+`-o json` selects `scenery.cli.v1`; `--json` retains the exact independently versioned `scenery.cli.v0` protocol for commands that still publish it. Never mix selectors.
 
 Use `scenery doctor --json` before expensive troubleshooting when the failure may be local environment readiness: missing or old Go, low disk or memory, absent optional tools, or an app root that is not discoverable.
 
@@ -188,7 +184,7 @@ scenery task run [--app-root <path>] [--env <name>] [--lang go|typescript] <doma
 scenery worker [--app-root <path>] [--env <name>]
 scenery build [--app-root <path>] [--target <go-target>] [-o <path>]
 scenery test [--app-root <path>] [go test flags/packages...]
-scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
+scenery generate --target typescript_client.<name> [--check] [--app-root <path>] -o json
 scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot [--app-root <path>]
 scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [--json]
 ```
@@ -249,7 +245,7 @@ For generated TypeScript client changes:
 
 ```sh
 scenery inspect endpoints --json
-scenery generate client --lang typescript --output <expected-output>
+scenery generate --target typescript_client.<name> --check -o json
 bun test internal/vnext/testdata/typescript_client_conformance.test.ts
 apps/consolenext/node_modules/.bin/tsc -p internal/vnext/testdata/tsconfig.generated-clients.json
 ```
@@ -294,17 +290,14 @@ Do not copy the whole scenery skill into the client app. Keep the shared scenery
 
 When editing source that changes the public app model, confirm the docs and tests cover:
 
-- `//scenery:api public|auth|private [raw] [path=/...] [method=...]`
-- `//scenery:service`
-- `//scenery:authhandler`
+- edition-2027 services, operations, executions, HTTP/internal/CLI bindings, authentication, authorization, and middleware resources
 - edition-2027 CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
 - edition-2027 `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
-- request tags: `json`, `header`, `query`, `qs`, `cookie`
-- response tag: `scenery:"httpstatus"`
-- public packages: `scenery`, `auth`, `errs`, `middleware`, `durable`, `cron`, `db`, `datasource`, `object`, `et`
+- generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
+- public packages: `scenery`, `auth`, `errs`, `middleware`, `durable`, `db`, `datasource`, `object`, `et`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
-- worker, durable, cron, middleware, and generated TypeScript client behavior when touched
+- worker, durable, schedule, middleware, and generated TypeScript client behavior when touched
 
 ## Repository Hygiene
 

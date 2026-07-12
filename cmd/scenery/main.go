@@ -160,8 +160,6 @@ func run(args []string) error {
 		return agentCommand(args[1:])
 	case "changes":
 		return changesCommand(args[1:])
-	case "migrate":
-		return migrateCommand(args[1:])
 	case "harness":
 		return harnessCommand(args[1:])
 	case "inspect":
@@ -245,7 +243,7 @@ func v1OnlyCommand(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "compile", "schema", "list", "get", "explain", "diff", "graph", "changes", "migrate":
+	case "compile", "schema", "list", "get", "explain", "diff", "graph", "changes":
 		return true
 	case "agent":
 		return len(args) > 1 && args[1] == "serve"
@@ -364,9 +362,6 @@ func validateVNextRuntimePlan(appRootOption string) error {
 	appRoot, _, err := appcfg.DiscoverRoot(start)
 	if err != nil {
 		return err
-	}
-	if !pathExists(filepath.Join(appRoot, "scenery.scn")) {
-		return nil
 	}
 	result, err := vnext.Check(appRoot)
 	if err != nil {

@@ -104,7 +104,7 @@ func validateReferences(resources []Resource) []Diagnostic {
 			}
 		}
 	}
-	reserved := map[string]bool{"std": true, "legacy": true, "module": true, "principal": true, "context": true, "result": true, "error": true, "transport": true, "admission": true, "dispatch": true, "system": true}
+	reserved := map[string]bool{"std": true, "module": true, "principal": true, "context": true, "result": true, "error": true, "transport": true, "admission": true, "dispatch": true, "system": true}
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
 		walkRefs(resource.Spec, "/spec", func(path, reference string) {
@@ -112,7 +112,7 @@ func validateReferences(resources []Resource) []Diagnostic {
 			if resource.Kind == "scenery.module/v1" && (strings.HasPrefix(path, "/spec/exports") || strings.HasPrefix(path, "/spec/export_metadata")) {
 				referenceModule = moduleInstancePath(resource)
 			}
-			if primitiveTypes[reference] || reference == "legacy.type.advisory" || strings.HasPrefix(reference, "std.") {
+			if primitiveTypes[reference] || strings.HasPrefix(reference, "std.") {
 				return
 			}
 			parts := strings.Split(reference, ".")
@@ -235,7 +235,7 @@ func validateTypeValue(resource Resource, value any, types map[string]bool) []Di
 	}
 	var diagnostics []Diagnostic
 	for _, name := range names {
-		if primitiveTypes[name] || name == "std.type.problem" || name == "std.type.unit" || name == "legacy.type.advisory" {
+		if primitiveTypes[name] || name == "std.type.problem" || name == "std.type.unit" {
 			continue
 		}
 		if strings.Contains(name, "/") && types[name] {

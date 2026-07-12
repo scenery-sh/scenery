@@ -112,7 +112,7 @@ func runVNextDeploy(stdout io.Writer, args []string) error {
 		if err := readExactVNextPlanFile(planPath, "deployment plan", &plan); err != nil {
 			return err
 		}
-		approvalTokens, err := readMigrationApprovalTokens(approvalTokenPaths)
+		approvalTokens, err := readApprovalTokens(approvalTokenPaths)
 		if err != nil {
 			return err
 		}

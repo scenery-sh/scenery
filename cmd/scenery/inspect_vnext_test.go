@@ -53,7 +53,7 @@ func TestVNextInspectDurableProjectsMergedExecution(t *testing.T) {
 	}
 }
 
-func TestIsVNextGenerateFindsAncestorAndIgnoresOptionValues(t *testing.T) {
+func TestNativeGenerateFindsAncestorAndIgnoresOptionValues(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte("language { edition = \"2027\" }\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -63,19 +63,14 @@ func TestIsVNextGenerateFindsAncestorAndIgnoresOptionValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(nested)
-	for _, args := range [][]string{nil, {"--app-root", "client"}, {"--target", "client"}} {
+	for _, args := range [][]string{nil, {"--app-root", "client"}, {"--target", "client"}, {"client"}, {"--lang", "typescript", "client"}, {"--output", "out", "client"}} {
 		if !isVNextGenerate(args) {
 			t.Fatalf("isVNextGenerate(%q) = false", args)
 		}
 	}
-	for _, args := range [][]string{{"client"}, {"--lang", "typescript", "client"}, {"--output", "out", "client"}} {
-		if isVNextGenerate(args) {
-			t.Fatalf("legacy generate %q routed to vNext", args)
-		}
-	}
 }
 
-func TestVNextInspectProjectsLegacyServiceAndPrivateEndpointIdentity(t *testing.T) {
+func TestVNextInspectProjectsNativeServiceAndPrivateEndpointIdentity(t *testing.T) {
 	t.Parallel()
 
 	resources := []vnext.Resource{
@@ -84,7 +79,7 @@ func TestVNextInspectProjectsLegacyServiceAndPrivateEndpointIdentity(t *testing.
 		{Address: "app/http_gateway/public_api", Kind: "scenery.http-gateway/v1", Name: "public_api", Module: "app", Spec: map[string]any{"base_path": "/"}},
 		{
 			Address: "app/operation/dev_bootstrap", Kind: "scenery.operation/v1", Name: "dev_bootstrap", Module: "app",
-			Spec: map[string]any{"service": map[string]any{"$ref": "app/service/users"}, "input": map[string]any{"$ref": "legacy.type.advisory"}, "handler": map[string]any{"method": "DevBootstrap"}},
+			Spec: map[string]any{"service": map[string]any{"$ref": "app/service/users"}, "input": map[string]any{"$ref": "record.input"}, "handler": map[string]any{"method": "DevBootstrap"}},
 		},
 		{
 			Address: "app/binding/dev_bootstrap_http", Kind: "scenery.binding/v1", Name: "dev_bootstrap_http", Module: "app",
@@ -92,21 +87,6 @@ func TestVNextInspectProjectsLegacyServiceAndPrivateEndpointIdentity(t *testing.
 				"protocol": "http", "operation": map[string]any{"$ref": "app/operation/dev_bootstrap"}, "gateway": map[string]any{"$ref": "app/http_gateway/public_api"},
 				"authentication": map[string]any{"$ref": "std.authentication.none"}, "http": map[string]any{"method": "POST", "path": "/users/dev-bootstrap"},
 			},
-			Origin: vnext.Origin{Kind: "legacy_v0", LegacyIdentity: map[string]any{"path": "/users/dev-bootstrap", "methods": []string{"POST"}, "access": "public"}},
-		},
-		{Address: "audit/service/audit", Kind: "scenery.service/v1", Name: "audit", Module: "audit", Spec: map[string]any{}},
-		{
-			Address: "audit/operation/prune_old_logs", Kind: "scenery.operation/v1", Name: "prune_old_logs", Module: "audit",
-			Spec: map[string]any{"service": map[string]any{"$ref": "audit/service/audit"}, "handler": map[string]any{"method": "PruneOldLogs"}},
-		},
-		{
-			Address: "audit/binding/prune_old_logs_internal", Kind: "scenery.binding/v1", Name: "prune_old_logs_internal", Module: "audit",
-			Spec:   map[string]any{"protocol": "internal", "operation": map[string]any{"$ref": "audit/operation/prune_old_logs"}},
-			Origin: vnext.Origin{Kind: "legacy_v0", LegacyIdentity: map[string]any{"path": "/audit/prune-old-logs", "methods": []string{"POST"}, "access": "private"}},
-		},
-		{
-			Address: "audit/binding/prune_old_logs_native_internal", Kind: "scenery.binding/v1", Name: "prune_old_logs_native_internal", Module: "audit",
-			Spec:   map[string]any{"protocol": "internal", "operation": map[string]any{"$ref": "audit/operation/prune_old_logs"}},
 			Origin: vnext.Origin{Kind: "authored"},
 		},
 	}
@@ -124,14 +104,11 @@ func TestVNextInspectProjectsLegacyServiceAndPrivateEndpointIdentity(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(endpoints) != 2 {
-		t.Fatalf("endpoints = %#v, want 2", endpoints)
+	if len(endpoints) != 1 {
+		t.Fatalf("endpoints = %#v, want 1", endpoints)
 	}
-	if endpoints[0].ID != "audit.PruneOldLogs" || endpoints[0].Access != "private" || endpoints[0].Path != "/audit/prune-old-logs" {
-		t.Fatalf("private endpoint = %#v", endpoints[0])
-	}
-	if endpoints[1].ID != "users.DevBootstrap" || endpoints[1].Access != "public" {
-		t.Fatalf("standard auth endpoint = %#v", endpoints[1])
+	if endpoints[0].ID != "users.DevBootstrap" || endpoints[0].Access != "public" {
+		t.Fatalf("public endpoint = %#v", endpoints[0])
 	}
 }
 

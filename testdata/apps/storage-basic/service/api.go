@@ -5,70 +5,67 @@ import (
 	"io"
 	"strings"
 
+	servicecontract "example.com/storagebasic/service/scenerycontract"
 	"scenery.sh/storage"
 )
 
-//scenery:service
 type Service struct{}
 
-func initService() (*Service, error) { return &Service{}, nil }
-
-type ObjectSummary struct {
-	Key       string `json:"key"`
-	SizeBytes int64  `json:"size_bytes"`
-	Body      string `json:"body,omitempty"`
+func NewService(context.Context, servicecontract.ServiceConstructorInput) (*Service, error) {
+	return &Service{}, nil
 }
 
-//scenery:api private path=/storage/probe method=POST
-func (*Service) StorageProbe(ctx context.Context) (ObjectSummary, error) {
-	return runStorageProbe(ctx, "probe/hello.txt", "hello")
-}
-
-//scenery:api public path=/storage/probe-public method=POST
-func (*Service) PublicStorageProbe(ctx context.Context) (ObjectSummary, error) {
+func (*Service) PublicStorageProbe(ctx context.Context, _ servicecontract.PublicStorageProbeInput) (servicecontract.PublicStorageProbeOutcome, error) {
 	ctx = storage.WithTenantID(ctx, "storage-probe")
-	return runStorageProbe(ctx, "probe/public.txt", "hello public")
+	summary, err := runStorageProbe(ctx, "probe/public.txt", "hello public")
+	if err != nil {
+		return nil, err
+	}
+	return servicecontract.PublicStorageProbeOk{Value: summary}, nil
 }
 
-//scenery:api public path=/storage/probe-public method=GET
-func (*Service) ReadPublicStorageProbe(ctx context.Context) (ObjectSummary, error) {
+func (*Service) ReadPublicStorageProbe(ctx context.Context, _ servicecontract.ReadPublicStorageProbeInput) (servicecontract.ReadPublicStorageProbeOutcome, error) {
 	ctx = storage.WithTenantID(ctx, "storage-probe")
-	return readStorageProbe(ctx, "probe/public.txt")
+	summary, err := readStorageProbe(ctx, "probe/public.txt")
+	if err != nil {
+		return nil, err
+	}
+	return servicecontract.ReadPublicStorageProbeOk{Value: summary}, nil
 }
 
-func runStorageProbe(ctx context.Context, key, value string) (ObjectSummary, error) {
+func runStorageProbe(ctx context.Context, key, value string) (servicecontract.ObjectSummary, error) {
 	store, err := storage.Default(ctx)
 	if err != nil {
-		return ObjectSummary{}, err
+		return servicecontract.ObjectSummary{}, err
 	}
 	obj, err := store.Put(ctx, key, strings.NewReader(value), storage.PutOptions{ContentType: "text/plain"})
 	if err != nil {
-		return ObjectSummary{}, err
+		return servicecontract.ObjectSummary{}, err
 	}
 	return readObjectSummary(ctx, store, obj.Key, obj.SizeBytes)
 }
 
-func readStorageProbe(ctx context.Context, key string) (ObjectSummary, error) {
+func readStorageProbe(ctx context.Context, key string) (servicecontract.ObjectSummary, error) {
 	store, err := storage.Default(ctx)
 	if err != nil {
-		return ObjectSummary{}, err
+		return servicecontract.ObjectSummary{}, err
 	}
 	obj, err := store.Head(ctx, key)
 	if err != nil {
-		return ObjectSummary{}, err
+		return servicecontract.ObjectSummary{}, err
 	}
 	return readObjectSummary(ctx, store, key, obj.SizeBytes)
 }
 
-func readObjectSummary(ctx context.Context, store storage.Store, key string, size int64) (ObjectSummary, error) {
+func readObjectSummary(ctx context.Context, store storage.Store, key string, size int64) (servicecontract.ObjectSummary, error) {
 	body, _, err := store.Get(ctx, key, storage.GetOptions{})
 	if err != nil {
-		return ObjectSummary{}, err
+		return servicecontract.ObjectSummary{}, err
 	}
 	defer body.Close()
 	data, err := io.ReadAll(body)
 	if err != nil {
-		return ObjectSummary{}, err
+		return servicecontract.ObjectSummary{}, err
 	}
-	return ObjectSummary{Key: key, SizeBytes: size, Body: string(data)}, nil
+	return servicecontract.ObjectSummary{Key: key, SizeBytes: size, Body: string(data)}, nil
 }

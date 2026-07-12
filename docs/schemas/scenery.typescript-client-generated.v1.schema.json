@@ -31,8 +31,6 @@
     "package": { "type": "string" },
     "contract_revision": { "$ref": "#/$defs/revision" },
     "typescript_client_revision": { "$ref": "#/$defs/revision" },
-    "legacy_client_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
-    "legacy_fixture_catalog_digest": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
     "http_surface_revisions": { "$ref": "#/$defs/revision_map" },
     "openapi_revisions": { "$ref": "#/$defs/revision_map" },
     "content_digest": { "$ref": "#/$defs/revision" },

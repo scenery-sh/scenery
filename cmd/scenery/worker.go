@@ -285,17 +285,7 @@ func runWorker(opts workerOptions) error {
 	if err != nil {
 		return err
 	}
-	result, ok, err := build.LoadReusableBinary(root, cfg)
-	if err != nil {
-		return err
-	}
-	if ok {
-		if err := build.WriteLatestBuildManifest(result, "compiled"); err != nil {
-			return err
-		}
-		return startWorkerApp(root, cfg, result.Binary, opts)
-	}
-	result, err = build.App(root, cfg)
+	result, err := build.AppForVNextTarget(root, cfg, "", "worker")
 	if err != nil {
 		return err
 	}
@@ -311,17 +301,7 @@ func runWorkerDurable(opts workerDurableOptions) error {
 	if err != nil {
 		return err
 	}
-	result, ok, err := build.LoadReusableBinary(root, cfg)
-	if err != nil {
-		return err
-	}
-	if ok {
-		if err := build.WriteLatestBuildManifest(result, "compiled"); err != nil {
-			return err
-		}
-		return startDurableWorkerApp(root, cfg, result.Binary, opts)
-	}
-	result, err = build.App(root, cfg)
+	result, err := build.AppForVNextTarget(root, cfg, "", "worker")
 	if err != nil {
 		return err
 	}

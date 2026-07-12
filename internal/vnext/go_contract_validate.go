@@ -34,7 +34,7 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 			entry.importPath = importPath
 		}
 		for _, resource := range resources {
-			if resource.Module == instance && resource.Kind == "scenery.service/v1" && resource.Origin.Kind != "legacy_v0" && stringValue(resource.Spec["runtime"]) == "go" {
+			if resource.Module == instance && resource.Kind == "scenery.service/v1" && stringValue(resource.Spec["runtime"]) == "go" {
 				entry.hasServices = true
 				entry.address = resource.Address
 			}
@@ -49,7 +49,7 @@ func validateGoContractOwnership(application *Block, resources []Resource) []Dia
 	}
 	rootHasServices := false
 	for _, resource := range resources {
-		rootHasServices = rootHasServices || resource.Module == "app" && resource.Kind == "scenery.service/v1" && resource.Origin.Kind != "legacy_v0" && stringValue(resource.Spec["runtime"]) == "go"
+		rootHasServices = rootHasServices || resource.Module == "app" && resource.Kind == "scenery.service/v1" && stringValue(resource.Spec["runtime"]) == "go"
 	}
 	if rootHasContract || rootHasServices {
 		owners["application"] = owner{key: "application", address: "app", hasContract: rootHasContract, hasServices: rootHasServices}

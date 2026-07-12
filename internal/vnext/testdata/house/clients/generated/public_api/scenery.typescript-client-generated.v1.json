@@ -111,8 +111,8 @@
       }
     ]
   },
-  "content_digest": "sha256:f19b6c5b3e2ac8e2f2791c9717fe56df8d97d13073b394513475c1178d1f69d4",
-  "contract_revision": "sha256:416c27cc6b36bffe2e7b012c240c3d7acd220de89f55d01cefdf7215d089deca",
+  "content_digest": "sha256:3b56f613c2f1249d6cffd9189e2b53a5c5a8c40dd11ef8d52e96b1e8b37e32c6",
+  "contract_revision": "sha256:e2a71433dc77805ff41f5ecb34b37e0877f09560a50b280d4a755ddf795129de",
   "covered_bindings": [],
   "covered_gateways": [
     "http_gateway.public_api"
@@ -124,7 +124,6 @@
     "index.ts",
     "metadata.ts",
     "runtime.ts",
-    "scenery.client-selection.v1.json",
     "types.ts"
   ],
   "generator": "scenery.vnext.typescript/v1",
@@ -132,8 +131,6 @@
     "app/http_gateway/public_api": "sha256:a1109bd1f9218d0fe3a605385f090033ef640f5ce56a66b3538d7e286870acf9"
   },
   "javascript_target": null,
-  "legacy_client_revision": null,
-  "legacy_fixture_catalog_digest": null,
   "openapi_revisions": {
     "app/http_gateway/public_api": "sha256:9cdf433db6b0096709fa2dda7bb863eecdd632b63fb950866a0770f4408fe0db"
   },

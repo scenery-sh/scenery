@@ -6,7 +6,6 @@ import (
 	housecontract "example.test/nativeapp/house/scenerycontract"
 )
 
-//scenery:service
 type Service struct{}
 
 func NewService(context.Context, housecontract.HouseConstructorInput) (*Service, error) {

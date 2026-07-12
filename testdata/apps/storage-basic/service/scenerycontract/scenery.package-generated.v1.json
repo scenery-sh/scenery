@@ -1,0 +1,29 @@
+{
+  "api_version": "scenery.package-generated.v1",
+  "artifact_kind": "go_package_contract",
+  "capability_interface_abi_ranges": {},
+  "content_digest": "sha256:c7531124e270c6f1844efc925622728d8abe3d81deeb1f7b47b7c8f3f2ad1f04",
+  "covered": [
+    "binding.public_storage_probe_http",
+    "binding.read_public_storage_probe_http",
+    "execution.public_storage_probe_direct",
+    "execution.read_public_storage_probe_direct",
+    "operation.public_storage_probe",
+    "operation.read_public_storage_probe",
+    "record.object_summary",
+    "service.service"
+  ],
+  "files": [
+    "contract.gen.go",
+    "types.gen.go"
+  ],
+  "generator": "scenery.vnext.go",
+  "generator_version": "1",
+  "go_implementation_abi_range": "\u003e=1.0.0, \u003c2.0.0",
+  "import_path": "example.com/storagebasic/service/scenerycontract",
+  "package": "service",
+  "package_contract_abi_revision": "sha256:31deb75575aceb51fd0c00f9e2d4517d6f38909bba9b04e1774d7f1a0b224b21",
+  "package_identity": "service",
+  "package_version": "1.0.0",
+  "runtime_abi_range": "scenery.go-runtime/v1"
+}

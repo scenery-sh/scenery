@@ -206,7 +206,7 @@ input "roof_model_path" {
 }
 
 func TestCompilerFieldProvenanceUsesExistingRFC6901Pointers(t *testing.T) {
-	for _, fixture := range []string{"house", "native", "bridge"} {
+	for _, fixture := range []string{"house", "native"} {
 		t.Run(fixture, func(t *testing.T) {
 			result, err := Compile(filepath.Join("testdata", fixture))
 			if err != nil || !result.Valid() {

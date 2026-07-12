@@ -61,18 +61,18 @@ s.close()
 PY
 }
 
-wait_for_http() {
-  local url="$1"
+wait_for_echo() {
+  local addr="$1"
   local deadline=$((SECONDS + 30))
   local status
   while (( SECONDS < deadline )); do
-    status="$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)"
+    status="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{"message":"ready"}' "http://$addr/echo" || true)"
     if [[ "$status" =~ ^(2|3) ]]; then
       return 0
     fi
     sleep 0.25
   done
-  die "timed out waiting for $url"
+  die "timed out waiting for http://$addr/echo"
 }
 
 copy_fixture() {
@@ -103,7 +103,7 @@ start_app() {
   SCENERY_DEV_CACHE_DIR="$cache" "$SCENERY_BIN" serve --app-root "$app_root" --listen "$addr" >"$log" 2>&1 &
   local pid=$!
   cleanup_items+=("kill -INT $pid >/dev/null 2>&1 || true; wait $pid >/dev/null 2>&1 || true")
-  wait_for_http "http://$addr/service.CallPrivate"
+  wait_for_echo "$addr"
   printf '%s' "$pid"
 }
 
@@ -194,8 +194,7 @@ fixture_smoke() {
   addr="127.0.0.1:$port"
   log="$LOG_DIR/fixture-smoke-app.log"
   start_app "$app" "$addr" "$log" >/dev/null
-  run curl -fsS -H 'X-Echo: hdr' "http://$addr/echo/release?title=Gate" -d '{"body":"ok"}'
-  run curl -fsS "http://$addr/service.CallPrivate"
+  run curl -fsS -H 'Content-Type: application/json' "http://$addr/echo" -d '{"message":"release"}'
 }
 
 external_app_smoke() {
@@ -223,36 +222,6 @@ router_safety() {
     status="$(curl -sS -o /dev/null -w '%{http_code}' "http://$addr$path")"
     [[ "$status" == "404" ]] || die "$path returned $status, want 404"
   done
-}
-
-secrets_gate() {
-  local tmp app port addr log output
-  tmp="$(mktemp -d)"
-  cleanup_items+=("rm -rf '$tmp'")
-  copy_fixture secrets "$tmp"
-  app="$tmp/secrets"
-  rm -f "$app/.env"
-  if output="$("$SCENERY_BIN" serve --app-root "$app" --listen "127.0.0.1:$(free_port)" --env production 2>&1)"; then
-    printf '%s\n' "$output"
-    die "production run succeeded with missing declared secrets"
-  fi
-  grep -q "missing required secrets for production" <<<"$output" || {
-    printf '%s\n' "$output"
-    die "missing production secret error did not mention required secrets"
-  }
-
-  copy_fixture secrets "$tmp/with-env"
-  app="$tmp/with-env/secrets"
-  port="$(free_port)"
-  addr="127.0.0.1:$port"
-  log="$LOG_DIR/secrets-smoke-app.log"
-  SCENERY_DEV_CACHE_DIR="$tmp/cache" "$SCENERY_BIN" serve --app-root "$app" --listen "$addr" >"$log" 2>&1 &
-  local pid=$!
-  cleanup_items+=("kill -INT $pid >/dev/null 2>&1 || true; wait $pid >/dev/null 2>&1 || true")
-  wait_for_http "http://$addr/secrets"
-  output="$(curl -fsS "http://$addr/secrets")"
-  grep -q "service-secret" <<<"$output" || die "service secret was not populated"
-  grep -q "helper-secret" <<<"$output" || die "helper secret was not populated"
 }
 
 artifact_hygiene() {
@@ -303,7 +272,6 @@ main() {
   step "fixture smoke" fixture_smoke
   step "external app smoke" external_app_smoke
   step "router safety" router_safety
-  step "secrets" secrets_gate
   step "artifact hygiene" artifact_hygiene
 
   printf '\nrelease gate passed\nlogs: %s\n' "$LOG_DIR"

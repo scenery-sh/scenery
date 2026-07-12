@@ -66,9 +66,6 @@ func httpBindingsForGateway(resources []Resource, gateway Resource) []Resource {
 		if binding.Kind != "scenery.binding/v1" || stringValue(binding.Spec["protocol"]) != "http" {
 			continue
 		}
-		if binding.Migration != nil && binding.Migration.Active != "" && binding.Migration.Active != "native" && binding.Migration.Active != "legacy" {
-			continue
-		}
 		if resolveResourceRef(binding, refString(binding.Spec["gateway"]), "http_gateway") == gateway.Address {
 			bindings = append(bindings, binding)
 		}

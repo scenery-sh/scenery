@@ -18,7 +18,7 @@ This document defines the proposed Scenery vNext declaration language and its se
 
 The source language uses a deliberately small HCL-like syntax. Source files compile into a canonical, typed, versioned resource graph. The graph—not file order, filenames, generated Go, or runtime discovery—is the semantic truth.
 
-This specification intentionally does not preserve Scenery's legacy declaration surface. Legacy JSON files, Go comments, struct tags, and runtime builder calls are migration inputs governed by scenery.legacy-bridge/v1; they are not edition-2027 source syntax.
+Scenery has one declaration surface: edition-2027 `.scn` source. Go comments, struct tags, JSON application-model declarations, and runtime builder calls are not source syntax and MUST NOT be parsed as application resources.
 
 ### 1.1 Document map
 
@@ -33,7 +33,6 @@ This specification intentionally does not preserve Scenery's legacy declaration 
 - [SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md) is normative for scenery.http-path-tail/v1 and scenery.runtime-http-path-tail/v1.
 - [SCENERY_TYPESCRIPT_CLIENT_V1.md](SCENERY_TYPESCRIPT_CLIENT_V1.md) is normative for scenery.typescript-client/v1.
 - [SCENERY_COMPATIBILITY_CORE_V1.md](SCENERY_COMPATIBILITY_CORE_V1.md) is normative for multidimensional semantic compatibility decisions.
-- [SCENERY_LEGACY_BRIDGE_V1.md](SCENERY_LEGACY_BRIDGE_V1.md) is normative for mixed legacy/native migration.
 - Section 25 defines security properties.
 - Section 26 defines conformance profiles and the initial implementation slice.
 - Section 27 is an end-to-end House example.
@@ -73,7 +72,7 @@ The language is not:
 - a templating language;
 - a replacement for application implementation code;
 - dependent on source position or filename conventions;
-- required to preserve legacy syntax or behavior.
+- required to preserve superseded declaration syntax or behavior.
 
 ## 2. Core semantic model
 
@@ -152,7 +151,7 @@ No resource is allowed to acquire unrelated meanings merely for convenience. In 
 
 ### 3.1 File names
 
-The application root MUST contain a file named scenery.scn and MAY contain additional files ending in .scn. The reserved temporary filename scenery.migration.scn belongs to scenery.legacy-bridge/v1 and is not parsed as edition source.
+The application root MUST contain a file named scenery.scn and MAY contain additional files ending in .scn.
 
 A package directory MUST contain scenery.package.scn and MAY contain any number of files ending in .scn.
 
@@ -173,7 +172,7 @@ The lock file is generated. Authors and agents MUST change dependency intent in 
 
 ### 3.2 File composition
 
-The root scenery.scn file and all other .scn files directly inside the application root form one unordered application body. scenery.lock.scn is generated metadata and is excluded. In mixed mode, scenery.migration.scn is parsed only by the legacy bridge and is also excluded from the edition source body.
+The root scenery.scn file and all other .scn files directly inside the application root form one unordered application body. scenery.lock.scn is generated metadata and is excluded.
 
 The scenery.package.scn file and all other .scn files directly inside one package directory form one unordered package body.
 
@@ -1550,7 +1549,7 @@ http_gateway "public_api" {
 
 The gateway owns maximum exposure, base path, CORS, trusted-proxy policy, forwarded-header policy, and other listener-wide contract behavior. Hostnames, IP addresses, ports, certificates, TLS material, and platform listener identifiers are deployment values rather than contract fields.
 
-Every HTTP binding MUST reference exactly one gateway. Route uniqueness is evaluated by gateway address, effective method, and effective path after applying the gateway base path. The same method/path pair may exist on distinct gateways. Two active owners of the same gateway/method/path are always an error, including in mixed legacy/native mode.
+Every HTTP binding MUST reference exactly one gateway. Route uniqueness is evaluated by gateway address, effective method, and effective path after applying the gateway base path. The same method/path pair may exist on distinct gateways. Two active owners of the same gateway/method/path are always an error.
 
 ### 12.4 HTTP binding
 
@@ -2703,7 +2702,7 @@ Validation includes at least:
 - operation handler conformance;
 - binding input completeness;
 - binding response coverage;
-- route conflicts within each HTTP gateway and mixed-frontend ownership conflicts;
+- route conflicts within each HTTP gateway;
 - execution compatibility;
 - policy availability;
 - pipeline ordering;
@@ -2713,14 +2712,6 @@ Validation includes at least:
 - provider and extension availability;
 - secret-flow safety;
 - generated-name collisions.
-
-### 19.3 Legacy compatibility frontend
-
-When scenery.legacy-bridge/v1 is active, a bounded legacy-v0 frontend and the edition-2027 frontend both produce candidate canonical resources. A linker applies the explicit ownership manifest and produces one merged active graph. There is never a second legacy runtime.
-
-The bridge guarantees one active owner per address, HTTP gateway/method/path, service lifecycle, durable external identity/revision, schedule identity, schema/migration owner, and generated client contract. Shadow candidates are comparison-only and never enter runtime generation. Legacy behavior remains legacy_exact until an explicit, revision-checked ownership activation changes it.
-
-SCENERY_LEGACY_BRIDGE_V1.md defines source discovery, legacy lowering, opaque/advisory contracts, shadow comparison, compatibility Go adapters, activation, rollback, provenance, commands, and retirement.
 
 ## 20. Canonical intermediate representation
 
@@ -2995,7 +2986,6 @@ Command ownership is exact:
 | scenery.agent-read/v1 | scenery graph, diff, agent serve --stdio |
 | scenery.agent-mutation/v1 | scenery changes plan, changes apply, changes rename |
 | scenery.deployment/v1 | scenery deploy plan, deploy apply |
-| scenery.legacy-bridge/v1 | scenery migrate init, status, service, compare, activate, verify, finish |
 | future migration profile | scenery migration plan, migration apply |
 | future registry profile | scenery module install, module upgrade |
 
@@ -3272,7 +3262,7 @@ Applying a plan MUST:
 
 For a repair plan, successful compilation establishes the first post-repair contract_revision. A repair apply cannot succeed with a null actual contract_revision.
 
-The transaction includes every planned source, lockfile, migration proposal, and generated-artifact write. Tooling stages all bytes, formats source, compiles, verifies generated artifacts, and validates the complete graph before committing any file. Any failure leaves the prior workspace byte-for-byte unchanged.
+The transaction includes every planned source, lockfile, and generated-artifact write. Tooling stages all bytes, formats source, compiles, verifies generated artifacts, and validates the complete graph before committing any file. Any failure leaves the prior workspace byte-for-byte unchanged.
 
 On success, actual contract_revision MUST equal predicted contract_revision and actual workspace_revision MUST equal predicted workspace_revision. A mismatch is an internal failure and commits nothing.
 
@@ -3282,9 +3272,7 @@ If either base revision changed, the agent API returns revision_conflict and the
 
 A plan is immutable and bound to one application, normalized-operation digest, rename receipts, both base revisions, negotiated capability set, caller identity, required approvals, concrete source/provider actions, and expiry. Presentation-equivalent contextual and tagged scalar values, and source-local versus canonical references, normalize before the operation digest is computed. Applying an expired or already-applied plan fails without writing.
 
-The plan ID MAY remain a domain-separated content digest, but that public digest is not proof that a trusted planner issued the supplied object. Before trusting expiry, approvals, operations, source edits, provider actions, or predicted revisions, apply MUST authenticate issuance by either loading the exact canonical plan retained in trusted app-local state under that ID or verifying an issuer signature/MAC with key material unavailable to callers. If the caller supplies the full plan, it MUST match the authenticated canonical plan exactly; decoding rejects unknown fields and trailing values rather than normalizing an expanded caller object into the trusted shape. Missing issuance state, a changed field, or a caller-recomputed ID fails before staging. Change, deployment, migration initialization/candidate/transition/finish, and every future approval-bearing plan family use the same rule.
-
-An approval-bearing migration transition MUST be serializable as the exact issued plan and independently applicable after approval. `scenery migrate ... --dry-run --out <plan>` retains that object and `scenery migrate apply <plan>` applies it; apply rejects planning-only flags, including `--dry-run` and `--evidence`. Rerunning the planning command creates a distinct expiry-bound plan and MUST NOT be presented as applying the earlier plan.
+The plan ID MAY remain a domain-separated content digest, but that public digest is not proof that a trusted planner issued the supplied object. Before trusting expiry, approvals, operations, source edits, provider actions, or predicted revisions, apply MUST authenticate issuance by either loading the exact canonical plan retained in trusted app-local state under that ID or verifying an issuer signature/MAC with key material unavailable to callers. If the caller supplies the full plan, it MUST match the authenticated canonical plan exactly; decoding rejects unknown fields and trailing values rather than normalizing an expanded caller object into the trusted shape. Missing issuance state, a changed field, or a caller-recomputed ID fails before staging. Change, deployment, and every future approval-bearing plan family use the same rule.
 
 If required_approvals is non-empty, apply MUST reject missing or invalid approval tokens. A token is bound to the plan digest, caller, approved risk scopes, and expiry.
 
@@ -3305,7 +3293,7 @@ It updates:
 
 It does not update arbitrary strings, wire names, routes, task names, or database names unless separately requested.
 
-The resulting plan and persisted apply receipt record the old address, new address, base and target contract revisions, and a domain-separated receipt digest so later diffs can prove the rename. Rename traverses every typed reference inside attributes, including object/list/function expressions, exports, module input maps, and the separately parsed migration manifest; it never rewrites lookalike strings. Renaming a containing module instance changes every descendant address, so planning MUST derive a revision-bound receipt for each descendant matched through stable declaration/package origin and the old/new module chains. If one physical package declaration is instantiated more than once, a mutation targeting only one instance address MUST fail instead of silently renaming every instance; the caller must edit or refactor the shared declaration explicitly. External durable names are unchanged unless separately requested.
+The resulting plan and persisted apply receipt record the old address, new address, base and target contract revisions, and a domain-separated receipt digest so later diffs can prove the rename. Rename traverses every typed reference inside attributes, including object/list/function expressions, exports, and module input maps; it never rewrites lookalike strings. Renaming a containing module instance changes every descendant address, so planning MUST derive a revision-bound receipt for each descendant matched through stable declaration/package origin and the old/new module chains. If one physical package declaration is instantiated more than once, a mutation targeting only one instance address MUST fail instead of silently renaming every instance; the caller must edit or refactor the shared declaration explicitly. External durable names are unchanged unless separately requested.
 
 ### 22.7 Agent expectations
 
@@ -3414,7 +3402,7 @@ A message is for humans. Agents MUST branch on code and structured fields, not e
 | SCN3400-SCN3499 | Go service configuration errors |
 | SCN4000-SCN4199 | Policy, security, and secret-flow errors |
 | SCN4200-SCN4299 | Runtime policy and middleware-profile errors |
-| SCN5000-SCN5999 | Legacy bridge, migration, and operational-evidence errors |
+| SCN5000-SCN5999 | Reserved |
 | SCN6000-SCN6199 | Go implementation ABI and lowering errors |
 | SCN6200-SCN6299 | Go verification, generation, and artifact-transaction errors |
 | SCN6300-SCN6399 | TypeScript client and codec-generation errors |
@@ -3752,7 +3740,6 @@ Core profiles are:
 | scenery.agent-mutation/v1 | CST-aware plans, atomic changes, rename, fixes, approvals, and receipts | scenery.agent-read/v1 |
 | scenery.patches/v1 | Version-bounded exact patches of explicitly patchable exports | scenery.compiler-core/v1 |
 | scenery.ui/v1 | Pages, actions, and renderers | scenery.compiler-core/v1, scenery.data/v1 |
-| scenery.legacy-bridge/v1 | Temporary bounded legacy-v0 lowering, mixed ownership, shadow comparison, activation, and retirement | scenery.compiler-core/v1, scenery.compatibility-core/v1 |
 | scenery.compatibility-core/v1 | Deterministic multidimensional semantic compatibility and rename evidence | scenery.compiler-core/v1 |
 | scenery.typescript-client/v1 | Deterministic public unary HTTP TypeScript clients and artifact revisions | scenery.compiler-core/v1, scenery.compatibility-core/v1, scenery.http-codec/v1 |
 
@@ -3791,7 +3778,7 @@ language {
 
 Compilation fails when the active toolchain cannot satisfy a required profile. A known resource belonging to an unsupported profile produces unsupported_profile, never unknown_resource and never silent omission.
 
-Claiming one profile does not imply any unlisted profile. Profile dependency is explicit. scenery.runtime-http/v1 depends on scenery.http-codec/v1. scenery.http-path-tail/v1 depends on scenery.http-codec/v1, and scenery.runtime-http-path-tail/v1 depends on both scenery.runtime-http/v1 and scenery.http-path-tail/v1. scenery.agent-read/v1 depends on scenery.inspection-core/v1, and scenery.agent-mutation/v1 depends on scenery.agent-read/v1. A Go HTTP runtime claims both scenery.runtime-http/v1 and scenery.go-implementation/v1; a Go runtime implementing path tails additionally claims scenery.runtime-http-path-tail/v1. The HTTP profiles themselves are language-neutral. scenery.legacy-bridge/v1 is a migration-tool profile, not an edition-2027 source-language feature.
+Claiming one profile does not imply any unlisted profile. Profile dependency is explicit. scenery.runtime-http/v1 depends on scenery.http-codec/v1. scenery.http-path-tail/v1 depends on scenery.http-codec/v1, and scenery.runtime-http-path-tail/v1 depends on both scenery.runtime-http/v1 and scenery.http-path-tail/v1. scenery.agent-read/v1 depends on scenery.inspection-core/v1, and scenery.agent-mutation/v1 depends on scenery.agent-read/v1. A Go HTTP runtime claims both scenery.runtime-http/v1 and scenery.go-implementation/v1; a Go runtime implementing path tails additionally claims scenery.runtime-http-path-tail/v1. The HTTP profiles themselves are language-neutral.
 
 ### 26.2 Implementation milestones
 
@@ -3817,8 +3804,6 @@ That slice includes:
 - list, get, and explain;
 - generated Go contract/adapter packages;
 - one generated TypeScript client.
-
-The migration-capable first product release additionally claims scenery.legacy-bridge/v1 so existing applications can move one service at a time without a flag day. The bridge is implemented against the same canonical graph and runtime plan, not as a second runtime.
 
 The read-tooling milestone then adds scenery.agent-read/v1: graph traversal, semantic diff, retained-revision comparison, bounded context bundles, and agent server mode. Those features are not blockers for proving the CST, semantic graph, HTTP boundary, or generated Go ABI.
 
@@ -4051,7 +4036,7 @@ export "operation" {
 }
 ~~~
 
-This fixture must compile, generate, and type-check without durable, data, deployment, legacy, or full agent-read support.
+This fixture must compile, generate, and type-check without durable, data, deployment, or full agent-read support.
 
 ### 27.2 House Full: application installation
 
@@ -4867,7 +4852,7 @@ A tool claiming either path-tail profile additionally passes the fixtures in
 - segment-first single decoding and traversal, separator, Unicode, NUL, and double-decode rejection;
 - no fallback after selection;
 - unchanged typed Go handler ABI and independently encoded TypeScript segments;
-- honest OpenAPI projection and legacy terminal-wildcard migration parity.
+- honest OpenAPI projection.
 
 ## 30. Agent quick reference
 
@@ -4879,7 +4864,6 @@ A tool claiming either path-tail profile additionally passes the fixtures in
 4. Start from operations, then inspect bindings, executions, and policies.
 5. Inspect data_source, entity, and view resources only when data behavior matters.
 6. Use provenance to distinguish authored values, defaults, inputs, patches, and generated resources.
-7. When scenery.legacy-bridge/v1 is active, inspect service ownership, inactive shadow candidates, and comparison state before proposing activation.
 
 ### 30.2 To add a capability
 
@@ -4968,8 +4952,6 @@ Top-level attributes are forbidden. Schemas may further restrict expressions.
 
 Extensions cannot redefine these roots.
 
-The temporary `legacy` compile root defined by scenery.legacy-bridge/v1 exists only in mixed migration mode and is not an edition-2027 root.
-
 ## Appendix C: Canonical naming
 
 | Object | Canonical form | Example |
@@ -5004,12 +4986,11 @@ This draft makes the following deliberate choices:
 12. Compilation is offline and never executes arbitrary native provider or application code.
 13. Conformance is profile-based rather than all-or-nothing.
 14. Agent mutation is semantic, transactional, and revision-checked.
-15. Legacy directives, tags, JSON configuration, and runtime discovery are outside the language.
-16. Mixed migration uses two compiler frontends, strict ownership linking, and one runtime graph.
-17. HTTP routes are scoped by logical gateways whose concrete listeners are deployment values.
-18. Go build context is explicit and participates in implementation revision.
-19. Ordinary strings are preserved exactly; only explicitly canonical types normalize text.
-20. HTTP v1 supports buffered bytes, not raw transport objects.
+15. Go directives, tags, JSON application-model declarations, and runtime discovery are outside the language.
+16. HTTP routes are scoped by logical gateways whose concrete listeners are deployment values.
+17. Go build context is explicit and participates in implementation revision.
+18. Ordinary strings are preserved exactly; only explicitly canonical types normalize text.
+19. HTTP v1 supports buffered bytes, not raw transport objects.
 
 ## Appendix E: Open draft items
 
@@ -5024,7 +5005,6 @@ The following details require resolution before edition 2027 becomes stable:
 - registry trust roots, signing, and revocation policy;
 - provider deployment-plan schema and target-platform vocabulary;
 - migration syntax for entity evolution.
-- the complete legacy-v0 construct fixture catalog and bridge removal release;
 - platform-specific HTTP listener and certificate schemas;
 - native toolchain identity schemas for CGO and architecture-specific builds.
 

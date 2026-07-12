@@ -3,11 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 
 	"scenery.sh/internal/build"
-	"scenery.sh/internal/devmeta"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 )
@@ -62,16 +59,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 	graphFingerprint := snapshotFingerprint(snapshot)
 	sourceSnapshot := buildSourceSnapshot(snapshot)
 	if err := s.console.Phase("Building scenery application graph", func() error {
-		var reused bool
-		result, reused, err = build.LoadReusableBinaryWithSnapshot(s.root, s.cfg, sourceSnapshot)
-		if err != nil {
-			return err
-		}
-		if reused && result != nil && len(result.Metadata) > 0 && len(result.APIEncoding) > 0 {
-			metadata = append(json.RawMessage(nil), result.Metadata...)
-			apiEncoding = append(json.RawMessage(nil), result.APIEncoding...)
-			return nil
-		}
 		cached, _, err = build.LoadCachedGraph(s.root, s.cfg, graphFingerprint)
 		if err != nil {
 			return err
@@ -93,11 +80,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		if len(metadata) > 0 && len(apiEncoding) > 0 {
 			return nil
 		}
-		metadata, err = devmeta.BuildMetadataSnapshot(appModel)
-		if err != nil {
-			return err
-		}
-		apiEncoding, err = devmeta.BuildAPIEncoding(appModel)
+		metadata, apiEncoding, err = buildDevMetadata(s.root)
 		return err
 	}); err != nil {
 		return nil, devBuildError(nil, nil, err)
@@ -106,9 +89,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		return nil, devBuildError(metadata, apiEncoding, err)
 	}
 	if err := s.console.Phase("Generating boilerplate code", func() error {
-		if result != nil && result.ReuseCompiled && len(metadata) > 0 && len(apiEncoding) > 0 {
-			return nil
-		}
 		if cached != nil {
 			reused, refreshErr := build.RefreshCachedWorkspaceWithSnapshot(s.root, result, sourceSnapshot)
 			if refreshErr != nil {
@@ -123,11 +103,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 					return err
 				}
 			}
-			metadata, err = devmeta.BuildMetadataSnapshot(appModel)
-			if err != nil {
-				return err
-			}
-			apiEncoding, err = devmeta.BuildAPIEncoding(appModel)
+			metadata, apiEncoding, err = buildDevMetadata(s.root)
 			if err != nil {
 				return err
 			}
@@ -183,8 +159,5 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 }
 
 func parseDevApp(root, name string) (*model.App, error) {
-	if _, err := os.Stat(filepath.Join(root, "scenery.scn")); err == nil {
-		return parse.AppAllowEmpty(root, name)
-	}
-	return parse.App(root, name)
+	return parse.Analyze(root, name)
 }

@@ -14,48 +14,13 @@ import (
 	"strings"
 )
 
-func computeWorkspaceRevision(root string, sources []*Source, migration *Migration) (string, error) {
+func computeWorkspaceRevision(root string, sources []*Source) (string, error) {
 	entries := map[string][]byte{}
 	for _, source := range sources {
 		if source.External {
 			continue
 		}
 		entries[source.Relative] = source.Bytes
-	}
-	if migration != nil {
-		b, err := os.ReadFile(filepath.Join(root, "scenery.migration.scn"))
-		if err != nil {
-			return "", err
-		}
-		entries["scenery.migration.scn"] = b
-		ledgerRoot := filepath.Join(root, "scenery.migration.ledger")
-		if info, statErr := os.Lstat(ledgerRoot); statErr == nil {
-			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-				return "", fmt.Errorf("scenery.migration.ledger must be a workspace directory")
-			}
-			if walkErr := filepath.WalkDir(ledgerRoot, func(path string, entry os.DirEntry, walkErr error) error {
-				if walkErr != nil {
-					return walkErr
-				}
-				if path == ledgerRoot || entry.IsDir() {
-					return nil
-				}
-				if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-					return fmt.Errorf("migration ledger contains a non-regular file")
-				}
-				data, readErr := os.ReadFile(path)
-				if readErr != nil {
-					return readErr
-				}
-				relative, _ := filepath.Rel(root, path)
-				entries[filepath.ToSlash(relative)] = data
-				return nil
-			}); walkErr != nil {
-				return "", walkErr
-			}
-		} else if !os.IsNotExist(statErr) {
-			return "", statErr
-		}
 	}
 	lockPath := filepath.Join(root, "scenery.lock.scn")
 	if info, err := os.Lstat(lockPath); err == nil {
@@ -99,7 +64,7 @@ func refreshWorkspaceRevision(result *Result) error {
 	if result == nil {
 		return errors.New("compiler result is unavailable")
 	}
-	revision, err := computeWorkspaceRevision(result.Root, result.Sources, result.Migration)
+	revision, err := computeWorkspaceRevision(result.Root, result.Sources)
 	if err != nil {
 		return err
 	}

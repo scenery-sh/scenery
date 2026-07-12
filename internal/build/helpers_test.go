@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	appcfg "scenery.sh/internal/app"
 )
 
 func TestMain(m *testing.M) {
@@ -46,7 +44,6 @@ func newBuildTestAppNamed(t *testing.T, base string) string {
 
 import "context"
 
-//scenery:api public
 func Hello(ctx context.Context) error { return nil }
 `)
 	return root
@@ -61,7 +58,6 @@ func newCachedBuildTestWorkspace(t *testing.T, graphFingerprint string) (string,
 
 import "context"
 
-//scenery:api public
 func Hello(ctx context.Context) error { return nil }
 `
 	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"buildtest"}`)
@@ -129,119 +125,6 @@ func Hello(ctx context.Context) error { return nil }
 		SourceStamps:              sourceStamps,
 		GeneratedFiles:            generatedFiles,
 	}); err != nil {
-		t.Fatal(err)
-	}
-	return appDir, result
-}
-
-func newReusableBinaryBuildTestWorkspace(t *testing.T, cfg appcfg.Config) (string, *Result) {
-	t.Helper()
-	return newReusableBinaryBuildTestWorkspaceWithFrameworkRoot(t, cfg, repoRoot(t))
-}
-
-func newReusableBinaryBuildTestWorkspaceWithFrameworkRoot(t *testing.T, cfg appcfg.Config, frameworkRoot string) (string, *Result) {
-	t.Helper()
-	if cfg.Name == "" {
-		cfg.Name = "buildtest"
-	}
-	appDir := newBuildTestApp(t)
-	workspace, err := workspaceDir(appDir, cfg.Name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	sourceFiles := []string{"go.mod", "svc/api.go"}
-	for _, rel := range sourceFiles {
-		data, err := os.ReadFile(filepath.Join(appDir, filepath.FromSlash(rel)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if rel == "go.mod" {
-			data, err = patchGoModData(data, frameworkRoot)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		writeBuildTestFile(t, workspace, rel, string(data))
-	}
-	generatedFiles := []string{"scenery_internal_main/main.go", "svc/scenery.gen.go"}
-	writeBuildTestFile(t, workspace, "scenery_internal_main/main.go", "package main\n\nfunc main() {}\n")
-	writeBuildTestFile(t, workspace, "svc/scenery.gen.go", "package svc\n")
-
-	sourceFingerprint, err := currentAppSourceFingerprint(appDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	depFingerprint, err := dependencyFingerprintFromWorkspace(workspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	frameworkFingerprint, _, err := currentFrameworkFingerprintFromWorkspace(workspace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceStamps := make(map[string]SourceStamp, len(sourceFiles))
-	for _, rel := range sourceFiles {
-		info, err := os.Stat(filepath.Join(appDir, filepath.FromSlash(rel)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		sourceStamps[rel] = sourceStampFromInfo(info)
-	}
-	sourceMetadataFingerprint := sourceStampsFingerprint(sourceStamps)
-	generatorFingerprint, err := currentGeneratorFingerprint()
-	if err != nil {
-		t.Fatal(err)
-	}
-	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
-	buildFingerprint, err := workspaceBuildFingerprint(workspace, goBuildFlags, sourceFiles, generatedFiles)
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary := filepath.Join(workspace, workspaceBinaryName(appDir, buildFingerprint))
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	result := &Result{
-		AppRoot:                   appDir,
-		AppName:                   cfg.Name,
-		AppID:                     cfg.ID,
-		Dir:                       workspace,
-		Binary:                    binary,
-		NeedsTidy:                 false,
-		DependencyFingerprint:     depFingerprint,
-		SourceFingerprint:         sourceFingerprint,
-		SourceMetadataFingerprint: sourceMetadataFingerprint,
-		FrameworkFingerprint:      frameworkFingerprint,
-		GeneratorFingerprint:      generatorFingerprint,
-		BuildFingerprint:          buildFingerprint,
-		Metadata:                  json.RawMessage(`{"ok":true}`),
-		APIEncoding:               json.RawMessage(`{"api":"v1"}`),
-		SourceFiles:               append([]string(nil), sourceFiles...),
-		SourceStamps:              sourceStamps,
-		GeneratedFiles:            append([]string(nil), generatedFiles...),
-		ReuseCompiled:             true,
-		GoBuildFlags:              goBuildFlags,
-	}
-	if err := saveBuildState(workspace, buildState{
-		Version:                   buildStateVersion,
-		DependencyFingerprint:     depFingerprint,
-		SourceFingerprint:         sourceFingerprint,
-		SourceMetadataFingerprint: sourceMetadataFingerprint,
-		FrameworkFingerprint:      frameworkFingerprint,
-		GeneratorFingerprint:      generatorFingerprint,
-		BuildFingerprint:          buildFingerprint,
-		Metadata:                  append([]byte(nil), result.Metadata...),
-		APIEncoding:               append([]byte(nil), result.APIEncoding...),
-		SourceStamps:              sourceStamps,
-		GeneratedFiles:            generatedFiles,
-		GoBuildFlags:              goBuildFlags,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteLatestBuildManifest(result, "compiled"); err != nil {
 		t.Fatal(err)
 	}
 	return appDir, result

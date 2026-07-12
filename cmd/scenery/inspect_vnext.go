@@ -110,20 +110,6 @@ func buildVNextInspectDurableResponse(appRoot string, cfg appcfg.Config, result 
 		if execution.Origin.DeclarationRange != nil {
 			line = execution.Origin.DeclarationRange.Start.Line
 		}
-		if identity := execution.Origin.LegacyIdentity; len(identity) > 0 {
-			if value := inspectString(identity["file"]); value != "" {
-				file = value
-			}
-			if value, ok := identity["line"].(int); ok {
-				line = value
-			}
-			if value := inspectString(identity["input"]); value != "" {
-				input = value
-			}
-			if value := inspectString(identity["output"]); value != "" {
-				output = value
-			}
-		}
 		declarations = append(declarations, durableDeclaration{
 			Kind: "durable_task", Name: name, Service: serviceName, Schema: schema, File: file, Line: line,
 			Input: input, Output: output,
@@ -193,10 +179,7 @@ func vnextInspectServices(result *vnext.Result) []inspectdata.ServiceDetails {
 		switch resource.Kind {
 		case "scenery.operation/v1":
 			handler, _ := resource.Spec["handler"].(map[string]any)
-			name := inspectString(handler["legacy_symbol"])
-			if name == "" {
-				name = inspectString(handler["method"])
-			}
+			name := inspectString(handler["method"])
 			if name == "" {
 				name = resource.Name
 			}
@@ -238,6 +221,10 @@ func vnextInspectEndpoints(result *vnext.Result) ([]inspectdata.EndpointRecord, 
 		return []inspectdata.EndpointRecord{}, nil
 	}
 	resources := map[string]vnext.Resource{}
+	sourcePaths := map[string]string{}
+	for _, source := range result.Sources {
+		sourcePaths[source.ID] = source.Relative
+	}
 	for _, resource := range result.Manifest.Resources {
 		resources[resource.Address] = resource
 	}
@@ -251,95 +238,42 @@ func vnextInspectEndpoints(result *vnext.Result) ([]inspectdata.EndpointRecord, 
 			continue
 		}
 		protocol := inspectString(binding.Spec["protocol"])
-		if protocol != "http" && protocol != "internal" {
+		if protocol != "http" {
 			continue
 		}
 		operation := resources[inspectResolveReference(binding, inspectReference(binding.Spec["operation"]), "operation")]
 		if operation.Kind != "scenery.operation/v1" {
-			return nil, fmt.Errorf("SCN_LEGACY_CLI_UNREPRESENTABLE: binding %s has no v0 endpoint representation", binding.Address)
+			return nil, fmt.Errorf("binding %s has no operation", binding.Address)
 		}
 		service := resources[inspectResolveReference(operation, inspectReference(operation.Spec["service"]), "service")]
 		if service.Kind != "scenery.service/v1" {
-			return nil, fmt.Errorf("SCN_LEGACY_CLI_UNREPRESENTABLE: operation %s has no v0 service representation", operation.Address)
+			return nil, fmt.Errorf("operation %s has no service", operation.Address)
 		}
 		handler, _ := operation.Spec["handler"].(map[string]any)
-		endpointName := inspectString(handler["legacy_symbol"])
-		if endpointName == "" {
-			endpointName = inspectString(handler["method"])
-		}
+		endpointName := inspectString(handler["method"])
 		if endpointName == "" {
 			endpointName = operation.Name
 		}
-		identity := binding.Origin.LegacyIdentity
-		if len(identity) == 0 {
-			identity = operation.Origin.LegacyIdentity
+		httpSpec, _ := binding.Spec["http"].(map[string]any)
+		method, route := strings.ToUpper(inspectString(httpSpec["method"])), inspectString(httpSpec["path"])
+		if method == "" || route == "" {
+			return nil, fmt.Errorf("HTTP binding %s has no method or path", binding.Address)
 		}
-		var methods []string
-		var effectivePath, access string
-		raw, hasPayload := false, false
-		hasPayloadSet := false
-		if value, ok := identity["has_payload"].(bool); ok {
-			hasPayload, hasPayloadSet = value, true
-		} else if value, ok := handler["legacy_has_payload"].(bool); ok {
-			hasPayload, hasPayloadSet = value, true
-		}
-		file := inspectString(identity["file"])
-		if file == "" {
-			file = inspectString(handler["legacy_file"])
-		}
-		receiver := inspectString(identity["receiver"])
-		if receiver == "" {
-			receiver = inspectString(handler["legacy_receiver"])
-		}
-		tags := inspectStrings(identity["tags"])
-		generated, _ := identity["generated"].(bool)
-		if protocol == "http" {
-			httpSpec, _ := binding.Spec["http"].(map[string]any)
-			method, route := strings.ToUpper(inspectString(httpSpec["method"])), inspectString(httpSpec["path"])
-			if method == "" || route == "" {
-				return nil, fmt.Errorf("SCN_LEGACY_CLI_UNREPRESENTABLE: HTTP binding %s has no v0 endpoint representation", binding.Address)
-			}
-			gateway := resources[inspectResolveReference(binding, inspectReference(binding.Spec["gateway"]), "http_gateway")]
-			basePath := inspectString(gateway.Spec["base_path"])
-			effectivePath = inspectJoinPath(basePath, route)
-			if legacyPath := inspectString(identity["path"]); legacyPath != "" {
-				effectivePath = inspectJoinPath(basePath, legacyPath)
-			} else if legacyPath := inspectString(httpSpec["legacy_path"]); legacyPath != "" {
-				effectivePath = inspectJoinPath(basePath, legacyPath)
-			}
-			methods = []string{method}
-			access = inspectBindingAccess(binding)
-			raw = strings.Contains(inspectString(httpSpec["codec_profile"]), "legacy-raw") || inspectString(httpSpec["guarantee"]) == "opaque"
-			if !hasPayloadSet {
-				_, hasPayload = httpSpec["body"]
-			}
-		} else {
-			effectivePath = inspectString(identity["path"])
-			methods = inspectStrings(identity["methods"])
-			access = inspectString(identity["access"])
-			if effectivePath == "" || len(methods) == 0 {
-				if binding.Origin.Kind != "legacy_v0" {
-					continue
-				}
-				return nil, fmt.Errorf("SCN_LEGACY_CLI_UNREPRESENTABLE: internal binding %s has no legacy endpoint identity", binding.Address)
-			}
-			if access == "" {
-				access = "private"
-			}
-		}
-		key := service.Name + "\x00" + endpointName + "\x00" + effectivePath + "\x00" + access + fmt.Sprint(raw)
+		gateway := resources[inspectResolveReference(binding, inspectReference(binding.Spec["gateway"]), "http_gateway")]
+		effectivePath := inspectJoinPath(inspectString(gateway.Spec["base_path"]), route)
+		access := inspectBindingAccess(binding)
+		_, hasPayload := httpSpec["body"]
+		key := service.Name + "\x00" + endpointName + "\x00" + effectivePath + "\x00" + access
 		group := groups[key]
 		if group == nil {
 			group = &endpointGroup{record: inspectdata.EndpointRecord{
-				ID: service.Name + "." + endpointName, Service: service.Name, Endpoint: endpointName, Access: access, Raw: raw,
-				Path: inspectV0Path(effectivePath), Generated: generated || operation.Origin.Kind == "expanded", HasPayload: hasPayload,
-				File: file, Receiver: receiver, Tags: tags,
+				ID: service.Name + "." + endpointName, Service: service.Name, Endpoint: endpointName, Access: access,
+				Path: effectivePath, Generated: operation.Origin.Kind == "expanded", HasPayload: hasPayload,
+				File: sourcePaths[operation.Origin.SourceID],
 			}, methods: map[string]bool{}}
 			groups[key] = group
 		}
-		for _, method := range methods {
-			group.methods[strings.ToUpper(method)] = true
-		}
+		group.methods[method] = true
 	}
 	endpoints := make([]inspectdata.EndpointRecord, 0, len(groups))
 	for _, group := range groups {
@@ -359,22 +293,19 @@ func vnextInspectEndpoints(result *vnext.Result) ([]inspectdata.EndpointRecord, 
 }
 
 func vnextServiceRoots(result *vnext.Result) map[string]string {
-	roots := map[string]string{"auth": "scenery.sh/auth", "users": "scenery.sh/auth"}
-	if result == nil || result.Migration == nil {
+	roots := map[string]string{}
+	if result == nil || result.Manifest == nil {
 		return roots
 	}
-	for _, service := range result.Migration.Services {
-		root := strings.TrimPrefix(service.Package, "./")
-		if root == "" {
-			module := strings.TrimPrefix(service.Module, "module.")
-			for _, resource := range result.Manifest.Resources {
-				if resource.Kind == "scenery.module/v1" && resource.Name == module {
-					root = strings.TrimPrefix(inspectString(resource.Spec["source"]), "./")
-					break
-				}
-			}
+	for _, resource := range result.Manifest.Resources {
+		if resource.Kind != "scenery.module/v1" {
+			continue
 		}
-		roots[service.Name] = root
+		root := inspectString(resource.Spec["workspace_package_root"])
+		if root == "" {
+			root = inspectString(resource.Spec["source"])
+		}
+		roots[resource.Name] = strings.TrimPrefix(root, "./")
 	}
 	return roots
 }
@@ -460,16 +391,6 @@ func inspectJoinPath(base, child string) string {
 		return "/" + child
 	}
 	return base + "/" + child
-}
-
-func inspectV0Path(value string) string {
-	parts := strings.Split(value, "/")
-	for index, part := range parts {
-		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
-			parts[index] = ":" + strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}")
-		}
-	}
-	return strings.Join(parts, "/")
 }
 
 func canonicalInspectStrings(values []string) []string {

@@ -10,12 +10,13 @@ the names mentioned here.
 
 ## Bird's Eye View
 
-scenery is a Go-native local runtime and toolchain for applications that declare
-services with `//scenery:` directives and a `.scenery.json` root marker.
+scenery is a Go-native local runtime and toolchain for edition-2027 applications
+that declare their canonical resource graph in `scenery.scn` and package-local
+`scenery.package.scn` files. `.scenery.json` carries independent runtime config.
 
 At a high level, scenery does four things:
 
-- discovers an app root and parses Go packages into an app model
+- discovers an app root and compiles `.scn` source into a typed resource graph
 - generates a transient build workspace and synthetic runtime entrypoint
 - runs one local HTTP server for the app's public, auth, and internal surfaces
 - exposes local development, inspection, harness, and dashboard tools around
@@ -24,16 +25,16 @@ At a high level, scenery does four things:
 The central flow is:
 
 ```text
-.scenery.json + Go source
+.scenery.json + scenery.scn + scenery.package.scn + Go implementations
         |
         v
-internal/app + internal/parse
+internal/app + internal/vnext
         |
         v
-internal/model
+canonical source/effective/expanded manifests
         |
         v
-internal/codegen + internal/build
+generated contracts/composition + internal/build
         |
         v
 generated workspace + scenery.sh/runtime
@@ -43,12 +44,12 @@ single local server + dev/inspect/harness tooling
 ```
 
 Architecture invariant: the public scenery surface is scenery-named. User apps
-should depend on `scenery.sh/...` packages and `//scenery:` directives, without
-legacy compatibility packages, daemon layers, cloud layers, or non-scenery syntax.
+should depend on `scenery.sh/...` packages and edition-2027 `.scn` resources,
+without alternate declaration frontends or compatibility syntax.
 
-Architecture invariant: app semantics should be captured as data in
-`internal/model` before code generation or runtime wiring. Avoid duplicating
-parser-derived decisions downstream when the model can represent them once.
+Architecture invariant: app semantics live in the canonical edition-2027 graph
+before code generation or runtime wiring. Avoid rediscovering graph facts from
+Go source or generated artifacts.
 
 ## Code Map
 
@@ -87,21 +88,9 @@ driver layer. Pure database, schema, and environment name derivation lives in
 
 ### `internal/parse`
 
-`internal/parse` loads Go packages with `go/packages`, reads `//scenery:`
-directives from AST comments, validates endpoint/service/auth/middleware shapes,
-and builds the app model.
-
-It is responsible for service discovery, route defaults, typed and raw handler
-signature validation, path parameter validation, service struct rules, and
-auth-handler shape validation.
-
-Architecture invariant: parser errors should point at source-level concepts:
-services, endpoints, directives, signatures, paths, and tags. Later stages
-should not need to rediscover invalid source shapes.
-
-Architecture invariant: service names and service roots are model facts. Keep
-nested-service and duplicate-name validation here rather than spreading it into
-runtime or codegen.
+`internal/parse` is the narrow Go package-analysis boundary used by edition-2027
+constructor and handler ABI verification. It loads syntax, types, and package
+metadata with `go/packages`; it does not discover application declarations.
 
 Architecture invariant: `golang.org/x/tools/go/packages` is owned by this
 loader boundary. Downstream model consumers receive only model-owned analysis
@@ -109,37 +98,39 @@ data, not the loader package itself.
 
 ### `internal/model`
 
-`internal/model` is the shared vocabulary between parser, inspector, codegen,
-and build. Important types include `App`, `Service`, `Package`,
-`Endpoint`, `Middleware`, `AuthHandler`, `ServiceStruct`, `Entity`, and `View`.
+`internal/model` owns only the Go analysis types passed from `internal/parse` to
+edition-2027 ABI verification. Canonical application resources belong to
+`internal/vnext`, not this package.
 
-Architecture invariant: the model is an in-memory description of a parsed app,
-not a runtime registry and not a JSON schema. Public JSON responses live in
-`internal/inspect`; runtime registration lives in `scenery.sh/runtime`.
+### `internal/vnext`
 
-`PackageAnalysis` intentionally contains only the Go file set, type package,
-and type info needed by parser, inspector, and generators. Do not replace it
-with a parser-loader type.
+`internal/vnext` parses and formats `.scn`, compiles source/effective/expanded
+graphs, validates profiles, computes revisions, plans semantic changes and
+deployments, generates Go contracts/application composition and TypeScript
+clients, and verifies native Go implementations through overlays.
+
+Architecture invariant: `scenery.scn` is required. There is no Go-comment,
+package-init, or alternate application-model frontend. Generated roots are declared, confined,
+transactional, and reproducible from the canonical graph.
 
 ### `internal/codegen`
 
-`internal/codegen` turns the model into rewritten source files, per-package
-generated files, endpoint wrappers, service struct wiring, middleware/auth
-registration, and a synthetic `main`.
+`internal/codegen` writes the small runtime entrypoint and configuration glue
+consumed by native edition-2027 builds. Resource-specific contracts and adapters
+are generated by `internal/vnext`.
 
 Architecture invariant: generated code should be boring Go. Prefer explicit
 wrappers and registration over runtime reflection when the parser already knows
 the shape of the app.
 
-Architecture invariant: endpoint-to-endpoint calls should go through generated
-scenery call helpers when scenery semantics matter. Direct user function calls must
-not bypass auth context, private access rules, routing metadata, or internal
-routing behavior.
+Architecture invariant: operation-to-operation calls go through generated
+binding clients when scenery semantics matter. Direct user function calls must
+not bypass auth context, private access rules, tracing, or delivery semantics.
 
 ### `internal/build`
 
-`internal/build` owns the transient app build workspace. It writes generated
-inspect artifacts, syncs source and generated files into the workspace, tracks
+`internal/build` owns the transient app build workspace. It materializes the
+edition-2027 generated overlay, syncs source and generated files, tracks
 build fingerprints, runs `go mod tidy` when needed, compiles the app binary, and
 writes latest-build metadata.
 
@@ -171,25 +162,15 @@ Architecture invariant: edge lifecycle code exposes a small concrete interface
 and does not import the CLI. Platform-specific child-process behavior stays
 inside the module so command tests do not need to duplicate process semantics.
 
-### `internal/generateddata`
-
-`internal/generateddata` composes `internal/schemagen` and `internal/webgen`
-into one model-derived artifact lifecycle. It builds deterministic schema, seed,
-and web plans, writes changed artifacts, and reports generated-schema drift.
-
-Architecture invariant: generated-data planning and artifact IO live behind
-this module boundary. CLI discovery, flags, output rendering, and command errors
-remain in `cmd/scenery`.
-
 ### `scenery.sh/runtime`
 
 `runtime` is linked into generated app binaries. It registers generated
-endpoints, service initializers, middleware, auth handlers, durable workers,
-and cron jobs, then starts one local HTTP server.
+services, bindings, middleware, auth policies, durable executions, schedules,
+events, data resources, and pages, then starts one local HTTP server.
 
 Important runtime concerns include route matching, request decode/encode, auth
 context, current request metadata, structured error responses, middleware,
-observability reports, secrets, DB tracing, durable workers, cron, and graceful shutdown.
+observability reports, secrets, DB tracing, durable workers, schedules, and graceful shutdown.
 
 Architecture invariant: there is one local app server per generated app process.
 `scenery up` may run extra development services around it, but app API execution
@@ -213,10 +194,8 @@ The public packages at the module root are what user apps import:
 - `scenery.sh/storage` exposes the storage capability and owns the canonical
   local filesystem store used by app runtimes, CLI commands, and the managed
   storage proxy
-- `scenery.sh/model` and `scenery.sh/page` expose static compile-time vocabulary
-  for model/view IR; they do not maintain a runtime registry
-- `scenery.sh/durable`, `scenery.sh/cron`, `scenery.sh/db`, and related small
-  packages expose local runtime integrations
+- `scenery.sh/durable`, `scenery.sh/db`, `scenery.sh/datasource`,
+  `scenery.sh/object`, and related small packages expose runtime capabilities
 
 Architecture invariant: public packages are boundaries. Keep them small,
 stable, and oriented around user-app concepts. Internal implementation can move;
@@ -273,8 +252,8 @@ Architecture invariant: substantial implementation plans live under
 
 ### `testdata`
 
-`testdata` contains fixture apps and golden generated files. It is the acceptance
-corpus for parser, codegen, runtime, and CLI behavior.
+`testdata` contains native edition-2027 fixture apps and golden generated files.
+It is the acceptance corpus for compiler, codegen, runtime, and CLI behavior.
 
 Architecture invariant: fixture apps should speak scenery syntax directly. Use
 Historical reference material only as a corpus when porting behavior into
@@ -295,8 +274,8 @@ practical.
 
 ### Testing And Harnesses
 
-Prefer tests at stable boundaries: directive parsing, app modeling, generated
-code, CLI JSON contracts, runtime HTTP behavior, and fixture apps. Use helper
+Prefer tests at stable boundaries: `.scn` parsing and validation, canonical
+graphs, generated code, CLI JSON contracts, runtime HTTP behavior, and fixture apps. Use helper
 checks to keep tests data-driven and easy to update when internals move.
 
 After repository changes, rebuild the CLI with `go install ./cmd/scenery`. For

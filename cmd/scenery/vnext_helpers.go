@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,26 @@ import (
 
 	"scenery.sh/internal/vnext"
 )
+
+func readExactVNextPlanFile(path, description string, target any) error {
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("invalid_request: decode %s: %w", description, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("invalid_request: decode %s: trailing JSON value", description)
+		}
+		return fmt.Errorf("invalid_request: decode %s trailing JSON: %w", description, err)
+	}
+	return nil
+}
 
 func boolCount(values ...bool) int {
 	count := 0
@@ -20,20 +41,7 @@ func boolCount(values ...bool) int {
 	return count
 }
 
-func parseMigrationEvidence(values []string) (map[string]string, error) {
-	result := map[string]string{}
-	for _, value := range values {
-		name, evidence, ok := strings.Cut(value, "=")
-		name, evidence = strings.TrimSpace(name), strings.TrimSpace(evidence)
-		if !ok || name == "" || evidence == "" || result[name] != "" {
-			return nil, fmt.Errorf("invalid_request: --evidence requires a unique CLASS=REFERENCE value")
-		}
-		result[name] = evidence
-	}
-	return result, nil
-}
-
-func readMigrationApprovalTokens(paths []string) ([]vnext.ApprovalToken, error) {
+func readApprovalTokens(paths []string) ([]vnext.ApprovalToken, error) {
 	var tokens []vnext.ApprovalToken
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
@@ -65,23 +73,6 @@ func approvalVerifierForTokens(root string, tokens []vnext.ApprovalToken) (vnext
 		return nil, nil
 	}
 	return vnext.LoadApprovalVerifier(root)
-}
-
-func countLegacyAdapters(result *vnext.Result, module string) int {
-	count := 0
-	if result == nil || result.Manifest == nil {
-		return 0
-	}
-	for _, resource := range result.Manifest.Resources {
-		if resource.Module != module || resource.Kind != "scenery.operation/v1" {
-			continue
-		}
-		handler, _ := resource.Spec["handler"].(map[string]any)
-		if adapter, _ := handler["adapter"].(string); adapter == "legacy_go_v0" {
-			count++
-		}
-	}
-	return count
 }
 
 func compileVNextRoot(value string) (*vnext.Result, error) {
@@ -171,7 +162,7 @@ func isVNextGenerate(args []string) bool {
 			root = strings.TrimPrefix(arg, "--app-root=")
 		}
 	}
-	if positional := firstGeneratePositional(args); positional == "client" || positional == "sqlc" || positional == "data" {
+	if positional := firstGeneratePositional(args); positional == "sqlc" {
 		return false
 	}
 	_, err := vnextRoot(root)

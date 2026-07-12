@@ -97,7 +97,7 @@ func prepareTestWorkspace(ctx context.Context, appRoot string, cfg app.Config) (
 		}
 	}
 	if result == nil {
-		model, err := parse.App(appRoot, cfg.Name)
+		model, err := parse.Analyze(appRoot, cfg.Name)
 		if err != nil {
 			return nil, err
 		}

@@ -10,9 +10,6 @@ func validateProfileResources(resources []Resource) []Diagnostic {
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
-		if resource.Origin.Kind == "legacy_v0" {
-			continue
-		}
 		switch resource.Kind {
 		case "scenery.operation/v1":
 			diagnostics = append(diagnostics, validateOperation(resource, byAddress)...)
@@ -176,7 +173,7 @@ func validateExecutionBindings(resources []Resource) []Diagnostic {
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var diagnostics []Diagnostic
 	for _, binding := range resources {
-		if binding.Kind != "scenery.binding/v1" || binding.Origin.Kind == "legacy_v0" {
+		if binding.Kind != "scenery.binding/v1" {
 			continue
 		}
 		executionAddress := resolveResourceRef(binding, refString(binding.Spec["execution"]), "execution")
@@ -203,7 +200,7 @@ func validateDurableExecutions(resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	externalNames := map[string]Resource{}
 	for _, execution := range resources {
-		if execution.Kind != "scenery.execution/v1" || execution.Origin.Kind == "legacy_v0" || stringValue(execution.Spec["mode"]) != "durable" {
+		if execution.Kind != "scenery.execution/v1" || stringValue(execution.Spec["mode"]) != "durable" {
 			continue
 		}
 		engineAddress := resolveResourceRef(execution, refString(execution.Spec["engine"]), "execution_engine")
@@ -277,9 +274,6 @@ func expressionText(value any) string {
 }
 
 func validateBinding(resource Resource) []Diagnostic {
-	if resource.Origin.Kind == "legacy_v0" {
-		return nil
-	}
 	var diagnostics []Diagnostic
 	if missingAny(resource.Spec, "operation", "execution", "protocol", "delivery", "authentication", "authorization", "pipeline") {
 		diagnostics = append(diagnostics, profileDiagnostic("SCN2401", "binding requires operation, execution, protocol, delivery, authentication, authorization, and pipeline", resource))

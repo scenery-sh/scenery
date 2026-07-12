@@ -98,8 +98,6 @@ func diagnosticCategory(code string) string {
 		return "security_and_secret_flow"
 	case number >= 4200 && number <= 4299:
 		return "runtime_policy"
-	case number >= 5000 && number <= 5999:
-		return "legacy_bridge_and_migration"
 	case number >= 6000 && number <= 6199:
 		return "go_implementation_abi"
 	case number >= 6200 && number <= 6299:
@@ -119,13 +117,8 @@ func diagnosticCategory(code string) string {
 	}
 }
 
-func diagnosticDefaultSeverity(code string) string {
-	switch code {
-	case "SCN5204", "SCN5401", "SCN5402", "SCN5403", "SCN5404", "SCN5405":
-		return "warning"
-	default:
-		return "error"
-	}
+func diagnosticDefaultSeverity(string) string {
+	return "error"
 }
 
 const diagnosticCatalogRows = `
@@ -310,37 +303,6 @@ SCN4107|security_reference|A security policy reference cannot be resolved
 SCN4201|middleware_contract|A middleware declaration has invalid protocols phases or effects
 SCN4202|pipeline_contract|A pipeline has invalid steps or middleware ordering
 SCN4203|runtime_policy_reference|A runtime policy or middleware reference cannot be resolved
-SCN5002|migration_source|The migration source file or root declaration is invalid
-SCN5003|migration_singleton|The migration file has the wrong migration block count
-SCN5004|migration_frontend|The migration frontend identity is unsupported
-SCN5005|migration_block|A migration child block is unknown
-SCN5006|migration_labels|A migration ownership or gateway block has invalid labels
-SCN5007|migration_owner_state|A migration owner state or active selection is invalid
-SCN5101|migration_service_identity|Migration services are duplicated or malformed
-SCN5102|migration_service_state|A migration service state is inconsistent
-SCN5103|migration_namespace|A migration namespace is invalid or duplicated
-SCN5104|migration_target|A migration Go target is absent or invalid
-SCN5105|legacy_package_root|A legacy package root is unavailable unsafe or unconfined
-SCN5106|legacy_config_identity|The legacy app config identity is unavailable or inconsistent
-SCN5107|legacy_gateway_contract|A legacy gateway is duplicated unresolved or incomplete
-SCN5108|migration_module_owner|A native module has invalid migration ownership
-SCN5201|legacy_frontend|The bounded legacy frontend is unavailable
-SCN5202|legacy_lowering|Bounded legacy target resolution discovery or lowering failed
-SCN5203|legacy_inventory|A discovered legacy service is absent from the ownership inventory
-SCN5204|legacy_inventory_discovery|An inventoried legacy service was not discovered
-SCN5207|legacy_construct_support|A legacy construct is opaque unsupported or requires rewriting
-SCN5208|legacy_discovery_ambiguity|Legacy discovery produced an ambiguous or unsupported construct
-SCN5301|migration_ownership_inventory|A native or legacy namespace is absent from ownership inventory
-SCN5302|migration_service_owner|A service lifecycle has invalid active or shadow ownership
-SCN5303|migration_operation_owner|An operation handler has invalid ownership or adapter selection
-SCN5304|migration_runtime_owner|A durable event data or UI resource has invalid ownership
-SCN5401|legacy_raw_rewrite|A raw or unsupported wildcard legacy endpoint requires explicit native rewriting
-SCN5402|legacy_status_choice|Legacy implementation-selected HTTP status requires an explicit native choice
-SCN5403|legacy_header_normalization|A legacy header spelling changes under native normalization
-SCN5404|legacy_go_type_choice|A legacy Go type requires an explicit native contract choice
-SCN5405|legacy_path_tail_parity|A lowered legacy terminal wildcard requires behavioral path-tail comparison
-SCN5600|migration_readiness|Migration verification or retirement readiness is blocked
-SCN5601|migration_evidence|Required migration operational evidence is unavailable
 SCN6101|go_contract_generation|A Go contract cannot be generated from the canonical graph
 SCN6103|go_type_lowering|A canonical type cannot be lowered to Go
 SCN6104|go_handler_contract|A Go handler contract is invalid
@@ -351,7 +313,6 @@ SCN6112|go_runtime_abi|A Go runtime ABI requirement is invalid
 SCN6113|go_capability_abi|A Go capability ABI requirement is invalid
 SCN6114|go_contract_descriptor|A generated Go contract descriptor is invalid
 SCN6115|go_composition_contract|A Go composition registration or ownership contract is invalid
-SCN6116|go_bridge_receiver|A native Go service cannot satisfy a remaining legacy operation receiver
 SCN6120|go_contract_declaration|A source unit declares the wrong Go contract boundary
 SCN6121|go_contract_import_ownership|A Go contract import path is owned by multiple source units
 SCN6122|implementation_revision_input|A Go implementation revision input or generated adapter digest is invalid

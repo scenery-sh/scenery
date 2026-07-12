@@ -3,14 +3,8 @@ package build
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
-	"os"
-	"path/filepath"
-	"slices"
-	"strings"
 
 	"scenery.sh/internal/app"
-	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/vnext"
 )
@@ -94,59 +88,6 @@ type CachedGraph struct {
 	APIEncoding json.RawMessage
 }
 
-type GeneratedManifest struct {
-	SchemaVersion string                  `json:"schema_version"`
-	App           inspectdata.AppRef      `json:"app"`
-	Counts        inspectdata.AppCounts   `json:"counts"`
-	Artifacts     GeneratedManifestPaths  `json:"artifacts"`
-	Schemas       GeneratedManifestSchema `json:"schemas"`
-	Hashes        GeneratedManifestHashes `json:"hashes"`
-}
-
-type GeneratedManifestPaths struct {
-	App         string `json:"app"`
-	Routes      string `json:"routes"`
-	Services    string `json:"services"`
-	Endpoints   string `json:"endpoints"`
-	Models      string `json:"models,omitempty"`
-	Views       string `json:"views,omitempty"`
-	BuildLatest string `json:"build_latest"`
-}
-
-type GeneratedManifestSchema struct {
-	App         string `json:"app"`
-	Routes      string `json:"routes"`
-	Services    string `json:"services"`
-	Endpoints   string `json:"endpoints"`
-	Models      string `json:"models,omitempty"`
-	Views       string `json:"views,omitempty"`
-	BuildLatest string `json:"build_latest"`
-}
-
-type GeneratedManifestHashes struct {
-	App       string `json:"app"`
-	Routes    string `json:"routes"`
-	Services  string `json:"services"`
-	Endpoints string `json:"endpoints"`
-	Models    string `json:"models,omitempty"`
-	Views     string `json:"views,omitempty"`
-}
-
-type generatedInspectArtifacts struct {
-	App           inspectdata.AppResponse
-	Routes        inspectdata.RoutesResponse
-	Services      inspectdata.ServicesResponse
-	Endpoints     inspectdata.EndpointsResponse
-	Models        inspectdata.ModelsResponse
-	Views         inspectdata.ViewsResponse
-	AppJSON       []byte
-	RoutesJSON    []byte
-	ServicesJSON  []byte
-	EndpointsJSON []byte
-	ModelsJSON    []byte
-	ViewsJSON     []byte
-}
-
 type LatestBuildManifest struct {
 	SchemaVersion string                    `json:"schema_version"`
 	App           LatestBuildManifestApp    `json:"app"`
@@ -178,24 +119,6 @@ type LatestBuildManifestRecord struct {
 	GeneratedFileCount    int    `json:"generated_file_count"`
 }
 
-func App(appRoot string, cfg app.Config) (*Result, error) {
-	model, err := parse.App(appRoot, cfg.Name)
-	if err != nil {
-		return nil, err
-	}
-	result, err := Prepare(appRoot, model, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := Compile(result); err != nil {
-		if result.Ephemeral {
-			_ = os.RemoveAll(result.Dir)
-		}
-		return nil, err
-	}
-	return result, nil
-}
-
 func AppForVNextTarget(appRoot string, cfg app.Config, targetName, defaultRole string) (*Result, error) {
 	contract, err := vnext.Check(appRoot)
 	if err != nil {
@@ -211,128 +134,16 @@ func AppForVNextTarget(appRoot string, cfg app.Config, targetName, defaultRole s
 	if target.Role == "contract" {
 		return nil, fmt.Errorf("Go contract target %s does not produce a runtime binary", target.Name)
 	}
-	// vnext.Check has already validated any mixed-mode legacy declarations. A
-	// fully native application intentionally has no Go directives to discover.
-	appModel, err := parse.AppWithOverlayTargetAllowEmpty(appRoot, cfg.Name, nil, target.Context)
+	appModel, err := parse.AnalyzeTarget(appRoot, cfg.Name, nil, target.Context)
 	if err != nil {
 		return nil, err
 	}
-	result, err := Prepare(appRoot, appModel, cfg)
+	result, err := prepareWithContractTarget(appRoot, appModel, cfg, nil, contract, target)
 	if err != nil {
 		return nil, err
 	}
-	result.VNextContract, result.VNextTarget = contract, &target
-	result.GoBuildFlags = append([]string(nil), target.Context.BuildFlags...)
-	if len(target.Context.BuildTags) > 0 {
-		result.GoBuildFlags = append(result.GoBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
-	}
-	result.GoEnvironment = parse.GoTargetEnvironment(target.Context)
-	result.ReuseCompiled = false
 	if err := Compile(result); err != nil {
 		return nil, err
 	}
 	return result, nil
-}
-
-func LoadReusableBinary(appRoot string, cfg app.Config) (*Result, bool, error) {
-	return LoadReusableBinaryWithSnapshot(appRoot, cfg, nil)
-}
-
-func LoadReusableBinaryWithSnapshot(appRoot string, cfg app.Config, snapshot *SourceSnapshot) (*Result, bool, error) {
-	if pathExists(filepath.Join(appRoot, "scenery.scn")) {
-		// ponytail: rebuild vNext bundles until target/input metadata is part of
-		// the persisted cache key; reusing an unbound binary is not safe.
-		return nil, false, nil
-	}
-	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
-	sourceFingerprint, err := currentAppSourceFingerprintWithSnapshot(appRoot, snapshot)
-	if err != nil {
-		return nil, false, err
-	}
-	generatorFingerprint, err := currentGeneratorFingerprint()
-	if err != nil {
-		return nil, false, err
-	}
-	workspaceDir, err := workspaceDir(appRoot, cfg.Name)
-	if err != nil {
-		return nil, false, err
-	}
-	unlock, err := lockWorkspace(workspaceDir)
-	if err != nil {
-		return nil, false, err
-	}
-	defer unlock()
-	state, err := loadBuildState(workspaceDir)
-	if err != nil {
-		return nil, false, err
-	}
-	if state.Version != buildStateVersion ||
-		state.SourceFingerprint == "" ||
-		state.SourceFingerprint != sourceFingerprint ||
-		state.GeneratorFingerprint == "" ||
-		state.GeneratorFingerprint != generatorFingerprint ||
-		state.BuildFingerprint == "" ||
-		!slices.Equal(state.GoBuildFlags, goBuildFlags) {
-		return nil, false, nil
-	}
-	frameworkFingerprint, hasLocalFramework, err := currentFrameworkFingerprintFromWorkspace(workspaceDir)
-	if err != nil {
-		return nil, false, err
-	}
-	if hasLocalFramework && (state.FrameworkFingerprint == "" || state.FrameworkFingerprint != frameworkFingerprint) {
-		return nil, false, nil
-	}
-	binary := filepath.Join(workspaceDir, workspaceBinaryName(appRoot, state.BuildFingerprint))
-	if !pathExists(binary) {
-		return nil, false, nil
-	}
-	if ok, err := latestBuildManifestMatchesReusableBinary(appRoot, cfg, workspaceDir, binary, state); err != nil || !ok {
-		return nil, false, err
-	}
-	result := &Result{
-		AppRoot:                   appRoot,
-		AppName:                   cfg.Name,
-		AppID:                     cfg.ID,
-		Dir:                       workspaceDir,
-		Binary:                    binary,
-		NeedsTidy:                 false,
-		DependencyFingerprint:     state.DependencyFingerprint,
-		SourceFingerprint:         state.SourceFingerprint,
-		SourceMetadataFingerprint: state.SourceMetadataFingerprint,
-		FrameworkFingerprint:      state.FrameworkFingerprint,
-		GeneratorFingerprint:      state.GeneratorFingerprint,
-		BuildFingerprint:          state.BuildFingerprint,
-		GraphFingerprint:          state.GraphFingerprint,
-		Metadata:                  append(json.RawMessage(nil), state.Metadata...),
-		APIEncoding:               append(json.RawMessage(nil), state.APIEncoding...),
-		SourceFiles:               sourceFilesFromStamps(state.SourceStamps),
-		SourceStamps:              maps.Clone(state.SourceStamps),
-		GeneratedFiles:            append([]string(nil), state.GeneratedFiles...),
-		ReuseCompiled:             true,
-		GoBuildFlags:              append([]string(nil), goBuildFlags...),
-	}
-	return result, true, nil
-}
-
-func latestBuildManifestMatchesReusableBinary(appRoot string, cfg app.Config, workspaceDir, binary string, state buildState) (bool, error) {
-	manifest, ok, err := ReadLatestBuildManifest(appRoot)
-	if err != nil || !ok {
-		return false, err
-	}
-	if manifest.SchemaVersion != "scenery.build.latest.v1" ||
-		manifest.App.Root != appRoot ||
-		manifest.App.Name != cfg.Name ||
-		manifest.App.ID != cfg.ID ||
-		manifest.Build.Phase != "compiled" ||
-		manifest.Build.WorkspaceDir != workspaceDir ||
-		manifest.Build.BinaryPath != binary ||
-		!manifest.Build.WorkspaceExists ||
-		!manifest.Build.BinaryExists ||
-		manifest.Build.BuildStateVersion != buildStateVersion ||
-		manifest.Build.DependencyFingerprint != state.DependencyFingerprint ||
-		manifest.Build.FrameworkFingerprint != state.FrameworkFingerprint ||
-		manifest.Build.GraphFingerprint != state.GraphFingerprint {
-		return false, nil
-	}
-	return true, nil
 }

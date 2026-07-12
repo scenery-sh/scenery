@@ -74,10 +74,6 @@
     "generators": {
       "type": "object",
       "properties": {
-        "clients": {
-          "type": ["array", "null"],
-          "items": { "$ref": "#/$defs/clientGenerator" }
-        },
         "sqlc": { "$ref": "#/$defs/sqlcGenerator" }
       },
       "additionalProperties": false
@@ -226,18 +222,6 @@
       },
       "additionalProperties": false
     },
-    "clientGenerator": {
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "kind": { "type": "string", "enum": ["", "typescript-client"] },
-        "target": { "type": "string" },
-        "lang": { "type": "string", "enum": ["", "typescript", "ts"] },
-        "output": { "type": "string" }
-      },
-      "required": ["output"],
-      "additionalProperties": false
-    },
     "sqlcGenerator": {
       "type": "object",
       "properties": {
@@ -279,7 +263,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Whether scenery discovers and applies SERVICE/db/seed.sql and generated seed files. Defaults to true."
+          "description": "Whether scenery discovers and applies SERVICE/db/seed.sql. Defaults to true."
         }
       },
       "additionalProperties": false

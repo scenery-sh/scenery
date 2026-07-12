@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"scenery.sh/internal/build"
 )
 
 func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
@@ -37,8 +35,8 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	if payload.App.Name != "harnessapp" || payload.App.ModulePath != "example.com/harnessapp" {
 		t.Fatalf("app = %+v", payload.App)
 	}
-	if len(payload.Steps) != 11 {
-		t.Fatalf("steps = %d, want 11", len(payload.Steps))
+	if len(payload.Steps) != 9 {
+		t.Fatalf("steps = %d, want 9", len(payload.Steps))
 	}
 	if payload.Steps[0].Evidence == nil || payload.Steps[0].Evidence.ReproCommand == "" {
 		t.Fatalf("expected step evidence with repro command: %+v", payload.Steps[0])
@@ -67,21 +65,11 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 }
 
 func TestRunSceneryHarnessJSONFailureIncludesNextAction(t *testing.T) {
-	restoreRunner := build.SetGoRunnerForTesting(func(_ context.Context, _ string, args ...string) error {
-		if len(args) >= 2 && args[0] == "mod" && args[1] == "tidy" {
-			return nil
-		}
-		if len(args) >= 4 && args[0] == "build" && args[1] == "-buildvcs=false" && args[2] == "-o" {
-			return errors.New("go build -buildvcs=false failed: exit status 1\nsvc/api.go:6:37: undefined: MissingSymbol")
-		}
-		return errors.New("unexpected fake go command: " + strings.Join(args, " "))
-	})
-	t.Cleanup(restoreRunner)
-
 	root := t.TempDir()
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
 	t.Setenv("SCENERY_DEV_CACHE_DIR", cacheRoot)
-	writeHarnessTestApp(t, root, "harnessfail", "return MissingSymbol")
+	writeHarnessTestApp(t, root, "harnessfail", "return nil")
+	writeTestAppFile(t, root, "invalid.scn", "unsupported \"fixture\" {}\n")
 
 	var out bytes.Buffer
 	err := runSceneryHarness(context.Background(), &out, []string{"--app-root", root, "--json"})
@@ -99,8 +87,7 @@ func TestRunSceneryHarnessJSONFailureIncludesNextAction(t *testing.T) {
 	if len(payload.NextActions) == 0 {
 		t.Fatalf("expected next actions: %+v", payload)
 	}
-	if !strings.Contains(strings.Join(payload.NextActions, "\n"), "missing symbol") &&
-		!strings.Contains(strings.Join(payload.NextActions, "\n"), "MissingSymbol") {
+	if !strings.Contains(strings.Join(payload.NextActions, "\n"), "unknown top-level block") {
 		t.Fatalf("next actions = %+v", payload.NextActions)
 	}
 }

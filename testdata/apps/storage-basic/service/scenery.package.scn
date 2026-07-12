@@ -1,0 +1,128 @@
+package "service" {
+  version         = "1.0.0"
+  scenery_version = ">= 2.0.0, < 3.0.0"
+
+  go_contract {
+    import_path = "example.com/storagebasic/service"
+  }
+}
+
+input "gateway" {
+  type = resource_ref("http_gateway")
+}
+
+service "service" {
+  runtime = "go"
+
+  implementation {
+    constructor = "NewService"
+  }
+}
+
+record "object_summary" {
+  field "key" {
+    type = string
+  }
+
+  field "size_bytes" {
+    type = int64
+  }
+
+  field "body" {
+    type = string
+  }
+}
+
+operation "public_storage_probe" {
+  service = service.service
+  input   = std.type.unit
+
+  handler {
+    method = "PublicStorageProbe"
+  }
+
+  result "ok" {
+    type = record.object_summary
+  }
+}
+
+operation "read_public_storage_probe" {
+  service = service.service
+  input   = std.type.unit
+
+  handler {
+    method = "ReadPublicStorageProbe"
+  }
+
+  result "ok" {
+    type = record.object_summary
+  }
+}
+
+execution "public_storage_probe_direct" {
+  operation = operation.public_storage_probe
+  mode      = "direct"
+  timeout   = "30s"
+}
+
+execution "read_public_storage_probe_direct" {
+  operation = operation.read_public_storage_probe
+  mode      = "direct"
+  timeout   = "30s"
+}
+
+binding "public_storage_probe_http" {
+  gateway   = var.gateway
+  operation = operation.public_storage_probe
+  execution = execution.public_storage_probe_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "POST"
+    path          = "/storage/probe-public"
+    codec_profile = std.codec.http_json_v1
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}
+
+binding "read_public_storage_probe_http" {
+  gateway   = var.gateway
+  operation = operation.read_public_storage_probe
+  execution = execution.read_public_storage_probe_direct
+  protocol  = "http"
+  delivery  = "call"
+
+  authentication = std.authentication.none
+  authorization  = std.authorization.public
+  pipeline       = std.pipeline.empty
+
+  http {
+    method        = "GET"
+    path          = "/storage/probe-public"
+    codec_profile = std.codec.http_json_v1
+
+    response "ok" {
+      when   = result.ok
+      status = 200
+
+      body {
+        codec = "json"
+        from  = result.ok
+      }
+    }
+  }
+}

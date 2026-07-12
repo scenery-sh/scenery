@@ -49,10 +49,6 @@ func formattingPaths(root string, selected []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		migration := filepath.Join(root, "scenery.migration.scn")
-		if pathExists(migration) {
-			paths = append(paths, migration)
-		}
 		return paths, nil
 	}
 	var paths []string

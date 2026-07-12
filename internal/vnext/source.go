@@ -511,7 +511,7 @@ func sourceFiles(dir string, root bool) ([]string, error) {
 		if entry.Type()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("source file must be a regular non-symlink file: %s", filepath.Join(dir, entry.Name()))
 		}
-		if entry.Name() == "scenery.lock.scn" || entry.Name() == "scenery.migration.scn" {
+		if entry.Name() == "scenery.lock.scn" {
 			continue
 		}
 		if root || entry.Name() == "scenery.package.scn" || entry.Name() != "scenery.scn" {

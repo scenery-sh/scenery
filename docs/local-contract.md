@@ -2,7 +2,7 @@
 
 ## Edition-2027 vNext contract
 
-An app containing `scenery.scn` opts into the edition-2027 compiler described by [the normative vNext specification set](specs/vnext/SCENERY_LANGUAGE_SPEC.md). A mixed app that also retains `.scenery.json` or `.config.json` must contain `scenery.migration.scn`; compilation fails rather than choosing implicit frontend precedence.
+An app containing `scenery.scn` uses the edition-2027 compiler described by [the normative vNext specification set](specs/vnext/SCENERY_LANGUAGE_SPEC.md). Go comments and package-initialization builders are not application-model syntax.
 
 The implemented edition-2027 command surface is:
 
@@ -20,24 +20,17 @@ scenery agent serve [--app-root <path>]
 scenery changes plan --changes <file> --base-workspace-revision <rev> --base-contract-revision <rev|null> --out <plan> [-o human|json]
 scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev|null> [--approval-token <file>] [-o human|json]
 scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
-scenery migrate init|status|verify|compare [<service>] [--app-root <path>] [-o human|json]
-scenery migrate service <service> --generate [--dry-run] [-o human|json]
-scenery migrate service <service> --shadow|--retire [--dry-run] [--out <plan>] [--evidence <class>=<reference>] [-o human|json]
-scenery migrate activate <service> --native [--dry-run] [--out <plan>] [--evidence <class>=<reference>] [-o human|json]
-scenery migrate rollback <service> --legacy --activation-receipt <plan-id> [--dry-run] [--out <plan>] [--evidence <class>=<reference>] [-o human|json]
-scenery migrate apply <plan> [--expect-workspace-revision <rev>] [--expect-contract-revision <rev>] [--approval-token <file>] [-o human|json]
-scenery migrate finish [--dry-run] [--evidence <class>=<reference>] [-o human|json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
 scenery build [--target <go-target>] [-o <binary>]
 scenery deploy plan <deployment> --out <plan> [-o human|json]
 scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev> [--approval-token <file>] [-o human|json]
 ```
 
-`-o json` selects the `scenery.cli.v1` edition-2027 envelope. Existing `--json` commands retain their exact v0 schemas and project the same validated active graph in mixed mode. `--api-version scenery.cli.v0|scenery.cli.v1` is an explicit override; conflicting v0/v1 selectors fail. A v1 envelope always carries `api_version`, `diagnostic_catalog`, `ok`, nullable revision fields, `data`, and ordered `diagnostics`. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
+`-o json` selects the `scenery.cli.v1` edition-2027 envelope. Commands that use `--json` retain their independently versioned command-specific schemas; the `scenery.cli.v0` selector names that wire protocol and does not select an application-model edition. `--api-version scenery.cli.v0|scenery.cli.v1` is an explicit override; conflicting selectors fail. A v1 envelope always carries `api_version`, `diagnostic_catalog`, `ok`, nullable revision fields, `data`, and ordered `diagnostics`. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
 
 The checked-in `scenery.diagnostics.2027.v1` registry is publicly inspectable with `schema.get` using either the catalog identity or one `SCNxxxx` code. Request failures use `SCN8001` through `SCN8005`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause.
 
-The feature-complete draft profile set is `scenery.compiler-core/v1`, `scenery.go-implementation/v1`, `scenery.http-codec/v1`, `scenery.http-path-tail/v1`, `scenery.runtime-http/v1`, `scenery.runtime-http-path-tail/v1`, `scenery.runtime-durable/v1`, `scenery.events/v1`, `scenery.data/v1`, `scenery.deployment/v1`, `scenery.inspection-core/v1`, `scenery.agent-read/v1`, `scenery.agent-mutation/v1`, `scenery.patches/v1`, `scenery.ui/v1`, `scenery.legacy-bridge/v1`, `scenery.compatibility-core/v1`, and `scenery.typescript-client/v1`. Profile dependencies are resolved into the manifest. Edition 2027 remains `0.5-draft`: unresolved declarative extensions, Appendix E workflow, streaming/WebSocket, registry-trust/publication, provider-vocabulary, entity-evolution, platform-listener/certificate, and fixed-target native-toolchain surfaces are reported as draft or unsupported; `extension` and generic `resource` declarations specifically emit `SCN7001 unsupported_profile`, while genuinely unknown syntax remains `SCN1002`.
+The feature-complete draft profile set is `scenery.compiler-core/v1`, `scenery.go-implementation/v1`, `scenery.http-codec/v1`, `scenery.http-path-tail/v1`, `scenery.runtime-http/v1`, `scenery.runtime-http-path-tail/v1`, `scenery.runtime-durable/v1`, `scenery.events/v1`, `scenery.data/v1`, `scenery.deployment/v1`, `scenery.inspection-core/v1`, `scenery.agent-read/v1`, `scenery.agent-mutation/v1`, `scenery.patches/v1`, `scenery.ui/v1`, `scenery.compatibility-core/v1`, and `scenery.typescript-client/v1`. Profile dependencies are resolved into the manifest. Edition 2027 remains `0.5-draft`: unresolved declarative extensions, Appendix E workflow, streaming/WebSocket, registry-trust/publication, provider-vocabulary, entity-evolution, platform-listener/certificate, and fixed-target native-toolchain surfaces are reported as draft or unsupported; `extension` and generic `resource` declarations specifically emit `SCN7001 unsupported_profile`, while genuinely unknown syntax remains `SCN1002`.
 
 The separate `scenery.http-path-tail/v1` and
 `scenery.runtime-http-path-tail/v1` profiles implement terminal `{name...}`
@@ -47,11 +40,8 @@ plus an exactly matching `path_tail` mapping to `string`, `relative_path`, or
 `/drive//b`. Runtime decoding splits before one-time percent decoding, rejects
 separator/traversal/backslash/NUL/double-decode hazards, and never falls back
 to a broader tail after selecting a more specific route. Generated TypeScript
-clients encode each semantic segment independently. Eligible terminal legacy
-`/*path` routes lower to the typed form when both profiles are active;
-unsupported wildcard or independently raw facets retain `SCN5401`, while
-`SCN5405` keeps slash/selection/decoding comparison visible as advisory
-migration evidence.
+clients encode each semantic segment independently. Unsupported wildcard or
+independently raw facets fail validation.
 
 Edition schemas are enforced recursively against authored blocks before lowering. Unknown nested attributes or blocks, wrong label counts, repeated singleton blocks, and duplicate named children are errors. Workspace revision globs implement only `*`, `?`, and whole-segment `**`; character classes, escapes, embedded `**`, and host glob semantics are rejected.
 
@@ -63,15 +53,15 @@ Local module sources and generated outputs are workspace trust boundaries. `scen
 
 The compiler retains lossless CST/source maps and exposes distinct source, effective, and expanded graphs. Source preserves authored `var.*`/export expressions and omits defaults; effective resolves module inputs, applies effective defaults, then applies inheritance/exact patches; expanded adds generated resources. Every graph field carries `origin.field_provenance` keyed by an RFC 6901 pointer that resolves inside that resource's `spec` in the same view; arrays use numeric indexes, never labels. Entries include declaring range/input, supplier, source address, and transformation chain for defaults, inputs/exports, patches, expansions, and provider descriptors. Generated Go config-schema fields point to the exact referenced package-input declaration/attribute, including through config aliases. Portable source IDs are lower-case unpadded base32 SHA-256 identities over a domain-separated, length-framed normalized relative URI; they never sanitize punctuation or path separators into a collision-prone filename. Source-map ranges use zero-based Unicode-scalar lines and columns plus zero-based UTF-8 byte offsets, including for combining marks and CRLF sources. Canonical `contract_revision` excludes implementation and deployment inputs; compilation therefore reports `implementation_revision` as null. `scenery build` selects an exact declared Go target, hashes its complete non-standard package/module/embed/native-input graph, and combines that build-input digest with the resolved target to produce the target-specific `implementation_revision`. The resolved target records the selected Go command and compiler paths and SHA-256 identities; host CGO additionally records the resolved C and C++ compiler paths and identities while ambient compiler, linker, include, library, and pkg-config settings are scrubbed. A fixed non-host target with CGO enabled fails until the separately versioned native-toolchain schema exists. The runtime bundle is written to `.scenery/build/vnext/<target>.json` and copied beside an explicit build output as `<binary>.scenery.runtime-bundle.v1.json`; its schemas are `scenery.go-build-input-manifest.v1` and `scenery.runtime-bundle.v1`.
 
-Resolved `deployment_revision` and artifact/profile revisions are reported independently. Semantic diff, agent reads, and mutation plans use the same canonical graph and compatibility classifications. Change planning validates optional requested kind/schema identities, canonicalizes typed scalars/references, and returns every normalized operation with mandatory resolved kind, schema revision, and `view: "source"` before hashing it. Nested-module rename rewrites typed traversals inside composite expressions and the separately parsed migration manifest. A containing-module rename derives receipts for every descendant through stable source/package lineage; each receipt records old/new addresses, base/target contract revisions, and a digest in both plan and apply receipt. Diff recomputes the digest and revision bindings, loads matching applied receipts from an app root, or accepts `--rename-receipts`; invalid evidence remains remove-plus-add. A declaration shared by multiple module instances cannot be renamed through one instance address because that would mutate all instances ambiguously. Change, deployment, initialization, candidate, activation, rollback, retirement, and finish plans are immutable, revision-bound, caller-bound, expiring, single-use transactions with staged validation and receipt output. Planning retains the exact canonical issued plan at `.scenery/plans/issued/<family>/<plan-digest>.json` with owner-only permissions. Apply requires an exact match before trusting expiry, approvals, operations, source edits, or provider actions; a caller-recomputed content hash is not proof of plan issuance. Migration transition commands accept `--out <plan>` to retain the exact raw plan returned by planning. After external approval, `scenery migrate apply <plan>` loads that same issued object; omitted expected-revision flags use its base bindings, while supplied values must match. Apply rejects transition-planning flags such as `--dry-run` and `--evidence`, and plan decoding rejects unknown fields or trailing JSON before trusted-plan comparison. Re-running `migrate activate`, `rollback`, `service --shadow`, or `service --retire` creates a new plan and therefore cannot consume an approval token bound to an earlier dry-run plan.
+Resolved `deployment_revision` and artifact/profile revisions are reported independently. Semantic diff, agent reads, and mutation plans use the same canonical graph and compatibility classifications. Change planning validates optional requested kind/schema identities, canonicalizes typed scalars/references, and returns every normalized operation with mandatory resolved kind, schema revision, and `view: "source"` before hashing it. A containing-module rename derives receipts for every descendant through stable source/package lineage; each receipt records old/new addresses, base/target contract revisions, and a digest in both plan and apply receipt. Diff recomputes the digest and revision bindings, loads matching applied receipts from an app root, or accepts `--rename-receipts`; invalid evidence remains remove-plus-add. A declaration shared by multiple module instances cannot be renamed through one instance address because that would mutate all instances ambiguously. Change and deployment plans are immutable, revision-bound, caller-bound, expiring, single-use transactions with staged validation and receipt output. Planning retains the exact canonical issued plan at `.scenery/plans/issued/<family>/<plan-digest>.json` with owner-only permissions. Apply requires an exact match before trusting expiry, approvals, operations, source edits, or provider actions; a caller-recomputed content hash is not proof of plan issuance.
 
 Risk-bearing apply commands accept repeatable `--approval-token <file>` values. Each file conforms to `docs/schemas/scenery.approval-token.v1.schema.json`. Scenery verifies its detached Ed25519 signature against the app-local, non-symlink trust store `.scenery/approval-trust.json`, whose exact shape is `docs/schemas/scenery.approval-trust.v1.schema.json`. Key values are raw 32-byte Ed25519 public keys encoded with standard padded or unpadded base64. A signature has the form `ed25519:<key-id>:<base64-signature>`.
 
 The signed bytes are canonical JSON of exactly `plan_id`, `caller`, the sorted unique `risk_scopes`, and UTC `expires_at`; `signature` is excluded. A trusted approval service uses the public `scenery.ApprovalTokenPayload` function to produce those bytes, signs them with Ed25519, and writes the token file. Tokens are accepted only for the exact plan, caller, requested scopes, and unexpired timestamp. Trust stores and private signing keys are operational state and must not be committed; only public keys belong in the trust store.
 
-Source, lockfile, migration, and generated-artifact sets use one recoverable per-workspace transaction. Scenery readers honor its process-fingerprinted lock; a durable journal restores the prior byte-for-byte state after interruption unless the synced receipt proves commit.
+Source, lockfile, and generated-artifact sets use one recoverable per-workspace transaction. Scenery readers honor its process-fingerprinted lock; a durable journal restores the prior byte-for-byte state after interruption unless the synced receipt proves commit.
 
-Go generation stages contract packages, provider/application adapters, composition, ABI/provider locks, and descriptor coverage before atomically materializing verified bytes. `std.type.unit` is the exact no-input/no-body type and encodes as `{}` in Go (`scenery.Unit`) and TypeScript (`Unit`); user types merely ending in `unit`, `problem`, or `execution_receipt` are not standard types. Exact sizes accept fractional lexical quantities only when unit conversion produces an integral byte count (`1.5KiB` is `1536`; `0.1B` is invalid). `relative_path` rejects NUL and normalizes each segment with edition-pinned Unicode 15.0 NFC. `url` is a normalized hierarchical network URL and rejects opaque or hostless URIs. TypeScript generation provides exact scalar codecs, immutable decoded values, typed outcomes/errors, record constraints and cross-field validation, retry semantics, metadata, and one selection-manifest owner per active operation. Data, durable, schedule, event, HTTP, CLI, page/renderer, and internal-call runtime adapters register through the same generated composition root.
+Go generation stages contract packages, provider/application adapters, composition, ABI/provider locks, and descriptor coverage before atomically materializing verified bytes. `std.type.unit` is the exact no-input/no-body type and encodes as `{}` in Go (`scenery.Unit`) and TypeScript (`Unit`); user types merely ending in `unit`, `problem`, or `execution_receipt` are not standard types. Exact sizes accept fractional lexical quantities only when unit conversion produces an integral byte count (`1.5KiB` is `1536`; `0.1B` is invalid). `relative_path` rejects NUL and normalizes each segment with edition-pinned Unicode 15.0 NFC. `url` is a normalized hierarchical network URL and rejects opaque or hostless URIs. TypeScript generation provides exact scalar codecs, immutable decoded values, typed outcomes/errors, record constraints and cross-field validation, retry semantics, and metadata. Data, durable, schedule, event, HTTP, CLI, page/renderer, and internal-call runtime adapters register through the same generated composition root.
 
 The HTTP effective graph fixes the v1 defaults at 64 KiB request headers, 8 MiB buffered request bodies, 16 MiB decompressed requests, 32 MiB multipart bodies, 16 MiB file parts, 1 MiB non-file parts, 128 parts, and 16 MiB buffered responses. Typed responses may split one outcome across body, header, and cookie mappings; generated Go adapters encode every declared scalar and generated TypeScript clients reconstruct the original camel-cased typed payload. Distinct same-status completion mappings are decoded independently and exactly one must validate; the compiler proves disjointness from observable media types and structural wire shapes, never nominal type or destination names, and rejects mappings where overlap cannot be excluded. Multipart clients encode only declared parts and enforce their exact names, kinds, accepted media, byte limits, filename retention, and multiplicity. Optional absent metadata stays absent. Effective response-cookie defaults are path `/`, empty domain, session expiry (`max_age=0`, no `expires`), `secure=true`, `http_only=true`, and `same_site=lax`. Fetch cannot preserve repeated request-header field lines, so a TypeScript target selecting a repeated list/set request header is rejected with `SCN6316`; use explicit comma encoding only when the scalar codec permits it. Repeated response headers require a Fetch `Headers.getAll(name)` extension, and response cookies require `Headers.getSetCookie()`; a runtime that cannot preserve the declared repetitions fails with `unsupported_runtime` instead of silently collapsing values. `std.authorization.none` is a valid explicit deny-all policy; it does not make a binding anonymous. `dispatch.wait_timeout` is the canonical wait outcome. Stream delivery and `server_sent_events` declarations fail with `unsupported_profile` until a separately negotiated streaming profile exists. Generated TypeScript sets encode and validate canonical JSON element order by UTF-8 bytes across JSON, query, form, and header mappings. Declared transport, admission, and dispatch failures are returned as closed typed failure outcomes; only undeclared/system failures throw, and clients never add an implicit retry. Public `system.internal` responses always use the stable message `contract implementation failure`; the wrapped implementation cause remains available to internal error handling but is never serialized to the caller.
 
@@ -79,11 +69,9 @@ Native `protocol = "cli"` bindings execute directly as `scenery <declared comman
 
 Edition-2027 fixtures are typed contract resources, not arbitrary SQL. Deployment projection includes only fixtures whose `environments` contain the selected deployment environment. `scenery db seed --env <environment>` uses the same selection and deterministically projects validated PostgreSQL `INSERT`/`ON CONFLICT` statements under `.scenery/vnext/fixtures/`; the ordinary seed ledger and destructive-SQL checks still apply.
 
-Mixed startup validates exactly one active owner for every service, route, lifecycle, durable identity, schedule, schema/event owner, and generated-client surface. Each inactive candidate is validated in its predicted operating graph: the current active graph retains every other service owner and replaces only the candidate service's active resources. While the shared legacy app config exists, `legacy_config` must be its exact normalized regular non-symlink path; the field is omitted only after that config is removed. In that post-config state, bounded legacy TypeScript generation and planning use the compiled application/migration snapshot rather than rediscovering an ambient v0 config; authentication options come only from structured canonical provider/handler metadata, never free-form source symbols. Every legacy service uses a canonical `./...` package path, its declared Go target, and its declared namespace for stable lowered addresses. `legacy_gateway "default"` explicitly selects the root HTTP gateway used by lowered legacy bindings. Static legacy lowering is advisory until executable behavioral fixtures establish exactness; a resource is never marked `legacy_exact` merely because its shape was discovered. `migrate compare` reports `static_contract_complete`, `static_contract_equal`, `behavioral_evidence_complete`, and `operational_evidence_complete` separately; aggregate service classification uses the weakest construct evidence. Static shape equality cannot upgrade advisory semantics to native equivalence, and activation requires `risk_advisory_migration_evidence` approval while behavioral evidence is incomplete. Cutover classes are the union of both candidates, so removing a legacy durable execution, schedule, event consumer, or generated client does not remove its operational evidence obligation. `migrate status` projects receipt-bound drain, fence, and cursor state, external identities and aliases, deployed-client gates, CLI protocol dependencies, rollback safety, and blocking diagnostics for every construct; missing required operational evidence makes active shadow-cutover readiness false. A source-declared `native_service` is already retired, has no rollback owner, and remains operationally ready without machine-local activation receipts, but its package must contain no undeclared legacy model, page, or reference to the package-init builder symbols `durable.NewTask` or `cron.NewJob`; non-registering APIs from those packages remain valid. Those runtime identities must be native `.scn` resources. Within a native-owned service, the service implementation selects the one lifecycle adapter while each operation independently selects its handler adapter; status exposes `lifecycle_adapter`, `remaining_operation_bridge_count`, and `adapter_retirement_ready`. If any operation remains `legacy_go_v0`, Go verification requires the native constructor result pointer to be assignable to its legacy receiver and emits `SCN6116` before generation/startup otherwise. Explicit bridge adapters are allowed only while the migration graph reports them and block `migrate finish`. `migrate finish` additionally requires every service retired to native, no compatibility adapter or incomplete construct, explicit evidence clearing v0 CLI and legacy generated-client consumers plus every stateful cutover class, and no activation receipt that still authorizes rollback. Operational receipt state and evidence are included in the finish plan identity and rechecked at apply.
-
 Generated durable executions may set `external_name` to preserve an existing durable-store task namespace; the name must be unique per engine. The execution `revision` is the persisted input/handler ABI revision. Reusing an external name with an incompatible serialized input requires a new revision and an explicit drain or migration of active jobs; startup reconciliation fails closed when active jobs remain at a different revision.
 
-This document freezes the local developer and agent-facing contract for scenery v0.
+This document freezes the local developer and agent-facing contract for Scenery.
 
 The goal is to make scenery deterministic and inspectable:
 - app shape is explicit
@@ -96,8 +84,7 @@ If implementation and this document disagree, treat that as a bug.
 
 ## Status
 
-Implemented now. This list describes what the CLI can do today; it is not the
-same as the stable v0 support surface.
+Implemented now:
 
 - `.scenery.json` app config, with `.config.json` accepted as an alias
 - `scenery up --json`
@@ -111,7 +98,6 @@ same as the stable v0 support surface.
 - `scenery doctor --json`
 - `scenery check --json`
 - `scenery generate`
-- `scenery generate client`
 - `scenery generate sqlc`
 - `scenery db shell`
 - `scenery db apply`
@@ -120,7 +106,6 @@ same as the stable v0 support surface.
 - `scenery db reset`
 - `scenery db drop`
 - `scenery db snapshot create|restore`
-- `scenery db diff --generated`
 - `scenery worktree create|list|remove`
 - `scenery task list|inspect|run|graph`
 - `scenery task run <name>`
@@ -135,8 +120,6 @@ same as the stable v0 support surface.
 - `scenery inspect routes --json`
 - `scenery inspect services --json`
 - `scenery inspect endpoints --json`
-- `scenery inspect models --json`
-- `scenery inspect views --json`
 - `scenery inspect build --json`
 - `scenery inspect paths --json`
 - `scenery inspect generators --json`
@@ -151,23 +134,6 @@ same as the stable v0 support surface.
 
 Reserved by contract, implementation pending:
 - repo-local runtime and state manifests beyond the command JSON surfaces above
-
-Stable v0 surface:
-- `.scenery.json` app config, with `.config.json` accepted as an alias
-- `scenery build`
-- `scenery version --json`
-- `scenery help --json`
-- `scenery check --json`
-- `scenery inspect app|routes|services|endpoints|build|paths|docs --json`
-- `scenery logs --jsonl`
-- `scenery test`
-- `scenery generate client`
-- typed/raw HTTP endpoints
-- auth handler
-- service struct initialization and shutdown
-- private/internal calls
-- secrets from process env and local `.env`
-- basic runtime logs and trace emission
 
 Dev-only or beta surface:
 - `scenery up`
@@ -204,17 +170,10 @@ Dev-only or beta surface:
 - local HTTPS edge and frontend routing
 - trust-store installation
 - native local observability capabilities, backed today by Victoria substrate and managed binary downloads
-- cron UI
-- `scenery.sh/durable` typed task declarations, startup DB reconciliation into the app Postgres database's `scenery` schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, authenticated durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin, and `scenery inspect durable --json` while the Postgres durable execution runtime is implemented under ExecPlan 0097
+- schedule UI
+- native durable declarations, startup DB reconciliation into the app Postgres database's `scenery` schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, authenticated durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin, and `scenery inspect durable --json` while the Postgres durable execution runtime is implemented under ExecPlan 0097
 - `scenery.sh/storage`, app config storage declarations, `scenery inspect storage --json`, and `scenery storage ... --json` while the storage runtime boundary and generated browser routes mature
-- `scenery.sh/model` and `scenery.sh/page` static IR vocabulary, `//scenery:model`, `//scenery:page`, `model.Table`, `model.ExistingTable`, `model.Generate|Disable|Override` CRUD action policy, `scenery inspect models|views --json`, generated model endpoint markers, and beta generated data/web packages while the model/view surface matures
-- `scenery generate data --dry-run --json`, generated desired schema files under `.scenery/gen/db/<service>/schema.hcl`, generated seed files under `.scenery/gen/db/<service>/seed.sql`, generated frontend packages under `.scenery/gen/web/<frontend>/`, `scenery db diff --generated --json`, and `scenery check` model-schema drift diagnostics
-- generated model CRUD endpoints/stores in the transient build workspace. These endpoints appear in `scenery inspect endpoints|routes --json` with `"generated": true`; generated CRUD access defaults to `auth` for every action, default generated CRUD route bases are service-scoped as `/<service>/<table>` and collision-checked against reserved route prefixes (`/runtime`, `/__scenery`, `/api`) plus handwritten and generated app routes, while `model.Table(...)` remains the physical table name for generated Scenery-owned tables. `model.ExistingTable(schema, table)` binds an entity to an existing physical table, exposes that source through `scenery inspect models --json`, skips generated schema/seed ownership artifacts, allows generated list/get only, and rejects generated create/update/delete or `model.Seed(...)` rows. Generated list endpoints accept `limit` and `offset` query parameters, default to `limit=100`, reject `limit < 1`, `limit > 500`, and negative offsets, and always emit bounded `LIMIT/OFFSET` SQL after tenant filtering. Generated create/patch payloads accept both generated response field names such as `CreatedAt` and DB-column JSON names such as `created_at`, so stored `time.Time` fields use Go's normal RFC3339 JSON parsing and reject malformed timestamps as invalid JSON. Generated stores use `database/sql` against the configured managed Postgres database URL env. App services can use `scenery.sh/db.Get(ctx)` or `scenery.sh/db.MustGet(ctx)` for the same default-database selection and a process-shared `*sql.DB`. Entities with a convention `TenantID`/`tenant_id` field additionally derive the active tenant from standard auth, scope list/get/update/delete SQL by `tenant_id`, and inject `tenant_id` on create so tenant IDs are not client-writable in generated create/patch payloads. Generated tenant fields support `string`, named string types, and `github.com/google/uuid.UUID`; unsupported tenant field types fail parse/check with an explicit diagnostic.
-- migration compatibility for older app shapes
-
-Compatibility posture:
-- scenery-native syntax and imports are the stable API.
-- Non-scenery directives/imports are not part of the v0 API.
+- native `.scn` data sources, entities, views, CRUD, fixtures, pages, and renderers
 
 ## App Config
 
@@ -242,14 +201,6 @@ Current shape:
     "ignore": ["reference/"]
   },
   "generators": {
-    "clients": [
-      {
-        "id": "web",
-        "kind": "typescript-client",
-        "target": "myapp-dev",
-        "output": "apps/web/src/scenery-client.ts"
-      }
-    ],
     "sqlc": {
       "provider": "sqlc",
       "config": "sqlc.yaml",
@@ -370,16 +321,14 @@ Rules:
 - App processes, setup commands, DB setup, and workers receive `DATABASE_URL` plus per-service `<SERVICE>_DATABASE_URL` values for the app database. `SCENERY_DATABASE_JSON` describes the app database, URL, source (`managed` or `external`), and service schemas. Headless runtimes fail closed when database services are configured and no explicit `DATABASE_URL` is present.
 - `scenery up` prepares declared local DB setup before the app process starts. When app config declares `database.apply` or service-local seed files are discovered, the supervisor runs the same split lifecycle as `scenery db setup`: apply first, then seed. It passes the same managed database URL env values that the app child receives, so setup targets the dev-runtime database. Successful setup is fingerprinted from `database.apply` config and seed file hashes; ordinary rebuilds skip setup until those inputs change. Apps can set `database.seed.enabled: false` to opt out of seed discovery when local seed files target a database dialect or lifecycle outside Scenery-managed services.
 - `dev.setup` is an optional beta list of shell commands that `scenery up` runs from the app root after managed dev services and the DB setup lifecycle are prepared, but before the app process starts. Setup commands receive the same managed Postgres database URL env values as the app child, so target apps can keep existing app-local setup during migration.
-- `generators.clients` is a beta lifecycle config for generated TypeScript clients. `kind` defaults to `typescript-client`, `lang` defaults to TypeScript, and `output` is required. `scenery generate client` uses these entries when no explicit `--output` is passed.
-- Generated TypeScript clients expose `WithMeta` methods that include response headers, status, and the raw `Response` alongside decoded data.
+- Native TypeScript clients are declared with `typescript_client` resources in `scenery.scn` and generated with `scenery generate --target typescript_client.<name>`.
 - `generators.sqlc` is a beta lifecycle config for SQLC generation. `provider` may be empty or `sqlc`; `config` defaults to `sqlc.yaml`; schema files listed in `sqlc.yaml` are treated as inputs. Explicit `atlas_source` schemas are refreshed only when an explicit `dev_url` is configured; `postgres://`, `postgresql://`, and `docker://` Atlas dev URLs pass through to Atlas unchanged. SQLC schema blocks whose schema path belongs to a configured database service must use a Postgres SQLC engine (`postgresql`/`postgres`). SQLC generation is a generated-source lifecycle and must not apply database schema or seed data.
-- Static model data generation is a beta read-only data lifecycle. `scenery generate data --dry-run --json` parses `//scenery:model` IR and writes desired Atlas HCL to disposable generated files at `.scenery/gen/db/<service>/schema.hcl`; generated model tables live in the app-owned schema derived from `<service>` rather than `public`, and generated Atlas resource labels are schema-qualified (`table "<service>" "<table>"`, `enum "<service>" "<enum>"`) to avoid cross-schema label collisions in apps with existing multi-schema HCL. `model.ExistingTable(schema, table)` marks an entity as an existing physical table source: `scenery inspect models --json` reports `source.kind`, `source.schema`, `source.table`, and `source.qualified_table`; generated schema and seed output skips that entity; generated source metadata and read-only stores use the explicit qualified table; and generated create/update/delete actions plus `model.Seed(...)` rows fail closed. Typed `model.Seed(...)` rows on generated-source entities write deterministic idempotent upsert SQL to `.scenery/gen/db/<service>/seed.sql` using the same schema-qualified table, and generated CRUD stores use that table through one shared `database/sql` connection for the configured app database URL env or Scenery's managed database env. Generated CRUD endpoints default to `auth` for every action; generated list endpoints are capped to 100 rows by default and accept validated `limit`/`offset` query parameters up to a maximum limit of 500; generated create/patch payloads accept response field names and DB-column JSON names, so `time.Time` fields round-trip RFC3339 JSON timestamps or fail with a field-scoped JSON decode error; tenant-shaped entities add standard-auth tenant scoping on top of that access requirement and support `string`, named string, or `github.com/google/uuid.UUID` tenant fields. `scenery inspect views --json` exposes each collection view's generated page-record projection as model/view IR: source row type, projection record type, projected fields, static column display hints, static filters, and static sorts. Static page filters are field/operator/literal rules limited to `eq`, `neq`, `is_null`, and `is_not_null`; static page sorts are field plus `asc` or `desc`; display hints are `text`, `datetime`, or `badge`. When a configured frontend and `//scenery:page` collection view are present, the same command also writes a beta hidden TypeScript package under `.scenery/gen/web/<frontend>/` with row/create/patch types, page projection records in `projections.ts`, entity source definitions that expose `schema`, `table`, and `qualifiedTable`, collection descriptors/materializers with static query/display metadata, runtime adapter factories over explicit row sources, default page components, route/default page factories, route registration helpers, and slot type assertions against the frontend's component files. Frontends consume the package through app-owned aliases such as `@scenery/generated` and provide the `@scenery/layout-kit` contract; ordinary page mounting imports generated pages or routes from that alias instead of deep `.scenery/gen` paths. `--dry-run` means no database mutation. `scenery db diff --generated --json` compares desired schemas with app-owned `SERVICE/db/schema.hcl` files and emits `scenery.db.generated_diff.v1`. `scenery check --json` reports `model-schema` diagnostics when the app-owned schema is missing or drifts from the generated desired schema. Apps without model directives have no generated model data work.
 - `database.apply` is a beta DB lifecycle escape hatch with an explicit shell `command`, optional `cwd`, and string `env` overlay. The accepted split lifecycle moves database mutation to `scenery db apply`; SQLC refresh stays under `scenery generate sqlc`.
-- Service-local `SERVICE/db/seed.sql` and generated `.scenery/gen/db/<service>/seed.sql` files are initial data. They are not Atlas schema input or SQLC input. The accepted lifecycle applies seed data through `scenery db seed`; generated model seed files are materialized before seed discovery. The first implementation fails closed on changed previously-applied seed files and obviously destructive seed SQL rather than adding force or reseed escape hatches.
-- `tasks` is a beta thin repo-task layer. Each configured task can define either `run` or `steps`, plus optional `cwd` and string `env`. `run` uses the platform shell from the app root or task cwd. `steps` currently accepts `task:<name>`, `task:<domain>:<name>`, `check`, `test`, `test:go`, `generate`, `generate:client`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`.
+- Service-local `SERVICE/db/seed.sql` files are initial data. They are not Atlas schema input or SQLC input. The accepted lifecycle applies seed data through `scenery db seed`. The implementation fails closed on changed previously-applied seed files and obviously destructive seed SQL rather than adding force or reseed escape hatches.
+- `tasks` is a beta thin repo-task layer. Each configured task can define either `run` or `steps`, plus optional `cwd` and string `env`. `run` uses the platform shell from the app root or task cwd. `steps` currently accepts `task:<name>`, `task:<domain>:<name>`, `check`, `test`, `test:go`, `generate`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`.
 - Code tasks are beta app-local targets under `<domain>/tasks/`. Targets use `<domain>:<name>`, and both segments must match `[A-Za-z0-9_][A-Za-z0-9_-]*`. `scenery task list`, `scenery task inspect`, and `scenery task run <domain>:<name> [-- task args...]` discover and execute them without requiring the app model to parse cleanly.
 - `validation` is a beta app-owned quality-gate layer. It has `default` and `profiles`; each profile can define `description`, `cost` (`low`, `medium`, or `high`), `paths`, `steps`, string `env`, and advisory `artifacts`. Profile names use the configured-task name rule and cannot contain `:`.
-- Validation profile steps are not shell. They accept `profile:<name>`, `task:<name>`, `task:<domain>:<name>`, `harness:core`, `harness:ui`, `harness`, `check`, `test`, `test:go`, `generate`, `generate:client`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`. Shell commands must live behind configured `tasks.<name>.run`.
+- Validation profile steps are not shell. They accept `profile:<name>`, `task:<name>`, `task:<domain>:<name>`, `harness:core`, `harness:ui`, `harness`, `check`, `test`, `test:go`, `generate`, `generate:sqlc`, `db:apply`, `db:seed`, and `db:setup`. Shell commands must live behind configured `tasks.<name>.run`.
 - `scenery db branch` and `scenery db path` are removed. Worktree isolation uses per-worktree managed Postgres database names, and `scenery worktree create` only creates the Git worktree. Database save/restore uses `scenery db snapshot create|restore`.
 - Declaring `storage.stores` is sufficient for `scenery up`; there is no managed storage process. Scenery creates the shared storage-cell object directories under the agent storage root (`<agent-home>/agent/storage/<cell-id>/objects/<store>/`) and, in agent-backed dev sessions, starts an in-process storage proxy over a session-local Unix socket that serves those directories through the `scenery.sh/storage` capability boundary. The proxy backs each store with the local filesystem backend (atomic temp-file+rename writes, checked object and directory fsync, sidecar metadata under `__scenery/metadata/`). App code receives capability metadata through `SCENERY_STORAGE_CONFIG` and never a raw object-root path. Objects are plain files on disk: on-disk bytes track object bytes plus small sidecars, with no cache layer or write amplification. There is no managed toolchain artifact, encryption password, 9P socket, Web UI, substrate record, or lease for storage. Durability across a crash comes from fsync; offsite durability is an operator concern — replicate the storage-cell object directories (objects plus sidecars) to S3 with `rclone`/`restic`, as described in `docs/app-development-cookbook.md`.
 - Standard auth uses the `scenery.sh/auth` top surface and stores DB-backed auth state in the app Postgres database's `scenery` schema.
@@ -388,8 +337,7 @@ Rules:
 - Standard auth endpoints appear in `scenery inspect routes|services|endpoints --json` and in generated TypeScript clients. Disabled Google OAuth endpoints are absent from inspect output and generated clients. When Google OAuth is enabled but the configured client ID or secret env is missing, `scenery check --json` returns an `auth` warning. `auth.google_oauth.allowed_scopes` declares the Google API scopes an app may request through the connection flow. `POST /auth/google/connect/start` returns a Google authorize URL whose `redirect_uri` is the shared `/auth/google/callback`; the callback dispatches connection states by OAuth state purpose so apps can reuse the sign-in redirect URI registered in Google Cloud. `auth.google_oauth.token_cipher_key_env` defaults to `AuthTokenCipherKey`, a base64 32-byte AES-GCM key used to encrypt stored Google refresh/access tokens; local development derives a dev key from the local JWT secret when this env is absent.
 - `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
 - Generated binaries accept `SCENERY_ROLE=all|api|worker`. `scenery up` uses the default combined role. `scenery worker` uses `worker`.
-- Packages that declare `scenery.sh/durable` tasks with `durable.NewTask` are imported into the generated main so their declarations register at startup; `durable.TaskConfig.Service` is required for static literal configs. Runtime startup requires `DATABASE_URL` and reconciles declarations into the app Postgres database's `scenery` schema: `durable_jobs` is keyed by `service` with inline lease columns, and satellite tables store tasks, events, steps, signals, schedules, and worker tokens. `durable.Start` writes queued JSON-input jobs into the shared durable store. Generated `all` and `worker` roles run a local durable worker loop for registered Go handlers; failed attempts requeue until `MaxAttempts` using `Retry.InitialInterval`, `Retry.MaxInterval`, and `Retry.BackoffFactor`; `api` does not execute durable jobs. `durable.Schedule` records an interval schedule that API/all roles materialize into queued jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. The API role exposes `/__scenery/durable/v1/<service>/lease`, `/__scenery/durable/v1/<service>/jobs/<job>/heartbeat`, `/complete`, and `/fail` as JSON POST endpoints for remote workers. Those endpoints require bearer tokens stored only as hashes and fence heartbeat/complete/fail with `worker_id` plus `lease_id`. `scenery inspect durable --json` emits `scenery.inspect.durable.v2` with durable task declarations, service schemas, and redacted app database metadata.
-- Cron jobs can set `cron.JobConfig.OverlapPolicy`, `CatchupWindow`, and `PauseOnFailure`. Defaults are overlap `skip`, catchup window `1m`, and pause-on-failure `false`.
+- Native durable executions and schedules are declared in package `.scn` files and register through the generated application composition. Runtime startup requires `DATABASE_URL` and reconciles those declarations into the app Postgres database's `scenery` schema. Generated `all` and `worker` roles run the local durable worker loop; the `api` role does not execute durable jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. Remote-worker endpoints require bearer tokens stored only as hashes and fence heartbeat/complete/fail with `worker_id` plus `lease_id`. `scenery inspect durable --json` emits `scenery.inspect.durable.v2` with native declarations, service schemas, and redacted app database metadata.
 
 ## CLI Grammar
 
@@ -439,7 +387,6 @@ scenery db drop [--app-root <path>] [--yes]
 scenery db snapshot create|restore <name> [--app-root <path>] [--yes]
 scenery db server status|start|stop|logs [--json] [--yes]
 scenery generate [--app-root <path>] [--dry-run] [--json]
-scenery generate client [<app-id>] [--lang typescript] [--output <path>] [--app-root <path>] [--dry-run] [--json]
 scenery generate sqlc [--app-root <path>] [--dry-run] [--json]
 scenery storage status [--app-root <path>] --json
 scenery storage webui [--app-root <path>] --json
@@ -463,7 +410,7 @@ scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [
 scenery harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--summary|--json|--json=summary|--json=full] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|models|views|build|paths|generators|durable|storage|observability|validation --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
 scenery traces list --json [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
@@ -474,7 +421,6 @@ scenery metrics series --json [--app-root <path>] --match <selector> [--since <d
 scenery traces clear --json [--app-root <path>]
 scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-f|--follow] [--jsonl|--json]
 scenery test [--app-root <path>] [go test flags/packages...]
-scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 ```
 
 Implemented beta/dev helper grammar:
@@ -496,7 +442,7 @@ scenery worktree remove <name> [--app-root <path>] [--db] [--json]
 
 DB lifecycle split:
 - `scenery db apply` mutates schema or app-owned database setup only. It does not run seed files or SQLC generation.
-- `scenery db seed` applies service-local initial data such as `SERVICE/db/seed.sql` and generated model seed data at `.scenery/gen/db/<service>/seed.sql` to that service's schema in the app database with `search_path=<service_schema>,scenery`. If the seed service does not match a configured database service, Scenery falls back only when there is one database service or a conventional `db` service; mixed-service apps must declare matching service databases. It runs after schema exists and does not participate in Atlas or SQLC generation. Seed ledgers use `scenery.seed_runs`, keyed by app ID and seed path. Unchanged seeds are skipped; changed previously-applied seeds fail closed with status `changed`. Seed validation also fails closed before opening the database when SQL contains destructive setup patterns such as `DROP`, `TRUNCATE`, `DELETE FROM ...` without `WHERE`, `WHERE true`, or `WHERE 1 = 1`; diagnostics include the seed path, line, message, and statement context.
+- `scenery db seed` applies service-local initial data such as `SERVICE/db/seed.sql` to that service's schema in the app database with `search_path=<service_schema>,scenery`. If the seed service does not match a configured database service, Scenery falls back only when there is one database service or a conventional `db` service; multi-service apps must declare matching service databases. It runs after schema exists and does not participate in Atlas or SQLC generation. Seed ledgers use `scenery.seed_runs`, keyed by app ID and seed path. Unchanged seeds are skipped; changed previously-applied seeds fail closed with status `changed`. Seed validation also fails closed before opening the database when SQL contains destructive setup patterns such as `DROP`, `TRUNCATE`, `DELETE FROM ...` without `WHERE`, `WHERE true`, or `WHERE 1 = 1`; diagnostics include the seed path, line, message, and statement context.
 - `scenery db setup` runs `db apply`, then `db seed`. It reports both phases in JSON mode and stops before seed if apply fails.
 - `scenery generate sqlc` remains the SQLC generated-source command. It may refresh generated schema SQL from schema definitions and run `sqlc generate`; it must not mutate a database or consume seed files.
 - `scenery up` runs the setup lifecycle before starting the app when DB setup inputs exist, and reruns it on rebuild only when the `database.apply` config or discovered seed file hashes change. Setup failures are reported through the existing compile/setup failure path and dev event stream, and the previous successful fingerprint is not advanced so the next rebuild can retry.
@@ -524,11 +470,11 @@ Inspect rules:
 - `scenery inspect` requires a subject.
 - `scenery inspect` currently requires `--json`.
 - `--app-root` is optional. When omitted, scenery walks upward from the current working directory to find the app config.
-- Stable inspect subjects for v0 are `app`, `routes`, `services`, `endpoints`, `build`, `paths`, and `docs`.
+- Stable inspect subjects are `app`, `routes`, `services`, `endpoints`, `build`, `paths`, and `docs`.
 - `generators`, `durable`, `storage`, `traces`, `metrics`, and `observability` are beta diagnostic subjects. `generators` reports configured generation graph inputs and outputs. `durable` reports discovered durable task declarations, service schemas, the durable `scenery` schema, and redacted app database metadata. `storage` reports declared stores, the resolved storage cell ID, default/share policy, per-store object counts and total bytes, and readiness. `storage.runtime` reports the storage-cell `cell_root`, `objects_dir`, and whether the objects directory exists; readiness is `ready` once it does. Raw object-store credentials are never exposed (the local backend has none). `traces`, `metrics`, and `observability` read scenery-managed local observability data. Victoria is the current backing substrate, not the integration API. If no local state exists, query/discovery commands return valid JSON with warnings and empty result sets where possible.
 - `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json` is a beta storage capability CLI. Object commands operate on configured stores, validate keys with Scenery storage rules, and enforce configured `max_object_bytes`. `cleanup` reports the current storage cell path and existence by default and removes the storage cell directory only with `--yes`. The JSON-only CLI operates directly on the local storage-cell object directories. `webui` reports that the local backend has no managed Web UI. `get` requires `--output` in JSON mode. The app runtime exposes the same configured stores through reserved `/__scenery/storage/<store>/...` HTTP routes when storage env is present; these routes are app data-plane routes, not dev/admin endpoints. Generated TypeScript clients include `client.storage` and `client.storage.store(name)` helpers for list, put, get, getText, getBlob, head, delete, and deletePrefix over those reserved auth storage routes. Stores with `access: "private"` are deliberately absent from the generated browser contract and are only available through app/runtime helpers or the runtime private route table.
 - `scenery inspect observability --json` emits `scenery.inspect.observability.v1` with backend readiness for logs, metrics, and traces; native dialect names; examples; and the exact enforced query scope for the selected app/session.
-- The `scenery.inspect.traces.v1`, `scenery.inspect.metrics.v1`, `scenery.inspect.observability.v1`, `scenery.logs.query.v1`, `scenery.logs.tail.entry.v1`, `scenery.metrics.query.v1`, `scenery.metrics.labels.v1`, and `scenery.metrics.series.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable v0 API yet.
+- The `scenery.inspect.traces.v1`, `scenery.inspect.metrics.v1`, `scenery.inspect.observability.v1`, `scenery.logs.query.v1`, `scenery.logs.tail.entry.v1`, `scenery.metrics.query.v1`, `scenery.metrics.labels.v1`, and `scenery.metrics.series.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable API yet.
 - `--since` accepts Go duration strings such as `15m`, `1h`, or `24h`.
 - `--min-duration-ms` filters root traces by duration in milliseconds.
 - `--status` accepts `ok` or `error`.
@@ -595,8 +541,8 @@ Command split:
 - `scenery validate list|inspect|graph --json` returns `scenery.validation.list.v1`, `scenery.validation.inspect.v1`, and `scenery.validation.graph.v1`. `scenery validate <profile> --dry-run --json` returns `scenery.validation.plan.v1` and must not execute shell, task, code-task, harness, database, or generation steps.
 - `scenery validate [<profile>] --json --write` runs the resolved profile sequentially, fails fast, keeps stdout as one JSON document, captures child output as bounded evidence tails and artifacts, returns `scenery.validation.result.v1`, and writes `.scenery/harness/validation/latest.json` plus `.scenery/harness/validation/<profile>-latest.json`.
 - `scenery validate changed --base <ref>` computes `git diff --name-only <base>...HEAD`, includes the default profile, adds profiles whose `paths` globs match changed files, resolves nested `profile:` steps, deduplicates profiles, and reports selection reasoning in JSON.
-- Cron declarations run through the in-process scheduler. The API role reconciles schedules, while `scenery worker` executes cron jobs without starting the public HTTP server.
-- `scenery worker` builds once and starts the app runtime in worker-only mode with no public HTTP server. In this beta implementation it runs cron jobs and local durable workers; generated binaries use `SCENERY_ROLE=worker`.
+- Native schedule declarations run through the in-process scheduler. The API role reconciles schedules, while `scenery worker` executes scheduled operations without starting the public HTTP server.
+- `scenery worker` builds once and starts the app runtime in worker-only mode with no public HTTP server. It runs scheduled operations and local durable workers; generated binaries use `SCENERY_ROLE=worker`.
 - `scenery worker durable --endpoint <url> --token <token>` builds once and starts the app runtime as a remote durable worker. The generated binary receives `SCENERY_ROLE=worker`, `SCENERY_DURABLE_ENDPOINT`, `SCENERY_DURABLE_TOKEN`, and optional `SCENERY_DURABLE_SERVICES`, then polls remote durable lease endpoints and executes registered Go handlers.
 - `scenery worker durable jobs list|inspect|cancel|retry ... --json` reads or mutates jobs for one service in the app database's shared durable store and emits `scenery.durable.jobs.v1`; `inspect` includes job events.
 - `scenery worker durable token create --service <name> --json` creates or rotates a remote durable worker bearer token for one service in the app database's shared durable store, stores only the token hash, and prints the raw secret once in `scenery.durable.worker_token.create.v1`.
@@ -619,7 +565,7 @@ Local observability:
 - Dashboard trace reads and `scenery traces list|metrics --json` use scenery-managed observability data. Victoria is the current substrate when local sidecars are available; `devdash.json` is not a fallback trace or report-log history store.
 - Victoria sidecars store data under `.scenery/victoria/` by default when running without the agent. With an active agent, Victoria is a shared substrate per agent state root, effectively per user/machine where that agent runs: state is stored under the agent directory and registered in the agent substrate registry, and the dev supervisor reuses registered endpoints instead of owning per-worktree Victoria processes. It is not an OS-level service and is not started once for all users or all possible agent homes. Reuse requires verified owner fingerprints and reachable metrics/logs/traces listeners. Managed Victoria stdout and stderr are always written to stable substrate log files, and component exits update the substrate to `degraded` with `last_exit` and per-component exit metadata. Substrate exit events are exported to the structured dev log stream with component name, PID, exit code or signal, and log paths.
 - `SCENERY_DEV_VICTORIA=0` disables Victoria sidecars. `SCENERY_DEV_VICTORIA_DOWNLOAD=0` disables automatic Victoria binary downloads. When enabled, missing Victoria binaries are downloaded into `.scenery/toolchain/` or `SCENERY_TOOLCHAIN_DIR`.
-- Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta substrate details. They are documented so local development is debuggable, but they are hidden during ordinary app work and are not part of the stable v0 runtime contract.
+- Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta substrate details. They are documented so local development is debuggable, but they are hidden during ordinary app work and are not part of the stable runtime contract.
 - Default Caddy, Victoria sidecar, and managed image versions are pinned in `scenery.toolchain.json`; environment variables override explicit startup controls for local testing where documented. Caddy edge is managed-toolchain only.
 - Agent sessions inject `SCENERY_SESSION_ID`, `SCENERY_BASE_APP_ID`, `SCENERY_RUNTIME_APP_ID`, `SCENERY_APP_ROOT_HASH`, `SCENERY_BRANCH`, and `SCENERY_WORKTREE` into the app process. Local development reports carry that identity and the reporter PID into Victoria trace, metric, and log exports.
 - Dev report endpoints reject missing-session, stale-session, and invalid-token reports before store work. Rejections are exported as structured warning log events with `kind=dev-report-rejected`, and app-side report clients back off after repeated deadline/unauthorized/stale-report failures so old processes cannot hot-loop the dashboard.
@@ -642,7 +588,7 @@ Secrets and environment:
 
 Standard auth:
 
-- Apps may enable the built-in standard auth module from app config instead of writing a `//scenery:authhandler`.
+- Apps may enable the built-in standard auth module from app config; auth handlers are native contract/runtime resources.
 - Auth-protected app code can use `auth.UserID()`, `auth.Data()`, or `auth.CurrentAuthData()` from `scenery.sh/auth`.
 - Access tokens are HMAC JWTs with required expiration and `tenant_id` claims.
 - Standard auth tenant state is framework-owned and lives in `scenery_auth.tenants`; an app-local `tenants` service or table is only an app-domain concern.
@@ -709,7 +655,7 @@ scenery harness self --json --write
 - green summary output should stay under 12 KB; failed summary output should stay under 32 KB while preserving the first actionable failure and artifact references
 - it validates the scenery repo itself instead of a target app
 - it runs docs knowledge validation, `scenery inspect docs --json`, architecture checks, UI static architecture checks, Go package tests, parallel dev-session safety, dashboard UI typecheck/build, UI freshness checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks
-- it validates committed examples for every edition-2027 JSON schema, runs the Bun TypeScript client conformance suite, and typechecks both committed native and mixed/House generated clients against the shared generated-client configuration
+- it validates committed examples for every edition-2027 JSON schema, runs the Bun TypeScript client conformance suite, and typechecks both committed native and House generated clients against the shared generated-client configuration
 - self-harness Go test steps discover the complete `./...` graph, reuse linked test binaries by Go build ID, and execute every test body with `-test.count=1`. The cache never reuses test results. Packages without tests remain represented in JSON evidence.
 - cached and `--fresh-tests` lanes have the same fresh execution semantics. The flag retains the explicit fresh timing-lane label; both lanes use package parallelism three, selected by repeated measurement on the maintainer machine.
 - linked binaries, the workspace manifest, and package timing estimates are disposable under `.scenery/harness/test-binaries/`. The manifest covers toolchain/build environment and tracked/untracked workspace contents. Disposable test binaries disable VCS stamping so committing unchanged contents does not relink the repository.
@@ -725,7 +671,7 @@ scenery harness self --json --write
 - UI static architecture checks fail on raw shadcn install scripts, non-`@scenery` registries, unsafe registry item source/target declarations, legacy `components/ui` imports, direct vendor shadcn imports from screens, and direct Radix/styling utility imports outside scenery primitives/layouts/vendor
 - UI static architecture checks scan multiline imports, re-exports, dynamic imports, and CommonJS requires for forbidden UI boundary bypasses
 - UI static architecture checks warn on long or advanced `className` literals and common expression forms such as `cn(...)`, template literals, and conditional literals outside scenery primitives/layouts/vendor while the dashboard is migrated into the stricter slot-layout model
-- `scenery harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation. The route journeys cover dashboard home app selector/status, API Explorer endpoint/form behavior, service catalog metadata, traces empty/table/detail behavior, DB list or unavailable states, cron status/empty states, and durable/worker status cards.
+- `scenery harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation. The route journeys cover dashboard home app selector/status, API Explorer endpoint/form behavior, service catalog metadata, traces empty/table/detail behavior, DB list or unavailable states, schedule status/empty states, and durable/worker status cards.
 - `--write` persists the full archive to `.scenery/harness/self-latest.json`, the compact summary to `.scenery/harness/self-summary-latest.json`, and topic artifacts such as `.scenery/harness/test-timing-latest.json`
 - failed and expensive steps include `evidence` conforming to `scenery.harness.artifact.v1`; Go test JSONL evidence is written as `.scenery/harness/artifacts/<run-id>/go-test.jsonl` when `--write` is present
 - `--write` refreshes `.scenery/harness/agent-context.json` as the one-file agent handoff. It includes current failing steps, first files to read, exact rerun commands, changed-area recommended commands, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and risk classifications: `runtime`, `CLI contract`, `dashboard`, `schema`, `release`, and `onlv-impacting`.
@@ -799,7 +745,7 @@ scenery logs --json
 
 Implemented `traces clear --json` rules:
 - output conforms to `scenery.traces.clear.v1`
-- trace clearing is dev/admin beta for v0; its existence does not make cron, trace clearing, or queue deletion semantics stable
+- trace clearing is dev/admin beta; its existence does not make schedule, trace clearing, or queue deletion semantics stable
 
 ## Artifact Locations
 
@@ -822,12 +768,6 @@ Implemented now:
 
 ```text
 <app-root>/.scenery/
-  gen/
-    app.json
-    routes.json
-    services.json
-    endpoints.json
-    manifest.json
   build/
     latest.json
     vnext/
@@ -852,9 +792,6 @@ Reserved for upcoming work:
 
 Rules:
 - Use `scenery inspect ... --json` for app, route, service, endpoint, build, path, docs, generator, durable, and storage metadata. Use `scenery traces list --json` and `scenery metrics list --json` for local observability metadata.
-- Do not read `.scenery/gen/*` directly unless debugging scenery generation. These files are internal cache artifacts that may mirror inspect output today, but they are not the supported API.
-- `models.json` and `views.json` are internal caches for `scenery inspect models --json` and `scenery inspect views --json`. Generated static-model schema, seed, and web package files under `.scenery/gen/db/` and `.scenery/gen/web/` are disposable generator outputs; integrate through `scenery generate data --dry-run --json`, `scenery inspect generators --json`, `scenery inspect models --json`, and `scenery inspect views --json` rather than reading cache files directly.
-- `manifest.json` ties generated cache artifacts to schema versions, artifact paths, and deterministic content hashes for debugging generation.
 - Agent/global dashboard state uses `<dashboard-cache-root>/devdash.json` for compact control-plane records and `<dashboard-cache-root>/app-model/<metadata|api-encoding>/sha256/<hash>.json` for large app-model blobs. The agent dashboard process is the global dashboard-store writer; other agent-backed runtime processes mutate it through the internal dashboard control-plane endpoint. Treat these files as internal cache artifacts; use dashboard APIs and CLI JSON instead of reading them directly.
 - Use `scenery inspect build --json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
 - Edition-2027 `build/vnext/<go-target>.json` is the exact runtime-bundle descriptor for the latest local build of that target. Treat it as build output, not a contract source; distribute the copied `<binary>.scenery.runtime-bundle.v1.json` sidecar with an explicit binary output.
@@ -869,14 +806,11 @@ Implemented now:
 - [scenery.change-plan.v1.schema.json](schemas/scenery.change-plan.v1.schema.json)
 - [scenery.change-receipt.v1.schema.json](schemas/scenery.change-receipt.v1.schema.json)
 - [scenery.cli.v1.schema.json](schemas/scenery.cli.v1.schema.json)
-- [scenery.client-selection.v1.schema.json](schemas/scenery.client-selection.v1.schema.json)
 - [scenery.deployment-plan.v1.schema.json](schemas/scenery.deployment-plan.v1.schema.json)
 - [scenery.deployment-receipt.v1.schema.json](schemas/scenery.deployment-receipt.v1.schema.json)
 - [scenery.generated.v1.schema.json](schemas/scenery.generated.v1.schema.json)
 - [scenery.go-build-input-manifest.v1.schema.json](schemas/scenery.go-build-input-manifest.v1.schema.json)
-- [scenery.legacy-bridge-generated.v1.schema.json](schemas/scenery.legacy-bridge-generated.v1.schema.json)
 - [scenery.manifest.v1.schema.json](schemas/scenery.manifest.v1.schema.json)
-- [scenery.migrate.status.v1.schema.json](schemas/scenery.migrate.status.v1.schema.json)
 - [scenery.package-generated.v1.schema.json](schemas/scenery.package-generated.v1.schema.json)
 - [scenery.runtime-bundle.v1.schema.json](schemas/scenery.runtime-bundle.v1.schema.json)
 - [scenery.typescript-client-generated.v1.schema.json](schemas/scenery.typescript-client-generated.v1.schema.json)
@@ -884,8 +818,6 @@ Implemented now:
 - [scenery.inspect.routes.v1.schema.json](schemas/scenery.inspect.routes.v1.schema.json)
 - [scenery.inspect.services.v1.schema.json](schemas/scenery.inspect.services.v1.schema.json)
 - [scenery.inspect.endpoints.v1.schema.json](schemas/scenery.inspect.endpoints.v1.schema.json)
-- [scenery.inspect.models.v1.schema.json](schemas/scenery.inspect.models.v1.schema.json)
-- [scenery.inspect.views.v1.schema.json](schemas/scenery.inspect.views.v1.schema.json)
 - [scenery.inspect.traces.v1.schema.json](schemas/scenery.inspect.traces.v1.schema.json)
 - [scenery.inspect.metrics.v1.schema.json](schemas/scenery.inspect.metrics.v1.schema.json)
 - [scenery.inspect.observability.v1.schema.json](schemas/scenery.inspect.observability.v1.schema.json)
@@ -919,7 +851,6 @@ Implemented now:
 - [scenery.validation.plan.v1.schema.json](schemas/scenery.validation.plan.v1.schema.json)
 - [scenery.validation.result.v1.schema.json](schemas/scenery.validation.result.v1.schema.json)
 - [scenery.traces.clear.v1.schema.json](schemas/scenery.traces.clear.v1.schema.json)
-- [scenery.gen.manifest.v1.schema.json](schemas/scenery.gen.manifest.v1.schema.json)
 - [scenery.build.latest.v1.schema.json](schemas/scenery.build.latest.v1.schema.json)
 - [scenery.run.event.v1.schema.json](schemas/scenery.run.event.v1.schema.json)
 - [scenery.check.result.v1.schema.json](schemas/scenery.check.result.v1.schema.json)
@@ -1050,14 +981,12 @@ Schema rules:
 }
 ```
 
-Generated model CRUD endpoints include `"generated": true`. Handwritten endpoints omit the field.
-
 ### `scenery traces list --json`
 
 Beta diagnostic subject. Use this when an agent needs concrete local traces
 without scraping the dashboard UI. The JSON shape is versioned, but retention,
 backend preference, span reconstruction, and clear semantics may change before
-this is promoted to stable v0.
+this is promoted to stable.
 
 Example:
 
@@ -1107,7 +1036,7 @@ Example output:
 Beta diagnostic subject. Use this when an agent needs a metrics-style rollup
 over locally captured traces and logs. The JSON shape is versioned, but rollup
 definitions, percentile calculations, default limits, and Victoria source
-selection may change before this is promoted to stable v0.
+selection may change before this is promoted to stable.
 
 Example:
 

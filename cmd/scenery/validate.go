@@ -599,8 +599,6 @@ func validationStepCommand(appRoot string, ref validationStepRef) []string {
 			return []string{"scenery", "test", "--app-root", appRoot}
 		case "generate":
 			return []string{"scenery", "generate", "--app-root", appRoot}
-		case "generate:client":
-			return []string{"scenery", "generate", "client", "--app-root", appRoot}
 		case "generate:sqlc":
 			return []string{"scenery", "generate", "sqlc", "--app-root", appRoot}
 		case "db:apply":
@@ -764,7 +762,7 @@ func validationDiagnostic(stage, severity, message string) checkDiagnostic {
 
 func validationBuiltinSupported(name string) bool {
 	switch name {
-	case "harness", "harness:core", "harness:ui", "check", "test", "test:go", "generate", "generate:client", "generate:sqlc", "db:apply", "db:seed", "db:setup":
+	case "harness", "harness:core", "harness:ui", "check", "test", "test:go", "generate", "generate:sqlc", "db:apply", "db:seed", "db:setup":
 		return true
 	default:
 		return false
@@ -916,8 +914,6 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 			return runSceneryTestOutput(ctx, []string{"--app-root", appRoot}, stdout)
 		case "generate":
 			return runGenerate(ctx, stdout, []string{"--app-root", appRoot})
-		case "generate:client":
-			return runGenerate(ctx, stdout, []string{"client", "--app-root", appRoot})
 		case "generate:sqlc":
 			return runGenerate(ctx, stdout, []string{"sqlc", "--app-root", appRoot})
 		case "db:apply":

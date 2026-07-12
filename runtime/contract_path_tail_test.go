@@ -83,27 +83,6 @@ func TestPathTailRouterDoesNotFallBackAfterSelection(t *testing.T) {
 	}
 }
 
-func TestPathTailMigrationRecordsLegacyWildcardParityBoundary(t *testing.T) {
-	legacy := parseRoutePattern("/drive/*path")
-	native := parseRoutePattern("/drive/*path")
-	native.pathTail = true
-	for _, path := range []string{"/drive", "/drive/assets/logo.svg"} {
-		legacyParams, legacyMatch := legacy.match(path)
-		nativeParams, nativeMatch := native.match(path)
-		if !legacyMatch || !nativeMatch || legacyParams.ByName("path") != nativeParams.ByName("path") {
-			t.Fatalf("%s legacy=%t %#v native=%t %#v", path, legacyMatch, legacyParams, nativeMatch, nativeParams)
-		}
-	}
-	for _, path := range []string{"/drive/", "/drive//logo.svg"} {
-		if _, legacyMatch := legacy.match(path); !legacyMatch {
-			t.Fatalf("legacy wildcard evidence changed for %s", path)
-		}
-		if _, nativeMatch := native.match(path); nativeMatch {
-			t.Fatalf("native path tail unexpectedly matched %s", path)
-		}
-	}
-}
-
 func TestDecodeContractPathTail(t *testing.T) {
 	valid := map[string]string{
 		"assets/logo.svg":       "assets/logo.svg",

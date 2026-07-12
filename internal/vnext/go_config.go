@@ -91,7 +91,7 @@ func validateGoServiceConfiguration(resources []Resource) []Diagnostic {
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var diagnostics []Diagnostic
 	for _, service := range resources {
-		if service.Kind != "scenery.service/v1" || service.Origin.Kind == "legacy_v0" {
+		if service.Kind != "scenery.service/v1" {
 			continue
 		}
 		config, _ := service.Spec["config"].(map[string]any)

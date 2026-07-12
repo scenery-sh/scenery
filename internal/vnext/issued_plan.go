@@ -9,12 +9,8 @@ import (
 )
 
 const (
-	issuedChangePlan                  = "change"
-	issuedDeploymentPlan              = "deployment"
-	issuedMigrationTransitionPlan     = "migration-transition"
-	issuedMigrationInitializationPlan = "migration-initialization"
-	issuedMigrationCandidatePlan      = "migration-candidate"
-	issuedMigrationFinishPlan         = "migration-finish"
+	issuedChangePlan     = "change"
+	issuedDeploymentPlan = "deployment"
 )
 
 func retainIssuedPlan(root, kind, planID string, plan any) error {

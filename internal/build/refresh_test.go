@@ -57,7 +57,6 @@ func TestRefreshCachedWorkspaceResyncsChangedSourceFiles(t *testing.T) {
 
 import "context"
 
-//scenery:api public
 func Hello(ctx context.Context) error { return nil }
 
 func pulledInChange() {}

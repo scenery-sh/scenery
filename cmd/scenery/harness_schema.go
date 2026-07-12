@@ -133,8 +133,8 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 	buildInputManifest := map[string]any{
 		"api_version": "scenery.go-build-input-manifest/v1", "target": "development", "entries": []any{}, "digest": digest,
 	}
-	var vnextManifestPayload, vnextMigrationPayload any
-	if whenSchemaExists("docs/schemas/scenery.manifest.v1.schema.json", true) != nil || whenSchemaExists("docs/schemas/scenery.migrate.status.v1.schema.json", true) != nil {
+	var vnextManifestPayload any
+	if whenSchemaExists("docs/schemas/scenery.manifest.v1.schema.json", true) != nil {
 		fixtureRoot := filepath.Join(repoRoot, "internal", "vnext", "testdata", "house")
 		compiled, err := vnext.Compile(fixtureRoot)
 		if err != nil || compiled == nil || compiled.Manifest == nil {
@@ -148,7 +148,6 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			})
 		} else {
 			vnextManifestPayload = compiled.Manifest
-			vnextMigrationPayload = vnext.BuildMigrationStatus(compiled)
 		}
 	}
 	items := []struct {
@@ -180,9 +179,6 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": nil, "deployment_revision": nil,
 			"data": map[string]any{"fixture": true}, "diagnostics": []any{},
 		})},
-		{name: "vnext.client.selection", schemaRel: "docs/schemas/scenery.client-selection.v1.schema.json", payload: fixturePayload(
-			"docs/schemas/scenery.client-selection.v1.schema.json", "internal/vnext/testdata/native/clients/generated/public_api/scenery.client-selection.v1.json",
-		)},
 		{name: "vnext.deployment.plan", schemaRel: "docs/schemas/scenery.deployment-plan.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-plan.v1.schema.json", map[string]any{
 			"api_version": "scenery.deployment-plan/v1", "plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
 			"deployment_name": "local", "environment": "development", "base_workspace_revision": digest, "contract_revision": digest,
@@ -201,11 +197,7 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "vnext.go.build-input", schemaRel: "docs/schemas/scenery.go-build-input-manifest.v1.schema.json", payload: whenSchemaExists(
 			"docs/schemas/scenery.go-build-input-manifest.v1.schema.json", buildInputManifest,
 		)},
-		{name: "vnext.generated.legacy-bridge", schemaRel: "docs/schemas/scenery.legacy-bridge-generated.v1.schema.json", payload: fixturePayload(
-			"docs/schemas/scenery.legacy-bridge-generated.v1.schema.json", "internal/vnext/testdata/bridge/bridge/scenery.legacy-bridge-generated.v1.json",
-		)},
 		{name: "vnext.manifest", schemaRel: "docs/schemas/scenery.manifest.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.manifest.v1.schema.json", vnextManifestPayload)},
-		{name: "vnext.migrate.status", schemaRel: "docs/schemas/scenery.migrate.status.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.migrate.status.v1.schema.json", vnextMigrationPayload)},
 		{name: "vnext.generated.package", schemaRel: "docs/schemas/scenery.package-generated.v1.schema.json", payload: fixturePayload(
 			"docs/schemas/scenery.package-generated.v1.schema.json", "internal/vnext/testdata/native/house/scenerycontract/scenery.package-generated.v1.json",
 		)},

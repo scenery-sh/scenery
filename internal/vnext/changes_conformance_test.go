@@ -39,51 +39,6 @@ func TestChangeApplyRejectsCallerRecomputedPlan(t *testing.T) {
 	}
 }
 
-func TestChangeRenameUpdatesMigrationManifestReferences(t *testing.T) {
-	root := t.TempDir()
-	copyTree(t, filepath.Join("testdata", "native"), root)
-	rewriteFixtureSceneryReplace(t, root)
-	if err := os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"nativeapp"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte(`migration {
-  frontend      = "scenery.legacy.v0"
-  legacy_config = ".scenery.json"
-
-  legacy_gateway "default" {
-    target = http_gateway.public_api
-  }
-
-  legacy_service "house" {
-    package   = "./house"
-    namespace = "house"
-    target    = go_target.development
-  }
-}
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	base, err := Compile(root)
-	if err != nil || !base.Valid() {
-		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
-	}
-	plan, err := PlanChanges(root, ChangeRequest{
-		BaseWorkspaceRevision: base.WorkspaceRevision,
-		BaseContractRevision:  stringPointer(base.Manifest.ContractRevision),
-		Operations:            []SemanticOperation{{Op: "resource.rename", Address: "app/http_gateway/public_api", Value: "public_v2"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
-		t.Fatal(err)
-	}
-	migrationSource, err := os.ReadFile(filepath.Join(root, "scenery.migration.scn"))
-	if err != nil || !strings.Contains(string(migrationSource), "http_gateway.public_v2") || strings.Contains(string(migrationSource), "http_gateway.public_api") {
-		t.Fatalf("migration source = %s, %v", migrationSource, err)
-	}
-}
-
 func TestChangeRenameModuleRecordsDescendantContinuity(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "house"), 0o755); err != nil {

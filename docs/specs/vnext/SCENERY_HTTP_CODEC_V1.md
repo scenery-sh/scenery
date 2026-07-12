@@ -108,7 +108,7 @@ A route key is:
 
 The effective path is the gateway base path joined with the binding path using exactly one slash at the boundary. Query strings do not participate in route identity.
 
-Two active resources with the same route key are an error. The same method/path pair on different gateways is valid. Mixed legacy/native mode uses the same rule; frontend origin never creates precedence.
+Two active resources with the same route key are an error. The same method/path pair on different gateways is valid. Source-file origin never creates precedence.
 
 Template overlap is deterministic. Routes must have the same segment count to overlap because v1 has no catch-all. At each segment, a literal matches only itself and takes precedence over a parameter. Two templates whose corresponding segments are both parameters or equal literals for the entire path have the same match set and conflict, regardless of parameter names. Thus `/users/me` may coexist with `/users/{user_id}` and wins for `/users/me`; `/users/{id}` conflicts with `/users/{name}`. The router MUST implement this rule exactly.
 

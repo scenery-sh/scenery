@@ -130,11 +130,11 @@ func TestCommittedResultRevalidationDetectsWorkspaceDrift(t *testing.T) {
 	if err := os.WriteFile(excludedPath, []byte("checked\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "scenery.migration.scn"), []byte("migration {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "extra.scn"), []byte("# changed after check\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := revalidateCommittedResult(root, staged, checkedFiles); err == nil || !strings.Contains(err.Error(), "differs from checked staging") {
-		t.Fatalf("migration-source drift error = %v", err)
+		t.Fatalf("source drift error = %v", err)
 	}
 }
 

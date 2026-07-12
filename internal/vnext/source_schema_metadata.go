@@ -435,12 +435,7 @@ func authoredAttributeType(revision, name string) (map[string]any, string) {
 			return typeExpression()
 		}
 	case "scenery.operation.handler/v1":
-		switch name {
-		case "legacy_has_payload":
-			return primitive("bool")
-		default:
-			return primitive("string")
-		}
+		return primitive("string")
 	case "scenery.operation.outcome/v1":
 		if name == "type" {
 			return typeExpression()

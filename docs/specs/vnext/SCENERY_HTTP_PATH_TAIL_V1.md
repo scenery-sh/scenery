@@ -21,7 +21,7 @@ This profile adds typed terminal HTTP path tails without changing
 - canonical graph and revision behavior;
 - generated Go adapter and runtime router requirements;
 - generated TypeScript URL construction;
-- OpenAPI projection, legacy migration, security, and conformance rules.
+- OpenAPI projection, security, and conformance rules.
 
 The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 
@@ -370,49 +370,7 @@ its prefix, target type, empty-capture behavior, or precedence is classified
 from the old client/server direction independently by
 `scenery.compatibility-core/v1`.
 
-## 11. Legacy migration
-
-The legacy bridge MAY lower a terminal route of the form:
-
-~~~text
-/drive/*path
-~~~
-
-to:
-
-~~~text
-/drive/{path...}
-~~~
-
-plus a typed `path_tail "path"` mapping when all of these are true:
-
-- the active compiler and runtime claim both path-tail profiles;
-- the legacy wildcard consumes zero or more complete terminal segments;
-- its route selection, slash, and decoding behavior has applicable behavioral
-  evidence;
-- the target field is explicitly `string`, `relative_path`, or
-  `optional(relative_path)`;
-- overlap checks pass in the predicted active graph;
-- generated-client and route-parity consequences are visible.
-
-When these conditions hold, `SCN5401` MUST NOT be emitted merely because the
-route is a terminal wildcard. A raw body, raw response, transport-coupled
-handler, dependency, guarantee, or other unresolved facet remains independently
-diagnosed and may still keep the candidate advisory, opaque, or
-`rewrite_required`.
-
-The current legacy bridge emits `SCN5405` when it drafts the typed tail so the
-required slash, selection, and decoding comparison remains visible. That
-advisory warning is not route-shape rewrite ownership and therefore does not
-restore `SCN5401`; activation continues through the ordinary comparison-digest
-and behavioral-evidence approval boundary.
-
-For Drive, the extension can remove the GET and DELETE route-shape blocker.
-POST multipart conversion continues to use the buffered multipart contract in
-`scenery.http-codec/v1`; path-tail support does not by itself prove the complete
-service candidate ready for activation.
-
-## 12. Security properties
+## 11. Security properties
 
 A path tail increases the set of paths reaching one operation. Compilation and
 review tooling MUST expose that reachability change and preserve the binding's
@@ -426,12 +384,12 @@ The framework treats the decoded result as application data. It never performs
 filesystem conversion or grants object-store, filesystem, or provider access
 from route syntax alone.
 
-## 13. Conformance requirements
+## 12. Conformance requirements
 
 A tool claiming `scenery.http-path-tail/v1` or
 `scenery.runtime-http-path-tail/v1` MUST pass fixtures for:
 
-### 13.1 Syntax and typing
+### 12.1 Syntax and typing
 
 - valid terminal `{path...}` plus matching `path_tail` syntax;
 - rejection of non-terminal, prefixed, suffixed, repeated, wildcard, or
@@ -441,7 +399,7 @@ A tool claiming `scenery.http-path-tail/v1` or
 - rejection of every unsupported target shape;
 - explicit unsupported-profile failure when the extension is unavailable.
 
-### 13.2 Matching and conflicts
+### 12.2 Matching and conflicts
 
 - empty, one-segment, and nested captures;
 - non-match for trailing slash and empty segments;
@@ -451,7 +409,7 @@ A tool claiming `scenery.http-path-tail/v1` or
 - no fallback after selected-route decoding failure;
 - compiler and runtime registration agreement.
 
-### 13.3 Decoding
+### 12.3 Decoding
 
 - spaces, plus, percent, Unicode, and reserved characters;
 - malformed escape and invalid UTF-8 rejection;
@@ -463,7 +421,7 @@ A tool claiming `scenery.http-path-tail/v1` or
 - empty string, invalid empty `relative_path`, and absent optional path behavior;
 - target constraint failure as `transport.invalid_request`.
 
-### 13.4 Generated artifacts
+### 12.4 Generated artifacts
 
 - unchanged unary Go ABI and typed input population;
 - runtime route-table metadata and conflict verification;
@@ -472,14 +430,6 @@ A tool claiming `scenery.http-path-tail/v1` or
 - base codec plus extension identities in descriptors and metadata;
 - deterministic contract, HTTP-surface, TypeScript, and OpenAPI revisions;
 - honest OpenAPI vendor extension or explicit unsupported-profile failure.
-
-### 13.5 Migration parity
-
-- legacy `/drive/*path` GET and DELETE parity for empty and nested tails;
-- legacy route precedence and invalid-path behavior;
-- `SCN5401` removal only for the supported terminal wildcard construct;
-- independent diagnostics for remaining raw/body/response/dependency gaps;
-- legacy ownership retention whenever a lowering precondition fails.
 
 ## Appendix A: Deliberate exclusions
 

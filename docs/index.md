@@ -13,7 +13,6 @@ scenery harness self --summary
 
 - [Repo Agent Instructions](../AGENTS.md): mandatory repo-local operating rules for agents changing scenery itself.
 - [Installable Skill](../SKILL.md): concise portable skill for agents using scenery in target apps.
-- [DSL Reference](../DSL.md): human-readable map of app config, directives, tags, model/page, durable, and cron DSL surfaces.
 - [Agent Guide](agent-guide.md): agent workflows, generated artifacts, and client-app integration guidance.
 
 ## Core Contracts
@@ -27,7 +26,7 @@ scenery harness self --summary
 
 ## vNext Normative Specifications
 
-Language edition 2027 is an opt-in, profile-based contract. The current legacy DSL remains documented separately above. Start with the [Scenery Language Specification](specs/vnext/SCENERY_LANGUAGE_SPEC.md), then use its normative companions for the [Go ABI](specs/vnext/SCENERY_GO_IMPLEMENTATION_V1.md), [HTTP codec](specs/vnext/SCENERY_HTTP_CODEC_V1.md), [typed terminal path tails](specs/vnext/SCENERY_HTTP_PATH_TAIL_V1.md), [TypeScript client](specs/vnext/SCENERY_TYPESCRIPT_CLIENT_V1.md), [compatibility core](specs/vnext/SCENERY_COMPATIBILITY_CORE_V1.md), and [legacy bridge](specs/vnext/SCENERY_LEGACY_BRIDGE_V1.md).
+Language edition 2027 is the singular profile-based application contract. Start with the [Scenery Language Specification](specs/vnext/SCENERY_LANGUAGE_SPEC.md), then use its normative companions for the [Go ABI](specs/vnext/SCENERY_GO_IMPLEMENTATION_V1.md), [HTTP codec](specs/vnext/SCENERY_HTTP_CODEC_V1.md), [typed terminal path tails](specs/vnext/SCENERY_HTTP_PATH_TAIL_V1.md), [TypeScript client](specs/vnext/SCENERY_TYPESCRIPT_CLIENT_V1.md), and [compatibility core](specs/vnext/SCENERY_COMPATIBILITY_CORE_V1.md).
 
 ## Product Plans
 
@@ -58,9 +57,7 @@ Start with:
 - [scenery.docs.index.v1](schemas/scenery.docs.index.v1.schema.json)
 - [scenery.cli.v1](schemas/scenery.cli.v1.schema.json)
 - [scenery.manifest.v1](schemas/scenery.manifest.v1.schema.json)
-- [scenery.migrate.status.v1](schemas/scenery.migrate.status.v1.schema.json)
 - [scenery.typescript-client-generated.v1](schemas/scenery.typescript-client-generated.v1.schema.json)
-- [scenery.client-selection.v1](schemas/scenery.client-selection.v1.schema.json)
 - [scenery.version.v1](schemas/scenery.version.v1.schema.json)
 - [scenery.db.list.v3](schemas/scenery.db.list.v3.schema.json)
 - [scenery.db.server.status.v1](schemas/scenery.db.server.status.v1.schema.json)

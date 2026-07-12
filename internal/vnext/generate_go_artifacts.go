@@ -149,25 +149,6 @@ func artifactDigest(root string, files []generatedFile) string {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
-// legacyArtifactDigest is accepted only while verifying ownership of artifacts
-// produced before length framing was introduced. New descriptors never emit it.
-func legacyArtifactDigest(root string, files []generatedFile) string {
-	sorted := append([]generatedFile(nil), files...)
-	sort.Slice(sorted, func(i, j int) bool {
-		a, _ := filepath.Rel(root, sorted[i].Path)
-		b, _ := filepath.Rel(root, sorted[j].Path)
-		return filepath.ToSlash(a) < filepath.ToSlash(b)
-	})
-	h := sha256.New()
-	for _, file := range sorted {
-		rel, _ := filepath.Rel(root, file.Path)
-		_, _ = h.Write([]byte(filepath.ToSlash(rel)))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(file.Bytes)
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
-}
-
 func generatedFilePaths(root string, files []generatedFile) []string {
 	paths := make([]string, 0, len(files))
 	for _, file := range files {

@@ -10,9 +10,6 @@ import (
 	"strings"
 
 	scenery "scenery.sh"
-	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/codegen"
-	"scenery.sh/internal/parse"
 )
 
 type applicationAdapter struct {
@@ -28,30 +25,19 @@ type applicationAdapter struct {
 }
 
 type RuntimeIntegrationPlan struct {
-	NativeServices    map[string]bool
-	BridgeServices    map[string]bool
 	CompositionImport string
 }
 
 func BuildRuntimeIntegrationPlan(result *Result) (RuntimeIntegrationPlan, error) {
 	services := nativeApplicationServices(result)
 	if len(services) == 0 {
-		return RuntimeIntegrationPlan{NativeServices: map[string]bool{}, BridgeServices: map[string]bool{}}, nil
+		return RuntimeIntegrationPlan{}, nil
 	}
 	_, generatedImport, err := resolveApplicationGeneratedRoot(result)
 	if err != nil {
 		return RuntimeIntegrationPlan{}, err
 	}
-	plan := RuntimeIntegrationPlan{NativeServices: map[string]bool{}, BridgeServices: map[string]bool{}, CompositionImport: generatedImport + "/composition"}
-	for _, service := range services {
-		if service.Origin.Kind == "authored" {
-			plan.NativeServices[service.Name] = true
-		}
-		if serviceUsesLegacyGoAdapter(service, serviceOperations(result.Manifest.Resources, service)) {
-			plan.BridgeServices[service.Name] = true
-		}
-	}
-	return plan, nil
+	return RuntimeIntegrationPlan{CompositionImport: generatedImport + "/composition"}, nil
 }
 
 func generateApplicationArtifacts(result *Result) ([]generatedFile, error) {
@@ -118,88 +104,6 @@ func generateApplicationArtifacts(result *Result) ([]generatedFile, error) {
 	return files, nil
 }
 
-func generateLegacyBridgeArtifacts(result *Result, services []Resource, overlay map[string][]byte) ([]generatedFile, error) {
-	helperServices := map[string]bool{}
-	moduleRoots := map[string]string{}
-	for _, module := range localModuleInstances(result.Manifest.Resources) {
-		moduleRoots[moduleInstancePath(module)] = filepath.ToSlash(filepath.Clean(stringValue(module.Spec["workspace_package_root"])))
-	}
-	var packageRoots []string
-	for _, service := range services {
-		operations := serviceOperations(result.Manifest.Resources, service)
-		bridge := serviceUsesLegacyGoAdapter(service, operations)
-		if !bridge && len(serviceLegacyCallSymbols(service, operations)) == 0 {
-			continue
-		}
-		implementation, _ := service.Spec["implementation"].(map[string]any)
-		root := filepath.ToSlash(filepath.Clean(stringValue(implementation["root"])))
-		if (root == "" || root == ".") && !bridge {
-			root = moduleRoots[service.Module]
-		}
-		if root == "" || bridge && root == "." {
-			return nil, fmt.Errorf("legacy Go bridge service %s requires an explicit bounded implementation root", service.Address)
-		}
-		helperServices[service.Name] = true
-		packageRoots = append(packageRoots, root)
-	}
-	if len(helperServices) == 0 {
-		return nil, nil
-	}
-	_, config, err := appcfg.DiscoverRoot(result.Root)
-	if err != nil {
-		return nil, err
-	}
-	appModel, err := parse.AppPackagesWithOverlay(result.Root, config.Name, canonicalStrings(packageRoots), overlay)
-	if err != nil {
-		return nil, fmt.Errorf("discover bounded legacy Go bridge implementations: %w", err)
-	}
-	outputs, err := codegen.GenerateVNextBridgeFiles(appModel, helperServices)
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(outputs))
-	for path := range outputs {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	files := make([]generatedFile, 0, len(paths)*2)
-	for _, path := range paths {
-		artifact := generatedFile{Path: filepath.Join(result.Root, filepath.FromSlash(path)), Bytes: outputs[path]}
-		files = append(files, artifact)
-		directory := filepath.Dir(artifact.Path)
-		descriptor := map[string]any{
-			"api_version": "scenery.legacy-bridge-generated.v1", "artifact_kind": "go_legacy_compatibility_adapter",
-			"contract_revision": result.Manifest.ContractRevision, "runtime_abi_range": "scenery.go-runtime/v1",
-			"services": sortedBoolKeys(helperServices), "generator": "scenery.vnext.legacy-go-bridge", "generator_version": "1",
-			"content_digest": artifactDigest(directory, []generatedFile{artifact}), "files": generatedFilePaths(directory, []generatedFile{artifact}),
-		}
-		descriptorBytes, marshalErr := json.MarshalIndent(descriptor, "", "  ")
-		if marshalErr != nil {
-			return nil, marshalErr
-		}
-		files = append(files, generatedFile{Path: filepath.Join(directory, "scenery.legacy-bridge-generated.v1.json"), Bytes: append(descriptorBytes, '\n')})
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("legacy Go bridge services produced no compatibility helpers")
-	}
-	return files, nil
-}
-
-func serviceLegacyCallSymbols(service Resource, operations []Resource) map[string]string {
-	result := map[string]string{}
-	for _, operation := range operations {
-		handler, _ := operation.Spec["handler"].(map[string]any)
-		symbol := strings.TrimSpace(stringValue(handler["legacy_symbol"]))
-		if symbol == "" && stringValue(handler["adapter"]) == "legacy_go_v0" {
-			symbol = strings.TrimSpace(stringValue(handler["method"]))
-		}
-		if symbol != "" {
-			result[operation.Address] = symbol
-		}
-	}
-	return result
-}
-
 func providerABIRanges(resources []Resource) map[string]any {
 	ranges := map[string]any{}
 	for _, resource := range resources {
@@ -249,18 +153,9 @@ func providerRuntimeABIs(resources []Resource) map[string]string {
 }
 
 func nativeApplicationServices(result *Result) []Resource {
-	active := map[string]bool{}
-	if result.Migration != nil {
-		for _, service := range result.Migration.Services {
-			active[service.Name] = service.Active == "native"
-		}
-	}
 	var services []Resource
 	for _, resource := range result.Manifest.Resources {
 		if resource.Kind != "scenery.service/v1" || resource.Origin.Kind != "authored" && !isProviderCRUDService(resource) {
-			continue
-		}
-		if result.Migration != nil && resource.Origin.Kind == "authored" && !active[resource.Module] {
 			continue
 		}
 		implementation, _ := resource.Spec["implementation"].(map[string]any)
@@ -268,44 +163,20 @@ func nativeApplicationServices(result *Result) []Resource {
 			continue
 		}
 		operations := serviceOperations(result.Manifest.Resources, resource)
-		hasHandler, hasNativeHandler := false, false
+		hasHandler := false
 		for _, operation := range operations {
 			handler, _ := operation.Spec["handler"].(map[string]any)
 			if handler != nil {
 				hasHandler = true
-				if stringValue(handler["adapter"]) != "legacy_go_v0" {
-					hasNativeHandler = true
-				}
 			}
 		}
 		if !hasHandler {
-			continue
-		}
-		if result.Migration == nil && !hasNativeHandler {
 			continue
 		}
 		services = append(services, resource)
 	}
 	sort.Slice(services, func(i, j int) bool { return services[i].Address < services[j].Address })
 	return services
-}
-
-func serviceUsesLegacyGoAdapter(service Resource, operations []Resource) bool {
-	if serviceUsesLegacyGoLifecycle(service) {
-		return true
-	}
-	for _, operation := range operations {
-		handler, _ := operation.Spec["handler"].(map[string]any)
-		if stringValue(handler["adapter"]) == "legacy_go_v0" {
-			return true
-		}
-	}
-	return false
-}
-
-func serviceUsesLegacyGoLifecycle(service Resource) bool {
-	implementation, _ := service.Spec["implementation"].(map[string]any)
-	return stringValue(implementation["adapter"]) == "legacy_go_v0"
 }
 
 func isProviderCRUDService(service Resource) bool {
@@ -413,7 +284,6 @@ func renderApplicationAdapter(result *Result, module, service Resource, generate
 		}
 		return applicationAdapter{Address: service.Address, ImportPath: adapterImport, PackageName: packageName, RelativeDir: dirName, Covered: covered, PackageABI: packageABI, Implementation: "scenery.sh/datasource", Contract: contractImport, Source: source}, nil
 	}
-	lifecycleBridge := serviceUsesLegacyGoLifecycle(service)
 	bindings := serviceHTTPBindings(result.Manifest.Resources, operations)
 	internalBindings := internalBindingsForOperations(result.Manifest.Resources, operations)
 	eventBindings := eventBindingsForOperations(result.Manifest.Resources, operations)
@@ -434,7 +304,7 @@ func renderApplicationAdapter(result *Result, module, service Resource, generate
 	packageName := goPackageName(moduleInstancePath(module) + "_" + service.Name + "_adapter")
 	contractImport := implementationImport + "/scenerycontract"
 	adapterImport := generatedImport + "/" + dirName
-	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageVersion, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources), lifecycleBridge)
+	source, err := renderApplicationAdapterSource(result.Manifest.ContractRevision, packageIdentity, packageVersion, packageABI, implementationImport, contractImport, packageName, service, operations, bindings, result.Manifest.Resources, covered, providerRuntimeABIs(result.Manifest.Resources))
 	if err != nil {
 		return applicationAdapter{}, err
 	}
@@ -444,24 +314,19 @@ func renderApplicationAdapter(result *Result, module, service Resource, generate
 	}, nil
 }
 
-func renderApplicationAdapterSource(contractRevision, packageIdentity, packageVersion, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings, resources []Resource, covered []string, providerABIs map[string]string, lifecycleBridge bool) ([]byte, error) {
+func renderApplicationAdapterSource(contractRevision, packageIdentity, packageVersion, packageABI, implementationImport, contractImport, packageName string, service Resource, operations, bindings, resources []Resource, covered []string, providerABIs map[string]string) ([]byte, error) {
 	implementation, _ := service.Spec["implementation"].(map[string]any)
 	constructor, _ := implementation["constructor"].(string)
-	if constructor == "" && !lifecycleBridge {
+	if constructor == "" {
 		return nil, fmt.Errorf("native service %s has no constructor", service.Address)
 	}
-	var dependencies []goDependencyBinding
-	var clients []goClientBinding
-	var err error
-	if !lifecycleBridge {
-		dependencies, err = serviceGoDependencies(resources, service)
-		if err != nil {
-			return nil, err
-		}
-		clients, err = serviceGoClients(resources, service)
-		if err != nil {
-			return nil, err
-		}
+	dependencies, err := serviceGoDependencies(resources, service)
+	if err != nil {
+		return nil, err
+	}
+	clients, err := serviceGoClients(resources, service)
+	if err != nil {
+		return nil, err
 	}
 	serviceName := goName(service.Name)
 	var b strings.Builder
@@ -510,23 +375,18 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageVe
 	b.WriteString("type serviceImplementation interface {\n")
 	for _, operation := range operations {
 		handler, _ := operation.Spec["handler"].(map[string]any)
-		if stringValue(handler["adapter"]) == "legacy_go_v0" {
-			continue
-		}
 		method, _ := handler["method"].(string)
 		fmt.Fprintf(&b, "\t%s(context.Context, contract.%sInput) (contract.%sOutcome, error)\n", method, goName(operation.Name), goName(operation.Name))
 	}
 	lifecycle, _ := service.Spec["lifecycle"].(map[string]any)
-	if !lifecycleBridge {
-		if method := stringValue(lifecycle["start"]); method != "" {
-			fmt.Fprintf(&b, "\t%s(context.Context) error\n", method)
-		}
-		if method := stringValue(lifecycle["stop"]); method != "" {
-			fmt.Fprintf(&b, "\t%s(context.Context) error\n", method)
-		}
+	if method := stringValue(lifecycle["start"]); method != "" {
+		fmt.Fprintf(&b, "\t%s(context.Context) error\n", method)
+	}
+	if method := stringValue(lifecycle["stop"]); method != "" {
+		fmt.Fprintf(&b, "\t%s(context.Context) error\n", method)
 	}
 	b.WriteString("}\n\ntype serviceAdapter struct { native serviceImplementation }\n\nvar service *serviceAdapter\n\n")
-	if err := renderServiceOperationAdapters(&b, operations, lifecycleBridge); err != nil {
+	if err := renderServiceOperationAdapters(&b, operations); err != nil {
 		return nil, err
 	}
 	for _, client := range clients {
@@ -554,58 +414,49 @@ func renderApplicationAdapterSource(contractRevision, packageIdentity, packageVe
 	fmt.Fprintf(&b, "\t\t\tif contract.PackageIdentity != PackageIdentity || contract.PackageVersion != PackageVersion { return fmt.Errorf(\"package identity mismatch\") }\n")
 	fmt.Fprintf(&b, "\t\t\tif contract.PackageContractABIRevision != PackageContractABIRevision { return fmt.Errorf(\"package contract ABI mismatch\") }\n")
 	fmt.Fprintf(&b, "\t\t\tif err := sceneryruntime.RegisterNativeService(sceneryruntime.NativeServiceRegistration{Address: %q, Initialize: func(ctx context.Context) error {\n", service.Address)
-	if lifecycleBridge {
-		b.WriteString("\t\t\t\tvalue, err := implementation.SceneryVNextBridgeService(); if err != nil { return err }; native, ok := value.(serviceImplementation); if !ok { return fmt.Errorf(\"legacy bridge service does not implement selected native handlers\") }; service = &serviceAdapter{native: native}\n")
-	} else {
-		fmt.Fprintf(&b, "\t\t\t\tinput := contract.%sConstructorInput{}\n", serviceName)
-		for index, dependency := range dependencies {
-			variable := fmt.Sprintf("dependency%d", index)
-			switch dependency.Resolver {
-			case "sql":
-				fmt.Fprintf(&b, "\t\t\t\t%s, err := scenerydb.Get(ctx, %q); if err != nil { return fmt.Errorf(\"resolve dependency %s: %%w\", err) }; input.Dependencies.%s = %s\n", variable, dependency.RuntimeName, dependency.Name, dependency.Field, variable)
-			case "object":
-				fmt.Fprintf(&b, "\t\t\t\t%s, err := scenerystorage.Named(ctx, %q); if err != nil { return fmt.Errorf(\"resolve dependency %s: %%w\", err) }; input.Dependencies.%s = %s\n", variable, dependency.RuntimeName, dependency.Name, dependency.Field, variable)
-			}
-		}
-		config, _ := service.Spec["config"].(map[string]any)
-		for _, field := range namedChildren(service.Spec, "config_schema") {
-			name, typeExpression := stringValue(field["name"]), stringValue(field["type"])
-			value, exists := config[name]
-			if !exists {
-				return nil, fmt.Errorf("native service %s config %s has no resolved value", service.Address, name)
-			}
-			if typeExpression == `resource_ref("secret")` {
-				address := resolveResourceRef(service, refString(value), "secret")
-				if address == "" {
-					return nil, fmt.Errorf("native service %s sensitive config %s requires a secret reference", service.Address, name)
-				}
-				fmt.Fprintf(&b, "\t\t\t\tinput.Config.%s = scenery.SecretRef{Address: %q}\n", goName(name), address)
-				continue
-			}
-			wire, err := goConfigWireJSON(value, typeExpression)
-			if err != nil {
-				return nil, fmt.Errorf("native service %s config %s: %w", service.Address, name, err)
-			}
-			fmt.Fprintf(&b, "\t\t\t\tif err := scenery.UnmarshalContractValue([]byte(%q), &input.Config.%s, %q); err != nil { return fmt.Errorf(\"resolve config %s: %%w\", err) }\n", string(wire), goName(name), typeExpression, name)
-		}
-		for _, client := range clients {
-			fmt.Fprintf(&b, "\t\t\t\tinput.Clients.%s = %s{}\n", client.Field, semanticPathName(client.Name)+"InternalClient")
-		}
-		fmt.Fprintf(&b, "\t\t\t\tvalue, err := implementation.%s(ctx, input); if err != nil { return err }; if value == nil { return fmt.Errorf(\"constructor returned nil service\") }; service = &serviceAdapter{native: value}\n", constructor)
-		if method := stringValue(lifecycle["start"]); method != "" {
-			fmt.Fprintf(&b, "\t\t\t\tif err := service.native.%s(ctx); err != nil { service = nil; return err }\n", method)
+	fmt.Fprintf(&b, "\t\t\t\tinput := contract.%sConstructorInput{}\n", serviceName)
+	for index, dependency := range dependencies {
+		variable := fmt.Sprintf("dependency%d", index)
+		switch dependency.Resolver {
+		case "sql":
+			fmt.Fprintf(&b, "\t\t\t\t%s, err := scenerydb.Get(ctx, %q); if err != nil { return fmt.Errorf(\"resolve dependency %s: %%w\", err) }; input.Dependencies.%s = %s\n", variable, dependency.RuntimeName, dependency.Name, dependency.Field, variable)
+		case "object":
+			fmt.Fprintf(&b, "\t\t\t\t%s, err := scenerystorage.Named(ctx, %q); if err != nil { return fmt.Errorf(\"resolve dependency %s: %%w\", err) }; input.Dependencies.%s = %s\n", variable, dependency.RuntimeName, dependency.Name, dependency.Field, variable)
 		}
 	}
+	config, _ := service.Spec["config"].(map[string]any)
+	for _, field := range namedChildren(service.Spec, "config_schema") {
+		name, typeExpression := stringValue(field["name"]), stringValue(field["type"])
+		value, exists := config[name]
+		if !exists {
+			return nil, fmt.Errorf("native service %s config %s has no resolved value", service.Address, name)
+		}
+		if typeExpression == `resource_ref("secret")` {
+			address := resolveResourceRef(service, refString(value), "secret")
+			if address == "" {
+				return nil, fmt.Errorf("native service %s sensitive config %s requires a secret reference", service.Address, name)
+			}
+			fmt.Fprintf(&b, "\t\t\t\tinput.Config.%s = scenery.SecretRef{Address: %q}\n", goName(name), address)
+			continue
+		}
+		wire, err := goConfigWireJSON(value, typeExpression)
+		if err != nil {
+			return nil, fmt.Errorf("native service %s config %s: %w", service.Address, name, err)
+		}
+		fmt.Fprintf(&b, "\t\t\t\tif err := scenery.UnmarshalContractValue([]byte(%q), &input.Config.%s, %q); err != nil { return fmt.Errorf(\"resolve config %s: %%w\", err) }\n", string(wire), goName(name), typeExpression, name)
+	}
+	for _, client := range clients {
+		fmt.Fprintf(&b, "\t\t\t\tinput.Clients.%s = %s{}\n", client.Field, semanticPathName(client.Name)+"InternalClient")
+	}
+	fmt.Fprintf(&b, "\t\t\t\tvalue, err := implementation.%s(ctx, input); if err != nil { return err }; if value == nil { return fmt.Errorf(\"constructor returned nil service\") }; service = &serviceAdapter{native: value}\n", constructor)
+	if method := stringValue(lifecycle["start"]); method != "" {
+		fmt.Fprintf(&b, "\t\t\t\tif err := service.native.%s(ctx); err != nil { service = nil; return err }\n", method)
+	}
 	b.WriteString("\t\t\t\treturn nil\n\t\t\t}")
-	if lifecycleBridge {
-		b.WriteString(", Shutdown: func(ctx context.Context) error { implementation.SceneryVNextBridgeShutdown(ctx); service = nil; return nil }")
-	} else if method := stringValue(lifecycle["stop"]); method != "" {
+	if method := stringValue(lifecycle["stop"]); method != "" {
 		fmt.Fprintf(&b, ", Shutdown: func(ctx context.Context) error { if service == nil || service.native == nil { return nil }; return service.native.%s(ctx) }", method)
 	}
 	b.WriteString("}); err != nil { return err }\n")
-	if err := renderLegacyCallAliasRegistrations(&b, service, operations); err != nil {
-		return nil, err
-	}
 	if err := renderDurableExecutionRegistrations(&b, service, operations, resources); err != nil {
 		return nil, err
 	}

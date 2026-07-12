@@ -16,9 +16,7 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/envpolicy"
-	"scenery.sh/internal/generateddata"
 	inspectdata "scenery.sh/internal/inspect"
-	"scenery.sh/internal/parse"
 )
 
 type generateOptions struct {
@@ -32,10 +30,8 @@ type generateOptions struct {
 }
 
 type generatorExecutionPlan struct {
-	Graph   generatorGraphResponse
-	Clients []clientGeneratorPlan
-	SQLC    *sqlcGeneratorPlan
-	Data    *dataGeneratorPlan
+	Graph generatorGraphResponse
+	SQLC  *sqlcGeneratorPlan
 }
 
 type generatorGraphResponse struct {
@@ -45,12 +41,12 @@ type generatorGraphResponse struct {
 	DBArtifacts   []databaseArtifactRecord `json:"db_artifacts"`
 }
 
-type generatorRecord = generateddata.Record
-
-type clientGeneratorPlan struct {
-	Record generatorRecord
-	Target string
-	Output string
+type generatorRecord struct {
+	ID      string   `json:"id"`
+	Kind    string   `json:"kind"`
+	Inputs  []string `json:"inputs,omitempty"`
+	Outputs []string `json:"outputs,omitempty"`
+	Tool    string   `json:"tool,omitempty"`
 }
 
 type sqlcGeneratorPlan struct {
@@ -162,11 +158,6 @@ func runGenerateWithHooks(ctx context.Context, stdout io.Writer, args []string, 
 		return err
 	}
 	if opts.DryRun {
-		if plan.Data != nil {
-			if err := writeGeneratedDataArtifacts(appRoot, plan.Data); err != nil {
-				return err
-			}
-		}
 		return renderGeneratorPlan(stdout, opts.JSON, plan.Graph)
 	}
 	if err := executeGeneratorPlan(ctx, stdout, appRoot, cfg, opts, plan, hooks); err != nil {
@@ -191,32 +182,15 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 	if err != nil {
 		return generateOptions{}, err
 	}
-	if len(positionals) > 0 {
-		switch positionals[0] {
-		case "client", "sqlc", "data":
-			opts.Subject = positionals[0]
-			positionals = positionals[1:]
-		case "metadata", "worker":
-			return generateOptions{}, fmt.Errorf("generate %s is not implemented yet", positionals[0])
-		}
+	if len(positionals) > 0 && positionals[0] == "sqlc" {
+		opts.Subject = "sqlc"
+		positionals = positionals[1:]
 	}
-	if opts.Subject != "client" && cliFlagSet(flags, "lang") {
-		return generateOptions{}, fmt.Errorf("--lang is only supported for generate client")
-	}
-	if opts.Subject != "client" && cliFlagSet(flags, "output") {
-		return generateOptions{}, fmt.Errorf("--output is only supported for generate client")
-	}
-	if opts.Subject != "client" && cliFlagSet(flags, "o") {
-		return generateOptions{}, fmt.Errorf("-o is only supported for generate client")
+	if cliFlagSet(flags, "lang") || cliFlagSet(flags, "output") || cliFlagSet(flags, "o") {
+		return generateOptions{}, fmt.Errorf("client output flags are not supported here; declare a typescript_client in scenery.scn")
 	}
 	if len(positionals) > 0 {
-		if opts.Subject != "client" {
-			return generateOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
-		}
-		opts.Target = positionals[0]
-	}
-	if len(positionals) > 1 {
-		return generateOptions{}, fmt.Errorf("unexpected argument %q", positionals[1])
+		return generateOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
 	}
 	return opts, nil
 }
@@ -243,16 +217,6 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 		Graph: baseGeneratorGraph(appRoot, cfg, hasApp),
 	}
 
-	if opts.Subject == "all" || opts.Subject == "client" {
-		clients, err := buildClientGeneratorPlans(appRoot, cfg, hasApp, opts)
-		if err != nil {
-			return generatorExecutionPlan{}, err
-		}
-		plan.Clients = clients
-		for _, client := range clients {
-			plan.Graph.Generators = append(plan.Graph.Generators, client.Record)
-		}
-	}
 	if opts.Subject == "all" || opts.Subject == "sqlc" {
 		sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg)
 		if err != nil {
@@ -267,35 +231,7 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 			plan.Graph.Generators = append(plan.Graph.Generators, sqlcPlan.Record)
 		}
 	}
-	if opts.Subject == "all" || opts.Subject == "data" {
-		if !hasApp {
-			if opts.Subject == "data" {
-				return generatorExecutionPlan{}, fmt.Errorf("generate data requires a Scenery app root")
-			}
-		} else if opts.Subject == "data" || appHasModelDirectives(appRoot) {
-			appModel, err := parse.App(appRoot, cfg.Name)
-			if err != nil {
-				return generatorExecutionPlan{}, err
-			}
-			dataPlan, ok, err := buildDataGeneratorPlan(appRoot, cfg, appModel)
-			if err != nil {
-				return generatorExecutionPlan{}, err
-			}
-			if !ok {
-				if opts.Subject == "data" {
-					return generatorExecutionPlan{}, fmt.Errorf("data generator has no model directives")
-				}
-			} else {
-				plan.Data = dataPlan
-				plan.Graph.Generators = append(plan.Graph.Generators, dataPlan.Record)
-				plan.Graph.Generators = append(plan.Graph.Generators, dataPlan.WebRecords...)
-			}
-		}
-	}
-	plan.Graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, plan.SQLC, plan.Data)
-	if opts.Subject == "client" && len(plan.Clients) == 0 {
-		return generatorExecutionPlan{}, fmt.Errorf("client generator is not configured")
-	}
+	plan.Graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, plan.SQLC)
 	if opts.Subject == "all" && len(plan.Graph.Generators) == 0 {
 		return generatorExecutionPlan{}, fmt.Errorf("no generators are configured")
 	}
@@ -304,13 +240,6 @@ func buildGenerateExecutionPlan(appRoot string, cfg appcfg.Config, hasApp bool, 
 
 func buildInspectGeneratorsResponse(appRoot string, cfg appcfg.Config) (generatorGraphResponse, error) {
 	graph := baseGeneratorGraph(appRoot, cfg, true)
-	clients, err := buildClientGeneratorPlans(appRoot, cfg, true, generateOptions{Subject: "all"})
-	if err != nil {
-		return generatorGraphResponse{}, err
-	}
-	for _, client := range clients {
-		graph.Generators = append(graph.Generators, client.Record)
-	}
 	sqlcPlan, ok, err := buildSQLCGeneratorPlan(appRoot, cfg)
 	if err != nil {
 		return generatorGraphResponse{}, err
@@ -318,23 +247,7 @@ func buildInspectGeneratorsResponse(appRoot string, cfg appcfg.Config) (generato
 	if ok {
 		graph.Generators = append(graph.Generators, sqlcPlan.Record)
 	}
-	var dataPlan *dataGeneratorPlan
-	if appHasModelDirectives(appRoot) {
-		appModel, err := parse.App(appRoot, cfg.Name)
-		if err != nil {
-			return generatorGraphResponse{}, err
-		}
-		var ok bool
-		dataPlan, ok, err = buildDataGeneratorPlan(appRoot, cfg, appModel)
-		if err != nil {
-			return generatorGraphResponse{}, err
-		}
-		if ok {
-			graph.Generators = append(graph.Generators, dataPlan.Record)
-			graph.Generators = append(graph.Generators, dataPlan.WebRecords...)
-		}
-	}
-	graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, sqlcPlan, dataPlan)
+	graph.DBArtifacts = buildDatabaseArtifactRecords(appRoot, sqlcPlan)
 	return graph, nil
 }
 
@@ -354,104 +267,6 @@ func baseGeneratorGraph(appRoot string, cfg appcfg.Config, hasApp bool) generato
 		graph.App.ConfigPath = ""
 	}
 	return graph
-}
-
-func buildClientGeneratorPlans(appRoot string, cfg appcfg.Config, hasApp bool, opts generateOptions) ([]clientGeneratorPlan, error) {
-	if opts.Output != "" {
-		if !hasApp {
-			return nil, fmt.Errorf("generate client requires a Scenery app root")
-		}
-		if err := validateClientLanguage(opts.Lang); err != nil {
-			return nil, err
-		}
-		output := normalizeOutputPath(appRoot, opts.Output)
-		id := "client:" + firstNonEmpty(opts.Target, cfg.AppID())
-		configRel := cfg.SourceRelPath(appRoot)
-		return []clientGeneratorPlan{{
-			Record: generatorRecord{
-				ID:      id,
-				Kind:    "typescript-client",
-				Inputs:  []string{configRel, "**/*.go"},
-				Outputs: []string{filepath.ToSlash(output)},
-				Tool:    "scenery-clientgen",
-			},
-			Target: opts.Target,
-			Output: opts.Output,
-		}}, nil
-	}
-	if !hasApp {
-		if opts.Subject == "client" {
-			return nil, fmt.Errorf("generate client requires a Scenery app root")
-		}
-		return nil, nil
-	}
-	var plans []clientGeneratorPlan
-	for _, client := range cfg.Generators.Clients {
-		if !clientGeneratorMatches(client, opts.Target, cfg) {
-			continue
-		}
-		if err := validateClientGeneratorConfig(client); err != nil {
-			return nil, err
-		}
-		output := normalizeOutputPath(appRoot, client.Output)
-		id := firstNonEmpty(client.ID, "client:"+firstNonEmpty(client.Target, cfg.AppID()))
-		configRel := cfg.SourceRelPath(appRoot)
-		plans = append(plans, clientGeneratorPlan{
-			Record: generatorRecord{
-				ID:      id,
-				Kind:    "typescript-client",
-				Inputs:  []string{configRel, "**/*.go"},
-				Outputs: []string{filepath.ToSlash(output)},
-				Tool:    "scenery-clientgen",
-			},
-			Target: client.Target,
-			Output: client.Output,
-		})
-	}
-	return plans, nil
-}
-
-func validateClientGeneratorConfig(client appcfg.ClientGeneratorConfig) error {
-	kind := strings.TrimSpace(client.Kind)
-	if kind != "" && kind != "typescript-client" {
-		return fmt.Errorf("unsupported client generator kind %q", client.Kind)
-	}
-	if err := validateClientLanguage(client.Lang); err != nil {
-		return err
-	}
-	if strings.TrimSpace(client.Output) == "" {
-		return fmt.Errorf("client generator %q is missing output", firstNonEmpty(client.ID, client.Target, "typescript-client"))
-	}
-	return nil
-}
-
-func validateClientLanguage(lang string) error {
-	lang = strings.ToLower(strings.TrimSpace(lang))
-	switch lang {
-	case "", "typescript", "ts":
-		return nil
-	default:
-		return fmt.Errorf("unsupported client language %q", lang)
-	}
-}
-
-func clientGeneratorMatches(client appcfg.ClientGeneratorConfig, selector string, cfg appcfg.Config) bool {
-	if selector == "" {
-		return true
-	}
-	for _, candidate := range []string{client.ID, client.Target, cfg.ID, cfg.Name} {
-		if selector == candidate && candidate != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func normalizeOutputPath(root, output string) string {
-	if filepath.IsAbs(output) {
-		return filepath.Clean(output)
-	}
-	return filepath.Join(root, output)
 }
 
 func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPlan, bool, error) {
@@ -542,7 +357,7 @@ func buildSQLCGeneratorPlan(appRoot string, cfg appcfg.Config) (*sqlcGeneratorPl
 	}, true, nil
 }
 
-func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, dataPlan *dataGeneratorPlan) []databaseArtifactRecord {
+func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan) []databaseArtifactRecord {
 	var records []databaseArtifactRecord
 	seen := map[string]bool{}
 	keepMissing := map[string]bool{}
@@ -599,39 +414,6 @@ func buildDatabaseArtifactRecords(appRoot string, sqlcPlan *sqlcGeneratorPlan, d
 			add(query, "query", "query-generation-input")
 		}
 	}
-	if dataPlan != nil {
-		for _, schema := range dataPlan.Schemas {
-			keepMissing[filepath.ToSlash(schema.GeneratedPath)] = true
-			key := schema.Service + "\x00generated-schema\x00generated-source\x00" + schema.GeneratedPath
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			records = append(records, databaseArtifactRecord{
-				Service: schema.Service,
-				Engine:  "postgres",
-				Kind:    "generated-schema",
-				Role:    "generated-source",
-				Path:    schema.GeneratedPath,
-			})
-		}
-		for _, seed := range dataPlan.Seeds {
-			keepMissing[filepath.ToSlash(seed.GeneratedPath)] = true
-			key := seed.Service + "\x00seed\x00initial-data\x00" + seed.GeneratedPath
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			records = append(records, databaseArtifactRecord{
-				Service: seed.Service,
-				Engine:  "postgres",
-				Kind:    "seed",
-				Role:    "initial-data",
-				Path:    seed.GeneratedPath,
-			})
-		}
-	}
-
 	for _, relDir := range discoverDBArtifactServiceDirs(appRoot) {
 		relRoot := filepath.ToSlash(filepath.Join(relDir, "db"))
 		add(filepath.ToSlash(filepath.Join(relRoot, "schema.hcl")), "schema-source", "schema")
@@ -840,34 +622,9 @@ func readSQLCConfig(path string) (sqlcConfigFile, error) {
 }
 
 func executeGeneratorPlan(ctx context.Context, stdout io.Writer, appRoot string, cfg appcfg.Config, opts generateOptions, plan generatorExecutionPlan, hooks lifecycleHooks) error {
-	for _, client := range plan.Clients {
-		outputPath, err := writeTypeScriptClient(appRoot, cfg, client.Target, client.Output)
-		if err != nil {
-			return err
-		}
-		if !opts.JSON {
-			fmt.Fprintf(stdout, "scenery: generated TypeScript client at %s\n", outputPath)
-		}
-	}
 	if plan.SQLC != nil {
 		if err := runSQLCGeneratorWithHooks(ctx, stdout, appRoot, plan.SQLC, opts.JSON, hooks); err != nil {
 			return err
-		}
-	}
-	if plan.Data != nil {
-		if err := writeGeneratedDataArtifacts(appRoot, plan.Data); err != nil {
-			return err
-		}
-		if !opts.JSON {
-			for _, schema := range plan.Data.Schemas {
-				fmt.Fprintf(stdout, "scenery: generated model schema at %s\n", schema.GeneratedPath)
-			}
-			for _, seed := range plan.Data.Seeds {
-				fmt.Fprintf(stdout, "scenery: generated model seed at %s\n", seed.GeneratedPath)
-			}
-			for _, bundle := range plan.Data.Web {
-				fmt.Fprintf(stdout, "scenery: generated model web package at %s\n", bundle.GeneratedDir)
-			}
 		}
 	}
 	return nil

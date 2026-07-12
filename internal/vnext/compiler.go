@@ -78,12 +78,8 @@ func compileResult(root string, allowActiveChangeTransaction, verifyImplementati
 	result.Diagnostics = append(result.Diagnostics, lockDiagnostics...)
 	result.Diagnostics = append(result.Diagnostics, validateAuthoredBlockSchemas(result.Sources, false)...)
 	result.Diagnostics = append(result.Diagnostics, validateStaticExpressions(result.Sources)...)
-	migration, migrationDiags := parseMigration(absRoot)
-	result.Migration = migration
-	result.Diagnostics = append(result.Diagnostics, migrationDiags...)
-
 	if hasErrors(result.Diagnostics) {
-		workspaceRevision, revisionErr := computeWorkspaceRevision(absRoot, result.Sources, migration)
+		workspaceRevision, revisionErr := computeWorkspaceRevision(absRoot, result.Sources)
 		if revisionErr != nil {
 			return nil, revisionErr
 		}
@@ -91,10 +87,10 @@ func compileResult(root string, allowActiveChangeTransaction, verifyImplementati
 		return result, nil
 	}
 
-	manifest, viewManifests, diagnostics, packageSources := compileSources(absRoot, result.Sources, migration, lockfile)
+	manifest, viewManifests, diagnostics, packageSources := compileSources(absRoot, result.Sources, lockfile)
 	result.Sources = append(result.Sources, packageSources...)
 	diagnostics = append(diagnostics, validateStaticExpressions(packageSources)...)
-	workspaceRevision, err := computeWorkspaceRevision(absRoot, result.Sources, migration)
+	workspaceRevision, err := computeWorkspaceRevision(absRoot, result.Sources)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +105,7 @@ func compileResult(root string, allowActiveChangeTransaction, verifyImplementati
 	if manifest != nil {
 		result.ContractStatus = "valid"
 		result.HTTPSurfaceRevisions, result.OpenAPIRevisions = computeHTTPProjectionRevisions(manifest)
-		if verifyImplementation && hasNativeGoHandlers(manifest.Resources) {
+		if verifyImplementation && containsExactString(manifest.Profiles, "scenery.go-implementation/v1") && hasNativeGoHandlers(manifest.Resources) {
 			result.ImplementationStatus = "valid"
 			implementationDiagnostics := verifyGoImplementation(result)
 			if hasErrors(implementationDiagnostics) {
@@ -201,7 +197,7 @@ func authoredSchemaForBlock(parent, blockType string) (*authoredBlockSchema, boo
 	return nil, false
 }
 
-func compileSources(root string, sources []*Source, migration *Migration, lockfile *Lockfile) (*Manifest, map[string]*Manifest, []Diagnostic, []*Source) {
+func compileSources(root string, sources []*Source, lockfile *Lockfile) (*Manifest, map[string]*Manifest, []Diagnostic, []*Source) {
 	var diagnostics []Diagnostic
 	var packageSources []*Source
 	allBlocks := blocksFromSources(sources)
@@ -333,52 +329,31 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 		}
 	}
 
-	legacyResources, legacyDiagnostics := lowerLegacyResources(root, appName, migration, resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	diagnostics = append(diagnostics, validateNativeMigrationLegacyAbsence(root, appName, migration, resources)...)
-	addLegacySourceRecords(sourceMap, legacyResources)
 	sourceNative := cloneResourceView(sourceResources)
-	sourceLegacy := cloneResourceView(legacyResources)
 	preContextNative := cloneResourceView(resources)
-	resources, legacyDiagnostics = contextualizeResourceScalars(resources)
+	resources, resourceDiagnostics := contextualizeResourceScalars(resources)
 	markContextualScalarProvenance(preContextNative, resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	preContextLegacy := cloneResourceView(legacyResources)
-	legacyResources, legacyDiagnostics = contextualizeResourceScalars(legacyResources)
-	markContextualScalarProvenance(preContextLegacy, legacyResources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	if migration == nil {
-		diagnostics = append(diagnostics, validateNativeOnlyLegacyAbsence(root)...)
-	}
+	diagnostics = append(diagnostics, resourceDiagnostics...)
 	applyHTTPEffectiveDefaults(resources)
 	applyAuthoredEffectiveDefaults(resources)
-	applyHTTPEffectiveDefaults(legacyResources)
-	applyAuthoredEffectiveDefaults(legacyResources)
-	resources, legacyDiagnostics = applyPatches(resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	resources, legacyDiagnostics = enrichDataImplementationDigests(root, resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	resources, legacyDiagnostics = enrichUIImplementationDigests(root, resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
+	resources, resourceDiagnostics = applyPatches(resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
+	resources, resourceDiagnostics = enrichDataImplementationDigests(root, resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
+	resources, resourceDiagnostics = enrichUIImplementationDigests(root, resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
 	completeFieldProvenance(sourceNative, "source")
-	completeFieldProvenance(sourceLegacy, "source")
 	completeFieldProvenance(resources, "effective")
-	completeFieldProvenance(legacyResources, "effective")
 	effectiveNative := cloneResourceView(resources)
-	effectiveLegacy := cloneResourceView(legacyResources)
-	resources, legacyDiagnostics = expandDataResources(resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	resources, legacyDiagnostics = enrichDataImplementationDigests(root, resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	resources, legacyDiagnostics = enrichUIImplementationDigests(root, resources)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
+	resources, resourceDiagnostics = expandDataResources(resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
+	resources, resourceDiagnostics = enrichDataImplementationDigests(root, resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
+	resources, resourceDiagnostics = enrichUIImplementationDigests(root, resources)
+	diagnostics = append(diagnostics, resourceDiagnostics...)
 	applyHTTPEffectiveDefaults(resources)
-	resources, legacyDiagnostics = linkMigrationResources(resources, legacyResources, migration)
-	diagnostics = append(diagnostics, legacyDiagnostics...)
-	applyMigration(resources, migration)
 	completeFieldProvenance(resources, "expanded")
-	validateMigrationCandidateGraphs(root, resources, migration)
-	diagnostics = append(diagnostics, validateResources(root, resources, migration)...)
+	diagnostics = append(diagnostics, validateResources(root, resources)...)
 	sort.Slice(resources, func(i, j int) bool { return resources[i].Address < resources[j].Address })
 	profiles := profilesFromLanguage(language)
 	if len(profiles) == 0 {
@@ -395,8 +370,8 @@ func compileSources(root string, sources []*Source, migration *Migration, lockfi
 	}
 	manifest := &Manifest{APIVersion: ManifestVersion, Edition: Edition, DiagnosticCatalog: DiagnosticCatalog, Application: ApplicationIdentity{Name: appName, Version: appVersion}, Profiles: profiles, ContractRevision: revision, Resources: resources, SourceMap: sourceMap, Diagnostics: []Diagnostic{}}
 	views := map[string]*Manifest{
-		"source":    viewManifest(manifest, linkMigrationView(sourceNative, sourceLegacy, migration)),
-		"effective": viewManifest(manifest, linkMigrationView(effectiveNative, effectiveLegacy, migration)),
+		"source":    viewManifest(manifest, sourceNative),
+		"effective": viewManifest(manifest, effectiveNative),
 		"expanded":  manifest,
 	}
 	return manifest, views, diagnostics, packageSources
@@ -429,19 +404,6 @@ func authoredResourceView(resource Resource) Resource {
 	return cloned
 }
 
-func linkMigrationView(native, legacy []Resource, migration *Migration) []Resource {
-	if migration == nil {
-		resources := cloneResourceView(native)
-		sort.Slice(resources, func(i, j int) bool { return resources[i].Address < resources[j].Address })
-		return resources
-	}
-	viewMigration := *migration
-	viewMigration.Services = append([]MigrationService(nil), migration.Services...)
-	resources, _ := linkMigrationResources(cloneResourceView(native), cloneResourceView(legacy), &viewMigration)
-	applyMigration(resources, &viewMigration)
-	return resources
-}
-
 func viewManifest(expanded *Manifest, resources []Resource) *Manifest {
 	if expanded == nil {
 		return nil
@@ -450,20 +412,6 @@ func viewManifest(expanded *Manifest, resources []Resource) *Manifest {
 		APIVersion: expanded.APIVersion, Edition: expanded.Edition, DiagnosticCatalog: expanded.DiagnosticCatalog,
 		Application: expanded.Application, Profiles: append([]string(nil), expanded.Profiles...), ContractRevision: expanded.ContractRevision,
 		Resources: resources, SourceMap: expanded.SourceMap, Diagnostics: append([]Diagnostic{}, expanded.Diagnostics...),
-	}
-}
-
-func addLegacySourceRecords(sourceMap map[string]SourceRecord, resources []Resource) {
-	for _, resource := range resources {
-		if resource.Origin.Kind != "legacy_v0" || resource.Origin.SourceID == "" {
-			continue
-		}
-		uri, _ := resource.Origin.LegacyIdentity["file"].(string)
-		uri = filepath.ToSlash(strings.TrimSpace(uri))
-		if uri == "" || filepath.IsAbs(uri) {
-			uri = "scenery-legacy:///source/" + resource.Origin.SourceID
-		}
-		sourceMap[resource.Origin.SourceID] = SourceRecord{URI: uri}
 	}
 }
 
@@ -713,7 +661,7 @@ func expressionValue(expression Expression) any {
 	}
 }
 
-func validateResources(root string, resources []Resource, migration *Migration) []Diagnostic {
+func validateResources(root string, resources []Resource) []Diagnostic {
 	diagnostics := validateResourceSchemas(resources)
 	diagnostics = append(diagnostics, validateTypeSystem(resources)...)
 	diagnostics = append(diagnostics, validateConstraints(resources)...)
@@ -735,9 +683,6 @@ func validateResources(root string, resources []Resource, migration *Migration) 
 	}
 	diagnostics = append(diagnostics, validateHTTPResources(resources)...)
 	diagnostics = append(diagnostics, validateTypeScriptResources(resources)...)
-	if migration != nil {
-		diagnostics = append(diagnostics, migration.validate(root, resources)...)
-	}
 	return diagnostics
 }
 

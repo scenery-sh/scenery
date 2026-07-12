@@ -287,14 +287,14 @@ func TestWorkspaceRevisionIncludesLockfileAndExplicitRevisionInputs(t *testing.T
 		"paths": {Kind: "literal", Value: []any{"go.work", "go.work.sum"}}, "optional": {Kind: "literal", Value: true},
 	}}}}
 	source := &Source{Path: filepath.Join(root, "scenery.scn"), Relative: "scenery.scn", Bytes: []byte("workspace {}\n"), Blocks: []*Block{workspace}}
-	first, err := computeWorkspaceRevision(root, []*Source{source}, nil)
+	first, err := computeWorkspaceRevision(root, []*Source{source})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "scenery.lock.scn"), []byte("lock-v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	second, err := computeWorkspaceRevision(root, []*Source{source}, nil)
+	second, err := computeWorkspaceRevision(root, []*Source{source})
 	if err != nil {
 		t.Fatal(err)
 	}

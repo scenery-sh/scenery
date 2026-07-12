@@ -10,7 +10,7 @@ var reservedCLICommands = map[string]bool{
 	"agent": true, "build": true, "changes": true, "check": true, "compile": true, "completion": true,
 	"console": true, "db": true, "deploy": true, "diff": true, "doctor": true, "down": true, "explain": true,
 	"fmt": true, "generate": true, "get": true, "graph": true, "harness": true, "help": true, "inspect": true,
-	"internal": true, "list": true, "logs": true, "metrics": true, "migrate": true, "prune": true, "ps": true,
+	"internal": true, "list": true, "logs": true, "metrics": true, "prune": true, "ps": true,
 	"schema": true, "storage": true, "symphony": true, "system": true, "task": true, "test": true, "traces": true,
 	"up": true, "upgrade": true, "validate": true, "version": true, "worker": true, "worktree": true,
 }
@@ -20,7 +20,7 @@ func validateCLIBindings(resources []Resource) []Diagnostic {
 	commands := map[string]string{}
 	var diagnostics []Diagnostic
 	for _, binding := range resources {
-		if binding.Kind != "scenery.binding/v1" || binding.Origin.Kind == "legacy_v0" || stringValue(binding.Spec["protocol"]) != "cli" {
+		if binding.Kind != "scenery.binding/v1" || stringValue(binding.Spec["protocol"]) != "cli" {
 			continue
 		}
 		cli, _ := binding.Spec["cli"].(map[string]any)

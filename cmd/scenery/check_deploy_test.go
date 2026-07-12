@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,15 +38,11 @@ func TestDeployConfigInfoDiagnosticsReportsUnsetRoot(t *testing.T) {
 	}
 }
 
-func TestRunSceneryCheckCompilesPersistentFixture(t *testing.T) {
+func TestRunSceneryCheckAcceptsNativePersistentFixture(t *testing.T) {
 	t.Parallel()
 
 	root := persistentTestAppRoot(t, "check-compile-smoke")
-	preparePersistentTestApp(t, root, map[string]string{
-		".scenery.json":  `{"name":"checksmoke"}`,
-		"go.mod":         "module example.com/checksmoke\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + filepath.ToSlash(repoRootForTest(t)) + "\n",
-		"service/api.go": "package service\n\nimport \"context\"\n\ntype PingResponse struct { OK bool `json:\"ok\"` }\n\n//scenery:api public method=GET path=/ping\nfunc Ping(context.Context) (*PingResponse, error) { return &PingResponse{OK: true}, nil }\n",
-	})
+	preparePersistentTestApp(t, root, nativeHarnessTestFiles(t, "checksmoke", "return nil"))
 
 	var out bytes.Buffer
 	if err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {

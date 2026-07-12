@@ -9,7 +9,7 @@ export const sceneryClientMetadata = freezeMetadata({
     "scenery.http-codec/v1"
   ],
   "compatibilityCatalog": "scenery.compatibility-core/v1",
-  "contractRevision": "sha256:416c27cc6b36bffe2e7b012c240c3d7acd220de89f55d01cefdf7215d089deca",
+  "contractRevision": "sha256:e2a71433dc77805ff41f5ecb34b37e0877f09560a50b280d4a755ddf795129de",
   "gateways": [
     "http_gateway.public_api"
   ],

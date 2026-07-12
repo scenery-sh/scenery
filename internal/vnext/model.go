@@ -41,7 +41,6 @@ var SupportedProfiles = map[string]bool{
 	"scenery.agent-mutation/v1":     true,
 	"scenery.patches/v1":            true,
 	"scenery.ui/v1":                 true,
-	"scenery.legacy-bridge/v1":      true,
 	"scenery.compatibility-core/v1": true,
 	"scenery.typescript-client/v1":  true,
 }
@@ -61,7 +60,6 @@ var ProfileDependencies = map[string][]string{
 	"scenery.agent-mutation/v1":     {"scenery.agent-read/v1"},
 	"scenery.patches/v1":            {"scenery.compiler-core/v1"},
 	"scenery.ui/v1":                 {"scenery.compiler-core/v1", "scenery.data/v1"},
-	"scenery.legacy-bridge/v1":      {"scenery.compiler-core/v1", "scenery.compatibility-core/v1"},
 	"scenery.compatibility-core/v1": {"scenery.compiler-core/v1"},
 	"scenery.typescript-client/v1":  {"scenery.compiler-core/v1", "scenery.compatibility-core/v1", "scenery.http-codec/v1"},
 }
@@ -99,10 +97,6 @@ type Related struct {
 type Origin struct {
 	Kind             string                     `json:"kind"`
 	SourceID         string                     `json:"source_id,omitempty"`
-	Frontend         string                     `json:"frontend,omitempty"`
-	LegacySymbol     string                     `json:"legacy_symbol,omitempty"`
-	LegacyConstruct  string                     `json:"legacy_construct,omitempty"`
-	LegacyIdentity   map[string]any             `json:"legacy_identity,omitempty"`
 	Patches          []string                   `json:"patches,omitempty"`
 	DeclarationRange *Range                     `json:"declaration_range,omitempty"`
 	AttributeRanges  map[string]Range           `json:"attribute_ranges,omitempty"`
@@ -130,26 +124,12 @@ type ExpansionStep struct {
 }
 
 type Resource struct {
-	Address       string               `json:"address"`
-	Kind          string               `json:"kind"`
-	Name          string               `json:"name"`
-	Module        string               `json:"module"`
-	Spec          map[string]any       `json:"spec"`
-	Origin        Origin               `json:"origin"`
-	Migration     *MigrationMeta       `json:"migration,omitempty"`
-	Compatibility *LegacyCompatibility `json:"compatibility,omitempty"`
-}
-
-type LegacyCompatibility struct {
-	Semantics            string `json:"semantics"`
-	Contract             string `json:"contract"`
-	MigrationDisposition string `json:"migration_disposition"`
-}
-
-type MigrationMeta struct {
-	State           string `json:"state"`
-	Active          string `json:"active"`
-	NativeCandidate string `json:"native_candidate,omitempty"`
+	Address string         `json:"address"`
+	Kind    string         `json:"kind"`
+	Name    string         `json:"name"`
+	Module  string         `json:"module"`
+	Spec    map[string]any `json:"spec"`
+	Origin  Origin         `json:"origin"`
 }
 
 type ApplicationIdentity struct {
@@ -187,7 +167,6 @@ type Result struct {
 	OpenAPIRevisions        map[string]string    `json:"openapi_revision,omitempty"`
 	Diagnostics             []Diagnostic         `json:"diagnostics"`
 	Sources                 []*Source            `json:"-"`
-	Migration               *Migration           `json:"migration,omitempty"`
 	verifiedGoFiles         []generatedFile
 	hasVerifiedGoFiles      bool
 }

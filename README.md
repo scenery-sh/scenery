@@ -2,22 +2,22 @@
 
 **One CLI for building, running, and inspecting Go services — built for humans and AI agents.**
 
-Edition-2027 apps may opt into `scenery.scn`, a canonical typed resource graph with Go and TypeScript generation, HTTP/durable/event/data/deployment/UI profiles, semantic inspection and mutation, and a bounded `scenery.migration.scn` bridge. Mixed apps keep explicitly listed services legacy-owned while services move natively through one compiler graph and one runtime—never a second route table or lifecycle.
+Scenery applications use language edition 2027: `scenery.scn` and package-local `scenery.package.scn` files compile into one canonical typed resource graph with Go and TypeScript generation, HTTP/durable/event/data/deployment/UI profiles, semantic inspection, and revision-bound mutation.
 
 Edition 2027 is a feature-complete `0.5-draft` across its claimed resolved profiles, not a stable language release. Surfaces whose semantics are still open—such as declarative extensions, Appendix E workflows, streaming/WebSockets, full registry trust, entity-evolution syntax, platform listener/certificate schemas, and fixed-target native toolchain identities—fail as draft or unsupported instead of receiving invented defaults.
 
 scenery is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
-Applications mark their root with `.scenery.json` (preferred) or `.config.json`, declare endpoints with `//scenery:` directives, and run as one local HTTP server. scenery handles service discovery, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.
+Applications mark their root with `.scenery.json` (preferred) or `.config.json`, declare their application graph in `.scn`, and implement generated native contracts in Go. scenery handles graph compilation, route registration, auth context, request decoding, generated internal calls, local development supervision, inspection, logs, traces, metrics, and TypeScript client generation.
 
-scenery is used in production. The stable v0 surface is intentionally small and Go-first; the local dashboard, native observability, local HTTPS routing, durable worker tooling, and cron UI are development-focused capabilities. Their backing services and files are substrate details unless you intentionally debug them.
+The Go-comment declaration frontend is not supported. The local dashboard, native observability, local HTTPS routing, and durable worker tooling are development-focused capabilities; their backing services and files are substrate details unless you intentionally debug them.
 
 ## Why scenery?
 
-- **Go source is the app model.** Services, APIs, auth handlers, middleware, durable tasks, cron jobs, and beta static model/page IR are discovered from Go code.
+- **One canonical app model.** Services, operations, bindings, auth, middleware, durable executions, schedules, data, and UI resources are declared in edition-2027 `.scn` source.
 - **Full local dev loop.** `scenery up` runs the app root's one live dev runtime with file watching, rebuild/restart supervision, dashboard, API explorer, logs, traces, metrics, and optional HTTPS local domains.
 - **Typed HTTP by default.** scenery decodes path params, query params, headers, cookies, and JSON bodies into Go structs, then encodes typed responses.
-- **Generated internal calls.** Endpoint-to-endpoint calls are rewritten to generated helpers so private access, auth context, and routing semantics are preserved.
+- **Generated internal calls.** Binding clients preserve private access, auth context, tracing, and delivery semantics.
 - **Inspectable by tools and agents.** `scenery inspect`, `scenery check`, `scenery logs`, `scenery harness`, and `scenery validate` expose machine-readable JSON contracts.
 - **Generated clients.** scenery can generate a TypeScript client for typed routes.
 
@@ -26,23 +26,23 @@ scenery is used in production. The stable v0 surface is intentionally small and 
 Available now as draft profile surfaces:
 
 - edition-2027 lossless source, truthful source/effective/expanded graphs with path-indexed provenance, stable revisions, recursive authoring schemas with wire-label policies, schema-driven creation for exactly advertised resource kinds, receipt-proven semantic rename, dependency graph, and normalized agent mutation protocol
-- edition-2027 Go contract/application/composition generation and exact TypeScript clients with descriptor, selection-manifest, constraint, cross-field validation, canonical HTTP sets, Fetch-safe header validation, declared multipart, and structurally disjoint typed response-map coverage
+- edition-2027 Go contract/application/composition generation and exact TypeScript clients with descriptors, constraints, cross-field validation, canonical HTTP sets, Fetch-safe header validation, declared multipart, and structurally disjoint typed response-map coverage
 - edition-2027 exact Go build-input/toolchain identities and runtime-bundle sidecars, with host-CGO native-tool identities and fail-closed fixed-target CGO
 - edition-2027 authored CLI execution with generated help/completion and typed outcomes, plus environment-selected typed fixtures shared by deployment and local database seeding
-- edition-2027 HTTP, typed terminal zero-or-more path tails, durable execution, schedules, events, data/CRUD/provider, deployment plan/apply, patches, UI validation, compatibility, and bounded legacy-bridge profiles
-- workspace-issued, revision-bound semantic change, deployment, migration activation/rollback/retirement, and evidence-bound migration-finish transactions; apply rejects caller-recomputed plans before trusting approvals, edits, or provider actions
+- edition-2027 HTTP, typed terminal zero-or-more path tails, durable execution, schedules, events, data/CRUD/provider, deployment plan/apply, patches, UI validation, and compatibility profiles
+- workspace-issued, revision-bound semantic change and deployment transactions; apply rejects caller-recomputed plans before trusting approvals, edits, or provider actions
 - `.scenery.json` root discovery, with `.config.json` accepted as an alias
 - `scenery up`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`
-- typed and raw HTTP endpoints
+- typed HTTP bindings
 - public, auth, and private endpoints
-- auth handlers and request auth helpers
-- service struct initialization
+- authentication resources and request auth helpers
+- generated typed service constructors
 - middleware
 - private/internal endpoint calls
 - secrets from environment and local `.env`
 - local logs, traces, and metrics inspection
 - native local observability
-- durable task and cron local runtime support
+- durable execution and schedule runtime support
 - local HTTPS edge and frontend routing with optional trust-store installation
 - beta public deploy edge for serving a live local app on your own domain
 - dashboard and API explorer
@@ -51,7 +51,7 @@ Available now as draft profile surfaces:
 - TypeScript client generation
 - benchmark fixture
 
-Exact v0 and edition-2027 API details live in [docs/local-contract.md](docs/local-contract.md). The normative edition-2027 design set begins at [docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md](docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
+Exact CLI and artifact details live in [docs/local-contract.md](docs/local-contract.md). The normative edition-2027 design set begins at [docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md](docs/specs/vnext/SCENERY_LANGUAGE_SPEC.md). Agent workflows live in [docs/agent-guide.md](docs/agent-guide.md). Architecture notes live in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Requirements
 
@@ -118,27 +118,17 @@ scenery includes an installable agent skill for using scenery apps:
 npx skills add https://github.com/scenery-sh/scenery
 ```
 
-The skill teaches agents the scenery app model, directives, local development workflow, debugging commands, observability, database inspection, and TypeScript client generation.
+The skill teaches agents the edition-2027 app model, local development workflow, debugging commands, observability, database inspection, and generated-client workflow.
 
 The skill is shared runtime knowledge. Client apps should still keep a small app-local `AGENTS.md` for app root, frontend roots, generated client output paths, required environment names, validation commands, and product invariants. Do not copy the whole skill into every app; keep shared scenery behavior in `SKILL.md` and app-specific facts in the client repository.
 
 ## A Minimal App
 
-Create `.scenery.json`:
+Create `.scenery.json` and `go.mod`:
 
 ```json
 {"name":"hello"}
 ```
-
-`.scenery.json` is the preferred app config filename. `.config.json` is accepted as an alias when `.scenery.json` is absent.
-
-When an app requires Go build tags or other build-time flags, keep them in the app config instead of exporting `GOFLAGS` for every command:
-
-```json
-{"name":"hello","build":{"go_flags":["-tags=roofmapnet_native"]}}
-```
-
-Create `go.mod`:
 
 ```go
 module example.com/hello
@@ -150,35 +140,140 @@ require scenery.sh v0.0.0
 replace scenery.sh => /path/to/scenery
 ```
 
-Create `service/api.go`:
+Create `scenery.scn`:
+
+```hcl
+language {
+  edition = "2027"
+  require_profiles = [
+    "scenery.compiler-core/v1",
+    "scenery.go-implementation/v1",
+    "scenery.runtime-http/v1",
+  ]
+}
+
+workspace {
+  implementation_root "application" {
+    path = "."
+    revision_include = ["**/*.go", "go.mod"]
+  }
+  managed_generated_roots = ["service/scenerycontract", "internal/scenerygen"]
+}
+
+go_module "application" {
+  root        = "."
+  import_path = "example.com/hello"
+}
+go_toolchain "application" {
+  version     = "1.26.3"
+  experiments = []
+}
+go_target "development" {
+  role      = "development"
+  platform  = "host"
+  toolchain = go_toolchain.application
+  module    = go_module.application
+  packages  = ["./..."]
+  cgo       = "disabled"
+}
+application "hello" { version = "1.0.0" }
+http_gateway "public" {
+  exposure        = "internet"
+  base_path       = "/"
+  cors            = std.cors.none
+  trusted_proxies = std.trusted_proxies.none
+  forwarded       = std.forwarded_headers.reject
+}
+module "service" {
+  source = "./service"
+  inputs = { gateway = http_gateway.public }
+}
+```
+
+Create `service/scenery.package.scn` with one service, operation, execution, and HTTP binding:
+
+```hcl
+package "service" {
+  version         = "1.0.0"
+  scenery_version = ">= 2.0.0, < 3.0.0"
+  go_contract { import_path = "example.com/hello/service" }
+}
+input "gateway" { type = resource_ref("http_gateway") }
+service "service" {
+  runtime = "go"
+  implementation { constructor = "NewService" }
+}
+record "hello_input" { field "name" { type = string } }
+record "hello_result" { field "message" { type = string } }
+operation "hello" {
+  service = service.service
+  input   = record.hello_input
+  handler { method = "Hello" }
+  result "ok" { type = record.hello_result }
+}
+execution "hello_direct" {
+  operation = operation.hello
+  mode      = "direct"
+}
+binding "hello_http" {
+  gateway   = var.gateway
+  operation = operation.hello
+  execution = execution.hello_direct
+  protocol  = "http"
+  delivery  = "call"
+  authentication = std.authentication.none
+  authorization = std.authorization.public
+  pipeline = std.pipeline.empty
+  http {
+    method        = "POST"
+    path          = "/hello"
+    codec_profile = std.codec.http_json_v1
+    body { codec = "json", to = operation.hello.input }
+    response "ok" {
+      when   = result.ok
+      status = 200
+      body { codec = "json", from = result.ok }
+    }
+  }
+}
+```
+
+Implement the generated contract in `service/api.go`:
 
 ```go
 package service
 
-import "context"
+import (
+	"context"
+	contract "example.com/hello/service/scenerycontract"
+)
 
-type HelloResponse struct {
-	Message string `json:"message"`
+type Service struct{}
+
+func NewService(context.Context, contract.ServiceConstructorInput) (*Service, error) {
+	return &Service{}, nil
 }
 
-//scenery:api public path=/hello/:name method=GET
-func Hello(ctx context.Context, name string) (*HelloResponse, error) {
-	return &HelloResponse{Message: "hello " + name}, nil
+func (*Service) Hello(_ context.Context, input contract.HelloInput) (contract.HelloOutcome, error) {
+	return contract.HelloOk{Value: contract.HelloResult{Message: "hello " + input.Name}}, nil
 }
 ```
 
-Run it:
+Generate, check, and run it:
 
 ```sh
-scenery check --json
+scenery generate --target go -o json
+scenery check -o json
 scenery up --detach
 ```
 
 Call it (use `scenery ps --json` to discover the base URL):
 
 ```sh
-curl http://localhost:4001/api/hello/world
+curl -H 'Content-Type: application/json' -d '{"name":"world"}' http://localhost:4001/api/hello
 ```
+
+The checked-in native fixture at `testdata/apps/basic` is the compact runnable reference. `.config.json` remains an accepted alias for `.scenery.json`; neither config file declares application resources.
 
 ## Local Development
 
@@ -256,9 +351,13 @@ scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <go
 scenery system toolchain path [--json] --tool <name> [--platform <goos/goarch>]
 scenery doctor [--app-root <path>] [--json]
 scenery build [--app-root <path>] [-o <path>]
-scenery check [--app-root <path>] [--json]
-scenery generate [--app-root <path>] [--dry-run] [--json]
-scenery generate client [<app-id>] [--lang typescript] [--output <path>] [--app-root <path>] [--dry-run] [--json]
+scenery fmt --check [--app-root <path>] -o json
+scenery check [--app-root <path>] -o json
+scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
+scenery list|get|explain|graph ... [--app-root <path>] -o json
+scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
+scenery generate [--app-root <path>] [--target go|contracts|typescript_client.<name>] [--check] -o json
+scenery changes plan|apply ... -o json
 scenery generate sqlc [--app-root <path>] [--dry-run] [--json]
 scenery task list [--app-root <path>] [--json]
 scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]
@@ -270,14 +369,13 @@ scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [
 scenery harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
 scenery harness self [--repo-root <path>] [--json] [--write] [--quick|--race|--release] [--fresh-tests]
 scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|models|views|build|paths|generators|durable --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|build|paths|durable --json [--app-root <path>]
 scenery inspect docs --json [--repo-root <path>]
 scenery traces list --json [--app-root <path>]
 scenery metrics list --json [--app-root <path>]
 scenery traces clear --json [--app-root <path>]
 scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-f|--follow] [--jsonl|--json]
 scenery test [--app-root <path>] [go test flags/packages...]
-scenery generate client [<app-id>] --lang typescript --output <path> [--app-root <path>]
 scenery db list [--app-root <path>] [--json]
 scenery db shell [--app-root <path>] [--service <name>] [psql args...]
 scenery db apply [--app-root <path>] [--json]
@@ -307,24 +405,26 @@ See [docs/local-contract.md](docs/local-contract.md) for the full command contra
 - Standard auth owns its tenant tables under the app database's `scenery` schema; app-local `tenants` services or tables are product-domain concerns. Google connections store encrypted refresh tokens for app-owned Google API calls through `auth.GoogleAccessToken`.
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping.
 - `scenery.sh/middleware` exposes middleware request/response types.
-- `scenery.sh/model` and `scenery.sh/page` expose beta static model/page IR vocabulary, including generated CRUD action policy, existing table bindings, collection page projections, and static page filter/sort/display metadata, for inspection and generators.
-- `scenery.sh/durable` exposes typed durable task declarations, startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, authenticated durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin CLI, and `scenery inspect durable --json`.
-- `scenery.sh/cron` exposes cron job declarations.
+- `scenery.sh/durable` exposes non-registering durable runtime helpers such as steps and signals; task, execution, and schedule ownership is declared in `.scn`.
 - `scenery.sh/db` exposes Postgres `*sql.DB` pools pinned to a service schema for app code and sqlc.
+- `scenery.sh/datasource` and `scenery.sh/object` expose typed constructor capabilities.
 - `scenery.sh/et` exposes endpoint/service mocking helpers for tests.
 
 ## TypeScript Client Generation
 
+Declare each TypeScript target in `scenery.scn`, keep its `output_root` beneath a declared managed generated root, then run:
+
 ```sh
 scenery inspect endpoints --json
-scenery generate client --lang typescript --output ./src/scenery-client.ts
+scenery generate --target typescript_client.public_api -o json
+scenery generate --target typescript_client.public_api --check -o json
 ```
 
-The generated client understands the app's route model.
+The generated client implements the declared gateway/binding contract.
 
 `WithMeta` methods expose response headers, status, and the raw `Response` alongside decoded data.
 
-Apps can also configure `generators.clients` and use `scenery generate client` or `scenery generate --dry-run --json` to inspect and run configured generators. `scenery generate sqlc` is for generated source artifacts; it must not apply database schema or seed data.
+`scenery generate sqlc` remains the configured SQLC source-artifact command; it must not apply database schema or seed data.
 
 The DB lifecycle split uses `scenery db apply` for schema/app database mutation, `scenery db seed` for initial data such as `SERVICE/db/seed.sql`, and `scenery db setup` for apply then seed. Seed files apply to their matching service schema and fail closed when previously-applied content changes or destructive SQL is detected.
 
@@ -402,7 +502,7 @@ package/test hotspots in isolation before reporting them.
 
 ## Contributing
 
-scenery prefers small, explicit changes and minimal dependencies. When adding behavior, keep the parsed app model as the source of truth and add tests at stable boundaries: parser validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
+scenery prefers small, explicit changes and minimal dependencies. When adding behavior, keep the canonical edition-2027 graph as the source of truth and add tests at stable boundaries: `.scn` validation, generated code, runtime HTTP behavior, CLI JSON contracts, and fixture apps.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull request guidance.
 

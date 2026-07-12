@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +19,7 @@ import (
 func TestPrepareAndCompileNativeContractApplication(t *testing.T) {
 	appRoot := copyVNextBuildFixture(t, "native")
 
-	appModel, err := parse.App(appRoot, "nativeapp")
+	appModel, err := parse.Analyze(appRoot, "nativeapp")
 	if err != nil {
 		t.Fatalf("parse native app: %v", err)
 	}
@@ -44,13 +43,6 @@ func TestPrepareAndCompileNativeContractApplication(t *testing.T) {
 			t.Fatalf("generated main missing %q:\n%s", fragment, mainSource)
 		}
 	}
-	if slices.Contains(result.GeneratedFiles, "house/scenery.gen.go") {
-		t.Fatalf("native service received legacy generated registration: %v", result.GeneratedFiles)
-	}
-	if _, err := os.Stat(filepath.Join(result.Dir, "house", "scenery.gen.go")); !os.IsNotExist(err) {
-		t.Fatalf("native service legacy registration exists, stat error = %v", err)
-	}
-
 	if err := Compile(result); err != nil {
 		t.Fatalf("compile native app: %v", err)
 	}
@@ -143,43 +135,6 @@ func runGeneratedTypeScriptClientAgainstBinary(t *testing.T, appRoot, binary str
 	}
 	if !bytes.Contains(bunOutput, []byte("1 pass")) {
 		t.Fatalf("generated TypeScript client proof did not report one pass:\n%s", bunOutput)
-	}
-}
-
-func TestPrepareAndCompileNativeContractWithLegacyGoBridge(t *testing.T) {
-	appRoot := copyVNextBuildFixture(t, "bridge")
-
-	appModel, err := parse.App(appRoot, "bridgeapp")
-	if err != nil {
-		t.Fatalf("parse bridge app: %v", err)
-	}
-	result, err := Prepare(appRoot, appModel, appcfg.Config{Name: "bridgeapp"})
-	if err != nil {
-		t.Fatalf("prepare bridge app: %v", err)
-	}
-	if slices.Contains(result.GeneratedFiles, "bridge/scenery.gen.go") {
-		t.Fatalf("bridge service received duplicate legacy registration: %v", result.GeneratedFiles)
-	}
-	bridgeSource, err := os.ReadFile(filepath.Join(result.Dir, "bridge", "scenery.bridge.gen.go"))
-	if err != nil {
-		t.Fatalf("read bridge helper: %v", err)
-	}
-	for _, fragment := range []string{"SceneryVNextBridgeInitialize", "SceneryVNextBridgeEcho", "SceneryVNextLegacyCallEchoInput", "SceneryVNextLegacyCallEchoOutput", "service.Echo(ctx, payload)"} {
-		if !strings.Contains(string(bridgeSource), fragment) {
-			t.Fatalf("bridge helper missing %q:\n%s", fragment, bridgeSource)
-		}
-	}
-	adapterSource, err := os.ReadFile(filepath.Join(result.Dir, "internal", "scenerygen", "bridge_bridge_adapter", "adapter.gen.go"))
-	if err != nil {
-		t.Fatalf("read bridge adapter: %v", err)
-	}
-	for _, fragment := range []string{"RegisterEndpointChecked", `Name: "Echo"`, "SceneryVNextLegacyCallEchoOutput"} {
-		if !strings.Contains(string(adapterSource), fragment) {
-			t.Fatalf("bridge adapter missing %q:\n%s", fragment, adapterSource)
-		}
-	}
-	if err := Compile(result); err != nil {
-		t.Fatalf("compile bridge app: %v", err)
 	}
 }
 

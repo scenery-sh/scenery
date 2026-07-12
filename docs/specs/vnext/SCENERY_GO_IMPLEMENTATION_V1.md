@@ -34,9 +34,9 @@ The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 - arbitrary HTTP request/response objects;
 - custom middleware handler signatures;
 - streaming handlers;
-- legacy handler signatures.
+- superseded handler signatures.
 
-Legacy handler compatibility is defined by `scenery.legacy-bridge/v1`. Transport-coupled Go HTTP requires a future `scenery.go-http-coupled/v1` profile.
+Transport-coupled Go HTTP requires a future `scenery.go-http-coupled/v1` profile.
 
 Typed terminal HTTP path tails are defined by
 [SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md). They populate the
@@ -405,7 +405,7 @@ Implementations MUST NOT recover configuration from environment variables, packa
 
 Client fields are generated from explicit service client blocks referencing internal bindings. Each interface preserves typed input/outcome, inherited principal rules, cancellation, deadline, and invocation failure semantics. The application adapter supplies an instance-bound implementation.
 
-There is no global registry lookup. This supports native-to-native, native-to-legacy, and legacy-to-native calls when the bridge provides a fully typed compatibility binding.
+There is no global registry lookup. All internal calls use instance-bound generated clients over typed bindings.
 
 ### 10.4 Construction behavior
 
@@ -442,7 +442,7 @@ Hooks are exported, non-generic, and non-variadic.
 - Every started service receives a stop attempt even if another stop fails.
 - Lifecycle errors are runtime failures, never operation outcomes.
 
-Only one active frontend may own a service lifecycle in mixed mode.
+Exactly one generated application adapter owns each service lifecycle.
 
 ## 12. Unary operation handlers
 
@@ -699,15 +699,7 @@ func TestProcessScene(t *testing.T) {
 
 Tests need not start a Scenery runtime. Their build context extends but never replaces the target base context.
 
-## 22. Legacy compatibility boundary
-
-`adapter = "legacy_go_v0"` is not native ABI conformance. It is a temporary bridge-owned adapter described by [SCENERY_LEGACY_BRIDGE_V1.md](SCENERY_LEGACY_BRIDGE_V1.md).
-
-A service may first migrate declarations while retaining existing handlers, then later remove the adapter and implement this native ABI. Exactly one adapter is active for each operation.
-
-When a native constructor supplies the service lifecycle while an operation still uses `legacy_go_v0`, staged verification MUST prove that the constructor's returned pointer is assignable to that operation's legacy endpoint receiver pointer. An incompatible mixed receiver is a compile-time implementation diagnostic, never a runtime assertion failure.
-
-## 23. Conformance requirements
+## 22. Conformance requirements
 
 A conforming tool passes fixtures for:
 
@@ -727,7 +719,7 @@ A conforming tool passes fixtures for:
 - service-qualified dependencies;
 - constructor-input, dependency/config/client, and lifecycle signatures;
 - sensitive configuration taint and secret-reference injection;
-- native/native and bridge-backed typed internal client injection;
+- typed internal client injection;
 - every valid and invalid handler return combination;
 - staged overlay verification with missing and stale generated packages;
 - check with no filesystem mutation;

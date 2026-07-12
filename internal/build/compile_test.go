@@ -15,13 +15,13 @@ import (
 func TestPrepareAndCompileWriteLatestBuildManifest(t *testing.T) {
 	t.Parallel()
 
-	appDir := newBuildTestApp(t)
+	appDir := copyVNextBuildFixture(t, "native")
 
-	model, err := parse.App(appDir, "buildtest")
+	model, err := parse.Analyze(appDir, "nativeapp")
 	if err != nil {
 		t.Fatalf("parse app: %v", err)
 	}
-	result, err := Prepare(appDir, model, appcfg.Config{Name: "buildtest"})
+	result, err := Prepare(appDir, model, appcfg.Config{Name: "nativeapp"})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}

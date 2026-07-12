@@ -94,21 +94,12 @@ func generatedApplicationAdapterDigest(result *Result) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	bootstrapOverlay, err := goGenerationBootstrapOverlay(result, contractFiles)
-	if err != nil {
-		return "", err
-	}
-	bridgeFiles, err := generateLegacyBridgeArtifacts(result, nativeApplicationServices(result), bootstrapOverlay)
-	if err != nil {
-		return "", err
-	}
-	files = append(files, bridgeFiles...)
 	if len(files) == 0 {
 		return revisionHash("scenery.generated-adapter.v1\x00", []string{}), nil
 	}
 	artifacts := files[:0]
 	for _, file := range files {
-		if filepath.Base(file.Path) != "scenery.generated.v1.json" && filepath.Base(file.Path) != "scenery.legacy-bridge-generated.v1.json" {
+		if filepath.Base(file.Path) != "scenery.generated.v1.json" {
 			artifacts = append(artifacts, file)
 		}
 	}

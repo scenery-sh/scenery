@@ -36,8 +36,7 @@ operation "process_scene" {
   input   = record.process_scene_input
 
   handler {
-    method  = "ProcessScene"
-    adapter = "legacy_go_v0"
+    method = "ProcessScene"
   }
 
   result "processed" {

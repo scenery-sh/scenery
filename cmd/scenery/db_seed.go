@@ -17,7 +17,6 @@ import (
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
-	"scenery.sh/internal/parse"
 	"scenery.sh/internal/vnext"
 )
 
@@ -332,9 +331,6 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 	if !cfg.Database.Seed.IsEnabled() {
 		return nil, nil
 	}
-	if err := ensureGeneratedDataArtifacts(appRoot, cfg); err != nil {
-		return nil, err
-	}
 	graph, err := buildInspectGeneratorsResponse(appRoot, cfg)
 	if err != nil {
 		return nil, err
@@ -357,20 +353,16 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 			SHA256:  hex.EncodeToString(sum[:]),
 		})
 	}
-	if _, statErr := os.Stat(filepath.Join(appRoot, "scenery.scn")); statErr == nil {
-		compiled, compileErr := vnext.Compile(appRoot)
-		if compileErr != nil {
-			return nil, compileErr
-		}
-		fixturePlans, fixtureErr := vnext.BuildFixtureSeedPlans(compiled, environment)
-		if fixtureErr != nil {
-			return nil, fixtureErr
-		}
-		for _, fixture := range fixturePlans {
-			plans = append(plans, dbSeedPlan{Service: fixture.Database, Path: fixture.Path, SQL: fixture.SQL, SHA256: fixture.SHA256})
-		}
-	} else if !os.IsNotExist(statErr) {
-		return nil, statErr
+	compiled, compileErr := vnext.Compile(appRoot)
+	if compileErr != nil {
+		return nil, compileErr
+	}
+	fixturePlans, fixtureErr := vnext.BuildFixtureSeedPlans(compiled, environment)
+	if fixtureErr != nil {
+		return nil, fixtureErr
+	}
+	for _, fixture := range fixturePlans {
+		plans = append(plans, dbSeedPlan{Service: fixture.Database, Path: fixture.Path, SQL: fixture.SQL, SHA256: fixture.SHA256})
 	}
 	sort.Slice(plans, func(i, j int) bool {
 		if plans[i].Service != plans[j].Service {
@@ -379,21 +371,6 @@ func discoverDBSeedPlansForEnvironment(appRoot string, cfg appcfg.Config, enviro
 		return plans[i].Path < plans[j].Path
 	})
 	return plans, nil
-}
-
-func ensureGeneratedDataArtifacts(appRoot string, cfg appcfg.Config) error {
-	if !appHasModelDirectives(appRoot) {
-		return nil
-	}
-	appModel, err := parse.App(appRoot, cfg.Name)
-	if err != nil {
-		return err
-	}
-	plan, ok, err := buildDataGeneratorPlan(appRoot, cfg, appModel)
-	if err != nil || !ok {
-		return err
-	}
-	return writeGeneratedDataArtifacts(appRoot, plan)
 }
 
 var (

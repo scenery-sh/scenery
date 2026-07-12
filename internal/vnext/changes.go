@@ -418,9 +418,6 @@ func renameResource(root string, base *Result, resource Resource, newName string
 	}
 	targetDirectory := filepath.ToSlash(filepath.Dir(targetSource.Relative))
 	sources := append([]*Source(nil), base.Sources...)
-	if base.Migration != nil && base.Migration.Source != nil {
-		sources = append(sources, base.Migration.Source)
-	}
 	for _, source := range sources {
 		if source.ID == "" || filepath.ToSlash(filepath.Dir(source.Relative)) != targetDirectory {
 			continue

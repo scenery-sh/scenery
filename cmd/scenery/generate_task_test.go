@@ -17,14 +17,14 @@ import (
 func TestParseGenerateArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseGenerateArgs([]string{"client", "demo", "--lang", "typescript", "--output", "src/client.ts", "--app-root", "/tmp/app", "--dry-run", "--json"})
+	opts, err := parseGenerateArgs([]string{"sqlc", "--app-root", "/tmp/app", "--dry-run", "--json"})
 	if err != nil {
 		t.Fatalf("parseGenerateArgs returned error: %v", err)
 	}
-	if opts.Subject != "client" || opts.Target != "demo" || opts.Lang != "typescript" || opts.Output != "src/client.ts" || opts.AppRoot != "/tmp/app" || !opts.DryRun || !opts.JSON {
+	if opts.Subject != "sqlc" || opts.AppRoot != "/tmp/app" || !opts.DryRun || !opts.JSON {
 		t.Fatalf("opts = %+v", opts)
 	}
-	if _, err := parseGenerateArgs([]string{"sqlc", "--output", "client.ts"}); err == nil || err.Error() != "--output is only supported for generate client" {
+	if _, err := parseGenerateArgs([]string{"sqlc", "--output", "client.ts"}); err == nil || !strings.Contains(err.Error(), "client output flags are not supported") {
 		t.Fatalf("parseGenerateArgs(sqlc --output) error = %v", err)
 	}
 }
@@ -64,9 +64,6 @@ func TestRunGenerateDryRunJSON(t *testing.T) {
   "name": "demo",
   "id": "demo-id",
   "generators": {
-    "clients": [
-      { "id": "web", "kind": "typescript-client", "output": "web/src/client.ts" }
-    ],
     "sqlc": { "provider": "sqlc", "config": "sqlc.yaml" }
   }
 }`)
@@ -83,10 +80,10 @@ func TestRunGenerateDryRunJSON(t *testing.T) {
 	if payload.SchemaVersion != "scenery.inspect.generators.v1" {
 		t.Fatalf("schema_version = %q", payload.SchemaVersion)
 	}
-	if len(payload.Generators) != 2 {
+	if len(payload.Generators) != 1 {
 		t.Fatalf("generators = %+v", payload.Generators)
 	}
-	if payload.Generators[0].ID != "web" || payload.Generators[1].ID != "sqlc" {
+	if payload.Generators[0].ID != "sqlc" {
 		t.Fatalf("generators = %+v", payload.Generators)
 	}
 }
@@ -189,7 +186,7 @@ sql:
 	if len(plan.Schemas) != 1 || plan.Schemas[0].Engine != "postgres" {
 		t.Fatalf("schemas = %+v", plan.Schemas)
 	}
-	artifacts := buildDatabaseArtifactRecords(root, plan, nil)
+	artifacts := buildDatabaseArtifactRecords(root, plan)
 	for _, artifact := range artifacts {
 		if artifact.Service == "auth" && artifact.Engine != "postgres" {
 			t.Fatalf("artifact missing postgres engine: %+v", artifact)
@@ -418,6 +415,7 @@ func TestDBSeedRoutesEachSeedToItsServiceDatabase(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"seedapp"}`)
 	writeTestAppFile(t, root, "auth/db/seed.sql", `insert into scenery_auth.users(id) values ('dev-user');
 `)
 	writeTestAppFile(t, root, "reports/db/seed.sql", `insert into reports.events(id) values ('event-1');

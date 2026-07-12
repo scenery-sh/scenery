@@ -46,35 +46,32 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2001", Severity: "error", Message: "HTTP binding requires gateway, method, and path", Address: binding.Address})
 			continue
 		}
-		strictNative := binding.Origin.Kind != "legacy_v0"
-		if strictNative && method != strings.ToUpper(method) {
+		if method != strings.ToUpper(method) {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2101", Severity: "error", Message: "HTTP method must use canonical uppercase form", Address: binding.Address})
 		}
-		if strictNative && !validHTTPPath(bindingPath) {
+		if !validHTTPPath(bindingPath) {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2102", Severity: "error", Message: "HTTP path must be absolute, normalized, and use only complete canonical parameter segments", Address: binding.Address})
 		}
-		if body, _ := httpSpec["body"].(map[string]any); strictNative && body != nil && body["codec"] == "raw" {
+		if body, _ := httpSpec["body"].(map[string]any); body != nil && body["codec"] == "raw" {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2103", Severity: "error", Message: "codec = raw is not part of scenery.http-codec/v1", Address: binding.Address})
 		}
-		if strictNative && refOrString(httpSpec["codec_profile"]) != "std.codec.http_json_v1" {
+		if refOrString(httpSpec["codec_profile"]) != "std.codec.http_json_v1" {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2105", Severity: "error", Message: "unsupported HTTP codec profile", Address: binding.Address})
 		}
-		if gatewayOK && gateway.Spec["exposure"] == "internet" && strictNative {
+		if gatewayOK && gateway.Spec["exposure"] == "internet" {
 			if binding.Spec["authentication"] == nil || binding.Spec["authorization"] == nil || binding.Spec["pipeline"] == nil {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2104", Severity: "error", Message: "internet HTTP binding requires explicit authentication, authorization, and pipeline", Address: binding.Address})
 			}
 		}
-		if strictNative {
-			authentication := refOrString(binding.Spec["authentication"])
-			authorization := refOrString(binding.Spec["authorization"])
-			if authorization == "" {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2108", Severity: "error", Message: "HTTP authorization must be explicit; std.authorization.none is the deny-all policy", Address: binding.Address})
-			}
-			if authentication == "std.authentication.none" && authorization != "std.authorization.public" && authorization != "std.authorization.none" {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2109", Severity: "error", Message: "anonymous HTTP access requires std.authorization.public", Address: binding.Address})
-			}
+		authentication := refOrString(binding.Spec["authentication"])
+		authorization := refOrString(binding.Spec["authorization"])
+		if authorization == "" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2108", Severity: "error", Message: "HTTP authorization must be explicit; std.authorization.none is the deny-all policy", Address: binding.Address})
 		}
-		if gatewayOK && strictNative {
+		if authentication == "std.authentication.none" && authorization != "std.authorization.public" && authorization != "std.authorization.none" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2109", Severity: "error", Message: "anonymous HTTP access requires std.authorization.public", Address: binding.Address})
+		}
+		if gatewayOK {
 			if widerExposure(stringValue(binding.Spec["exposure"]), stringValue(gateway.Spec["exposure"])) {
 				diagnostics = append(diagnostics, Diagnostic{Code: "SCN2106", Severity: "error", Message: "HTTP binding exposure cannot widen its gateway", Address: binding.Address})
 			}
@@ -83,13 +80,11 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			}
 			diagnostics = append(diagnostics, validateHTTPEffectiveLimits(binding, gateway, httpSpec)...)
 		}
-		if strictNative {
-			diagnostics = append(diagnostics, validateHTTPWireLabels(binding, httpSpec)...)
-			diagnostics = append(diagnostics, validateHTTPPathMappings(binding, httpSpec, bindingPath)...)
-			if operation, ok := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]; ok {
-				diagnostics = append(diagnostics, validateHTTPInputMappings(byAddress, binding, operation, httpSpec)...)
-				diagnostics = append(diagnostics, validateHTTPResponses(byAddress, binding, operation, httpSpec)...)
-			}
+		diagnostics = append(diagnostics, validateHTTPWireLabels(binding, httpSpec)...)
+		diagnostics = append(diagnostics, validateHTTPPathMappings(binding, httpSpec, bindingPath)...)
+		if operation, ok := byAddress[resolveResourceRef(binding, refString(binding.Spec["operation"]), "operation")]; ok {
+			diagnostics = append(diagnostics, validateHTTPInputMappings(byAddress, binding, operation, httpSpec)...)
+			diagnostics = append(diagnostics, validateHTTPResponses(byAddress, binding, operation, httpSpec)...)
 		}
 		basePath, _ := gateway.Spec["base_path"].(string)
 		effectivePath := joinHTTPPath(basePath, bindingPath)

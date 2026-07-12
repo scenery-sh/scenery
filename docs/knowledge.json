@@ -114,18 +114,6 @@
       "tags": ["schema", "vnext", "go", "build", "revisions"]
     },
     {
-      "path": "docs/schemas/scenery.legacy-bridge-generated.v1.schema.json",
-      "title": "scenery.legacy-bridge-generated.v1 Schema",
-      "owner": "scenery migration / Go generation",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "JSON Schema for generated Go legacy compatibility adapters and their bounded service ownership.",
-      "tags": ["schema", "vnext", "legacy-bridge", "go", "codegen"]
-    },
-    {
       "path": "docs/schemas/scenery.package-generated.v1.schema.json",
       "title": "scenery.package-generated.v1 Schema",
       "owner": "scenery Go contract generation",
@@ -148,24 +136,6 @@
       "review_after": "2026-08-10",
       "summary": "JSON Schema for linked Go runtime bundles, exact target resolution, revisions, and embedded build-input manifests.",
       "tags": ["schema", "vnext", "go", "build", "runtime"]
-    },
-    {
-      "path": "docs/schemas/scenery.client-selection.v1.schema.json",
-      "title": "scenery.client-selection.v1 Schema",
-      "owner": "scenery client generation / migration",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "JSON Schema mapping each active mixed-mode HTTP operation to exactly one native or legacy generated client family and revision.",
-      "tags": [
-        "schema",
-        "vnext",
-        "typescript",
-        "legacy-bridge",
-        "clientgen"
-      ]
     },
     {
       "path": "docs/schemas/scenery.cli.v1.schema.json",
@@ -202,23 +172,6 @@
       ]
     },
     {
-      "path": "docs/schemas/scenery.migrate.status.v1.schema.json",
-      "title": "scenery.migrate.status.v1 Schema",
-      "owner": "scenery compiler / migration",
-      "status": "active",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "JSON Schema for mixed-mode service ownership and migration readiness.",
-      "tags": [
-        "schema",
-        "vnext",
-        "migration",
-        "legacy-bridge"
-      ]
-    },
-    {
       "path": "docs/schemas/scenery.typescript-client-generated.v1.schema.json",
       "title": "scenery.typescript-client-generated.v1 Schema",
       "owner": "scenery client generation",
@@ -233,6 +186,24 @@
         "vnext",
         "typescript",
         "clientgen"
+      ]
+    },
+    {
+      "path": "docs/plans/0107-remove-go-directive-frontend.md",
+      "title": "Remove the Go-Directive Frontend",
+      "owner": "scenery compiler / runtime / agent interfaces",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Completed ExecPlan that removed all Go directive parsing and behavior, the unsupported v0 Go frontend, and the mixed legacy bridge while preserving independent runtime configuration and CLI JSON contracts.",
+      "tags": [
+        "plans",
+        "execplans",
+        "vnext",
+        "directives",
+        "legacy-removal"
       ]
     },
     {
@@ -325,7 +296,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Normative umbrella design specification for Scenery language edition 2027, including typed terminal HTTP path-tail extension profiles, truthful graph views and field provenance, profiles/dependencies, authenticated plan issuance and retained migration apply, normalized agent transactions and rename lineage, revisions, synchronized Go ABI, and representative House migration.",
+      "summary": "Normative umbrella design specification for Scenery language edition 2027, including the singular .scn declaration surface, typed terminal HTTP path tails, truthful graph views and field provenance, profiles, authenticated plans, semantic transactions, revisions, synchronized Go ABI, and the House example.",
       "tags": [
         "spec",
         "vnext",
@@ -344,7 +315,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, aliased typed config inputs with exact field provenance, constructor inputs, handlers, mixed-receiver static safety, outcomes, adapters, descriptors, staged verification, and path-tail input population without transport objects or handler ABI changes.",
+      "summary": "Normative edition-2027 Go implementation ABI for generated contract packages, aliased typed config inputs with exact field provenance, constructor inputs, handlers, outcomes, adapters, descriptors, staged verification, and path-tail input population without transport objects or handler ABI changes.",
       "tags": [
         "spec",
         "vnext",
@@ -380,7 +351,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Normative additive terminal path-tail contract for source syntax, typed zero-or-more segment mapping, deterministic route precedence, strict decoding, generated Go and TypeScript behavior, OpenAPI projection, and legacy wildcard migration.",
+      "summary": "Normative additive terminal path-tail contract for source syntax, typed zero-or-more segment mapping, deterministic route precedence, strict decoding, generated Go and TypeScript behavior, OpenAPI projection, security, and conformance.",
       "tags": [
         "spec",
         "vnext",
@@ -400,7 +371,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, mixed-mode snapshot-derived legacy generation, independently encoded terminal path-tail segments, and generation workflow for vNext public HTTP bindings.",
+      "summary": "Normative deterministic TypeScript client API, type mapping, outcomes, metadata, compatibility, cancellation, independently encoded terminal path-tail segments, and generation workflow for edition-2027 public HTTP bindings.",
       "tags": [
         "spec",
         "vnext",
@@ -423,24 +394,6 @@
         "vnext",
         "compatibility",
         "semantic-diff"
-      ]
-    },
-    {
-      "path": "docs/specs/vnext/SCENERY_LEGACY_BRIDGE_V1.md",
-      "title": "Scenery Legacy Bridge v1",
-      "owner": "scenery compiler / migration",
-      "status": "reference",
-      "quality": "A",
-      "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "Normative bounded service-by-service migration profile linking frozen legacy declarations and edition-2027 native source into one active graph, including eligible typed terminal-wildcard lowering, predicted candidate validation, separated evidence dimensions, retained transition plan/apply, config-free legacy clients, per-operation adapters, and static mixed-receiver safety.",
-      "tags": [
-        "spec",
-        "vnext",
-        "legacy",
-        "migration",
-        "bridge"
       ]
     },
     {
@@ -652,9 +605,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "Repo-local operating manual for agents changing scenery itself, including app-root config filenames, the runtime/capability model, trusted edition plan issuance, unioned migration evidence/candidate rules and canonical client auth, local Markdown issue tracking and triage statuses, domain docs, parser/model, boundaries, validation, docs drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular edition-2027 app model, app-root runtime config, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -669,9 +622,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "Concise installed-skill entrypoint for current scenery apps, including target-app AGENTS checks, CLI JSON, edition-2027 graph views/provenance, schema-driven authoring, trusted normalized transactions, unioned evidence-aware mixed bridge safety and canonical client auth, dev runtimes/capabilities, deploy, storage, Postgres, workflows, observability, toolchains, clients, and validation loops.",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Concise installed-skill entrypoint for native edition-2027 Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, dev runtimes and capabilities, deploy, storage, Postgres, durable work, observability, TypeScript clients, and validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -679,26 +632,6 @@
         "toolchain",
         "storage",
         "deploy"
-      ]
-    },
-    {
-      "path": "DSL.md",
-      "title": "scenery DSL Reference",
-      "owner": "scenery maintainers",
-      "status": "active",
-      "quality": "B",
-      "freshness": "current",
-      "last_reviewed": "2026-06-27",
-      "review_after": "2026-07-27",
-      "summary": "Human-readable reference for the current Scenery DSL surface: app config, //scenery directives, request/response/model tags, static model/page IR, generated data/web output, durable task declarations with startup DB reconciliation, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, durable worker lease/heartbeat/complete/fail HTTP endpoints, durable inspect metadata, cron jobs, and inspect commands.",
-      "tags": [
-        "docs",
-        "dsl",
-        "apps",
-        "models",
-        "views",
-        "durable",
-        "cron"
       ]
     },
     {
@@ -710,7 +643,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Agent workflow guide for CLI JSON and app roots, including edition-2027 graph provenance, schema-driven authoring, typed HTTP path tails, trusted normalized plans, retained migration apply and complete rename receipts, typed Go config provenance, unioned evidence-aware mixed bridge checks and canonical client auth, runtime capabilities, deploy, storage, Postgres, observability, toolchains, tests, clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for native edition-2027 app roots, including CLI JSON, graph provenance, schema-driven authoring, typed HTTP path tails, trusted plans and rename receipts, typed Go config, runtime capabilities, deploy, storage, Postgres, observability, tests, clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -762,9 +695,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-08",
-      "summary": "High-level repo map, architectural boundaries, invariants, and cross-cutting concerns, including lightweight PostgreSQL naming, parser-owned go/packages analysis, managed edge and generated-data lifecycles, canonical public local-filesystem storage, and content-addressed repository test execution.",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "High-level repo map, native edition-2027 architecture boundaries and invariants, including analysis-only Go parsing, canonical resource compilation and generation, managed edge, public local-filesystem storage, and content-addressed repository test execution.",
       "tags": [
         "architecture",
         "agents",
@@ -781,7 +714,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Frozen local developer and agent-facing contract for the v0 and edition-2027 CLI/JSON surfaces, including implemented typed HTTP path-tail extensions, graph provenance, recursive authoring schemas, retained issued plans and migration apply, normalized changes and rename receipts, Go config provenance, unioned evidence-aware mixed bridge checks and canonical client auth, app-root discovery, runtimes/capabilities, deploy, data/storage, observability, harness timing, toolchains, generators, tasks, and runtime surfaces.",
+      "summary": "Frozen local developer and agent-facing contract for native edition-2027 applications and independently versioned CLI JSON surfaces, including typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, observability, harness timing, generators, and tasks.",
       "tags": [
         "contract",
         "cli",
@@ -824,8 +757,6 @@
         "docs/schemas/scenery.validation.graph.v1.schema.json",
         "docs/schemas/scenery.validation.plan.v1.schema.json",
         "docs/schemas/scenery.validation.result.v1.schema.json",
-        "docs/schemas/scenery.inspect.models.v1.schema.json",
-        "docs/schemas/scenery.inspect.views.v1.schema.json",
         "docs/schemas/scenery.storage.inspect.v1.schema.json",
         "docs/schemas/scenery.storage.object.v1.schema.json",
         "docs/schemas/scenery.storage.list.v1.schema.json",
@@ -906,9 +837,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-11",
-      "review_after": "2026-08-10",
-      "summary": "Practical recipes for building scenery apps, including post-config mixed migration, retained transition plans, separated migration evidence and approval tokens, safe per-operation adapters, app config/frontends, endpoints, storage, auth/Google connections, middleware, Postgres, durable/cron work, generators, tasks, clients, observability, and validation workflows.",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Practical recipes for building native edition-2027 Scenery apps, including .scn source, generated Go contracts, typed HTTP and internal bindings, constructor capabilities, auth, storage, Postgres, durable work and schedules, TypeScript targets, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",
@@ -1208,11 +1139,6 @@
         "views",
         "generators",
         "agents"
-      ],
-      "schema_refs": [
-        "docs/schemas/scenery.inspect.models.v1.schema.json",
-        "docs/schemas/scenery.inspect.views.v1.schema.json",
-        "docs/schemas/scenery.db.generated_diff.v1.schema.json"
       ]
     },
     {
@@ -1233,9 +1159,6 @@
         "generators",
         "projections",
         "agents"
-      ],
-      "schema_refs": [
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
       ]
     },
     {
@@ -1257,9 +1180,6 @@
         "frontend",
         "pages",
         "agents"
-      ],
-      "schema_refs": [
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
       ]
     },
     {
@@ -1282,9 +1202,6 @@
         "pilot",
         "onlv",
         "agents"
-      ],
-      "schema_refs": [
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
       ]
     },
     {
@@ -1307,9 +1224,6 @@
         "tasks",
         "pilot",
         "agents"
-      ],
-      "schema_refs": [
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
       ]
     },
     {
@@ -1331,10 +1245,6 @@
         "frontend",
         "existing-tables",
         "agents"
-      ],
-      "schema_refs": [
-        "docs/schemas/scenery.inspect.models.v1.schema.json",
-        "docs/schemas/scenery.inspect.views.v1.schema.json"
       ]
     },
     {
@@ -1768,7 +1678,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Completed milestones and shipped behavior, including typed HTTP path-tail profiles, edition-2027 exact-plan transaction and migration conformance, exact-SHA conformance hardening, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
+      "summary": "Completed milestones and shipped behavior, including removal of the Go-directive frontend and mixed legacy bridge, typed HTTP path-tail profiles, edition-2027 exact-plan transaction conformance, exact-SHA conformance hardening, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",

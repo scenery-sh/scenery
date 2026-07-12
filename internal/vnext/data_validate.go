@@ -16,9 +16,6 @@ func validateDataSemantics(root string, resources []Resource) []Diagnostic {
 	productionFixturesAllowed := productionFixturePolicy(resources)
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
-		if resource.Origin.Kind == "legacy_v0" {
-			continue
-		}
 		switch resource.Kind {
 		case "scenery.data-source/v1":
 			provider := byAddress[resolveResourceRef(resource, refString(resource.Spec["provider"]), "provider")]

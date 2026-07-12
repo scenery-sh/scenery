@@ -511,8 +511,6 @@ func runTaskStepWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config
 		return runSceneryTest(ctx, []string{"--app-root", appRoot})
 	case step == "generate":
 		return runGenerateWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, lifecycle)
-	case step == "generate:client":
-		return runGenerateWithHooks(ctx, os.Stdout, []string{"client", "--app-root", appRoot}, lifecycle)
 	case step == "generate:sqlc":
 		return runGenerateWithHooks(ctx, os.Stdout, []string{"sqlc", "--app-root", appRoot}, lifecycle)
 	case step == "db:apply":

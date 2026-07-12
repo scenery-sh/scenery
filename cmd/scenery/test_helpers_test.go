@@ -87,6 +87,15 @@ func writeTestAppFile(t *testing.T, root, rel, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q): %v", path, err)
 	}
+	if rel == ".scenery.json" {
+		contractPath := filepath.Join(root, "scenery.scn")
+		if _, err := os.Stat(contractPath); os.IsNotExist(err) {
+			contract := "language {\n  edition = \"2027\"\n  require_profiles = [\"scenery.compiler-core/v1\", \"scenery.inspection-core/v1\"]\n}\napplication \"test\" { version = \"1.0.0\" }\n"
+			if err := os.WriteFile(contractPath, []byte(contract), 0o644); err != nil {
+				t.Fatalf("WriteFile(%q): %v", contractPath, err)
+			}
+		}
+	}
 }
 
 func writeWatchFile(t *testing.T, root, rel, data string) {
@@ -124,9 +133,61 @@ func captureStdout(t *testing.T, fn func() error) string {
 
 func writeHarnessTestApp(t *testing.T, root, name, body string) {
 	t.Helper()
-	writeTestAppFile(t, root, ".scenery.json", `{"name":"`+name+`","id":"`+name+`-id"}`)
-	writeTestAppFile(t, root, "go.mod", "module example.com/"+name+"\n\ngo 1.26.3\n")
-	writeTestAppFile(t, root, "svc/api.go", "package svc\n\nimport \"context\"\n\n//scenery:api public\nfunc Ping(context.Context) error { "+body+" }\n")
+	for rel, contents := range nativeHarnessTestFiles(t, name, body) {
+		writeTestAppFile(t, root, rel, contents)
+	}
+}
+
+func nativeHarnessTestFiles(t *testing.T, name, body string) map[string]string {
+	t.Helper()
+	extra := ""
+	if strings.Contains(body, "MissingSymbol") {
+		extra = "\nvar _ = MissingSymbol\n"
+	}
+	module := "example.com/" + name
+	return map[string]string{
+		".scenery.json": `{"name":"` + name + `","id":"` + name + `-id"}`,
+		"go.mod":        "module " + module + "\n\ngo 1.26.3\n\nrequire scenery.sh v0.0.0\n\nreplace scenery.sh => " + filepath.ToSlash(repoRootForTest(t)) + "\n",
+		"scenery.scn": `language {
+  edition = "2027"
+  require_profiles = ["scenery.compiler-core/v1", "scenery.go-implementation/v1"]
+}
+workspace {
+  implementation_root "application" {
+    path = "."
+    revision_include = ["**/*.go", "go.mod"]
+  }
+  managed_generated_roots = ["internal/scenerygen"]
+}
+go_module "application" {
+  root = "."
+  import_path = "` + module + `"
+}
+go_toolchain "application" {
+  version = "1.26.3"
+  experiments = []
+}
+go_target "development" {
+  role = "development"
+  platform = "host"
+  toolchain = go_toolchain.application
+  module = go_module.application
+  packages = ["./..."]
+  cgo = "disabled"
+}
+application "` + name + `" {
+  version = "1.0.0"
+}
+`,
+		"svc/api.go": `package svc
+
+import "context"
+
+func Ping(context.Context) error {
+  return nil
+}
+` + extra,
+	}
 }
 
 func writeHarnessSelfRepo(t *testing.T, schema string, requestedSchemas ...string) string {

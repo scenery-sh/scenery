@@ -22,13 +22,11 @@ func validateSecurityResources(resources []Resource) []Diagnostic {
 		case "scenery.pipeline/v1":
 			diagnostics = append(diagnostics, validatePipelineResource(resource)...)
 		case "scenery.middleware/v1":
-			if resource.Origin.Kind != "legacy_v0" {
-				diagnostics = append(diagnostics, securityDiagnostic("SCN4203", "unsupported_profile: custom middleware requires a declared middleware ABI profile", resource, "/spec"))
-			}
+			diagnostics = append(diagnostics, securityDiagnostic("SCN4203", "unsupported_profile: custom middleware requires a declared middleware ABI profile", resource, "/spec"))
 		}
 	}
 	for _, resource := range resources {
-		if resource.Kind == "scenery.binding/v1" && resource.Origin.Kind != "legacy_v0" {
+		if resource.Kind == "scenery.binding/v1" {
 			diagnostics = append(diagnostics, validateBindingAuthentication(byAddress, resource)...)
 			diagnostics = append(diagnostics, validateBindingAuthorizationTypes(byAddress, resource)...)
 		}

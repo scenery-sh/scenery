@@ -1,7 +1,6 @@
 package build
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +8,6 @@ import (
 
 	"scenery.sh/internal/app"
 	"scenery.sh/internal/codegen"
-	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 	"scenery.sh/internal/vnext"
@@ -20,46 +18,36 @@ func Prepare(appRoot string, model *model.App, cfg app.Config) (*Result, error) 
 }
 
 func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot) (*Result, error) {
-	goBuildFlags := normalizeGoBuildFlags(cfg.Build.GoFlags)
-	var contract *vnext.Result
-	var target *vnext.GoBuildTarget
-	artifacts, err := writeGeneratedInspectArtifacts(appRoot, cfg, model)
+	contract, err := vnext.Check(appRoot)
 	if err != nil {
 		return nil, err
 	}
-	codegenOptions := codegen.Options{NativeServices: map[string]bool{}, BridgeServices: map[string]bool{}}
-	if pathExists(filepath.Join(appRoot, "scenery.scn")) {
-		contractResult, contractErr := vnext.Check(appRoot)
-		if contractErr != nil {
-			return nil, contractErr
-		}
-		contract = contractResult
-		if !contract.Valid() {
-			message := "edition-2027 contract or generated artifacts are invalid"
-			for _, diagnostic := range contract.Diagnostics {
-				if diagnostic.Severity == "error" {
-					message = diagnostic.Code + ": " + diagnostic.Message
-					break
-				}
+	if !contract.Valid() {
+		message := "edition-2027 contract or generated artifacts are invalid"
+		for _, diagnostic := range contract.Diagnostics {
+			if diagnostic.Severity == "error" {
+				message = diagnostic.Code + ": " + diagnostic.Message
+				break
 			}
-			return nil, fmt.Errorf("vNext build preparation failed: %s", message)
 		}
-		runtimePlan, planErr := vnext.BuildRuntimeIntegrationPlan(contract)
-		if planErr != nil {
-			return nil, planErr
-		}
-		codegenOptions.NativeServices = runtimePlan.NativeServices
-		codegenOptions.BridgeServices = runtimePlan.BridgeServices
-		codegenOptions.CompositionImport = runtimePlan.CompositionImport
-		resolvedTarget, targetErr := vnext.ResolveGoBuildTarget(contract, "", "development")
-		if targetErr != nil {
-			return nil, targetErr
-		}
-		target = &resolvedTarget
-		goBuildFlags = append([]string(nil), target.Context.BuildFlags...)
-		if len(target.Context.BuildTags) > 0 {
-			goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
-		}
+		return nil, fmt.Errorf("vNext build preparation failed: %s", message)
+	}
+	target, err := vnext.ResolveGoBuildTarget(contract, "", "development")
+	if err != nil {
+		return nil, err
+	}
+	return prepareWithContractTarget(appRoot, model, cfg, snapshot, contract, target)
+}
+
+func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config, snapshot *SourceSnapshot, contract *vnext.Result, target vnext.GoBuildTarget) (*Result, error) {
+	runtimePlan, err := vnext.BuildRuntimeIntegrationPlan(contract)
+	if err != nil {
+		return nil, err
+	}
+	codegenOptions := codegen.Options{CompositionImport: runtimePlan.CompositionImport}
+	goBuildFlags := append([]string(nil), target.Context.BuildFlags...)
+	if len(target.Context.BuildTags) > 0 {
+		goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
 	gen, err := codegen.GenerateWithOptions(model, cfg, codegenOptions)
 	if err != nil {
@@ -141,102 +129,14 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 		GeneratedFiles:            generatedFiles,
 		GoBuildFlags:              append([]string(nil), goBuildFlags...),
 		VNextContract:             contract,
-		VNextTarget:               target,
+		VNextTarget:               &target,
 	}
-	if target != nil {
-		result.GoEnvironment = parse.GoTargetEnvironment(target.Context)
-		// vNext reuse is disabled until the runtime-bundle target and input
-		// manifest are persisted in the existing cache key.
-		result.ReuseCompiled = false
-	}
+	result.GoEnvironment = parse.GoTargetEnvironment(target.Context)
+	// Runtime bundles are target-specific, so an unbound workspace binary is
+	// never reused across build targets.
+	result.ReuseCompiled = false
 	if err := WriteLatestBuildManifest(result, "prepared"); err != nil {
 		return nil, err
 	}
-	if err := writeGeneratedManifest(appRoot, artifacts); err != nil {
-		return nil, err
-	}
 	return result, nil
-}
-
-func writeGeneratedInspectArtifacts(appRoot string, cfg app.Config, appModel *model.App) (*generatedInspectArtifacts, error) {
-	artifacts := &generatedInspectArtifacts{
-		App:       inspectdata.BuildAppResponse(appRoot, cfg, appModel),
-		Routes:    inspectdata.BuildRoutesResponse(appRoot, cfg, appModel),
-		Services:  inspectdata.BuildServicesResponse(appRoot, cfg, appModel),
-		Endpoints: inspectdata.BuildEndpointsResponse(appRoot, cfg, appModel),
-		Models:    inspectdata.BuildModelsResponse(appRoot, cfg, appModel),
-		Views:     inspectdata.BuildViewsResponse(appRoot, cfg, appModel),
-	}
-	genDir := filepath.Join(appRoot, ".scenery", "gen")
-	files := map[string]*[]byte{
-		"app.json":       &artifacts.AppJSON,
-		"routes.json":    &artifacts.RoutesJSON,
-		"services.json":  &artifacts.ServicesJSON,
-		"endpoints.json": &artifacts.EndpointsJSON,
-		"models.json":    &artifacts.ModelsJSON,
-		"views.json":     &artifacts.ViewsJSON,
-	}
-	payloads := map[string]any{
-		"app.json":       artifacts.App,
-		"routes.json":    artifacts.Routes,
-		"services.json":  artifacts.Services,
-		"endpoints.json": artifacts.Endpoints,
-		"models.json":    artifacts.Models,
-		"views.json":     artifacts.Views,
-	}
-	for name, target := range files {
-		data, err := json.MarshalIndent(payloads[name], "", "  ")
-		if err != nil {
-			return nil, err
-		}
-		data = append(data, '\n')
-		if err := writeFileIfChanged(genDir, name, data); err != nil {
-			return nil, err
-		}
-		*target = data
-	}
-	return artifacts, nil
-}
-
-func writeGeneratedManifest(appRoot string, artifacts *generatedInspectArtifacts) error {
-	if artifacts == nil {
-		return fmt.Errorf("nil generated inspect artifacts")
-	}
-	manifest := GeneratedManifest{
-		SchemaVersion: "scenery.gen.manifest.v1",
-		App:           artifacts.App.App,
-		Counts:        artifacts.App.Counts,
-		Artifacts: GeneratedManifestPaths{
-			App:         ".scenery/gen/app.json",
-			Routes:      ".scenery/gen/routes.json",
-			Services:    ".scenery/gen/services.json",
-			Endpoints:   ".scenery/gen/endpoints.json",
-			Models:      ".scenery/gen/models.json",
-			Views:       ".scenery/gen/views.json",
-			BuildLatest: ".scenery/build/latest.json",
-		},
-		Schemas: GeneratedManifestSchema{
-			App:         artifacts.App.SchemaVersion,
-			Routes:      artifacts.Routes.SchemaVersion,
-			Services:    artifacts.Services.SchemaVersion,
-			Endpoints:   artifacts.Endpoints.SchemaVersion,
-			Models:      artifacts.Models.SchemaVersion,
-			Views:       artifacts.Views.SchemaVersion,
-			BuildLatest: "scenery.build.latest.v1",
-		},
-		Hashes: GeneratedManifestHashes{
-			App:       sha256Hex(artifacts.AppJSON),
-			Routes:    sha256Hex(artifacts.RoutesJSON),
-			Services:  sha256Hex(artifacts.ServicesJSON),
-			Endpoints: sha256Hex(artifacts.EndpointsJSON),
-			Models:    sha256Hex(artifacts.ModelsJSON),
-			Views:     sha256Hex(artifacts.ViewsJSON),
-		},
-	}
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return writeFileIfChanged(filepath.Join(appRoot, ".scenery", "gen"), "manifest.json", data)
 }

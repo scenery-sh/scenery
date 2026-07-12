@@ -3,8 +3,6 @@ language {
 
   require_profiles = [
     "scenery.compiler-core/v1",
-    "scenery.go-implementation/v1",
-    "scenery.runtime-http/v1",
     "scenery.inspection-core/v1",
   ]
 }

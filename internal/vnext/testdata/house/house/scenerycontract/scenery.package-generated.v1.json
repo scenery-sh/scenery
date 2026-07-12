@@ -2,7 +2,7 @@
   "api_version": "scenery.package-generated.v1",
   "artifact_kind": "go_package_contract",
   "capability_interface_abi_ranges": {},
-  "content_digest": "sha256:d3d4b3c97febd8629e3451b82f31093cc7adb4745de49632b633b74abe1ee61a",
+  "content_digest": "sha256:64fcc2547f2d85b14c6c13647005e85a8b04948d741b321534df1d6231c0f317",
   "covered": [
     "binding.process_scene_http",
     "execution.process_scene_direct",
@@ -20,7 +20,7 @@
   "go_implementation_abi_range": "\u003e=1.0.0, \u003c2.0.0",
   "import_path": "example.test/clean-tech/house/scenerycontract",
   "package": "house",
-  "package_contract_abi_revision": "sha256:6cb7f6946c19487215fa6adab199e86895733ed3e15b7a66546993cd9a0459bf",
+  "package_contract_abi_revision": "sha256:1735b75d6b914051911f9a653e7ee8b9ef8434bd29a5e8bc7433bb43a0b79b70",
   "package_identity": "house",
   "package_version": "1.0.0",
   "runtime_abi_range": "scenery.go-runtime/v1"

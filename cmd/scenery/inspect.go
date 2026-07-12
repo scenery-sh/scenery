@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,31 +9,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/appwalk"
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
-	"scenery.sh/internal/model"
-	"scenery.sh/internal/parse"
 	"scenery.sh/internal/postgresdb"
 	"scenery.sh/internal/vnext"
 )
-
-var inspectAppModelCache = struct {
-	sync.Mutex
-	items map[string]*inspectAppModelCacheEntry
-}{
-	items: map[string]*inspectAppModelCacheEntry{},
-}
-
-type inspectAppModelCacheEntry struct {
-	ready chan struct{}
-	app   *model.App
-	err   error
-}
 
 type inspectOptions struct {
 	Subject  string
@@ -200,7 +181,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return err
 	}
 	var merged *vnext.Result
-	if pathExists(filepath.Join(appRoot, "scenery.scn")) && (opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable") {
+	if opts.Subject == "app" || opts.Subject == "services" || opts.Subject == "routes" || opts.Subject == "endpoints" || opts.Subject == "durable" {
 		compiled, compileErr := vnext.Compile(appRoot)
 		if compileErr != nil {
 			return compileErr
@@ -213,91 +194,21 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 
 	switch opts.Subject {
 	case "app":
-		if merged != nil {
-			return writeInspectJSON(stdout, buildVNextInspectAppResponse(appRoot, cfg, merged))
-		}
-		if payload, ok, err := inspectdata.ReadGeneratedApp(appRoot); err != nil {
-			return err
-		} else if ok {
-			return writeInspectJSON(stdout, payload)
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, inspectdata.BuildAppResponse(appRoot, cfg, model))
+		return writeInspectJSON(stdout, buildVNextInspectAppResponse(appRoot, cfg, merged))
 	case "services":
-		if merged != nil {
-			return writeInspectJSON(stdout, buildVNextInspectServicesResponse(appRoot, cfg, merged))
-		}
-		if payload, ok, err := inspectdata.ReadGeneratedServices(appRoot); err != nil {
-			return err
-		} else if ok {
-			return writeInspectJSON(stdout, payload)
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, inspectdata.BuildServicesResponse(appRoot, cfg, model))
+		return writeInspectJSON(stdout, buildVNextInspectServicesResponse(appRoot, cfg, merged))
 	case "routes":
-		if merged != nil {
-			response, err := buildVNextInspectRoutesResponse(appRoot, cfg, merged)
-			if err != nil {
-				return err
-			}
-			return writeInspectJSON(stdout, response)
-		}
-		if payload, ok, err := inspectdata.ReadGeneratedRoutes(appRoot); err != nil {
-			return err
-		} else if ok {
-			return writeInspectJSON(stdout, payload)
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
+		response, err := buildVNextInspectRoutesResponse(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}
-		return writeInspectJSON(stdout, inspectdata.BuildRoutesResponse(appRoot, cfg, model))
+		return writeInspectJSON(stdout, response)
 	case "endpoints":
-		if merged != nil {
-			response, err := buildVNextInspectEndpointsResponse(appRoot, cfg, merged)
-			if err != nil {
-				return err
-			}
-			return writeInspectJSON(stdout, response)
-		}
-		if payload, ok, err := inspectdata.ReadGeneratedEndpoints(appRoot); err != nil {
-			return err
-		} else if ok {
-			return writeInspectJSON(stdout, payload)
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
+		response, err := buildVNextInspectEndpointsResponse(appRoot, cfg, merged)
 		if err != nil {
 			return err
 		}
-		return writeInspectJSON(stdout, inspectdata.BuildEndpointsResponse(appRoot, cfg, model))
-	case "models":
-		if payload, ok, err := inspectdata.ReadGeneratedModels(appRoot); err != nil {
-			return err
-		} else if ok {
-			return writeInspectJSON(stdout, payload)
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, inspectdata.BuildModelsResponse(appRoot, cfg, model))
-	case "views":
-		if payload, ok, err := inspectdata.ReadGeneratedViews(appRoot); err != nil {
-			return err
-		} else if ok {
-			return writeInspectJSON(stdout, payload)
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, inspectdata.BuildViewsResponse(appRoot, cfg, model))
+		return writeInspectJSON(stdout, response)
 	case "build":
 		resp, err := buildInspectBuildResponse(appRoot, cfg)
 		if err != nil {
@@ -317,14 +228,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		}
 		return writeInspectJSON(stdout, resp)
 	case "durable":
-		if merged != nil {
-			return writeInspectJSON(stdout, buildVNextInspectDurableResponse(appRoot, cfg, merged))
-		}
-		model, err := cachedInspectAppModel(appRoot, cfg.Name)
-		if err != nil {
-			return err
-		}
-		return writeInspectJSON(stdout, buildInspectDurableResponse(appRoot, cfg, model))
+		return writeInspectJSON(stdout, buildVNextInspectDurableResponse(appRoot, cfg, merged))
 	case "storage":
 		return writeInspectJSON(stdout, buildInspectStorageResponse(context.Background(), appRoot, cfg))
 	case "validation":
@@ -439,80 +343,6 @@ func writeInspectJSON(w io.Writer, payload any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(payload)
-}
-
-func cachedInspectAppModel(appRoot, appName string) (*model.App, error) {
-	key, err := inspectAppModelCacheKey(appRoot, appName)
-	if err != nil {
-		return nil, err
-	}
-	inspectAppModelCache.Lock()
-	if entry := inspectAppModelCache.items[key]; entry != nil {
-		inspectAppModelCache.Unlock()
-		<-entry.ready
-		return entry.app, entry.err
-	}
-	entry := &inspectAppModelCacheEntry{ready: make(chan struct{})}
-	inspectAppModelCache.items[key] = entry
-	inspectAppModelCache.Unlock()
-
-	appModel, err := parse.App(appRoot, appName)
-	if err != nil {
-		if _, statErr := os.Stat(filepath.Join(appRoot, "scenery.scn")); statErr == nil {
-			appModel, err = parse.AppAllowEmpty(appRoot, appName)
-		}
-	}
-
-	inspectAppModelCache.Lock()
-	entry.app = appModel
-	entry.err = err
-	if err != nil {
-		delete(inspectAppModelCache.items, key)
-	}
-	close(entry.ready)
-	inspectAppModelCache.Unlock()
-
-	return appModel, err
-}
-
-func inspectAppModelCacheKey(appRoot, appName string) (string, error) {
-	h := sha256.New()
-	_, _ = h.Write([]byte(appName))
-	_, _ = h.Write([]byte{0})
-	err := filepath.WalkDir(appRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if appwalk.SkipDir(appRoot, path) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, err := filepath.Rel(appRoot, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		switch {
-		case appcfg.IsConfigFilename(rel), rel == "go.mod", rel == "go.sum", strings.HasSuffix(rel, ".go"):
-		default:
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		_, _ = h.Write([]byte(rel))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write(data)
-		_, _ = h.Write([]byte{0})
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func buildInspectBuildResponse(appRoot string, cfg appcfg.Config) (inspectBuildResponse, error) {
@@ -675,55 +505,6 @@ func storageStoreUsage(root string) (int, int64) {
 	return count, total
 }
 
-func buildInspectDurableResponse(appRoot string, cfg appcfg.Config, appModel *model.App) inspectDurableResponse {
-	databaseURL := durableDatabaseURLForInspect(appRoot, cfg)
-	declarations := durableDeclarations(appRoot, cfg, appModel)
-	services := durableServices(declarations)
-	return inspectDurableResponse{
-		SchemaVersion: "scenery.inspect.durable.v2",
-		App:           inspectAppInfo(appRoot, cfg, appModel),
-		Durable: inspectDurableRecord{
-			Database: inspectDurableDatabase{
-				Name: postgresdb.DatabaseNameFromURL(databaseURL),
-				URL:  postgresdb.RedactURL(databaseURL),
-			},
-			Schema:       "scenery",
-			TaskCount:    len(declarations),
-			ServiceCount: len(services),
-		},
-		Declarations: declarations,
-		Services:     services,
-	}
-}
-
-func durableDeclarations(appRoot string, cfg appcfg.Config, appModel *model.App) []durableDeclaration {
-	if appModel == nil {
-		return nil
-	}
-	out := make([]durableDeclaration, 0, len(appModel.Runtime))
-	for _, decl := range appModel.Runtime {
-		if decl.Kind != model.RuntimeDeclarationDurableTask {
-			continue
-		}
-		position := decl.Package.Analysis.Fset.Position(decl.TokenPos)
-		schema := decl.ServiceName
-		if svc, ok := cfg.DatabaseService(decl.ServiceName); ok {
-			schema = svc.Schema
-		}
-		out = append(out, durableDeclaration{
-			Kind:    string(decl.Kind),
-			Name:    decl.Name,
-			Service: decl.ServiceName,
-			Schema:  schema,
-			File:    normalizeDiagnosticFile(appRoot, position.Filename),
-			Line:    position.Line,
-			Input:   decl.InputType,
-			Output:  decl.OutputType,
-		})
-	}
-	return out
-}
-
 func durableServices(declarations []durableDeclaration) []durableServiceRecord {
 	byName := make(map[string]durableServiceRecord)
 	for _, decl := range declarations {
@@ -764,16 +545,13 @@ func durableDatabaseURLForInspect(appRoot string, cfg appcfg.Config) string {
 	return ""
 }
 
-func inspectAppInfo(appRoot string, cfg appcfg.Config, app *model.App) inspectdata.AppRef {
-	if app == nil {
-		return inspectdata.AppRef{
-			Name:       cfg.Name,
-			ID:         cfg.ID,
-			Root:       appRoot,
-			ConfigPath: cfg.SourcePath(appRoot),
-		}
+func inspectAppInfo(appRoot string, cfg appcfg.Config, _ any) inspectdata.AppRef {
+	return inspectdata.AppRef{
+		Name:       cfg.Name,
+		ID:         cfg.ID,
+		Root:       appRoot,
+		ConfigPath: cfg.SourcePath(appRoot),
 	}
-	return inspectdata.BuildAppResponse(appRoot, cfg, app).App
 }
 
 func pathExists(path string) bool {

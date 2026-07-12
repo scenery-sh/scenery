@@ -290,16 +290,7 @@ type StorageStoreConfig struct {
 }
 
 type GeneratorsConfig struct {
-	Clients []ClientGeneratorConfig `json:"clients"`
-	SQLC    SQLCGeneratorConfig     `json:"sqlc"`
-}
-
-type ClientGeneratorConfig struct {
-	ID     string `json:"id"`
-	Kind   string `json:"kind"`
-	Target string `json:"target"`
-	Lang   string `json:"lang"`
-	Output string `json:"output"`
+	SQLC SQLCGeneratorConfig `json:"sqlc"`
 }
 
 type SQLCGeneratorConfig struct {
@@ -329,7 +320,7 @@ type DatabaseApplyConfig struct {
 }
 
 type DatabaseSeedConfig struct {
-	Enabled *bool `json:"enabled"`
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 func (c DatabaseSeedConfig) IsEnabled() bool {

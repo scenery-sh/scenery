@@ -411,10 +411,6 @@ func ensureFieldProvenance(resource *Resource, path, stage string) {
 	field := nearestFieldProvenance(resource.Origin, path)
 	if field.Kind == "" {
 		field = FieldProvenance{Kind: "derived", ProvidedBy: resource.Address, SourceAddress: resource.Address, Transformations: []string{"compiler_" + stage}}
-		if resource.Origin.Kind == "legacy_v0" {
-			field.Kind = "legacy_frontend"
-			field.Transformations = []string{"legacy_lowering"}
-		}
 	}
 	if resource.Origin.FieldProvenance == nil {
 		resource.Origin.FieldProvenance = map[string]FieldProvenance{}

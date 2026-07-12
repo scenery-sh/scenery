@@ -13,9 +13,6 @@ func validateScheduleAndEventSemantics(resources []Resource) []Diagnostic {
 	byAddress := resourcesByAddress(&Manifest{Resources: resources})
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
-		if resource.Origin.Kind == "legacy_v0" {
-			continue
-		}
 		switch resource.Kind {
 		case "scenery.schedule/v1":
 			diagnostics = append(diagnostics, validateScheduleSemantics(byAddress, resource)...)

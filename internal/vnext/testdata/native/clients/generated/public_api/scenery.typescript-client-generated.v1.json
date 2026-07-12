@@ -360,7 +360,7 @@
       }
     ]
   },
-  "content_digest": "sha256:952e475165e5858e65981468dc58452553d57e44bf2745f63fc80313ddf713ef",
+  "content_digest": "sha256:9b5a8d041cced41458be8900d619e13c8b084acb242feda61ade45e0e415cded",
   "contract_revision": "sha256:fe7e93d91bc599c07fea0d0416d3219745e3c8018251d3b96804d84327115f6c",
   "covered_bindings": [
     "house/binding/process_scene_http"
@@ -380,7 +380,6 @@
     "index.ts",
     "metadata.ts",
     "runtime.ts",
-    "scenery.client-selection.v1.json",
     "types.ts"
   ],
   "generator": "scenery.vnext.typescript/v1",
@@ -388,8 +387,6 @@
     "app/http_gateway/public_api": "sha256:8c362f5e3d8ac7035ed57c1deb7e46d84d29bae7d2f884e1991a308fce57fd0a"
   },
   "javascript_target": null,
-  "legacy_client_revision": null,
-  "legacy_fixture_catalog_digest": null,
   "openapi_revisions": {
     "app/http_gateway/public_api": "sha256:50cf34ba96878f91d323e604864faf4b8eb55e80a29b250a36b5d8f340e47e46"
   },

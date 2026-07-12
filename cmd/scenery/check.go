@@ -18,7 +18,6 @@ import (
 	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 	"scenery.sh/internal/parse"
-	"scenery.sh/internal/schemagen"
 )
 
 type checkOptions struct {
@@ -81,23 +80,11 @@ func runSceneryCheck(ctx context.Context, stdout io.Writer, args []string) error
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "env", err)
 	}
 
-	model, err := parse.App(appRoot, cfg.Name)
+	model, err := parse.Analyze(appRoot, cfg.Name)
 	if err != nil {
 		return renderCheckFailure(stdout, opts.JSON, appInfo, "parse", err)
 	}
 	appInfo.ModulePath = model.ModulePath
-	if dataPlan, ok, err := buildDataGeneratorPlan(appRoot, cfg, model); err != nil {
-		return renderCheckFailure(stdout, opts.JSON, appInfo, "model-schema", err)
-	} else if ok {
-		drift, err := generatedSchemaDrift(appRoot, dataPlan.Schemas)
-		if err != nil {
-			return renderCheckFailure(stdout, opts.JSON, appInfo, "model-schema", err)
-		}
-		if len(drift) > 0 {
-			return renderCheckGeneratedSchemaDrift(stdout, opts.JSON, appInfo, drift)
-		}
-	}
-
 	snapshot, snapshotErr := scanWatchedFiles(appRoot)
 	graphFingerprint := ""
 	if snapshotErr == nil {
@@ -189,34 +176,6 @@ func hasAnyEnvValue(env []string, names ...string) bool {
 	return false
 }
 
-func renderCheckGeneratedSchemaDrift(stdout io.Writer, jsonMode bool, app inspectdata.AppRef, drift []schemagen.Drift) error {
-	var messages []string
-	diagnostics := make([]checkDiagnostic, 0, len(drift))
-	for _, item := range drift {
-		messages = append(messages, item.Message)
-		diagnostics = append(diagnostics, checkDiagnostic{
-			Stage:           "model-schema",
-			Severity:        "error",
-			File:            item.SourcePath,
-			Message:         item.Message,
-			SuggestedAction: "Run `scenery generate data --dry-run --json` and update the app-owned schema file to match the generated desired schema.",
-		})
-	}
-	err := errors.New(strings.Join(messages, "\n"))
-	if !jsonMode {
-		return err
-	}
-	if err := writeCheckJSON(stdout, checkResponse{
-		SchemaVersion: "scenery.check.result.v1",
-		OK:            false,
-		App:           app,
-		Diagnostics:   diagnostics,
-	}); err != nil {
-		return err
-	}
-	return &silentCLIError{err: err}
-}
-
 func renderCheckDiagnostics(stdout io.Writer, jsonMode bool, app inspectdata.AppRef, diagnostics []checkDiagnostic) error {
 	messages := make([]string, 0, len(diagnostics))
 	for _, diag := range diagnostics {
@@ -283,20 +242,7 @@ func cachedCheckResult(appRoot string, cfg appcfg.Config, graphFingerprint strin
 	if toolIsNewerThanBuild(appRoot) {
 		return false, inspectdata.AppRef{}, nil
 	}
-	app, ok, err := inspectdata.ReadGeneratedApp(appRoot)
-	if err != nil || !ok {
-		return false, inspectdata.AppRef{}, err
-	}
-	if _, ok, err := inspectdata.ReadGeneratedRoutes(appRoot); err != nil || !ok {
-		return false, inspectdata.AppRef{}, err
-	}
-	if _, ok, err := inspectdata.ReadGeneratedServices(appRoot); err != nil || !ok {
-		return false, inspectdata.AppRef{}, err
-	}
-	if _, ok, err := inspectdata.ReadGeneratedEndpoints(appRoot); err != nil || !ok {
-		return false, inspectdata.AppRef{}, err
-	}
-	return true, app.App, nil
+	return true, inspectdata.AppRef{Name: manifest.App.Name, ID: manifest.App.ID, Root: manifest.App.Root, ConfigPath: manifest.App.ConfigPath}, nil
 }
 
 func toolIsNewerThanBuild(appRoot string) bool {
@@ -438,7 +384,7 @@ func suggestedActionForDiagnostic(stage, message string) string {
 	case strings.Contains(message, "updates to go.mod needed"):
 		return "Run `go mod tidy` in the app and rerun `scenery check --json`."
 	case stage == "parse":
-		return "Fix the source or scenery directive error, then rerun `scenery check --json`."
+		return "Fix the source parse error, then rerun `scenery check --json`."
 	case stage == "prepare":
 		return "Fix the generated workspace or dependency setup issue, then rerun `scenery check --json`."
 	default:

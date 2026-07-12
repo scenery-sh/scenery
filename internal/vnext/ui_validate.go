@@ -16,9 +16,6 @@ func validateUISemantics(root string, resources []Resource) []Diagnostic {
 	rendererRuntimes := map[string]string{}
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
-		if resource.Origin.Kind == "legacy_v0" {
-			continue
-		}
 		switch resource.Kind {
 		case "scenery.page/v1":
 			path := stringValue(resource.Spec["path"])

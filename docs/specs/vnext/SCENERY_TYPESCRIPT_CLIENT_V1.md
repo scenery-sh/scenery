@@ -36,8 +36,6 @@ It does not generate:
 - WebSocket, streaming, event-consumer, or arbitrary CLI clients;
 - a client for an unexported binding.
 
-Mixed-mode generation and legacy-client coexistence are governed by `scenery.legacy-bridge/v1`.
-
 ## 3. Client target
 
 A client target selects an exact public surface:
@@ -329,13 +327,7 @@ The descriptor records the recommendation and rules. It never silently chooses o
 
 Method renames require explicit compatibility aliases with a declared removal version. An alias delegates to the same generated binding and is part of the API projection.
 
-## 17. Mixed-mode behavior
-
-Only complete verified active contracts enter the native merged client. `implementation_declared`, advisory, opaque, or custom legacy wire behavior cannot be presented as native verified behavior.
-
-The legacy bridge may emit a distinct versioned legacy client. A selection manifest gives each active operation exactly one generated client family and revision. Client-family cutover follows the bridge's `generated_client` operational class and deployed-consumer gates. When the shared v0 config has already been removed, the legacy family derives application identity, authentication/client options, and selected bindings from structured canonical resources in the compiled migration snapshot; generation MUST NOT rediscover an ambient `.scenery.json` or `.config.json` or infer options from free-form source symbols.
-
-## 18. Generation workflow
+## 17. Generation workflow
 
 `scenery check` builds the expected client in an overlay and reports missing/stale selected committed artifacts without modifying files. `scenery generate --target typescript_client.public_api` atomically replaces the descriptor-covered output. `scenery generate --check` verifies byte identity and is suitable for CI.
 
@@ -343,7 +335,7 @@ Unknown files under a generated client root are not adopted or deleted unless th
 
 Given identical graph, target, profiles, catalogs, and generator version, output bytes MUST be identical across hosts.
 
-## 19. Security
+## 18. Security
 
 Generated decoders validate all declared bounds, variants, mappings, media types, and outcome coverage. They reject prototype-polluting object keys where object construction could interpret them specially and use null-prototype maps or safe own-property checks.
 
@@ -351,7 +343,7 @@ Secrets, authentication credentials, sensitive values, and raw response bodies a
 
 The client does not weaken an operation's binding requirements. It cannot generate an anonymous convenience method for an authenticated binding or expose an internal binding publicly.
 
-## 20. Conformance requirements
+## 19. Conformance requirements
 
 A conforming generator/runtime passes fixtures for:
 
@@ -370,7 +362,6 @@ A conforming generator/runtime passes fixtures for:
 - artifact projection and descriptor revisions;
 - semantic-version recommendations from compatibility-core;
 - public-only and framework-enforced filtering;
-- mixed native/legacy client selection without duplicate ownership;
 - when `scenery.http-path-tail/v1` is claimed, independent tail-segment encoding, structural slash preservation, and empty-tail prefix behavior;
 - overlay check, atomic generation, stale detection, and clean-tree CI;
 - byte-identical output from at least two supported host platforms.

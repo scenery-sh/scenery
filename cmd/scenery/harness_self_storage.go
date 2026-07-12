@@ -204,13 +204,13 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	}
 	var probe struct {
 		Key       string `json:"key"`
-		SizeBytes int64  `json:"size_bytes"`
+		SizeBytes string `json:"size_bytes"`
 		Body      string `json:"body"`
 	}
 	if err := json.Unmarshal([]byte(probeBody), &probe); err != nil {
 		return summary, fmt.Errorf("parse local storage probe response: %w: %s", err, probeBody)
 	}
-	if probe.Key != "probe/public.txt" || probe.Body != "hello public" || probe.SizeBytes != int64(len("hello public")) {
+	if probe.Key != "probe/public.txt" || probe.Body != "hello public" || probe.SizeBytes != strconv.Itoa(len("hello public")) {
 		return summary, fmt.Errorf("unexpected local storage probe response: %s", probeBody)
 	}
 	inspectCommand := []string{sceneryPath, "inspect", "storage", "--app-root", fixtureRoot, "--json"}
@@ -258,7 +258,7 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	}
 	var restartProbe struct {
 		Key       string `json:"key"`
-		SizeBytes int64  `json:"size_bytes"`
+		SizeBytes string `json:"size_bytes"`
 		Body      string `json:"body"`
 	}
 	if err := json.Unmarshal([]byte(restartProbeBody), &restartProbe); err != nil {

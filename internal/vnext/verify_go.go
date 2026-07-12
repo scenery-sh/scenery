@@ -3,7 +3,6 @@ package vnext
 import (
 	"fmt"
 
-	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 )
 
@@ -25,15 +24,6 @@ func verifyGoImplementation(result *Result) []Diagnostic {
 		}
 		files = append(files, moduleFiles...)
 	}
-	bootstrapOverlay, err := goGenerationBootstrapOverlay(result, files)
-	if err != nil {
-		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
-	}
-	bridgeFiles, err := generateLegacyBridgeArtifacts(result, nativeApplicationServices(result), bootstrapOverlay)
-	if err != nil {
-		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
-	}
-	files = append(files, bridgeFiles...)
 	applicationFiles, err := generateApplicationArtifacts(result)
 	if err != nil {
 		return []Diagnostic{{Code: "SCN6207", Severity: "error", Message: err.Error()}}
@@ -55,13 +45,7 @@ func verifyGoImplementation(result *Result) []Diagnostic {
 	}
 	var diagnostics []Diagnostic
 	for _, target := range targets {
-		var appModelErr error
-		var appModel = (*model.App)(nil)
-		if migrationHasNoLegacyOwner(result.Migration) {
-			appModel, appModelErr = parse.AppWithOverlayTargetAllowEmpty(result.Root, result.Manifest.Application.Name, overlay, target.Context)
-		} else {
-			appModel, appModelErr = parse.AppWithOverlayTarget(result.Root, result.Manifest.Application.Name, overlay, target.Context)
-		}
+		appModel, appModelErr := parse.AnalyzeTarget(result.Root, result.Manifest.Application.Name, overlay, target.Context)
 		if appModelErr != nil {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("staged Go implementation verification failed for %s: %v", target.Resource.Address, appModelErr), Address: target.Resource.Address})
 			continue
@@ -69,22 +53,10 @@ func verifyGoImplementation(result *Result) []Diagnostic {
 		if stringValue(target.Effective["role"]) == "contract" {
 			continue
 		}
-		diagnostics = append(diagnostics, validateNativeGoServices(appModel, result.Manifest.Resources, result.Migration)...)
-		diagnostics = append(diagnostics, validateNativeGoHandlers(appModel, result.Manifest.Resources, result.Migration)...)
+		diagnostics = append(diagnostics, validateNativeGoServices(appModel, result.Manifest.Resources)...)
+		diagnostics = append(diagnostics, validateNativeGoHandlers(appModel, result.Manifest.Resources)...)
 	}
 	return diagnostics
-}
-
-func migrationHasNoLegacyOwner(migration *Migration) bool {
-	if migration == nil || len(migration.Services) == 0 {
-		return false
-	}
-	for _, service := range migration.Services {
-		if service.Active != "native" {
-			return false
-		}
-	}
-	return true
 }
 
 func hasNativeGoHandlers(resources []Resource) bool {
@@ -93,7 +65,7 @@ func hasNativeGoHandlers(resources []Resource) bool {
 			continue
 		}
 		handler, _ := resource.Spec["handler"].(map[string]any)
-		if handler != nil && handler["adapter"] != "legacy_go_v0" {
+		if handler != nil {
 			return true
 		}
 	}

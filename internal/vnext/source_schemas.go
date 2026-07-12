@@ -115,7 +115,7 @@ var (
 	unionVariantSourceSchema = sourceSchema("scenery.union.variant/v1", 1, []string{"type", "wire_tag"}, []string{"type"}, nil)
 
 	operationHandlerSourceSchema = sourceSchema("scenery.operation.handler/v1", 0,
-		[]string{"method", "adapter", "legacy_symbol", "legacy_file", "legacy_receiver", "legacy_has_payload"}, []string{"method"}, nil)
+		[]string{"method", "adapter"}, []string{"method"}, nil)
 	operationOutcomeSourceSchema     = sourceSchema("scenery.operation.outcome/v1", 1, []string{"type"}, []string{"type"}, nil)
 	operationIdempotencySourceSchema = sourceSchema("scenery.operation.idempotency/v1", 0, []string{"mode", "key"}, []string{"mode"}, nil)
 
@@ -377,18 +377,4 @@ func authoredEnumAllows(field authoredAttributeSchema, value string) bool {
 		}
 	}
 	return false
-}
-
-func validateMigrationAuthoredSchema(source *Source) []Diagnostic {
-	if source == nil || len(source.Blocks) != 1 || source.Blocks[0].Type != "migration" {
-		return nil
-	}
-	gateway := sourceSchema("scenery.migration.legacy-gateway/v1", 1, []string{"target"}, []string{"target"}, nil)
-	legacy := sourceSchema("scenery.migration.legacy-service/v1", 1, []string{"package", "namespace", "target"}, []string{"package"}, nil)
-	shadow := sourceSchema("scenery.migration.shadow-service/v1", 1, []string{"package", "namespace", "module", "target", "legacy_target", "active"}, []string{"package", "module", "active"}, nil)
-	native := sourceSchema("scenery.migration.native-service/v1", 1, []string{"module"}, []string{"module"}, nil)
-	migration := sourceSchema("scenery.migration/v1", 0, []string{"frontend", "legacy_config"}, []string{"frontend"}, map[string]authoredChildSchema{
-		"legacy_gateway": repeated(gateway), "legacy_service": repeated(legacy), "shadow_service": repeated(shadow), "native_service": repeated(native),
-	})
-	return validateAuthoredBlock(source.Blocks[0], migration)
 }

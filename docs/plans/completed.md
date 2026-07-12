@@ -3,8 +3,27 @@
 This file records completed milestones so agents can distinguish shipped behavior from future intent.
 
 Completed means implemented or shipped at least once. It does not imply stable
-v0 support. Use [../local-contract.md](../local-contract.md) as the source of
-truth for stable, beta, dev-only, and compatibility-mode classification.
+support for every surface. Use [../local-contract.md](../local-contract.md) as
+the source of truth for stable, beta, and dev-only classification.
+
+## Go-Directive Frontend Removal
+
+- Status: completed
+- Owner: scenery compiler / runtime / agent interfaces
+- Completed: 2026-07-12
+- Quality: B
+- ExecPlan: [0107 Remove the Go-Directive Frontend](0107-remove-go-directive-frontend.md)
+
+Shipped:
+
+- Deleted all `//scenery:*` parsing and directive-owned IR, code generation, inspection, models, pages, durable tasks, cron jobs, schemas, fixtures, and public DSL packages.
+- Deleted the mixed legacy bridge, migration manifest/compiler/CLI, compatibility schemas, generated bridge artifacts, and bounded legacy TypeScript selection path.
+- Made edition-2027 `.scn` source the singular application model across build, check, generate, inspect, dev, worker, task, and test flows while retaining independent `.scenery.json` runtime configuration and CLI JSON wire contracts.
+- Converted the supported basic and storage fixtures to generated native composition and synchronized current docs, specifications, schemas, indexes, and agent guidance.
+
+Validation:
+
+- Passed the uncached Go suite, Go vet, native byte-stable generation, TypeScript conformance and typechecking, docs inspection, schema validation, dashboard checks, fixture/runtime/Postgres/storage probes, and full self-harness with no errors; advisory review, file-size, and timing warnings remain.
 
 ## HTTP Path-Tail Profile
 

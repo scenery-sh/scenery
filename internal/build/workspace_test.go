@@ -1,16 +1,12 @@
 package build
 
 import (
-	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-
-	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/parse"
 )
 
 func TestCopyTreeSkipsHiddenDirsAndBrokenSymlinks(t *testing.T) {
@@ -151,7 +147,6 @@ type Response struct {
 	Message string
 }
 
-//scenery:api public
 func Ping(context.Context) (*Response, error) {
 	return &Response{Message: "pong"}, nil
 }
@@ -219,138 +214,4 @@ func Ping(context.Context) (*Response, error) {
 		}
 	}
 
-	cfg := appcfg.Config{Name: "browserartifacts"}
-	model, err := parse.App(root, cfg.Name)
-	if err != nil {
-		t.Fatalf("parse app: %v", err)
-	}
-	result, err := Prepare(root, model, cfg)
-	if err != nil {
-		t.Fatalf("Prepare() error = %v", err)
-	}
-	joined := strings.Join(result.SourceFiles, "\n")
-	for _, unwanted := range append([]string{
-		"var/browser",
-		"var/chrome",
-		"var/playwright",
-		".scenery",
-	}, socketPaths...) {
-		if strings.Contains(joined, unwanted) {
-			t.Fatalf("Prepare source files included %s: %v", unwanted, result.SourceFiles)
-		}
-	}
-}
-
-func TestPrepareWritesInspectArtifacts(t *testing.T) {
-	t.Parallel()
-
-	appDir := t.TempDir()
-
-	writeBuildTestFile(t, appDir, ".scenery.json", `{"name":"inspectartifacts","id":"inspect-id"}`)
-	writeBuildTestFile(t, appDir, "go.mod", "module example.com/inspectartifacts\n\ngo 1.26.3\n")
-	writeBuildTestFile(t, appDir, "users/api.go", `package users
-
-import "context"
-
-//scenery:service
-type Service struct{}
-
-//scenery:api public
-func (*Service) Profile(context.Context) error { return nil }
-`)
-	writeBuildTestFile(t, appDir, "tenants/api.go", `package tenants
-
-import "context"
-
-//scenery:api private path=/tenants/config method=GET
-func Config(context.Context) error { return nil }
-`)
-
-	model, err := parse.App(appDir, "inspectartifacts")
-	if err != nil {
-		t.Fatalf("parse.App() error = %v", err)
-	}
-	if _, err := Prepare(appDir, model, appcfg.Config{Name: "inspectartifacts", ID: "inspect-id"}); err != nil {
-		t.Fatalf("Prepare() error = %v", err)
-	}
-
-	for rel, schema := range map[string]string{
-		".scenery/gen/app.json":       `"schema_version": "scenery.inspect.app.v1"`,
-		".scenery/gen/routes.json":    `"schema_version": "scenery.inspect.routes.v1"`,
-		".scenery/gen/services.json":  `"schema_version": "scenery.inspect.services.v1"`,
-		".scenery/gen/endpoints.json": `"schema_version": "scenery.inspect.endpoints.v1"`,
-		".scenery/gen/models.json":    `"schema_version": "scenery.inspect.models.v1"`,
-		".scenery/gen/views.json":     `"schema_version": "scenery.inspect.views.v1"`,
-		".scenery/gen/manifest.json":  `"schema_version": "scenery.gen.manifest.v1"`,
-	} {
-		data, err := os.ReadFile(filepath.Join(appDir, filepath.FromSlash(rel)))
-		if err != nil {
-			t.Fatalf("ReadFile(%s): %v", rel, err)
-		}
-		if !strings.Contains(string(data), schema) {
-			t.Fatalf("%s missing %s:\n%s", rel, schema, data)
-		}
-	}
-
-	appJSON, err := os.ReadFile(filepath.Join(appDir, ".scenery", "gen", "app.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload struct {
-		App struct {
-			Name string `json:"name"`
-			ID   string `json:"id"`
-		} `json:"app"`
-	}
-	if err := json.Unmarshal(appJSON, &payload); err != nil {
-		t.Fatalf("json.Unmarshal(app.json): %v", err)
-	}
-	if payload.App.Name != "inspectartifacts" || payload.App.ID != "inspect-id" {
-		t.Fatalf("app payload = %+v", payload.App)
-	}
-
-	manifestJSON, err := os.ReadFile(filepath.Join(appDir, ".scenery", "gen", "manifest.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest struct {
-		Artifacts struct {
-			App         string `json:"app"`
-			Routes      string `json:"routes"`
-			Services    string `json:"services"`
-			Endpoints   string `json:"endpoints"`
-			Models      string `json:"models"`
-			Views       string `json:"views"`
-			BuildLatest string `json:"build_latest"`
-		} `json:"artifacts"`
-		Schemas struct {
-			App         string `json:"app"`
-			Routes      string `json:"routes"`
-			Services    string `json:"services"`
-			Endpoints   string `json:"endpoints"`
-			Models      string `json:"models"`
-			Views       string `json:"views"`
-			BuildLatest string `json:"build_latest"`
-		} `json:"schemas"`
-		Hashes struct {
-			App       string `json:"app"`
-			Routes    string `json:"routes"`
-			Services  string `json:"services"`
-			Endpoints string `json:"endpoints"`
-			Models    string `json:"models"`
-			Views     string `json:"views"`
-		} `json:"hashes"`
-	}
-	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
-		t.Fatalf("json.Unmarshal(manifest.json): %v", err)
-	}
-	if manifest.Artifacts.App != ".scenery/gen/app.json" || manifest.Artifacts.Endpoints != ".scenery/gen/endpoints.json" || manifest.Artifacts.Models != ".scenery/gen/models.json" || manifest.Artifacts.Views != ".scenery/gen/views.json" || manifest.Artifacts.BuildLatest != ".scenery/build/latest.json" {
-		t.Fatalf("manifest artifacts = %+v", manifest.Artifacts)
-	}
-	if manifest.Schemas.App != "scenery.inspect.app.v1" || manifest.Schemas.Endpoints != "scenery.inspect.endpoints.v1" || manifest.Schemas.Models != "scenery.inspect.models.v1" || manifest.Schemas.Views != "scenery.inspect.views.v1" || manifest.Schemas.BuildLatest != "scenery.build.latest.v1" {
-		t.Fatalf("manifest schemas = %+v", manifest.Schemas)
-	}
-	if manifest.Hashes.App == "" || manifest.Hashes.Routes == "" || manifest.Hashes.Services == "" || manifest.Hashes.Endpoints == "" || manifest.Hashes.Models == "" || manifest.Hashes.Views == "" {
-		t.Fatalf("manifest hashes = %+v", manifest.Hashes)
-	}
 }

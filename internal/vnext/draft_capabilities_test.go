@@ -26,7 +26,6 @@ func TestAgentCapabilitiesAdvertiseOpenDraftSurfacesAsUnsupported(t *testing.T) 
 		"compatibility_source_and_wire_classification",
 		"declarative_extensions",
 		"entity_evolution_migration",
-		"legacy_v0_fixture_catalog_and_bridge_removal",
 		"native_toolchain_identity",
 		"patch_authorization_and_review_policy",
 		"platform_listener_and_certificate_schemas",

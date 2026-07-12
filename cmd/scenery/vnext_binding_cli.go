@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -141,9 +140,6 @@ func loadVNextCLIBindings() (string, appcfg.Config, *vnext.Result, []vnext.Resou
 	if err != nil {
 		return "", appcfg.Config{}, nil, nil, nil
 	}
-	if _, err := os.Stat(filepath.Join(root, "scenery.scn")); err != nil {
-		return "", appcfg.Config{}, nil, nil, nil
-	}
 	result, err := vnext.Compile(root)
 	if err != nil {
 		return root, cfg, nil, nil, err
@@ -153,7 +149,7 @@ func loadVNextCLIBindings() (string, appcfg.Config, *vnext.Result, []vnext.Resou
 	}
 	var bindings []vnext.Resource
 	for _, resource := range result.Manifest.Resources {
-		if resource.Kind == "scenery.binding/v1" && resource.Origin.Kind != "legacy_v0" && stringValueForCLI(resource.Spec["protocol"]) == "cli" {
+		if resource.Kind == "scenery.binding/v1" && stringValueForCLI(resource.Spec["protocol"]) == "cli" {
 			bindings = append(bindings, resource)
 		}
 	}

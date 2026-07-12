@@ -48,8 +48,6 @@ func dbCommand(args []string) error {
 		return dbDropCommand(args[1:])
 	case "snapshot":
 		return dbSnapshotCommand(args[1:])
-	case "diff":
-		return runDBGeneratedDiff(os.Stdout, args[1:])
 	case "server":
 		return dbServerCommand(args[1:])
 	default:
