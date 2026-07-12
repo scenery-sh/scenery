@@ -604,7 +604,7 @@ func TestTypeScriptClientUsesDeclaredPathQueryAndBodyMappings(t *testing.T) {
 		`appendQuery(query, "tag", input.tags, "repeated",`,
 		`appendHeader(headers, "if-match", input.etag, "repeated",`,
 		`appendCookie(cookies, "tenant", input.tenant,`,
-		`body: encodeRequestBody(input.body`,
+		`body: Runtime.encodeRequestBody(input.body`,
 		`decodeResponseBody(completionResponse0, "problem_json", ["application/problem+json"]`,
 	} {
 		if !strings.Contains(source, fragment) {

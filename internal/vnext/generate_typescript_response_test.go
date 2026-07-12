@@ -21,6 +21,14 @@ func TestTypeScriptClientReturnsDeclaredTransportFailuresAsTypedOutcomes(t *test
 		t.Fatalf("types omit failure outcome:\n%s", types)
 	}
 	client := renderTSClient(Resource{Name: "public"}, []Resource{binding}, []Resource{operation})
+	if !strings.Contains(client, "async get(_input: Types.GetInput") {
+		t.Fatalf("unit input is not marked unused:\n%s", client)
+	}
+	for _, unused := range []string{"appendCookie", "appendHeader", "appendQuery", "assertEmptyResponse", "decodeResponseCookie", "decodeResponseHeader", "encodeHTTPValue", "encodeMultipartRequestBody", "encodeRFC3986", "encodeRequestBody", "fetchWithRetry", "RetryRuntime"} {
+		if strings.Contains(client, unused) {
+			t.Fatalf("client imports unused runtime helper %q:\n%s", unused, client)
+		}
+	}
 	if !strings.Contains(client, `return { kind: "failure", name: "invalid_request", problem: payload as Types.Problem }`) {
 		t.Fatalf("client does not return typed failure:\n%s", client)
 	}

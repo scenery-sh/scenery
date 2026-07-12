@@ -17,7 +17,7 @@ func renderTSRegistry(resources []Resource) string {
 		entries[key] = tsNamedDescriptor(resource)
 	}
 	encoded, _ := json.Marshal(entries)
-	return "const typeRegistry: TypeRegistry = Object.freeze(" + string(encoded) + " as const);\n"
+	return "const typeRegistry: Runtime.TypeRegistry = Object.freeze(" + string(encoded) + " as const);\n"
 }
 
 func tsRegistryKey(resource Resource) string {

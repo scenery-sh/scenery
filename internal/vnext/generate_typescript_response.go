@@ -41,12 +41,12 @@ func renderTSResponseCases(b *strings.Builder, operation Resource, httpSpec map[
 			fmt.Fprintf(b, "      try {\n        const candidateResponse%d = response.clone();\n", index)
 			renderTSResponsePayload(b, operation, response, resources, fmt.Sprintf("candidateResponse%d", index), maximum, "        ")
 			if strings.HasPrefix(when, "system.") {
-				fmt.Fprintf(b, "        if (isProblemCode(payload, %q)) throw new SceneryClientError(\"server\", binding, %q);\n", when, "server returned "+when)
+				fmt.Fprintf(b, "        if (Runtime.isProblemCode(payload, %q)) throw new Runtime.SceneryClientError(\"server\", binding, %q);\n", when, "server returned "+when)
 			} else {
 				name := defaultString(stringValue(response["name"]), lastRef(when))
-				fmt.Fprintf(b, "        if (isProblemCode(payload, %q)) return { kind: \"failure\", name: %q, problem: payload as Types.Problem } as Types.%sOutcome;\n", when, name, goName(operation.Name))
+				fmt.Fprintf(b, "        if (Runtime.isProblemCode(payload, %q)) return { kind: \"failure\", name: %q, problem: payload as Types.Problem } as Types.%sOutcome;\n", when, name, goName(operation.Name))
 			}
-			b.WriteString("      } catch (cause) {\n        if (!(cause instanceof SceneryClientError) || cause.code !== \"contract_violation\") throw cause;\n      }\n")
+			b.WriteString("      } catch (cause) {\n        if (!(cause instanceof Runtime.SceneryClientError) || cause.code !== \"contract_violation\") throw cause;\n      }\n")
 		}
 		if len(completions) > 0 {
 			fmt.Fprintf(b, "      const completionMatches: Types.%sOutcome[] = [];\n", goName(operation.Name))
@@ -67,12 +67,12 @@ func renderTSResponseCases(b *strings.Builder, operation Resource, httpSpec map[
 				name = variant
 			}
 			fmt.Fprintf(b, "        completionMatches.push({ kind: %q, name: %q, %s: payload as %s } as Types.%sOutcome);\n", kind, name, field, tsClientType(valueType), goName(operation.Name))
-			b.WriteString("      } catch (cause) {\n        if (!(cause instanceof SceneryClientError) || cause.code !== \"contract_violation\") throw cause;\n      }\n")
+			b.WriteString("      } catch (cause) {\n        if (!(cause instanceof Runtime.SceneryClientError) || cause.code !== \"contract_violation\") throw cause;\n      }\n")
 		}
 		if len(completions) > 0 {
 			b.WriteString("      if (completionMatches.length === 1) return completionMatches[0]!;\n")
 		}
-		b.WriteString("      throw new SceneryClientError(\"contract_violation\", binding, \"response body contradicts the contract\");\n    }\n")
+		b.WriteString("      throw new Runtime.SceneryClientError(\"contract_violation\", binding, \"response body contradicts the contract\");\n    }\n")
 	}
 }
 
@@ -81,7 +81,7 @@ func renderTSResponsePayload(b *strings.Builder, operation Resource, response ma
 	body, _ := response["body"].(map[string]any)
 	fmt.Fprintf(b, "%slet payload: unknown = undefined;\n", indent)
 	if body == nil {
-		fmt.Fprintf(b, "%sawait assertEmptyResponse(%s, binding, %d);\n", indent, responseVariable, maximum)
+		fmt.Fprintf(b, "%sawait Runtime.assertEmptyResponse(%s, binding, %d);\n", indent, responseVariable, maximum)
 	} else {
 		valueType, path := tsResponseMappedValue(operation, when, refOrString(body["from"]), resources)
 		codec := stringValue(body["codec"])
@@ -90,17 +90,17 @@ func renderTSResponsePayload(b *strings.Builder, operation Resource, response ma
 			produced = []string{defaultHTTPMediaType(codec)}
 		}
 		encodedProduced, _ := json.Marshal(produced)
-		fmt.Fprintf(b, "%sconst decoded = await decodeResponseBody(%s, %q, %s, %s, typeRegistry, binding, %d);\n", indent, responseVariable, codec, encodedProduced, tsDescriptorLiteral(valueType, operation.Module), maximum)
-		fmt.Fprintf(b, "%spayload = mergeResponseValue(payload, %s, decoded, binding);\n", indent, tsResponsePathLiteral(path))
+		fmt.Fprintf(b, "%sconst decoded = await Runtime.decodeResponseBody(%s, %q, %s, %s, typeRegistry, binding, %d);\n", indent, responseVariable, codec, encodedProduced, tsDescriptorLiteral(valueType, operation.Module), maximum)
+		fmt.Fprintf(b, "%spayload = Runtime.mergeResponseValue(payload, %s, decoded, binding);\n", indent, tsResponsePathLiteral(path))
 	}
 	for _, header := range namedChildren(response, "header") {
 		valueType, path := tsResponseMappedValue(operation, when, refOrString(header["from"]), resources)
 		encoding := defaultString(stringValue(header["encoding"]), "repeated")
-		fmt.Fprintf(b, "%spayload = mergeResponseValue(payload, %s, decodeResponseHeader(response, %q, %q, %s, typeRegistry, binding), binding);\n", indent, tsResponsePathLiteral(path), stringValue(header["name"]), encoding, tsDescriptorLiteral(valueType, operation.Module))
+		fmt.Fprintf(b, "%spayload = Runtime.mergeResponseValue(payload, %s, Runtime.decodeResponseHeader(response, %q, %q, %s, typeRegistry, binding), binding);\n", indent, tsResponsePathLiteral(path), stringValue(header["name"]), encoding, tsDescriptorLiteral(valueType, operation.Module))
 	}
 	for _, cookie := range namedChildren(response, "cookie") {
 		valueType, path := tsResponseMappedValue(operation, when, refOrString(cookie["from"]), resources)
-		fmt.Fprintf(b, "%spayload = mergeResponseValue(payload, %s, decodeResponseCookie(response, %q, %s, typeRegistry, binding), binding);\n", indent, tsResponsePathLiteral(path), stringValue(cookie["name"]), tsDescriptorLiteral(valueType, operation.Module))
+		fmt.Fprintf(b, "%spayload = Runtime.mergeResponseValue(payload, %s, Runtime.decodeResponseCookie(response, %q, %s, typeRegistry, binding), binding);\n", indent, tsResponsePathLiteral(path), stringValue(cookie["name"]), tsDescriptorLiteral(valueType, operation.Module))
 	}
 	fmt.Fprintf(b, "%sif (payload === undefined) payload = {};\n", indent)
 }
