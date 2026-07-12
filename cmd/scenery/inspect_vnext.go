@@ -365,26 +365,6 @@ func inspectString(value any) string {
 	return ""
 }
 
-func inspectStrings(value any) []string {
-	switch values := value.(type) {
-	case []string:
-		return append([]string(nil), values...)
-	case []any:
-		result := make([]string, 0, len(values))
-		for _, value := range values {
-			if item := inspectString(value); item != "" {
-				result = append(result, item)
-			}
-		}
-		return result
-	default:
-		if item := inspectString(value); item != "" {
-			return []string{item}
-		}
-		return nil
-	}
-}
-
 func inspectJoinPath(base, child string) string {
 	base, child = strings.TrimSuffix(base, "/"), strings.TrimPrefix(child, "/")
 	if base == "" || base == "/" {

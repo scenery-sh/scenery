@@ -11,10 +11,7 @@ import (
 	"scenery.sh/internal/identityhash"
 )
 
-const (
-	appDatabaseURLEnv    = "DATABASE_URL"
-	legacyDatabaseURLEnv = "DatabaseURL"
-)
+const appDatabaseURLEnv = "DATABASE_URL"
 
 func shortIdentityHash(value string) string {
 	return identityhash.Short(value)

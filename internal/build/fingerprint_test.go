@@ -164,36 +164,6 @@ func TestCachedGeneratorFingerprintInvalidatesOnSourceMetadata(t *testing.T) {
 	}
 }
 
-func TestSourceSnapshotFingerprintIncludesConfigAlias(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeBuildTestFile(t, root, ".config.json", `{"name":"aliasapp"}`)
-	writeBuildTestFile(t, root, "go.mod", "module example.com/alias\n\ngo 1.26.3\n")
-	writeBuildTestFile(t, root, "svc/api.go", "package svc\n")
-
-	first, err := currentAppSourceFingerprintWithSnapshot(root, sourceSnapshotForTest(t, root, map[string]bool{
-		".config.json": false,
-		"go.mod":       false,
-		"svc/api.go":   false,
-	}))
-	if err != nil {
-		t.Fatalf("first fingerprint: %v", err)
-	}
-	writeBuildTestFile(t, root, ".config.json", `{"name":"aliasapp","watch":{"ignore":["tmp/"]}}`)
-	second, err := currentAppSourceFingerprintWithSnapshot(root, sourceSnapshotForTest(t, root, map[string]bool{
-		".config.json": false,
-		"go.mod":       false,
-		"svc/api.go":   false,
-	}))
-	if err != nil {
-		t.Fatalf("second fingerprint: %v", err)
-	}
-	if first == second {
-		t.Fatalf("expected .config.json alias change to affect source fingerprint %q", first)
-	}
-}
-
 func TestCachedGeneratorFingerprintIncludesRootPackageFiles(t *testing.T) {
 	t.Parallel()
 

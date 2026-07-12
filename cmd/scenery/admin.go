@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"io"
 )
 
@@ -27,7 +26,5 @@ type adminAppRef struct {
 }
 
 func writeAdminJSON(w io.Writer, payload adminResponse) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(payload)
+	return writeCLIJSON(w, payload)
 }

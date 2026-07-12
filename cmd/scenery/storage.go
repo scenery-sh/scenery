@@ -82,7 +82,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		return err
 	}
 	if !opts.JSON {
-		return fmt.Errorf("scenery storage %s currently requires --json", opts.Command)
+		return fmt.Errorf("scenery storage %s currently requires -o json", opts.Command)
 	}
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
@@ -136,7 +136,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 		return writeStorageJSON(stdout, storageObjectResponse{SchemaVersion: "scenery.storage.object.v1", Object: *obj})
 	case "get":
 		if opts.Output == "" {
-			return fmt.Errorf("scenery storage get requires --output when --json is used")
+			return fmt.Errorf("scenery storage get requires --output when -o json is used")
 		}
 		store, err := storageStoreForCLI(cfg, opts.Store)
 		if err != nil {
@@ -185,7 +185,7 @@ func runStorageCommand(args []string, stdout io.Writer) error {
 func parseStorageArgs(args []string) (storageCLIOptions, error) {
 	opts := storageCLIOptions{}
 	flags := newCLIFlagSet("storage")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Prefix, "prefix", "", "")
 	flags.StringVar(&opts.Cursor, "cursor", "", "")
@@ -415,7 +415,5 @@ func buildStorageWebUIResponse(cfg appcfg.Config) storageWebUIResponse {
 }
 
 func writeStorageJSON(w io.Writer, payload any) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(payload)
+	return writeCLIJSON(w, payload)
 }

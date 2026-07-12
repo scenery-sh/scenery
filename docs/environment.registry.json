@@ -68,6 +68,28 @@
       ]
     },
     {
+      "name": "AUTH_TOKEN_CIPHER_KEY",
+      "match": "exact",
+      "scope": "runtime",
+      "direction": "user_input",
+      "category": "app.services.auth",
+      "stability": "secret",
+      "secret": true,
+      "allowed_in": [
+        "code",
+        "docs",
+        "tests"
+      ],
+      "owner": "scenery runtime",
+      "rationale": "Base64 32-byte AES-GCM key for encrypted Google connection refresh and access token storage.",
+      "preferred_surface": "app-root `.env` or process environment for app-supplied auth secrets",
+      "replacement": "",
+      "sunset": "",
+      "docs": [
+        "docs/environment.md"
+      ]
+    },
+    {
       "name": "CI",
       "match": "exact",
       "scope": "internal",
@@ -128,50 +150,6 @@
       ]
     },
     {
-      "name": "DatabaseURL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "scenery app-style database URL env and managed app database authority when exactly one database service uses that env. Used when `auth.database_url_env` is `DatabaseURL`",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "AuthTokenCipherKey",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "secret",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default app-style base64 32-byte AES-GCM key for encrypted Google connection refresh/access token storage when `auth.google_oauth.token_cipher_key_env` is omitted.",
-      "preferred_surface": "app-root `.env` or process environment for app-supplied auth secrets",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
       "name": "GOOGLE_OAUTH_CLIENT_ID",
       "match": "exact",
       "scope": "runtime",
@@ -185,7 +163,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Conventional Google OAuth client ID fallback for standard auth when `auth.google_oauth.client_id_env` is unset or empty.",
+      "rationale": "Default Google OAuth client ID for standard auth when `auth.google_oauth.client_id_env` is omitted.",
       "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth credentials",
       "replacement": "",
       "sunset": "",
@@ -207,51 +185,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Conventional Google OAuth client secret fallback for standard auth when `auth.google_oauth.client_secret_env` is unset or empty.",
-      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth secrets",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "GoogleOAuthClientID",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default app-style Google OAuth client ID env used when `auth.google_oauth.client_id_env` is omitted.",
-      "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth credentials",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "GoogleOAuthClientSecret",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input_injected",
-      "category": "app.services.auth",
-      "stability": "secret",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Default app-style Google OAuth client secret env used when `auth.google_oauth.client_secret_env` is omitted.",
+      "rationale": "Default Google OAuth client secret for standard auth when `auth.google_oauth.client_secret_env` is omitted.",
       "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth secrets",
       "replacement": "",
       "sunset": "",
@@ -683,94 +617,6 @@
       ],
       "owner": "scenery runtime",
       "rationale": "Stable hash of the app root path",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_AUTH_COOKIE_DOMAIN",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "injected",
-      "category": "app.services.auth",
-      "stability": "injected",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Auth cookie domain; empty in default local agent dev",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_AUTH_DATABASE_URL",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Fallback DB URL for standard auth when app-specific envs are unset",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_AUTH_EMAIL_FROM",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": false,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Fallback sender address for standard auth email flows when `auth.email_from_env` and `AUTH_EMAIL_FROM` are unset",
-      "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
-      "replacement": "",
-      "sunset": "",
-      "docs": [
-        "docs/environment.md"
-      ]
-    },
-    {
-      "name": "SCENERY_AUTH_JWT_SECRET",
-      "match": "exact",
-      "scope": "runtime",
-      "direction": "user_input",
-      "category": "app.services.auth",
-      "stability": "stable",
-      "secret": true,
-      "allowed_in": [
-        "code",
-        "docs",
-        "tests"
-      ],
-      "owner": "scenery runtime",
-      "rationale": "Fallback JWT signing secret for standard auth when `auth.jwt_secret_env` and `JWT_SECRET` are unset",
       "preferred_surface": ".scenery.json, explicit CLI flags, or scenery.toolchain.json for stable non-secret configuration",
       "replacement": "",
       "sunset": "",
@@ -1804,7 +1650,7 @@
       ],
       "owner": "scenery runtime / storage",
       "rationale": "Stable shared storage cell ID for app-facing Scenery storage capability metadata.",
-      "preferred_surface": "scenery inspect storage --json",
+      "preferred_surface": "scenery inspect storage -o json",
       "replacement": "",
       "sunset": "",
       "docs": [

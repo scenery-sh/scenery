@@ -38,7 +38,7 @@ func runHarnessParallelDevStep(ctx context.Context, repoRoot string) harnessStep
 				Stage:           step.Name,
 				Severity:        "error",
 				Message:         step.Error,
-				SuggestedAction: "Fix local agent session isolation, then rerun `scenery harness self --json`.",
+				SuggestedAction: "Fix local agent session isolation, then rerun `scenery harness self -o json`.",
 			}}
 		}
 		return step
@@ -70,7 +70,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 			Stage:           "parallel worktree runtimes",
 			Severity:        "warning",
 			Message:         "Docker is unavailable; skipped managed Postgres database isolation checks",
-			SuggestedAction: "Start Docker and rerun `scenery harness self --json --write` for live database isolation proof.",
+			SuggestedAction: "Start Docker and rerun `scenery harness self -o json --write` for live database isolation proof.",
 		})
 	}
 	restoreEnv := patchEnv(map[string]*string{
@@ -287,7 +287,7 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 			Stage:           "parallel worktree runtimes",
 			Severity:        "error",
 			Message:         message,
-			SuggestedAction: "Fix local agent runtime isolation, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Fix local agent runtime isolation, then rerun `scenery harness self -o json`.",
 		})
 	}
 	check(sessionA.SessionID != "" && sessionB.SessionID != "" && sessionA.SessionID != sessionB.SessionID, "sessions must have distinct IDs")

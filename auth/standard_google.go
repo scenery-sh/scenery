@@ -457,17 +457,6 @@ func googleConnectionRedirectURI(req *http.Request) string {
 	return googleRedirectURI(req)
 }
 
-func googleConnectCallbackRedirectURI(req *http.Request) string {
-	if base := requestBaseURL(req); base != "" {
-		return base + "/auth/google/connect/callback"
-	}
-	base := strings.TrimRight(strings.TrimSpace(secrets.APIBaseURL), "/")
-	if base == "" {
-		base = "https://api.scenery.localhost"
-	}
-	return base + "/auth/google/connect/callback"
-}
-
 func requestBaseURL(req *http.Request) string {
 	base := requestOriginURL(req)
 	if base == "" {

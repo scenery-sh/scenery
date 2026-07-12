@@ -42,7 +42,7 @@ jobs:
         run: go test ./...
 
       - name: Check basic fixture app
-        run: go run ./cmd/scenery check --app-root testdata/apps/basic --json
+        run: go run ./cmd/scenery check --app-root testdata/apps/basic -o json
 
       - name: Build dashboard embed
         run: ./scripts/build-dashboard-ui-embed.sh
@@ -51,7 +51,7 @@ jobs:
         run: go install ./cmd/scenery
 
       - name: Smoke installed binary
-        run: $(go env GOPATH)/bin/scenery version --json
+        run: $(go env GOPATH)/bin/scenery version -o json
 
   ui:
     name: UI
@@ -107,4 +107,4 @@ jobs:
         run: go install ./cmd/scenery
 
       - name: Run self harness
-        run: $(go env GOPATH)/bin/scenery harness self --json --write
+        run: $(go env GOPATH)/bin/scenery harness self -o json --write

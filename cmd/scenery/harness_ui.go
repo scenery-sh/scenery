@@ -54,7 +54,7 @@ func checkUIStatic(repoRoot string, summary *uiStaticSummary) []checkDiagnostic 
 			Severity:        "error",
 			File:            filepath.ToSlash(uiRoot),
 			Message:         err.Error(),
-			SuggestedAction: "Fix the UI source walk error, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Fix the UI source walk error, then rerun `scenery harness self -o json`.",
 		})
 	} else {
 		diagnostics = append(diagnostics, sourceDiagnostics...)

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,8 +85,8 @@ func TestScriptInspectJSON(t *testing.T) {
 		t.Fatalf("runSceneryScriptInspect: %v", err)
 	}
 	var payload scriptInspectOutput
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Target.Domain != "billing" || payload.Candidate.Layout != "go-dir" || payload.Candidate.Path != "billing/tasks/reconcile/main.go" {
 		t.Fatalf("payload = %+v", payload)
@@ -162,16 +161,16 @@ func TestTaskListAndInspectCodeTasks(t *testing.T) {
 	writeTestAppFile(t, root, "billing/tasks/reconcile/main.go", "package main\nfunc main() {}\n")
 
 	out := captureStdout(t, func() error {
-		return run([]string{"task", "list", "--app-root", root, "--json"})
+		return run([]string{"task", "list", "--app-root", root, "-o", "json"})
 	})
-	if !strings.Contains(out, `"target": "billing:reconcile"`) || !strings.Contains(out, `"kind": "code"`) {
+	if !strings.Contains(out, `"target":"billing:reconcile"`) || !strings.Contains(out, `"kind":"code"`) {
 		t.Fatalf("list output = %s", out)
 	}
 
 	out = captureStdout(t, func() error {
-		return run([]string{"task", "inspect", "billing:reconcile", "--app-root", root, "--json"})
+		return run([]string{"task", "inspect", "billing:reconcile", "--app-root", root, "-o", "json"})
 	})
-	if !strings.Contains(out, `"layout": "go-dir"`) {
+	if !strings.Contains(out, `"layout":"go-dir"`) {
 		t.Fatalf("inspect output = %s", out)
 	}
 }

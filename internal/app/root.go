@@ -18,10 +18,9 @@ import (
 
 const (
 	PrimaryConfigFilename = ".scenery.json"
-	AliasConfigFilename   = ".config.json"
 )
 
-var ErrRootNotFound = errors.New("no .scenery.json or .config.json found in current directory or any parent")
+var ErrRootNotFound = errors.New("no .scenery.json found in current directory or any parent")
 
 type Config struct {
 	ConfigPath    string                    `json:"-"`
@@ -113,23 +112,11 @@ func ConfigPath(appRoot string) string {
 }
 
 func ResolveConfigPath(appRoot string) (string, error) {
-	path, _, err := readConfigCandidate(appRoot)
-	if err != nil {
-		return "", err
-	}
-	if path != "" {
-		return path, nil
-	}
 	return ConfigPath(appRoot), nil
 }
 
 func IsConfigFilename(name string) bool {
-	switch filepath.Base(name) {
-	case PrimaryConfigFilename, AliasConfigFilename:
-		return true
-	default:
-		return false
-	}
+	return filepath.Base(name) == PrimaryConfigFilename
 }
 
 func (c Config) StorageCellID() string {
@@ -249,26 +236,7 @@ func (c DeployConfig) IsZero() bool {
 }
 
 type DevServiceConfig struct {
-	// Only Env is a supported field. The remaining fields exist so that
-	// configs carrying pre-0097 service options fail validation with a
-	// pointed error instead of being silently ignored; omitempty keeps them
-	// out of serialized app inspection output for valid configs.
-	Kind               string            `json:"kind,omitempty"`
-	Mode               string            `json:"mode,omitempty"`
-	Version            string            `json:"version,omitempty"`
-	Isolation          string            `json:"isolation,omitempty"`
-	Project            string            `json:"project,omitempty"`
-	ParentBranch       string            `json:"parent_branch,omitempty"`
-	ParentDatabase     string            `json:"parent_database,omitempty"`
-	BranchPolicy       string            `json:"branch_policy,omitempty"`
-	BranchNameTemplate string            `json:"branch_name_template,omitempty"`
-	TTL                string            `json:"ttl,omitempty"`
-	Role               string            `json:"role,omitempty"`
-	DatabaseURLEnv     string            `json:"database_url_env,omitempty"`
-	Image              string            `json:"image,omitempty"`
-	Database           string            `json:"database,omitempty"`
-	Route              string            `json:"route,omitempty"`
-	Env                map[string]string `json:"env,omitempty"`
+	Env map[string]string `json:"env,omitempty"`
 }
 
 type StorageConfig struct {
@@ -432,37 +400,7 @@ func readConfigCandidate(dir string) (string, []byte, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", nil, err
 	}
-
-	path = filepath.Join(dir, AliasConfigFilename)
-	data, err = os.ReadFile(path)
-	if err == nil {
-		if looksLikeSceneryConfig(data) {
-			return path, data, nil
-		}
-		return "", nil, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return "", nil, err
-	}
 	return "", nil, nil
-}
-
-func looksLikeSceneryConfig(data []byte) bool {
-	var obj map[string]json.RawMessage
-	dec := json.NewDecoder(bytes.NewReader(data))
-	if err := dec.Decode(&obj); err != nil {
-		return false
-	}
-	if len(obj) == 0 {
-		return false
-	}
-	fields := jsonStructFields(reflect.TypeFor[Config]())
-	for name := range obj {
-		if _, ok := fields[name]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 func (c Config) Validate() error {
@@ -497,7 +435,7 @@ func (c Config) validateWatch() error {
 
 func (c Config) validateDevServices() error {
 	schemaOwners := map[string]string{}
-	for name, svc := range c.Dev.Services {
+	for name := range c.Dev.Services {
 		if !isStorageIdentifier(name) {
 			return fmt.Errorf("dev.services.%s name is invalid; use lowercase letters, numbers, dots, underscores, or dashes", name)
 		}
@@ -509,61 +447,8 @@ func (c Config) validateDevServices() error {
 			return fmt.Errorf("dev.services.%s and dev.services.%s both map to Postgres schema %q", previous, name, schema)
 		}
 		schemaOwners[schema] = name
-		for _, field := range plan0097DevServiceFields(svc) {
-			return fmt.Errorf("dev.services.%s.%s is not supported for database services in plan 0097; accepted fields are env only", name, field)
-		}
 	}
 	return nil
-}
-
-func plan0097DevServiceFields(svc DevServiceConfig) []string {
-	var fields []string
-	if strings.TrimSpace(svc.Kind) != "" {
-		fields = append(fields, "kind")
-	}
-	if strings.TrimSpace(svc.Mode) != "" {
-		fields = append(fields, "mode")
-	}
-	if strings.TrimSpace(svc.Version) != "" {
-		fields = append(fields, "version")
-	}
-	if strings.TrimSpace(svc.Isolation) != "" {
-		fields = append(fields, "isolation")
-	}
-	if strings.TrimSpace(svc.Project) != "" {
-		fields = append(fields, "project")
-	}
-	if strings.TrimSpace(svc.ParentBranch) != "" {
-		fields = append(fields, "parent_branch")
-	}
-	if strings.TrimSpace(svc.ParentDatabase) != "" {
-		fields = append(fields, "parent_database")
-	}
-	if strings.TrimSpace(svc.BranchPolicy) != "" {
-		fields = append(fields, "branch_policy")
-	}
-	if strings.TrimSpace(svc.BranchNameTemplate) != "" {
-		fields = append(fields, "branch_name_template")
-	}
-	if strings.TrimSpace(svc.TTL) != "" {
-		fields = append(fields, "ttl")
-	}
-	if strings.TrimSpace(svc.Role) != "" {
-		fields = append(fields, "role")
-	}
-	if strings.TrimSpace(svc.DatabaseURLEnv) != "" {
-		fields = append(fields, "database_url_env")
-	}
-	if strings.TrimSpace(svc.Image) != "" {
-		fields = append(fields, "image")
-	}
-	if strings.TrimSpace(svc.Database) != "" {
-		fields = append(fields, "database")
-	}
-	if strings.TrimSpace(svc.Route) != "" {
-		fields = append(fields, "route")
-	}
-	return fields
 }
 
 func (c Config) validateDeploy() error {

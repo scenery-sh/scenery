@@ -190,7 +190,6 @@ The public packages at the module root are what user apps import:
   standard auth module surface (`AuthData`, token helpers, standard auth
   registration, and pluggable email delivery)
 - `scenery.sh/errs` exposes coded errors and HTTP status mapping
-- `scenery.sh/middleware` exposes middleware types
 - `scenery.sh/storage` exposes the storage capability and owns the canonical
   local filesystem store used by app runtimes, CLI commands, and the managed
   storage proxy
@@ -279,7 +278,7 @@ graphs, generated code, CLI JSON contracts, runtime HTTP behavior, and fixture a
 checks to keep tests data-driven and easy to update when internals move.
 
 After repository changes, rebuild the CLI with `go install ./cmd/scenery`. For
-substantial changes, run `scenery harness self --json --write` when practical so
+substantial changes, run `scenery harness self -o json --write` when practical so
 `.scenery/harness/self-latest.json` captures one stable validation snapshot.
 
 ### Generated Artifacts

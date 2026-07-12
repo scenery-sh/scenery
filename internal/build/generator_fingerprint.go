@@ -116,7 +116,6 @@ func generatorFingerprintPaths() []string {
 		"internal/parse",
 		"internal/redact",
 		"internal/runtimeapi",
-		"internal/standardauthmeta",
 		"internal/stdlog",
 		"internal/termstyle",
 		"middleware",

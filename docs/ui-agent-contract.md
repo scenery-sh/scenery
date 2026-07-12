@@ -144,12 +144,12 @@ Not allowed: direct @radix-ui/react-dialog imports in routes
 
 ## Enforcement
 
-`scenery harness self --json --write` runs UI static architecture checks. The first checks hard-fail direct shadcn/script/registry/import boundary violations. Existing className-heavy dashboard code is reported as warnings while it is migrated into layouts and primitives; new work should reduce those warnings, not add to them.
+`scenery harness self -o json --write` runs UI static architecture checks. The first checks hard-fail direct shadcn/script/registry/import boundary violations. Existing className-heavy dashboard code is reported as warnings while it is migrated into layouts and primitives; new work should reduce those warnings, not add to them.
 
 For dashboard behavior changes, also run:
 
 ```sh
-scenery harness ui --json --write
+scenery harness ui -o json --write
 ```
 
 The browser UI harness visits core dashboard routes, runs route-specific semantic journeys, checks stable `data-scenery-ui` markers, and writes screenshots, DOM snapshots, console logs, and network artifacts under `.scenery/harness/ui/`.

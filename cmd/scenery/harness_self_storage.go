@@ -94,7 +94,7 @@ func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath strin
 		step.Error = err.Error()
 		return step
 	}
-	putCommand := []string{sceneryPath, "storage", "put", "app", "worktree/shared.txt", sourcePath, "--json", "--app-root", rootA}
+	putCommand := []string{sceneryPath, "storage", "put", "app", "worktree/shared.txt", sourcePath, "-o", "json", "--app-root", rootA}
 	putOut, putErrOut, err := runHarnessStorageProbeCommand(ctx, repoRoot, agentHome, putCommand)
 	if err != nil {
 		step.OK = false
@@ -102,7 +102,7 @@ func runHarnessStorageProbeStep(ctx context.Context, repoRoot, sceneryPath strin
 		step.OutputTail = tailString(firstNonEmpty(putErrOut, putOut), 8192)
 		return step
 	}
-	getCommand := []string{sceneryPath, "storage", "get", "app", "worktree/shared.txt", "--output", outputPath, "--json", "--app-root", rootB}
+	getCommand := []string{sceneryPath, "storage", "get", "app", "worktree/shared.txt", "--output", outputPath, "-o", "json", "--app-root", rootB}
 	getOut, getErrOut, err := runHarnessStorageProbeCommand(ctx, repoRoot, agentHome, getCommand)
 	if err != nil {
 		step.OK = false
@@ -184,13 +184,13 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	if err := os.RemoveAll(sessionRoot); err != nil {
 		return summary, err
 	}
-	upCommand := []string{sceneryPath, "up", "--app-root", fixtureRoot, "--json", "--detach"}
+	upCommand := []string{sceneryPath, "up", "--app-root", fixtureRoot, "-o", "json", "--detach"}
 	upOut, upErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, upCommand)
 	if err != nil {
 		return summary, fmt.Errorf("local storage scenery up failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(upErr, upOut), 8192))
 	}
 	defer func() {
-		downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "--json"}
+		downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "-o", "json"}
 		_, _, _ = runHarnessStorageProbeCommandWithEnv(context.Background(), repoRoot, env, downCommand)
 		cleanupHarnessStorageRestartAgent(context.Background(), repoRoot, sceneryPath, agentHome, env)
 	}()
@@ -213,7 +213,7 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	if probe.Key != "probe/public.txt" || probe.Body != "hello public" || probe.SizeBytes != strconv.Itoa(len("hello public")) {
 		return summary, fmt.Errorf("unexpected local storage probe response: %s", probeBody)
 	}
-	inspectCommand := []string{sceneryPath, "inspect", "storage", "--app-root", fixtureRoot, "--json"}
+	inspectCommand := []string{sceneryPath, "inspect", "storage", "--app-root", fixtureRoot, "-o", "json"}
 	inspectOut, inspectErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, inspectCommand)
 	if err != nil {
 		return summary, fmt.Errorf("local storage inspect failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(inspectErr, inspectOut), 8192))
@@ -227,7 +227,7 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 			} `json:"runtime"`
 		} `json:"storage"`
 	}
-	if err := json.Unmarshal([]byte(inspectOut), &inspect); err != nil {
+	if err := decodeCLIJSON([]byte(inspectOut), &inspect); err != nil {
 		return summary, fmt.Errorf("parse local storage inspect JSON: %w", err)
 	}
 	if inspect.Storage.Readiness != "ready" || !inspect.Storage.Runtime.Exists || inspect.Storage.Runtime.CellRoot == "" {
@@ -240,7 +240,7 @@ func runHarnessLocalStorageRestartProbe(ctx context.Context, repoRoot, sceneryPa
 	summary["local_storage_cell_root"] = inspect.Storage.Runtime.CellRoot
 
 	// Restart the whole runtime and confirm the fsync'd object survived.
-	downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "--json"}
+	downCommand := []string{sceneryPath, "down", "--app-root", fixtureRoot, "-o", "json"}
 	if downOut, downErr, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, downCommand); err != nil {
 		return summary, fmt.Errorf("local storage restart proof down failed: %s\n%s", strings.TrimSpace(err.Error()), tailString(firstNonEmpty(downErr, downOut), 8192))
 	}
@@ -278,7 +278,7 @@ func harnessDetachStateRoot(detachJSON string) (string, error) {
 			StateRoot string `json:"state_root"`
 		} `json:"session"`
 	}
-	if err := json.Unmarshal([]byte(detachJSON), &detach); err != nil {
+	if err := decodeCLIJSON([]byte(detachJSON), &detach); err != nil {
 		return "", fmt.Errorf("parse storage detach JSON: %w", err)
 	}
 	stateRoot := strings.TrimSpace(detach.Session.StateRoot)
@@ -292,7 +292,7 @@ func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPat
 	if strings.TrimSpace(agentHome) == "" {
 		return
 	}
-	psCommand := []string{sceneryPath, "ps", "--json"}
+	psCommand := []string{sceneryPath, "ps", "-o", "json"}
 	psOut, _, err := runHarnessStorageProbeCommandWithEnv(ctx, repoRoot, env, psCommand)
 	pids := map[int]bool{}
 	if err == nil && strings.TrimSpace(psOut) != "" {
@@ -312,7 +312,7 @@ func cleanupHarnessStorageRestartAgent(ctx context.Context, repoRoot, sceneryPat
 				PIDs     map[string]int `json:"pids"`
 			} `json:"substrates"`
 		}
-		if json.Unmarshal([]byte(psOut), &status) == nil {
+		if decodeCLIJSON([]byte(psOut), &status) == nil {
 			addHarnessCleanupPID(pids, status.Agent.PID)
 			for _, session := range status.Sessions {
 				addHarnessCleanupPID(pids, session.OwnerPID)

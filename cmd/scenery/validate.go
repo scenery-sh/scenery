@@ -322,7 +322,7 @@ func parseValidateArgs(args []string) (validateOptions, error) {
 	opts := validateOptions{Action: "run", Base: "origin/main"}
 	flags := newCLIFlagSet("validate")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Write, "write", false, "")
 	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
 	flags.StringVar(&opts.Base, "base", opts.Base, "")
@@ -590,11 +590,11 @@ func validationStepCommand(appRoot string, ref validationStepRef) []string {
 	case "builtin":
 		switch ref.Name {
 		case "harness", "harness:core":
-			return []string{"scenery", "harness", "--app-root", appRoot, "--json"}
+			return []string{"scenery", "harness", "--app-root", appRoot, "-o", "json"}
 		case "harness:ui":
-			return []string{"scenery", "harness", "ui", "--app-root", appRoot, "--json"}
+			return []string{"scenery", "harness", "ui", "--app-root", appRoot, "-o", "json"}
 		case "check":
-			return []string{"scenery", "check", "--app-root", appRoot, "--json"}
+			return []string{"scenery", "check", "--app-root", appRoot, "-o", "json"}
 		case "test", "test:go":
 			return []string{"scenery", "test", "--app-root", appRoot}
 		case "generate":
@@ -839,7 +839,7 @@ func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Confi
 	}
 	artifactCtx := newValidationArtifactContext(appRoot, opts.Write)
 	if len(plan.Diagnostics) > 0 {
-		result.NextActions = []string{"Fix validation configuration diagnostics, then rerun: scenery validate " + plan.Profile + " --json --write"}
+		result.NextActions = []string{"Fix validation configuration diagnostics, then rerun: scenery validate " + plan.Profile + " -o json --write"}
 		return result
 	}
 	for _, step := range plan.Steps {
@@ -858,7 +858,7 @@ func executeValidationPlan(ctx context.Context, appRoot string, cfg appcfg.Confi
 		}
 		if !res.OK {
 			result.OK = false
-			result.NextActions = []string{"Fix " + res.Name + ", then rerun: scenery validate " + plan.Profile + " --json --write"}
+			result.NextActions = []string{"Fix " + res.Name + ", then rerun: scenery validate " + plan.Profile + " -o json --write"}
 			break
 		}
 	}
@@ -905,11 +905,11 @@ func runValidationStepCommand(ctx context.Context, appRoot string, cfg appcfg.Co
 	case "builtin":
 		switch ref.Name {
 		case "harness", "harness:core":
-			return runSceneryHarness(ctx, stdout, []string{"--app-root", appRoot, "--json"})
+			return runSceneryHarness(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
 		case "harness:ui":
-			return runSceneryHarnessUI(ctx, stdout, []string{"--app-root", appRoot, "--json"})
+			return runSceneryHarnessUI(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
 		case "check":
-			return runSceneryCheck(ctx, stdout, []string{"--app-root", appRoot, "--json"})
+			return runSceneryCheck(ctx, stdout, []string{"--app-root", appRoot, "-o", "json"})
 		case "test", "test:go":
 			return runSceneryTestOutput(ctx, []string{"--app-root", appRoot}, stdout)
 		case "generate":

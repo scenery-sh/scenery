@@ -38,7 +38,7 @@ func runHarnessPostgresProbeStep(ctx context.Context, repoRoot string) harnessSt
 				Stage:           step.Name,
 				Severity:        "error",
 				Message:         step.Error,
-				SuggestedAction: "Fix managed postgres service support, then rerun `scenery harness self --json --write`.",
+				SuggestedAction: "Fix managed postgres service support, then rerun `scenery harness self -o json --write`.",
 			}}
 		}
 		return step
@@ -71,7 +71,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 				Stage:           "postgres service probe",
 				Severity:        "warning",
 				Message:         "Disposable postgres harness container cleanup failed: " + cleanupErr.Error(),
-				SuggestedAction: "Remove `" + serverState.Container + "` and `" + serverState.Volume + "`, then rerun `scenery harness self --json --write`.",
+				SuggestedAction: "Remove `" + serverState.Container + "` and `" + serverState.Volume + "`, then rerun `scenery harness self -o json --write`.",
 			})
 			if summary != nil {
 				summary["cleanup"] = "warning"
@@ -88,7 +88,6 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 		"SCENERY_AGENT_DISABLE": nil,
 		"SCENERY_APP_ROOT":      nil,
 		"DATABASE_URL":          nil,
-		"DatabaseURL":           nil,
 		"REPORTS_DATABASE_URL":  nil,
 		"CACHE_DATABASE_URL":    nil,
 	})
@@ -281,7 +280,7 @@ func postgresProbeSkipDiagnostic(message string) checkDiagnostic {
 		Stage:           "postgres service probe",
 		Severity:        "warning",
 		Message:         message,
-		SuggestedAction: "Start Docker and rerun `scenery harness self --json --write` for live postgres proof.",
+		SuggestedAction: "Start Docker and rerun `scenery harness self -o json --write` for live postgres proof.",
 	}
 }
 

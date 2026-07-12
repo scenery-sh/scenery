@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"go/ast"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -42,34 +41,31 @@ func TestGoTargetEnvironmentSelectsDeclaredToolchain(t *testing.T) {
 	}
 }
 
-func TestSyntaxFilePathsPrefersCompiledGoFilesWhenTheyMatchSyntax(t *testing.T) {
+func TestPackageFilePathsPrefersCompiledGoFiles(t *testing.T) {
 	t.Parallel()
 
 	pkg := &packages.Package{
 		GoFiles:         []string{"api.go"},
 		CompiledGoFiles: []string{"api.go", "cgo_gen.go"},
-		Syntax:          make([]*ast.File, 2),
 	}
 
-	got := syntaxFilePaths(pkg)
+	got := packageFilePaths(pkg)
 	want := []string{"api.go", "cgo_gen.go"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("syntaxFilePaths() = %v, want %v", got, want)
+		t.Fatalf("packageFilePaths() = %v, want %v", got, want)
 	}
 }
 
-func TestSyntaxFilePathsFallsBackToGoFilesWhenTheyMatchSyntax(t *testing.T) {
+func TestPackageFilePathsFallsBackToGoFiles(t *testing.T) {
 	t.Parallel()
 
 	pkg := &packages.Package{
-		GoFiles:         []string{"api.go", "extra.go"},
-		CompiledGoFiles: []string{"api.go"},
-		Syntax:          make([]*ast.File, 2),
+		GoFiles: []string{"api.go", "extra.go"},
 	}
 
-	got := syntaxFilePaths(pkg)
+	got := packageFilePaths(pkg)
 	want := []string{"api.go", "extra.go"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("syntaxFilePaths() = %v, want %v", got, want)
+		t.Fatalf("packageFilePaths() = %v, want %v", got, want)
 	}
 }

@@ -390,14 +390,14 @@ func dbServerCommand(args []string) error {
 func parseDBServerArgs(args []string) (dbServerOptions, error) {
 	opts := dbServerOptions{}
 	flags := newCLIFlagSet("db server")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Yes, "yes", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return dbServerOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return dbServerOptions{}, fmt.Errorf("usage: scenery db server status|start|stop|logs [--json] [--yes]")
+		return dbServerOptions{}, fmt.Errorf("usage: scenery db server status|start|stop|logs [-o json] [--yes]")
 	}
 	opts.Action = positionals[0]
 	if len(positionals) > 1 {
@@ -714,7 +714,7 @@ func parseDBCLIArgs(args []string, serviceRequired bool) (dbCLIOptions, error) {
 	var opts dbCLIOptions
 	flags := newCLIFlagSet("db")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Yes, "yes", false, "")
 	rest, err := parseLeadingCLIFlags(flags, args)
 	if err != nil {
@@ -766,7 +766,7 @@ func parseDBApplyArgs(args []string) (dbApplyOptions, error) {
 	var opts dbApplyOptions
 	flags := newCLIFlagSet("db apply")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return dbApplyOptions{}, err

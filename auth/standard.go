@@ -117,34 +117,34 @@ func RegisterStandard(config StandardConfig) error {
 
 func normalizeStandardConfig(config StandardConfig) StandardConfig {
 	if strings.TrimSpace(config.DatabaseURLEnv) == "" {
-		config.DatabaseURLEnv = "DatabaseURL"
+		config.DatabaseURLEnv = "DATABASE_URL"
 	}
 	if strings.TrimSpace(config.JWTSecretEnv) == "" {
-		config.JWTSecretEnv = "JWTSecret"
+		config.JWTSecretEnv = "JWT_SECRET"
 	}
 	if strings.TrimSpace(config.RefreshCookieName) == "" {
 		config.RefreshCookieName = "onlv_refresh"
 	}
 	if strings.TrimSpace(config.AuthCookieDomainEnv) == "" {
-		config.AuthCookieDomainEnv = "AuthCookieDomain"
+		config.AuthCookieDomainEnv = "AUTH_COOKIE_DOMAIN"
 	}
 	if strings.TrimSpace(config.PublicAppURLEnv) == "" {
-		config.PublicAppURLEnv = "PublicAppURL"
+		config.PublicAppURLEnv = "SCENERY_PUBLIC_APP_URL"
 	}
 	if strings.TrimSpace(config.APIBaseURLEnv) == "" {
-		config.APIBaseURLEnv = "APIBaseURL"
+		config.APIBaseURLEnv = "SCENERY_API_BASE_URL"
 	}
 	if strings.TrimSpace(config.EmailFromEnv) == "" {
-		config.EmailFromEnv = "AuthEmailFrom"
+		config.EmailFromEnv = "AUTH_EMAIL_FROM"
 	}
 	if strings.TrimSpace(config.GoogleOAuth.ClientIDEnv) == "" {
-		config.GoogleOAuth.ClientIDEnv = "GoogleOAuthClientID"
+		config.GoogleOAuth.ClientIDEnv = "GOOGLE_OAUTH_CLIENT_ID"
 	}
 	if strings.TrimSpace(config.GoogleOAuth.ClientSecretEnv) == "" {
-		config.GoogleOAuth.ClientSecretEnv = "GoogleOAuthClientSecret"
+		config.GoogleOAuth.ClientSecretEnv = "GOOGLE_OAUTH_CLIENT_SECRET"
 	}
 	if strings.TrimSpace(config.GoogleOAuth.TokenCipherKeyEnv) == "" {
-		config.GoogleOAuth.TokenCipherKeyEnv = "AuthTokenCipherKey"
+		config.GoogleOAuth.TokenCipherKeyEnv = "AUTH_TOKEN_CIPHER_KEY"
 	}
 	if strings.TrimSpace(config.DevBootstrap.DefaultUserID) == "" {
 		config.DevBootstrap.DefaultUserID = "dev-user"
@@ -160,29 +160,16 @@ func normalizeStandardConfig(config StandardConfig) StandardConfig {
 
 func applyStandardSecrets(config StandardConfig) {
 	refreshCookieName = strings.TrimSpace(config.RefreshCookieName)
-	secrets.JWTSecret = firstEnv(config.JWTSecretEnv, "JWT_SECRET", "SCENERY_AUTH_JWT_SECRET")
+	secrets.JWTSecret = strings.TrimSpace(envpolicy.Get(config.JWTSecretEnv))
 	if strings.TrimSpace(secrets.JWTSecret) == "" && isLocalRuntime() {
 		secrets.JWTSecret = "scenery-local-development-secret"
 	}
-	secrets.GoogleOAuthClientID = firstEnv(config.GoogleOAuth.ClientIDEnv, "GOOGLE_OAUTH_CLIENT_ID")
-	secrets.GoogleOAuthClientSecret = firstEnv(config.GoogleOAuth.ClientSecretEnv, "GOOGLE_OAUTH_CLIENT_SECRET")
-	secrets.PublicAppURL = firstEnv(config.PublicAppURLEnv, "PUBLIC_APP_URL", "SCENERY_PUBLIC_APP_URL")
-	secrets.APIBaseURL = firstEnv(config.APIBaseURLEnv, "API_BASE_URL", "SCENERY_API_BASE_URL")
-	secrets.AuthCookieDomain = firstEnv(config.AuthCookieDomainEnv, "AUTH_COOKIE_DOMAIN", "SCENERY_AUTH_COOKIE_DOMAIN")
-	secrets.AuthEmailFrom = firstEnv(config.EmailFromEnv, "AUTH_EMAIL_FROM", "SCENERY_AUTH_EMAIL_FROM")
-}
-
-func firstEnv(names ...string) string {
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if value := strings.TrimSpace(envpolicy.Get(name)); value != "" {
-			return value
-		}
-	}
-	return ""
+	secrets.GoogleOAuthClientID = strings.TrimSpace(envpolicy.Get(config.GoogleOAuth.ClientIDEnv))
+	secrets.GoogleOAuthClientSecret = strings.TrimSpace(envpolicy.Get(config.GoogleOAuth.ClientSecretEnv))
+	secrets.PublicAppURL = strings.TrimSpace(envpolicy.Get(config.PublicAppURLEnv))
+	secrets.APIBaseURL = strings.TrimSpace(envpolicy.Get(config.APIBaseURLEnv))
+	secrets.AuthCookieDomain = strings.TrimSpace(envpolicy.Get(config.AuthCookieDomainEnv))
+	secrets.AuthEmailFrom = strings.TrimSpace(envpolicy.Get(config.EmailFromEnv))
 }
 
 func standardAuthService(ctx context.Context) (*Service, error) {
@@ -190,7 +177,7 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 	defer standardAuthState.mu.Unlock()
 	standardAuthState.once.Do(func() {
 		cfg := standardAuthState.cfg
-		databaseURL := firstEnv(cfg.DatabaseURLEnv, "DATABASE_URL", "SCENERY_AUTH_DATABASE_URL")
+		databaseURL := strings.TrimSpace(envpolicy.Get(cfg.DatabaseURLEnv))
 		if strings.TrimSpace(databaseURL) == "" {
 			standardAuthState.err = fmt.Errorf("standard auth database URL is not configured (%s)", cfg.DatabaseURLEnv)
 			return
@@ -280,15 +267,6 @@ func registerStandardAuthEndpoints(config StandardConfig) {
 			Path:       "/auth/google/callback",
 			Methods:    []string{http.MethodGet},
 			RawHandler: GoogleCallback,
-		})
-		runtime.RegisterEndpoint(&runtime.Endpoint{
-			Service:    "auth",
-			Name:       "GoogleConnectCallback",
-			Access:     runtime.Public,
-			Raw:        true,
-			Path:       "/auth/google/connect/callback",
-			Methods:    []string{http.MethodGet},
-			RawHandler: GoogleConnectCallback,
 		})
 	}
 }

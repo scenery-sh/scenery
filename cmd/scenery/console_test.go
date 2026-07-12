@@ -42,11 +42,16 @@ func TestRunConsoleSetupOutputJSON(t *testing.T) {
 
 	console.SetupOutput("==> Atlas target: postgres://localhost/example", "stdout")
 
-	var event runEvent
-	if err := json.Unmarshal(out.Bytes(), &event); err != nil {
+	var envelope cliEventEnvelope
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
 	}
-	if event.Type != "setup.output" || event.Data["line"] != "==> Atlas target: postgres://localhost/example" || event.Data["stream"] != "stdout" {
+	event, ok := envelope.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("event data = %#v", envelope.Data)
+	}
+	data, _ := event["data"].(map[string]any)
+	if event["type"] != "setup.output" || data["line"] != "==> Atlas target: postgres://localhost/example" || data["stream"] != "stdout" {
 		t.Fatalf("event = %+v", event)
 	}
 }

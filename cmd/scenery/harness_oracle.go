@@ -446,7 +446,7 @@ func addHarnessChangedAreaKnowledge(path, category string, docs, risks, commands
 	if harnessDevEventReadPath(path) {
 		docs["docs/local-contract.md"] = true
 		risks["victoria-dev-event-read-path"] = true
-		commands["scenery logs --limit 500 --jsonl"] = true
+		commands["scenery logs --limit 500 -o jsonl"] = true
 	}
 	switch category {
 	case "cli":
@@ -563,7 +563,7 @@ func runHarnessGoTestTimingStepWithBudgets(ctx context.Context, repoRoot string,
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         step.Error,
-			SuggestedAction: "Check temporary directory permissions and available disk space, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Check temporary directory permissions and available disk space, then rerun `scenery harness self -o json`.",
 		}}
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, "", step.Error, exitCodeFromError(err), nil)
 		return step, &harnessTestTimingReport{

@@ -19,27 +19,27 @@ Read next when needed:
 ## Agent Fast Path
 
 ```sh
-scenery doctor --json
+scenery doctor -o json
 scenery fmt --check -o json
 scenery check -o json
 scenery compile --view expanded -o json
-scenery inspect app --json
-scenery inspect routes --json
-scenery inspect services --json
-scenery inspect endpoints --json
-scenery inspect durable --json
-scenery inspect storage --json
-scenery logs --jsonl --limit 200
-scenery harness --json --write
+scenery inspect app -o json
+scenery inspect routes -o json
+scenery inspect services -o json
+scenery inspect endpoints -o json
+scenery inspect durable -o json
+scenery inspect storage -o json
+scenery logs -o jsonl --limit 200
+scenery harness -o json --write
 ```
 
-Prefer machine-readable output for decisions. `-o json` selects `scenery.cli.v1` for edition commands; `--json` is an independently versioned command-specific protocol and must not be combined with `-o`. Branch on stable `SCNxxxx` diagnostics rather than message text. Resolve opaque source IDs through the returned source map.
+Prefer machine-readable output for decisions. `-o json` selects the singular `scenery.cli.v1` envelope; command-specific results live under `data`. `-o jsonl` emits `scenery.cli.event.v1` envelopes for streaming commands. Branch on stable `SCNxxxx` diagnostics rather than message text. Resolve opaque source IDs through the returned source map.
 
-Run `scenery doctor --json` before deep troubleshooting when host readiness is uncertain. For scenery repository changes, use `scenery inspect docs --json` before editing current contracts and `scenery harness self --summary --write` after substantial work.
+Run `scenery doctor -o json` before deep troubleshooting when host readiness is uncertain. For scenery repository changes, use `scenery inspect docs -o json` before editing current contracts and `scenery harness self --summary --write` after substantial work.
 
 ## Mental Model
 
-- `.scenery.json` marks the app root; `.config.json` is accepted only when `.scenery.json` is absent.
+- `.scenery.json` marks the app root.
 - `scenery.scn` is required and installs package-local `scenery.package.scn` modules.
 - Source, effective, and expanded graph views are distinct. Effective resolves inputs, defaults, and patches; expanded adds generators. Provenance paths are RFC 6901 pointers into the selected resource spec.
 - Workspace, contract, implementation, deployment, and artifact revisions are separate. `scenery compile` does not invent an implementation revision; build supplies an exact target input manifest.
@@ -83,12 +83,10 @@ For semantic creation, read agent `resource_create_kinds` and `schema.get` first
 - `scenery.sh` for runtime metadata and contract wire helpers.
 - `scenery.sh/auth` for request auth and standard-auth/Google connection helpers.
 - `scenery.sh/errs` for coded errors.
-- `scenery.sh/middleware` for middleware runtime types.
 - `scenery.sh/durable` for non-registering durable steps and signals; ownership is declared in `.scn`.
 - `scenery.sh/db` for service-scoped Postgres pools.
 - `scenery.sh/datasource` and `scenery.sh/object` for typed constructor capabilities.
 - `scenery.sh/storage` for app storage.
-- `scenery.sh/et` for tests.
 
 Standard auth can be enabled through app config. Its tenant tables are framework-owned under the app database's `scenery` schema. When Google OAuth is enabled, app code can use `auth.GoogleAccessToken` or `auth.GoogleAccessTokenForUser`; clients should treat `google_reauth_required` as a reconnect prompt.
 
@@ -97,20 +95,20 @@ Standard auth can be enabled through app config. Its tenant tables are framework
 ```sh
 scenery up
 scenery up --detach
-scenery ps --json
+scenery ps -o json
 scenery logs --follow
 scenery console
-scenery traces list --json --since 15m --slowest
-scenery metrics list --json --since 1h
+scenery traces list -o json --since 15m --slowest
+scenery metrics list -o json --since 1h
 scenery down
 ```
 
-Default local routing gives each live app root one localhost base URL. Discover it and every routed capability through `scenery ps --json`; do not guess hidden ports or substrate paths. Treat Caddy, dnsmasq, and Victoria as substrate unless the task explicitly diagnoses them. Use managed toolchain commands instead of relying on ambient `PATH` binaries.
+Default local routing gives each live app root one localhost base URL. Discover it and every routed capability through `scenery ps -o json`; do not guess hidden ports or substrate paths. Treat Caddy, dnsmasq, and Victoria as substrate unless the task explicitly diagnoses them. Use managed toolchain commands instead of relying on ambient `PATH` binaries.
 
 ```sh
-scenery system toolchain verify --json
-scenery system edge status --json
-scenery deploy status --json
+scenery system toolchain verify -o json
+scenery system edge status -o json
+scenery deploy status -o json
 ```
 
 ## Storage and Databases
@@ -118,17 +116,17 @@ scenery deploy status --json
 App config declares local storage cells and stores. App code uses `scenery.sh/storage`; it should not inspect proxy sockets or object directories. Tenant-scoped private calls require standard-auth context or `storage.WithTenantID`. Inspect and operate through:
 
 ```sh
-scenery inspect storage --json
-scenery storage status --json
-scenery storage ls <store> --json
+scenery inspect storage -o json
+scenery storage status -o json
+scenery storage ls <store> -o json
 ```
 
 An explicit app `DATABASE_URL` is external. Otherwise `scenery up` manages one Postgres database per app root/worktree and service-scoped schemas. Use `scenery db apply` for schema mutation, `scenery db seed` for initial data, and `scenery db setup` for both. Do not make file generation apply database state.
 
 ```sh
-scenery db list --json
-scenery db seed --env development --dry-run --json
-scenery db setup --json
+scenery db list -o json
+scenery db seed --env development --dry-run -o json
+scenery db setup -o json
 ```
 
 ## Generated TypeScript Clients
@@ -148,8 +146,8 @@ Generated clients implement the exact declared HTTP mappings and typed outcomes.
 Use `scenery task` for configured repo tasks and app-local code tasks. Code tasks use `<domain>:<name>` and may run even when the application graph is temporarily invalid.
 
 ```sh
-scenery task list --json
-scenery task inspect <target> --json
+scenery task list -o json
+scenery task inspect <target> -o json
 scenery task run <domain>:<name> -- [args...]
 scenery worker --app-root <path> --env <name>
 ```
@@ -166,7 +164,7 @@ bun run lint
 bun run typecheck
 bun run build
 cd ../..
-scenery harness ui --json --write
+scenery harness ui -o json --write
 ```
 
 ## Command Reference
@@ -174,10 +172,10 @@ scenery harness ui --json --write
 Use `docs/local-contract.md` for full grammar. Common agent commands:
 
 ```text
-scenery up [--app-root <path>] [--json] [--detach]
-scenery ps [--app-root <path>] [--json]
-scenery down [--app-root <path>] [--json]
-scenery build [--app-root <path>] [--target <go-target>] [-o <path>]
+scenery up [--app-root <path>] [-o jsonl] [--detach]
+scenery ps [--app-root <path>] [-o json]
+scenery down [--app-root <path>] [-o json]
+scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
 scenery fmt --check [--app-root <path>] -o json
 scenery check [--app-root <path>] -o json
 scenery compile [--app-root <path>] [--view source|effective|expanded] -o json
@@ -186,14 +184,14 @@ scenery diff --semantic BASE TARGET [--rename-receipts <path>] -o json
 scenery generate [--app-root <path>] [--target go|contracts|typescript_client.<name>] [--check] -o json
 scenery changes plan|apply ... -o json
 scenery deploy plan|apply ... -o json
-scenery inspect app|routes|services|endpoints|build|paths|durable|storage|observability --json
-scenery logs [--app-root <path>] [--jsonl] [--limit <n>]
-scenery traces list --json [--app-root <path>]
-scenery metrics list --json [--app-root <path>]
+scenery inspect app|routes|services|endpoints|build|paths|durable|storage|observability -o json
+scenery logs [--app-root <path>] [-o jsonl] [--limit <n>]
+scenery traces list -o json [--app-root <path>]
+scenery metrics list -o json [--app-root <path>]
 scenery task list|inspect|run ...
 scenery db list|path|shell|apply|seed|setup|reset|drop ...
 scenery test [--app-root <path>] [go test flags/packages...]
-scenery harness [--app-root <path>] --json --write
+scenery harness [--app-root <path>] -o json --write
 ```
 
 ## Validation Before Finishing
@@ -204,7 +202,7 @@ For app changes:
 scenery check -o json
 scenery generate --check -o json
 go test ./...
-scenery harness --json --write
+scenery harness -o json --write
 ```
 
 For scenery repository changes:

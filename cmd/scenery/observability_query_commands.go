@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -118,13 +117,13 @@ func runLogsQueryCommand(ctx context.Context, stdout io.Writer, args []string) e
 		return err
 	}
 	if opts.JSONL {
-		enc := json.NewEncoder(stdout)
+		events := newCLIEventWriter(stdout)
 		for _, entry := range result.Logs {
-			if err := enc.Encode(entry); err != nil {
+			if err := events.event(entry); err != nil {
 				return err
 			}
 		}
-		return nil
+		return events.summary(len(result.Logs))
 	}
 	return writeInspectJSON(stdout, result)
 }
@@ -142,8 +141,9 @@ func runLogsTailCommand(ctx context.Context, stdout io.Writer, args []string) er
 	if stack == nil || stack.BaseURL("logs") == "" {
 		return fmt.Errorf("VictoriaLogs is unavailable")
 	}
-	enc := json.NewEncoder(stdout)
-	return obs.TailLogs(ctx, obs.LogsQuery{
+	events := newCLIEventWriter(stdout)
+	count := 0
+	err = obs.TailLogs(ctx, obs.LogsQuery{
 		BaseURL: stack.BaseURL("logs"),
 		Scope:   scope,
 		Query:   opts.Query,
@@ -152,8 +152,13 @@ func runLogsTailCommand(ctx context.Context, stdout io.Writer, args []string) er
 		Timeout: opts.Timeout,
 		Fields:  opts.Fields,
 	}, func(entry obs.LogsTailEntry) error {
-		return enc.Encode(entry)
+		count++
+		return events.event(entry)
 	})
+	if err != nil {
+		return err
+	}
+	return events.summary(count)
 }
 
 func runMetricsQueryCommand(ctx context.Context, stdout io.Writer, args []string) error {
@@ -272,9 +277,9 @@ func buildInspectObservabilityResponse(ctx context.Context, appRoot string, cfg 
 		},
 		Debug: observabilityDebugFor(logsBase, metricsBase, tracesBase),
 		Examples: []string{
-			"scenery logs query --json --since 15m --query 'error OR panic'",
-			"scenery metrics query --json --since 15m --step 5s --promql 'max_over_time(scenery_request_duration_seconds[15m])'",
-			"scenery metrics labels --json --since 1h --match 'scenery_request_duration_seconds'",
+			"scenery logs query -o json --since 15m --query 'error OR panic'",
+			"scenery metrics query -o json --since 15m --step 5s --promql 'max_over_time(scenery_request_duration_seconds[15m])'",
+			"scenery metrics labels -o json --since 1h --match 'scenery_request_duration_seconds'",
 		},
 	}
 	if logsBase == "" {
@@ -293,8 +298,7 @@ func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 	opts := logsQueryOptions{Session: "current", Since: 15 * time.Minute, SinceRaw: "15m", Limit: 200, Timeout: 3 * time.Second}
 	since, start, end, timeout, fields := opts.SinceRaw, "", "", opts.Timeout.String(), ""
 	flags := newCLIFlagSet("logs query")
-	flags.Bool("json", false, "")
-	flags.BoolVar(&opts.JSONL, "jsonl", false, "")
+	registerJSONLinesOutput(flags, &opts.JSONL)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Session, "session", opts.Session, "")
 	flags.StringVar(&opts.Query, "query", "", "")
@@ -368,7 +372,6 @@ func parseMetricsQueryArgs(args []string) (metricsQueryOptions, error) {
 	opts := metricsQueryOptions{Session: "current", Since: 15 * time.Minute, SinceRaw: "15m", Step: 5 * time.Second, Timeout: 3 * time.Second, Limit: 100}
 	since, start, end, step, timeout := opts.SinceRaw, "", "", opts.Step.String(), opts.Timeout.String()
 	flags := newCLIFlagSet("metrics query")
-	flags.Bool("json", false, "")
 	flags.BoolVar(&opts.Instant, "instant", false, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Session, "session", opts.Session, "")
@@ -425,7 +428,6 @@ func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOp
 	opts := metricsCatalogOptions{Session: "current", Since: time.Hour, SinceRaw: "1h", Limit: 1000, Timeout: 3 * time.Second}
 	since, start, end, timeout := opts.SinceRaw, "", "", opts.Timeout.String()
 	flags := newCLIFlagSet("metrics catalog")
-	flags.Bool("json", false, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Session, "session", opts.Session, "")
 	flags.StringVar(&opts.Match, "match", "", "")

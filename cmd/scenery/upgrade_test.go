@@ -28,7 +28,7 @@ func TestParseUpgradeArgs(t *testing.T) {
 		t.Fatalf("upgradeArchiveName kept tag prefix: %q", got)
 	}
 
-	opts, err := parseUpgradeArgs([]string{"--version", "v9.9.9", "--target", "/tmp/scenery", "--toolchain", "all", "--force", "--dry-run", "--json"})
+	opts, err := parseUpgradeArgs([]string{"--version", "v9.9.9", "--target", "/tmp/scenery", "--toolchain", "all", "--force", "--dry-run", "-o", "json"})
 	if err != nil {
 		t.Fatalf("parseUpgradeArgs() error = %v", err)
 	}
@@ -74,12 +74,12 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 
 	target := filepath.Join(t.TempDir(), "bin", "scenery")
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--toolchain", "all", "--json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--toolchain", "all", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if !payload.OK || !payload.Installed || payload.TargetVersion != tag || payload.AssetName != assetName {
 		t.Fatalf("payload = %+v", payload)
@@ -95,7 +95,7 @@ func TestRunUpgradeInstallsVerifiedReleaseAndSyncsToolchain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolchain marker: %v", err)
 	}
-	if strings.TrimSpace(string(args)) != "system toolchain sync --json --images" {
+	if strings.TrimSpace(string(args)) != "system toolchain sync -o json --images" {
 		t.Fatalf("toolchain args = %q", string(args))
 	}
 	if payload.Toolchain == nil || payload.Toolchain.Mode != "all" || len(payload.Toolchain.Synced) != 1 {
@@ -116,12 +116,12 @@ func TestRunUpgradeSkipsCurrentVersionForDefaultTarget(t *testing.T) {
 	defer restore()
 
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--skip-toolchain", "--json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--skip-toolchain", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if !payload.OK || !payload.Skipped || payload.Installed {
 		t.Fatalf("payload = %+v", payload)
@@ -145,12 +145,12 @@ func TestRunUpgradeInstallsExplicitTargetEvenWhenCurrentVersionMatches(t *testin
 	}
 
 	var out bytes.Buffer
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain", "--json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade() error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if !payload.OK || !payload.Installed || payload.Skipped {
 		t.Fatalf("payload = %+v", payload)
@@ -176,13 +176,13 @@ func TestRunUpgradeRejectsChecksumMismatch(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "scenery")
 
 	var out bytes.Buffer
-	err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain", "--json"})
+	err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--skip-toolchain", "-o", "json"})
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
-	if jsonErr := json.Unmarshal(out.Bytes(), &payload); jsonErr != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", jsonErr, out.String())
+	if jsonErr := decodeCLIJSON(out.Bytes(), &payload); jsonErr != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", jsonErr, out.String())
 	}
 	if payload.OK || payload.Error == "" {
 		t.Fatalf("payload = %+v", payload)
@@ -233,12 +233,12 @@ func TestUpgradeAddsDeploySetupNoticeWhenHelperContractDrifts(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--force", "--skip-toolchain", "--json"}); err != nil {
+	if err := runUpgrade(t.Context(), &out, []string{"--version", tag, "--target", target, "--force", "--skip-toolchain", "-o", "json"}); err != nil {
 		t.Fatalf("runUpgrade json error = %v\n%s", err, out.String())
 	}
 	var payload upgradeResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Deploy == nil || !payload.Deploy.ActionRequired || payload.Deploy.ExpectedSchema != deployHelperContractVersion {
 		t.Fatalf("deploy notice = %+v", payload.Deploy)

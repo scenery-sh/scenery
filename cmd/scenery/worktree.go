@@ -84,7 +84,7 @@ func parseWorktreeArgs(args []string) (worktreeOptions, error) {
 	flags := newCLIFlagSet("worktree")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.From, "from", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.DB, "db", false, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

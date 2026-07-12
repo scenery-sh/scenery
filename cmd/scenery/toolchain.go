@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -97,9 +96,7 @@ func runToolchain(ctx context.Context, stdout io.Writer, args []string) error {
 			return err
 		}
 		if opts.JSON {
-			enc := json.NewEncoder(stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(status)
+			return writeCLIJSON(stdout, status)
 		}
 		if status.ManagedPath == "" {
 			return err
@@ -115,7 +112,7 @@ func parseToolchainArgs(args []string) (toolchainOptions, error) {
 	opts := toolchainOptions{}
 	platformName := ""
 	flags := newCLIFlagSet("system toolchain")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.All, "all", false, "")
 	flags.BoolVar(&opts.Images, "images", false, "")
 	flags.BoolVar(&opts.Strict, "strict", false, "")
@@ -127,7 +124,7 @@ func parseToolchainArgs(args []string) (toolchainOptions, error) {
 		return toolchainOptions{}, err
 	}
 	if len(positionals) == 0 {
-		return toolchainOptions{}, fmt.Errorf("usage: scenery system toolchain list|sync|verify|path [--json]")
+		return toolchainOptions{}, fmt.Errorf("usage: scenery system toolchain list|sync|verify|path [-o json]")
 	}
 	opts.Command = positionals[0]
 	if len(positionals) > 1 {
@@ -152,9 +149,7 @@ func parseToolchainArgs(args []string) (toolchainOptions, error) {
 
 func renderToolchainStatus(stdout io.Writer, jsonMode bool, includeAll bool, status toolchain.Status) error {
 	if jsonMode {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(status)
+		return writeCLIJSON(stdout, status)
 	}
 	fmt.Fprintf(stdout, "toolchain %s\n", status.ManifestSHA256)
 	fmt.Fprintf(stdout, "store: %s\n", status.StoreDir)

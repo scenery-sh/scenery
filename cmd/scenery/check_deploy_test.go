@@ -45,12 +45,12 @@ func TestRunSceneryCheckAcceptsNativePersistentFixture(t *testing.T) {
 	preparePersistentTestApp(t, root, nativeHarnessTestFiles(t, "checksmoke", "return nil"))
 
 	var out bytes.Buffer
-	if err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runSceneryCheck(context.Background(), &out, []string{"--app-root", root, "-o", "json"}); err != nil {
 		t.Fatalf("runSceneryCheck: %v\n%s", err, out.String())
 	}
-	var payload checkResponse
+	var payload vnextEnvelope
 	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+		t.Fatalf("decode v1 envelope: %v\n%s", err, out.String())
 	}
 	if !payload.OK || len(payload.Diagnostics) != 0 {
 		t.Fatalf("payload = %+v", payload)

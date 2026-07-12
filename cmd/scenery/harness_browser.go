@@ -135,7 +135,7 @@ func runSceneryHarnessUI(ctx context.Context, stdout io.Writer, args []string) e
 		return err
 	}
 	if !opts.JSON {
-		return fmt.Errorf("scenery harness ui currently requires --json")
+		return fmt.Errorf("scenery harness ui currently requires -o json")
 	}
 	start, err := resolveAppRoot(opts.AppRoot)
 	if err != nil {
@@ -170,7 +170,7 @@ func runSceneryHarnessUI(ctx context.Context, stdout io.Writer, args []string) e
 				Stage:           "browser ui harness",
 				Severity:        "error",
 				Message:         err.Error(),
-				SuggestedAction: "Run `scenery up --json` for the app or pass --dashboard-url to an existing dashboard.",
+				SuggestedAction: "Run `scenery up -o jsonl` for the app or pass --dashboard-url to an existing dashboard.",
 			})
 			return finishHarnessUI(stdout, appRoot, opts, resp, started, harnessUICommand(args))
 		}
@@ -253,7 +253,7 @@ func parseHarnessUIArgs(args []string) (harnessUIOptions, error) {
 	flags := newCLIFlagSet("harness ui")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.DashboardURL, "dashboard-url", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Write, "write", false, "")
 	flags.BoolVar(&opts.Headed, "headed", false, "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -279,7 +279,7 @@ func startHarnessUIDevProcess(ctx context.Context, appRoot string) (*harnessUIDe
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, exe, "up", "--app-root", appRoot, "--listen", appAddr, "--json")
+	cmd := exec.CommandContext(ctx, exe, "up", "--app-root", appRoot, "--listen", appAddr, "-o", "json")
 	cmd.Dir = appRoot
 	cmd.Env = append(envpolicy.Environ(),
 		"SCENERY_DEV_DASHBOARD_ADDR="+dashboardAddr,
@@ -556,7 +556,7 @@ func buildHarnessUINextActions(resp harnessUIResponse) []string {
 	}
 	for _, route := range resp.Routes {
 		if !route.OK {
-			actions = append(actions, "Fix dashboard route `"+route.Name+"`, then rerun `scenery harness ui --json`.")
+			actions = append(actions, "Fix dashboard route `"+route.Name+"`, then rerun `scenery harness ui -o json`.")
 			break
 		}
 	}
@@ -587,9 +587,7 @@ func writeHarnessUIResult(path string, resp harnessUIResponse) error {
 }
 
 func writeHarnessUIJSON(w io.Writer, payload harnessUIResponse) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(payload)
+	return writeCLIJSON(w, payload)
 }
 
 func waitForHTTP(ctx context.Context, rawURL string, timeout time.Duration) error {

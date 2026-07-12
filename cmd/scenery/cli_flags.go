@@ -16,6 +16,7 @@ func newCLIFlagSet(name string) *flag.FlagSet {
 // parseCLIFlags keeps the CLI's existing interspersed-flag grammar while using
 // the standard library for flag values, aliases, booleans, and --flag=value.
 func parseCLIFlags(flags *flag.FlagSet, args []string) ([]string, error) {
+	ensureCLIOutputFlag(flags)
 	flagArgs := make([]string, 0, len(args))
 	positionals := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -51,7 +52,34 @@ func parseCLIFlags(flags *flag.FlagSet, args []string) ([]string, error) {
 	return positionals, nil
 }
 
+func ensureCLIOutputFlag(flags *flag.FlagSet) {
+	if flags.Lookup("o") == nil {
+		flags.String("o", "human", "")
+	}
+}
+
+func registerJSONOutput(flags *flag.FlagSet, enabled *bool) {
+	flags.Func("o", "", func(value string) error {
+		if value != "human" && value != "json" {
+			return fmt.Errorf("unsupported output %q", value)
+		}
+		*enabled = value == "json"
+		return nil
+	})
+}
+
+func registerJSONLinesOutput(flags *flag.FlagSet, enabled *bool) {
+	flags.Func("o", "", func(value string) error {
+		if value != "human" && value != "jsonl" {
+			return fmt.Errorf("unsupported output %q", value)
+		}
+		*enabled = value == "jsonl"
+		return nil
+	})
+}
+
 func parseLeadingCLIFlags(flags *flag.FlagSet, args []string) ([]string, error) {
+	ensureCLIOutputFlag(flags)
 	end := 0
 	for end < len(args) {
 		arg := args[end]

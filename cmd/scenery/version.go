@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -37,13 +36,14 @@ type toolchainManifestVersion struct {
 
 func versionCommand(args []string) error {
 	jsonOutput := false
-	for _, arg := range args {
-		switch arg {
-		case "--json", "-json":
-			jsonOutput = true
-		default:
-			return fmt.Errorf("unknown flag %q", arg)
-		}
+	flags := newCLIFlagSet("version")
+	registerJSONOutput(flags, &jsonOutput)
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return err
 	}
 	resp := buildVersionResponse()
 	if jsonOutput {
@@ -53,7 +53,7 @@ func versionCommand(args []string) error {
 		_, err := fmt.Fprintf(os.Stdout, "scenery %s (%s)\n", resp.Version, resp.Commit)
 		return err
 	}
-	_, err := fmt.Fprintf(os.Stdout, "scenery %s\n", resp.Version)
+	_, err = fmt.Fprintf(os.Stdout, "scenery %s\n", resp.Version)
 	return err
 }
 
@@ -111,7 +111,5 @@ func cliBuildIdentity() localagent.Identity {
 }
 
 func writeVersionJSON(w io.Writer, resp versionResponse) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(resp)
+	return writeCLIJSON(w, resp)
 }

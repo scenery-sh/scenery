@@ -13,10 +13,10 @@ The harness contract gives Codex and other agents a short feedback loop:
 ## Command
 
 ```text
-scenery harness [--app-root <path>] [--json] [--write]
-scenery harness self [--repo-root <path>] [--summary|--json|--json=summary|--json=full] [--write] [--quick|--race|--release] [--fresh-tests]
-scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [--json] [--write]
-scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
+scenery harness [--app-root <path>] [-o json] [--write]
+scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
+scenery harness ui [--app-root <path>] [--dashboard-url <url>] [--headed] [-o json] [--write]
+scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
 ```
 
 Self-harness Go test steps always execute test bodies fresh with `-test.count=1`.
@@ -32,7 +32,7 @@ Use this before large edits and after fixes when an agent needs a single machine
 Recommended agent loop:
 
 ```text
-scenery doctor --json
+scenery doctor -o json
 scenery harness self --quick --summary --write
 cat .scenery/harness/agent-context.json
 # implement
@@ -56,7 +56,7 @@ safety failure unless the release gate is intentionally validating that boundary
 For dashboard route or UI behavior changes, also run:
 
 ```text
-scenery harness ui --json --write
+scenery harness ui -o json --write
 ```
 
 For managed database changes, the default self-harness runs the live
@@ -64,7 +64,7 @@ Postgres service probe when Docker is reachable (and records an explicit
 skip when it is not):
 
 ```text
-scenery harness self --json --write
+scenery harness self -o json --write
 ```
 
 Use `--quick` only when you intentionally need the smaller self-harness loop
@@ -72,23 +72,23 @@ without live branch-substrate coverage.
 
 The command runs:
 
-- `scenery check --json`
-- `scenery inspect app --json`
-- `scenery inspect routes --json`
-- `scenery inspect services --json`
-- `scenery inspect endpoints --json`
-- `scenery inspect build --json`
-- `scenery inspect paths --json`
-- `scenery traces list --json`
-- `scenery metrics list --json`
-- `scenery inspect docs --json`
+- `scenery check -o json`
+- `scenery inspect app -o json`
+- `scenery inspect routes -o json`
+- `scenery inspect services -o json`
+- `scenery inspect endpoints -o json`
+- `scenery inspect build -o json`
+- `scenery inspect paths -o json`
+- `scenery traces list -o json`
+- `scenery metrics list -o json`
+- `scenery inspect docs -o json`
 
-`scenery traces list --json` and `scenery metrics list --json` are included
+`scenery traces list -o json` and `scenery metrics list -o json` are included
 as beta diagnostic inputs for agents. Their schema versions are useful for
 automation, but their rollup and backend-selection semantics are not stable v0
 API yet; see [local-contract.md](local-contract.md).
 
-`scenery harness ui --json` is the implemented browser-backed dashboard route
+`scenery harness ui -o json` is the implemented browser-backed dashboard route
 check. It starts a temporary dashboard target unless `--dashboard-url` is
 provided, visits stable dashboard routes, runs route-specific semantic journeys,
 checks durable `data-scenery-ui` markers, and writes screenshots, DOM snapshots,
@@ -97,16 +97,16 @@ prove behavior such as API Explorer endpoint/form rendering, service metadata,
 trace empty/table/detail states, database availability or intentional empty
 states, cron status, and durable/worker status cards.
 
-`scenery inspect harness --json` reads the latest app, self, and UI harness
+`scenery inspect harness -o json` reads the latest app, self, and UI harness
 outputs from `.scenery/harness/` and returns their artifacts plus normalized
 evidence records. Focused drill-down commands read bounded topic detail without
 opening the full archive:
 
 ```text
-scenery inspect harness artifact test-timing --json
-scenery inspect harness artifact drift --json
-scenery inspect harness diagnostics --severity warning --json
-scenery inspect harness timing --top 10 --json
+scenery inspect harness artifact test-timing -o json
+scenery inspect harness artifact drift -o json
+scenery inspect harness diagnostics --severity warning -o json
+scenery inspect harness timing --top 10 -o json
 ```
 
 ## Output
@@ -140,7 +140,7 @@ The same evidence model is shared by the app harness, self-harness, UI harness,
 and release gate so agents can inspect failures without scraping terminal
 scrollback.
 
-When `scenery harness ui --json --write` is present, the browser harness writes:
+When `scenery harness ui -o json --write` is present, the browser harness writes:
 
 ```text
 <app-root>/.scenery/harness/ui/latest.json
@@ -169,7 +169,7 @@ compact `scenery.harness.self.summary.v1` decision packet and writes:
 <repo-root>/.scenery/harness/self-summary-latest.json
 ```
 
-Use `scenery harness self --json=full --write` only when stdout must contain the
+Use `scenery harness self -o json --write` only when stdout must contain the
 full `scenery.harness.self.v1` archive. Agents should prefer artifacts and focused
 inspect commands over pasting `.scenery/harness/self-latest.json` into chat.
 
@@ -178,8 +178,8 @@ The self harness validates the local scenery development loop:
 - `go test ./cmd/scenery ./internal/devdash ./runtime`
 - docs knowledge base integrity through `docs/knowledge.json`
 - local markdown links and schema JSON syntax
-- `scenery inspect docs --json`
-- docs review-due and stale summaries from `scenery inspect docs --json`
+- `scenery inspect docs -o json`
+- docs review-due and stale summaries from `scenery inspect docs -o json`
 - architecture checks for dependency policy, package boundaries, generated-file hygiene, and oversized source files
 - parallel dev-session safety plus managed Postgres database isolation
   (distinct per-worktree databases and database URLs) when Docker is
@@ -207,7 +207,7 @@ budget when maintainers intentionally want a hard speed gate.
 
 ## Doc Gardening
 
-Run `scenery inspect docs --json` before non-trivial repo changes and use its
+Run `scenery inspect docs -o json` before non-trivial repo changes and use its
 `summary.review_due_count`, document-level `review_due`, and `stale` fields to
 choose small cleanup work. `scenery harness self --summary --write` includes the
 same docs knowledge signals in its summaries, so review-due documentation is

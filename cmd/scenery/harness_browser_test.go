@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,14 +54,14 @@ func TestHarnessUICommandWithDashboardURLAndFakeRunner(t *testing.T) {
 	err := runSceneryHarnessUI(context.Background(), &out, []string{
 		"--app-root", root,
 		"--dashboard-url", "http://127.0.0.1:9401/harness-dev",
-		"--json",
+		"-o", "json",
 		"--write",
 	})
 	if err != nil {
 		t.Fatalf("runSceneryHarnessUI: %v\n%s", err, out.String())
 	}
 	var payload harnessUIResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decode payload: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.harness.ui.v1" || !payload.OK {

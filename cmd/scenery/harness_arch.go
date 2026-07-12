@@ -113,7 +113,7 @@ func runHarnessArchitectureStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         err.Error(),
-			SuggestedAction: "Fix the source walk error, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Fix the source walk error, then rerun `scenery harness self -o json`.",
 		})
 	} else {
 		diagnostics = append(diagnostics, sourceDiagnostics...)
@@ -150,7 +150,7 @@ func checkArchitectureDependencies(repoRoot string, summary *architectureSummary
 			Severity:        "error",
 			File:            filepath.ToSlash(filepath.Join(repoRoot, "go.mod")),
 			Message:         err.Error(),
-			SuggestedAction: "Restore go.mod, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Restore go.mod, then rerun `scenery harness self -o json`.",
 		}}
 	}
 	parsed, err := modfile.Parse("go.mod", data, nil)
@@ -160,7 +160,7 @@ func checkArchitectureDependencies(repoRoot string, summary *architectureSummary
 			Severity:        "error",
 			File:            filepath.ToSlash(filepath.Join(repoRoot, "go.mod")),
 			Message:         err.Error(),
-			SuggestedAction: "Fix go.mod syntax, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Fix go.mod syntax, then rerun `scenery harness self -o json`.",
 		}}
 	}
 	var diagnostics []checkDiagnostic

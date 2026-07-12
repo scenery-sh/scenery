@@ -99,37 +99,6 @@ func (s *Service) GoogleConnectStart(ctx context.Context, params *GoogleConnectS
 	return &GoogleConnectStartResponse{AuthorizeURL: authURL.String()}, nil
 }
 
-func GoogleConnectCallback(w http.ResponseWriter, req *http.Request) {
-	if oauthErr := strings.TrimSpace(req.URL.Query().Get("error")); oauthErr != "" {
-		redirectPath, _ := consumeGoogleConnectionErrorRedirectPath(req)
-		redirectGoogleConnectionCallbackError(w, req, redirectPath, "google_oauth")
-		return
-	}
-	state := strings.TrimSpace(req.URL.Query().Get("state"))
-	code := strings.TrimSpace(req.URL.Query().Get("code"))
-	if state == "" || code == "" {
-		redirectGoogleConnectionCallbackError(w, req, "/", "oauth_state")
-		return
-	}
-
-	svc, err := standardAuthService(req.Context())
-	if err != nil {
-		redirectGoogleConnectionCallbackError(w, req, "/", "google_internal")
-		return
-	}
-	oauthState, err := svc.query.ConsumeOAuthState(req.Context(), tokenHash(state))
-	if err != nil {
-		redirectGoogleConnectionCallbackError(w, req, "/", "oauth_state")
-		return
-	}
-	redirectPath := safeRedirectPath(oauthState.RedirectPath)
-	if strings.TrimSpace(oauthState.Purpose) != googleConnectionOAuthPurpose || !oauthState.UserID.Valid {
-		redirectGoogleConnectionCallbackError(w, req, redirectPath, "oauth_state")
-		return
-	}
-	finishGoogleConnectionCallback(w, req, svc, oauthState, code, googleConnectCallbackRedirectURI(req))
-}
-
 func finishGoogleConnectionCallback(w http.ResponseWriter, req *http.Request, svc *Service, oauthState authdb.ScenerySceneryAuthOauthState, code string, redirectURI string) {
 	redirectPath := safeRedirectPath(oauthState.RedirectPath)
 	if strings.TrimSpace(oauthState.Purpose) != googleConnectionOAuthPurpose || !oauthState.UserID.Valid {

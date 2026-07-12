@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -177,7 +176,7 @@ func parseWorkerDurableTokenCreateArgs(args []string) (workerDurableTokenCreateO
 	flags.StringVar(&opts.Service, "service", "", "")
 	flags.StringVar(&opts.Name, "name", "", "")
 	flags.StringVar(&opts.ID, "id", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return workerDurableTokenCreateOptions{}, err
@@ -240,7 +239,7 @@ func parseWorkerDurableJobsArgs(args []string) (workerDurableJobsOptions, error)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Service, "service", "", "")
 	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return workerDurableJobsOptions{}, err
@@ -427,9 +426,7 @@ func runWorkerDurableTokenCreate(opts workerDurableTokenCreateOptions, stdout io
 	resp.Token.Secret = secret
 	resp.Token.TokenHash = token.TokenHash
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return writeCLIJSON(stdout, resp)
 	}
 	_, _ = fmt.Fprintf(stdout, "created durable worker token %s for service %s\n", token.ID, service)
 	_, _ = fmt.Fprintf(stdout, "secret: %s\n", secret)
@@ -490,9 +487,7 @@ func runWorkerDurableJobs(opts workerDurableJobsOptions, stdout io.Writer) error
 		return fmt.Errorf("unknown durable jobs action %q", opts.Action)
 	}
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return writeCLIJSON(stdout, resp)
 	}
 	switch opts.Action {
 	case "list":

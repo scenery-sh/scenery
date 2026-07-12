@@ -473,8 +473,8 @@ All three counts must be `0`.
 Then smoke test against the new app build:
 
 ```sh
-scenery check --json
-scenery inspect routes --json
+scenery check -o json
+scenery inspect routes -o json
 ```
 
 In staging, verify:

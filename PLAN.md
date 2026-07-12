@@ -18,12 +18,12 @@ scenery should optimize for agent legibility and fast feedback loops:
 
 Already implemented:
 
-- Stable inspect surfaces: `scenery inspect app|routes|services|endpoints|build|paths|docs --json`.
+- Stable inspect surfaces: `scenery inspect app|routes|services|endpoints|build|paths|docs -o json`.
 - Native edition-2027 resource inspection through `scenery compile|list|get|explain ... -o json`.
-- Queryable diagnostics through `scenery traces list --json`, `scenery metrics list --json`, and `scenery logs --jsonl`.
-- App harness: `scenery harness --json --write`.
-- Repo self-harness: `scenery harness self --json --write`.
-- Browser UI harness: `scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]`.
+- Queryable diagnostics through `scenery traces list -o json`, `scenery metrics list -o json`, and `scenery logs -o jsonl`.
+- App harness: `scenery harness -o json --write`.
+- Repo self-harness: `scenery harness self -o json --write`.
+- Browser UI harness: `scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]`.
 - Indexed docs knowledge base through [docs/knowledge.json](docs/knowledge.json).
 - Docs entrypoint through [docs/index.md](docs/index.md).
 - Active/completed plans and tech-debt tracker under [docs/plans/](docs/plans/) and [docs/tech-debt.md](docs/tech-debt.md).
@@ -35,7 +35,7 @@ Goal: keep dashboard and UI behavior directly legible to agents, not only humans
 
 Implemented baseline:
 
-- `scenery harness ui --json` starts or reuses a local dashboard target.
+- `scenery harness ui -o json` starts or reuses a local dashboard target.
 - It visits core dashboard routes and asserts stable `data-scenery-ui` markers.
 - It captures screenshots plus console and network artifacts under `.scenery/harness/ui/`.
 - It returns a versioned JSON result with per-route status and remediation text.
@@ -43,7 +43,7 @@ Implemented baseline:
 Current debt:
 
 - Add deeper route-specific journeys for API Explorer, traces, DB/Data Explorer, Cron, and docs/help surfaces.
-- Keep `scenery harness ui --json` explicit rather than making the fast self-harness path depend on a browser.
+- Keep `scenery harness ui -o json` explicit rather than making the fast self-harness path depend on a browser.
 - Expand route assertions only where they represent stable product behavior, not visual noise.
 
 ## Priority 2: Failure Evidence Artifacts
@@ -55,7 +55,7 @@ Deliverables:
 - Extend harness result steps with optional artifact references.
 - Store failure artifacts under `.scenery/harness/artifacts/`.
 - Capture command output tails, screenshots, trace IDs, request/response transcripts, and repro commands where applicable.
-- Add `scenery inspect harness --json` or extend `scenery inspect paths --json` to expose latest harness artifact locations.
+- Add `scenery inspect harness -o json` or extend `scenery inspect paths -o json` to expose latest harness artifact locations.
 
 Acceptance:
 
@@ -69,7 +69,7 @@ Goal: schemas should not just be valid JSON; CLI outputs should conform to them.
 
 Deliverables:
 
-- Validate representative command outputs for `scenery inspect ... --json`, `scenery check --json`, `scenery harness --json`, `scenery harness self --json`, `scenery logs --jsonl`, and `scenery traces clear --json`.
+- Validate representative command outputs for `scenery inspect ... -o json`, `scenery check -o json`, `scenery harness -o json`, `scenery harness self -o json`, `scenery logs -o jsonl`, and `scenery traces clear -o json`.
 - Prefer a small internal validator for the subset of JSON Schema used by scenery before adding a new dependency.
 - If a dependency becomes necessary, document the concrete payoff in the architecture allowlist.
 
@@ -102,8 +102,8 @@ Goal: keep the repo from accumulating stale docs, large files, unused paths, and
 
 Deliverables:
 
-- Add `scenery inspect debt --json` or extend `scenery inspect docs --json` with debt rollups.
-- Continue exposing stale docs and review-due docs through `scenery inspect docs --json` summary counts and per-document fields.
+- Add `scenery inspect debt -o json` or extend `scenery inspect docs -o json` with debt rollups.
+- Continue exposing stale docs and review-due docs through `scenery inspect docs -o json` summary counts and per-document fields.
 - Keep self-harness summaries surfacing docs review-due state alongside missing and stale docs.
 - Track large files, direct dependencies, repeated warnings, and slow tests.
 - Add a recommended periodic command sequence for cleanup agents.
@@ -121,7 +121,7 @@ Goal: make local agent review repeatable and mechanical.
 
 Deliverables:
 
-- Add `scenery harness review --json` or document a standard command sequence.
+- Add `scenery harness review -o json` or document a standard command sequence.
 - Include self-harness, app harness, observability queries, architecture checks, and optional UI harness.
 - Add a concise checklist to [docs/harness-engineering.md](docs/harness-engineering.md).
 

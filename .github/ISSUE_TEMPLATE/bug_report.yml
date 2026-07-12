@@ -44,7 +44,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Paste the output of `scenery version --json` and include OS/architecture.
+      description: Paste the output of `scenery version -o json` and include OS/architecture.
       render: json
       placeholder: |
         {
@@ -59,7 +59,7 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics
-      description: If possible, include relevant `scenery check --json`, `scenery inspect ... --json`, or `scenery logs` output.
+      description: If possible, include relevant `scenery check -o json`, `scenery inspect ... -o json`, or `scenery logs` output.
       render: shell
     validations:
       required: false

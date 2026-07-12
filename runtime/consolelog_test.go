@@ -40,26 +40,6 @@ func TestSceneryConsoleHandlerFormatsTraceRecords(t *testing.T) {
 	}
 }
 
-func TestSceneryConsoleHandlerFormatsSecretsWarning(t *testing.T) {
-	var out bytes.Buffer
-	handler := newSceneryConsoleHandler(&out)
-	record := slog.NewRecord(time.Now(), slog.LevelWarn, "scenery secrets missing", 0)
-	record.AddAttrs(slog.Any("fields", []string{"DatabaseURL", "ResendAPIKey"}))
-	if err := handler.Handle(context.Background(), record); err != nil {
-		t.Fatalf("Handle returned error: %v", err)
-	}
-	got := out.String()
-	for _, want := range []string{
-		"warning: secrets not defined: DatabaseURL, ResendAPIKey",
-		"note: undefined secrets are left empty for local development only.",
-		"https://github.com/scenery-sh/scenery/docs/primitives/secrets",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("output %q does not contain %q", got, want)
-		}
-	}
-}
-
 func TestSceneryConsoleHandlerColorsTraceWhenForced(t *testing.T) {
 	t.Setenv("CLICOLOR_FORCE", "1")
 

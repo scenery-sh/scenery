@@ -25,7 +25,7 @@ func TestDBCommandRejectsMissingOrRemovedSubcommand(t *testing.T) {
 func TestParseDBCLIArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseDBCLIArgs([]string{"--app-root", "/tmp/app", "--json", "main", ".schema"}, false)
+	opts, err := parseDBCLIArgs([]string{"--app-root", "/tmp/app", "-o", "json", "main", ".schema"}, false)
 	if err != nil {
 		t.Fatalf("parseDBCLIArgs returned error: %v", err)
 	}
@@ -124,10 +124,7 @@ func TestResolveDatabaseURLForConfigUsesAppDatabaseURL(t *testing.T) {
 		}},
 	}
 	dsn := "postgres://user:secret@localhost/demo"
-	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, []string{
-		appDatabaseURLEnv + "=" + dsn,
-		legacyDatabaseURLEnv + "=mysql://poison",
-	}, true)
+	got, err := resolveDatabaseURLForConfig(context.Background(), root, cfg, []string{appDatabaseURLEnv + "=" + dsn}, true)
 	if err != nil {
 		t.Fatalf("resolveDatabaseURLForConfig returned error: %v", err)
 	}

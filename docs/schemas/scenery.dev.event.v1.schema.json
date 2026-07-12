@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scenery.sh/schemas/scenery.dev.event.v1.schema.json",
   "title": "scenery.dev.event.v1",
-  "description": "Schema for structured `scenery up` and `scenery logs --jsonl` event lines.",
+  "description": "Structured log payload schema emitted under `scenery.cli.event.v1` by `scenery logs -o jsonl`.",
   "type": "object",
   "required": ["schema_version", "app", "id", "time", "source", "level", "message", "parse"],
   "properties": {

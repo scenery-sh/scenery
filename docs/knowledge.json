@@ -18,6 +18,38 @@
   },
   "documents": [
     {
+      "path": "docs/schemas/scenery.build.result.v1.schema.json",
+      "title": "scenery.build.result.v1 Schema",
+      "owner": "scenery build / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "JSON Schema for the build output path, runtime-bundle descriptor path, and copy result returned under scenery.cli.v1 data.",
+      "tags": ["schema", "build", "cli", "json"]
+    },
+    {
+      "path": "docs/plans/0108-remove-remaining-v0-compatibility.md",
+      "title": "Remove Remaining v0 Compatibility",
+      "owner": "scenery maintainers / CLI / runtime / auth",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Completed ExecPlan that removed the remaining CLI v0 protocol, configuration and auth aliases, runtime registries, reflection shims, no-op devdash persistence, and internal bare-JSON consumers.",
+      "tags": [
+        "plans",
+        "execplans",
+        "cleanup",
+        "v0",
+        "cli",
+        "runtime",
+        "auth"
+      ]
+    },
+    {
       "path": "docs/schemas/scenery.approval-token.v1.schema.json",
       "title": "scenery.approval-token.v1 Schema",
       "owner": "scenery compiler / approval verification",
@@ -152,6 +184,23 @@
         "vnext",
         "cli",
         "json"
+      ]
+    },
+    {
+      "path": "docs/schemas/scenery.cli.event.v1.schema.json",
+      "title": "scenery.cli.event.v1 Schema",
+      "owner": "scenery compiler / CLI",
+      "status": "active",
+      "quality": "A",
+      "freshness": "current",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "JSON Schema for monotonic edition-2027 CLI streaming events and their terminal summary.",
+      "tags": [
+        "schema",
+        "vnext",
+        "cli",
+        "jsonl"
       ]
     },
     {
@@ -770,8 +819,8 @@
       "status": "completed",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-06-26",
-      "review_after": "2026-07-26",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
       "summary": "Human reference for scenery-owned environment variables, app-injected process identity, Postgres app database URLs and schema registry env, standard auth Google OAuth and token-cipher envs, remote durable worker variables, managed toolchain controls, local dev overrides, and tooling escape hatches.",
       "tags": [
         "environment",
@@ -792,9 +841,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-08",
-      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including Postgres app database env, service database URL patterns, standard auth Google OAuth and AuthTokenCipherKey secrets, and remote durable worker endpoint/token/service variables.",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Machine-readable registry of approved environment variables, families, metadata, documentation links, and secret flags enforced by self-harness, including canonical Postgres and standard-auth env names, service database URL patterns, Google OAuth secrets, and remote durable worker endpoint/token/service variables.",
       "tags": [
         "environment",
         "env",
@@ -813,8 +862,8 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-08",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
       "summary": "Agent validation loop with fresh execution from content-addressed linked test binaries, five-second cached/fresh timing lanes, release timing and isolated hotspot confirmation, shared harness evidence model, agent-context handoff file, browser UI harness route journeys and DOM artifacts, parallel managed Postgres self-harness proof, local storage restart durability proof, and doc-gardening rules for review-due and drift handling.",
       "tags": [
         "harness",
@@ -932,7 +981,7 @@
       "freshness": "current",
       "last_reviewed": "2026-06-09",
       "review_after": "2026-07-09",
-      "summary": "Completed ExecPlan that made root help orienting, moved full grammar into command-specific help and help all, added a machine-readable help manifest, and made bare scenery ps human-readable while preserving ps --json.",
+      "summary": "Completed ExecPlan that made root help orienting, moved full grammar into command-specific help and help all, added a machine-readable help manifest, and made bare scenery ps human-readable while preserving ps -o json.",
       "tags": [
         "plans",
         "execplans",
@@ -1678,7 +1727,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Completed milestones and shipped behavior, including removal of the Go-directive frontend and mixed legacy bridge, typed HTTP path-tail profiles, edition-2027 exact-plan transaction conformance, exact-SHA conformance hardening, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
+      "summary": "Completed milestones and shipped behavior, including removal of remaining v0 compatibility and the Go-directive frontend, typed HTTP path-tail profiles, edition-2027 transaction conformance, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",

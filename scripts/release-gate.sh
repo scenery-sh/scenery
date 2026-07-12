@@ -138,7 +138,7 @@ dashboard_embed() {
 
 self_harness() {
   cd "$ROOT"
-  run "$SCENERY_BIN" harness self --json --write
+  run "$SCENERY_BIN" harness self -o json --write
 }
 
 install_scenery() {
@@ -204,8 +204,8 @@ external_app_smoke() {
   fi
   [[ -d "$EXTERNAL_APP_ROOT" ]] || die "SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT does not exist: $EXTERNAL_APP_ROOT"
   [[ -f "$EXTERNAL_APP_ROOT/.scenery.json" ]] || die "SCENERY_RELEASE_GATE_EXTERNAL_APP_ROOT is not a Scenery app: $EXTERNAL_APP_ROOT"
-  run "$SCENERY_BIN" inspect app --json --app-root "$EXTERNAL_APP_ROOT"
-  run "$SCENERY_BIN" check --json --app-root "$EXTERNAL_APP_ROOT"
+  run "$SCENERY_BIN" inspect app -o json --app-root "$EXTERNAL_APP_ROOT"
+  run "$SCENERY_BIN" check -o json --app-root "$EXTERNAL_APP_ROOT"
 }
 
 router_safety() {

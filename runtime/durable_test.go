@@ -51,7 +51,7 @@ func TestStartDurableRuntimeReconcilesTasks(t *testing.T) {
 	dsn := liveRuntimeDatabaseURL(t)
 	t.Setenv("DATABASE_URL", dsn)
 
-	RegisterDurableTask(&DurableTask{
+	registerDurableTaskForTest(t, &DurableTask{
 		Name:           "maps.detect.v1",
 		Service:        "maps",
 		Handler:        func(context.Context, []byte) ([]byte, error) { return []byte(`{"ok":true}`), nil },
@@ -117,7 +117,7 @@ func TestDurableLocalWorkerExecutesQueuedJob(t *testing.T) {
 	dsn := liveRuntimeDatabaseURL(t)
 	t.Setenv("DATABASE_URL", dsn)
 
-	RegisterDurableTask(&DurableTask{
+	registerDurableTaskForTest(t, &DurableTask{
 		Name:    "maps.echo.v1",
 		Service: "maps",
 		Handler: func(ctx context.Context, input []byte) ([]byte, error) {
@@ -161,7 +161,7 @@ func TestStartDurableRuntimeRequiresDatabaseURLForTasks(t *testing.T) {
 
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv(postgresdb.RegistryEnv, "")
-	RegisterDurableTask(&DurableTask{
+	registerDurableTaskForTest(t, &DurableTask{
 		Name:    "maps.detect.v1",
 		Service: "maps",
 		Handler: func(context.Context, []byte) ([]byte, error) { return []byte(`{}`), nil },
@@ -194,7 +194,7 @@ func TestDurableScheduleEnqueuesAndRuns(t *testing.T) {
 	dsn := liveRuntimeDatabaseURL(t)
 	t.Setenv("DATABASE_URL", dsn)
 
-	RegisterDurableTask(&DurableTask{
+	registerDurableTaskForTest(t, &DurableTask{
 		Name:    "maps.scheduled.v1",
 		Service: "maps",
 		Handler: func(ctx context.Context, input []byte) ([]byte, error) {
@@ -281,6 +281,13 @@ func openRuntimeDB(t *testing.T, dsn string) *sql.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+func registerDurableTaskForTest(t *testing.T, task *DurableTask) {
+	t.Helper()
+	if err := RegisterDurableTaskChecked(task); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func waitRuntimeJobState(t *testing.T, db *sql.DB, jobID, want string) {

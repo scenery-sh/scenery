@@ -21,7 +21,7 @@ Use `SCENERY_LANGUAGE_SPEC.md` section 26 to determine the claimed profile bound
 
 ## Verification
 
-Run `scenery inspect docs --json` after changing this directory, then run the conformance tests for every affected profile and `scenery harness self --summary --write` for substantial changes.
+Run `scenery inspect docs -o json` after changing this directory, then run the conformance tests for every affected profile and `scenery harness self --summary --write` for substantial changes.
 
 ## Child Agent Index
 

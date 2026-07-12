@@ -13,7 +13,7 @@ Install the CLI from the repo root:
 
 ```sh
 go install ./cmd/scenery
-scenery version --json
+scenery version -o json
 ```
 
 ## Development Loop
@@ -33,7 +33,7 @@ go install ./cmd/scenery
 For substantial changes, run the self-harness when practical:
 
 ```sh
-scenery harness self --json --write
+scenery harness self -o json --write
 ```
 
 For dashboard UI changes:

@@ -36,11 +36,11 @@ func TestGoogleOAuthBrowserFlowWithFakeGoogle(t *testing.T) {
 	fake.emailVerified = true
 	fake.subject = "happy-subject"
 	overrideGoogleEndpointsForTest(t, fake)
-	t.Setenv("DatabaseURL", databaseURL)
-	t.Setenv("JWTSecret", "test-jwt-secret")
-	t.Setenv("GoogleOAuthClientID", "client-id")
-	t.Setenv("GoogleOAuthClientSecret", "client-secret")
-	t.Setenv("PublicAppURL", "https://app.example.test")
+	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("JWT_SECRET", "test-jwt-secret")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
+	t.Setenv("SCENERY_PUBLIC_APP_URL", "https://app.example.test")
 	runtime.SetAppConfig(runtime.AppConfig{Name: "google-oauth-test", ListenAddr: "127.0.0.1:0"})
 
 	cfg := normalizeStandardConfig(StandardConfig{
@@ -525,7 +525,7 @@ func TestGoogleAccessTokenEnforcesAllowedScopes(t *testing.T) {
 func TestGoogleTokenCipherRoundTrip(t *testing.T) {
 	resetStandardAuthStateForTest(t)
 	key := base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
-	t.Setenv("AuthTokenCipherKey", key)
+	t.Setenv("AUTH_TOKEN_CIPHER_KEY", key)
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = normalizeStandardConfig(StandardConfig{Enabled: true, GoogleOAuth: GoogleOAuthConfig{Enabled: true}})
 	standardAuthState.mu.Unlock()
@@ -559,13 +559,13 @@ func setupGoogleConnectionTest(t *testing.T) (*Service, *fakeGoogleServer, *Auth
 	fake.emailVerified = true
 	fake.subject = "connection-subject"
 	overrideGoogleEndpointsForTest(t, fake)
-	t.Setenv("DatabaseURL", databaseURL)
-	t.Setenv("JWTSecret", "test-jwt-secret")
-	t.Setenv("AuthTokenCipherKey", base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")))
-	t.Setenv("GoogleOAuthClientID", "client-id")
-	t.Setenv("GoogleOAuthClientSecret", "client-secret")
-	t.Setenv("PublicAppURL", "https://app.example.test")
-	t.Setenv("APIBaseURL", "https://api.example.test")
+	t.Setenv("DATABASE_URL", databaseURL)
+	t.Setenv("JWT_SECRET", "test-jwt-secret")
+	t.Setenv("AUTH_TOKEN_CIPHER_KEY", base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012")))
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
+	t.Setenv("SCENERY_PUBLIC_APP_URL", "https://app.example.test")
+	t.Setenv("SCENERY_API_BASE_URL", "https://api.example.test")
 	runtime.SetAppConfig(runtime.AppConfig{Name: "google-connection-test", ListenAddr: "127.0.0.1:0"})
 
 	cfg := normalizeStandardConfig(StandardConfig{

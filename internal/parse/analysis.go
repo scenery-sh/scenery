@@ -53,9 +53,7 @@ func analyze(root, name string, overlay map[string][]byte, patterns []string, ta
 		Mode: packages.NeedName |
 			packages.NeedFiles |
 			packages.NeedCompiledGoFiles |
-			packages.NeedSyntax |
 			packages.NeedTypes |
-			packages.NeedTypesInfo |
 			packages.NeedModule,
 		Dir:     root,
 		Overlay: overlay,
@@ -89,7 +87,7 @@ func analyze(root, name string, overlay map[string][]byte, patterns []string, ta
 
 	app := &model.App{Name: name, Root: root}
 	for _, pkg := range pkgs {
-		paths := syntaxFilePaths(pkg)
+		paths := packageFilePaths(pkg)
 		if len(paths) == 0 {
 			continue
 		}
@@ -99,17 +97,9 @@ func analyze(root, name string, overlay map[string][]byte, patterns []string, ta
 			return nil, err
 		}
 		mpkg := &model.Package{
-			Analysis:   &model.PackageAnalysis{Fset: pkg.Fset, Types: pkg.Types, TypesInfo: pkg.TypesInfo},
+			Analysis:   &model.PackageAnalysis{Types: pkg.Types},
 			ImportPath: pkg.PkgPath,
-			Name:       pkg.Name,
-			AbsDir:     absDir,
 			RelDir:     relDir,
-		}
-		for index, file := range pkg.Syntax {
-			if index >= len(paths) {
-				return nil, fmt.Errorf("package %s returned %d syntax files but only %d source paths", pkg.PkgPath, len(pkg.Syntax), len(paths))
-			}
-			mpkg.Files = append(mpkg.Files, &model.File{Path: paths[index], AST: file})
 		}
 		app.Packages = append(app.Packages, mpkg)
 		if app.ModulePath == "" && pkg.Module != nil {
@@ -184,12 +174,8 @@ func resolvedGoToolchain(target *GoTargetContext) string {
 	return "go" + strings.TrimPrefix(strings.TrimSpace(target.ToolchainVersion), "go")
 }
 
-func syntaxFilePaths(pkg *packages.Package) []string {
+func packageFilePaths(pkg *packages.Package) []string {
 	switch {
-	case len(pkg.CompiledGoFiles) == len(pkg.Syntax):
-		return pkg.CompiledGoFiles
-	case len(pkg.GoFiles) == len(pkg.Syntax):
-		return pkg.GoFiles
 	case len(pkg.CompiledGoFiles) > 0:
 		return pkg.CompiledGoFiles
 	default:

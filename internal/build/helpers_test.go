@@ -2,8 +2,6 @@ package build
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -148,31 +146,6 @@ func writeBuildTestFile(t *testing.T, root, rel, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func sourceSnapshotForTest(t *testing.T, root string, files map[string]bool) *SourceSnapshot {
-	t.Helper()
-	snapshot := &SourceSnapshot{Files: make(map[string]SourceSnapshotFile, len(files))}
-	for rel, embedded := range files {
-		path := filepath.Join(root, filepath.FromSlash(rel))
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		sum := sha256.Sum256(data)
-		snapshot.Files[filepath.ToSlash(rel)] = SourceSnapshotFile{
-			Size:        info.Size(),
-			ModTimeNano: info.ModTime().UnixNano(),
-			Perm:        uint32(info.Mode().Perm()),
-			Hash:        hex.EncodeToString(sum[:]),
-			Embedded:    embedded,
-		}
-	}
-	return snapshot
 }
 
 func useFakeGoRunner(t *testing.T) {

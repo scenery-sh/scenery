@@ -31,16 +31,6 @@ func readExactVNextPlanFile(path, description string, target any) error {
 	return nil
 }
 
-func boolCount(values ...bool) int {
-	count := 0
-	for _, value := range values {
-		if value {
-			count++
-		}
-	}
-	return count
-}
-
 func readApprovalTokens(paths []string) ([]vnext.ApprovalToken, error) {
 	var tokens []vnext.ApprovalToken
 	for _, path := range paths {

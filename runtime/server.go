@@ -284,41 +284,26 @@ func (s *server) registerRaw(ep *Endpoint) {
 		ctx = withRuntimeInvocation(ctx, state)
 		logRequestStart(state)
 
-		if canStreamRawEndpoint(ep) {
-			stream := newRawStreamingResponseWriter(w)
-			status := http.StatusOK
-			var callErr error
-			defer func() {
-				finishRequestTrace(state, status, nil, callErr)
-			}()
+		stream := newRawStreamingResponseWriter(w)
+		status := http.StatusOK
+		var callErr error
+		defer func() { finishRequestTrace(state, status, nil, callErr) }()
 
-			streamCtx, cancelStream := context.WithCancel(ctx)
-			defer cancelStream()
-			go func() {
-				select {
-				case <-s.drainCh:
-					cancelStream()
-				case <-streamCtx.Done():
-				}
-			}()
-			callErr = executeStreamingRawEndpoint(ep, stream, req.WithContext(streamCtx))
-			status = stream.StatusCode()
-			if callErr != nil && !stream.WroteHeader() {
-				status = errs.HTTPStatus(callErr)
-				errs.HTTPErrorWithCode(w, callErr, status)
+		streamCtx, cancelStream := context.WithCancel(ctx)
+		defer cancelStream()
+		go func() {
+			select {
+			case <-s.drainCh:
+				cancelStream()
+			case <-streamCtx.Done():
 			}
-			return
-		}
-
-		status, headers, body, callErr := executeRawEndpoint(ep, req.WithContext(ctx))
-		applyHeaders(w.Header(), headers)
-		defer finishRequestTrace(state, status, nil, callErr)
-		if callErr != nil {
+		}()
+		callErr = executeStreamingRawEndpoint(ep, stream, req.WithContext(streamCtx))
+		status = stream.StatusCode()
+		if callErr != nil && !stream.WroteHeader() {
+			status = errs.HTTPStatus(callErr)
 			errs.HTTPErrorWithCode(w, callErr, status)
-			return
 		}
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
 	}
 
 	registerRoute(s.selectRouter(ep), ep.Path, ep.Methods, handler)

@@ -258,10 +258,6 @@ func addAppEmbeddedFiles(appRoot, goRel string, files map[string]struct{}) error
 	return nil
 }
 
-func currentAppSourceFingerprint(appRoot string) (string, error) {
-	return currentAppSourceFingerprintWithSnapshot(appRoot, nil)
-}
-
 func currentAppSourceFingerprintWithSnapshot(appRoot string, snapshot *SourceSnapshot) (string, error) {
 	if snapshot == nil {
 		return currentAppSourceFingerprintFromDisk(appRoot)

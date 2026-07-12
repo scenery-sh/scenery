@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.cli.event.v1.schema.json",
+  "title": "Scenery edition-2027 CLI event envelope",
+  "type": "object",
+  "required": ["api_version", "diagnostic_catalog", "sequence", "kind", "terminal", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "data", "diagnostics"],
+  "properties": {
+    "api_version": { "const": "scenery.cli.event.v1" },
+    "diagnostic_catalog": { "const": "scenery.diagnostics.2027.v1" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "kind": { "enum": ["event", "summary"] },
+    "terminal": { "type": "boolean" },
+    "workspace_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "contract_revision": { "oneOf": [{ "$ref": "#/$defs/revision" }, { "type": "null" }] },
+    "implementation_revision": { "$ref": "#/$defs/revision_value" },
+    "deployment_revision": { "$ref": "#/$defs/revision_value" },
+    "data": true,
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "summary" } } },
+      "then": { "properties": { "terminal": { "const": true } } },
+      "else": { "properties": { "terminal": { "const": false } } }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "revision": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "revision_value": {
+      "oneOf": [
+        { "$ref": "#/$defs/revision" },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/revision" } },
+        { "type": "null" }
+      ]
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^SCN[0-9]{4}$" },
+        "severity": { "enum": ["error", "warning", "information", "hint"] },
+        "message": { "type": "string" },
+        "report_token": { "type": "string", "pattern": "^rpt_[a-z2-7]+$" },
+        "address": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

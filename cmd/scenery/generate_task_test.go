@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,7 +16,7 @@ import (
 func TestParseGenerateArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseGenerateArgs([]string{"sqlc", "--app-root", "/tmp/app", "--dry-run", "--json"})
+	opts, err := parseGenerateArgs([]string{"sqlc", "--app-root", "/tmp/app", "--dry-run", "-o", "json"})
 	if err != nil {
 		t.Fatalf("parseGenerateArgs returned error: %v", err)
 	}
@@ -70,12 +69,12 @@ func TestRunGenerateDryRunJSON(t *testing.T) {
 	writeSQLCFixture(t, root)
 
 	var out bytes.Buffer
-	if err := runGenerate(context.Background(), &out, []string{"--app-root", root, "--dry-run", "--json"}); err != nil {
+	if err := runGenerate(context.Background(), &out, []string{"--app-root", root, "--dry-run", "-o", "json"}); err != nil {
 		t.Fatalf("runGenerate returned error: %v", err)
 	}
 	var payload generatorGraphResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.inspect.generators.v1" {
 		t.Fatalf("schema_version = %q", payload.SchemaVersion)
@@ -214,12 +213,12 @@ select 1;
 `)
 
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"generators", "--app-root", root, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"generators", "--app-root", root, "-o", "json"}, &out); err != nil {
 		t.Fatalf("runSceneryInspect(generators) returned error: %v", err)
 	}
 	var payload generatorGraphResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if len(payload.Generators) != 1 || payload.Generators[0].ID != "sqlc" {
 		t.Fatalf("generators = %+v", payload.Generators)
@@ -351,7 +350,7 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	})
 
 	var out bytes.Buffer
-	if err := runDBApplyWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
+	if err := runDBApplyWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks); err != nil {
 		t.Fatalf("runDBApply returned error: %v", err)
 	}
 	if len(ran) != 1 {
@@ -368,8 +367,8 @@ func TestDBApplyRunsApplyWithoutSQLC(t *testing.T) {
 	}
 
 	var payload dbApplyResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.db.apply.result.v1" || payload.Apply.Status != "applied" {
 		t.Fatalf("payload = %+v", payload)
@@ -396,12 +395,12 @@ func TestDBSeedDryRunPlansSeedWithoutApplying(t *testing.T) {
 	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--dry-run", "--json"}, hooks); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--dry-run", "-o", "json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed returned error: %v", err)
 	}
 	var payload dbSeedResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if !payload.DryRun || payload.Summary.Planned != 1 || payload.Summary.Applied != 0 {
 		t.Fatalf("payload = %+v", payload)
@@ -462,12 +461,12 @@ func TestDBSeedDisabledDiscoversNoSeeds(t *testing.T) {
 	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed returned error: %v", err)
 	}
 	var payload dbSeedResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Summary.Planned != 0 || len(payload.Seeds) != 0 || len(store.applied) != 0 {
 		t.Fatalf("payload = %+v applied = %+v", payload, store.applied)
@@ -482,24 +481,24 @@ func TestDBSeedAppliesThenSkipsUnchangedSeed(t *testing.T) {
 	hooks := seedStoreHooks(t, store)
 
 	var first bytes.Buffer
-	if err := runDBSeedWithHooks(context.Background(), &first, []string{"--app-root", root, "--json"}, hooks); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &first, []string{"--app-root", root, "-o", "json"}, hooks); err != nil {
 		t.Fatalf("first runDBSeed returned error: %v", err)
 	}
 	var firstPayload dbSeedResult
-	if err := json.Unmarshal(first.Bytes(), &firstPayload); err != nil {
-		t.Fatalf("json.Unmarshal first: %v\n%s", err, first.String())
+	if err := decodeCLIJSON(first.Bytes(), &firstPayload); err != nil {
+		t.Fatalf("decodeCLIJSON first: %v\n%s", err, first.String())
 	}
 	if firstPayload.Summary.Applied != 1 || len(store.applied) != 1 {
 		t.Fatalf("first payload = %+v store = %+v", firstPayload, store.applied)
 	}
 
 	var second bytes.Buffer
-	if err := runDBSeedWithHooks(context.Background(), &second, []string{"--app-root", root, "--json"}, hooks); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &second, []string{"--app-root", root, "-o", "json"}, hooks); err != nil {
 		t.Fatalf("second runDBSeed returned error: %v", err)
 	}
 	var secondPayload dbSeedResult
-	if err := json.Unmarshal(second.Bytes(), &secondPayload); err != nil {
-		t.Fatalf("json.Unmarshal second: %v\n%s", err, second.String())
+	if err := decodeCLIJSON(second.Bytes(), &secondPayload); err != nil {
+		t.Fatalf("decodeCLIJSON second: %v\n%s", err, second.String())
 	}
 	if secondPayload.Summary.Skipped != 1 || len(store.applied) != 1 {
 		t.Fatalf("second payload = %+v store = %+v", secondPayload, store.applied)
@@ -515,13 +514,13 @@ func TestDBSeedChangedSeedFailsClosed(t *testing.T) {
 	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks)
+	err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks)
 	if err == nil || !strings.Contains(err.Error(), "changed after it was applied") {
 		t.Fatalf("runDBSeed changed seed error = %v", err)
 	}
 	var payload dbSeedResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Summary.Changed != 1 || payload.Seeds[0].Status != "changed" || len(store.applied) != 0 {
 		t.Fatalf("payload = %+v store = %+v", payload, store.applied)
@@ -537,13 +536,13 @@ func TestDBSeedApplyFailureReportsFailed(t *testing.T) {
 	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks)
+	err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("runDBSeed apply error = %v", err)
 	}
 	var payload dbSeedResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Summary.Failed != 1 || payload.Seeds[0].Status != "failed" || len(store.ledger) != 0 {
 		t.Fatalf("payload = %+v store = %+v", payload, store.ledger)
@@ -562,12 +561,12 @@ delete from scenery_auth.temp_users where id = 'dev-user';
 	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed safe seed returned error: %v", err)
 	}
 	var payload dbSeedResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Summary.Applied != 1 || payload.Summary.Failed != 0 {
 		t.Fatalf("payload = %+v", payload)
@@ -598,13 +597,13 @@ func TestDBSeedSafetyRejectsDestructiveStatements(t *testing.T) {
 			hooks := seedStoreHooks(t, store)
 
 			var out bytes.Buffer
-			err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks)
+			err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks)
 			if err == nil || !strings.Contains(err.Error(), tt.message) || !strings.Contains(err.Error(), "auth/db/seed.sql") {
 				t.Fatalf("runDBSeed error = %v", err)
 			}
 			var payload dbSeedResult
-			if unmarshalErr := json.Unmarshal(out.Bytes(), &payload); unmarshalErr != nil {
-				t.Fatalf("json.Unmarshal: %v\n%s", unmarshalErr, out.String())
+			if unmarshalErr := decodeCLIJSON(out.Bytes(), &payload); unmarshalErr != nil {
+				t.Fatalf("decodeCLIJSON: %v\n%s", unmarshalErr, out.String())
 			}
 			if payload.Summary.Failed != 1 || len(payload.Seeds) != 1 || len(payload.Seeds[0].Diagnostics) == 0 {
 				t.Fatalf("payload = %+v", payload)
@@ -632,12 +631,12 @@ insert into scenery_auth.audit(message) values ($$drop table scenery_auth.users;
 	hooks := seedStoreHooks(t, store)
 
 	var out bytes.Buffer
-	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks); err != nil {
+	if err := runDBSeedWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks); err != nil {
 		t.Fatalf("runDBSeed comments/strings returned error: %v", err)
 	}
 	var payload dbSeedResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Summary.Applied != 1 || payload.Summary.Failed != 0 {
 		t.Fatalf("payload = %+v", payload)
@@ -668,12 +667,12 @@ func TestDBSetupRunsApplyThenSeed(t *testing.T) {
 	}, nil)
 
 	var out bytes.Buffer
-	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("runDBSetup returned error: %v", err)
 	}
 	var payload dbSetupResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Apply.Status != "applied" || payload.Seed.Summary.Applied != 1 {
 		t.Fatalf("payload = %+v", payload)
@@ -695,12 +694,12 @@ func TestDBSetupSkipsMissingApplyAndRunsSeed(t *testing.T) {
 	}, nil)
 
 	var out bytes.Buffer
-	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
 	}
 	var payload dbSetupResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Apply.Status != "skipped" || payload.Seed.Summary.Applied != 1 {
 		t.Fatalf("payload = %+v", payload)
@@ -711,7 +710,7 @@ func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
 	t.Setenv("SCENERY_AGENT_HOME", t.TempDir())
 	root := t.TempDir()
 	baseURL := "postgres://user:secret@localhost/managedsetup"
-	writeTestAppFile(t, root, ".env", "DatabaseURL=mysql://stale\nDATABASE_URL="+baseURL+"\n")
+	writeTestAppFile(t, root, ".env", "DATABASE_URL="+baseURL+"\n")
 	writeTestAppFile(t, root, ".scenery.json", `{
   "name": "managedsetup",
   "dev": {
@@ -731,14 +730,11 @@ func TestDBSetupApplyUsesExternalPostgresDatabaseURL(t *testing.T) {
 		return nil
 	}, nil)
 	var out bytes.Buffer
-	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, hooks, defaultDBSeedHooks()); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, hooks, defaultDBSeedHooks()); err != nil {
 		t.Fatalf("runDBSetup returned error: %v\n%s", err, out.String())
 	}
 	if !containsEnv(applyEnv, appDatabaseURLEnv+"="+baseURL) || envValueFromList(applyEnv, "MAIN_DATABASE_URL") == "" {
 		t.Fatalf("apply env missing managed database values: %+v", applyEnv)
-	}
-	if containsEnv(applyEnv, legacyDatabaseURLEnv+"=mysql://legacy-poison") {
-		t.Fatalf("apply env leaked stale %s: %+v", legacyDatabaseURLEnv, applyEnv)
 	}
 }
 
@@ -753,13 +749,13 @@ func TestDBSetupStopsWhenApplyFails(t *testing.T) {
 	}, nil)
 
 	var out bytes.Buffer
-	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks)
+	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks)
 	if err == nil || !strings.Contains(err.Error(), "apply failed") {
 		t.Fatalf("runDBSetup apply error = %v", err)
 	}
 	var payload dbSetupResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Apply.Status != "failed" || len(store.applied) != 0 {
 		t.Fatalf("payload = %+v store = %+v", payload, store.applied)
@@ -778,13 +774,13 @@ func TestDBSetupReportsSeedFailure(t *testing.T) {
 	}, nil)
 
 	var out bytes.Buffer
-	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks)
+	err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks)
 	if err == nil || !strings.Contains(err.Error(), "seed failed") {
 		t.Fatalf("runDBSetup seed error = %v", err)
 	}
 	var payload dbSetupResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Apply.Status != "applied" || payload.Seed.Summary.Failed != 1 {
 		t.Fatalf("payload = %+v", payload)
@@ -801,16 +797,16 @@ func TestDBSetupRepeatedRunSkipsUnchangedSeed(t *testing.T) {
 		return nil
 	}, nil)
 
-	if err := runDBSetupWithHooks(context.Background(), &bytes.Buffer{}, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &bytes.Buffer{}, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("first runDBSetup returned error: %v", err)
 	}
 	var out bytes.Buffer
-	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "--json"}, lifecycleHooks, seedHooks); err != nil {
+	if err := runDBSetupWithHooks(context.Background(), &out, []string{"--app-root", root, "-o", "json"}, lifecycleHooks, seedHooks); err != nil {
 		t.Fatalf("second runDBSetup returned error: %v", err)
 	}
 	var payload dbSetupResult
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Seed.Summary.Skipped != 1 || len(store.applied) != 1 {
 		t.Fatalf("payload = %+v store = %+v", payload, store.applied)
@@ -833,12 +829,12 @@ func TestTaskGraphAndRun(t *testing.T) {
 }`)
 
 	var graphOut bytes.Buffer
-	if err := runTaskCommand(context.Background(), &graphOut, []string{"graph", "--json", "--app-root", root}); err != nil {
+	if err := runTaskCommand(context.Background(), &graphOut, []string{"graph", "-o", "json", "--app-root", root}); err != nil {
 		t.Fatalf("runTaskCommand graph returned error: %v", err)
 	}
 	var graph taskGraphResponse
-	if err := json.Unmarshal(graphOut.Bytes(), &graph); err != nil {
-		t.Fatalf("json.Unmarshal graph: %v\n%s", err, graphOut.String())
+	if err := decodeCLIJSON(graphOut.Bytes(), &graph); err != nil {
+		t.Fatalf("decodeCLIJSON graph: %v\n%s", err, graphOut.String())
 	}
 	if len(graph.Tasks) != 1 || graph.Tasks[0].Name != "echo" || graph.Tasks[0].EnvKeys[0] != "TASK_MODE" {
 		t.Fatalf("graph = %+v", graph)
@@ -1006,15 +1002,4 @@ func seedStoresByDSNHooks(t *testing.T, stores map[string]*fakeSeedStore) dbSeed
 		}
 		return store, nil
 	}}
-}
-
-func stubSeedStore(t *testing.T, store *fakeSeedStore) func() {
-	t.Helper()
-	oldOpen := openDatabaseSeedStore
-	openDatabaseSeedStore = func(context.Context, string) (databaseSeedStore, error) {
-		return store, nil
-	}
-	return func() {
-		openDatabaseSeedStore = oldOpen
-	}
 }

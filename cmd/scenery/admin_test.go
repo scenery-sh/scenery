@@ -3,14 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 )
 
 func TestParseTracesClearArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseTracesClearArgs([]string{"--json", "--app-root", "/tmp/app"})
+	opts, err := parseTracesClearArgs([]string{"-o", "json", "--app-root", "/tmp/app"})
 	if err != nil {
 		t.Fatalf("parseTracesClearArgs returned error: %v", err)
 	}
@@ -29,7 +28,7 @@ func TestRunTracesClear(t *testing.T) {
 	defer restore()
 
 	var out bytes.Buffer
-	if err := runTracesClear(context.Background(), &out, []string{"--json"}); err != nil {
+	if err := runTracesClear(context.Background(), &out, []string{"-o", "json"}); err != nil {
 		t.Fatalf("runTracesClear error = %v", err)
 	}
 	var payload struct {
@@ -41,8 +40,8 @@ func TestRunTracesClear(t *testing.T) {
 			Cleared string `json:"cleared"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal(traces clear): %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON(traces clear): %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.traces.clear.v1" || !payload.OK || payload.Command != "scenery traces clear" {
 		t.Fatalf("payload = %+v", payload)

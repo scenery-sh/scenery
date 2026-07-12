@@ -61,7 +61,7 @@ func (b devBackend) normalized() devBackend {
 	return b
 }
 
-func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot string) error {
+func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot string) (runErr error) {
 	applyWatchTimingOverridesFromEnv()
 
 	start, err := resolveAppRoot(appRoot)
@@ -94,6 +94,12 @@ func runWithWatch(listen devListenRequest, verbose, jsonMode bool, appRoot strin
 	defer stopParentMonitor()
 
 	console := newRunConsole(os.Stdout, os.Stderr, verbose, jsonMode, cfg.AppID(), root)
+	defer func() {
+		console.Finish(runErr)
+		if jsonMode && runErr != nil {
+			runErr = &silentCLIError{err: runErr, code: cliExitCode(runErr)}
+		}
+	}()
 
 	var snapshot fileSnapshot
 	if err := console.Phase("Scanning source files", func() error {

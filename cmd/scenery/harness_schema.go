@@ -62,7 +62,7 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			Stage:           "schema validation",
 			Severity:        "error",
 			Message:         "failed to build inspect docs JSON for schema validation: " + inspectDocsErr.Error(),
-			SuggestedAction: "Run `scenery inspect docs --json` and fix the command before relying on schema validation.",
+			SuggestedAction: "Run `scenery inspect docs -o json` and fix the command before relying on schema validation.",
 		})
 	}
 	environmentRegistryPayload, environmentRegistryErr := harnessJSONFilePayload(filepath.Join(repoRoot, "docs", "environment.registry.json"))
@@ -81,7 +81,7 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			Stage:           "schema validation",
 			Severity:        "error",
 			Message:         "failed to build inspect harness JSON for schema validation: " + inspectHarnessErr.Error(),
-			SuggestedAction: "Run `scenery inspect harness --json --repo-root <repo>` and fix the command before relying on schema validation.",
+			SuggestedAction: "Run `scenery inspect harness -o json --repo-root <repo>` and fix the command before relying on schema validation.",
 		})
 	} else {
 		inspectHarnessPayload = payload
@@ -104,7 +104,7 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 	var helpJSON bytes.Buffer
 	helpPayload := map[string]any{}
 	if err := writeHelpJSON(&helpJSON); err == nil {
-		_ = json.Unmarshal(helpJSON.Bytes(), &helpPayload)
+		_ = decodeCLIJSON(helpJSON.Bytes(), &helpPayload)
 	}
 	digest := "sha256:" + strings.Repeat("0", 64)
 	whenSchemaExists := func(schemaRel string, payload any) any {
@@ -179,6 +179,11 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			"workspace_revision": digest, "contract_revision": digest, "implementation_revision": nil, "deployment_revision": nil,
 			"data": map[string]any{"fixture": true}, "diagnostics": []any{},
 		})},
+		{name: "vnext.cli.event", schemaRel: "docs/schemas/scenery.cli.event.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.cli.event.v1.schema.json", map[string]any{
+			"api_version": "scenery.cli.event.v1", "diagnostic_catalog": "scenery.diagnostics.2027.v1", "sequence": 1, "kind": "summary", "terminal": true,
+			"workspace_revision": nil, "contract_revision": nil, "implementation_revision": nil, "deployment_revision": nil,
+			"data": map[string]any{"event_count": 0}, "diagnostics": []any{},
+		})},
 		{name: "vnext.deployment.plan", schemaRel: "docs/schemas/scenery.deployment-plan.v1.schema.json", payload: whenSchemaExists("docs/schemas/scenery.deployment-plan.v1.schema.json", map[string]any{
 			"api_version": "scenery.deployment-plan/v1", "plan_id": digest, "application": "schema-fixture", "deployment": "app/deployment/local",
 			"deployment_name": "local", "environment": "development", "base_workspace_revision": digest, "contract_revision": digest,
@@ -212,6 +217,9 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "environment.registry", schemaRel: "docs/schemas/scenery.environment.registry.v1.schema.json", payload: environmentRegistryPayload},
 		{name: "help", schemaRel: "docs/schemas/scenery.help.v1.schema.json", payload: helpPayload},
 		{name: "version", schemaRel: "docs/schemas/scenery.version.v1.schema.json", payload: versionPayload},
+		{name: "build.result", schemaRel: "docs/schemas/scenery.build.result.v1.schema.json", payload: map[string]any{
+			"schema_version": "scenery.build.result.v1", "output_path": "/tmp/scenery-app", "descriptor_path": "/tmp/scenery-app.scenery.runtime-bundle.v1.json", "copied": true,
+		}},
 		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.v1.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
 		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.v1.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
 		{name: "deploy.status", schemaRel: "docs/schemas/scenery.deploy.status.v1.schema.json", payload: buildHarnessDeployStatusSchemaPayload()},
@@ -407,11 +415,11 @@ func buildHarnessDeployStatusSchemaPayload() deployStatusResponse {
 
 func harnessInspectDocsPayload(repoRoot string) (map[string]any, error) {
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "-o", "json"}, &out); err != nil {
 		return nil, err
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		return nil, err
 	}
 	return payload, nil

@@ -163,11 +163,11 @@ func TestCaddyEdgeConfigForRegistryUsesDeployTargets(t *testing.T) {
 func TestParseEdgeArgsRejectsPublicAddrOverride(t *testing.T) {
 	t.Parallel()
 
-	_, err := parseEdgeArgs([]string{"--json", "--addr", "127.0.0.1:8443"})
+	_, err := parseEdgeArgs([]string{"-o", "json", "--addr", "127.0.0.1:8443"})
 	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("parseEdgeArgs(--addr) err = %v, want unknown flag", err)
 	}
-	opts, err := parseEdgeArgs([]string{"--json"})
+	opts, err := parseEdgeArgs([]string{"-o", "json"})
 	if err != nil {
 		t.Fatal(err)
 	}

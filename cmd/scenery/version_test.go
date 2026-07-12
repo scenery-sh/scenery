@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"testing"
 )
 
@@ -29,7 +28,7 @@ func TestWriteVersionJSON(t *testing.T) {
 		t.Fatalf("writeVersionJSON() error = %v", err)
 	}
 	var payload versionResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.version.v1" {

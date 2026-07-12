@@ -206,7 +206,7 @@ func deployCommand(args []string) error {
 
 func runDeployCommand(stdout io.Writer, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery deploy setup|status|enable|disable|resume|teardown [--json]")
+		return fmt.Errorf("usage: scenery deploy setup|status|enable|disable|resume|teardown [-o json]")
 	}
 	subcommand := args[0]
 	if subcommand == "plan" || subcommand == "apply" {
@@ -237,7 +237,7 @@ func runDeployCommand(stdout io.Writer, args []string) error {
 func parseDeployOptions(subcommand string, args []string) (deployOptions, error) {
 	var opts deployOptions
 	flags := newCLIFlagSet("deploy " + subcommand)
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.ACMEEmail, "acme-email", "", "")
 	flags.StringVar(&opts.ACMECA, "acme-ca", "", "")
@@ -352,9 +352,7 @@ func runDeployStatus(stdout io.Writer, opts deployOptions) error {
 	}
 	status := buildDeployStatus(paths, registry)
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(status)
+		return writeCLIJSON(stdout, status)
 	}
 	fmt.Fprintf(stdout, "Deploy: %s\n", readyWord(status.Ready))
 	for _, diag := range status.Diagnostics {
@@ -423,9 +421,7 @@ func runDeploySetup(stdout io.Writer, opts deployOptions) error {
 		EdgeRestarted:        true,
 	}
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return writeCLIJSON(stdout, resp)
 	}
 	fmt.Fprintf(stdout, "configured public deploy edge (%s CA)\n", resp.ACME.CA)
 	return nil
@@ -485,9 +481,7 @@ func runDeployResume(stdout io.Writer, opts deployOptions) error {
 	}
 	_ = appendDeployResumeLog(paths, resp)
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return writeCLIJSON(stdout, resp)
 	}
 	for _, target := range resp.Targets {
 		if target.Error != "" {
@@ -533,9 +527,7 @@ func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
 		EdgeRestarted:      true,
 	}
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return writeCLIJSON(stdout, resp)
 	}
 	fmt.Fprintln(stdout, "disabled public deploy edge; local HTTPS remains available")
 	return nil
@@ -543,9 +535,7 @@ func runDeployTeardown(stdout io.Writer, opts deployOptions) error {
 
 func writeDeployMutation(stdout io.Writer, jsonMode bool, resp deployMutationResponse) error {
 	if jsonMode {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return writeCLIJSON(stdout, resp)
 	}
 	for _, target := range resp.Targets {
 		fmt.Fprintf(stdout, "%s %s for %s\n", resp.Action, target.Domain, target.AppRoot)

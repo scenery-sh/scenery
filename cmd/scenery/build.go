@@ -17,9 +17,10 @@ func buildCommand(args []string) error {
 	outputPath := ""
 	appRootFlag := ""
 	targetName := ""
+	jsonOutput := false
 	flags := newCLIFlagSet("build")
 	flags.StringVar(&outputPath, "output", "", "")
-	flags.StringVar(&outputPath, "o", "", "")
+	registerJSONOutput(flags, &jsonOutput)
 	flags.StringVar(&appRootFlag, "app-root", "", "")
 	flags.StringVar(&targetName, "target", "", "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -77,11 +78,21 @@ func buildCommand(args []string) error {
 			return err
 		}
 	}
+	descriptorPath := ""
 	if result.VNextTarget != nil {
 		descriptor := build.VNextRuntimeBundlePath(appRoot, result.VNextTarget.Name)
-		if _, err := copyBinary(descriptor, outputPath+".scenery.runtime-bundle.v1.json"); err != nil {
+		descriptorPath = outputPath + ".scenery.runtime-bundle.v1.json"
+		if _, err := copyBinary(descriptor, descriptorPath); err != nil {
 			return err
 		}
+	}
+	if jsonOutput {
+		return writeCLIJSON(os.Stdout, map[string]any{
+			"schema_version":  "scenery.build.result.v1",
+			"output_path":     outputPath,
+			"descriptor_path": descriptorPath,
+			"copied":          copied,
+		})
 	}
 	fmt.Fprintf(os.Stdout, "scenery: built %s\n", outputPath)
 	return nil
@@ -175,10 +186,6 @@ func readersEqual(left, right io.Reader) (bool, error) {
 			return false, rightErr
 		}
 	}
-}
-
-func defaultBuildBinaryName(appName string) string {
-	return defaultBuildBinaryNameForGOOS(appName, goruntime.GOOS)
 }
 
 func defaultBuildBinaryNameForGOOS(appName, goos string) string {

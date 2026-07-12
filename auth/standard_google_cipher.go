@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"scenery.sh/internal/envpolicy"
 )
 
 const googleTokenCipherVersion byte = 1
@@ -71,9 +73,9 @@ func googleTokenCipherKey() ([]byte, error) {
 	cfg := currentStandardConfig()
 	envName := strings.TrimSpace(cfg.GoogleOAuth.TokenCipherKeyEnv)
 	if envName == "" {
-		envName = "AuthTokenCipherKey"
+		envName = "AUTH_TOKEN_CIPHER_KEY"
 	}
-	if value := firstEnv(envName); value != "" {
+	if value := strings.TrimSpace(envpolicy.Get(envName)); value != "" {
 		key, err := base64.StdEncoding.DecodeString(value)
 		if err != nil {
 			return nil, fmt.Errorf("%s must be base64-encoded", envName)

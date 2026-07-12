@@ -40,7 +40,7 @@ func TestDurableRemoteWorkerExecutesJobOverHTTP(t *testing.T) {
 	t.Setenv(envDurableEndpoint, httpServer.URL)
 	t.Setenv(envDurableToken, "secret-token")
 	t.Setenv(envDurableServices, "maps")
-	RegisterDurableTask(&DurableTask{
+	registerDurableTaskForTest(t, &DurableTask{
 		Name:    "maps.remote.v1",
 		Service: "maps",
 		Handler: func(ctx context.Context, input []byte) ([]byte, error) {

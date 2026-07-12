@@ -18,7 +18,7 @@ When prose and current JSON/tests disagree, fix the affected documentation in th
 
 Every supported app has:
 
-- `.scenery.json` or, when absent, its `.config.json` alias for independent runtime config;
+- `.scenery.json` for independent runtime config;
 - a required root `scenery.scn`;
 - package-local `scenery.package.scn` files installed through root module blocks;
 - Go implementations of generated native service contracts;
@@ -45,12 +45,12 @@ Source preserves authored expressions. Effective resolves inputs, defaults, and 
 For ordinary app changes:
 
 ```sh
-scenery doctor --json
+scenery doctor -o json
 scenery fmt --check -o json
 scenery check -o json
 scenery generate --check -o json
 go test ./...
-scenery harness --json --write
+scenery harness -o json --write
 ```
 
 Edit authored `.scn` and Go implementation files. Never hand-edit generated `scenerycontract`, `internal/scenerygen`, TypeScript, or descriptor files. After a contract edit, regenerate the affected family and include deterministic outputs in the same change.
@@ -94,31 +94,31 @@ Use `scenery diff --semantic` for compatibility. Rename evidence is revision-bou
 
 ## CLI Surfaces For Agents
 
-Use `-o json` for edition-2027 commands and `--json` for command-specific current protocols. Never combine them.
+Use `-o json` for edition-2027 commands and `-o json` for command-specific current protocols. Never combine them.
 
 | Intent | Command |
 | --- | --- |
-| Check host readiness | `scenery doctor --json` |
+| Check host readiness | `scenery doctor -o json` |
 | Validate native contract and generated outputs | `scenery check -o json` |
 | Inspect canonical graph | `scenery compile --view expanded -o json` |
 | Query resources and provenance | `scenery list|get|explain|graph ... -o json` |
-| Inspect routed app views | `scenery inspect app|routes|services|endpoints --json` |
-| Inspect build and paths | `scenery inspect build --json`, `scenery inspect paths --json` |
-| Inspect durable/storage capabilities | `scenery inspect durable --json`, `scenery inspect storage --json` |
+| Inspect routed app views | `scenery inspect app|routes|services|endpoints -o json` |
+| Inspect build and paths | `scenery inspect build -o json`, `scenery inspect paths -o json` |
+| Inspect durable/storage capabilities | `scenery inspect durable -o json`, `scenery inspect storage -o json` |
 | Generate/check Go artifacts | `scenery generate --target go [--check] -o json` |
 | Generate/check a TypeScript target | `scenery generate --target typescript_client.<name> [--check] -o json` |
-| Run app validation | `scenery harness --json --write` |
-| Follow logs | `scenery logs --jsonl --limit 200` |
-| Inspect traces and metrics | `scenery traces list --json`, `scenery metrics list --json` |
-| Run configured/code tasks | `scenery task list --json`, `scenery task run <domain>:<name> -- [args...]` |
-| Inspect databases | `scenery db list --json`, `scenery db shell` |
-| Apply initial DB state | `scenery db apply --json`, `scenery db seed --json`, `scenery db setup --json` |
+| Run app validation | `scenery harness -o json --write` |
+| Follow logs | `scenery logs -o jsonl --limit 200` |
+| Inspect traces and metrics | `scenery traces list -o json`, `scenery metrics list -o json` |
+| Run configured/code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
+| Inspect databases | `scenery db list -o json`, `scenery db shell` |
+| Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
 
 ## Runtime Command Choice
 
 - Use `scenery up` for the app root's one live development runtime and all safe local capabilities.
 - Use `scenery up --detach` when the local agent should retain it; the default wait returns after readiness.
-- Use `scenery ps --json` to discover the current base URL, route manifest, child health, and substrate state.
+- Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
 - Use `scenery logs --follow` for the current runtime.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
@@ -136,9 +136,9 @@ Treat Caddy, dnsmasq, Victoria, proxy sockets, hidden ports, and local stores as
 Storage remains app config because it is a runtime capability, not an application declaration. App code uses `scenery.sh/storage`. Private stores stay internal; tenant-scoped calls require standard-auth context or `storage.WithTenantID`.
 
 ```sh
-scenery inspect storage --json
-scenery storage status --json
-scenery storage ls <store> --json
+scenery inspect storage -o json
+scenery storage status -o json
+scenery storage ls <store> -o json
 ```
 
 An explicit app-level `DATABASE_URL` is external. Otherwise `scenery up` manages one database per app root/worktree and service schemas. Use `db apply` for schema/app setup, `db seed` for initial data, and `db setup` for both. Changed applied seeds and destructive seed SQL fail closed.
@@ -194,7 +194,7 @@ Do not copy scenery's full skill or repository manual into every app.
 
 ## Working In The scenery Repository
 
-Read root `AGENTS.md` plus every applicable child instruction file. Before non-trivial changes, run `scenery inspect docs --json` and read current contracts and active plans. Use an ExecPlan for complex features, migrations, or substantial refactors.
+Read root `AGENTS.md` plus every applicable child instruction file. Before non-trivial changes, run `scenery inspect docs -o json` and read current contracts and active plans. Use an ExecPlan for complex features, migrations, or substantial refactors.
 
 Validate ordinary changes with:
 

@@ -104,68 +104,13 @@ func TestDiscoverRootAcceptsWatchIgnoreConfig(t *testing.T) {
 	}
 }
 
-func TestDiscoverRootAcceptsWatchIgnoreConfigAlias(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".config.json", `{
-		"name": "watchapp",
-		"watch": {
-			"ignore": ["reference/"]
-		}
-	}`)
-
-	_, cfg, err := DiscoverRoot(root)
-	if err != nil {
-		t.Fatalf("DiscoverRoot returned error: %v", err)
-	}
-	if len(cfg.Watch.Ignore) != 1 || cfg.Watch.Ignore[0] != "reference/" {
-		t.Fatalf("Watch.Ignore = %#v, want reference/", cfg.Watch.Ignore)
-	}
-}
-
-func TestDiscoverRootAcceptsConfigJSONAlias(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".config.json", `{"name":"aliasapp","id":"alias-id"}`)
-
-	appRoot, cfg, err := DiscoverRoot(root)
-	if err != nil {
-		t.Fatalf("DiscoverRoot returned error: %v", err)
-	}
-	if appRoot != root {
-		t.Fatalf("app root = %q, want %q", appRoot, root)
-	}
-	if cfg.Name != "aliasapp" || cfg.ID != "alias-id" {
-		t.Fatalf("cfg = %+v", cfg)
-	}
-	if got, want := cfg.SourcePath(root), filepath.Join(root, ".config.json"); got != want {
-		t.Fatalf("SourcePath = %q, want %q", got, want)
-	}
-	if got := cfg.SourceRelPath(root); got != ".config.json" {
-		t.Fatalf("SourceRelPath = %q, want .config.json", got)
-	}
-}
-
-func TestDiscoverRootPrefersSceneryJSONOverConfigAlias(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".scenery.json", `{"name":"canonical"}`)
-	writeAppTestFile(t, root, ".config.json", `{"name":"alias"}`)
-
-	_, cfg, err := DiscoverRoot(root)
-	if err != nil {
-		t.Fatalf("DiscoverRoot returned error: %v", err)
-	}
-	if cfg.Name != "canonical" {
-		t.Fatalf("cfg.Name = %q, want canonical", cfg.Name)
-	}
-	if got, want := cfg.SourcePath(root), filepath.Join(root, ".scenery.json"); got != want {
-		t.Fatalf("SourcePath = %q, want %q", got, want)
-	}
-}
-
-func TestDiscoverRootIgnoresUnrelatedConfigJSONBelowAppRoot(t *testing.T) {
+func TestDiscoverRootFindsParentFromNestedDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{"name":"canonical"}`)
 	child := filepath.Join(root, "apps", "web")
-	writeAppTestFile(t, child, ".config.json", `{"compilerOptions":{"jsx":"react-jsx"}}`)
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	appRoot, cfg, err := DiscoverRoot(child)
 	if err != nil {
@@ -173,16 +118,6 @@ func TestDiscoverRootIgnoresUnrelatedConfigJSONBelowAppRoot(t *testing.T) {
 	}
 	if appRoot != root || cfg.Name != "canonical" {
 		t.Fatalf("appRoot = %q cfg.Name = %q, want %q canonical", appRoot, cfg.Name, root)
-	}
-}
-
-func TestDiscoverRootReportsAliasUnknownFieldsAsConfigJSON(t *testing.T) {
-	root := t.TempDir()
-	writeAppTestFile(t, root, ".config.json", `{"name":"aliasapp","extra":true}`)
-
-	_, _, err := DiscoverRoot(root)
-	if err == nil || !strings.Contains(err.Error(), `unknown .config.json field "extra"`) {
-		t.Fatalf("DiscoverRoot alias unknown field error = %v", err)
 	}
 }
 
@@ -297,22 +232,6 @@ func TestDiscoverRootRejectsInvalidWatchIgnoreConfig(t *testing.T) {
 				t.Fatalf("DiscoverRoot invalid watch.ignore error = %v, want %q", err, tt.want)
 			}
 		})
-	}
-}
-
-func TestDiscoverRootRejectsLegacyDatabaseServiceFields(t *testing.T) {
-	for _, field := range []string{"kind", "database", "database_url_env", "mode"} {
-		root := t.TempDir()
-		value := `"legacy"`
-		if field == "kind" {
-			value = `"postgres"`
-		}
-		writeAppTestFile(t, root, ".scenery.json", `{"name":"pgapp","dev":{"services":{"main":{`+strconv.Quote(field)+`:`+value+`}}}}`)
-
-		_, _, err := DiscoverRoot(root)
-		if err == nil || !strings.Contains(err.Error(), "plan 0097") || !strings.Contains(err.Error(), "dev.services.main."+field) {
-			t.Fatalf("DiscoverRoot legacy %s error = %v", field, err)
-		}
 	}
 }
 

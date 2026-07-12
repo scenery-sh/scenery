@@ -586,40 +586,6 @@ func startInternalCallTrace(parent *requestState, child *requestState) {
 	})
 }
 
-func recordMiddlewareEvent(name, phase string, err error) {
-	state := currentState()
-	if state == nil || state.trace == nil || !state.traceEnabled {
-		return
-	}
-	reporter := activeReporter()
-	if reporter == nil {
-		return
-	}
-	reporter.enqueue(devreport.ReportEnvelope{
-		Type:  "trace-event",
-		AppID: reporter.appID,
-		TraceEvent: &devreport.TraceEvent{
-			TraceID:   state.trace.traceID,
-			SpanID:    state.trace.spanID,
-			EventID:   reporter.nextEventID(),
-			EventTime: time.Now().UTC(),
-			Event: map[string]any{
-				"span_event": map[string]any{
-					"log_message": map[string]any{
-						"level": "INFO",
-						"msg":   "middleware " + phase,
-						"fields": []map[string]any{
-							traceField("middleware", name),
-							traceField("phase", phase),
-							traceField("error", errorString(err)),
-						},
-					},
-				},
-			},
-		},
-	})
-}
-
 func recordServiceInit(service string, duration time.Duration, err error) {
 	reporter := activeReporter()
 	if reporter == nil {

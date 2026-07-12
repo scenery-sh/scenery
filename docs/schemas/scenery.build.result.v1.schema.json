@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.build.result.v1.schema.json",
+  "title": "scenery build result",
+  "type": "object",
+  "required": ["schema_version", "output_path", "descriptor_path", "copied"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "scenery.build.result.v1" },
+    "output_path": { "type": "string", "minLength": 1 },
+    "descriptor_path": { "type": "string" },
+    "copied": { "type": "boolean" }
+  }
+}

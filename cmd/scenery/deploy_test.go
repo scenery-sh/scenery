@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -78,12 +77,12 @@ func TestDeployEnableDisableAndConflict(t *testing.T) {
 	appRoot := writeDeployTestApp(t, "app-a", "onlv.dev", "web")
 
 	var out bytes.Buffer
-	if err := runDeployCommand(&out, []string{"enable", "--app-root", appRoot, "--json"}); err != nil {
+	if err := runDeployCommand(&out, []string{"enable", "--app-root", appRoot, "-o", "json"}); err != nil {
 		t.Fatalf("deploy enable: %v\n%s", err, out.String())
 	}
 	var payload deployMutationResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Action != "enable" || len(payload.Targets) != 1 || !payload.Targets[0].Enabled || payload.Targets[0].RootService != "web" {
 		t.Fatalf("enable payload = %+v", payload)
@@ -93,7 +92,7 @@ func TestDeployEnableDisableAndConflict(t *testing.T) {
 	}
 
 	otherRoot := writeDeployTestApp(t, "app-b", "onlv.dev", "web")
-	err := runDeployCommand(&bytes.Buffer{}, []string{"enable", "--app-root", otherRoot, "--json"})
+	err := runDeployCommand(&bytes.Buffer{}, []string{"enable", "--app-root", otherRoot, "-o", "json"})
 	if err == nil || !strings.Contains(err.Error(), "already enabled") {
 		t.Fatalf("conflict error = %v", err)
 	}
@@ -102,12 +101,12 @@ func TestDeployEnableDisableAndConflict(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := runDeployCommand(&out, []string{"disable", "--app-root", appRoot, "--json"}); err != nil {
+	if err := runDeployCommand(&out, []string{"disable", "--app-root", appRoot, "-o", "json"}); err != nil {
 		t.Fatalf("deploy disable: %v\n%s", err, out.String())
 	}
 	payload = deployMutationResponse{}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal disable: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON disable: %v\n%s", err, out.String())
 	}
 	if len(payload.Targets) != 1 || payload.Targets[0].Enabled {
 		t.Fatalf("disable payload = %+v", payload)
@@ -157,12 +156,12 @@ func TestDeployStatusReportsRegistryTargetsAndLiveSession(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := runDeployCommand(&out, []string{"status", "--json"}); err != nil {
+	if err := runDeployCommand(&out, []string{"status", "-o", "json"}); err != nil {
 		t.Fatalf("deploy status: %v\n%s", err, out.String())
 	}
 	var status deployStatusResponse
-	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
-		t.Fatalf("json.Unmarshal status: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &status); err != nil {
+		t.Fatalf("decodeCLIJSON status: %v\n%s", err, out.String())
 	}
 	if status.SchemaVersion != "scenery.deploy.status.v1" || status.RegistryPath != paths.DeployPath {
 		t.Fatalf("status metadata = %+v", status)
@@ -207,12 +206,12 @@ func TestDeployStatusDiagnosticsReportReachabilityDNSPowerAndFirewall(t *testing
 	}
 
 	var out bytes.Buffer
-	if err := runDeployCommand(&out, []string{"status", "--json"}); err != nil {
+	if err := runDeployCommand(&out, []string{"status", "-o", "json"}); err != nil {
 		t.Fatalf("deploy status: %v\n%s", err, out.String())
 	}
 	var status deployStatusResponse
-	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
-		t.Fatalf("json.Unmarshal status: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &status); err != nil {
+		t.Fatalf("decodeCLIJSON status: %v\n%s", err, out.String())
 	}
 	if status.DiagnosticsDetail == nil || status.DiagnosticsDetail.LANIP != "192.168.1.20" || status.DiagnosticsDetail.PublicIP != "203.0.113.10" {
 		t.Fatalf("diagnostics detail = %+v", status.DiagnosticsDetail)
@@ -325,15 +324,15 @@ func TestDeploySetupWritesRegistryInstallsHelperAndRestartsEdge(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := runDeployCommand(&out, []string{"setup", "--acme-email", "ops@example.com", "--acme-ca", "staging", "--json"}); err != nil {
+	if err := runDeployCommand(&out, []string{"setup", "--acme-email", "ops@example.com", "--acme-ca", "staging", "-o", "json"}); err != nil {
 		t.Fatalf("deploy setup: %v\n%s", err, out.String())
 	}
 	if !preflighted || !installed || !launchAgentInstalled || !restarted || installedVersion == "" {
 		t.Fatalf("setup hooks preflight=%v install=%v launchAgent=%v restart=%v version=%q", preflighted, installed, launchAgentInstalled, restarted, installedVersion)
 	}
 	var payload deploySetupResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal setup: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON setup: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.deploy.setup.v1" || payload.ACME.Email != "ops@example.com" || payload.ACME.CA != "staging" || !payload.HelperPublic || !payload.LaunchAgentInstalled || !payload.EdgeRestarted {
 		t.Fatalf("setup payload = %+v", payload)
@@ -387,15 +386,15 @@ func TestDeployTeardownInstallsLoopbackHelperRemovesLaunchAgentAndRestartsEdge(t
 	}
 
 	var out bytes.Buffer
-	if err := runDeployCommand(&out, []string{"teardown", "--json"}); err != nil {
+	if err := runDeployCommand(&out, []string{"teardown", "-o", "json"}); err != nil {
 		t.Fatalf("deploy teardown: %v\n%s", err, out.String())
 	}
 	if !installed || !removed || !restarted || installedVersion == "" {
 		t.Fatalf("teardown hooks install=%v remove=%v restart=%v version=%q", installed, removed, restarted, installedVersion)
 	}
 	var payload deployTeardownResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal teardown: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON teardown: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.deploy.teardown.v1" || payload.HelperPublic || !payload.LaunchAgentRemoved || !payload.EdgeRestarted {
 		t.Fatalf("teardown payload = %+v", payload)
@@ -451,12 +450,12 @@ func TestDeployResumeStartsMissingTargetsAndSkipsLiveSessions(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := runDeployCommand(&out, []string{"resume", "--json"}); err != nil {
+	if err := runDeployCommand(&out, []string{"resume", "-o", "json"}); err != nil {
 		t.Fatalf("deploy resume: %v\n%s", err, out.String())
 	}
 	var payload deployResumeResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal resume: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON resume: %v\n%s", err, out.String())
 	}
 	if !payload.AgentReady || !payload.EdgeRestarted || payload.LogPath != paths.DeployResumeLogPath {
 		t.Fatalf("resume payload metadata = %+v", payload)

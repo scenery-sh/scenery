@@ -109,9 +109,7 @@ func runUpgrade(ctx context.Context, stdout io.Writer, args []string) error {
 	}
 	resp, err := performUpgrade(ctx, opts)
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		if encodeErr := enc.Encode(resp); encodeErr != nil {
+		if encodeErr := writeCLIJSON(stdout, resp); encodeErr != nil {
 			return encodeErr
 		}
 		if err != nil {
@@ -129,7 +127,7 @@ func parseUpgradeArgs(args []string) (upgradeOptions, error) {
 	opts := upgradeOptions{Version: "latest", ToolchainMode: "installed"}
 	skipToolchain := false
 	flags := newCLIFlagSet("upgrade")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
 	flags.BoolVar(&opts.Force, "force", false, "")
 	flags.BoolVar(&skipToolchain, "skip-toolchain", false, "")
@@ -563,7 +561,7 @@ func runUpgradeToolchainSync(ctx context.Context, binaryPath, cwd, mode, storeDi
 	}
 	if mode == "all" {
 		item := upgradeToolchainSync{Tool: "*", Status: "synced", Images: true}
-		output, err := runUpgradeToolchainCommand(ctx, binaryPath, cwd, []string{"system", "toolchain", "sync", "--json", "--images"})
+		output, err := runUpgradeToolchainCommand(ctx, binaryPath, cwd, []string{"system", "toolchain", "sync", "-o", "json", "--images"})
 		if err != nil {
 			item.Status = "error"
 			item.Message = strings.TrimSpace(output)
@@ -574,7 +572,7 @@ func runUpgradeToolchainSync(ctx context.Context, binaryPath, cwd, mode, storeDi
 		return result, nil
 	}
 	for _, candidate := range candidates {
-		args := []string{"system", "toolchain", "sync", "--json", "--tool", candidate.Name}
+		args := []string{"system", "toolchain", "sync", "-o", "json", "--tool", candidate.Name}
 		if candidate.Images {
 			args = append(args, "--images")
 		}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -143,7 +142,7 @@ func runSceneryInspect(args []string, stdout io.Writer) error {
 		return err
 	}
 	if !opts.JSON {
-		return fmt.Errorf("scenery inspect currently requires --json")
+		return fmt.Errorf("scenery inspect currently requires -o json")
 	}
 
 	if opts.Subject == "docs" {
@@ -266,7 +265,7 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		return inspectOptions{}, fmt.Errorf("unknown inspect subject %q; use `scenery %s list`", opts.Subject, opts.Subject)
 	}
 	flags := newCLIFlagSet("inspect " + opts.Subject)
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
 	flags.StringVar(&opts.Harness.Severity, "severity", "", "")
@@ -340,9 +339,7 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 }
 
 func writeInspectJSON(w io.Writer, payload any) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(payload)
+	return writeCLIJSON(w, payload)
 }
 
 func buildInspectBuildResponse(appRoot string, cfg appcfg.Config) (inspectBuildResponse, error) {

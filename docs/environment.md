@@ -63,15 +63,12 @@ These are injected by scenery into generated app processes. App code may read th
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | user input/injected | App-level Postgres database URL. When set, it wins and Scenery manages no server or database; otherwise Scenery injects the managed app database URL. |
-| `DatabaseURL` | user input | Legacy app-style database URL env fallback for standard auth and older app code. Prefer `DATABASE_URL` in new config. |
-| `SCENERY_AUTH_DATABASE_URL` | user input | Fallback DB URL for standard auth when app-specific envs are unset. |
-| `SCENERY_AUTH_JWT_SECRET` | user input | Fallback JWT signing secret for standard auth when `auth.jwt_secret_env` and `JWT_SECRET` are unset. |
-| `SCENERY_AUTH_EMAIL_FROM` | user input | Fallback sender address for standard auth email flows when `auth.email_from_env` and `AUTH_EMAIL_FROM` are unset. |
-| `GoogleOAuthClientID` | user input | Default app-style Google OAuth client ID env when `auth.google_oauth.enabled` is true and `client_id_env` is omitted. |
-| `GoogleOAuthClientSecret` | user input secret | Default app-style Google OAuth client secret env when `auth.google_oauth.enabled` is true and `client_secret_env` is omitted. |
-| `AuthTokenCipherKey` | user input secret | Default base64 32-byte AES-GCM key for encrypted Google connection token storage when `auth.google_oauth.token_cipher_key_env` is omitted. |
-| `GOOGLE_OAUTH_CLIENT_ID` | user input | Conventional fallback Google OAuth client ID when the app-style env is unset. |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | user input secret | Conventional fallback Google OAuth client secret when the app-style env is unset. |
+| `JWT_SECRET` | user input secret | Default standard-auth JWT signing secret when `auth.jwt_secret_env` is omitted. |
+| `AUTH_COOKIE_DOMAIN` | user input/injected | Default standard-auth cookie domain; empty in default local agent development. |
+| `AUTH_EMAIL_FROM` | user input/injected | Default sender address for standard-auth email flows. |
+| `AUTH_TOKEN_CIPHER_KEY` | user input secret | Default base64 32-byte AES-GCM key for encrypted Google connection token storage. |
+| `GOOGLE_OAUTH_CLIENT_ID` | user input | Default Google OAuth client ID when `auth.google_oauth.client_id_env` is omitted. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | user input secret | Default Google OAuth client secret when `auth.google_oauth.client_secret_env` is omitted. |
 | `<SERVICE>_DATABASE_URL` | injected | Service schema Postgres URL derived from the app database URL with `search_path=<service>,scenery`. |
 | `SCENERY_DATABASE_JSON` | injected | JSON object describing the app database, source (`managed` or `external`), and service schemas. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |
@@ -83,9 +80,8 @@ These are injected by scenery into generated app processes. App code may read th
 | `SCENERY_FRONTEND_PUBLIC_URL` | injected | Browser-facing URL for the current managed frontend. |
 | `VITE_SCENERY_*` | injected | Vite-compatible mirrors of Scenery dev route metadata for managed frontends. |
 | `SCENERY_PUBLIC_APP_URL` | injected | Public app URL for auth and app code. |
-| `SCENERY_AUTH_COOKIE_DOMAIN` | injected | Auth cookie domain; empty in default local agent dev. |
 
-App-defined auth env names such as `JWTSecret`, `GoogleOAuthClientID`, `GoogleOAuthClientSecret`, `AuthTokenCipherKey`, `AuthCookieDomain`, `PublicAppURL`, `APIBaseURL`, and `AuthEmailFrom` come from `.scenery.json` and are target-app inputs, not fixed scenery global names. `scenery check --json` warns when Google OAuth is enabled but the configured client ID or secret env cannot be resolved. Local `scenery up` derives a dev-only Google token cipher key from the local JWT secret if no `AuthTokenCipherKey` is set; production should set a real base64 32-byte key.
+Each standard-auth setting resolves exactly its configured env name; omitted names use the canonical defaults above plus `SCENERY_PUBLIC_APP_URL` and `SCENERY_API_BASE_URL`. `scenery check -o json` warns when Google OAuth is enabled but the configured client ID or secret env cannot be resolved. Local `scenery up` derives a dev-only Google token cipher key from the local JWT secret if `AUTH_TOKEN_CIPHER_KEY` is absent; production should set a real base64 32-byte key.
 
 ## Toolchain Store
 

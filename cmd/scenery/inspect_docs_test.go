@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -13,13 +12,13 @@ func TestRunSceneryInspectDocs(t *testing.T) {
 	root := writeHarnessSelfRepo(t, `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}`)
 
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"docs", "--repo-root", root, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"docs", "--repo-root", root, "-o", "json"}, &out); err != nil {
 		t.Fatalf("inspect docs: %v\n%s", err, out.String())
 	}
 
 	var payload inspectDocsResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != inspectDocsSchema {
 		t.Fatalf("schema = %q", payload.SchemaVersion)
@@ -61,13 +60,13 @@ func TestRunSceneryInspectDocsReportsAgentChildIndexDrift(t *testing.T) {
 	writeTestAppFile(t, root, "cmd/AGENTS.md", "Command rules.\n")
 
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"docs", "--repo-root", root, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"docs", "--repo-root", root, "-o", "json"}, &out); err != nil {
 		t.Fatalf("inspect docs: %v\n%s", err, out.String())
 	}
 
 	var payload inspectDocsResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.Summary.AgentScopeCount != 3 {
 		t.Fatalf("agent_scope_count = %d, agents = %+v", payload.Summary.AgentScopeCount, payload.Agents)

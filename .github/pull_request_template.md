@@ -8,7 +8,7 @@
 
 - [ ] `go test ./...`
 - [ ] `go install ./cmd/scenery`
-- [ ] `scenery harness self --json --write`
+- [ ] `scenery harness self -o json --write`
 - [ ] UI checks, if relevant
 
 ## Notes

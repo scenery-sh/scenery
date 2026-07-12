@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -30,7 +31,8 @@ func main() {
 }
 
 func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
-	if err == nil || !requestsVNextJSON(args) {
+	output := requestedCLIOutput(args)
+	if err == nil || (output != "json" && output != "jsonl") {
 		return err
 	}
 	if _, alreadyRendered := errors.AsType[*silentCLIError](err); alreadyRendered {
@@ -50,6 +52,13 @@ func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
 		kind = "internal"
 	}
 	diagnostic := vnext.TransportDiagnostic(kind, err.Error())
+	if output == "jsonl" {
+		writer := newCLIEventWriter(stdout)
+		if encodeErr := writer.write("summary", true, map[string]any{"event_count": 0, "ok": false, "diagnostic": diagnostic}); encodeErr != nil {
+			return &silentCLIError{err: fmt.Errorf("internal: encode CLI error event: %w", encodeErr), code: 10}
+		}
+		return &silentCLIError{err: err, code: code}
+	}
 	envelope := vnextEnvelope{
 		APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: false,
 		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
@@ -61,16 +70,59 @@ func renderVNextMachineError(stdout io.Writer, args []string, err error) error {
 	return &silentCLIError{err: err, code: code}
 }
 
-func requestsVNextJSON(args []string) bool {
+func requestedCLIOutput(args []string) string {
 	for index, argument := range args {
 		if argument == "-o" {
-			return index+1 < len(args) && args[index+1] == "json"
+			if index+1 < len(args) {
+				return args[index+1]
+			}
+			return ""
 		}
-		if argument == "-o=json" {
-			return true
+		if strings.HasPrefix(argument, "-o=") {
+			return strings.TrimPrefix(argument, "-o=")
 		}
 	}
-	return false
+	return ""
+}
+
+func writeCLIJSON(w io.Writer, data any) error {
+	return json.NewEncoder(w).Encode(vnextEnvelope{
+		APIVersion: "scenery.cli.v1", DiagnosticCatalog: vnext.DiagnosticCatalog, OK: cliDataOK(data),
+		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
+		Data: data, Diagnostics: []vnext.Diagnostic{},
+	})
+}
+
+func cliDataOK(data any) bool {
+	value := reflect.ValueOf(data)
+	if value.Kind() == reflect.Pointer {
+		value = value.Elem()
+	}
+	if value.IsValid() && value.Kind() == reflect.Struct {
+		if ok := value.FieldByName("OK"); ok.IsValid() && ok.Kind() == reflect.Bool {
+			return ok.Bool()
+		}
+	}
+	if value, ok := data.(map[string]any); ok {
+		if result, present := value["ok"].(bool); present {
+			return result
+		}
+	}
+	return true
+}
+
+func decodeCLIJSON(encoded []byte, target any) error {
+	var envelope struct {
+		APIVersion string          `json:"api_version"`
+		Data       json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(encoded, &envelope); err != nil {
+		return err
+	}
+	if envelope.APIVersion != "scenery.cli.v1" {
+		return fmt.Errorf("unexpected CLI API version %q", envelope.APIVersion)
+	}
+	return json.Unmarshal(envelope.Data, target)
 }
 
 func init() {
@@ -82,17 +134,6 @@ func run(args []string) error {
 	if len(args) == 0 {
 		writeRootHelp(os.Stdout)
 		return nil
-	}
-	normalized, apiVersion, err := normalizeCLIAPIVersion(args)
-	if err != nil {
-		return err
-	}
-	args = normalized
-	if apiVersion == "scenery.cli.v0" && v1OnlyCommand(args) {
-		return fmt.Errorf("invalid_request: SCN_LEGACY_CLI_UNREPRESENTABLE: %s has no scenery.cli.v0 representation", strings.Join(args[:minInt(2, len(args))], " "))
-	}
-	if apiVersion == "scenery.cli.v1" && args[0] == "check" && !hasVNextOutputSelector(args[1:]) {
-		args = append(args, "-o", "human")
 	}
 	switch args[0] {
 	case "help":
@@ -184,79 +225,45 @@ func run(args []string) error {
 	}
 }
 
-func normalizeCLIAPIVersion(args []string) ([]string, string, error) {
-	clean := make([]string, 0, len(args))
-	selected := ""
-	for index := 0; index < len(args); index++ {
-		argument := args[index]
-		value := ""
-		switch {
-		case argument == "--api-version":
-			if index+1 >= len(args) {
-				return nil, "", fmt.Errorf("invalid_request: --api-version requires scenery.cli.v0 or scenery.cli.v1")
-			}
-			index++
-			value = args[index]
-		case strings.HasPrefix(argument, "--api-version="):
-			value = strings.TrimPrefix(argument, "--api-version=")
-		default:
-			clean = append(clean, argument)
-			continue
-		}
-		if value != "scenery.cli.v0" && value != "scenery.cli.v1" {
-			return nil, "", fmt.Errorf("invalid_request: unknown CLI API version %q", value)
-		}
-		if selected != "" && selected != value {
-			return nil, "", fmt.Errorf("invalid_request: conflicting CLI API versions")
-		}
-		selected = value
-	}
-	legacyJSON, currentOutput := hasCLIArg(clean, "--json"), hasVNextOutputSelector(clean)
-	if legacyJSON && currentOutput {
-		return nil, "", fmt.Errorf("invalid_request: conflicting scenery.cli.v0 --json and scenery.cli.v1 -o selectors")
-	}
-	if selected == "scenery.cli.v0" && currentOutput || selected == "scenery.cli.v1" && legacyJSON {
-		return nil, "", fmt.Errorf("invalid_request: CLI API version conflicts with the output selector")
-	}
-	return clean, selected, nil
-}
-
-func hasVNextOutputSelector(args []string) bool {
-	for index, argument := range args {
-		value := ""
-		switch {
-		case argument == "-o" && index+1 < len(args):
-			value = args[index+1]
-		case strings.HasPrefix(argument, "-o="):
-			value = strings.TrimPrefix(argument, "-o=")
-		}
-		switch value {
-		case "human", "json", "jsonl":
-			return true
-		}
-	}
-	return false
-}
-
-func v1OnlyCommand(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-	switch args[0] {
-	case "compile", "schema", "list", "get", "explain", "diff", "graph", "changes":
-		return true
-	case "agent":
-		return len(args) > 1 && args[1] == "serve"
-	case "deploy":
-		return len(args) > 1 && (args[1] == "plan" || args[1] == "apply")
-	default:
-		return false
-	}
-}
-
 type silentCLIError struct {
 	err  error
 	code int
+}
+
+type cliEventEnvelope struct {
+	APIVersion             string             `json:"api_version"`
+	DiagnosticCatalog      string             `json:"diagnostic_catalog"`
+	Sequence               uint64             `json:"sequence"`
+	Kind                   string             `json:"kind"`
+	Terminal               bool               `json:"terminal"`
+	WorkspaceRevision      any                `json:"workspace_revision"`
+	ContractRevision       any                `json:"contract_revision"`
+	ImplementationRevision any                `json:"implementation_revision"`
+	DeploymentRevision     any                `json:"deployment_revision"`
+	Data                   any                `json:"data"`
+	Diagnostics            []vnext.Diagnostic `json:"diagnostics"`
+}
+
+type cliEventWriter struct {
+	w        io.Writer
+	sequence uint64
+}
+
+func newCLIEventWriter(w io.Writer) *cliEventWriter { return &cliEventWriter{w: w} }
+
+func (w *cliEventWriter) write(kind string, terminal bool, data any) error {
+	w.sequence++
+	return json.NewEncoder(w.w).Encode(cliEventEnvelope{
+		APIVersion: "scenery.cli.event.v1", DiagnosticCatalog: vnext.DiagnosticCatalog,
+		Sequence: w.sequence, Kind: kind, Terminal: terminal,
+		WorkspaceRevision: nil, ContractRevision: nil, ImplementationRevision: nil, DeploymentRevision: nil,
+		Data: data, Diagnostics: []vnext.Diagnostic{},
+	})
+}
+
+func (w *cliEventWriter) event(data any) error { return w.write("event", false, data) }
+func (w *cliEventWriter) summary(count int) error {
+	return w.write("summary", true, map[string]any{"event_count": count})
 }
 
 func (e *silentCLIError) ExitCode() int {
@@ -380,6 +387,7 @@ type devOptions struct {
 	PortSet      bool
 	Verbose      bool
 	JSON         bool
+	Output       string
 	AppRoot      string
 	Detach       bool
 	Wait         string
@@ -402,7 +410,7 @@ func parseDevArgs(args []string) (devOptions, error) {
 	flags.StringVar(&opts.Listen, "listen", "", "")
 	flags.BoolVar(&opts.Verbose, "verbose", false, "")
 	flags.BoolVar(&opts.Verbose, "v", false, "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	flags.StringVar(&opts.Output, "o", "human", "")
 	flags.BoolVar(&opts.Detach, "detach", false, "")
 	flags.StringVar(&opts.Wait, "wait", opts.Wait, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
@@ -422,6 +430,16 @@ func parseDevArgs(args []string) (devOptions, error) {
 	if err != nil {
 		return devOptions{}, err
 	}
+	if opts.Output != "human" && opts.Output != "json" && opts.Output != "jsonl" {
+		return devOptions{}, fmt.Errorf("unsupported output %q", opts.Output)
+	}
+	if opts.Detach && opts.Output == "jsonl" {
+		return devOptions{}, fmt.Errorf("unsupported output %q for detached up; use -o json", opts.Output)
+	}
+	if !opts.Detach && opts.Output == "json" {
+		return devOptions{}, fmt.Errorf("unsupported output %q for streaming up; use -o jsonl", opts.Output)
+	}
+	opts.JSON = opts.Output != "human"
 	return opts, nil
 }
 

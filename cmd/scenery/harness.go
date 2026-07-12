@@ -178,7 +178,7 @@ func parseHarnessArgs(args []string) (harnessOptions, error) {
 	opts := harnessOptions{}
 	flags := newCLIFlagSet("harness")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Write, "write", false, "")
 	flags.BoolFunc("with-validation", "", func(value string) error {
 		opts.WithValidation = true
@@ -201,14 +201,14 @@ func parseHarnessArgs(args []string) (harnessOptions, error) {
 }
 
 func runHarnessValidation(ctx context.Context, appRoot, profile string) harnessValidation {
-	args := []string{"--app-root", appRoot, "--json", "--write"}
+	args := []string{"--app-root", appRoot, "-o", "json", "--write"}
 	if strings.TrimSpace(profile) != "" {
 		args = append([]string{profile}, args...)
 	}
 	var out bytes.Buffer
 	err := runSceneryValidate(ctx, &out, args)
 	var result validationResultResponse
-	if json.Unmarshal(out.Bytes(), &result) == nil && result.SchemaVersion == validationResultSchema {
+	if decodeCLIJSON(out.Bytes(), &result) == nil && result.SchemaVersion == validationResultSchema {
 		resultPath := ".scenery/harness/validation/latest.json"
 		if result.Wrote != "" {
 			if rel, relErr := filepath.Rel(appRoot, result.Wrote); relErr == nil {
@@ -234,18 +234,17 @@ func runHarnessCheck(ctx context.Context, appRoot string, artifactCtxs ...harnes
 		DurationMS: time.Since(started).Milliseconds(),
 		Evidence:   &evidence,
 	}
-	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "check.json", "scenery.check.result.v1", out.Bytes(), nil)
+	artifacts, artifactDiagnostics := writeHarnessOutputEvidenceArtifacts(optionalHarnessArtifactContext(artifactCtxs), step.Name, "check.json", "scenery.cli.v1", out.Bytes(), nil)
 	step.Diagnostics = append(step.Diagnostics, artifactDiagnostics...)
 
-	var payload checkResponse
-	if out.Len() > 0 && json.Unmarshal(out.Bytes(), &payload) == nil {
-		step.OK = payload.OK
-		step.Diagnostics = append(step.Diagnostics, payload.Diagnostics...)
+	var payload vnextEnvelope
+	if out.Len() > 0 && json.Unmarshal(out.Bytes(), &payload) == nil && payload.APIVersion == "scenery.cli.v1" {
+		step.OK = payload.OK && err == nil
 		step.Summary = map[string]any{
 			"diagnostics": len(payload.Diagnostics),
 		}
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
-		return step, payload.App
+		return step, inspect.AppRef{}
 	}
 	if err != nil {
 		step.Error = strings.TrimSpace(err.Error())
@@ -257,10 +256,10 @@ func runHarnessCheck(ctx context.Context, appRoot string, artifactCtxs ...harnes
 
 func runHarnessInspect(subject, appRoot string, artifactCtxs ...harnessArtifactContext) harnessStep {
 	started := time.Now()
-	command := []string{"scenery", "inspect", subject, "--app-root", appRoot, "--json"}
+	command := []string{"scenery", "inspect", subject, "--app-root", appRoot, "-o", "json"}
 	evidence := newHarnessEvidence(command, appRoot, started)
 	var out bytes.Buffer
-	err := runSceneryInspect([]string{subject, "--app-root", appRoot, "--json"}, &out)
+	err := runSceneryInspect([]string{subject, "--app-root", appRoot, "-o", "json"}, &out)
 	step := harnessStep{
 		Name:       "inspect " + subject,
 		Command:    command,
@@ -276,7 +275,7 @@ func runHarnessInspect(subject, appRoot string, artifactCtxs ...harnessArtifactC
 		return step
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		step.OK = false
 		step.Error = "invalid inspect JSON: " + err.Error()
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
@@ -291,13 +290,13 @@ func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArt
 	started := time.Now()
 	var out bytes.Buffer
 	var err error
-	command := []string{"scenery", subject, "list", "--app-root", appRoot, "--json"}
+	command := []string{"scenery", subject, "list", "--app-root", appRoot, "-o", "json"}
 	evidence := newHarnessEvidence(command, appRoot, started)
 	switch subject {
 	case "traces":
-		err = runObservabilityList(context.Background(), &out, "traces", []string{"--app-root", appRoot, "--json"})
+		err = runObservabilityList(context.Background(), &out, "traces", []string{"--app-root", appRoot, "-o", "json"})
 	case "metrics":
-		err = runObservabilityList(context.Background(), &out, "metrics", []string{"--app-root", appRoot, "--json"})
+		err = runObservabilityList(context.Background(), &out, "metrics", []string{"--app-root", appRoot, "-o", "json"})
 	default:
 		err = fmt.Errorf("unknown observability subject %q", subject)
 	}
@@ -316,7 +315,7 @@ func runHarnessObservability(subject, appRoot string, artifactCtxs ...harnessArt
 		return step
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		step.OK = false
 		step.Error = "invalid observability JSON: " + err.Error()
 		finalizeHarnessEvidence(step.Evidence, time.Since(started), step.OK, out.String(), "", exitCodeFromError(err), artifacts)
@@ -391,7 +390,7 @@ func buildHarnessKnowledge(appRoot string) harnessKnowledge {
 	}
 	schemas := []string{
 		"docs/schemas/scenery.config.v1.schema.json",
-		"docs/schemas/scenery.check.result.v1.schema.json",
+		"docs/schemas/scenery.cli.v1.schema.json",
 		"docs/schemas/scenery.harness.artifact.v1.schema.json",
 		"docs/schemas/scenery.harness.result.v1.schema.json",
 		"docs/schemas/scenery.inspect.harness.v1.schema.json",
@@ -478,7 +477,7 @@ func writeHarnessResult(path string, resp harnessResponse) error {
 		return err
 	}
 	var buf bytes.Buffer
-	if err := writeHarnessJSON(&buf, resp); err != nil {
+	if err := json.NewEncoder(&buf).Encode(resp); err != nil {
 		return err
 	}
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
@@ -488,9 +487,7 @@ func writeHarnessResult(path string, resp harnessResponse) error {
 }
 
 func writeHarnessJSON(w io.Writer, payload harnessResponse) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(payload)
+	return writeCLIJSON(w, payload)
 }
 
 func writeHarnessText(w io.Writer, resp harnessResponse) error {

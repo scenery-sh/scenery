@@ -21,15 +21,19 @@ func TestInitializeServicesRunsInParallel(t *testing.T) {
 		defer releaseOnce.Do(func() { close(release) })
 		errCh := make(chan error, 1)
 
-		blockingInit := func(name string) func() error {
-			return func() error {
+		blockingInit := func(name string) func(context.Context) error {
+			return func(context.Context) error {
 				started <- name
 				<-release
 				return nil
 			}
 		}
-		RegisterServiceInitializer("zeta", blockingInit("zeta"))
-		RegisterServiceInitializer("alpha", blockingInit("alpha"))
+		if err := RegisterNativeService(NativeServiceRegistration{Address: "zeta", Initialize: blockingInit("zeta")}); err != nil {
+			t.Fatal(err)
+		}
+		if err := RegisterNativeService(NativeServiceRegistration{Address: "alpha", Initialize: blockingInit("alpha")}); err != nil {
+			t.Fatal(err)
+		}
 
 		go func() {
 			errCh <- InitializeServices()
@@ -56,9 +60,11 @@ func TestInitializeServicesPropagatesErrors(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 
-	RegisterServiceInitializer("service", func() error {
+	if err := RegisterNativeService(NativeServiceRegistration{Address: "service", Initialize: func(context.Context) error {
 		return errors.New("boom")
-	})
+	}}); err != nil {
+		t.Fatal(err)
+	}
 
 	err := InitializeServices()
 	if err == nil || err.Error() != "initialize service service: boom" {
@@ -139,8 +145,11 @@ func TestShutdownServicesRunsInReverseInitializerOrder(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 
-	RegisterServiceInitializer("alpha", func() error { return nil })
-	RegisterServiceInitializer("zeta", func() error { return nil })
+	for _, address := range []string{"alpha", "zeta"} {
+		if err := RegisterNativeService(NativeServiceRegistration{Address: address, Initialize: func(context.Context) error { return nil }}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := InitializeServices(); err != nil {
 		t.Fatalf("InitializeServices() error = %v", err)
 	}
@@ -230,7 +239,6 @@ func replaceGlobalRegistryForTest() func() {
 	prev := global
 	global = &registry{
 		endpoints:                 make(map[string]*Endpoint),
-		middlewares:               make(map[string]*Middleware),
 		cronJobs:                  make(map[string]*CronJob),
 		durableTasks:              make(map[string]*DurableTask),
 		contractDurableExecutions: make(map[string]ContractDurableRegistration),

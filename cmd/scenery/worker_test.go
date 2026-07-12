@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"net/url"
 	"os"
 	"strings"
@@ -26,7 +25,7 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	})
 
 	var out bytes.Buffer
-	err := durableWorkerCommand([]string{"token", "create", "--app-root", root, "--service", "maps", "--name", "maps remote", "--id", "tok-test", "--json"}, &out)
+	err := durableWorkerCommand([]string{"token", "create", "--app-root", root, "--service", "maps", "--name", "maps remote", "--id", "tok-test", "-o", "json"}, &out)
 	if err != nil {
 		t.Fatalf("durableWorkerCommand token create: %v", err)
 	}
@@ -41,7 +40,7 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 			TokenHash string `json:"token_hash"`
 		} `json:"token"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("decode token response: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.durable.worker_token.create.v1" || payload.Service != "maps" || payload.Token.ID != "tok-test" || payload.Token.Name != "maps remote" {
@@ -74,11 +73,11 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	}
 
 	var listOut bytes.Buffer
-	if err := durableWorkerCommand([]string{"jobs", "list", "--app-root", root, "--service", "maps", "--json"}, &listOut); err != nil {
+	if err := durableWorkerCommand([]string{"jobs", "list", "--app-root", root, "--service", "maps", "-o", "json"}, &listOut); err != nil {
 		t.Fatalf("jobs list: %v", err)
 	}
 	var listPayload workerDurableJobsResponse
-	if err := json.Unmarshal(listOut.Bytes(), &listPayload); err != nil {
+	if err := decodeCLIJSON(listOut.Bytes(), &listPayload); err != nil {
 		t.Fatalf("decode jobs list: %v\n%s", err, listOut.String())
 	}
 	if len(listPayload.Jobs) != 1 || listPayload.Jobs[0].ID != "job-admin" || listPayload.Jobs[0].State != "queued" {
@@ -86,20 +85,20 @@ func TestWorkerDurableTokenCreate(t *testing.T) {
 	}
 
 	var inspectOut bytes.Buffer
-	if err := durableWorkerCommand([]string{"jobs", "inspect", "job-admin", "--app-root", root, "--service", "maps", "--json"}, &inspectOut); err != nil {
+	if err := durableWorkerCommand([]string{"jobs", "inspect", "job-admin", "--app-root", root, "--service", "maps", "-o", "json"}, &inspectOut); err != nil {
 		t.Fatalf("jobs inspect: %v", err)
 	}
 	var inspectPayload workerDurableJobsResponse
-	if err := json.Unmarshal(inspectOut.Bytes(), &inspectPayload); err != nil {
+	if err := decodeCLIJSON(inspectOut.Bytes(), &inspectPayload); err != nil {
 		t.Fatalf("decode jobs inspect: %v\n%s", err, inspectOut.String())
 	}
 	if inspectPayload.Job == nil || inspectPayload.Job.ID != "job-admin" || len(inspectPayload.Events) == 0 {
 		t.Fatalf("jobs inspect payload = %+v", inspectPayload)
 	}
-	if err := durableWorkerCommand([]string{"jobs", "cancel", "job-admin", "--app-root", root, "--service", "maps", "--json"}, &bytes.Buffer{}); err != nil {
+	if err := durableWorkerCommand([]string{"jobs", "cancel", "job-admin", "--app-root", root, "--service", "maps", "-o", "json"}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("jobs cancel: %v", err)
 	}
-	if err := durableWorkerCommand([]string{"jobs", "retry", "job-admin", "--app-root", root, "--service", "maps", "--json"}, &bytes.Buffer{}); err != nil {
+	if err := durableWorkerCommand([]string{"jobs", "retry", "job-admin", "--app-root", root, "--service", "maps", "-o", "json"}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("jobs retry: %v", err)
 	}
 }

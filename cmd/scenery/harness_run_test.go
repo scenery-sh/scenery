@@ -21,13 +21,13 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	writeHarnessTestApp(t, root, "harnessapp", "return nil")
 
 	var out bytes.Buffer
-	if err := runSceneryHarness(context.Background(), &out, []string{"--app-root", root, "--json", "--write"}); err != nil {
+	if err := runSceneryHarness(context.Background(), &out, []string{"--app-root", root, "-o", "json", "--write"}); err != nil {
 		t.Fatalf("runSceneryHarness returned error: %v\n%s", err, out.String())
 	}
 
 	var payload harnessResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.harness.result.v1" || !payload.OK {
 		t.Fatalf("payload = %+v", payload)
@@ -52,11 +52,11 @@ func TestRunSceneryHarnessJSONSuccessWritesLatest(t *testing.T) {
 	}
 
 	var inspectOut bytes.Buffer
-	if err := runSceneryInspect([]string{"harness", "--app-root", root, "--json"}, &inspectOut); err != nil {
+	if err := runSceneryInspect([]string{"harness", "--app-root", root, "-o", "json"}, &inspectOut); err != nil {
 		t.Fatalf("inspect harness: %v\n%s", err, inspectOut.String())
 	}
 	var inspectPayload inspectHarnessResponse
-	if err := json.Unmarshal(inspectOut.Bytes(), &inspectPayload); err != nil {
+	if err := decodeCLIJSON(inspectOut.Bytes(), &inspectPayload); err != nil {
 		t.Fatalf("decode inspect harness: %v\n%s", err, inspectOut.String())
 	}
 	if inspectPayload.SchemaVersion != inspectHarnessSchema || len(inspectPayload.Evidence) == 0 {
@@ -72,14 +72,14 @@ func TestRunSceneryHarnessJSONFailureIncludesNextAction(t *testing.T) {
 	writeTestAppFile(t, root, "invalid.scn", "unsupported \"fixture\" {}\n")
 
 	var out bytes.Buffer
-	err := runSceneryHarness(context.Background(), &out, []string{"--app-root", root, "--json"})
+	err := runSceneryHarness(context.Background(), &out, []string{"--app-root", root, "-o", "json"})
 	if _, ok := errors.AsType[*silentCLIError](err); !ok {
 		t.Fatalf("expected silentCLIError, got %v\n%s", err, out.String())
 	}
 
 	var payload harnessResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.OK {
 		t.Fatalf("payload ok = true, want false")
@@ -144,10 +144,10 @@ func TestParseHarnessSelfArgsSupportsSummaryAndFullModes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary parse: %v", err)
 	}
-	if !summary.JSON || summary.Output != harnessSelfOutputSummary {
+	if summary.JSON || summary.Output != harnessSelfOutputSummary {
 		t.Fatalf("summary opts = %+v", summary)
 	}
-	full, err := parseHarnessSelfArgs([]string{"--json=full"})
+	full, err := parseHarnessSelfArgs([]string{"-o", "json"})
 	if err != nil {
 		t.Fatalf("full parse: %v", err)
 	}
@@ -292,12 +292,12 @@ func TestProbeHarnessToolParsesSceneryVersionJSON(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "scenery")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"schema_version\":\"scenery.version.v1\",\"version\":\"v1.2.3\",\"commit\":\"abc\",\"built_at\":\"2026-06-08T00:00:00Z\",\"go_version\":\"go1.26.3\"}'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"api_version\":\"scenery.cli.v1\",\"diagnostic_catalog\":\"scenery.diagnostics.2027.v1\",\"ok\":true,\"workspace_revision\":null,\"contract_revision\":null,\"implementation_revision\":null,\"deployment_revision\":null,\"data\":{\"schema_version\":\"scenery.version.v1\",\"version\":\"v1.2.3\",\"commit\":\"abc\",\"built_at\":\"2026-06-08T00:00:00Z\",\"go_version\":\"go1.26.3\"},\"diagnostics\":[]}'\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	tool := probeHarnessTool(context.Background(), "scenery", "required", true, []string{"version", "--json"})
+	tool := probeHarnessTool(context.Background(), "scenery", "required", true, []string{"version", "-o", "json"})
 	if tool.Version != "v1.2.3" || tool.Commit != "abc" || tool.GoVersion != "go1.26.3" {
 		t.Fatalf("tool = %+v", tool)
 	}
@@ -341,11 +341,11 @@ func TestInspectHarnessFocusedCommands(t *testing.T) {
 	}
 
 	var diagnosticsOut bytes.Buffer
-	if err := runSceneryInspect([]string{"harness", "diagnostics", "--severity", "warning", "--repo-root", root, "--json"}, &diagnosticsOut); err != nil {
+	if err := runSceneryInspect([]string{"harness", "diagnostics", "--severity", "warning", "--repo-root", root, "-o", "json"}, &diagnosticsOut); err != nil {
 		t.Fatalf("diagnostics inspect: %v", err)
 	}
 	var diagnostics inspectHarnessDiagnosticsResponse
-	if err := json.Unmarshal(diagnosticsOut.Bytes(), &diagnostics); err != nil {
+	if err := decodeCLIJSON(diagnosticsOut.Bytes(), &diagnostics); err != nil {
 		t.Fatal(err)
 	}
 	if len(diagnostics.Diagnostics) != 1 || diagnostics.Diagnostics[0].Severity != "warning" {
@@ -353,11 +353,11 @@ func TestInspectHarnessFocusedCommands(t *testing.T) {
 	}
 
 	var timingOut bytes.Buffer
-	if err := runSceneryInspect([]string{"harness", "timing", "--top", "1", "--repo-root", root, "--json"}, &timingOut); err != nil {
+	if err := runSceneryInspect([]string{"harness", "timing", "--top", "1", "--repo-root", root, "-o", "json"}, &timingOut); err != nil {
 		t.Fatalf("timing inspect: %v", err)
 	}
 	var timingResp inspectHarnessTimingResponse
-	if err := json.Unmarshal(timingOut.Bytes(), &timingResp); err != nil {
+	if err := decodeCLIJSON(timingOut.Bytes(), &timingResp); err != nil {
 		t.Fatal(err)
 	}
 	if len(timingResp.SlowTests) != 1 || len(timingResp.SlowPackages) != 1 {

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,8 +15,8 @@ import (
 func TestDevArgsForDetachedChild(t *testing.T) {
 	t.Parallel()
 
-	got := devArgsForDetachedChild([]string{"--app-root", "relative/app", "--detach", "--wait=ready", "--json"}, "/tmp/app")
-	want := []string{"--json", "--app-root", "/tmp/app"}
+	got := devArgsForDetachedChild([]string{"--app-root", "relative/app", "--detach", "--wait=ready", "-o", "json"}, "/tmp/app")
+	want := []string{"-o", "jsonl", "--app-root", "/tmp/app"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("devArgsForDetachedChild = %#v, want %#v", got, want)
 	}
@@ -276,8 +275,8 @@ func TestWriteDetachedDevResultJSON(t *testing.T) {
 		t.Fatalf("writeDetachedDevResult: %v", err)
 	}
 	var payload detachedDevResult
-	if err := json.Unmarshal(buf.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, buf.String())
+	if err := decodeCLIJSON(buf.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, buf.String())
 	}
 	if payload.SchemaVersion != result.SchemaVersion || payload.PID != 123 || payload.Session.SessionID != "app-abc" {
 		t.Fatalf("payload = %+v", payload)

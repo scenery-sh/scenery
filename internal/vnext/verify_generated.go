@@ -4,10 +4,6 @@ func Check(root string) (*Result, error) {
 	return check(root, false)
 }
 
-func checkDuringChangeTransaction(root string) (*Result, error) {
-	return check(root, true)
-}
-
 func check(root string, allowActiveChangeTransaction bool) (*Result, error) {
 	result, err := compile(root, allowActiveChangeTransaction)
 	if err != nil || !result.Valid() {

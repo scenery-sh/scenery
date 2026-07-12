@@ -96,6 +96,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		"scenery.agent_context.v1.schema.json",
 		"scenery.approval-token.v1.schema.json",
 		"scenery.approval-trust.v1.schema.json",
+		"scenery.build.result.v1.schema.json",
 		"scenery.deploy.registry.v1.schema.json",
 		"scenery.deploy.status.v1.schema.json",
 		"scenery.doctor.result.v1.schema.json",
@@ -134,7 +135,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".scenery/harness/self-latest.json", Exists: true}},
 	}
 	report := buildHarnessSchemaValidationReport(root, resp)
-	if len(report.Validated) != 17 {
+	if len(report.Validated) != 18 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {
@@ -305,7 +306,7 @@ func TestBuildHarnessEnvVarReportIgnoresClaudeWorktreeCopies(t *testing.T) {
 }
 
 func TestBuildHarnessToolchainPreflightReportRedactsSecretEnv(t *testing.T) {
-	t.Setenv("SCENERY_AUTH_JWT_SECRET", "example")
+	t.Setenv("JWT_SECRET", "example")
 	t.Setenv("SCENERY_DEV_CACHE_DIR", "cache")
 
 	oldProbe := harnessProbeTool
@@ -319,7 +320,7 @@ func TestBuildHarnessToolchainPreflightReportRedactsSecretEnv(t *testing.T) {
   "schema_version": "scenery.environment.registry.v1",
   "variables": [
     {
-      "name": "SCENERY_AUTH_JWT_SECRET",
+      "name": "JWT_SECRET",
       "match": "exact",
       "scope": "runtime",
       "direction": "user_input",
@@ -354,7 +355,7 @@ func TestBuildHarnessToolchainPreflightReportRedactsSecretEnv(t *testing.T) {
 	for _, item := range report.Env {
 		values[item.Name] = item.Value
 	}
-	if values["SCENERY_AUTH_JWT_SECRET"] != "<redacted>" {
+	if values["JWT_SECRET"] != "<redacted>" {
 		t.Fatalf("secret env was not redacted: %+v", report.Env)
 	}
 	if values["SCENERY_DEV_CACHE_DIR"] != "cache" {

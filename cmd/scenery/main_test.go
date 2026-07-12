@@ -38,35 +38,6 @@ func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
 	}
 }
 
-func TestCLIAPIVersionSelectorsAreExactAndConflictSafe(t *testing.T) {
-	args, version, err := normalizeCLIAPIVersion([]string{"check", "--api-version", "scenery.cli.v1"})
-	if err != nil || version != "scenery.cli.v1" || strings.Join(args, " ") != "check" {
-		t.Fatalf("v1 selector = %#v %q %v", args, version, err)
-	}
-	args, version, err = normalizeCLIAPIVersion([]string{"check", "--api-version=scenery.cli.v0", "--json"})
-	if err != nil || version != "scenery.cli.v0" || strings.Join(args, " ") != "check --json" {
-		t.Fatalf("v0 selector = %#v %q %v", args, version, err)
-	}
-	args, version, err = normalizeCLIAPIVersion([]string{"storage", "get", "app", "key", "--output", "result.json", "--json"})
-	if err != nil || version != "" || strings.Join(args, " ") != "storage get app key --output result.json --json" {
-		t.Fatalf("v0 file output = %#v %q %v", args, version, err)
-	}
-	args, version, err = normalizeCLIAPIVersion([]string{"build", "-o", "scenery-app"})
-	if err != nil || version != "" || strings.Join(args, " ") != "build -o scenery-app" {
-		t.Fatalf("v0 build output = %#v %q %v", args, version, err)
-	}
-	for _, input := range [][]string{
-		{"check", "--json", "-o", "json"},
-		{"check", "--api-version", "scenery.cli.v0", "-o", "json"},
-		{"check", "--api-version", "scenery.cli.v1", "--json"},
-		{"check", "--api-version", "scenery.cli.v2"},
-	} {
-		if _, _, err := normalizeCLIAPIVersion(input); err == nil {
-			t.Fatalf("conflicting selector accepted: %#v", input)
-		}
-	}
-}
-
 func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
 	tests := []struct {
 		name string
@@ -132,6 +103,49 @@ func TestVNextJSONEnvelopeHasStableFields(t *testing.T) {
 	}
 	if envelope["api_version"] != "scenery.cli.v1" {
 		t.Fatalf("api_version = %v", envelope["api_version"])
+	}
+}
+
+func TestCLIJSONWrapsCommandData(t *testing.T) {
+	var output strings.Builder
+	if err := writeCLIJSON(&output, map[string]any{"schema_version": "example.v1"}); err != nil {
+		t.Fatal(err)
+	}
+	var envelope vnextEnvelope
+	if err := json.Unmarshal([]byte(output.String()), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.APIVersion != "scenery.cli.v1" || !envelope.OK {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+	data, ok := envelope.Data.(map[string]any)
+	if !ok || data["schema_version"] != "example.v1" {
+		t.Fatalf("data = %#v", envelope.Data)
+	}
+}
+
+func TestCLIJSONLSequencesEventsAndTerminates(t *testing.T) {
+	var output strings.Builder
+	events := newCLIEventWriter(&output)
+	if err := events.event(map[string]any{"message": "one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.summary(1); err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(output.String()))
+	var first, terminal cliEventEnvelope
+	if err := decoder.Decode(&first); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoder.Decode(&terminal); err != nil {
+		t.Fatal(err)
+	}
+	if first.APIVersion != "scenery.cli.event.v1" || first.Sequence != 1 || first.Terminal {
+		t.Fatalf("first = %#v", first)
+	}
+	if terminal.Sequence != 2 || terminal.Kind != "summary" || !terminal.Terminal {
+		t.Fatalf("terminal = %#v", terminal)
 	}
 }
 
@@ -300,6 +314,25 @@ func TestDevLegacyProxySurfaceRejected(t *testing.T) {
 		if _, err := parseDevArgs([]string{flag}); err == nil || !strings.Contains(err.Error(), `unknown flag "`+flag+`"`) {
 			t.Fatalf("parseDevArgs(%s) error = %v, want unknown flag", flag, err)
 		}
+	}
+}
+
+func TestDevOutputMatchesExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	live, err := parseDevArgs([]string{"-o", "jsonl"})
+	if err != nil || !live.JSON || live.Output != "jsonl" {
+		t.Fatalf("live output = %+v, %v", live, err)
+	}
+	detached, err := parseDevArgs([]string{"--detach", "-o", "json"})
+	if err != nil || !detached.JSON || detached.Output != "json" {
+		t.Fatalf("detached output = %+v, %v", detached, err)
+	}
+	if _, err := parseDevArgs([]string{"-o", "json"}); err == nil || !strings.Contains(err.Error(), "use -o jsonl") {
+		t.Fatalf("live json error = %v", err)
+	}
+	if _, err := parseDevArgs([]string{"--detach", "-o", "jsonl"}); err == nil || !strings.Contains(err.Error(), "use -o json") {
+		t.Fatalf("detached jsonl error = %v", err)
 	}
 }
 

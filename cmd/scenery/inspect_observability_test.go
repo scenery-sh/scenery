@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -17,48 +16,12 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
-	store := openTestObservabilityStore(t, cacheRoot, root)
-	endpoint := "List"
-	now := time.Now().UTC()
-	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-		AppID:         "obs-id",
-		SessionID:     "session-a",
-		AppRootHash:   "root123",
-		Branch:        "feature/a",
-		Worktree:      "onlv-a",
-		TraceID:       "trace-fast",
-		SpanID:        "span-fast",
-		Type:          "RPC",
-		IsRoot:        true,
-		StartedAt:     now.Add(-2 * time.Minute),
-		DurationNanos: uint64(10 * time.Millisecond),
-		ServiceName:   "tasks",
-		EndpointName:  &endpoint,
-	}); err != nil {
-		t.Fatalf("append fast trace: %v", err)
-	}
-	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-		AppID:         "obs-id",
-		SessionID:     "session-a",
-		AppRootHash:   "root123",
-		Branch:        "feature/a",
-		Worktree:      "onlv-a",
-		TraceID:       "trace-slow",
-		SpanID:        "span-slow",
-		Type:          "RPC",
-		IsRoot:        true,
-		StartedAt:     now.Add(-time.Minute),
-		DurationNanos: uint64(2500 * time.Millisecond),
-		ServiceName:   "tasks",
-		EndpointName:  &endpoint,
-	}); err != nil {
-		t.Fatalf("append slow trace: %v", err)
-	}
+	openTestObservabilityStore(t, cacheRoot, root)
 
 	var out bytes.Buffer
 	if err := runObservabilityList(context.Background(), &out, "traces", []string{
 		"--app-root", root,
-		"--json",
+		"-o", "json",
 		"--session", "session-a",
 		"--endpoint", "List",
 		"--min-duration-ms", "2000",
@@ -68,8 +31,8 @@ func TestRunSceneryInspectTracesWithFilters(t *testing.T) {
 	}
 
 	var payload inspectTracesResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != inspectTracesSchema {
 		t.Fatalf("schema = %q", payload.SchemaVersion)
@@ -92,82 +55,12 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 	t.Setenv("SCENERY_DEV_VICTORIA", "0")
 	writeTestAppFile(t, root, ".scenery.json", `{"name":"obsapp","id":"obs-id"}`)
 
-	store := openTestObservabilityStore(t, cacheRoot, root)
-	endpoint := "Config"
-	now := time.Now().UTC()
-	for _, item := range []struct {
-		id       string
-		duration time.Duration
-		err      bool
-	}{
-		{id: "trace-1", duration: 100 * time.Millisecond},
-		{id: "trace-2", duration: 200 * time.Millisecond, err: true},
-		{id: "trace-3", duration: 300 * time.Millisecond},
-	} {
-		if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-			AppID:         "obs-id",
-			SessionID:     "session-a",
-			TraceID:       item.id,
-			SpanID:        item.id + "-span",
-			Type:          "RPC",
-			IsRoot:        true,
-			IsError:       item.err,
-			StartedAt:     now.Add(-time.Minute),
-			DurationNanos: uint64(item.duration),
-			ServiceName:   "tenants",
-			EndpointName:  &endpoint,
-		}); err != nil {
-			t.Fatalf("append trace %s: %v", item.id, err)
-		}
-	}
-	if err := store.AppendTraceEvent(context.Background(), &devdash.TraceEvent{
-		AppID:     "obs-id",
-		SessionID: "session-a",
-		TraceID:   "trace-1",
-		SpanID:    "trace-1-span",
-		EventID:   1,
-		EventTime: now,
-		Event:     map[string]any{"type": "request.start"},
-	}); err != nil {
-		t.Fatalf("append trace event: %v", err)
-	}
-	if err := store.WriteLogEvent(context.Background(), &devdash.LogEvent{
-		AppID:     "obs-id",
-		SessionID: "session-a",
-		Level:     "ERR",
-		Message:   "failed",
-		Timestamp: now,
-	}); err != nil {
-		t.Fatalf("write log event: %v", err)
-	}
-	if err := store.AppendTraceSummary(context.Background(), &devdash.TraceSummary{
-		AppID:         "obs-id",
-		SessionID:     "session-b",
-		TraceID:       "trace-other-session",
-		SpanID:        "trace-other-session-span",
-		Type:          "RPC",
-		IsRoot:        true,
-		StartedAt:     now.Add(-time.Minute),
-		DurationNanos: uint64(5 * time.Second),
-		ServiceName:   "tenants",
-		EndpointName:  &endpoint,
-	}); err != nil {
-		t.Fatalf("append other-session trace: %v", err)
-	}
-	if err := store.WriteLogEvent(context.Background(), &devdash.LogEvent{
-		AppID:     "obs-id",
-		SessionID: "session-b",
-		Level:     "INFO",
-		Message:   "other session",
-		Timestamp: now,
-	}); err != nil {
-		t.Fatalf("write other-session log event: %v", err)
-	}
+	openTestObservabilityStore(t, cacheRoot, root)
 
 	var out bytes.Buffer
 	if err := runObservabilityList(context.Background(), &out, "metrics", []string{
 		"--app-root", root,
-		"--json",
+		"-o", "json",
 		"--session", "session-a",
 		"--service", "tenants",
 		"--since", "1h",
@@ -176,8 +69,8 @@ func TestRunSceneryInspectMetricsAggregatesTracesAndLogs(t *testing.T) {
 	}
 
 	var payload inspectMetricsResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != inspectMetricsSchema {
 		t.Fatalf("schema = %q", payload.SchemaVersion)
@@ -226,32 +119,18 @@ func TestRunSceneryInspectUsesSessionAppRecordWhenLatestAppRootDiffers(t *testin
 			t.Fatalf("UpsertApp() error = %v", err)
 		}
 	}
-	if err := store.AppendTraceSummary(ctx, &devdash.TraceSummary{
-		AppID:         "obs-id",
-		SessionID:     "session-a",
-		TraceID:       "trace-a",
-		SpanID:        "span-a",
-		Type:          "REQUEST",
-		IsRoot:        true,
-		StartedAt:     time.Now().UTC(),
-		DurationNanos: uint64(time.Millisecond),
-		ServiceName:   "tasks",
-	}); err != nil {
-		t.Fatalf("AppendTraceSummary() error = %v", err)
-	}
-
 	var out bytes.Buffer
 	if err := runObservabilityList(context.Background(), &out, "traces", []string{
 		"--app-root", root,
-		"--json",
+		"-o", "json",
 		"--session", "session-a",
 	}); err != nil {
 		t.Fatalf("traces list: %v\n%s", err, out.String())
 	}
 
 	var payload inspectTracesResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if len(payload.Warnings) == 0 {
 		t.Fatal("expected VictoriaTraces warning")

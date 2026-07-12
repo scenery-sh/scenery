@@ -52,7 +52,6 @@ func Main(cfg AppConfig) error {
 	SetAppConfig(cfg)
 	stopReporting := startDevelopmentReporting(cfg)
 	defer stopReporting()
-	FlushMissingSecretsWarnings()
 
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()

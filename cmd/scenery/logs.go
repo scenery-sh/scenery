@@ -107,7 +107,7 @@ func logArgsFromOptions(opts logsOptions, follow bool) []string {
 		out = append(out, "--session", opts.Session)
 	}
 	if opts.JSONL {
-		out = append(out, "--jsonl")
+		out = append(out, "-o", "jsonl")
 	}
 	if opts.Source != "" {
 		out = append(out, "--source", opts.Source)
@@ -205,8 +205,7 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
 	flags.BoolVar(&opts.Follow, "follow", false, "")
 	flags.BoolVar(&opts.Follow, "f", false, "")
-	flags.BoolVar(&opts.JSONL, "jsonl", false, "")
-	flags.BoolVar(&opts.JSONL, "json", false, "")
+	registerJSONLinesOutput(flags, &opts.JSONL)
 	flags.BoolVar(&opts.TUI, "tui", false, "")
 	flags.StringVar(&stream, "stream", stream, "")
 	flags.StringVar(&opts.Session, "session", "", "")
@@ -317,15 +316,24 @@ func resolveLogsSessionID(ctx context.Context, value, appRoot string) (string, e
 
 func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *victoriaStack, appID, appRoot, sessionID string, opts logsOptions, items []devdash.DevEvent) error {
 	lastID := int64(0)
+	eventCount := 0
+	var events *cliEventWriter
+	if opts.JSONL {
+		events = newCLIEventWriter(stdout)
+	}
 	for _, item := range items {
 		if item.ID > lastID {
 			lastID = item.ID
 		}
-		if err := writeDevEventOutput(stdout, appID, appRoot, item, opts.JSONL); err != nil {
+		if err := writeDevEventOutput(stdout, events, appID, appRoot, item); err != nil {
 			return err
 		}
+		eventCount++
 	}
 	if !opts.Follow {
+		if events != nil {
+			return events.summary(eventCount)
+		}
 		return nil
 	}
 	ticker := time.NewTicker(300 * time.Millisecond)
@@ -333,6 +341,9 @@ func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *vi
 	for {
 		select {
 		case <-ctx.Done():
+			if events != nil {
+				return events.summary(eventCount)
+			}
 			return nil
 		case <-ticker.C:
 			query := logsDevEventQuery(opts, appID, sessionID)
@@ -345,9 +356,10 @@ func followVictoriaDevEvents(ctx context.Context, stdout io.Writer, victoria *vi
 				if item.ID > lastID {
 					lastID = item.ID
 				}
-				if err := writeDevEventOutput(stdout, appID, appRoot, item, opts.JSONL); err != nil {
+				if err := writeDevEventOutput(stdout, events, appID, appRoot, item); err != nil {
 					return err
 				}
+				eventCount++
 			}
 		}
 	}
@@ -383,9 +395,9 @@ func normalizeLogLevel(value string) string {
 	}
 }
 
-func writeDevEventOutput(w io.Writer, appName, appRoot string, item devdash.DevEvent, jsonl bool) error {
-	if jsonl {
-		return writeDevEventJSONL(w, appName, appRoot, item)
+func writeDevEventOutput(w io.Writer, events *cliEventWriter, appName, appRoot string, item devdash.DevEvent) error {
+	if events != nil {
+		return writeDevEventJSONL(events, appName, appRoot, item)
 	}
 	text := item.Raw
 	if text == "" {
@@ -401,7 +413,7 @@ func writeDevEventOutput(w io.Writer, appName, appRoot string, item devdash.DevE
 	return err
 }
 
-func writeDevEventJSONL(w io.Writer, appName, appRoot string, item devdash.DevEvent) error {
+func writeDevEventJSONL(events *cliEventWriter, appName, appRoot string, item devdash.DevEvent) error {
 	event := logsEvent{
 		SchemaVersion: devdash.DevEventSchemaVersion,
 		ID:            item.ID,
@@ -419,6 +431,5 @@ func writeDevEventJSONL(w io.Writer, appName, appRoot string, item devdash.DevEv
 	event.App.ID = appName
 	event.App.Name = appName
 	event.App.Root = appRoot
-	enc := json.NewEncoder(w)
-	return enc.Encode(event)
+	return events.event(event)
 }

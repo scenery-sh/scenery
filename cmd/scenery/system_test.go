@@ -9,12 +9,12 @@ func TestSystemTrustDispatchesToEdgeTrust(t *testing.T) {
 	systemEdgeTrustFunc = func(opts edgeOptions) error {
 		called = true
 		if !opts.JSON {
-			t.Fatal("edge trust options did not preserve --json")
+			t.Fatal("edge trust options did not preserve -o json")
 		}
 		return nil
 	}
 
-	if err := systemCommand([]string{"trust", "--json"}); err != nil {
+	if err := systemCommand([]string{"trust", "-o", "json"}); err != nil {
 		t.Fatal(err)
 	}
 	if !called {

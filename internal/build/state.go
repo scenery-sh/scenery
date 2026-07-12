@@ -197,11 +197,6 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
 func sanitizeWorkspaceLabel(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {

@@ -14,7 +14,6 @@ import (
 	"scenery.sh/errs"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/runtimeapi"
-	scenerymiddleware "scenery.sh/middleware"
 	"scenery.sh/runtime/shared"
 )
 
@@ -57,7 +56,6 @@ type Endpoint struct {
 	Raw                   bool
 	Path                  string
 	Methods               []string
-	MiddlewareIDs         []string
 	PathParams            []ParamSpec
 	PayloadType           reflect.Type
 	ResponseType          reflect.Type
@@ -91,11 +89,6 @@ type ContractHTTPResponse struct {
 	Status  int
 	Headers http.Header
 	Body    []byte
-}
-
-type Middleware struct {
-	ID     string
-	Invoke func(scenerymiddleware.Request, scenerymiddleware.Next) scenerymiddleware.Response
 }
 
 type AuthHandler struct {
@@ -174,7 +167,6 @@ type registry struct {
 	mu                        sync.RWMutex
 	meta                      shared.AppMetadata
 	endpoints                 map[string]*Endpoint
-	middlewares               map[string]*Middleware
 	authHandler               *AuthHandler
 	cronJobs                  map[string]*CronJob
 	durableTasks              map[string]*DurableTask
@@ -193,7 +185,6 @@ type registry struct {
 
 var global = &registry{
 	endpoints:                 make(map[string]*Endpoint),
-	middlewares:               make(map[string]*Middleware),
 	cronJobs:                  make(map[string]*CronJob),
 	durableTasks:              make(map[string]*DurableTask),
 	contractDurableExecutions: make(map[string]ContractDurableRegistration),
@@ -300,15 +291,6 @@ func RegisterEndpointChecked(ep *Endpoint) error {
 	return nil
 }
 
-func RegisterMiddleware(mw *Middleware) {
-	global.mu.Lock()
-	defer global.mu.Unlock()
-	if _, exists := global.middlewares[mw.ID]; exists {
-		panic(fmt.Sprintf("runtime: duplicate middleware registration for %s", mw.ID))
-	}
-	global.middlewares[mw.ID] = mw
-}
-
 func RegisterAuthHandler(handler *AuthHandler) {
 	global.mu.Lock()
 	defer global.mu.Unlock()
@@ -316,12 +298,6 @@ func RegisterAuthHandler(handler *AuthHandler) {
 		panic("runtime: auth handler already registered")
 	}
 	global.authHandler = handler
-}
-
-func RegisterCronJob(job *CronJob) {
-	if err := RegisterCronJobChecked(job); err != nil {
-		panic(err)
-	}
 }
 
 func RegisterCronJobChecked(job *CronJob) error {
@@ -335,12 +311,6 @@ func RegisterCronJobChecked(job *CronJob) error {
 	}
 	global.cronJobs[job.ID] = job
 	return nil
-}
-
-func RegisterDurableTask(task *DurableTask) {
-	if err := RegisterDurableTaskChecked(task); err != nil {
-		panic(err)
-	}
 }
 
 func RegisterDurableTaskChecked(task *DurableTask) error {
@@ -379,16 +349,6 @@ func RegisterDurableTaskChecked(task *DurableTask) error {
 	cp := *task
 	global.durableTasks[key] = &cp
 	return nil
-}
-
-func RegisterServiceInitializer(service string, init func() error) {
-	if init == nil {
-		panic(fmt.Sprintf("runtime: service initializer for %s is nil", service))
-	}
-	err := RegisterNativeService(NativeServiceRegistration{Address: service, Initialize: func(context.Context) error { return init() }})
-	if err != nil {
-		panic(err)
-	}
 }
 
 func RegisterNativeService(registration NativeServiceRegistration) error {
@@ -465,20 +425,6 @@ func getAuthHandler() *AuthHandler {
 	global.mu.RLock()
 	defer global.mu.RUnlock()
 	return global.authHandler
-}
-
-func getMiddlewares(ids []string) ([]*Middleware, error) {
-	global.mu.RLock()
-	defer global.mu.RUnlock()
-	result := make([]*Middleware, 0, len(ids))
-	for _, id := range ids {
-		mw, ok := global.middlewares[id]
-		if !ok {
-			return nil, errs.B().Code(errs.Internal).Msgf("middleware %q not registered", id).Err()
-		}
-		result = append(result, mw)
-	}
-	return result, nil
 }
 
 func listCronJobs() []*CronJob {

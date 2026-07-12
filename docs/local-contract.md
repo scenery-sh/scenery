@@ -21,12 +21,12 @@ scenery changes plan --changes <file> --base-workspace-revision <rev> --base-con
 scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev|null> [--approval-token <file>] [-o human|json]
 scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
-scenery build [--target <go-target>] [-o <binary>]
+scenery build [--target <go-target>] [--output <binary>] [-o human|json]
 scenery deploy plan <deployment> --out <plan> [-o human|json]
 scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev> [--approval-token <file>] [-o human|json]
 ```
 
-`-o json` selects the `scenery.cli.v1` edition-2027 envelope. Commands that use `--json` retain their independently versioned command-specific schemas; the `scenery.cli.v0` selector names that wire protocol and does not select an application-model edition. `--api-version scenery.cli.v0|scenery.cli.v1` is an explicit override; conflicting selectors fail. A v1 envelope always carries `api_version`, `diagnostic_catalog`, `ok`, nullable revision fields, `data`, and ordered `diagnostics`. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
+`-o json` selects the singular `scenery.cli.v1` envelope. A v1 envelope always carries `api_version`, `diagnostic_catalog`, `ok`, nullable revision fields, `data`, and ordered `diagnostics`; command-specific schemas describe `data`. `-o jsonl` emits `scenery.cli.event.v1` envelopes for streaming commands, with monotonically increasing sequence numbers and one terminal summary event. Exit status is 0 for success, 1 for a false diff/check predicate, 2 for invalid input, 3 for revision conflict or failed precondition, 4 for unavailable capability, 5 for denied permission/approval, and 10 for internal failure.
 
 The checked-in `scenery.diagnostics.2027.v1` registry is publicly inspectable with `schema.get` using either the catalog identity or one `SCNxxxx` code. Request failures use `SCN8001` through `SCN8005`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause.
 
@@ -86,17 +86,17 @@ If implementation and this document disagree, treat that as a bug.
 
 Implemented now:
 
-- `.scenery.json` app config, with `.config.json` accepted as an alias
-- `scenery up --json`
+- `.scenery.json` app config
+- `scenery up -o jsonl`
 - `scenery worker`
 - `scenery worker durable`
-- `scenery worker durable jobs ... --json`
-- `scenery worker durable token create --json`
-- `scenery version --json`
-- `scenery help --json`
+- `scenery worker durable jobs ... -o json`
+- `scenery worker durable token create -o json`
+- `scenery version -o json`
+- `scenery help -o json`
 - `scenery system toolchain list|sync|verify|path`
-- `scenery doctor --json`
-- `scenery check --json`
+- `scenery doctor -o json`
+- `scenery check -o json`
 - `scenery generate`
 - `scenery generate sqlc`
 - `scenery db shell`
@@ -111,26 +111,26 @@ Implemented now:
 - `scenery task run <name>`
 - `scenery task run <domain>:<name>`
 - `scenery validate list|inspect|graph|changed`
-- `scenery validate <profile> --json`
-- `scenery harness --json`
-- `scenery harness self --json`
-- `scenery harness ui --json`
-- `scenery traces clear --json`
-- `scenery inspect app --json`
-- `scenery inspect routes --json`
-- `scenery inspect services --json`
-- `scenery inspect endpoints --json`
-- `scenery inspect build --json`
-- `scenery inspect paths --json`
-- `scenery inspect generators --json`
-- `scenery inspect durable --json`
-- `scenery inspect storage --json`
-- `scenery inspect validation --json`
-- `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json`
-- `scenery traces list --json`
-- `scenery metrics list --json`
-- `scenery inspect docs --json`
-- `scenery logs --jsonl`
+- `scenery validate <profile> -o json`
+- `scenery harness -o json`
+- `scenery harness self -o json`
+- `scenery harness ui -o json`
+- `scenery traces clear -o json`
+- `scenery inspect app -o json`
+- `scenery inspect routes -o json`
+- `scenery inspect services -o json`
+- `scenery inspect endpoints -o json`
+- `scenery inspect build -o json`
+- `scenery inspect paths -o json`
+- `scenery inspect generators -o json`
+- `scenery inspect durable -o json`
+- `scenery inspect storage -o json`
+- `scenery inspect validation -o json`
+- `scenery storage status|webui|ls|stat|put|get|rm|cleanup -o json`
+- `scenery traces list -o json`
+- `scenery metrics list -o json`
+- `scenery inspect docs -o json`
+- `scenery logs -o jsonl`
 
 Reserved by contract, implementation pending:
 - repo-local runtime and state manifests beyond the command JSON surfaces above
@@ -151,33 +151,33 @@ Dev-only or beta surface:
 - `scenery task run <name>`
 - `scenery task run <domain>:<name>`
 - `scenery validate`
-- `scenery inspect validation --json`
-- `scenery traces list|metrics --json`
-- `scenery inspect generators --json`
-- `scenery inspect durable --json`
-- `scenery inspect storage --json`
-- `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json`
+- `scenery inspect validation -o json`
+- `scenery traces list|metrics -o json`
+- `scenery inspect generators -o json`
+- `scenery inspect durable -o json`
+- `scenery inspect storage -o json`
+- `scenery storage status|webui|ls|stat|put|get|rm|cleanup -o json`
 - `scenery system toolchain list|sync|verify|path`
-- `scenery doctor --json`
-- `scenery system edge install|trust|status|restart|uninstall|dns|privileged --json`
+- `scenery doctor -o json`
+- `scenery system edge install|trust|status|restart|uninstall|dns|privileged -o json`
 - `scenery worker`
 - `scenery worker durable`
-- `scenery worker durable jobs ... --json`
-- `scenery worker durable token create --json`
-- `scenery traces clear --json`
-- `scenery harness ui --json`
+- `scenery worker durable jobs ... -o json`
+- `scenery worker durable token create -o json`
+- `scenery traces clear -o json`
+- `scenery harness ui -o json`
 - dashboard and API Explorer
 - local HTTPS edge and frontend routing
 - trust-store installation
 - native local observability capabilities, backed today by Victoria substrate and managed binary downloads
 - schedule UI
-- native durable declarations, startup DB reconciliation into the app Postgres database's `scenery` schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, authenticated durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin, and `scenery inspect durable --json` while the Postgres durable execution runtime is implemented under ExecPlan 0097
-- `scenery.sh/storage`, app config storage declarations, `scenery inspect storage --json`, and `scenery storage ... --json` while the storage runtime boundary and generated browser routes mature
+- native durable declarations, startup DB reconciliation into the app Postgres database's `scenery` schema, queued job starts, interval schedules, retrying local Go handler execution, durable step/signal helpers, authenticated durable worker lease/heartbeat/complete/fail HTTP endpoints, durable job admin, and `scenery inspect durable -o json` while the Postgres durable execution runtime is implemented under ExecPlan 0097
+- `scenery.sh/storage`, app config storage declarations, `scenery inspect storage -o json`, and `scenery storage ... -o json` while the storage runtime boundary and generated browser routes mature
 - native `.scn` data sources, entities, views, CRUD, fixtures, pages, and renderers
 
 ## App Config
 
-The preferred app config filename is `.scenery.json`. `.config.json` is accepted as an alias when `.scenery.json` is absent in the same directory.
+The app config filename is `.scenery.json`.
 
 Schema:
 - [scenery.config.v1.schema.json](schemas/scenery.config.v1.schema.json)
@@ -263,16 +263,16 @@ Current shape:
   },
   "auth": {
     "enabled": true,
-    "database_url_env": "DatabaseURL",
+    "database_url_env": "DATABASE_URL",
     "jwt_secret_env": "JWTSecret",
     "refresh_cookie_name": "onlv_refresh",
     "auto_bootstrap_database": true,
     "google_oauth": {
       "enabled": false,
-      "client_id_env": "GoogleOAuthClientID",
-      "client_secret_env": "GoogleOAuthClientSecret",
+      "client_id_env": "GOOGLE_OAUTH_CLIENT_ID",
+      "client_secret_env": "GOOGLE_OAUTH_CLIENT_SECRET",
       "allowed_scopes": ["https://www.googleapis.com/auth/gmail.modify"],
-      "token_cipher_key_env": "AuthTokenCipherKey"
+      "token_cipher_key_env": "AUTH_TOKEN_CIPHER_KEY"
     },
     "dev_bootstrap": {
       "enabled": true,
@@ -295,9 +295,8 @@ Current shape:
 ```
 
 Rules:
-- App root discovery walks from the start directory upward. In each directory, `.scenery.json` is checked first and wins when both files exist.
-- `.config.json` is considered a Scenery app config only when it is valid JSON with at least one recognized top-level Scenery config key. This prevents unrelated tool-level `.config.json` files inside app subdirectories from shadowing a parent Scenery app root.
-- JSON outputs such as `scenery inspect app --json`, build manifests, harness results, and generator records report the actual config file path/input used.
+- App root discovery walks from the start directory upward until it finds `.scenery.json`.
+- JSON outputs such as `scenery inspect app -o json`, build manifests, harness results, and generator records report the actual config file path/input used.
 - `name` or `id` must be non-empty.
 - If `name` is empty, scenery falls back to `id`.
 - App identity for runtime environment, dashboard routes, local logs, browser harness routes, and local observability is `id` when present, otherwise `name`. `name` remains the display name and source/build package identity.
@@ -306,7 +305,7 @@ Rules:
 - `watch.ignore` is an optional array of app-root-relative exclusion patterns for `scenery up`. Directory patterns such as `reference/` skip that subtree during watcher setup and rebuild fingerprint scans while leaving Git tracking untouched. `watch.ignore` is exclusion-only; use `.gitignore` for Git behavior.
 - `auth` is optional. When `auth.enabled` is true, scenery registers the built-in standard auth handler and standard auth endpoints. Google OAuth endpoints are registered only when `auth.google_oauth.enabled` is true.
 - `observability` is optional.
-- Unknown fields are rejected. Runtime diagnostics include the config file path, active config filename, and JSON field path, for example `/repo/app/.config.json: unknown .config.json field "frontends.app.extra"`.
+- Unknown fields are rejected. Runtime diagnostics include the config file path and JSON field path, for example `/repo/app/.scenery.json: unknown .scenery.json field "frontends.app.extra"`.
 - The removed `proxy` app config has no compatibility behavior. Use `frontends` for frontend roots and dev runtime routes for local URLs.
 - `dev.routing` controls browser-facing local dev routing. `dev.routing.mode` accepts `path` or `host`; the default is `path`. Path mode assigns one stable unprivileged localhost base URL per app root/session, optionally constrained by `dev.routing.port`, `dev.routing.port_start`, and `dev.routing.port_end`. Under that base URL, `/` serves the Scenery route index, `/api/` proxies the app API, `/consolenext/` serves the Scenery dashboard, `/<frontend>/` proxies configured frontends, and `/runtime/` is reserved for Scenery-owned runtime/control surfaces. `scenery check` rejects path-mode frontend names that normalize to reserved routes such as `api`, `dashboard`, `runtime`, `root`, or `__scenery`, and rejects duplicate normalized frontend route names.
 - Agent dev-runtime manifests include `route_namespace`, the app-derived local browser namespace used by routed URLs. `route_namespace.workspace` comes from app identity. `route_namespace.base_domain` defaults to `local.dev`.
@@ -333,112 +332,112 @@ Rules:
 - Declaring `storage.stores` is sufficient for `scenery up`; there is no managed storage process. Scenery creates the shared storage-cell object directories under the agent storage root (`<agent-home>/agent/storage/<cell-id>/objects/<store>/`) and, in agent-backed dev sessions, starts an in-process storage proxy over a session-local Unix socket that serves those directories through the `scenery.sh/storage` capability boundary. The proxy backs each store with the local filesystem backend (atomic temp-file+rename writes, checked object and directory fsync, sidecar metadata under `__scenery/metadata/`). App code receives capability metadata through `SCENERY_STORAGE_CONFIG` and never a raw object-root path. Objects are plain files on disk: on-disk bytes track object bytes plus small sidecars, with no cache layer or write amplification. There is no managed toolchain artifact, encryption password, 9P socket, Web UI, substrate record, or lease for storage. Durability across a crash comes from fsync; offsite durability is an operator concern — replicate the storage-cell object directories (objects plus sidecars) to S3 with `rclone`/`restic`, as described in `docs/app-development-cookbook.md`.
 - Standard auth uses the `scenery.sh/auth` top surface and stores DB-backed auth state in the app Postgres database's `scenery` schema.
 - Standard auth owns its framework tenant tables, including `scenery.scenery_auth_tenants`. Apps do not need an app-local `tenants` service, package, or table for standard auth; app-local tenant services are product-domain APIs and schema only.
-- Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, and local `/users/dev-bootstrap`. When `auth.google_oauth.enabled` is true, it also registers raw `GET /auth/google/start`, raw `GET /auth/google/callback`, typed `POST /auth/google/connect/start`, raw `GET /auth/google/connect/callback`, typed `GET /auth/google/connection`, and typed `POST /auth/google/connection/disconnect`.
-- Standard auth endpoints appear in `scenery inspect routes|services|endpoints --json` and in generated TypeScript clients. Disabled Google OAuth endpoints are absent from inspect output and generated clients. When Google OAuth is enabled but the configured client ID or secret env is missing, `scenery check --json` returns an `auth` warning. `auth.google_oauth.allowed_scopes` declares the Google API scopes an app may request through the connection flow. `POST /auth/google/connect/start` returns a Google authorize URL whose `redirect_uri` is the shared `/auth/google/callback`; the callback dispatches connection states by OAuth state purpose so apps can reuse the sign-in redirect URI registered in Google Cloud. `auth.google_oauth.token_cipher_key_env` defaults to `AuthTokenCipherKey`, a base64 32-byte AES-GCM key used to encrypt stored Google refresh/access tokens; local development derives a dev key from the local JWT secret when this env is absent.
+- Standard auth registers `/auth/signup/email`, `/auth/login/email`, `/auth/refresh`, `/auth/logout`, `/auth/me`, organization/invite/impersonation endpoints, and local `/users/dev-bootstrap`. When `auth.google_oauth.enabled` is true, it also registers raw `GET /auth/google/start`, raw `GET /auth/google/callback`, typed `POST /auth/google/connect/start`, typed `GET /auth/google/connection`, and typed `POST /auth/google/connection/disconnect`.
+- Standard auth endpoints appear in `scenery inspect routes|services|endpoints -o json` and in generated TypeScript clients. Disabled Google OAuth endpoints are absent from inspect output and generated clients. When Google OAuth is enabled but the configured client ID or secret env is missing, `scenery check -o json` returns an `auth` warning. `auth.google_oauth.allowed_scopes` declares the Google API scopes an app may request through the connection flow. `POST /auth/google/connect/start` returns a Google authorize URL whose `redirect_uri` is the shared `/auth/google/callback`; the callback dispatches connection states by OAuth state purpose so apps can reuse the sign-in redirect URI registered in Google Cloud. `auth.google_oauth.token_cipher_key_env` defaults to `AUTH_TOKEN_CIPHER_KEY`, a base64 32-byte AES-GCM key used to encrypt stored Google refresh/access tokens; local development derives a dev key from the local JWT secret when this env is absent.
 - `auth.auto_bootstrap_database` applies the first standard-auth schema bootstrap at runtime. It is useful for local fixtures; production deployments should manage schema changes deliberately.
 - Generated binaries accept `SCENERY_ROLE=all|api|worker`. `scenery up` uses the default combined role. `scenery worker` uses `worker`.
-- Native durable executions and schedules are declared in package `.scn` files and register through the generated application composition. Runtime startup requires `DATABASE_URL` and reconciles those declarations into the app Postgres database's `scenery` schema. Generated `all` and `worker` roles run the local durable worker loop; the `api` role does not execute durable jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. Remote-worker endpoints require bearer tokens stored only as hashes and fence heartbeat/complete/fail with `worker_id` plus `lease_id`. `scenery inspect durable --json` emits `scenery.inspect.durable.v2` with native declarations, service schemas, and redacted app database metadata.
+- Native durable executions and schedules are declared in package `.scn` files and register through the generated application composition. Runtime startup requires `DATABASE_URL` and reconciles those declarations into the app Postgres database's `scenery` schema. Generated `all` and `worker` roles run the local durable worker loop; the `api` role does not execute durable jobs. `durable.Step` persists local handler step results by job/key and reuses succeeded results, while `durable.Signal` appends a JSON signal row and event for a run. Remote-worker endpoints require bearer tokens stored only as hashes and fence heartbeat/complete/fail with `worker_id` plus `lease_id`. `scenery inspect durable -o json` emits `scenery.inspect.durable.v2` with native declarations, service schemas, and redacted app database metadata.
 
 ## CLI Grammar
 
 Current implemented grammar:
 
 ```text
-scenery up [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [-v|--verbose] [--json] [--detach] [--wait ready|registered]
-scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--jsonl|--json]
-scenery logs query [--app-root <path>] --query <logsql> [--since <duration>] [--start <time>] [--end <time>] [--limit <n>] [--timeout <duration>] [--fields <csv>] [--json|--jsonl]
-scenery logs tail [--app-root <path>] --query <logsql> [--since <duration>] [--timeout <duration>] [--fields <csv>] [--jsonl]
+scenery up [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [-v|--verbose] [-o jsonl] [--detach] [--wait ready|registered]
+scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-o jsonl|-o json]
+scenery logs query [--app-root <path>] --query <logsql> [--since <duration>] [--start <time>] [--end <time>] [--limit <n>] [--timeout <duration>] [--fields <csv>] [-o json|-o jsonl]
+scenery logs tail [--app-root <path>] --query <logsql> [--since <duration>] [--timeout <duration>] [--fields <csv>] [-o jsonl]
 scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
-scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
-scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [--json]
-scenery system edge install|trust|status|restart|uninstall|dns|privileged [--json]
+scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
+scenery system agent restart [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
+scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]
 scenery help <command>
 scenery help all
-scenery help --json
-scenery ps [--json] [--app-root <path>] [--watch]
-scenery down [--app-root <path>] [--db] [--state] [--all] [--json]
-scenery prune --older-than <duration> [--app-root <path>] [--json]
+scenery help -o json
+scenery ps [-o json] [--app-root <path>] [--watch]
+scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
+scenery prune --older-than <duration> [--app-root <path>] [-o json]
 scenery worker [--app-root <path>] [--env <name>] [--log-format text|json]
 scenery worker durable --endpoint <url> --token <token> [--service <name>]... [--app-root <path>] [--env <name>] [--log-format text|json]
-scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] --json
-scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] --json
-scenery version [--json]
-scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [--json]
-scenery deploy enable [--app-root <path>] [--json]
-scenery deploy disable [--app-root <path>] [--json]
-scenery deploy status [--json]
-scenery deploy setup [--acme-email <email>] [--acme-ca production|staging] [--json]
-scenery deploy resume [--json]
-scenery deploy teardown [--json]
-scenery system toolchain list [--json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
-scenery system toolchain sync [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
-scenery system toolchain verify [--json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
-scenery system toolchain path [--json] --tool <name> [--platform <goos/goarch>]
-scenery doctor [--app-root <path>] [--json]
-scenery build [--app-root <path>] [-o <path>]
-scenery check [--app-root <path>] [--json]
-scenery db list [--app-root <path>] [--json]
+scenery worker durable jobs list|inspect|cancel|retry [job-id] --service <name> [--app-root <path>] -o json
+scenery worker durable token create --service <name> [--name <name>] [--id <id>] [--app-root <path>] -o json
+scenery version [-o json]
+scenery upgrade [--version latest|vX.Y.Z] [--target <path>] [--toolchain installed|all|none] [--force] [--dry-run] [-o json]
+scenery deploy enable [--app-root <path>] [-o json]
+scenery deploy disable [--app-root <path>] [-o json]
+scenery deploy status [-o json]
+scenery deploy setup [--acme-email <email>] [--acme-ca production|staging] [-o json]
+scenery deploy resume [-o json]
+scenery deploy teardown [-o json]
+scenery system toolchain list [-o json] [--include-source-locks] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
+scenery system toolchain sync [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images]
+scenery system toolchain verify [-o json] [--all] [--tool <name>] [--platform <goos/goarch>] [--images] [--strict]
+scenery system toolchain path [-o json] --tool <name> [--platform <goos/goarch>]
+scenery doctor [--app-root <path>] [-o json]
+scenery build [--app-root <path>] [--output <path>] [-o human|json]
+scenery check [--app-root <path>] [-o json]
+scenery db list [--app-root <path>] [-o json]
 scenery db shell [service] [--app-root <path>] [psql args...]
-scenery db apply [--app-root <path>] [--json]
-scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [--json]
-scenery db setup [--app-root <path>] [--json]
+scenery db apply [--app-root <path>] [-o json]
+scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
+scenery db setup [--app-root <path>] [-o json]
 scenery db reset [service] [--app-root <path>] [--yes]
 scenery db drop [--app-root <path>] [--yes]
 scenery db snapshot create|restore <name> [--app-root <path>] [--yes]
-scenery db server status|start|stop|logs [--json] [--yes]
-scenery generate [--app-root <path>] [--dry-run] [--json]
-scenery generate sqlc [--app-root <path>] [--dry-run] [--json]
-scenery storage status [--app-root <path>] --json
-scenery storage webui [--app-root <path>] --json
-scenery storage ls <store> [--prefix <prefix>] [--cursor <cursor>] [--limit <n>] [--app-root <path>] --json
-scenery storage stat <store> <key> [--app-root <path>] --json
-scenery storage put <store> <key> <file> [--app-root <path>] --json
-scenery storage get <store> <key> --output <file> [--app-root <path>] --json
-scenery storage rm <store> <key> [--recursive] [--app-root <path>] --json
-scenery storage cleanup [--yes] [--app-root <path>] --json
+scenery db server status|start|stop|logs [-o json] [--yes]
+scenery generate [--app-root <path>] [--dry-run] [-o json]
+scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
+scenery storage status [--app-root <path>] -o json
+scenery storage webui [--app-root <path>] -o json
+scenery storage ls <store> [--prefix <prefix>] [--cursor <cursor>] [--limit <n>] [--app-root <path>] -o json
+scenery storage stat <store> <key> [--app-root <path>] -o json
+scenery storage put <store> <key> <file> [--app-root <path>] -o json
+scenery storage get <store> <key> --output <file> [--app-root <path>] -o json
+scenery storage rm <store> <key> [--recursive] [--app-root <path>] -o json
+scenery storage cleanup [--yes] [--app-root <path>] -o json
 scenery symphony auto --on|--off [--app-root <path>]
-scenery task list [--app-root <path>] [--json]
-scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]
+scenery task list [--app-root <path>] [-o json]
+scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [-o json]
 scenery task run <name> [--app-root <path>]
 scenery task run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<name> [-- task args...]
-scenery task graph --json [--app-root <path>]
-scenery validate [<profile>] [--app-root <path>] [--json] [--write] [--dry-run]
-scenery validate list [--app-root <path>] [--json]
-scenery validate inspect <profile> [--app-root <path>] [--json]
-scenery validate graph [<profile>] [--app-root <path>] --json
-scenery validate changed [--base <ref>] [--app-root <path>] [--json] [--write] [--dry-run]
-scenery harness [--app-root <path>] [--json] [--write] [--with-validation[=<profile>]]
-scenery harness self [--repo-root <path>] [--summary|--json|--json=summary|--json=full] [--write] [--quick|--race|--release] [--fresh-tests]
-scenery harness ui --json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
-scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation --json [--app-root <path>]
-scenery inspect docs --json [--repo-root <path>]
-scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]
-scenery traces list --json [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
-scenery metrics list --json [--app-root <path>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
-scenery metrics query --json [--app-root <path>] --promql <query> [--instant] [--since <duration>] [--start <time>] [--end <time>] [--step <duration>] [--timeout <duration>] [--limit <n>]
-scenery metrics labels --json [--app-root <path>] [--match <selector>] [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
-scenery metrics series --json [--app-root <path>] --match <selector> [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
-scenery traces clear --json [--app-root <path>]
-scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-f|--follow] [--jsonl|--json]
+scenery task graph -o json [--app-root <path>]
+scenery validate [<profile>] [--app-root <path>] [-o json] [--write] [--dry-run]
+scenery validate list [--app-root <path>] [-o json]
+scenery validate inspect <profile> [--app-root <path>] [-o json]
+scenery validate graph [<profile>] [--app-root <path>] -o json
+scenery validate changed [--base <ref>] [--app-root <path>] [-o json] [--write] [--dry-run]
+scenery harness [--app-root <path>] [-o json] [--write] [--with-validation[=<profile>]]
+scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write] [--quick|--race|--release] [--fresh-tests]
+scenery harness ui -o json [--app-root <path>] [--dashboard-url <url>] [--headed] [--write]
+scenery inspect app|routes|services|endpoints|build|paths|generators|durable|storage|observability|validation -o json [--app-root <path>]
+scenery inspect docs -o json [--repo-root <path>]
+scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]
+scenery traces list -o json [--app-root <path>] [--service <name>] [--endpoint <name>] [--trace-id <id>] [--status ok|error] [--min-duration-ms <n>] [--since <duration>] [--limit <n>] [--slowest]
+scenery metrics list -o json [--app-root <path>] [--service <name>] [--endpoint <name>] [--status ok|error] [--since <duration>] [--limit <n>]
+scenery metrics query -o json [--app-root <path>] --promql <query> [--instant] [--since <duration>] [--start <time>] [--end <time>] [--step <duration>] [--timeout <duration>] [--limit <n>]
+scenery metrics labels -o json [--app-root <path>] [--match <selector>] [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
+scenery metrics series -o json [--app-root <path>] --match <selector> [--since <duration>] [--start <time>] [--end <time>] [--timeout <duration>] [--limit <n>]
+scenery traces clear -o json [--app-root <path>]
+scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-f|--follow] [-o jsonl|-o json]
 scenery test [--app-root <path>] [go test flags/packages...]
 ```
 
 Implemented beta/dev helper grammar:
 
 ```text
-scenery db list [--app-root <path>] [--json]
+scenery db list [--app-root <path>] [-o json]
 scenery db shell [service] [--app-root <path>] [psql args...]
-scenery db server status|start|stop|logs [--json] [--yes]
-scenery worktree create <name> [--from <branch>] [--app-root <path>] [--json]
-scenery worktree list [--app-root <path>] [--json]
-scenery worktree remove <name> [--app-root <path>] [--db] [--json]
+scenery db server status|start|stop|logs [-o json] [--yes]
+scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
+scenery worktree list [--app-root <path>] [-o json]
+scenery worktree remove <name> [--app-root <path>] [--db] [-o json]
 ```
 
-`scenery db list --json` reports the app Postgres database as `scenery.db.list.v3`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the configured service schemas. `scenery db shell [service]` opens `psql` on the app database; a service argument pins `search_path` to `<service_schema>,scenery`. `scenery db snapshot create|restore` stores Postgres custom dumps under `.scenery/db/snapshots/<name>/`; snapshots use `pg_dump -Fc` and `pg_restore --clean --if-exists`, and restore requires `--yes`. `scenery db reset [service]` resets one service schema with `ResetSchema`; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations refuse external DSNs. `scenery db server status|start|stop|logs` manages only the shared local Postgres server and reports `scenery.db.server.status.v1`. `scenery db apply` runs only `database.apply.command` and does not run seed files or SQLC generation.
+`scenery db list -o json` reports the app Postgres database as `scenery.db.list.v3`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the configured service schemas. `scenery db shell [service]` opens `psql` on the app database; a service argument pins `search_path` to `<service_schema>,scenery`. `scenery db snapshot create|restore` stores Postgres custom dumps under `.scenery/db/snapshots/<name>/`; snapshots use `pg_dump -Fc` and `pg_restore --clean --if-exists`, and restore requires `--yes`. `scenery db reset [service]` resets one service schema with `ResetSchema`; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations refuse external DSNs. `scenery db server status|start|stop|logs` manages only the shared local Postgres server and reports `scenery.db.server.status.v1`. `scenery db apply` runs only `database.apply.command` and does not run seed files or SQLC generation.
 
 `scenery down --db` drops the app root's managed app database even when no live dev runtime is registered. Runtime-stop output still reports when no runtime was found. It refuses external DSNs. `scenery down --state` removes only the app root's local runtime state when a runtime record exists.
 
-`scenery worktree create <name> --json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create.v1`. `scenery worktree list --json` emits `scenery.worktree.list.v1` from `git worktree list --porcelain`. `scenery worktree remove <name> --db --json` first resolves the target from `git worktree list --porcelain`, then removes local `.scenery` state before `git worktree remove`, and emits `scenery.worktree.remove.v1`.
+`scenery worktree create <name> -o json` runs `git worktree add -b <name>` next to the current app root and emits `scenery.worktree.create.v1`. `scenery worktree list -o json` emits `scenery.worktree.list.v1` from `git worktree list --porcelain`. `scenery worktree remove <name> --db -o json` first resolves the target from `git worktree list --porcelain`, then removes local `.scenery` state before `git worktree remove`, and emits `scenery.worktree.remove.v1`.
 
 DB lifecycle split:
 - `scenery db apply` mutates schema or app-owned database setup only. It does not run seed files or SQLC generation.
@@ -449,31 +448,31 @@ DB lifecycle split:
 
 Doctor rules:
 - `scenery doctor` is a fast, read-only local environment diagnostic. It does not install tools, download managed artifacts, start services, run builds, connect to databases, or mutate `.scenery/`.
-- `scenery doctor --json` emits `scenery.doctor.result.v1` and exits non-zero only when required checks have status `error`.
-- Local storage needs no managed toolchain artifact, so `scenery doctor --json` has no storage-specific readiness check; the local filesystem and standard disk/memory checks cover it.
+- `scenery doctor -o json` emits `scenery.doctor.result.v1` and exits non-zero only when required checks have status `error`.
+- Local storage needs no managed toolchain artifact, so `scenery doctor -o json` has no storage-specific readiness check; the local filesystem and standard disk/memory checks cover it.
 - Check statuses are `ok`, `warn`, `error`, and `skipped`. Check severities are `required`, `optional`, and `informational`.
 - Required failures currently cover baseline host readiness such as missing/old Go, very low memory, very low disk space, or an explicitly invalid `--app-root`.
 - Doctor reports local state size through informational `storage.scenery_home` checks. `storage.scenery_home` walks the resolved Scenery agent home (`~/.scenery` by default or `SCENERY_AGENT_HOME` when set).
 - Optional missing tools such as `bun`, `atlas`, `sqlc`, `git`, and Postgres client tools warn by default. `psql` and `pg_dump` are relevant only when app config declares Postgres services. App configuration can make messages more specific, but the initial doctor contract does not make optional tools fatal. Doctor reports Docker through `docker.context` and `docker.engine` checks instead of a generic host `tool.docker` line. `docker.context` reports the selected Docker context from `docker context show`. `docker.engine` warns when the Docker CLI is missing or the engine is unreachable, and when reachable it probes with `docker info --format '{{json .}}'` and reports engine details such as server version, OS/type, architecture, CPU/memory, root dir, storage driver, cgroup version, kernel version, and engine name when available. When Postgres services are configured, `db.postgres_server` is a required readiness check for the managed dev server path and points users to Docker or explicit external DSNs.
 - `--app-root` tunes app-sensitive diagnostics from the app config. If omitted, doctor tries current-directory app discovery and silently continues with environment-only checks when no app is found.
-- When the deploy registry exists, `scenery doctor --json` includes a `deploy` section summarizing `scenery deploy status` diagnostics. Deploy doctor checks may perform explicit reachability/DNS probes only because `doctor` is an operator-invoked diagnostic command.
+- When the deploy registry exists, `scenery doctor -o json` includes a `deploy` section summarizing `scenery deploy status` diagnostics. Deploy doctor checks may perform explicit reachability/DNS probes only because `doctor` is an operator-invoked diagnostic command.
 
 Deploy rules:
 - `deploy.domain` in app config is a beta public FQDN claim for `scenery deploy enable`. It must be lowercase, must not be localhost or an IP address, and must not use the local route-base domain. `deploy.root` optionally names the frontend/service that owns `/` on that domain; when omitted, Scenery can infer it only if exactly one frontend is configured.
-- `scenery deploy enable|disable --json` records intent in the machine deploy registry at `<agent home>/agent/deploy.json` and emits `scenery.deploy.target.v1`. Enabling rejects a domain already enabled for another app root.
+- `scenery deploy enable|disable -o json` records intent in the machine deploy registry at `<agent home>/agent/deploy.json` and emits `scenery.deploy.target.v1`. Enabling rejects a domain already enabled for another app root.
 - `scenery deploy setup` is macOS-only, must run as the normal user, asks sudo only for the privileged helper install, configures the helper for wildcard TCP 80/443, records ACME email/CA, installs the login resume LaunchAgent, and restarts the user-owned edge. `scenery deploy teardown` reinstalls the helper in loopback-only mode, removes the resume LaunchAgent, restarts the edge, and keeps the registry plus Caddy certificates.
 - `scenery deploy resume` starts the agent and edge, then starts missing enabled app roots with `scenery up --detach --app-root <root>` while leaving already-running roots alone. It appends JSON lines to `<agent home>/deploy-resume.log`.
-- `scenery deploy status --json` emits `scenery.deploy.status.v1`. It reports helper state/version, wildcard listener truth for 80/443, edge/agent/LaunchAgent state, ACME settings, target live-session/cert state, and structured diagnostics for LAN/public reachability, DNS A/AAAA mismatch, Cloudflare-proxied DNS, power sleep, macOS firewall, and helper contract drift. Public IP discovery and DNS lookups happen only inside `scenery deploy status` or deploy-aware `scenery doctor`.
+- `scenery deploy status -o json` emits `scenery.deploy.status.v1`. It reports helper state/version, wildcard listener truth for 80/443, edge/agent/LaunchAgent state, ACME settings, target live-session/cert state, and structured diagnostics for LAN/public reachability, DNS A/AAAA mismatch, Cloudflare-proxied DNS, power sleep, macOS firewall, and helper contract drift. Public IP discovery and DNS lookups happen only inside `scenery deploy status` or deploy-aware `scenery doctor`.
 - Public deploy routing is strict: public edge requests require the trusted edge token plus `X-Scenery-Public-Edge: 1`, exact host match against an enabled registry target, and a live session for that target app root. Public dispatch serves `/`, `/api/`, and configured frontend prefixes, returns 503 for enabled-but-down apps, and does not expose Scenery runtime/dashboard/control paths.
 
 Inspect rules:
 - `scenery inspect` requires a subject.
-- `scenery inspect` currently requires `--json`.
+- `scenery inspect` currently requires `-o json`.
 - `--app-root` is optional. When omitted, scenery walks upward from the current working directory to find the app config.
 - Stable inspect subjects are `app`, `routes`, `services`, `endpoints`, `build`, `paths`, and `docs`.
 - `generators`, `durable`, `storage`, `traces`, `metrics`, and `observability` are beta diagnostic subjects. `generators` reports configured generation graph inputs and outputs. `durable` reports discovered durable task declarations, service schemas, the durable `scenery` schema, and redacted app database metadata. `storage` reports declared stores, the resolved storage cell ID, default/share policy, per-store object counts and total bytes, and readiness. `storage.runtime` reports the storage-cell `cell_root`, `objects_dir`, and whether the objects directory exists; readiness is `ready` once it does. Raw object-store credentials are never exposed (the local backend has none). `traces`, `metrics`, and `observability` read scenery-managed local observability data. Victoria is the current backing substrate, not the integration API. If no local state exists, query/discovery commands return valid JSON with warnings and empty result sets where possible.
-- `scenery storage status|webui|ls|stat|put|get|rm|cleanup --json` is a beta storage capability CLI. Object commands operate on configured stores, validate keys with Scenery storage rules, and enforce configured `max_object_bytes`. `cleanup` reports the current storage cell path and existence by default and removes the storage cell directory only with `--yes`. The JSON-only CLI operates directly on the local storage-cell object directories. `webui` reports that the local backend has no managed Web UI. `get` requires `--output` in JSON mode. The app runtime exposes the same configured stores through reserved `/__scenery/storage/<store>/...` HTTP routes when storage env is present; these routes are app data-plane routes, not dev/admin endpoints. Generated TypeScript clients include `client.storage` and `client.storage.store(name)` helpers for list, put, get, getText, getBlob, head, delete, and deletePrefix over those reserved auth storage routes. Stores with `access: "private"` are deliberately absent from the generated browser contract and are only available through app/runtime helpers or the runtime private route table.
-- `scenery inspect observability --json` emits `scenery.inspect.observability.v1` with backend readiness for logs, metrics, and traces; native dialect names; examples; and the exact enforced query scope for the selected app/session.
+- `scenery storage status|webui|ls|stat|put|get|rm|cleanup -o json` is a beta storage capability CLI. Object commands operate on configured stores, validate keys with Scenery storage rules, and enforce configured `max_object_bytes`. `cleanup` reports the current storage cell path and existence by default and removes the storage cell directory only with `--yes`. The JSON-only CLI operates directly on the local storage-cell object directories. `webui` reports that the local backend has no managed Web UI. `get` requires `--output` in JSON mode. The app runtime exposes the same configured stores through reserved `/__scenery/storage/<store>/...` HTTP routes when storage env is present; these routes are app data-plane routes, not dev/admin endpoints. Generated TypeScript clients include `client.storage` and `client.storage.store(name)` helpers for list, put, get, getText, getBlob, head, delete, and deletePrefix over those reserved auth storage routes. Stores with `access: "private"` are deliberately absent from the generated browser contract and are only available through app/runtime helpers or the runtime private route table.
+- `scenery inspect observability -o json` emits `scenery.inspect.observability.v1` with backend readiness for logs, metrics, and traces; native dialect names; examples; and the exact enforced query scope for the selected app/session.
 - The `scenery.inspect.traces.v1`, `scenery.inspect.metrics.v1`, `scenery.inspect.observability.v1`, `scenery.logs.query.v1`, `scenery.logs.tail.entry.v1`, `scenery.metrics.query.v1`, `scenery.metrics.labels.v1`, and `scenery.metrics.series.v1` schemas are useful for agents, but their source-selection, retention, rollup, percentile, and clear/delete semantics are not stable API yet.
 - `--since` accepts Go duration strings such as `15m`, `1h`, or `24h`.
 - `--min-duration-ms` filters root traces by duration in milliseconds.
@@ -489,12 +488,12 @@ Inspect rules:
 
 Toolchain rules:
 - `scenery.toolchain.json` is the root checked-in manifest for Scenery-owned development executables, Docker images, plugins, and source lock references.
-- The manifest uses `scenery.toolchain.v1`; `scenery system toolchain ... --json` emits `scenery.toolchain.status.v1`.
+- The manifest uses `scenery.toolchain.v1`; `scenery system toolchain ... -o json` emits `scenery.toolchain.status.v1`.
 - Binary artifacts may use `platforms` for downloaded archives or `source_build: {kind: "go", package: "./cmd/..."}` for source-built Scenery binaries. Source-built artifacts are compiled with `go build` into the managed toolchain store and report `source: "source-build"` in toolchain status.
 - `--tool <name>` selectors must match a manifest artifact exactly. Unknown selectors fail closed with `unknown toolchain artifact "<name>"` instead of returning an empty successful status.
-- `scenery version --json` includes `toolchain_manifest.schema_version`, `sha256`, `artifact_count`, and `source_lock_count` for the bundled manifest.
-- `scenery upgrade --json` emits `scenery.upgrade.v1`. It fetches the latest GitHub release by default, selects the release asset for the current `GOOS/GOARCH`, verifies it against the release `checksums.txt`, and replaces the current executable path unless `--target <path>` is set. If the current version already matches the selected release, it skips binary replacement unless `--force` is set. `--dry-run` reports the selected release and target path without downloading the archive or mutating the binary.
-- After a successful binary upgrade, `scenery upgrade` runs the upgraded binary's bundled toolchain sync unless `--toolchain none` or `--skip-toolchain` is set. The default `--toolchain installed` syncs manifest entries already present in the local managed store. `--toolchain all` runs `scenery system toolchain sync --images --json` with the upgraded binary, so every manifest binary artifact and image is pulled or built from the upgraded manifest.
+- `scenery version -o json` includes `toolchain_manifest.schema_version`, `sha256`, `artifact_count`, and `source_lock_count` for the bundled manifest.
+- `scenery upgrade -o json` emits `scenery.upgrade.v1`. It fetches the latest GitHub release by default, selects the release asset for the current `GOOS/GOARCH`, verifies it against the release `checksums.txt`, and replaces the current executable path unless `--target <path>` is set. If the current version already matches the selected release, it skips binary replacement unless `--force` is set. `--dry-run` reports the selected release and target path without downloading the archive or mutating the binary.
+- After a successful binary upgrade, `scenery upgrade` runs the upgraded binary's bundled toolchain sync unless `--toolchain none` or `--skip-toolchain` is set. The default `--toolchain installed` syncs manifest entries already present in the local managed store. `--toolchain all` runs `scenery system toolchain sync --images -o json` with the upgraded binary, so every manifest binary artifact and image is pulled or built from the upgraded manifest.
 - When the public deploy helper is installed and its target metadata schema no longer matches the current helper contract, successful `scenery upgrade` output includes a `deploy` notice and the human text tells the operator to run `scenery deploy setup` to refresh the privileged listener. Helper version drift alone is informational; re-setup is required only for helper-contract drift.
 - The default local store is `.scenery/toolchain/` under the app/repo root. Machine-level edge tools use `~/.scenery/toolchain/` under the local agent home. `SCENERY_TOOLCHAIN_DIR` overrides both store roots.
 - `SCENERY_TOOLCHAIN_DOWNLOAD=0` disables automatic managed binary downloads. Per-tool download disable variables such as `SCENERY_DEV_VICTORIA_DOWNLOAD=0` still apply to their startup paths.
@@ -511,20 +510,20 @@ Command split:
 - If the backing dev-event substrate is unavailable, structured dev-event read commands fail loudly instead of falling back to the deprecated local process-output cache.
 - `scenery console` opens the source-aware terminal console when stdin/stdout are real TTYs. In CI, dumb terminals, or redirected output it falls back to normal log following with the same filters.
 - Structured dev logs carry source identity. Current source ids include `api`, `worker`, `build`, `supervisor`, `victoria`, and `frontend:<name>`.
-- `scenery system agent restart` stops the currently reachable local agent process, starts a new background agent, waits until the control socket is reachable, and returns. The same `--socket`, `--router-listen`, `--router-tls`, `--router-http`, `--trust`, and `--json` options apply to the restarted agent.
+- `scenery system agent restart` stops the currently reachable local agent process, starts a new background agent, waits until the control socket is reachable, and returns. The same `--socket`, `--router-listen`, `--router-tls`, `--router-http`, `--trust`, and `-o json` options apply to the restarted agent.
 - Commands that ensure the local agent compare the running agent's reported build identity (`version`, `commit`, `built_at`) with the invoking CLI's build identity and transparently restart the agent once when the running agent is older or predates identity reporting. Semver versions compare by semver; equal or non-semver versions fall back to `built_at`. The automatic restart preserves the running agent's router address and internal router scheme so registered route URLs stay valid, and an older CLI never restarts a newer agent.
-- `scenery system edge dns install` resolves the managed `dnsmasq` toolchain artifact, syncing/building it automatically unless managed downloads are disabled, starts user-owned dnsmasq for the configured wildcard dev domain plus other Scenery-managed resolver domains already present on the machine, and on macOS invokes a privileged helper only when `/etc/resolver/<domain>` is missing or mismatched. `scenery system edge privileged install` installs the macOS root-owned loopback helper that listens on `127.0.0.1:443` and `[::1]:443` and forwards raw TCP only to a validated user-owned Caddy target recorded under the helper's configured agent run directory. Run it as the normal user; it invokes `sudo` only for the minimal helper install. `scenery system edge privileged uninstall` removes that helper. `scenery system edge install` and `scenery system edge restart` refuse root, start user-owned Caddy on an unprivileged high loopback port, ensure the local agent router is running as an unprivileged HTTP upstream on its internal loopback address, disable Caddy response buffering for streaming routes while preserving upstream cache headers, and write both edge state and helper target metadata under the current agent run directory; when a previously installed macOS privileged helper is bound to another agent home, Scenery also publishes the active Caddy target to that helper's configured metadata path because port `443` is machine-global. If wildcard DNS or the privileged helper is missing or unhealthy, install prepares Caddy but fails with the actionable setup command because browser-ready default-port HTTPS requires both. They resolve Caddy from the managed `caddy` toolchain artifact, syncing it automatically unless managed downloads are disabled. `scenery system edge trust` resolves the same managed Caddy artifact, starts a temporary admin-only Caddy process with `local_certs`, runs Caddy's trust flow against that temporary admin endpoint, and does not require the port-443 edge to be running. `scenery system edge status --json` reports `scenery.edge.status.v1`, including the privileged helper target metadata path and PID used to decide whether the helper is forwarding to the active Caddy edge. `scenery system edge uninstall` stops user-owned Caddy, removes helper target metadata only when it still points at that Caddy, leaves DNS and the privileged helper alone, and reports `scenery system edge privileged uninstall` as the helper removal command.
-- `scenery down` stops and unregisters the selected app root's live dev runtime but is non-destructive by default. It preserves shared storage-cell data. `--db` resolves and drops the app root's managed Postgres app database directly, so it works even when no runtime record exists; it refuses external DSNs. `--state` removes that runtime's internal `.scenery/sessions/<id>` state root when a runtime record exists, and `--all` enables both; `--state` still does not delete shared storage-cell data. `--json` reports `scenery.down.v1` and still includes `session_id` for state compatibility. To delete storage-cell data, use `scenery storage cleanup --yes`.
+- `scenery system edge dns install` resolves the managed `dnsmasq` toolchain artifact, syncing/building it automatically unless managed downloads are disabled, starts user-owned dnsmasq for the configured wildcard dev domain plus other Scenery-managed resolver domains already present on the machine, and on macOS invokes a privileged helper only when `/etc/resolver/<domain>` is missing or mismatched. `scenery system edge privileged install` installs the macOS root-owned loopback helper that listens on `127.0.0.1:443` and `[::1]:443` and forwards raw TCP only to a validated user-owned Caddy target recorded under the helper's configured agent run directory. Run it as the normal user; it invokes `sudo` only for the minimal helper install. `scenery system edge privileged uninstall` removes that helper. `scenery system edge install` and `scenery system edge restart` refuse root, start user-owned Caddy on an unprivileged high loopback port, ensure the local agent router is running as an unprivileged HTTP upstream on its internal loopback address, disable Caddy response buffering for streaming routes while preserving upstream cache headers, and write both edge state and helper target metadata under the current agent run directory; when a previously installed macOS privileged helper is bound to another agent home, Scenery also publishes the active Caddy target to that helper's configured metadata path because port `443` is machine-global. If wildcard DNS or the privileged helper is missing or unhealthy, install prepares Caddy but fails with the actionable setup command because browser-ready default-port HTTPS requires both. They resolve Caddy from the managed `caddy` toolchain artifact, syncing it automatically unless managed downloads are disabled. `scenery system edge trust` resolves the same managed Caddy artifact, starts a temporary admin-only Caddy process with `local_certs`, runs Caddy's trust flow against that temporary admin endpoint, and does not require the port-443 edge to be running. `scenery system edge status -o json` reports `scenery.edge.status.v1`, including the privileged helper target metadata path and PID used to decide whether the helper is forwarding to the active Caddy edge. `scenery system edge uninstall` stops user-owned Caddy, removes helper target metadata only when it still points at that Caddy, leaves DNS and the privileged helper alone, and reports `scenery system edge privileged uninstall` as the helper removal command.
+- `scenery down` stops and unregisters the selected app root's live dev runtime but is non-destructive by default. It preserves shared storage-cell data. `--db` resolves and drops the app root's managed Postgres app database directly, so it works even when no runtime record exists; it refuses external DSNs. `--state` removes that runtime's internal `.scenery/sessions/<id>` state root when a runtime record exists, and `--all` enables both; `--state` still does not delete shared storage-cell data. `-o json` reports `scenery.down.v1` and still includes `session_id` for state compatibility. To delete storage-cell data, use `scenery storage cleanup --yes`.
 - `scenery prune --older-than <duration>` prunes old agent sessions whose recorded owner is gone or mismatched and removes their `.scenery/sessions/<id>` state roots. It accepts Go durations such as `336h` plus day shorthand such as `14d`. It does not drop managed databases or delete VictoriaLogs storage; use `scenery down --db` or `scenery db drop` for destructive database cleanup.
 - Starting `scenery up` for an app root requires exclusive ownership of that app root's live dev runtime. If another live owner already controls the same app root, startup fails with an "already running" error that points to `scenery down --app-root <path>` and Git worktrees. If the recorded owner is dead or its fingerprint no longer matches, the new owner may claim the runtime and clean recorded app, worker, and managed frontend child processes from the stale owner, plus Scenery-owned runtime processes whose injected app root/internal session environment matches. It must not clean other app roots, other worktrees, or unrelated user processes.
 - Session owner checks treat `owner_pid` as the effective owner. `owner.pid` is the fingerprint for that same PID, not an independent owner field. If the stored owner fingerprint object points at a different stale PID, Scenery refreshes it on the next registration and must not delete or prune the session while the effective `owner_pid` is still live. Dev supervisors unregister sessions with an owner-conditional delete that includes the recorded owner fingerprint; if an older owner exits after ownership moved, or if the same PID now has a different recorded fingerprint, the delete is ignored and the newer session record remains registered.
-- `scenery help --json` returns `scenery.help.v1`, a machine-readable command manifest for agents and contract checks. Human root help is intentionally orienting and does not contain the full command grammar; use `scenery help all` for the grouped command reference and `scenery help <command>` for exact flags and subcommands.
-- `scenery ps` renders a headed table with app, worktree, status, base URL, service URLs, and update age by default. `scenery ps --json` treats a `starting` or `running` runtime with a missing or dead effective owner as `stale`, and a live but fingerprint-mismatched owner, dead app PID, dead registered child process, registered child process owner mismatch, or configured custom route base domain whose routes point at a non-default internal router port as `degraded`. Duplicate `scenery up` startup prevention uses the recorded runtime owner and owner fingerprint, not shell command text. Status JSON includes `status_reason` when scenery rewrites the runtime status. Status JSON also includes the agent substrate registry as `substrates`; failed shared substrates expose `status`, `last_exit`, and `component_exits` with component, PID, started/exited timestamps, exit code or signal, error text, and stdout/stderr log paths.
+- `scenery help -o json` returns `scenery.help.v1`, a machine-readable command manifest for agents and contract checks. Human root help is intentionally orienting and does not contain the full command grammar; use `scenery help all` for the grouped command reference and `scenery help <command>` for exact flags and subcommands.
+- `scenery ps` renders a headed table with app, worktree, status, base URL, service URLs, and update age by default. `scenery ps -o json` treats a `starting` or `running` runtime with a missing or dead effective owner as `stale`, and a live but fingerprint-mismatched owner, dead app PID, dead registered child process, registered child process owner mismatch, or configured custom route base domain whose routes point at a non-default internal router port as `degraded`. Duplicate `scenery up` startup prevention uses the recorded runtime owner and owner fingerprint, not shell command text. Status JSON includes `status_reason` when scenery rewrites the runtime status. Status JSON also includes the agent substrate registry as `substrates`; failed shared substrates expose `status`, `last_exit`, and `component_exits` with component, PID, started/exited timestamps, exit code or signal, error text, and stdout/stderr log paths.
 - When the local agent is active, the agent starts the visible dashboard backend and exposes the dashboard through the console route from `route_namespace`, for example `https://console.<route-id>.<route_namespace.base_domain>/`. Release binaries serve the embedded dashboard UI produced from `apps/consolenext/` before the Go binary is compiled; dashboard startup does not build UI assets at runtime, though `SCENERY_DEV_DASHBOARD_UI_DIR` may point at an explicit local UI build. The old path-shaped `console.../s/<session_id>` form is not the canonical dashboard URL. The Unix-socket control API remains protected by filesystem permissions.
 - The dashboard `version` RPC additionally reports the embedded console bundle identity: `dashboard_bundle_hash` and a `dashboard_bundle` object with `runningHash`, `diskHash`, `diskPath`, `stale`, and `warning`. Dashboard HTTP responses carry `X-Scenery-Dashboard-Bundle-Hash`, plus `X-Scenery-Dashboard-Bundle-Stale: true` and `X-Scenery-Dashboard-Bundle-Warning` when the running binary's embedded bundle differs from `apps/consolenext/dist` in a scenery repo checkout; dashboard HTML includes matching meta tags, and `devdash.AppStatus` exposes the same object as optional `dashboardBundle`. Staleness detection is a no-op outside a scenery repo checkout. The self-harness `dashboard ui fresh` step uses the same hash comparison.
 - ConsoleNext is the only runnable dashboard source. Its browser transport is the same-origin `/__scenery` WebSocket RPC. GraphQL and the former compatibility RPCs for trace events, transaction wrappers, editors, onboarding, and telemetry are not supported dashboard surfaces; use the current typed RPCs such as `traces/list`, `db/query`, and `stored-requests/*`.
 - The consolenext `Symphony` page stores local task-board state in the managed Postgres server's `scenery_symphony` database. Tables are bootstrapped idempotently in that database's `public` schema. Rows are scoped by stable base app ID when present; direct dashboards with no session id fall back to the dashboard app ID. Worktrees for the same app share a board and different apps do not. The local dashboard RPC methods `symphony/state`, `symphony/task/create`, `symphony/task/update`, `symphony/task/move`, `symphony/task/delete`, `symphony/statuses/update`, `symphony/workflow/get`, `symphony/workflow/update`, and read-only `symphony/run/detail` cover board, workflow, and run-detail persistence. Browser WebSocket upgrades must be same-origin, and dashboard RPC cannot change a non-auto workflow to `auto`; use the local trust path `scenery symphony auto --on --app-root <path>` to enable auto mode and `scenery symphony auto --off --app-root <path>` to return to manual mode. Workflow mode accepts `manual`, `auto`, and `disabled`; when mode is `auto`, the dashboard server requires saved workflow markdown or app-root `WORKFLOW.md`, claims eligible `Todo` tasks with no active run and fewer than `agent.max_attempts` previous attempts (default `3`), respects `agent.max_concurrent_agents` from workflow front matter before stored `max_concurrency`, creates or reuses a detached Git worktree under `<dashboard-cache-root>/workspaces/<app-id>/<task-identifier>/repo`, resets existing worktrees before retry, moves claimed tasks to `In Progress`, renders the workflow prompt body, runs one Codex app-server turn over stdio in the app workspace, records queued/running/turn/completed lifecycle rows plus changed-file and diff artifacts in `symphony_runs` and `symphony_run_events`, and heartbeats a run lease while active. Active run statuses are exactly `queued` and `running`; `succeeded`, `failed`, `stalled`, and `timed_out` are terminal. Expired active leases are marked `stalled`, receive a `run.stalled` event, and release tasks still in `Todo` or `In Progress` back to `Todo`; Codex app-server no-notification stalls also complete the run as `stalled` and route the task to `Rework`; turn timeouts complete the run as `timed_out` and route the task to `Rework`. Succeeded tasks move to `Human Review`; failed tasks move to `Rework`. Backlog, manual, and disabled workflows do not auto-run. `WORKFLOW.md` front matter supports `agent.max_concurrent_agents`, `agent.max_attempts`, `agent.max_turns` (default `20`, currently parsed and carried for the future multi-turn loop while Scenery runs one turn per session), `agent.turn_timeout_ms` (default `3600000`), and `agent.stall_timeout_ms` (default `300000`). Process-starting runner methods such as `symphony/run/start` are intentionally unavailable until the runner channel is authenticated.
-- The direct agent router serves HTTP by default. Default path-mode local dev is reached through the per-runtime localhost listener and does not require dnsmasq, port 443, or wildcard HTTPS. Host mode (`dev.routing.mode = "host"`) uses the `scenery system edge` path under `local.dev`: browser DNS is provided by `scenery system edge dns install` through managed dnsmasq and a macOS scoped resolver, browser HTTPS reaches the privileged loopback helper on `127.0.0.1:443`, the helper forwards raw TCP to user-owned Caddy on an unprivileged loopback port, and Caddy proxies to the agent router on internal HTTP. API and console routes are generated from the app-derived `route_namespace`, and router requests resolve by exact registered route-host lookup instead of parsing a fixed localhost suffix. Entries in `routes` are canonical. Direct router URLs remain internal/diagnostic only in that mode. Friendly app-derived hosts are optional alias leases exposed in a separate `aliases` map only for the live app root that owns the free alias; a second worktree keeps its canonical routes, does not steal the alias, and reports held aliases in `alias_conflicts`. Same-app-root duplicate runtimes are rejected before alias ownership comes into play. Stale alias leases are reclaimed only after owner fingerprint verification proves the old owner is gone or mismatched. Live alias leases transfer only through `scenery up --claim-aliases`. Alias routing, router TLS host validation, and the Caddy on-demand TLS ask endpoint use the same exact registry lookup as canonical routes. Caddy forwards `X-Scenery-Edge-Token`; the agent trusts incoming forwarded proto/port headers only when that token matches and the request comes from loopback. Agent health and state distinguish the internal `router_addr`, browser-facing `public_router_addr`, public `router_scheme`, internal `internal_router_scheme` (health only), `edge`, and edge DNS state, and report the agent's build identity as optional `version`, `commit`, and `built_at` fields. `scenery system edge status --json` reports dnsmasq and resolver readiness; DNS is ready when the current managed dnsmasq state is running, or when an installed resolver functionally resolves the managed wildcard domain to the expected loopback address even though dnsmasq is owned by another agent home. `scenery system agent --router-http` keeps or forces the default direct HTTP router. `scenery system agent --router-tls` enables direct HTTPS when an explicit setting is needed. `scenery system agent --trust` also enables direct router TLS and attempts to trust the existing scenery local CA; `SCENERY_AGENT_TRUST=1` only requests trust installation when direct router TLS is enabled. Trust installation failures are logged; the router still starts. Direct router TLS certificates are issued for `localhost` and registered route or alias hosts, not for arbitrary local names. Public HTTPS route URLs omit the port when the active public edge is on port `443`; non-default router ports stay explicit, and explicit occupied direct router addresses fail instead of silently falling back.
+- The direct agent router serves HTTP by default. Default path-mode local dev is reached through the per-runtime localhost listener and does not require dnsmasq, port 443, or wildcard HTTPS. Host mode (`dev.routing.mode = "host"`) uses the `scenery system edge` path under `local.dev`: browser DNS is provided by `scenery system edge dns install` through managed dnsmasq and a macOS scoped resolver, browser HTTPS reaches the privileged loopback helper on `127.0.0.1:443`, the helper forwards raw TCP to user-owned Caddy on an unprivileged loopback port, and Caddy proxies to the agent router on internal HTTP. API and console routes are generated from the app-derived `route_namespace`, and router requests resolve by exact registered route-host lookup instead of parsing a fixed localhost suffix. Entries in `routes` are canonical. Direct router URLs remain internal/diagnostic only in that mode. Friendly app-derived hosts are optional alias leases exposed in a separate `aliases` map only for the live app root that owns the free alias; a second worktree keeps its canonical routes, does not steal the alias, and reports held aliases in `alias_conflicts`. Same-app-root duplicate runtimes are rejected before alias ownership comes into play. Stale alias leases are reclaimed only after owner fingerprint verification proves the old owner is gone or mismatched. Live alias leases transfer only through `scenery up --claim-aliases`. Alias routing, router TLS host validation, and the Caddy on-demand TLS ask endpoint use the same exact registry lookup as canonical routes. Caddy forwards `X-Scenery-Edge-Token`; the agent trusts incoming forwarded proto/port headers only when that token matches and the request comes from loopback. Agent health and state distinguish the internal `router_addr`, browser-facing `public_router_addr`, public `router_scheme`, internal `internal_router_scheme` (health only), `edge`, and edge DNS state, and report the agent's build identity as optional `version`, `commit`, and `built_at` fields. `scenery system edge status -o json` reports dnsmasq and resolver readiness; DNS is ready when the current managed dnsmasq state is running, or when an installed resolver functionally resolves the managed wildcard domain to the expected loopback address even though dnsmasq is owned by another agent home. `scenery system agent --router-http` keeps or forces the default direct HTTP router. `scenery system agent --router-tls` enables direct HTTPS when an explicit setting is needed. `scenery system agent --trust` also enables direct router TLS and attempts to trust the existing scenery local CA; `SCENERY_AGENT_TRUST=1` only requests trust installation when direct router TLS is enabled. Trust installation failures are logged; the router still starts. Direct router TLS certificates are issued for `localhost` and registered route or alias hosts, not for arbitrary local names. Public HTTPS route URLs omit the port when the active public edge is on port `443`; non-default router ports stay explicit, and explicit occupied direct router addresses fail instead of silently falling back.
 - Agent dev-runtime manifests always include a `dashboard` route for the global agent-owned dashboard. With the agent dashboard active, the manifest does not need a matching per-runtime `dashboard` backend; direct/per-runtime dashboard endpoints are kept for agent-disabled or unavailable-agent paths.
 - `scenery up` exposes native local observability for the dev runtime. The current substrate may start local VictoriaMetrics, VictoriaLogs, and VictoriaTraces when their managed toolchain binaries are installed or can be downloaded. When the local agent is active, shared substrates are registered through one managed substrate lifecycle: owner fingerprint verification before reuse, service-specific reachability probing, stale-record deletion, ready/degraded/exited upserts, component exit monitoring, and structured dev events. Dashboard runtime metadata is stored as compact, bounded JSON under the agent directory when the agent is active and `SCENERY_DEV_CACHE_DIR` is unset, with large app-model `Metadata` and `APIEncoding` blobs stored content-addressed under the same dashboard cache root. The agent dashboard process owns global dashboard-store writes; agent-backed dev supervisors send app/session and small process-diagnostic mutations to its authenticated internal control-plane endpoint instead of opening the store directly. Agent/global dashboard app summaries and app status payloads expose `sessionStatus` and `sessionStatusReason` computed from the same owner/process/edge-route classification as `scenery ps`, so dashboard status indicators do not mark degraded or stale sessions as running. Trace summaries, trace events, and report log events are not persisted in `devdash.json`; they are exported to Victoria. Multiple worktrees for the same base app can appear in the global dashboard without session records duplicating full app models or report writes growing unbounded. These details are documented for intentional substrate debugging and are not the stable app-facing API.
 - The local agent home defaults to `~/.scenery` unless `SCENERY_AGENT_HOME` is set. `SCENERY_DEV_CACHE_DIR` controls build and dashboard cache locations, not machine-wide agent identity.
@@ -537,17 +536,17 @@ Command split:
 - Scenery task flags must appear before the target. Code task arguments must appear after `--`, for example `scenery task run --env production billing:reconcile -- --dry-run`. Configured tasks do not accept `--env`, `--lang`, or extra runtime arguments.
 - Supported code task layouts are `<domain>/tasks/<name>.task.go`, `<domain>/tasks/<name>.task.ts`, `<domain>/tasks/<name>/main.go`, and `<domain>/tasks/<name>/index.ts`. Single-file Go tasks must start with `//go:build ignore` so normal app package loading cannot accidentally include them. If multiple candidates match a target, scenery fails unless `--lang go|typescript` selects a single language.
 - Code tasks execute with cwd set to the app root. Go tasks use `go run`; TypeScript tasks prefer `bun` and fall back to `node --import tsx`. Task processes receive `SCENERY_APP_ID`, `SCENERY_APP_ROOT`, and `SCENERY_ENV`/`SCENERY_RUNTIME_ENV` when `--env` is set, with `.env` and `.env.local` loaded when present.
-- `scenery inspect validation --json` is read-only and returns `scenery.inspect.validation.v1` with app metadata, default profile, profile records, advisory artifacts, and diagnostics.
-- `scenery validate list|inspect|graph --json` returns `scenery.validation.list.v1`, `scenery.validation.inspect.v1`, and `scenery.validation.graph.v1`. `scenery validate <profile> --dry-run --json` returns `scenery.validation.plan.v1` and must not execute shell, task, code-task, harness, database, or generation steps.
-- `scenery validate [<profile>] --json --write` runs the resolved profile sequentially, fails fast, keeps stdout as one JSON document, captures child output as bounded evidence tails and artifacts, returns `scenery.validation.result.v1`, and writes `.scenery/harness/validation/latest.json` plus `.scenery/harness/validation/<profile>-latest.json`.
+- `scenery inspect validation -o json` is read-only and returns `scenery.inspect.validation.v1` with app metadata, default profile, profile records, advisory artifacts, and diagnostics.
+- `scenery validate list|inspect|graph -o json` returns `scenery.validation.list.v1`, `scenery.validation.inspect.v1`, and `scenery.validation.graph.v1`. `scenery validate <profile> --dry-run -o json` returns `scenery.validation.plan.v1` and must not execute shell, task, code-task, harness, database, or generation steps.
+- `scenery validate [<profile>] -o json --write` runs the resolved profile sequentially, fails fast, keeps stdout as one JSON document, captures child output as bounded evidence tails and artifacts, returns `scenery.validation.result.v1`, and writes `.scenery/harness/validation/latest.json` plus `.scenery/harness/validation/<profile>-latest.json`.
 - `scenery validate changed --base <ref>` computes `git diff --name-only <base>...HEAD`, includes the default profile, adds profiles whose `paths` globs match changed files, resolves nested `profile:` steps, deduplicates profiles, and reports selection reasoning in JSON.
 - Native schedule declarations run through the in-process scheduler. The API role reconciles schedules, while `scenery worker` executes scheduled operations without starting the public HTTP server.
 - `scenery worker` builds once and starts the app runtime in worker-only mode with no public HTTP server. It runs scheduled operations and local durable workers; generated binaries use `SCENERY_ROLE=worker`.
 - `scenery worker durable --endpoint <url> --token <token>` builds once and starts the app runtime as a remote durable worker. The generated binary receives `SCENERY_ROLE=worker`, `SCENERY_DURABLE_ENDPOINT`, `SCENERY_DURABLE_TOKEN`, and optional `SCENERY_DURABLE_SERVICES`, then polls remote durable lease endpoints and executes registered Go handlers.
-- `scenery worker durable jobs list|inspect|cancel|retry ... --json` reads or mutates jobs for one service in the app database's shared durable store and emits `scenery.durable.jobs.v1`; `inspect` includes job events.
-- `scenery worker durable token create --service <name> --json` creates or rotates a remote durable worker bearer token for one service in the app database's shared durable store, stores only the token hash, and prints the raw secret once in `scenery.durable.worker_token.create.v1`.
+- `scenery worker durable jobs list|inspect|cancel|retry ... -o json` reads or mutates jobs for one service in the app database's shared durable store and emits `scenery.durable.jobs.v1`; `inspect` includes job events.
+- `scenery worker durable token create --service <name> -o json` creates or rotates a remote durable worker bearer token for one service in the app database's shared durable store, stores only the token hash, and prints the raw secret once in `scenery.durable.worker_token.create.v1`.
 - `scenery build` produces the deployable binary and remains the preferred deployment artifact path.
-- `scenery harness ui --json` is an optional browser-backed dashboard check. It starts a temporary `scenery up` process unless `--dashboard-url` points at an existing dashboard, visits core dashboard routes, runs route-specific semantic journeys, checks stable `data-scenery-ui` markers, captures screenshots, writes compact DOM snapshots, and writes console/network artifacts under `.scenery/harness/ui/`.
+- `scenery harness ui -o json` is an optional browser-backed dashboard check. It starts a temporary `scenery up` process unless `--dashboard-url` points at an existing dashboard, visits core dashboard routes, runs route-specific semantic journeys, checks stable `data-scenery-ui` markers, captures screenshots, writes compact DOM snapshots, and writes console/network artifacts under `.scenery/harness/ui/`.
 
 Runtime safety:
 
@@ -558,11 +557,11 @@ Runtime safety:
 
 Local observability:
 
-- The user-facing observability surface is `scenery logs`, `scenery logs query`, `scenery logs tail`, `scenery traces list --json`, `scenery metrics list --json`, `scenery metrics query`, `scenery metrics labels`, `scenery metrics series`, `scenery inspect observability --json`, and the dashboard. The current backing substrate exports local observability to Victoria sidecars:
+- The user-facing observability surface is `scenery logs`, `scenery logs query`, `scenery logs tail`, `scenery traces list -o json`, `scenery metrics list -o json`, `scenery metrics query`, `scenery metrics labels`, `scenery metrics series`, `scenery inspect observability -o json`, and the dashboard. The current backing substrate exports local observability to Victoria sidecars:
   - VictoriaMetrics: `/opentelemetry/v1/metrics`
   - VictoriaLogs: `/insert/opentelemetry/v1/logs`
   - VictoriaTraces: `/insert/opentelemetry/v1/traces`
-- Dashboard trace reads and `scenery traces list|metrics --json` use scenery-managed observability data. Victoria is the current substrate when local sidecars are available; `devdash.json` is not a fallback trace or report-log history store.
+- Dashboard trace reads and `scenery traces list|metrics -o json` use scenery-managed observability data. Victoria is the current substrate when local sidecars are available; `devdash.json` is not a fallback trace or report-log history store.
 - Victoria sidecars store data under `.scenery/victoria/` by default when running without the agent. With an active agent, Victoria is a shared substrate per agent state root, effectively per user/machine where that agent runs: state is stored under the agent directory and registered in the agent substrate registry, and the dev supervisor reuses registered endpoints instead of owning per-worktree Victoria processes. It is not an OS-level service and is not started once for all users or all possible agent homes. Reuse requires verified owner fingerprints and reachable metrics/logs/traces listeners. Managed Victoria stdout and stderr are always written to stable substrate log files, and component exits update the substrate to `degraded` with `last_exit` and per-component exit metadata. Substrate exit events are exported to the structured dev log stream with component name, PID, exit code or signal, and log paths.
 - `SCENERY_DEV_VICTORIA=0` disables Victoria sidecars. `SCENERY_DEV_VICTORIA_DOWNLOAD=0` disables automatic Victoria binary downloads. When enabled, missing Victoria binaries are downloaded into `.scenery/toolchain/` or `SCENERY_TOOLCHAIN_DIR`.
 - Victoria binary names, versions, ports, storage layout, download behavior, and Victoria query semantics are beta substrate details. They are documented so local development is debuggable, but they are hidden during ordinary app work and are not part of the stable runtime contract.
@@ -596,41 +595,39 @@ Standard auth:
 - Google connections are per standard-auth user and live in `scenery.scenery_auth_google_connections`. The raw Google refresh token is encrypted at rest and never returned to clients. `GET /auth/google/connection` returns `{status, email, scopes, connected_at, last_refresh_at, reauth_reason}` with status `active`, `reauth_required`, or `disconnected`. App Go code calls `auth.GoogleAccessToken(ctx, scopes...)` for request-authenticated work or `auth.GoogleAccessTokenForUser(ctx, userID, scopes...)` from workers; requested scopes must be present in `auth.google_oauth.allowed_scopes`. Expired access tokens refresh under a Postgres row lock; permanent Google revocation marks the connection `reauth_required` and returns `google_reauth_required`, while missing grants return `google_scope_missing`.
 - Email delivery is a pluggable `auth.EmailSender`; the default sender is a no-op.
 - `/users/dev-bootstrap` is local-only. Without `dev_bootstrap.default_user_email`, it can mint a development token without opening PostgreSQL. With `default_user_email`, it opens standard auth lazily and creates the configured default tenant, verified user, and owner membership on first use when missing.
-- DB-backed auth endpoints require a database URL from `auth.database_url_env`, `DATABASE_URL`, or `SCENERY_AUTH_DATABASE_URL`.
+- DB-backed auth endpoints require the exact `auth.database_url_env`, which defaults to `DATABASE_URL`.
 
-Implemented `up --json` rules:
+Implemented `up -o jsonl` rules:
 
 ```text
-scenery up --json
+scenery up -o jsonl
 ```
 
 - output is JSONL
-- each line conforms to `scenery.run.event.v1`
+- each line is a `scenery.cli.event.v1` envelope whose `data` conforms to `scenery.run.event.v1`; one terminal summary ends the stream
 - human-readable console output is suppressed in this mode
 - child stdout/stderr are emitted as structured `process.output` events instead of raw terminal writes
 
-Implemented `check --json` rules:
+Implemented `check -o json` rules:
 
 ```text
-scenery check --json
+scenery check -o json
 ```
 
-- output is a single JSON document
-- output conforms to `scenery.check.result.v1`
-- success returns `ok: true` and an empty `diagnostics` array
-- failure returns `ok: false` and structured diagnostics
-- diagnostics may include `stage`, `file`, `line`, `column`, `severity`, `message`, and `suggested_action`
+- output is one `scenery.cli.v1` envelope
+- success returns `ok: true`; failure returns `ok: false` with catalogued `SCNxxxx` diagnostics
+- the `data` payload contains the contract and implementation status, manifest or partial graph, and HTTP/OpenAPI revisions
 
-Implemented `harness --json` rules:
+Implemented `harness -o json` rules:
 
 ```text
-scenery harness --json
-scenery harness --json --write
+scenery harness -o json
+scenery harness -o json --write
 ```
 
 - output is a single JSON document
 - output conforms to `scenery.harness.result.v1`
-- it composes `scenery check --json` and the stable `scenery inspect ... --json` surfaces
+- it composes `scenery check -o json` and the stable `scenery inspect ... -o json` surfaces
 - success returns `ok: true`
 - failure returns `ok: false`, per-step errors, diagnostics, and `next_actions`
 - failed and expensive steps include `evidence` conforming to `scenery.harness.artifact.v1`
@@ -642,19 +639,19 @@ Implemented `harness self` JSON rules:
 
 ```text
 scenery harness self --summary
-scenery harness self --json
-scenery harness self --json=summary
-scenery harness self --json=full
+scenery harness self --summary -o json
+scenery harness self -o json
 scenery harness self --summary --write
-scenery harness self --json --write
+scenery harness self -o json --write
 ```
 
-- `--summary`, `--json`, and `--json=summary` output a single compact JSON document conforming to `scenery.harness.self.summary.v1`
-- `--json=full` outputs the full archive JSON document conforming to `scenery.harness.self.v1`
+- `--summary` selects concise human output
+- `--summary -o json` outputs one `scenery.cli.v1` envelope whose `data` conforms to `scenery.harness.self.summary.v1`
+- `-o json` outputs one `scenery.cli.v1` envelope whose `data` conforms to `scenery.harness.self.v1`
 - summary output is the agent-facing default and must reference artifacts instead of embedding full drift inventories, successful stdout/stderr tails, complete timing package lists, or full large-file lists
 - green summary output should stay under 12 KB; failed summary output should stay under 32 KB while preserving the first actionable failure and artifact references
 - it validates the scenery repo itself instead of a target app
-- it runs docs knowledge validation, `scenery inspect docs --json`, architecture checks, UI static architecture checks, Go package tests, parallel dev-session safety, dashboard UI typecheck/build, UI freshness checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks
+- it runs docs knowledge validation, `scenery inspect docs -o json`, architecture checks, UI static architecture checks, Go package tests, parallel dev-session safety, dashboard UI typecheck/build, UI freshness checks, worktree-local `go build -o .scenery/harness/bin/scenery ./cmd/scenery`, and local binary freshness checks
 - it validates committed examples for every edition-2027 JSON schema, runs the Bun TypeScript client conformance suite, and typechecks both committed native and House generated clients against the shared generated-client configuration
 - self-harness Go test steps discover the complete `./...` graph, reuse linked test binaries by Go build ID, and execute every test body with `-test.count=1`. The cache never reuses test results. Packages without tests remain represented in JSON evidence.
 - cached and `--fresh-tests` lanes have the same fresh execution semantics. The flag retains the explicit fresh timing-lane label; both lanes use package parallelism three, selected by repeated measurement on the maintainer machine.
@@ -671,7 +668,7 @@ scenery harness self --json --write
 - UI static architecture checks fail on raw shadcn install scripts, non-`@scenery` registries, unsafe registry item source/target declarations, legacy `components/ui` imports, direct vendor shadcn imports from screens, and direct Radix/styling utility imports outside scenery primitives/layouts/vendor
 - UI static architecture checks scan multiline imports, re-exports, dynamic imports, and CommonJS requires for forbidden UI boundary bypasses
 - UI static architecture checks warn on long or advanced `className` literals and common expression forms such as `cn(...)`, template literals, and conditional literals outside scenery primitives/layouts/vendor while the dashboard is migrated into the stricter slot-layout model
-- `scenery harness ui --json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation. The route journeys cover dashboard home app selector/status, API Explorer endpoint/form behavior, service catalog metadata, traces empty/table/detail behavior, DB list or unavailable states, schedule status/empty states, and durable/worker status cards.
+- `scenery harness ui -o json` is not part of the default self-harness path. It needs a local Chrome/Chromium-compatible browser and is intended for explicit dashboard route validation. The route journeys cover dashboard home app selector/status, API Explorer endpoint/form behavior, service catalog metadata, traces empty/table/detail behavior, DB list or unavailable states, schedule status/empty states, and durable/worker status cards.
 - `--write` persists the full archive to `.scenery/harness/self-latest.json`, the compact summary to `.scenery/harness/self-summary-latest.json`, and topic artifacts such as `.scenery/harness/test-timing-latest.json`
 - failed and expensive steps include `evidence` conforming to `scenery.harness.artifact.v1`; Go test JSONL evidence is written as `.scenery/harness/artifacts/<run-id>/go-test.jsonl` when `--write` is present
 - `--write` refreshes `.scenery/harness/agent-context.json` as the one-file agent handoff. It includes current failing steps, first files to read, exact rerun commands, changed-area recommended commands, relevant active ExecPlans, recent failed harness artifacts, docs freshness, and risk classifications: `runtime`, `CLI contract`, `dashboard`, `schema`, `release`, and `onlv-impacting`.
@@ -679,7 +676,7 @@ scenery harness self --json --write
 Default agent loop:
 
 ```text
-scenery doctor --json
+scenery doctor -o json
 scenery harness self --quick --summary --write
 cat .scenery/harness/agent-context.json
 # implement
@@ -696,12 +693,12 @@ scripts/release-gate.sh
 Implemented `inspect harness` rules:
 
 ```text
-scenery inspect harness --json
-scenery inspect harness --json --app-root <path>
-scenery inspect harness --json --repo-root <path>
-scenery inspect harness artifact test-timing --json
-scenery inspect harness diagnostics --severity warning --json
-scenery inspect harness timing --top 10 --json
+scenery inspect harness -o json
+scenery inspect harness -o json --app-root <path>
+scenery inspect harness -o json --repo-root <path>
+scenery inspect harness artifact test-timing -o json
+scenery inspect harness diagnostics --severity warning -o json
+scenery inspect harness timing --top 10 -o json
 ```
 
 - manifest output conforms to `scenery.inspect.harness.v1`
@@ -728,22 +725,20 @@ scripts/release-gate.sh
 - the release gate must not create or modify client-application worktrees; client-app validation belongs in that app's own repo and app-local gates
 - artifact hygiene is intentionally strict and fails on local release artifacts such as `.DS_Store` and `__MACOSX`
 
-Implemented `logs --jsonl` rules:
+Implemented `logs -o jsonl` rules:
 
 ```text
-scenery logs --jsonl
-scenery logs --json
+scenery logs -o jsonl
 ```
 
-- `--json` is an alias for `--jsonl`
-- output is JSONL
-- each line conforms to `scenery.dev.event.v1`
+- `-o jsonl` emits JSON Lines
+- each JSONL line is a `scenery.cli.event.v1` envelope whose payload conforms to `scenery.dev.event.v1`; the stream ends with one terminal summary event
 - one JSON object is emitted per VictoriaLogs-backed structured dev event
 - structured events include app id/root, session id, source id/kind/name/role/pid/stream/status, level, message, parsed fields, raw output, and parse metadata
 - structured dev events are assigned a stable integer ID before export to VictoriaLogs
 - human-readable raw output remains the default when neither flag is used
 
-Implemented `traces clear --json` rules:
+Implemented `traces clear -o json` rules:
 - output conforms to `scenery.traces.clear.v1`
 - trace clearing is dev/admin beta; its existence does not make schedule, trace clearing, or queue deletion semantics stable
 
@@ -751,10 +746,10 @@ Implemented `traces clear --json` rules:
 
 ### Current implemented locations
 
-Use `scenery inspect paths --json` as the source of truth.
+Use `scenery inspect paths -o json` as the source of truth.
 
 Today scenery uses:
-- app config: `<app-root>/.scenery.json` or `<app-root>/.config.json`
+- app config: `<app-root>/.scenery.json`
 - cache root:
   - `$SCENERY_DEV_CACHE_DIR`, if set
   - otherwise OS user cache + `/scenery`
@@ -791,11 +786,11 @@ Reserved for upcoming work:
 ```
 
 Rules:
-- Use `scenery inspect ... --json` for app, route, service, endpoint, build, path, docs, generator, durable, and storage metadata. Use `scenery traces list --json` and `scenery metrics list --json` for local observability metadata.
+- Use `scenery inspect ... -o json` for app, route, service, endpoint, build, path, docs, generator, durable, and storage metadata. Use `scenery traces list -o json` and `scenery metrics list -o json` for local observability metadata.
 - Agent/global dashboard state uses `<dashboard-cache-root>/devdash.json` for compact control-plane records and `<dashboard-cache-root>/app-model/<metadata|api-encoding>/sha256/<hash>.json` for large app-model blobs. The agent dashboard process is the global dashboard-store writer; other agent-backed runtime processes mutate it through the internal dashboard control-plane endpoint. Treat these files as internal cache artifacts; use dashboard APIs and CLI JSON instead of reading them directly.
-- Use `scenery inspect build --json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
+- Use `scenery inspect build -o json` for build metadata. `build/latest.json` is a local cache pointer to the latest prepared or compiled build workspace.
 - Edition-2027 `build/vnext/<go-target>.json` is the exact runtime-bundle descriptor for the latest local build of that target. Treat it as build output, not a contract source; distribute the copied `<binary>.scenery.runtime-bundle.v1.json` sidecar with an explicit binary output.
-- Use `scenery harness --json` for framework app-model proof, `scenery validate <profile> --json` for app-owned quality gates, and `scenery harness self --summary` for scenery repo validation. `harness/latest.json`, `harness/validation/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `--json=full` is the explicit full archive stdout mode.
+- Use `scenery harness -o json` for framework app-model proof, `scenery validate <profile> -o json` for app-owned quality gates, and `scenery harness self --summary` for scenery repo validation. `harness/latest.json`, `harness/validation/latest.json`, `harness/self-latest.json`, and `harness/self-summary-latest.json` are local snapshots written by `--write`; `-o json` is the explicit full archive stdout mode.
 - Future implementation should keep cache paths predictable for debugging, but external tools and agents should integrate through command JSON output.
 
 ## JSON Schemas
@@ -805,7 +800,9 @@ Implemented now:
 - [scenery.approval-trust.v1.schema.json](schemas/scenery.approval-trust.v1.schema.json)
 - [scenery.change-plan.v1.schema.json](schemas/scenery.change-plan.v1.schema.json)
 - [scenery.change-receipt.v1.schema.json](schemas/scenery.change-receipt.v1.schema.json)
+- [scenery.build.result.v1.schema.json](schemas/scenery.build.result.v1.schema.json)
 - [scenery.cli.v1.schema.json](schemas/scenery.cli.v1.schema.json)
+- [scenery.cli.event.v1.schema.json](schemas/scenery.cli.event.v1.schema.json)
 - [scenery.deployment-plan.v1.schema.json](schemas/scenery.deployment-plan.v1.schema.json)
 - [scenery.deployment-receipt.v1.schema.json](schemas/scenery.deployment-receipt.v1.schema.json)
 - [scenery.generated.v1.schema.json](schemas/scenery.generated.v1.schema.json)
@@ -853,12 +850,10 @@ Implemented now:
 - [scenery.traces.clear.v1.schema.json](schemas/scenery.traces.clear.v1.schema.json)
 - [scenery.build.latest.v1.schema.json](schemas/scenery.build.latest.v1.schema.json)
 - [scenery.run.event.v1.schema.json](schemas/scenery.run.event.v1.schema.json)
-- [scenery.check.result.v1.schema.json](schemas/scenery.check.result.v1.schema.json)
 - [scenery.harness.result.v1.schema.json](schemas/scenery.harness.result.v1.schema.json)
 - [scenery.harness.self.v1.schema.json](schemas/scenery.harness.self.v1.schema.json)
 - [scenery.harness.self.summary.v1.schema.json](schemas/scenery.harness.self.summary.v1.schema.json)
 - [scenery.dev.event.v1.schema.json](schemas/scenery.dev.event.v1.schema.json)
-- [scenery.logs.event.v1.schema.json](schemas/scenery.logs.event.v1.schema.json)
 - [scenery.version.v1.schema.json](schemas/scenery.version.v1.schema.json)
 - [scenery.doctor.result.v1.schema.json](schemas/scenery.doctor.result.v1.schema.json)
 - [scenery.deploy.registry.v1.schema.json](schemas/scenery.deploy.registry.v1.schema.json)
@@ -878,7 +873,7 @@ Schema rules:
 
 ## Examples
 
-### `scenery inspect app --json`
+### `scenery inspect app -o json`
 
 ```json
 {
@@ -928,7 +923,7 @@ Schema rules:
 }
 ```
 
-### `scenery inspect build --json`
+### `scenery inspect build -o json`
 
 ```json
 {
@@ -956,7 +951,7 @@ Schema rules:
 }
 ```
 
-### `scenery inspect endpoints --json`
+### `scenery inspect endpoints -o json`
 
 ```json
 {
@@ -981,7 +976,7 @@ Schema rules:
 }
 ```
 
-### `scenery traces list --json`
+### `scenery traces list -o json`
 
 Beta diagnostic subject. Use this when an agent needs concrete local traces
 without scraping the dashboard UI. The JSON shape is versioned, but retention,
@@ -991,7 +986,7 @@ this is promoted to stable.
 Example:
 
 ```text
-scenery traces list --json --endpoint SyncGet --min-duration-ms 2000 --since 1h --slowest
+scenery traces list -o json --endpoint SyncGet --min-duration-ms 2000 --since 1h --slowest
 ```
 
 Example output:
@@ -1031,7 +1026,7 @@ Example output:
 }
 ```
 
-### `scenery metrics list --json`
+### `scenery metrics list -o json`
 
 Beta diagnostic subject. Use this when an agent needs a metrics-style rollup
 over locally captured traces and logs. The JSON shape is versioned, but rollup
@@ -1041,7 +1036,7 @@ selection may change before this is promoted to stable.
 Example:
 
 ```text
-scenery metrics list --json --service tasks --since 15m
+scenery metrics list -o json --service tasks --since 15m
 ```
 
 Example output:
@@ -1084,7 +1079,7 @@ Example output:
 }
 ```
 
-### `scenery inspect observability --json`
+### `scenery inspect observability -o json`
 
 Beta diagnostic subject. Use this before ad hoc observability queries when an
 agent needs to know whether the local Victoria backends are reachable and which
@@ -1093,7 +1088,7 @@ scope will be enforced.
 Example:
 
 ```text
-scenery inspect observability --json
+scenery inspect observability -o json
 ```
 
 The response uses `scenery.inspect.observability.v1` and includes `scope`,
@@ -1101,25 +1096,25 @@ The response uses `scenery.inspect.observability.v1` and includes `scope`,
 warnings. Raw backend URLs are exposed only under the optional `debug.base_urls`
 object for intentional substrate debugging.
 
-### `scenery logs query --json`
+### `scenery logs query -o json`
 
 Beta query surface for scoped VictoriaLogs LogsQL. This is the preferred CLI
-path for targeted log debugging when plain `scenery logs --jsonl` is too broad.
+path for targeted log debugging when plain `scenery logs -o jsonl` is too broad.
 
 Example:
 
 ```text
-scenery logs query --json --since 15m --limit 100 --query 'error OR panic'
+scenery logs query -o json --since 15m --limit 100 --query 'error OR panic'
 ```
 
 The response uses `scenery.logs.query.v1`, echoes the selected scope and query
 bounds, and returns normalized entries with `time`, `level`, `source`,
 `message`, `fields`, `trace_id`, `span_id`, and `raw` where available. Passing
-`--jsonl` writes only log entries as JSON Lines. `scenery logs tail --jsonl`
+`-o jsonl` writes only log entries as JSON Lines. `scenery logs tail -o jsonl`
 emits one `scenery.logs.tail.entry.v1` object per line and uses `--since` as the
 VictoriaLogs live-tail `start_offset`.
 
-### `scenery metrics query --json`
+### `scenery metrics query -o json`
 
 Beta query surface for scoped PromQL/MetricsQL. Range queries are the default;
 `--instant` uses the instant query endpoint.
@@ -1127,16 +1122,16 @@ Beta query surface for scoped PromQL/MetricsQL. Range queries are the default;
 Example:
 
 ```text
-scenery metrics query --json --since 15m --step 5s --promql 'max_over_time(scenery_request_duration_seconds[15m])'
+scenery metrics query -o json --since 15m --step 5s --promql 'max_over_time(scenery_request_duration_seconds[15m])'
 ```
 
 The response uses `scenery.metrics.query.v1`, echoes scope and bounds, reports
 the backend `result_type`, and returns normalized metric series and samples.
-`scenery metrics labels --json --since 1h --match 'scenery_request_duration_seconds'` emits `scenery.metrics.labels.v1`.
-`scenery metrics series --json --match 'scenery_request_duration_seconds'` emits
+`scenery metrics labels -o json --since 1h --match 'scenery_request_duration_seconds'` emits `scenery.metrics.labels.v1`.
+`scenery metrics series -o json --match 'scenery_request_duration_seconds'` emits
 `scenery.metrics.series.v1`.
 
-### `scenery inspect docs --json`
+### `scenery inspect docs -o json`
 
 Use this when an agent needs to understand the repo knowledge base before making changes.
 
@@ -1151,7 +1146,7 @@ Source files:
 Example:
 
 ```text
-scenery inspect docs --json
+scenery inspect docs -o json
 ```
 
 Example output:
@@ -1227,7 +1222,7 @@ The `agents` object reports every discovered `AGENTS.md` scope, compares child
 scopes against the root `AGENTS.md` Child Agent Index, and reports stale index
 entries plus discovered child scopes that are missing from the index.
 
-### `scenery inspect harness --json`
+### `scenery inspect harness -o json`
 
 Use this when an agent needs the latest harness evidence without parsing
 terminal output.
@@ -1247,10 +1242,10 @@ Source files:
 Example:
 
 ```text
-scenery inspect harness --json
-scenery inspect harness artifact test-timing --json
-scenery inspect harness diagnostics --severity warning --json
-scenery inspect harness timing --top 10 --json
+scenery inspect harness -o json
+scenery inspect harness artifact test-timing -o json
+scenery inspect harness diagnostics --severity warning -o json
+scenery inspect harness timing --top 10 -o json
 ```
 
 Example output:

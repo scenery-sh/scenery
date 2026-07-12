@@ -191,7 +191,7 @@ func parseDoctorArgs(args []string) (doctorOptions, error) {
 	opts := doctorOptions{}
 	flags := newCLIFlagSet("doctor")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return doctorOptions{}, err
@@ -301,7 +301,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 					Status:          doctorStatusError,
 					Severity:        doctorSeverityRequired,
 					Message:         "app root could not be discovered from " + appStart + ": " + err.Error(),
-					SuggestedAction: "Pass a directory inside an app that contains `.scenery.json` or `.config.json`.",
+					SuggestedAction: "Pass a directory inside an app that contains `.scenery.json`.",
 				})
 			}
 		} else if ok {
@@ -391,7 +391,7 @@ func doctorDeployDiagnostics(ctx context.Context, deps doctorProbeDeps) (*doctor
 			Status:          doctorStatusSkipped,
 			Severity:        doctorSeverityInformational,
 			Message:         message,
-			SuggestedAction: "Run `scenery deploy status --json` for deploy-specific diagnostics.",
+			SuggestedAction: "Run `scenery deploy status -o json` for deploy-specific diagnostics.",
 		}}
 		return info, checks
 	}
@@ -756,11 +756,6 @@ func sqlcUsesAtlas(cfg appcfg.SQLCGeneratorConfig) bool {
 }
 
 func appUsesDocker(cfg appcfg.Config) bool {
-	for _, service := range cfg.Dev.Services {
-		if strings.Contains(strings.ToLower(service.Kind), "docker") || strings.TrimSpace(service.Image) != "" {
-			return true
-		}
-	}
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Generators.SQLC.DevURL)), "docker://") {
 		return true
 	}
@@ -1046,7 +1041,7 @@ func doctorDockerEngineCheck(ctx context.Context, deps doctorProbeDeps, path str
 		output := strings.TrimSpace(string(infoOut))
 		check.Status = doctorStatusWarn
 		check.Message = "Docker CLI was found, but the Docker engine is not reachable"
-		check.SuggestedAction = "Start Docker Desktop or the Docker daemon, then rerun `scenery doctor --json`."
+		check.SuggestedAction = "Start Docker Desktop or the Docker daemon, then rerun `scenery doctor -o json`."
 		if output != "" {
 			check.Observed["error_output"] = output
 		}
@@ -1201,9 +1196,7 @@ func summarizeDoctorChecks(checks []doctorCheck) doctorSummary {
 }
 
 func writeDoctorJSON(w io.Writer, resp doctorResponse) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(resp)
+	return writeCLIJSON(w, resp)
 }
 
 func writeDoctorText(w io.Writer, resp doctorResponse) error {

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -32,12 +31,12 @@ func TestRunStorageStatus(t *testing.T) {
 		}
 	}`)
 	var out bytes.Buffer
-	if err := runStorageCommand([]string{"status", "--json", "--app-root", root}, &out); err != nil {
+	if err := runStorageCommand([]string{"status", "-o", "json", "--app-root", root}, &out); err != nil {
 		t.Fatalf("runStorageCommand(status) error = %v", err)
 	}
 	var payload storageStatusResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal(status) error = %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON(status) error = %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.storage.status.v1" || !payload.Storage.Configured {
 		t.Fatalf("payload = %+v", payload)
@@ -55,12 +54,12 @@ func TestRunStorageWebUIReportsNoManagedUI(t *testing.T) {
 		"storage": {"stores": {"app": {"kind": "local"}}}
 	}`)
 	var out bytes.Buffer
-	if err := runStorageCommand([]string{"webui", "--json", "--app-root", root}, &out); err != nil {
+	if err := runStorageCommand([]string{"webui", "-o", "json", "--app-root", root}, &out); err != nil {
 		t.Fatalf("runStorageCommand(webui) error = %v", err)
 	}
 	var payload storageWebUIResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal(webui) error = %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON(webui) error = %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.storage.webui.v1" || !payload.Configured || payload.Ready || payload.Reason == "" {
 		t.Fatalf("payload = %+v", payload)
@@ -86,11 +85,11 @@ func TestRunStorageObjectCommands(t *testing.T) {
 	}
 
 	var putOut bytes.Buffer
-	if err := runStorageCommand([]string{"put", "app", "reports/report.txt", source, "--json", "--app-root", root}, &putOut); err != nil {
+	if err := runStorageCommand([]string{"put", "app", "reports/report.txt", source, "-o", "json", "--app-root", root}, &putOut); err != nil {
 		t.Fatalf("storage put error = %v", err)
 	}
 	var putPayload storageObjectResponse
-	if err := json.Unmarshal(putOut.Bytes(), &putPayload); err != nil {
+	if err := decodeCLIJSON(putOut.Bytes(), &putPayload); err != nil {
 		t.Fatalf("unmarshal put: %v\n%s", err, putOut.String())
 	}
 	if putPayload.SchemaVersion != "scenery.storage.object.v1" || putPayload.Object.Key != "reports/report.txt" || putPayload.Object.SizeBytes != int64(len("storage report")) {
@@ -98,11 +97,11 @@ func TestRunStorageObjectCommands(t *testing.T) {
 	}
 
 	var listOut bytes.Buffer
-	if err := runStorageCommand([]string{"ls", "app", "--prefix", "reports/", "--json", "--app-root", root}, &listOut); err != nil {
+	if err := runStorageCommand([]string{"ls", "app", "--prefix", "reports/", "-o", "json", "--app-root", root}, &listOut); err != nil {
 		t.Fatalf("storage ls error = %v", err)
 	}
 	var listPayload storageListResponse
-	if err := json.Unmarshal(listOut.Bytes(), &listPayload); err != nil {
+	if err := decodeCLIJSON(listOut.Bytes(), &listPayload); err != nil {
 		t.Fatalf("unmarshal list: %v\n%s", err, listOut.String())
 	}
 	if len(listPayload.Page.Objects) != 1 || listPayload.Page.Objects[0].Key != "reports/report.txt" {
@@ -110,11 +109,11 @@ func TestRunStorageObjectCommands(t *testing.T) {
 	}
 
 	var statOut bytes.Buffer
-	if err := runStorageCommand([]string{"stat", "app", "reports/report.txt", "--json", "--app-root", root}, &statOut); err != nil {
+	if err := runStorageCommand([]string{"stat", "app", "reports/report.txt", "-o", "json", "--app-root", root}, &statOut); err != nil {
 		t.Fatalf("storage stat error = %v", err)
 	}
 	var statPayload storageObjectResponse
-	if err := json.Unmarshal(statOut.Bytes(), &statPayload); err != nil {
+	if err := decodeCLIJSON(statOut.Bytes(), &statPayload); err != nil {
 		t.Fatalf("unmarshal stat: %v\n%s", err, statOut.String())
 	}
 	if statPayload.Object.SHA256 == "" || statPayload.Object.ETag == "" {
@@ -123,7 +122,7 @@ func TestRunStorageObjectCommands(t *testing.T) {
 
 	target := filepath.Join(t.TempDir(), "download.txt")
 	var getOut bytes.Buffer
-	if err := runStorageCommand([]string{"get", "app", "reports/report.txt", "--output", target, "--json", "--app-root", root}, &getOut); err != nil {
+	if err := runStorageCommand([]string{"get", "app", "reports/report.txt", "--output", target, "-o", "json", "--app-root", root}, &getOut); err != nil {
 		t.Fatalf("storage get error = %v", err)
 	}
 	got, err := os.ReadFile(target)
@@ -135,11 +134,11 @@ func TestRunStorageObjectCommands(t *testing.T) {
 	}
 
 	var rmOut bytes.Buffer
-	if err := runStorageCommand([]string{"rm", "app", "reports/report.txt", "--json", "--app-root", root}, &rmOut); err != nil {
+	if err := runStorageCommand([]string{"rm", "app", "reports/report.txt", "-o", "json", "--app-root", root}, &rmOut); err != nil {
 		t.Fatalf("storage rm error = %v", err)
 	}
 	var rmPayload storageDeleteResponse
-	if err := json.Unmarshal(rmOut.Bytes(), &rmPayload); err != nil {
+	if err := decodeCLIJSON(rmOut.Bytes(), &rmPayload); err != nil {
 		t.Fatalf("unmarshal rm: %v\n%s", err, rmOut.String())
 	}
 	if !rmPayload.Deleted || rmPayload.Key != "reports/report.txt" {
@@ -166,7 +165,7 @@ func TestRunStoragePutHonorsMaxObjectBytes(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runStorageCommand([]string{"put", "app", "reports/report.txt", source, "--json", "--app-root", root}, &out)
+	err := runStorageCommand([]string{"put", "app", "reports/report.txt", source, "-o", "json", "--app-root", root}, &out)
 	if err == nil || !strings.Contains(err.Error(), "max_object_bytes 4") {
 		t.Fatalf("storage put error = %v, output = %s", err, out.String())
 	}
@@ -186,11 +185,11 @@ func TestRunStorageCleanupDefaultsToDryRun(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := runStorageCommand([]string{"cleanup", "--json", "--app-root", root}, &out); err != nil {
+	if err := runStorageCommand([]string{"cleanup", "-o", "json", "--app-root", root}, &out); err != nil {
 		t.Fatalf("storage cleanup dry-run error = %v", err)
 	}
 	var payload storageCleanupResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal cleanup: %v\n%s", err, out.String())
 	}
 	if !payload.DryRun || payload.Deleted || !payload.Exists || payload.CellRoot != cellRoot {
@@ -215,11 +214,11 @@ func TestRunStorageCleanupYesRemovesCellRoot(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := runStorageCommand([]string{"cleanup", "--yes", "--json", "--app-root", root}, &out); err != nil {
+	if err := runStorageCommand([]string{"cleanup", "--yes", "-o", "json", "--app-root", root}, &out); err != nil {
 		t.Fatalf("storage cleanup --yes error = %v", err)
 	}
 	var payload storageCleanupResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal cleanup: %v\n%s", err, out.String())
 	}
 	if payload.DryRun || !payload.Deleted || payload.Exists {
@@ -518,14 +517,14 @@ func storageTestEnvValue(t *testing.T, env []string, key string) string {
 
 func TestParseStorageArgs(t *testing.T) {
 	t.Parallel()
-	opts, err := parseStorageArgs([]string{"status", "--json", "--app-root", "/tmp/app"})
+	opts, err := parseStorageArgs([]string{"status", "-o", "json", "--app-root", "/tmp/app"})
 	if err != nil {
 		t.Fatalf("parseStorageArgs returned error: %v", err)
 	}
 	if opts.Command != "status" || !opts.JSON || opts.AppRoot != "/tmp/app" {
 		t.Fatalf("opts = %+v", opts)
 	}
-	opts, err = parseStorageArgs([]string{"ls", "app", "--prefix", "reports/", "--limit", "10", "--json"})
+	opts, err = parseStorageArgs([]string{"ls", "app", "--prefix", "reports/", "--limit", "10", "-o", "json"})
 	if err != nil {
 		t.Fatalf("parseStorageArgs ls returned error: %v", err)
 	}

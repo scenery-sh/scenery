@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"log/slog"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -129,9 +128,6 @@ func (h *sceneryConsoleHandler) appendAttr(dst *[]consoleAttr, groups []string, 
 }
 
 func (h *sceneryConsoleHandler) formatRecord(record slog.Record, attrs []consoleAttr) string {
-	if record.Message == "scenery secrets missing" {
-		return h.formatSecretsWarning(attrs)
-	}
 	level := h.levelLabel(record.Level)
 	message := strings.TrimSpace(strings.TrimPrefix(record.Message, "scenery "))
 	if message == "" {
@@ -154,32 +150,6 @@ func (h *sceneryConsoleHandler) formatRecord(record slog.Record, attrs []console
 		b.WriteByte('=')
 		b.WriteString(attr.value)
 	}
-	b.WriteByte('\n')
-	return b.String()
-}
-
-func (h *sceneryConsoleHandler) formatSecretsWarning(attrs []consoleAttr) string {
-	var fields []string
-	for _, attr := range attrs {
-		if attr.key == "fields" {
-			fields = splitConsoleList(attr.value)
-			break
-		}
-	}
-	if len(fields) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(h.palette.Yellow("warning:"))
-	b.WriteString(" secrets not defined: ")
-	b.WriteString(strings.Join(fields, ", "))
-	b.WriteByte('\n')
-	b.WriteString(h.palette.Cyan("note:"))
-	b.WriteString(" undefined secrets are left empty for local development only.")
-	b.WriteByte('\n')
-	b.WriteString(h.palette.Dim("see "))
-	b.WriteString(h.palette.Dim("https://github.com/scenery-sh/scenery/docs/primitives/secrets"))
-	b.WriteString(h.palette.Dim(" for more information"))
 	b.WriteByte('\n')
 	return b.String()
 }
@@ -262,23 +232,6 @@ func redactedSlogValue(key string, value slog.Value) slog.Value {
 		}
 		return value
 	}
-}
-
-func splitConsoleList(value string) []string {
-	if value == "" {
-		return nil
-	}
-	items := strings.Split(value, ",")
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		out = append(out, item)
-	}
-	slices.Sort(out)
-	return out
 }
 
 func logTrace(ctx context.Context, msg string, args ...any) {

@@ -10,7 +10,7 @@ import (
 )
 
 func TestCheckWarningDiagnosticsReportsMissingGoogleOAuthCredentials(t *testing.T) {
-	for _, name := range []string{"GoogleOAuthClientID", "GoogleOAuthClientSecret", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"} {
+	for _, name := range []string{"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"} {
 		value, exists := os.LookupEnv(name)
 		if err := os.Unsetenv(name); err != nil {
 			t.Fatal(err)
@@ -44,11 +44,11 @@ func TestCheckWarningDiagnosticsReportsMissingGoogleOAuthCredentials(t *testing.
 		t.Fatalf("diagnostics = %+v", diagnostics)
 	}
 	diag := diagnostics[0]
-	if diag.Stage != "auth" || diag.Severity != "warning" || !strings.Contains(diag.Message, "GoogleOAuthClientID") || !strings.Contains(diag.Message, "GoogleOAuthClientSecret") {
+	if diag.Stage != "auth" || diag.Severity != "warning" || !strings.Contains(diag.Message, "GOOGLE_OAUTH_CLIENT_ID") || !strings.Contains(diag.Message, "GOOGLE_OAUTH_CLIENT_SECRET") {
 		t.Fatalf("diagnostic = %+v", diag)
 	}
 
-	writeTestAppFile(t, root, ".env", "GoogleOAuthClientID=test-client\nGoogleOAuthClientSecret=test-secret\n")
+	writeTestAppFile(t, root, ".env", "GOOGLE_OAUTH_CLIENT_ID=test-client\nGOOGLE_OAUTH_CLIENT_SECRET=test-secret\n")
 	diagnostics, err = checkWarningDiagnostics(root, cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -174,10 +174,9 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 	flags := newCLIFlagSet("generate")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.Lang, "lang", "", "")
 	flags.StringVar(&opts.Output, "output", "", "")
-	flags.StringVar(&opts.Output, "o", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return generateOptions{}, err
@@ -186,7 +185,7 @@ func parseGenerateArgs(args []string) (generateOptions, error) {
 		opts.Subject = "sqlc"
 		positionals = positionals[1:]
 	}
-	if cliFlagSet(flags, "lang") || cliFlagSet(flags, "output") || cliFlagSet(flags, "o") {
+	if cliFlagSet(flags, "lang") || cliFlagSet(flags, "output") {
 		return generateOptions{}, fmt.Errorf("client output flags are not supported here; declare a typescript_client in scenery.scn")
 	}
 	if len(positionals) > 0 {

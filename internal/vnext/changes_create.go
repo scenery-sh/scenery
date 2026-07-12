@@ -233,10 +233,6 @@ func authoredChildBlockValue(name string, value map[string]any, schema *authored
 	return []string{label}, spec, nil
 }
 
-func changeTokens(value any) (hclwrite.Tokens, error) {
-	return changeTokensForModule(value, "")
-}
-
 func changeTokensForModule(value any, module string) (hclwrite.Tokens, error) {
 	if object, ok := value.(map[string]any); ok {
 		if reference, ok := object["$ref"].(string); ok {

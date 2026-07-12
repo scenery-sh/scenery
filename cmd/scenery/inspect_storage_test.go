@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,7 +33,7 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 		}
 	}`)
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"storage", "--app-root", root, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"storage", "--app-root", root, "-o", "json"}, &out); err != nil {
 		t.Fatalf("runSceneryInspect(storage) error = %v", err)
 	}
 	var payload struct {
@@ -56,8 +55,8 @@ func TestRunSceneryInspectStorage(t *testing.T) {
 			TotalBytes     int64  `json:"total_bytes"`
 		} `json:"stores"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal(storage) error = %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON(storage) error = %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.storage.inspect.v1" {
 		t.Fatalf("schema_version = %q", payload.SchemaVersion)
@@ -105,7 +104,7 @@ func TestRunSceneryInspectStorageReportsLocalCellUsage(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"storage", "--app-root", root, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"storage", "--app-root", root, "-o", "json"}, &out); err != nil {
 		t.Fatalf("runSceneryInspect(storage) error = %v", err)
 	}
 	var payload struct {
@@ -123,8 +122,8 @@ func TestRunSceneryInspectStorageReportsLocalCellUsage(t *testing.T) {
 			TotalBytes  int64  `json:"total_bytes"`
 		} `json:"stores"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal(storage) error = %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON(storage) error = %v\n%s", err, out.String())
 	}
 	if payload.Storage.Readiness != "ready" {
 		t.Fatalf("readiness = %q, payload = %s", payload.Storage.Readiness, out.String())

@@ -54,7 +54,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 		RiskClassification:             riskClassification,
 		DocsEntrypoints:                entrypoints,
 		Schemas:                        schemas,
-		KnownFastLoop:                  "scenery doctor --json\nscenery harness self --quick --summary --write\ncat .scenery/harness/agent-context.json\n# implement\nscenery harness self --summary --write",
+		KnownFastLoop:                  "scenery doctor -o json\nscenery harness self --quick --summary --write\ncat .scenery/harness/agent-context.json\n# implement\nscenery harness self --summary --write",
 		KnownReleaseLoop:               "scenery harness self --release --summary --write\nscripts/release-gate.sh",
 		ArchitectureRules: []string{
 			"Prefer Go standard library dependencies unless the payoff is concrete.",
@@ -70,7 +70,7 @@ func buildHarnessAgentContext(repoRoot string, resp harnessSelfResponse) harness
 	}
 	contextPack.RecommendedCommands = appendUniqueSorted(contextPack.RecommendedCommands, contextPack.RerunCommands...)
 	if len(contextPack.RecommendedCommands) == 0 {
-		contextPack.RecommendedCommands = []string{"scenery doctor --json", "scenery harness self --quick --summary --write", "scenery harness self --summary --write"}
+		contextPack.RecommendedCommands = []string{"scenery doctor -o json", "scenery harness self --quick --summary --write", "scenery harness self --summary --write"}
 	}
 	sort.Strings(contextPack.DocsEntrypoints)
 	sort.Strings(contextPack.Schemas)

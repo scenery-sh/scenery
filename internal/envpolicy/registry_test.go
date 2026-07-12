@@ -34,7 +34,7 @@ func TestRegistryRedactsSecretValues(t *testing.T) {
 		SchemaVersion: SchemaVersion,
 		Variables: []Variable{
 			func() Variable {
-				v := testVariable("SCENERY_AUTH_JWT_SECRET", "exact")
+				v := testVariable("JWT_SECRET", "exact")
 				v.Secret = true
 				return v
 			}(),
@@ -44,7 +44,7 @@ func TestRegistryRedactsSecretValues(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	registry.index()
-	if got := registry.RedactValue("SCENERY_AUTH_JWT_SECRET", "secret"); got != RedactedValue {
+	if got := registry.RedactValue("JWT_SECRET", "secret"); got != RedactedValue {
 		t.Fatalf("RedactValue(secret) = %q", got)
 	}
 	if got := registry.RedactValue("DATABASE_URL", "postgres://user:secret@localhost/app"); got != RedactedValue {

@@ -163,7 +163,7 @@ Declare durable executions, schedules, event contracts, consumers, and emissions
 
 ```sh
 scenery worker --app-root <path> --env development
-scenery inspect durable --json
+scenery inspect durable -o json
 ```
 
 ## Data, CRUD, Fixtures, Pages, And Renderers
@@ -180,8 +180,8 @@ scenery explain <address> <pointer> -o json
 Typed fixtures are selected by environment and shared by deployment planning and local seed generation:
 
 ```sh
-scenery db seed --env development --dry-run --json
-scenery db seed --env development --json
+scenery db seed --env development --dry-run -o json
+scenery db seed --env development -o json
 ```
 
 ## Generate A TypeScript Client
@@ -226,8 +226,8 @@ Plan/apply is revision-bound, single-use, and tied to the exact issued plan. Ins
 Place single-file Go tasks beneath `<domain>/tasks/` with `//go:build ignore`, or use a task directory. That build constraint keeps the file out of app packages; it is not an application declaration.
 
 ```sh
-scenery task list --json
-scenery task inspect billing:reconcile --json
+scenery task list -o json
+scenery task inspect billing:reconcile -o json
 scenery task run billing:reconcile -- --limit 100
 ```
 
@@ -236,10 +236,10 @@ scenery task run billing:reconcile -- --limit 100
 Keep database mutation separate from generation:
 
 ```sh
-scenery db list --json
-scenery db apply --json
-scenery db seed --env development --dry-run --json
-scenery db setup --json
+scenery db list -o json
+scenery db apply -o json
+scenery db seed --env development --dry-run -o json
+scenery db setup -o json
 ```
 
 `db apply` runs configured schema/app setup. `db seed` applies service-local seed files and typed fixture plans. Previously applied content changes and destructive seed SQL fail closed. `db setup` runs apply then seed. `scenery generate sqlc` refreshes source only.
@@ -257,9 +257,9 @@ _, err = store.Put(ctx, "reports/latest.json", reader, storage.PutOptions{Conten
 Tenant-scoped internal calls require standard-auth context or `storage.WithTenantID`. Inspect and operate through:
 
 ```sh
-scenery inspect storage --json
-scenery storage status --json
-scenery storage ls app --json
+scenery inspect storage -o json
+scenery storage status -o json
+scenery storage ls app -o json
 ```
 
 Treat store roots and proxy sockets as substrate. Replicate local storage-cell object and metadata trees offsite with operator tooling when durability requires it.
@@ -268,33 +268,33 @@ Treat store roots and proxy sockets as substrate. Replicate local storage-cell o
 
 ```sh
 scenery up --detach
-scenery ps --json
+scenery ps -o json
 scenery logs --follow
-scenery traces list --json --since 15m
-scenery metrics list --json --since 1h
+scenery traces list -o json --since 15m
+scenery metrics list -o json --since 1h
 scenery down
 ```
 
-Discover URLs from `scenery ps --json`; do not guess hidden ports. Use a Git worktree for a second live code copy.
+Discover URLs from `scenery ps -o json`; do not guess hidden ports. Use a Git worktree for a second live code copy.
 
 ## Debug A Failing App
 
-1. Run `scenery doctor --json`.
+1. Run `scenery doctor -o json`.
 2. Run `scenery check -o json` and branch on diagnostic codes.
 3. Inspect source/effective/expanded views and provenance.
 4. Run `scenery generate --check -o json` for artifact drift.
-5. Inspect runtime state with `scenery ps --json` and logs/traces/metrics.
+5. Inspect runtime state with `scenery ps -o json` and logs/traces/metrics.
 6. Debug substrate only when scenery status identifies it as the failing layer.
 
 Useful commands:
 
 ```sh
-scenery inspect app --json
-scenery inspect routes --json
-scenery inspect endpoints --json
-scenery inspect build --json
-scenery inspect paths --json
-scenery logs --jsonl --limit 200
+scenery inspect app -o json
+scenery inspect routes -o json
+scenery inspect endpoints -o json
+scenery inspect build -o json
+scenery inspect paths -o json
+scenery logs -o jsonl --limit 200
 ```
 
 ## Validation Checklist
@@ -306,7 +306,7 @@ scenery fmt --check -o json
 scenery check -o json
 scenery generate --check -o json
 go test ./...
-scenery harness --json --write
+scenery harness -o json --write
 ```
 
-For generated TypeScript, also run the host app's typecheck/tests. For UI work, follow the target subtree instructions and use `scenery harness ui --json --write` when behavior is browser-visible.
+For generated TypeScript, also run the host app's typecheck/tests. For UI work, follow the target subtree instructions and use `scenery harness ui -o json --write` when behavior is browser-visible.

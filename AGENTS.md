@@ -21,7 +21,7 @@ Use the narrowest current source of truth that applies:
 3. `docs/agent-guide.md` explains agent workflows, generated artifacts, and client-app integration.
 4. `docs/local-contract.md` is the contract for CLI grammar, JSON schemas, artifact paths, and stability labels.
 5. `docs/app-development-cookbook.md` gives practical app-building recipes.
-6. `scenery inspect ... --json`, schemas under `docs/schemas/`, and harness command outputs are stronger than old prose when they disagree. Generated files under `.scenery/gen/` are cache, not an API.
+6. `scenery inspect ... -o json`, schemas under `docs/schemas/`, and harness command outputs are stronger than old prose when they disagree. Generated files under `.scenery/gen/` are cache, not an API.
 
 When implementation and docs disagree, the same PR must either fix the affected docs or open/update an ExecPlan that records the drift, owner, and intended resolution path.
 
@@ -80,7 +80,7 @@ Use a multi-context domain docs layout with root `CONTEXT-MAP.md` plus per-conte
 
 scenery is a Go-native service runtime and local development platform. Think in app roots, app runtimes, and capability surfaces first; Victoria, agent routing, generated cache files, hidden ports, and local stores are substrate details unless the task is explicitly debugging that substrate.
 
-- App roots are marked by `.scenery.json`; `.config.json` is accepted as an app config alias when `.scenery.json` is absent.
+- App roots are marked by `.scenery.json`.
 - Edition-2027 `.scn` source is the singular app model. Root `scenery.scn` installs package-local `scenery.package.scn` modules; Go source implements the generated native contracts but is not scanned for declarations.
 - The compiler exposes source/effective/expanded graphs and separate workspace, contract, implementation, deployment, and artifact revisions. Source retains authored expressions, effective resolves inputs/defaults/patches, expanded adds generators, and every provenance key is an RFC 6901 pointer into that view's resource spec.
 - `scenery task run <domain>:<name> -- [args...]` runs an app-local code task.
@@ -104,7 +104,7 @@ Do not add deprecated non-scenery APIs or compatibility aliases unless an active
 - Keep `internal/app` free of the PostgreSQL driver layer; deterministic database/schema/env naming belongs in `internal/postgresname`.
 - Keep `golang.org/x/tools/go/packages` inside `internal/parse`; `internal/model` exposes only model-owned analysis data.
 - Do not add new environment-variable knobs by default. Prefer explicit CLI flags, config files, or existing contracts; add an env var only when the human explicitly asks for one or an active ExecPlan records why flags/config are insufficient.
-- Preserve scenery-native naming: `scenery.scn`, `scenery.package.scn`, `.scenery.json`, and `scenery.sh/...`. Treat `.config.json` as a supported config-file alias, not as the preferred spelling in new docs or examples.
+- Preserve scenery-native naming: `scenery.scn`, `scenery.package.scn`, `.scenery.json`, and `scenery.sh/...`.
 - Keep generated app models and machine-readable JSON contracts stable. If a JSON shape changes, update schemas, docs, tests, and harness expectations together.
 - Keep edition module sources inside the non-symlink app workspace and every generated output beneath a declared managed root; top-level edition generation is one artifact-set transaction.
 - Declare every service, operation, binding, durable execution, schedule, data resource, page, renderer, and middleware identity in `.scn`. Go package comments and package-init builders do not register application behavior. If `external_name` preserves an existing durable task name while its persisted input changes, increment `revision` and drain or migrate active rows first.
@@ -116,7 +116,7 @@ Do not add deprecated non-scenery APIs or compatibility aliases unless an active
 For any non-trivial task:
 
 ```sh
-scenery inspect docs --json
+scenery inspect docs -o json
 ```
 
 Use the output's `summary.review_due_count`, document-level `review_due`, and `stale` fields while choosing doc-gardening work.
@@ -142,16 +142,16 @@ For complex features, migrations, multi-hour work, or significant refactors, cre
 Use JSON surfaces for inspection and automation:
 
 ```text
-scenery version --json
-scenery doctor --json
-scenery check --json
-scenery inspect app|routes|services|endpoints|build|paths|docs --json
-scenery traces list --json
-scenery metrics list --json
-scenery logs --jsonl --limit 200
-scenery harness --json --write
+scenery version -o json
+scenery doctor -o json
+scenery check -o json
+scenery inspect app|routes|services|endpoints|build|paths|docs -o json
+scenery traces list -o json
+scenery metrics list -o json
+scenery logs -o jsonl --limit 200
+scenery harness -o json --write
 scenery harness self --summary --write
-scenery upgrade --json
+scenery upgrade -o json
 ```
 
 For edition-2027 apps, prefer the current protocol and immutable transaction surfaces:
@@ -167,26 +167,26 @@ scenery changes plan|apply ... -o json
 scenery deploy plan|apply ... -o json
 ```
 
-`-o json` selects `scenery.cli.v1`; `--json` retains the exact independently versioned `scenery.cli.v0` protocol for commands that still publish it. Never mix selectors.
+`-o json` selects the singular `scenery.cli.v1` envelope. `-o jsonl` emits `scenery.cli.event.v1` envelopes for streaming commands. Command-specific schemas live under the envelope `data` field.
 
-Use `scenery doctor --json` before expensive troubleshooting when the failure may be local environment readiness: missing or old Go, low disk or memory, absent optional tools, or an app root that is not discoverable.
+Use `scenery doctor -o json` before expensive troubleshooting when the failure may be local environment readiness: missing or old Go, low disk or memory, absent optional tools, or an app root that is not discoverable.
 
 Use runtime commands according to intent:
 
 ```text
-scenery up [--app-root <path>] [--json] [--detach] [--wait ready|registered]
-scenery logs --follow [--app-root <path>] [--jsonl]
-scenery down [--app-root <path>] [--db] [--state] [--all] [--json]
-scenery task list [--app-root <path>] [--json]
-scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [--json]
+scenery up [--app-root <path>] [-o jsonl] [--detach] [--wait ready|registered]
+scenery logs --follow [--app-root <path>] [-o jsonl]
+scenery down [--app-root <path>] [--db] [--state] [--all] [-o json]
+scenery task list [--app-root <path>] [-o json]
+scenery task inspect <target> [--app-root <path>] [--lang go|typescript] [-o json]
 scenery task run <name> [--app-root <path>]
 scenery task run [--app-root <path>] [--env <name>] [--lang go|typescript] <domain>:<name> [-- task args...]
 scenery worker [--app-root <path>] [--env <name>]
-scenery build [--app-root <path>] [--target <go-target>] [-o <path>]
+scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate --target typescript_client.<name> [--check] [--app-root <path>] -o json
 scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot [--app-root <path>]
-scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [--json]
+scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
 ```
 
 `scenery up` is the preferred local loop for agents because it runs the app root's one live dev runtime and exposes safe capabilities: dashboard, logs, traces, metrics, routed local URLs, and managed dev services. Use a Git worktree for another live code copy. `scenery task` is for configured tasks and app-local code tasks.
@@ -236,15 +236,15 @@ uses `-p 8`, selected from repeated measurements on the maintainer machine.
 For target app changes:
 
 ```sh
-scenery check --json
+scenery check -o json
 go test ./...
-scenery harness --json --write
+scenery harness -o json --write
 ```
 
 For generated TypeScript client changes:
 
 ```sh
-scenery inspect endpoints --json
+scenery inspect endpoints -o json
 scenery generate --target typescript_client.<name> --check -o json
 bun test internal/vnext/testdata/typescript_client_conformance.test.ts
 apps/consolenext/node_modules/.bin/tsc -p internal/vnext/testdata/tsconfig.generated-clients.json
@@ -266,7 +266,7 @@ For `ui/` registry changes, run `bun run typecheck` and `bun run test` from `ui/
 For browser/dashboard validation when relevant:
 
 ```sh
-scenery harness ui --json --write
+scenery harness ui -o json --write
 ```
 
 If a command cannot be run in the current environment, say exactly which command was skipped and why.
@@ -277,7 +277,7 @@ The installable scenery skill is necessary but not enough for client repositorie
 
 Client apps should keep a small app-local `AGENTS.md` that records only app-specific facts:
 
-- app root and app config path (`.scenery.json` or `.config.json`)
+- app root and `.scenery.json` config path
 - frontend roots and generated client output paths
 - required local environment names without values
 - standard validation commands for that app
@@ -294,7 +294,7 @@ When editing source that changes the public app model, confirm the docs and test
 - edition-2027 CLI bindings, including generated help/completion, typed input, trusted context, delivery, outcomes, and exit codes
 - edition-2027 `std.type.unit`, data sources, entities/views/CRUD/fixtures, pages/renderers, and typed constructor capability injection
 - generated contract input/outcome types and explicit `.scn` HTTP request/response mappings
-- public packages: `scenery`, `auth`, `errs`, `middleware`, `durable`, `db`, `datasource`, `object`, `et`
+- public packages: `scenery`, `auth`, `errs`, `durable`, `db`, `datasource`, `object`, `storage`
 - standard auth configuration and generated endpoints
 - private/internal call behavior
 - worker, durable, schedule, middleware, and generated TypeScript client behavior when touched

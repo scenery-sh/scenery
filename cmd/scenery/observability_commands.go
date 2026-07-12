@@ -10,7 +10,7 @@ import (
 
 func tracesCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery traces list|clear [--json] [--app-root <path>]")
+		return fmt.Errorf("usage: scenery traces list|clear [-o json] [--app-root <path>]")
 	}
 	switch args[0] {
 	case "list":
@@ -24,7 +24,7 @@ func tracesCommand(args []string) error {
 
 func metricsCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery metrics list|query|labels|series [--json] [--app-root <path>]")
+		return fmt.Errorf("usage: scenery metrics list|query|labels|series [-o json] [--app-root <path>]")
 	}
 	switch args[0] {
 	case "list":
@@ -123,7 +123,7 @@ func runTracesClear(ctx context.Context, stdout io.Writer, args []string) error 
 func parseTracesClearArgs(args []string) (adminOptions, error) {
 	opts := adminOptions{Domain: "traces", Action: "clear"}
 	flags := newCLIFlagSet("traces clear")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

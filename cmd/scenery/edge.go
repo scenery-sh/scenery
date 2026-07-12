@@ -65,7 +65,7 @@ type edgeOptions struct {
 
 func edgeCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge install|trust|status|restart|uninstall|dns|privileged [--json]")
+		return fmt.Errorf("usage: scenery system edge install|trust|status|restart|uninstall|dns|privileged [-o json]")
 	}
 	cmd := args[0]
 	if cmd == "dns" {
@@ -101,7 +101,7 @@ func edgeCommand(args []string) error {
 func parseEdgeArgs(args []string) (edgeOptions, error) {
 	var opts edgeOptions
 	flags := newCLIFlagSet("system edge")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.StringVar(&opts.Domain, "domain", "", "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
@@ -121,7 +121,7 @@ func parseEdgeArgs(args []string) (edgeOptions, error) {
 
 func edgeDNSCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge dns install|status|restart|uninstall [--domain <domain>] [--json]")
+		return fmt.Errorf("usage: scenery system edge dns install|status|restart|uninstall [--domain <domain>] [-o json]")
 	}
 	cmd := args[0]
 	opts, err := parseEdgeArgs(args[1:])
@@ -322,7 +322,7 @@ func edgeTrust(opts edgeOptions) error {
 		return err
 	}
 	if opts.JSON {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{
+		return writeCLIJSON(os.Stdout, map[string]any{
 			"schema_version": localagent.EdgeSchemaVersion,
 			"kind":           localagent.EdgeKindCaddy,
 			"status":         "trusted",
@@ -456,9 +456,7 @@ func edgeDNSInstall(opts edgeOptions) error {
 	}
 	status := edgeDNSStatusFor(paths, opts.Domain)
 	if opts.JSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(status)
+		return writeCLIJSON(os.Stdout, status)
 	}
 	fmt.Fprintf(os.Stdout, "scenery system edge dns running for %s at %s\n", opts.Domain, defaultEdgeDNSListen)
 	return nil
@@ -471,9 +469,7 @@ func edgeDNSStatus(opts edgeOptions) error {
 	}
 	status := edgeDNSStatusFor(paths, opts.Domain)
 	if opts.JSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(status)
+		return writeCLIJSON(os.Stdout, status)
 	}
 	fmt.Fprintf(os.Stdout, "scenery system edge dns %s for %s", status.DNSMasq.State, status.Domain)
 	if status.DNSMasq.Listen != "" {
@@ -1048,9 +1044,7 @@ port %s
 }
 
 func writeEdgeStatusJSON(status edgeStatusResult) error {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(status)
+	return writeCLIJSON(os.Stdout, status)
 }
 
 type edgeStatusResult struct {
@@ -1575,7 +1569,7 @@ func refreshEdgeTargetMetadata(paths localagent.Paths, state localagent.EdgeStat
 
 func edgePrivilegedCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery system edge privileged install|status|uninstall [--json]")
+		return fmt.Errorf("usage: scenery system edge privileged install|status|uninstall [-o json]")
 	}
 	cmd := args[0]
 	opts, err := parseEdgeArgs(args[1:])
@@ -1635,7 +1629,7 @@ func edgePrivilegedStatus(opts edgeOptions) error {
 	}
 	status := privilegedListenerStatus(paths)
 	if opts.JSON {
-		return json.NewEncoder(os.Stdout).Encode(status)
+		return writeCLIJSON(os.Stdout, status)
 	}
 	fmt.Fprintf(os.Stdout, "scenery system edge privileged listener %s", status.State)
 	if status.Target != "" {

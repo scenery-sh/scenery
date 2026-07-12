@@ -838,8 +838,7 @@ func (s *devSupervisor) appDatabaseAuthorityEnv(baseEnv []string) []string {
 		return baseEnv
 	}
 	if len(s.cfg.DatabaseServices()) > 0 {
-		keys := append([]string{legacyDatabaseURLEnv}, databaseEnvKeys(s.cfg)...)
-		return envWithoutKeys(baseEnv, keys...)
+		return envWithoutKeys(baseEnv, databaseEnvKeys(s.cfg)...)
 	}
 	return baseEnv
 }
@@ -978,15 +977,9 @@ func (s *devSupervisor) sessionAuthEnv() []string {
 		}
 	}
 	return []string{
-		authEnvName(s.cfg.Auth.APIBaseURLEnv, "APIBaseURL") + "=" + apiURL,
-		"API_BASE_URL=" + apiURL,
-		"SCENERY_API_BASE_URL=" + apiURL,
-		authEnvName(s.cfg.Auth.PublicAppURLEnv, "PublicAppURL") + "=" + publicAppURL,
-		"PUBLIC_APP_URL=" + publicAppURL,
-		"SCENERY_PUBLIC_APP_URL=" + publicAppURL,
-		authEnvName(s.cfg.Auth.AuthCookieDomainEnv, "AuthCookieDomain") + "=",
-		"AUTH_COOKIE_DOMAIN=",
-		"SCENERY_AUTH_COOKIE_DOMAIN=",
+		authEnvName(s.cfg.Auth.APIBaseURLEnv, "SCENERY_API_BASE_URL") + "=" + apiURL,
+		authEnvName(s.cfg.Auth.PublicAppURLEnv, "SCENERY_PUBLIC_APP_URL") + "=" + publicAppURL,
+		authEnvName(s.cfg.Auth.AuthCookieDomainEnv, "AUTH_COOKIE_DOMAIN") + "=",
 	}
 }
 

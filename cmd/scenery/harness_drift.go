@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,7 +128,7 @@ var (
 	harnessToolchainSpecs = []harnessToolchainSpec{
 		{name: "go", scope: "required", required: true, args: []string{"version"}},
 		{name: "git", scope: "required", required: true, args: []string{"version"}},
-		{name: "scenery", scope: "required", required: true, args: []string{"version", "--json"}},
+		{name: "scenery", scope: "required", required: true, args: []string{"version", "-o", "json"}},
 		{name: "bun", scope: "required-for-ui", args: []string{"--version"}},
 		{name: "docker", scope: "optional", args: []string{"--version"}},
 	}
@@ -211,9 +210,9 @@ func probeHarnessTool(ctx context.Context, name, scope string, required bool, ar
 		tool.Error = strings.TrimSpace(err.Error() + ": " + string(output))
 		return tool
 	}
-	if name == "scenery" && len(args) == 2 && args[0] == "version" && args[1] == "--json" {
+	if name == "scenery" && len(args) == 3 && args[0] == "version" && args[1] == "-o" && args[2] == "json" {
 		var version versionResponse
-		if json.Unmarshal(output, &version) == nil && version.Version != "" {
+		if decodeCLIJSON(output, &version) == nil && version.Version != "" {
 			tool.Version = version.Version
 			tool.Commit = version.Commit
 			tool.BuiltAt = version.BuiltAt
@@ -273,28 +272,31 @@ func buildHarnessCLIContractReport(repoRoot string, diagnostics []checkDiagnosti
 		mode   string
 		smoke  func() error
 	}{
-		{name: "version", needle: "scenery version [--json]", mode: "execute", smoke: func() error {
+		{name: "version", needle: "scenery version [-o json]", mode: "execute", smoke: func() error {
 			var out bytes.Buffer
 			return writeVersionJSON(&out, buildVersionResponse())
 		}},
-		{name: "check", needle: "scenery check [--app-root <path>] [--json]", mode: "parse", smoke: func() error {
-			_, err := parseCheckArgs([]string{"--app-root", filepath.Join(repoRoot, "testdata", "apps", "basic"), "--json"})
+		{name: "check", needle: "scenery check [--app-root <path>] [-o json]", mode: "parse", smoke: func() error {
+			_, positionals, err := parseVNextOptions("check", []string{"--app-root", filepath.Join(repoRoot, "testdata", "apps", "basic"), "-o", "json"})
+			if err == nil {
+				err = rejectCLIPositionals(positionals)
+			}
 			return err
 		}},
-		{name: "inspect docs", needle: "scenery inspect docs --json [--repo-root <path>]", mode: "execute", smoke: func() error {
+		{name: "inspect docs", needle: "scenery inspect docs -o json [--repo-root <path>]", mode: "execute", smoke: func() error {
 			var out bytes.Buffer
-			return runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--json"}, &out)
+			return runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "-o", "json"}, &out)
 		}},
-		{name: "inspect harness", needle: "scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] --json [--app-root <path>] [--repo-root <path>]", mode: "execute", smoke: func() error {
+		{name: "inspect harness", needle: "scenery inspect harness [artifact <name>|diagnostics --severity error|warning|timing --top <n>] -o json [--app-root <path>] [--repo-root <path>]", mode: "execute", smoke: func() error {
 			var out bytes.Buffer
-			return runSceneryInspect([]string{"harness", "--repo-root", repoRoot, "--json"}, &out)
+			return runSceneryInspect([]string{"harness", "--repo-root", repoRoot, "-o", "json"}, &out)
 		}},
-		{name: "harness self", needle: "scenery harness self [--repo-root <path>] [--summary|--json|--json=summary|--json=full] [--write]", mode: "parse", smoke: func() error {
-			_, err := parseHarnessSelfArgs([]string{"--repo-root", repoRoot, "--json"})
+		{name: "harness self", needle: "scenery harness self [--repo-root <path>] [--summary] [-o human|json] [--write]", mode: "parse", smoke: func() error {
+			_, err := parseHarnessSelfArgs([]string{"--repo-root", repoRoot, "-o", "json"})
 			return err
 		}},
-		{name: "ps", needle: "scenery ps [--json] [--app-root <path>] [--watch]", mode: "parse", smoke: func() error {
-			_, err := parseStatusArgs([]string{"--json", "--app-root", repoRoot, "--watch"})
+		{name: "ps", needle: "scenery ps [-o json] [--app-root <path>] [--watch]", mode: "parse", smoke: func() error {
+			_, err := parseStatusArgs([]string{"-o", "json", "--app-root", repoRoot, "--watch"})
 			return err
 		}},
 	} {
@@ -466,7 +468,7 @@ func envFindingDiagnosticFile(repoRoot string, finding harnessEnvVarFinding) str
 
 func envFindingSuggestedAction(finding harnessEnvVarFinding) string {
 	if !finding.Registered {
-		return "Remove the env usage, move configuration to `.scenery.json` (or `.config.json`), a CLI flag, or a checked-in manifest, or add a registry entry with rationale if explicitly approved."
+		return "Remove the env usage, move configuration to `.scenery.json`, a CLI flag, or a checked-in manifest, or add a registry entry with rationale if explicitly approved."
 	}
 	if finding.Scope == "runtime" && finding.Stability == "test_only" {
 		return "Remove the test-only env from production code or replace it with a supported runtime configuration surface."
@@ -481,7 +483,7 @@ func appendDirectOSEnvDiagnostics(repoRoot string, diagnostics []checkDiagnostic
 			Severity:        "error",
 			File:            filepath.ToSlash(filepath.Join(repoRoot, filepath.FromSlash(finding))),
 			Message:         "production code reads or mutates process environment outside internal/envpolicy: " + finding,
-			SuggestedAction: "Route environment access through internal/envpolicy, or move configuration to `.scenery.json` (or `.config.json`), a CLI flag, or a checked-in manifest.",
+			SuggestedAction: "Route environment access through internal/envpolicy, or move configuration to `.scenery.json`, a CLI flag, or a checked-in manifest.",
 		})
 	}
 	return diagnostics
@@ -743,7 +745,7 @@ func buildHarnessFixtureMatrixReport(ctx context.Context, repoRoot string) *harn
 					Severity:        "error",
 					File:            filepath.ToSlash(appRoot),
 					Message:         "inspect " + subject + " failed: " + firstNonEmpty(step.Error, step.OutputTail),
-					SuggestedAction: "Run `scenery inspect " + subject + " --json --app-root " + appRoot + "` and fix the fixture.",
+					SuggestedAction: "Run `scenery inspect " + subject + " -o json --app-root " + appRoot + "` and fix the fixture.",
 				})
 			}
 		}
@@ -761,10 +763,10 @@ func buildHarnessFixtureMatrixReport(ctx context.Context, repoRoot string) *harn
 func runHarnessFixtureInspect(repoRoot, subject, appRoot string) harnessStep {
 	started := time.Now()
 	var out bytes.Buffer
-	err := runSceneryInspect([]string{subject, "--app-root", appRoot, "--json"}, &out)
+	err := runSceneryInspect([]string{subject, "--app-root", appRoot, "-o", "json"}, &out)
 	step := harnessStep{
 		Name:       "inspect " + subject,
-		Command:    []string{"scenery", "inspect", subject, "--app-root", appRoot, "--json"},
+		Command:    []string{"scenery", "inspect", subject, "--app-root", appRoot, "-o", "json"},
 		OK:         err == nil,
 		DurationMS: time.Since(started).Milliseconds(),
 	}
@@ -773,7 +775,7 @@ func runHarnessFixtureInspect(repoRoot, subject, appRoot string) harnessStep {
 		return step
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		step.OK = false
 		step.Error = "invalid inspect JSON: " + err.Error()
 		return step

@@ -62,7 +62,7 @@ Every ExecPlan must include project-specific validation commands. For scenery re
 
 - `go test ./...`
 - `go install ./cmd/scenery`
-- `scenery harness self --json --write` when practical
+- `scenery harness self -o json --write` when practical
 
 For frontend changes, include the relevant `bun run typecheck` and `bun run build` commands in `ui/`.
 

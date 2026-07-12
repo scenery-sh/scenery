@@ -49,7 +49,7 @@ func TestDevBootstrapDefaultEmailCreatesUserTenantAndMembership(t *testing.T) {
 	databaseURL, cleanup := createAuthLiveTestDatabase(t, ctx)
 	t.Cleanup(cleanup)
 	resetStandardAuthStateForTest(t)
-	t.Setenv("DatabaseURL", databaseURL)
+	t.Setenv("DATABASE_URL", databaseURL)
 	runtime.SetAppConfig(runtime.AppConfig{Name: "auth-dev-bootstrap-test", ListenAddr: "127.0.0.1:0"})
 
 	cfg := normalizeStandardConfig(StandardConfig{

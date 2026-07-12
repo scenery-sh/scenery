@@ -6,6 +6,24 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Remaining v0 Compatibility Removal
+
+- Status: completed
+- Owner: scenery maintainers / CLI / runtime / auth
+- Completed: 2026-07-12
+- Quality: B
+- ExecPlan: [0108 Remove Remaining v0 Compatibility](0108-remove-remaining-v0-compatibility.md)
+
+Shipped:
+
+- Made `-o json|jsonl` and `scenery.cli.v1` / `scenery.cli.event.v1` the singular machine-output contract and removed `scenery.cli.v0`, `--api-version`, and command-local `--json` / `--jsonl` aliases.
+- Removed `.config.json`, public `et` and middleware shims, runtime mocks and unchecked registration wrappers, implicit secret reflection, legacy auth environment fallbacks and callback alias, rejected dev-service fields, and no-op devdash observability persistence.
+- Updated current docs, schemas, fixtures, harness consumers, workflows, templates, scripts, and generated-contract checks without adding replacement compatibility layers.
+
+Validation:
+
+- Passed focused and uncached full Go tests, Go vet, tracked-source contract searches, docs inspection, schema validation, TypeScript conformance and typechecking, UI validation, fixture/runtime/Postgres probes, and full self-harness with no errors; advisory review-date, file-size, and timing warnings remain.
+
 ## Go-Directive Frontend Removal
 
 - Status: completed

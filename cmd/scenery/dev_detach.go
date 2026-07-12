@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -175,9 +174,16 @@ func devArgsForDetachedChild(args []string, appRoot string) []string {
 			i++
 			continue
 		}
+		if arg == "-o" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-o=") {
+			continue
+		}
 		filtered = append(filtered, arg)
 	}
-	return append(filtered, "--app-root", appRoot)
+	return append(filtered, "-o", "jsonl", "--app-root", appRoot)
 }
 
 func detachedDevLogPath(paths localagent.Paths, appRoot string, now time.Time) string {
@@ -304,9 +310,7 @@ func detachedDevReadinessState(session localagent.Session, waitMode string, expe
 
 func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult) error {
 	if jsonMode {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return writeCLIJSON(w, result)
 	}
 	fmt.Fprintln(w, "[+] Running 1/1")
 	fmt.Fprintf(

@@ -56,7 +56,7 @@ func runHarnessKnowledgeStep(repoRoot string) harnessStep {
 				Severity:        "error",
 				File:            filepath.ToSlash(path),
 				Message:         "schema file is not valid JSON",
-				SuggestedAction: "Fix the JSON syntax, then rerun `scenery harness self --json`.",
+				SuggestedAction: "Fix the JSON syntax, then rerun `scenery harness self -o json`.",
 			})
 		}
 	}
@@ -129,7 +129,7 @@ func checkHarnessMarkdownLinks(repoRoot string, files []harnessKnowledgeFile) (i
 					Severity:        "error",
 					File:            filepath.ToSlash(path),
 					Message:         "local markdown link target does not exist: " + raw,
-					SuggestedAction: "Fix or remove the broken local link, then rerun `scenery harness self --json`.",
+					SuggestedAction: "Fix or remove the broken local link, then rerun `scenery harness self -o json`.",
 				})
 			}
 		}
@@ -253,7 +253,7 @@ func validateExecPlanContract(repoRoot string) ([]checkDiagnostic, map[string]an
 }
 
 var requiredSkillMentions = []string{
-	"scenery harness ui --json",
+	"scenery harness ui -o json",
 	"docs/ui-agent-contract.md",
 	"@scenery registry",
 	"bun run shadcn:add @scenery/",

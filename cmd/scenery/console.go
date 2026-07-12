@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -14,14 +13,16 @@ import (
 )
 
 type runConsole struct {
-	out     io.Writer
-	err     io.Writer
-	verbose bool
-	json    bool
-	palette termstyle.Palette
-	appName string
-	appRoot string
-	mu      sync.Mutex
+	out        io.Writer
+	err        io.Writer
+	verbose    bool
+	json       bool
+	palette    termstyle.Palette
+	appName    string
+	appRoot    string
+	mu         sync.Mutex
+	events     *cliEventWriter
+	eventCount int
 }
 
 type runURLs struct {
@@ -45,7 +46,7 @@ type runEventApp struct {
 }
 
 func newRunConsole(out, err io.Writer, verbose, jsonMode bool, appName, appRoot string) *runConsole {
-	return &runConsole{
+	console := &runConsole{
 		out:     out,
 		err:     err,
 		verbose: verbose,
@@ -54,6 +55,10 @@ func newRunConsole(out, err io.Writer, verbose, jsonMode bool, appName, appRoot 
 		appName: appName,
 		appRoot: appRoot,
 	}
+	if jsonMode {
+		console.events = newCLIEventWriter(out)
+	}
+	return console
 }
 
 func (c *runConsole) Phase(title string, fn func() error) error {
@@ -354,8 +359,22 @@ func (c *runConsole) Event(eventType string, data map[string]any) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	enc := json.NewEncoder(c.out)
-	_ = enc.Encode(event)
+	if c.events.event(event) == nil {
+		c.eventCount++
+	}
+}
+
+func (c *runConsole) Finish(err error) {
+	if c == nil || c.events == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data := map[string]any{"event_count": c.eventCount, "ok": err == nil}
+	if err != nil {
+		data["error"] = err.Error()
+	}
+	_ = c.events.write("summary", true, data)
 }
 
 type setupOutputWriter struct {

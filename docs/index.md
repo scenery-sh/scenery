@@ -5,7 +5,7 @@ This is the human entry point for scenery's local knowledge base. The docs are a
 For agents, the machine-readable source of truth is [knowledge.json](knowledge.json). Validate it with:
 
 ```text
-scenery inspect docs --json
+scenery inspect docs -o json
 scenery harness self --summary
 ```
 
@@ -46,7 +46,7 @@ JSON schemas live in [schemas/](schemas/). They are part of the local agent cont
 Start with:
 
 - [scenery.config.v1](schemas/scenery.config.v1.schema.json)
-- [scenery.check.result.v1](schemas/scenery.check.result.v1.schema.json)
+- [scenery.build.result.v1](schemas/scenery.build.result.v1.schema.json)
 - [scenery.environment.registry.v1](schemas/scenery.environment.registry.v1.schema.json)
 - [scenery.harness.result.v1](schemas/scenery.harness.result.v1.schema.json)
 - [scenery.inspect.validation.v1](schemas/scenery.inspect.validation.v1.schema.json)
@@ -56,6 +56,7 @@ Start with:
 - [scenery.inspect.docs.v1](schemas/scenery.inspect.docs.v1.schema.json)
 - [scenery.docs.index.v1](schemas/scenery.docs.index.v1.schema.json)
 - [scenery.cli.v1](schemas/scenery.cli.v1.schema.json)
+- [scenery.cli.event.v1](schemas/scenery.cli.event.v1.schema.json)
 - [scenery.manifest.v1](schemas/scenery.manifest.v1.schema.json)
 - [scenery.typescript-client-generated.v1](schemas/scenery.typescript-client-generated.v1.schema.json)
 - [scenery.version.v1](schemas/scenery.version.v1.schema.json)

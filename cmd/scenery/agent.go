@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -158,9 +157,7 @@ func agentRestartCommand(args []string) error {
 		return err
 	}
 	if opts.JSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]any{
+		return writeCLIJSON(os.Stdout, map[string]any{
 			"schema_version": "scenery.agent.restart.v1",
 			"old_pid":        oldHealth.PID,
 			"pid":            health.PID,
@@ -185,7 +182,7 @@ func parseAgentArgs(args []string) (agentOptions, error) {
 	flags.BoolFunc("router-tls", "", func(string) error { opts.RouterTLS, opts.RouterHTTP = true, false; return nil })
 	flags.BoolFunc("router-http", "", func(string) error { opts.RouterHTTP, opts.RouterTLS = true, false; return nil })
 	flags.BoolFunc("trust", "", func(string) error { opts.Trust, opts.RouterTLS, opts.RouterHTTP = true, true, false; return nil })
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return agentOptions{}, err
@@ -332,7 +329,7 @@ func statusCommandWithClient(client *localagent.Client, stdout io.Writer, args [
 func parseStatusArgs(args []string) (statusOptions, error) {
 	opts := statusOptions{JSON: false}
 	flags := newCLIFlagSet("ps")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Watch, "watch", false, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	rejectCLIFlag(flags, "session", "scenery ps no longer accepts --session; use --app-root to inspect an app directory")
@@ -355,11 +352,7 @@ func writeStatus(ctx context.Context, client *localagent.Client, stdout io.Write
 	substrates, _ := statusSubstrates(ctx, client)
 	if opts.JSON {
 		health, _ := client.Health(ctx)
-		enc := json.NewEncoder(stdout)
-		if !opts.Watch {
-			enc.SetIndent("", "  ")
-		}
-		return enc.Encode(map[string]any{
+		return writeCLIJSON(stdout, map[string]any{
 			"schema_version": "scenery.agent.status.v1",
 			"agent":          health,
 			"sessions":       sessions,
@@ -636,9 +629,7 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 }
 
 func writeDownJSON(w io.Writer, resp downResponse) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(resp)
+	return writeCLIJSON(w, resp)
 }
 
 func deleteStoppedSessionRecord(ctx context.Context, client *localagent.Client, session localagent.Session) (localagent.Session, bool, error) {
@@ -727,7 +718,7 @@ func parseDownArgs(args []string) (downOptions, error) {
 	flags.BoolVar(&opts.DB, "db", false, "")
 	flags.BoolVar(&opts.State, "state", false, "")
 	flags.BoolVar(&opts.All, "all", false, "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return downOptions{}, err
@@ -807,7 +798,7 @@ func pruneCommandWithDeps(client *localagent.Client, stdout io.Writer, openStore
 		pruned = append(pruned, deleted.SessionID)
 	}
 	if opts.JSON {
-		return json.NewEncoder(stdout).Encode(map[string]any{
+		return writeCLIJSON(stdout, map[string]any{
 			"cutoff":             cutoff.Format(time.RFC3339Nano),
 			"pruned":             pruned,
 			"skipped":            skipped,
@@ -828,7 +819,7 @@ func parsePruneArgs(args []string) (pruneOptions, error) {
 	flags := newCLIFlagSet("prune")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&age, "older-than", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return pruneOptions{}, err

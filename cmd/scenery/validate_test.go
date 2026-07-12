@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,12 +44,12 @@ func TestInspectValidationProfiles(t *testing.T) {
 	}`)
 
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"validation", "--app-root", root, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"validation", "--app-root", root, "-o", "json"}, &out); err != nil {
 		t.Fatalf("inspect validation: %v", err)
 	}
 	var resp inspectValidationResponse
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if resp.SchemaVersion != validationInspectSchema || resp.Default != "quick" || len(resp.Profiles) != 2 {
 		t.Fatalf("resp = %+v", resp)
@@ -74,12 +73,12 @@ func TestInspectValidationReturnsEmptyArrays(t *testing.T) {
 	}`)
 
 	var out bytes.Buffer
-	if err := runSceneryInspect([]string{"validation", "--app-root", root, "--json"}, &out); err != nil {
+	if err := runSceneryInspect([]string{"validation", "--app-root", root, "-o", "json"}, &out); err != nil {
 		t.Fatalf("inspect validation: %v", err)
 	}
 	var resp inspectValidationResponse
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if resp.Diagnostics == nil {
 		t.Fatalf("diagnostics is nil")
@@ -110,15 +109,15 @@ func TestValidateDryRunDoesNotExecute(t *testing.T) {
 	}`)
 
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"quick", "--app-root", root, "--dry-run", "--json"}); err != nil {
+	if err := runSceneryValidate(context.Background(), &out, []string{"quick", "--app-root", root, "--dry-run", "-o", "json"}); err != nil {
 		t.Fatalf("validate dry-run: %v", err)
 	}
 	if fileExists(filepath.Join(root, "SHOULD_NOT_EXIST")) {
 		t.Fatalf("dry-run executed shell task")
 	}
 	var resp validationPlanResponse
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if !resp.OK || len(resp.Steps) != 1 || resp.Steps[0].Name != "task:touch" {
 		t.Fatalf("resp = %+v", resp)
@@ -140,12 +139,12 @@ func TestValidateRunsConfiguredTaskAndWritesResult(t *testing.T) {
 	}`)
 
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "--json", "--write"}); err != nil {
+	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "-o", "json", "--write"}); err != nil {
 		t.Fatalf("validate: %v\n%s", err, out.String())
 	}
 	var resp validationResultResponse
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if !resp.OK || len(resp.Steps) != 1 || resp.Steps[0].Evidence.StdoutTail != "hello" {
 		t.Fatalf("resp = %+v", resp)
@@ -177,12 +176,12 @@ func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
 	}`)
 
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "--json"}); err != nil {
+	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "-o", "json"}); err != nil {
 		t.Fatalf("validate: %v\n%s", err, out.String())
 	}
 	var resp validationResultResponse
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if got := resp.Steps[0].Evidence.StdoutTail; got != "parent/task" {
 		t.Fatalf("stdout tail = %q", got)
@@ -215,12 +214,12 @@ func TestValidateChangedSelectsMatchingProfiles(t *testing.T) {
 	t.Cleanup(func() { collectValidationChangedFiles = oldCollect })
 
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"changed", "--app-root", root, "--base", "origin/main", "--dry-run", "--json"}); err != nil {
+	if err := runSceneryValidate(context.Background(), &out, []string{"changed", "--app-root", root, "--base", "origin/main", "--dry-run", "-o", "json"}); err != nil {
 		t.Fatalf("validate changed: %v\n%s", err, out.String())
 	}
 	var resp validationPlanResponse
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if strings.Join(resp.Selection.ResolvedProfiles, ",") != "quick,pulse" {
 		t.Fatalf("resolved profiles = %+v", resp.Selection.ResolvedProfiles)
@@ -292,12 +291,12 @@ func TestValidateCapturesCodeTaskOutput(t *testing.T) {
 	t.Cleanup(func() { scriptCommandContext = prev })
 
 	var out bytes.Buffer
-	if err := runSceneryValidate(context.Background(), &out, []string{"quick", "--app-root", root, "--json"}); err != nil {
+	if err := runSceneryValidate(context.Background(), &out, []string{"quick", "--app-root", root, "-o", "json"}); err != nil {
 		t.Fatalf("validate code task: %v\n%s", err, out.String())
 	}
 	var resp validationResultResponse
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if got := resp.Steps[0].Evidence.StdoutTail; got != "code-task-env" {
 		t.Fatalf("stdout tail = %q", got)

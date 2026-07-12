@@ -89,7 +89,7 @@ func parseDBSetupArgs(args []string) (dbSetupOptions, error) {
 	var opts dbSetupOptions
 	flags := newCLIFlagSet("db setup")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return dbSetupOptions{}, err

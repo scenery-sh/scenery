@@ -139,7 +139,7 @@ func parseDBSeedArgs(args []string) (dbSeedOptions, error) {
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Env, "env", opts.Env, "")
 	flags.BoolVar(&opts.DryRun, "dry-run", false, "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return dbSeedOptions{}, err

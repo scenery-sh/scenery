@@ -15,7 +15,7 @@ func TestScanWatchedFilesSkipsGitignoredPaths(t *testing.T) {
 
 	root := t.TempDir()
 	writeWatchFile(t, root, ".gitignore", "/ignored/\n.env\n")
-	writeWatchFile(t, root, ".env", "DatabaseURL=postgres://localhost/watch\n")
+	writeWatchFile(t, root, ".env", "DATABASE_URL=postgres://localhost/watch\n")
 	writeWatchFile(t, root, "kept/api.go", "package kept\n")
 	writeWatchFile(t, root, "ignored/api.go", "package ignored\n")
 
@@ -87,34 +87,6 @@ func TestScanWatchedFilesSkipsConfiguredWatchIgnorePaths(t *testing.T) {
 		if _, ok := snapshot.files[ignored]; ok {
 			t.Fatalf("snapshot unexpectedly included watch.ignore path %q: %+v", ignored, snapshot)
 		}
-	}
-}
-
-func TestScanWatchedFilesSkipsConfigAliasWatchIgnorePaths(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	writeWatchFile(t, root, ".config.json", `{
-		"name": "watchapp",
-		"watch": {
-			"ignore": ["reference/"]
-		}
-	}`)
-	writeWatchFile(t, root, "kept/api.go", "package kept\n")
-	writeWatchFile(t, root, "reference/api.go", "package reference\n")
-
-	snapshot, err := scanWatchedFiles(root)
-	if err != nil {
-		t.Fatalf("scanWatchedFiles returned error: %v", err)
-	}
-	if _, ok := snapshot.files[".config.json"]; !ok {
-		t.Fatalf("snapshot missing .config.json: %+v", snapshot)
-	}
-	if _, ok := snapshot.files["kept/api.go"]; !ok {
-		t.Fatalf("snapshot missing kept/api.go: %+v", snapshot)
-	}
-	if _, ok := snapshot.files["reference/api.go"]; ok {
-		t.Fatalf("snapshot unexpectedly included configured watch.ignore path: %+v", snapshot)
 	}
 }
 

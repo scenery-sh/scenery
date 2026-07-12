@@ -154,11 +154,11 @@ func buildHarnessSelfSummary(resp harnessSelfResponse) harnessSelfSummaryRespons
 		Reports:           summarizeHarnessReports(resp, changedPaths, architectureDebtWarnings, architectureChangedWarnings),
 		Artifacts:         normalizeHarnessArtifacts(resp.Artifacts),
 		Drilldowns: []string{
-			"scenery inspect harness --json",
-			"scenery inspect harness artifact test-timing --json",
-			"scenery inspect harness artifact drift --json",
-			"scenery inspect harness diagnostics --severity warning --json",
-			"scenery inspect harness timing --top 10 --json",
+			"scenery inspect harness -o json",
+			"scenery inspect harness artifact test-timing -o json",
+			"scenery inspect harness artifact drift -o json",
+			"scenery inspect harness diagnostics --severity warning -o json",
+			"scenery inspect harness timing --top 10 -o json",
 		},
 		Wrote: normalizeRepoPath(resp.Repo.Root, resp.Wrote),
 	}
@@ -363,7 +363,7 @@ func summarizeTestTiming(report *harnessTestTimingReport) *harnessSelfTestTiming
 }
 
 func summarizeKnowledge(resp harnessSelfResponse) harnessSelfKnowledgeSummary {
-	out := harnessSelfKnowledgeSummary{EntrypointCount: len(resp.Knowledge.Entrypoints), SchemaCount: len(resp.Knowledge.Schemas), Drilldown: "scenery inspect docs --json"}
+	out := harnessSelfKnowledgeSummary{EntrypointCount: len(resp.Knowledge.Entrypoints), SchemaCount: len(resp.Knowledge.Schemas), Drilldown: "scenery inspect docs -o json"}
 	for _, step := range resp.Steps {
 		if step.Name != "inspect docs" || step.Summary == nil {
 			continue
@@ -440,7 +440,7 @@ func buildHarnessSelfAttention(resp harnessSelfResponse, changedPaths map[string
 				}
 			}
 			if architectureChangedWarnings > 0 {
-				items = append(items, harnessSelfAttentionItem{Severity: "warning", Category: "architecture", Message: fmt.Sprintf("%d architecture warnings intersect changed files", architectureChangedWarnings), NextAction: "Fix or split the changed architecture hotspot before expanding it.", TopEntries: topChangedDiagnosticEntries(step.Diagnostics, changedPaths, 5), Artifact: ".scenery/harness/self-latest.json", Drilldown: "scenery inspect harness diagnostics --severity warning --json"})
+				items = append(items, harnessSelfAttentionItem{Severity: "warning", Category: "architecture", Message: fmt.Sprintf("%d architecture warnings intersect changed files", architectureChangedWarnings), NextAction: "Fix or split the changed architecture hotspot before expanding it.", TopEntries: topChangedDiagnosticEntries(step.Diagnostics, changedPaths, 5), Artifact: ".scenery/harness/self-latest.json", Drilldown: "scenery inspect harness diagnostics --severity warning -o json"})
 			}
 			continue
 		}
@@ -587,11 +587,11 @@ func artifactForStepName(name string) string {
 func drilldownForStepName(name string) string {
 	switch name {
 	case "go tests":
-		return "scenery inspect harness timing --top 10 --json"
+		return "scenery inspect harness timing --top 10 -o json"
 	case "contract drift checks":
-		return "scenery inspect harness artifact drift --json"
+		return "scenery inspect harness artifact drift -o json"
 	default:
-		return "scenery inspect harness diagnostics --severity warning --json"
+		return "scenery inspect harness diagnostics --severity warning -o json"
 	}
 }
 

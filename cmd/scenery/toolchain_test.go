@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -12,7 +11,7 @@ import (
 func TestParseToolchainArgs(t *testing.T) {
 	t.Parallel()
 
-	opts, err := parseToolchainArgs([]string{"verify", "--json", "--tool", "victoria-metrics", "--platform", "linux/amd64", "--images", "--strict"})
+	opts, err := parseToolchainArgs([]string{"verify", "-o", "json", "--tool", "victoria-metrics", "--platform", "linux/amd64", "--images", "--strict"})
 	if err != nil {
 		t.Fatalf("parseToolchainArgs() error = %v", err)
 	}
@@ -27,7 +26,7 @@ func TestParseToolchainArgs(t *testing.T) {
 func TestRunToolchainListJSON(t *testing.T) {
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", t.TempDir())
 	var out bytes.Buffer
-	if err := runToolchain(t.Context(), &out, []string{"list", "--json"}); err != nil {
+	if err := runToolchain(t.Context(), &out, []string{"list", "-o", "json"}); err != nil {
 		t.Fatalf("runToolchain list: %v", err)
 	}
 	var payload struct {
@@ -40,8 +39,8 @@ func TestRunToolchainListJSON(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"source_locks"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
-		t.Fatalf("json.Unmarshal: %v\n%s", err, out.String())
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
 	if payload.SchemaVersion != "scenery.toolchain.status.v1" {
 		t.Fatalf("schema_version = %q", payload.SchemaVersion)
@@ -100,7 +99,7 @@ func TestVersionJSONIncludesToolchainManifest(t *testing.T) {
 func TestRunToolchainPathJSON(t *testing.T) {
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", t.TempDir())
 	var out bytes.Buffer
-	if err := runToolchain(t.Context(), &out, []string{"path", "--json", "--tool", "victoria-metrics"}); err != nil {
+	if err := runToolchain(t.Context(), &out, []string{"path", "-o", "json", "--tool", "victoria-metrics"}); err != nil {
 		t.Fatalf("runToolchain path: %v", err)
 	}
 	if !strings.Contains(out.String(), `"managed_path"`) {
@@ -111,8 +110,8 @@ func TestRunToolchainPathJSON(t *testing.T) {
 func TestRunToolchainUnknownToolFailsClosed(t *testing.T) {
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", t.TempDir())
 	for _, args := range [][]string{
-		{"sync", "--json", "--tool", "missing"},
-		{"path", "--json", "--tool", "missing"},
+		{"sync", "-o", "json", "--tool", "missing"},
+		{"path", "-o", "json", "--tool", "missing"},
 	} {
 		var out bytes.Buffer
 		err := runToolchain(t.Context(), &out, args)
@@ -128,11 +127,11 @@ func TestRunToolchainUnknownToolFailsClosed(t *testing.T) {
 func TestRunToolchainStrictImagesRejectsTagOnlyRefs(t *testing.T) {
 	t.Setenv("SCENERY_TOOLCHAIN_DIR", t.TempDir())
 	var out bytes.Buffer
-	err := runToolchain(t.Context(), &out, []string{"verify", "--json", "--tool", "victoria-metrics", "--images", "--strict"})
+	err := runToolchain(t.Context(), &out, []string{"verify", "-o", "json", "--tool", "victoria-metrics", "--images", "--strict"})
 	if err == nil {
 		t.Fatal("expected strict tag-only image verification to fail")
 	}
-	if !strings.Contains(out.String(), `"status": "invalid"`) {
+	if !strings.Contains(out.String(), `"status":"invalid"`) {
 		t.Fatalf("strict image output missing invalid status: %s", out.String())
 	}
 }

@@ -117,7 +117,7 @@ func runSceneryHarnessSelf(ctx context.Context, stdout io.Writer, args []string)
 		resp.Steps = append(resp.Steps,
 			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui typecheck", []string{"bun", "run", "typecheck"}, artifactCtx),
 			runHarnessExecStep(ctx, dashboardUIRoot, "dashboard ui build", []string{"bun", "run", "build"}, artifactCtx),
-			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBundleStale, "Run `./scripts/build-dashboard-ui-embed.sh`, rebuild the scenery binary, restart scenery, then rerun `scenery harness self --json`."),
+			runHarnessFreshnessStep("dashboard ui fresh", dashboardUIRoot, dashboardUIBundleStale, "Run `./scripts/build-dashboard-ui-embed.sh`, rebuild the scenery binary, restart scenery, then rerun `scenery harness self -o json`."),
 			runHarnessExecStep(ctx, repoRoot, "vNext TypeScript client conformance", []string{"bun", "test", "internal/vnext/testdata/typescript_client_conformance.test.ts"}, artifactCtx),
 			runHarnessExecStep(ctx, repoRoot, "vNext TypeScript client typecheck", []string{filepath.Join(dashboardUIRoot, "node_modules", ".bin", "tsc"), "-p", "internal/vnext/testdata/tsconfig.generated-clients.json"}, artifactCtx),
 		)
@@ -212,10 +212,10 @@ func harnessSelfGoTestEnv() []string {
 func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 	started := time.Now()
 	var out bytes.Buffer
-	err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "--json"}, &out)
+	err := runSceneryInspect([]string{"docs", "--repo-root", repoRoot, "-o", "json"}, &out)
 	step := harnessStep{
 		Name:       "inspect docs",
-		Command:    []string{"scenery", "inspect", "docs", "--repo-root", repoRoot, "--json"},
+		Command:    []string{"scenery", "inspect", "docs", "--repo-root", repoRoot, "-o", "json"},
 		OK:         err == nil,
 		DurationMS: time.Since(started).Milliseconds(),
 	}
@@ -226,19 +226,19 @@ func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         firstNonEmpty(step.OutputTail, step.Error),
-			SuggestedAction: "Run `scenery inspect docs --json`, fix the reported docs issue, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Run `scenery inspect docs -o json`, fix the reported docs issue, then rerun `scenery harness self -o json`.",
 		}}
 		return step
 	}
 	var payload inspectDocsResponse
-	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+	if err := decodeCLIJSON(out.Bytes(), &payload); err != nil {
 		step.OK = false
 		step.Error = "invalid inspect docs JSON: " + err.Error()
 		step.Diagnostics = []checkDiagnostic{{
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         step.Error,
-			SuggestedAction: "Fix `scenery inspect docs --json` output so it conforms to scenery.inspect.docs.v1.",
+			SuggestedAction: "Fix `scenery inspect docs -o json` output so it conforms to scenery.inspect.docs.v1.",
 		}}
 		return step
 	}
@@ -259,29 +259,18 @@ func runHarnessInspectDocsStep(repoRoot string) harnessStep {
 			Stage:           step.Name,
 			Severity:        "error",
 			Message:         "docs knowledge base has missing or stale entries",
-			SuggestedAction: "Run `scenery inspect docs --json`, update docs/knowledge.json or the referenced docs, then rerun `scenery harness self --json`.",
+			SuggestedAction: "Run `scenery inspect docs -o json`, update docs/knowledge.json or the referenced docs, then rerun `scenery harness self -o json`.",
 		}}
 	}
 	return step
 }
 
 func parseHarnessSelfArgs(args []string) (harnessSelfOptions, error) {
-	opts := harnessSelfOptions{Mode: harnessSelfModeDefault}
+	opts := harnessSelfOptions{Mode: harnessSelfModeDefault, Output: harnessSelfOutputFull}
 	flags := newCLIFlagSet("harness self")
 	flags.StringVar(&opts.RepoRoot, "repo-root", "", "")
-	flags.BoolFunc("json", "", func(value string) error {
-		opts.JSON = true
-		switch value {
-		case "true", "summary":
-			opts.Output = harnessSelfOutputSummary
-		case "full":
-			opts.Output = harnessSelfOutputFull
-		default:
-			return fmt.Errorf("invalid --json mode %q", value)
-		}
-		return nil
-	})
-	flags.BoolFunc("summary", "", func(string) error { opts.JSON, opts.Output = true, harnessSelfOutputSummary; return nil })
+	registerJSONOutput(flags, &opts.JSON)
+	flags.BoolFunc("summary", "", func(string) error { opts.Output = harnessSelfOutputSummary; return nil })
 	flags.BoolVar(&opts.Write, "write", false, "")
 	flags.BoolVar(&opts.FreshTests, "fresh-tests", false, "")
 	setMode := func(mode string) func(string) error {
@@ -671,7 +660,7 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.harness.result.v1.schema.json",
 		"docs/schemas/scenery.harness.ui.v1.schema.json",
 		"docs/schemas/scenery.harness.ui.dom.v1.schema.json",
-		"docs/schemas/scenery.check.result.v1.schema.json",
+		"docs/schemas/scenery.cli.v1.schema.json",
 		"docs/schemas/scenery.inspect.app.v1.schema.json",
 		"docs/schemas/scenery.inspect.build.v1.schema.json",
 		"docs/schemas/scenery.inspect.docs.v1.schema.json",
@@ -694,7 +683,6 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.validation.result.v1.schema.json",
 		"docs/schemas/scenery.traces.clear.v1.schema.json",
 		"docs/schemas/scenery.dev.event.v1.schema.json",
-		"docs/schemas/scenery.logs.event.v1.schema.json",
 		"docs/schemas/scenery.logs.query.v1.schema.json",
 		"docs/schemas/scenery.logs.tail.entry.v1.schema.json",
 		"docs/schemas/scenery.metrics.labels.v1.schema.json",
@@ -852,14 +840,11 @@ func writeHarnessCompactJSONFile(path string, payload any) error {
 }
 
 func writeHarnessSelfJSON(w io.Writer, payload harnessSelfResponse) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(payload)
+	return writeCLIJSON(w, payload)
 }
 
 func writeHarnessSelfSummaryJSON(w io.Writer, payload harnessSelfSummaryResponse) error {
-	enc := json.NewEncoder(w)
-	return enc.Encode(payload)
+	return writeCLIJSON(w, payload)
 }
 
 func writeHarnessSelfText(w io.Writer, resp harnessSelfResponse) error {
@@ -888,16 +873,16 @@ func writeHarnessSelfText(w io.Writer, resp harnessSelfResponse) error {
 func installSuggestion(binary string) string {
 	switch binary {
 	case "bun":
-		return "Install Bun or ensure it is available in PATH, then rerun `scenery harness self --json`."
+		return "Install Bun or ensure it is available in PATH, then rerun `scenery harness self -o json`."
 	case "go":
-		return "Install Go or ensure it is available in PATH, then rerun `scenery harness self --json`."
+		return "Install Go or ensure it is available in PATH, then rerun `scenery harness self -o json`."
 	default:
-		return "Install `" + binary + "` or ensure it is available in PATH, then rerun `scenery harness self --json`."
+		return "Install `" + binary + "` or ensure it is available in PATH, then rerun `scenery harness self -o json`."
 	}
 }
 
 func rerunSuggestion(command []string, dir string) string {
-	return "Run `" + strings.Join(command, " ") + "` in `" + dir + "`, fix the failure, then rerun `scenery harness self --json`."
+	return "Run `" + strings.Join(command, " ") + "` in `" + dir + "`, fix the failure, then rerun `scenery harness self -o json`."
 }
 
 func tailString(value string, limit int) string {

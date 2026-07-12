@@ -523,13 +523,6 @@ func TestAgentDashboardReportUsesSessionReportToken(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("report status = %d body=%q", rec.Code, rec.Body.String())
 	}
-	counts, err := store.CountLogsByLevelForSession(context.Background(), "demo", session.SessionID, time.Now().Add(-time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(counts) != 0 {
-		t.Fatalf("log counts = %+v", counts)
-	}
 }
 
 func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
@@ -575,7 +568,7 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 	if err := waitForAgentCommandPing(ctx, client); err != nil {
 		t.Fatal(err)
 	}
-	session, err := client.Register(ctx, localagent.RegisterRequest{
+	_, err = client.Register(ctx, localagent.RegisterRequest{
 		BaseAppID:   "demo",
 		AppRoot:     t.TempDir(),
 		ReportToken: "report-secret",
@@ -612,18 +605,4 @@ func TestAgentDashboardRejectsStaleReportWithStructuredLog(t *testing.T) {
 		t.Fatalf("report status = %d body=%q", rec.Code, rec.Body.String())
 	}
 
-	counts, err := store.CountLogsByLevelForSession(context.Background(), "demo", "missing-session", time.Now().Add(-time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(counts) != 0 {
-		t.Fatalf("stale log counts = %+v", counts)
-	}
-	currentCounts, err := store.CountLogsByLevelForSession(context.Background(), "demo", session.SessionID, time.Now().Add(-time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(currentCounts) != 0 {
-		t.Fatalf("current session should not receive stale report log: %+v", currentCounts)
-	}
 }

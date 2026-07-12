@@ -142,7 +142,7 @@ func runTaskCommandWithHooks(ctx context.Context, stdout io.Writer, args []strin
 		return nil
 	case "graph":
 		if !opts.JSON {
-			return fmt.Errorf("scenery task graph requires --json")
+			return fmt.Errorf("scenery task graph requires -o json")
 		}
 		graph, err := buildTaskGraph(appRoot, cfg)
 		if err != nil {
@@ -158,7 +158,7 @@ func runTaskCommandWithHooks(ctx context.Context, stdout io.Writer, args []strin
 
 func parseTaskArgs(args []string) (taskOptions, error) {
 	if len(args) == 0 {
-		return taskOptions{}, fmt.Errorf("usage: scenery task list|inspect|run|graph [--app-root <path>] [--json]")
+		return taskOptions{}, fmt.Errorf("usage: scenery task list|inspect|run|graph [--app-root <path>] [-o json]")
 	}
 	opts := taskOptions{Action: args[0]}
 	before, passthrough, hasPassthrough := splitCLIPassthrough(args[1:])
@@ -170,7 +170,7 @@ func parseTaskArgs(args []string) (taskOptions, error) {
 	flags.StringVar(&opts.Env, "env", "", "")
 	lang := ""
 	flags.StringVar(&lang, "lang", "", "")
-	flags.BoolVar(&opts.JSON, "json", false, "")
+	registerJSONOutput(flags, &opts.JSON)
 	positionals, err := parseCLIFlags(flags, before)
 	if err != nil {
 		return taskOptions{}, err

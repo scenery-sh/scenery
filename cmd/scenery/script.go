@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -147,9 +146,7 @@ func runSceneryScriptInspect(ctx context.Context, stdout io.Writer, opts scriptO
 		return err
 	}
 	if opts.JSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(scriptInspectOutput{Target: target, Candidate: candidate, Searched: searched})
+		return writeCLIJSON(stdout, scriptInspectOutput{Target: target, Candidate: candidate, Searched: searched})
 	}
 	_, err = fmt.Fprintf(stdout, "%s:%s\n  lang: %s\n  layout: %s\n  path: %s\n", target.Domain, target.Name, candidate.Lang, candidate.Layout, candidate.Path)
 	_ = ctx
