@@ -3,6 +3,7 @@ package vnext
 import (
 	"fmt"
 
+	"scenery.sh/internal/model"
 	"scenery.sh/internal/parse"
 )
 
@@ -54,9 +55,15 @@ func verifyGoImplementation(result *Result) []Diagnostic {
 	}
 	var diagnostics []Diagnostic
 	for _, target := range targets {
-		appModel, err := parse.AppWithOverlayTarget(result.Root, result.Manifest.Application.Name, overlay, target.Context)
-		if err != nil {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("staged Go implementation verification failed for %s: %v", target.Resource.Address, err), Address: target.Resource.Address})
+		var appModelErr error
+		var appModel = (*model.App)(nil)
+		if migrationHasNoLegacyOwner(result.Migration) {
+			appModel, appModelErr = parse.AppWithOverlayTargetAllowEmpty(result.Root, result.Manifest.Application.Name, overlay, target.Context)
+		} else {
+			appModel, appModelErr = parse.AppWithOverlayTarget(result.Root, result.Manifest.Application.Name, overlay, target.Context)
+		}
+		if appModelErr != nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN6202", Severity: "error", Message: fmt.Sprintf("staged Go implementation verification failed for %s: %v", target.Resource.Address, appModelErr), Address: target.Resource.Address})
 			continue
 		}
 		if stringValue(target.Effective["role"]) == "contract" {
@@ -66,6 +73,18 @@ func verifyGoImplementation(result *Result) []Diagnostic {
 		diagnostics = append(diagnostics, validateNativeGoHandlers(appModel, result.Manifest.Resources, result.Migration)...)
 	}
 	return diagnostics
+}
+
+func migrationHasNoLegacyOwner(migration *Migration) bool {
+	if migration == nil || len(migration.Services) == 0 {
+		return false
+	}
+	for _, service := range migration.Services {
+		if service.Active != "native" {
+			return false
+		}
+	}
+	return true
 }
 
 func hasNativeGoHandlers(resources []Resource) bool {

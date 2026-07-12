@@ -104,6 +104,11 @@ func TestVNextInspectProjectsLegacyServiceAndPrivateEndpointIdentity(t *testing.
 			Spec:   map[string]any{"protocol": "internal", "operation": map[string]any{"$ref": "audit/operation/prune_old_logs"}},
 			Origin: vnext.Origin{Kind: "legacy_v0", LegacyIdentity: map[string]any{"path": "/audit/prune-old-logs", "methods": []string{"POST"}, "access": "private"}},
 		},
+		{
+			Address: "audit/binding/prune_old_logs_native_internal", Kind: "scenery.binding/v1", Name: "prune_old_logs_native_internal", Module: "audit",
+			Spec:   map[string]any{"protocol": "internal", "operation": map[string]any{"$ref": "audit/operation/prune_old_logs"}},
+			Origin: vnext.Origin{Kind: "authored"},
+		},
 	}
 	result := &vnext.Result{Manifest: &vnext.Manifest{Resources: resources}}
 

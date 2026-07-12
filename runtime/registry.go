@@ -66,6 +66,20 @@ type Endpoint struct {
 	DecodeContractRequest func(*http.Request, map[string]string) (ContractDecodedRequest, error)
 	EncodeContractOutcome func(*http.Request, any) (ContractHTTPResponse, error)
 	ContractPolicy        *ContractHTTPPolicy
+	ContractPathTail      *ContractPathTail
+}
+
+type ContractPathTail struct {
+	CanonicalTemplate string
+	Name              string
+	Target            string
+	Type              string
+	EmptyCapture      string
+	MinimumSegments   int
+	Decoding          string
+	Guarantee         string
+	Precedence        []string
+	RequiredProfiles  []string
 }
 
 type ContractDecodedRequest struct {
@@ -266,6 +280,9 @@ func RegisterEndpointChecked(ep *Endpoint) error {
 	if err := validateContractHTTPPolicy(ep.ContractPolicy); err != nil {
 		return fmt.Errorf("runtime: endpoint %s contract policy: %w", key, err)
 	}
+	if err := validateContractPathTail(ep); err != nil {
+		return fmt.Errorf("runtime: endpoint %s path tail: %w", key, err)
+	}
 	global.mu.Lock()
 	defer global.mu.Unlock()
 	if _, exists := global.endpoints[key]; exists {
@@ -273,6 +290,11 @@ func RegisterEndpointChecked(ep *Endpoint) error {
 	}
 	if len(ep.Methods) == 0 {
 		return fmt.Errorf("runtime: endpoint %s missing methods", key)
+	}
+	for existingKey, existing := range global.endpoints {
+		if contractRouteConflict(ep, existing) {
+			return fmt.Errorf("runtime: endpoint %s conflicts with route registered by %s", key, existingKey)
+		}
 	}
 	global.endpoints[key] = ep
 	return nil

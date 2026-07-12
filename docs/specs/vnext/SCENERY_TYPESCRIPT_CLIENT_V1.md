@@ -3,7 +3,7 @@
 Normative companion specification
 
 Profile: `scenery.typescript-client/v1`  
-Document revision: `0.4-draft`  
+Document revision: `0.5-draft`\
 Status: draft for Scenery language edition 2027  
 Umbrella specification: [SCENERY_LANGUAGE_SPEC.md](SCENERY_LANGUAGE_SPEC.md)
 
@@ -22,7 +22,11 @@ The profile depends on:
 - each binding codec profile represented by a client;
 - canonical expanded graph and artifact-projection revisions.
 
-Version 1 generates public unary HTTP clients for `scenery.http-codec/v1`. Enqueue receipts are included when `scenery.runtime-durable/v1` is also claimed.
+Version 1 generates public unary HTTP clients for `scenery.http-codec/v1`.
+Bindings using terminal path tails are included only when
+`scenery.http-path-tail/v1` is also claimed and follow
+[SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md). Enqueue receipts
+are included when `scenery.runtime-durable/v1` is also claimed.
 
 It does not generate:
 
@@ -271,6 +275,22 @@ Authentication material is supplied only through an explicitly generated authent
 
 The client joins base URL and gateway/binding paths according to the HTTP codec profile. It does not use platform URL behavior where that would change canonical encoding.
 
+### 13.1 Path-tail URL construction
+
+For a binding with `path_tail`, the client reads the semantic `string` or
+`RelativePathString` field rather than accepting a pre-encoded fragment. For a
+non-empty value it MUST split on `/`, reject leading, trailing, empty, dot,
+dot-dot, or backslash segments, UTF-8 and RFC 3986 percent-encode each segment
+independently, and join the encoded segments with literal `/` separators. A
+literal percent is data and therefore encodes as `%25`.
+
+Encoding the entire tail as one component is invalid because it would encode
+structural slashes as `%2F`. An empty `string` or absent
+`optional(relative_path)` emits the fixed binding prefix without a trailing
+slash. A non-optional `relative_path` cannot be empty. Generated metadata
+records both the base codec and path-tail extension profiles, and the extension
+participates in `typescriptClientRevision`.
+
 ## 14. Cancellation, time, and retries
 
 `AbortSignal` is the only v1 caller cancellation mechanism. An already-aborted signal performs no request. Cancellation rejects with `SceneryClientError` code `cancelled` and retains the platform cause without exposing secret data.
@@ -351,6 +371,7 @@ A conforming generator/runtime passes fixtures for:
 - semantic-version recommendations from compatibility-core;
 - public-only and framework-enforced filtering;
 - mixed native/legacy client selection without duplicate ownership;
+- when `scenery.http-path-tail/v1` is claimed, independent tail-segment encoding, structural slash preservation, and empty-tail prefix behavior;
 - overlay check, atomic generation, stale detection, and clean-tree CI;
 - byte-identical output from at least two supported host platforms.
 

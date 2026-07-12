@@ -77,6 +77,9 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 	fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterEndpointChecked(&sceneryruntime.Endpoint{Service: %q, Name: %q, Access: %s, Path: %q, Methods: []string{%q},\n", service.Name, endpointName, runtimeAccess(binding), runtimeBindingPath(resourceMap, binding, path), method)
 	fmt.Fprintf(b, "\t\t\t\tPayloadType: sceneryruntime.TypeOf[contract.%sInput](), ResponseType: sceneryruntime.TypeOf[contract.%sOutcome](),\n", operationName, operationName)
 	fmt.Fprintf(b, "\t\t\t\tContractPolicy: %s,\n", contractPolicy)
+	if pathTail := renderContractPathTail(resourceMap, binding, httpSpec); pathTail != "nil" {
+		fmt.Fprintf(b, "\t\t\t\tContractPathTail: %s,\n", pathTail)
+	}
 	fmt.Fprintf(b, "\t\t\t\tDecodeContractRequest: func(request *http.Request, pathValues map[string]string) (sceneryruntime.ContractDecodedRequest, error) { input, err := sceneryruntime.DecodeContractInput[contract.%sInput](request, pathValues, %s); return sceneryruntime.ContractDecodedRequest{Payload: input}, err },\n", operationName, requestSchema)
 	if delivery == "enqueue" {
 		if !executionOK || stringValue(execution.Spec["mode"]) != "durable" {
@@ -268,6 +271,7 @@ func renderContractRequestSchema(resources map[string]Resource, operation, bindi
 		block, runtime string
 	}{
 		{"path_parameter", "sceneryruntime.ContractSourcePath"},
+		{"path_tail", "sceneryruntime.ContractSourcePathTail"},
 		{"query_parameter", "sceneryruntime.ContractSourceQuery"},
 		{"header", "sceneryruntime.ContractSourceHeader"},
 		{"cookie", "sceneryruntime.ContractSourceCookie"},
@@ -358,6 +362,18 @@ func renderContractRequestSchema(resources map[string]Resource, operation, bindi
 		}
 	}
 	return fmt.Sprintf("sceneryruntime.ContractRequestSchema{Mappings: []sceneryruntime.ContractInputMapping{%s}, ContextMappings: []sceneryruntime.ContractContextMapping{%s}, Body: %s, TransportStatuses: %s}", strings.Join(mappings, ", "), strings.Join(contextMappings, ", "), bodyLiteral, goStringIntMap(statuses)), nil
+}
+
+func renderContractPathTail(resources map[string]Resource, binding Resource, httpSpec map[string]any) string {
+	tails := namedChildren(httpSpec, "path_tail")
+	if len(tails) != 1 {
+		return "nil"
+	}
+	tail := tails[0]
+	gateway := resources[resolveResourceRef(binding, refString(binding.Spec["gateway"]), "http_gateway")]
+	canonicalTemplate := joinHTTPPath(stringValue(gateway.Spec["base_path"]), stringValue(httpSpec["path"]))
+	minimumSegments, _ := integerValue(tail["minimum_segments"])
+	return fmt.Sprintf("&sceneryruntime.ContractPathTail{CanonicalTemplate: %q, Name: %q, Target: %q, Type: %q, EmptyCapture: %q, MinimumSegments: %d, Decoding: %q, Guarantee: %q, Precedence: []string{%q, %q, %q, %q}, RequiredProfiles: []string{%q, %q}}", canonicalTemplate, stringValue(tail["name"]), refOrString(tail["to"]), stringValue(tail["target_type"]), stringValue(tail["empty_capture"]), minimumSegments, stringValue(tail["decoding"]), stringValue(tail["guarantee"]), "literal", "parameter", "exact_end", "path_tail", HTTPPathTailProfile, RuntimeHTTPPathTailProfile)
 }
 
 func renderContractHTTPPolicy(resources map[string]Resource, binding Resource, httpSpec map[string]any) string {

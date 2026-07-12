@@ -318,6 +318,9 @@ func vnextInspectEndpoints(result *vnext.Result) ([]inspectdata.EndpointRecord, 
 			methods = inspectStrings(identity["methods"])
 			access = inspectString(identity["access"])
 			if effectivePath == "" || len(methods) == 0 {
+				if binding.Origin.Kind != "legacy_v0" {
+					continue
+				}
 				return nil, fmt.Errorf("SCN_LEGACY_CLI_UNREPRESENTABLE: internal binding %s has no legacy endpoint identity", binding.Address)
 			}
 			if access == "" {

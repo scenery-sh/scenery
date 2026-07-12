@@ -815,6 +815,32 @@ export function encodeRFC3986(value: string): string {
   );
 }
 
+export function appendPathTail(prefix: string, value: unknown, descriptor: TypeDescriptor, registry: TypeRegistry = Object.freeze({})): string {
+  let semantic: string;
+  if (value === undefined) {
+    const resolved = resolveDescriptor(descriptor, registry, new Set());
+    if (resolved.kind !== "optional") throw new SceneryClientError("invalid_input", "", "path tail is missing");
+    return prefix === "" ? "/" : prefix;
+  }
+  semantic = encodeHTTPValue(value, descriptor, registry);
+  if (semantic === "") return prefix === "" ? "/" : prefix;
+  const segments = semantic.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === ".." || segment.includes("\\"))) {
+    throw new SceneryClientError("invalid_input", "", "path tail contains an invalid segment");
+  }
+  for (const segment of segments) {
+    try {
+      const decodedAgain = decodeURIComponent(segment);
+      if (decodedAgain === "." || decodedAgain === ".." || /[\\/\0]/.test(decodedAgain)) {
+        throw new SceneryClientError("invalid_input", "", "path tail contains a hazardous encoded segment");
+      }
+    } catch (error) {
+      if (error instanceof SceneryClientError) throw error;
+    }
+  }
+  return `${prefix}/${segments.map(encodeRFC3986).join("/")}`;
+}
+
 export function appendQuery(target: string[], name: string, value: unknown, encoding = "repeated", descriptor?: TypeDescriptor, registry: TypeRegistry = Object.freeze({})): void {
   if (value === undefined) return;
   const encodedName = encodeRFC3986(name);

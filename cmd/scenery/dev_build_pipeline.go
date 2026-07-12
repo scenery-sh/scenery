@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 
 	"scenery.sh/internal/build"
 	"scenery.sh/internal/devmeta"
@@ -82,7 +84,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 				return nil
 			}
 		}
-		appModel, err = parse.App(s.root, s.cfg.Name)
+		appModel, err = parseDevApp(s.root, s.cfg.Name)
 		return err
 	}); err != nil {
 		return nil, devBuildError(nil, nil, err)
@@ -116,7 +118,7 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 				return nil
 			}
 			if appModel == nil {
-				appModel, err = parse.App(s.root, s.cfg.Name)
+				appModel, err = parseDevApp(s.root, s.cfg.Name)
 				if err != nil {
 					return err
 				}
@@ -178,4 +180,11 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 		APIEncoding: apiEncoding,
 		Initial:     initial,
 	}, nil
+}
+
+func parseDevApp(root, name string) (*model.App, error) {
+	if _, err := os.Stat(filepath.Join(root, "scenery.scn")); err == nil {
+		return parse.AppAllowEmpty(root, name)
+	}
+	return parse.App(root, name)
 }

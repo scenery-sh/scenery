@@ -40,6 +40,9 @@ func GenerateOpenAPIArtifact(result *Result, selector string) (OpenAPIArtifact, 
 		"profile": openAPIGeneratorProfile, "openapi_version": openAPIVersion,
 		"content_digest": "sha256:" + hex.EncodeToString(digest[:]), "generator": "scenery.vnext.openapi/v1",
 	}
+	if bindingsUseHTTPPathTail(httpBindingsForGateway(result.Manifest.Resources, gateway)) {
+		descriptor["extension_profiles"] = []string{HTTPPathTailProfile}
+	}
 	descriptorBytes, err := json.MarshalIndent(descriptor, "", "  ")
 	if err != nil {
 		return OpenAPIArtifact{}, err
@@ -117,6 +120,21 @@ func renderOpenAPIOperation(binding, operation Resource, httpSpec map[string]any
 	}
 	if len(parameters) > 0 {
 		value["parameters"] = parameters
+	}
+	if tails := namedChildren(httpSpec, "path_tail"); len(tails) == 1 {
+		tail := tails[0]
+		value["x-scenery-path-tail"] = map[string]any{
+			"template":         stringValue(httpSpec["path"]),
+			"name":             stringValue(tail["name"]),
+			"target":           refOrString(tail["to"]),
+			"target_type":      stringValue(tail["target_type"]),
+			"cardinality":      "zero_or_more",
+			"minimum_segments": tail["minimum_segments"],
+			"empty_capture":    stringValue(tail["empty_capture"]),
+			"decoding":         stringValue(tail["decoding"]),
+			"segment_encoding": "rfc3986_independent",
+			"trailing_slash":   "no_match",
+		}
 	}
 	if body, _ := httpSpec["body"].(map[string]any); body != nil {
 		mediaTypes := literalStringListFromValue(body["accepted_media_types"])

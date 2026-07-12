@@ -3,7 +3,7 @@
 Normative companion specification
 
 Profile: `scenery.go-implementation/v1`  
-Document revision: `0.4-draft`  
+Document revision: `0.5-draft`\
 Status: draft for Scenery language edition 2027  
 Umbrella specification: [SCENERY_LANGUAGE_SPEC.md](SCENERY_LANGUAGE_SPEC.md)
 
@@ -37,6 +37,11 @@ The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 - legacy handler signatures.
 
 Legacy handler compatibility is defined by `scenery.legacy-bridge/v1`. Transport-coupled Go HTTP requires a future `scenery.go-http-coupled/v1` profile.
+
+Typed terminal HTTP path tails are defined by
+[SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md). They populate the
+ordinary generated operation input and do not change this profile's handler
+ABI or expose transport objects.
 
 A tool claiming this profile MUST implement the exact topology, mappings, signatures, staged verification, descriptor, and registration rules below.
 
@@ -555,6 +560,26 @@ The module-owned contract package embeds only package identity and package ABI r
 
 Before traffic or workers start, registration verifies all fields plus constructor, lifecycle, and handler bindings.
 
+### 15.1 HTTP path-tail adapter registration
+
+When `scenery.runtime-http-path-tail/v1` is claimed, generated registration
+additionally includes each route's canonical terminal template, tail mapping,
+target type, empty-capture behavior, required profiles, and deterministic
+precedence data. Registration MUST reject route conflicts or profile metadata
+that disagree with compiler output.
+
+The runtime constructs the normal generated input field before invocation:
+
+- `string` maps to `string`;
+- `relative_path` maps to `scenery.RelativePath`;
+- `optional(relative_path)` maps to
+  `scenery.Optional[scenery.RelativePath]`.
+
+Invalid transport values produce `transport.invalid_request` before handler
+invocation. The adapter MUST NOT re-read or re-decode the raw URI, and the
+handler receives no request object, response writer, wildcard map, raw URI, or
+transport wrapper solely because the binding uses a path tail.
+
 ## 16. Generated artifact descriptors
 
 ### 16.1 Package contract descriptor
@@ -711,6 +736,7 @@ A conforming tool passes fixtures for:
 - package ABI change for a reachable signature change;
 - no package ABI change for an unreachable private type;
 - descriptor and runtime registration mismatch failures;
+- when the path-tail runtime profile is claimed, typed path-tail input population, unchanged handler ABI, and route-table conflict verification;
 - clean-clone `go test ./...` and gopls-visible committed contracts;
 - overlay-based check with stale committed contracts;
 - atomic generate and `scenery generate --check`;

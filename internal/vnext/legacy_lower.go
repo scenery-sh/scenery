@@ -728,7 +728,7 @@ func lowerLegacyService(service *model.Service, state MigrationService, gateway 
 		}
 	}
 	resources := []Resource{legacyResource(module, "service", service.Name, serviceSpec, serviceOrigin, meta, "legacy_exact", "verified")}
-	typed, candidateDiagnostics := migrationCandidateOperations(service)
+	typed, candidateDiagnostics := migrationCandidateOperations(service, false)
 	incompleteOperations := map[string]bool{}
 	for _, diagnostic := range candidateDiagnostics {
 		if diagnostic.Code == "SCN5402" || diagnostic.Code == "SCN5404" {

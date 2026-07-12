@@ -35,6 +35,12 @@ func App(root, name string) (*model.App, error) {
 	return app(root, name, nil, []string{"./..."}, nil, false)
 }
 
+// AppAllowEmpty loads an application that may be fully native and therefore
+// contain no legacy Go directives.
+func AppAllowEmpty(root, name string) (*model.App, error) {
+	return app(root, name, nil, []string{"./..."}, nil, true)
+}
+
 type GoTargetContext struct {
 	ModuleRoot           string
 	Patterns             []string
@@ -60,6 +66,15 @@ func AppWithOverlayTarget(root, name string, overlay map[string][]byte, target G
 		return nil, errors.New("Go target has no package patterns")
 	}
 	return app(root, name, overlay, target.Patterns, &target, false)
+}
+
+// AppWithOverlayTargetAllowEmpty loads a native-only application whose Go
+// packages intentionally contain no legacy scenery directives.
+func AppWithOverlayTargetAllowEmpty(root, name string, overlay map[string][]byte, target GoTargetContext) (*model.App, error) {
+	if len(target.Patterns) == 0 {
+		return nil, errors.New("Go target has no package patterns")
+	}
+	return app(root, name, overlay, target.Patterns, &target, true)
 }
 
 func GoTargetEnvironment(target GoTargetContext) []string {

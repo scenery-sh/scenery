@@ -88,6 +88,16 @@ func TestContractResponseMetadataUsesSchemaEncodingAndDeclaredWireMode(t *testin
 	}
 }
 
+func TestContractResponseContentTypeReplacesRepresentationDefault(t *testing.T) {
+	response := ContractHTTPResponse{Headers: http.Header{"Content-Type": []string{"application/octet-stream"}}}
+	if err := AddContractResponseHeader(&response, "content-type", "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	if got := response.Headers.Values("Content-Type"); !reflect.DeepEqual(got, []string{"text/plain"}) {
+		t.Fatalf("content types = %#v", got)
+	}
+}
+
 func TestContractResponseCookiePercentEncodesAndValidatesExpiry(t *testing.T) {
 	response := ContractHTTPResponse{}
 	options := ContractResponseValueOptions{EncodeValue: func(any) ([]byte, error) { return []byte(`"hello world"`), nil }}

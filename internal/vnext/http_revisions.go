@@ -53,7 +53,11 @@ func httpGatewayProjection(resources []Resource, gateway Resource) map[string]an
 		}
 	}
 	sort.Slice(projected, func(i, j int) bool { return projected[i].Address < projected[j].Address })
-	return map[string]any{"profile": "scenery.http-codec/v1", "gateway": gateway.Address, "resources": projected}
+	projection := map[string]any{"profile": "scenery.http-codec/v1", "gateway": gateway.Address, "resources": projected}
+	if bindingsUseHTTPPathTail(bindings) {
+		projection["extension_profiles"] = []string{HTTPPathTailProfile}
+	}
+	return projection
 }
 
 func httpBindingsForGateway(resources []Resource, gateway Resource) []Resource {

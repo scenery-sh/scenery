@@ -218,10 +218,14 @@ func runHarnessValidation(ctx context.Context, appRoot, profile string) harnessV
 
 func runHarnessCheck(ctx context.Context, appRoot string, artifactCtxs ...harnessArtifactContext) (harnessStep, inspect.AppRef) {
 	started := time.Now()
-	command := []string{"scenery", "check", "--app-root", appRoot, "--json"}
+	checkArgs := []string{"--app-root", appRoot, "--json"}
+	if _, err := os.Stat(filepath.Join(appRoot, "scenery.scn")); err == nil {
+		checkArgs = []string{"--app-root", appRoot, "-o", "json"}
+	}
+	command := append([]string{"scenery", "check"}, checkArgs...)
 	evidence := newHarnessEvidence(command, appRoot, started)
 	var out bytes.Buffer
-	err := runSceneryCheck(ctx, &out, []string{"--app-root", appRoot, "--json"})
+	err := runSceneryCheck(ctx, &out, checkArgs)
 	step := harnessStep{
 		Name:       "check",
 		Command:    command,

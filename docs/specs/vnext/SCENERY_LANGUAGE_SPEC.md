@@ -2,7 +2,7 @@
 
 Agent-oriented draft for Scenery vNext
 
-Version: 0.4-draft
+Version: 0.5-draft
 Target language edition: 2027  
 Status: design specification, not documentation of the current implementation
 
@@ -30,6 +30,7 @@ This specification intentionally does not preserve Scenery's legacy declaration 
 - Sections 21–23 define CLI, agent transactions, and diagnostics.
 - Section 24 defines the language-level Go integration contract; [SCENERY_GO_IMPLEMENTATION_V1.md](SCENERY_GO_IMPLEMENTATION_V1.md) is the normative ABI specification.
 - [SCENERY_HTTP_CODEC_V1.md](SCENERY_HTTP_CODEC_V1.md) is normative for scenery.http-codec/v1 and scenery.runtime-http/v1.
+- [SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md) is normative for scenery.http-path-tail/v1 and scenery.runtime-http-path-tail/v1.
 - [SCENERY_TYPESCRIPT_CLIENT_V1.md](SCENERY_TYPESCRIPT_CLIENT_V1.md) is normative for scenery.typescript-client/v1.
 - [SCENERY_COMPATIBILITY_CORE_V1.md](SCENERY_COMPATIBILITY_CORE_V1.md) is normative for multidimensional semantic compatibility decisions.
 - [SCENERY_LEGACY_BRIDGE_V1.md](SCENERY_LEGACY_BRIDGE_V1.md) is normative for mixed legacy/native migration.
@@ -1653,11 +1654,20 @@ Canonical paths:
 
 Route conflicts MUST be detected semantically, including conflicts between literal and parameterized paths.
 
+`scenery.http-codec/v1` parameters consume exactly one path segment. A terminal
+zero-or-more segment capture uses `{name...}` plus a matching `path_tail` block
+and requires the separately claimed path-tail profiles defined by
+[SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md). A tool that does
+not claim those profiles MUST reject the syntax as `unsupported_profile`; it
+MUST NOT approximate it as a parameter, glob, regular expression, or raw
+handler.
+
 ### 12.6 HTTP input mapping
 
 HTTP input sources are:
 
 - path_parameter;
+- path_tail, when `scenery.http-path-tail/v1` is claimed;
 - query_parameter;
 - header;
 - cookie;
@@ -1876,6 +1886,43 @@ or:
 ~~~
 
 Typed generated adapters use framework_enforced for their mappings and codecs. scenery.http-codec/v1 contains no implementation_declared body codec. A future transport-coupled profile must mark its body semantics implementation_declared; authentication, authorization, size limits, and pipeline facets may remain framework-enforced independently.
+
+### 12.11 HTTP path-tail profile v1
+
+[SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md) is normative for
+the additive `scenery.http-path-tail/v1` codec extension and
+`scenery.runtime-http-path-tail/v1` runtime extension. The base binding still
+selects `std.codec.http_json_v1`; manifests, runtime tables, and generated
+artifacts additionally record the extension profiles.
+
+~~~hcl
+http {
+  method        = "GET"
+  path          = "/drive/{path...}"
+  codec_profile = std.codec.http_json_v1
+
+  path_tail "path" {
+    to = operation.download.input.path
+  }
+}
+~~~
+
+`{name...}` is terminal and captures zero or more complete, non-empty path
+segments. Its target is exactly `string`, `relative_path`, or
+`optional(relative_path)`. An empty capture becomes an empty string, an invalid
+non-optional `relative_path`, or an absent optional value respectively.
+
+Routing compares complete matches by literal segment, single-segment
+parameter, exact end, then path tail. Equal match-and-precedence sets are
+compile and registration conflicts. After one route is selected, decode or
+validation failure never falls back to a broader tail.
+
+The runtime splits on literal slash before decoding, decodes each tail segment
+exactly once, rejects encoded separators, backslashes, malformed UTF-8, NUL,
+empty and dot segments, and downstream double-decoding attacks, then joins the
+semantic segments with structural `/`. Generated TypeScript clients perform
+the inverse operation by encoding each segment independently and joining with
+literal `/`; an empty tail emits the fixed prefix without a trailing slash.
 
 ## 13. Exposure, authentication, and authorization
 
@@ -3693,7 +3740,9 @@ Core profiles are:
 | scenery.compiler-core/v1 | Parser, lossless CST, formatter, core types, local packages/modules, semantic graph, canonical IR, source maps, diagnostics, and core compiler CLI | none |
 | scenery.go-implementation/v1 | Normative unary Go implementation ABI and generated adapters | scenery.compiler-core/v1 |
 | scenery.http-codec/v1 | HTTP gateways, exact wire codecs, negotiation, limits, and transport conformance | scenery.compiler-core/v1 |
+| scenery.http-path-tail/v1 | Typed terminal zero-or-more HTTP path-tail syntax, mapping, decoding, and projections | scenery.compiler-core/v1, scenery.http-codec/v1 |
 | scenery.runtime-http/v1 | Direct execution, HTTP/internal bindings, policies, pipelines, and HTTP runtime behavior | scenery.compiler-core/v1, scenery.go-implementation/v1, scenery.http-codec/v1 |
+| scenery.runtime-http-path-tail/v1 | Deterministic path-tail routing, capture, validation, and runtime registration | scenery.runtime-http/v1, scenery.http-path-tail/v1 |
 | scenery.runtime-durable/v1 | Durable execution, dispatch, retries, leases, retention, and execution engines | scenery.compiler-core/v1, scenery.go-implementation/v1 |
 | scenery.events/v1 | Event contracts, event buses, consumption, and emissions | scenery.compiler-core/v1 |
 | scenery.data/v1 | Data sources, entities, views, CRUD expansion, and fixtures | scenery.compiler-core/v1 |
@@ -3708,6 +3757,10 @@ Core profiles are:
 | scenery.typescript-client/v1 | Deterministic public unary HTTP TypeScript clients and artifact revisions | scenery.compiler-core/v1, scenery.compatibility-core/v1, scenery.http-codec/v1 |
 
 Future profiles include declarative extensions, workflow execution, registry publication, migration execution, custom middleware ABIs, internal RPC, and sandboxed executable extensions.
+
+The separately specified additive HTTP path-tail profiles are
+`scenery.http-path-tail/v1` and `scenery.runtime-http-path-tail/v1`. They are
+not implied by the base HTTP profiles or by edition 2027.
 
 ### 26.1 Profile rules
 
@@ -3738,7 +3791,7 @@ language {
 
 Compilation fails when the active toolchain cannot satisfy a required profile. A known resource belonging to an unsupported profile produces unsupported_profile, never unknown_resource and never silent omission.
 
-Claiming one profile does not imply any unlisted profile. Profile dependency is explicit. scenery.runtime-http/v1 depends on scenery.http-codec/v1. scenery.agent-read/v1 depends on scenery.inspection-core/v1, and scenery.agent-mutation/v1 depends on scenery.agent-read/v1. A Go HTTP runtime claims both scenery.runtime-http/v1 and scenery.go-implementation/v1; the HTTP profile itself is language-neutral. scenery.legacy-bridge/v1 is a migration-tool profile, not an edition-2027 source-language feature.
+Claiming one profile does not imply any unlisted profile. Profile dependency is explicit. scenery.runtime-http/v1 depends on scenery.http-codec/v1. scenery.http-path-tail/v1 depends on scenery.http-codec/v1, and scenery.runtime-http-path-tail/v1 depends on both scenery.runtime-http/v1 and scenery.http-path-tail/v1. scenery.agent-read/v1 depends on scenery.inspection-core/v1, and scenery.agent-mutation/v1 depends on scenery.agent-read/v1. A Go HTTP runtime claims both scenery.runtime-http/v1 and scenery.go-implementation/v1; a Go runtime implementing path tails additionally claims scenery.runtime-http-path-tail/v1. The HTTP profiles themselves are language-neutral. scenery.legacy-bridge/v1 is a migration-tool profile, not an edition-2027 source-language feature.
 
 ### 26.2 Implementation milestones
 
@@ -4803,6 +4856,19 @@ Revision fixtures MUST establish:
 - rejects unsupported capabilities explicitly;
 - does not leak secret-tainted values.
 
+### 29.6 HTTP path-tail conformance
+
+A tool claiming either path-tail profile additionally passes the fixtures in
+[SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md), including:
+
+- terminal syntax, exact mapping, target typing, and unsupported-profile rejection;
+- zero-, one-, and multi-segment matching plus trailing-slash rejection;
+- literal, parameter, exact-end, and longer-prefix precedence and equal-tail conflicts;
+- segment-first single decoding and traversal, separator, Unicode, NUL, and double-decode rejection;
+- no fallback after selection;
+- unchanged typed Go handler ABI and independently encoded TypeScript segments;
+- honest OpenAPI projection and legacy terminal-wildcard migration parity.
+
 ## 30. Agent quick reference
 
 ### 30.1 To understand an application
@@ -4831,6 +4897,7 @@ Revision fixtures MUST establish:
 Change the binding, not the operation. Then inspect:
 
 - gateway-scoped route conflicts and base paths;
+- path-tail profile support, precedence, and segment encoding when `{name...}` is used;
 - clients and pages depending on the binding;
 - exposure and security;
 - semantic compatibility;

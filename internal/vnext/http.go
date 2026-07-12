@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
-	"net/url"
-	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +13,7 @@ import (
 )
 
 var httpPathParameterPattern = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)
+var httpPathTailPattern = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\.\.\.\}`)
 
 func validateHTTPResources(resources []Resource) []Diagnostic {
 	byAddress := map[string]Resource{}
@@ -22,6 +21,11 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 		byAddress[resource.Address] = resource
 	}
 	routes := map[string]string{}
+	type routeEntry struct {
+		gateway, method, shape, address string
+		pathTail                        bool
+	}
+	var routeEntries []routeEntry
 	var diagnostics []Diagnostic
 	for _, binding := range resources {
 		if binding.Kind != "scenery.binding/v1" || binding.Spec["protocol"] != "http" {
@@ -47,7 +51,7 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2101", Severity: "error", Message: "HTTP method must use canonical uppercase form", Address: binding.Address})
 		}
 		if strictNative && !validHTTPPath(bindingPath) {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2102", Severity: "error", Message: "HTTP path must be absolute, normalized, and contain no wildcard segments", Address: binding.Address})
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2102", Severity: "error", Message: "HTTP path must be absolute, normalized, and use only complete canonical parameter segments", Address: binding.Address})
 		}
 		if body, _ := httpSpec["body"].(map[string]any); strictNative && body != nil && body["codec"] == "raw" {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2103", Severity: "error", Message: "codec = raw is not part of scenery.http-codec/v1", Address: binding.Address})
@@ -89,14 +93,30 @@ func validateHTTPResources(resources []Resource) []Diagnostic {
 		}
 		basePath, _ := gateway.Spec["base_path"].(string)
 		effectivePath := joinHTTPPath(basePath, bindingPath)
-		key := strings.ToUpper(method) + " " + gatewayRef + " " + canonicalRoute(effectivePath)
+		canonicalMethod, routeShape := strings.ToUpper(method), canonicalRoute(effectivePath)
+		key := canonicalMethod + " " + gatewayRef + " " + routeShape
 		if owner, exists := routes[key]; exists {
 			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2002", Severity: "error", Message: "duplicate HTTP route " + key, Address: binding.Address, Related: []Related{{Address: owner}}})
 		} else {
+			usesTail := httpSpecUsesPathTail(httpSpec) || httpPathTailPattern.MatchString(bindingPath)
+			for _, existing := range routeEntries {
+				if (usesTail || existing.pathTail) && existing.gateway == gatewayRef && existing.shape == routeShape && httpRouteMethodsOverlap(canonicalMethod, existing.method) {
+					diagnostics = append(diagnostics, Diagnostic{Code: "SCN2002", Severity: "error", Message: "duplicate HTTP route match set " + gatewayRef + " " + routeShape, Address: binding.Address, Related: []Related{{Address: existing.address}}})
+					break
+				}
+			}
 			routes[key] = binding.Address
+			routeEntries = append(routeEntries, routeEntry{gateway: gatewayRef, method: canonicalMethod, shape: routeShape, address: binding.Address, pathTail: usesTail})
 		}
 	}
 	return diagnostics
+}
+
+func httpRouteMethodsOverlap(left, right string) bool {
+	if left == "*" || right == "*" || left == right {
+		return true
+	}
+	return left == http.MethodGet && right == http.MethodHead || left == http.MethodHead && right == http.MethodGet
 }
 
 func validateHTTPWireLabels(binding Resource, httpSpec map[string]any) []Diagnostic {
@@ -110,6 +130,7 @@ func validateHTTPWireLabels(binding Resource, httpSpec map[string]any) []Diagnos
 		}
 	}
 	validate("path_parameter", httpPathParameterSourceSchema, namedChildren(httpSpec, "path_parameter"))
+	validate("path_tail", httpPathTailSourceSchema, namedChildren(httpSpec, "path_tail"))
 	validate("query_parameter", httpQueryParameterSourceSchema, namedChildren(httpSpec, "query_parameter"))
 	validate("header", httpHeaderSourceSchema, namedChildren(httpSpec, "header"))
 	validate("cookie", httpCookieSourceSchema, namedChildren(httpSpec, "cookie"))
@@ -183,23 +204,45 @@ func validateHTTPEffectiveLimits(binding, gateway Resource, httpSpec map[string]
 }
 
 func validateHTTPPathMappings(binding Resource, httpSpec map[string]any, routePath string) []Diagnostic {
-	want := map[string]int{}
-	for _, match := range httpPathParameterPattern.FindAllStringSubmatch(routePath, -1) {
-		want[match[1]]++
+	segments, err := parseHTTPPathTemplate(routePath)
+	if err != nil {
+		return nil
 	}
-	got := map[string]int{}
+	wantParameters, wantTails := map[string]int{}, map[string]int{}
+	for _, segment := range segments {
+		switch segment.kind {
+		case httpTemplateParameter:
+			wantParameters[segment.name]++
+		case httpTemplateTail:
+			wantTails[segment.name]++
+		}
+	}
+	gotParameters, gotTails := map[string]int{}, map[string]int{}
 	for _, mapping := range namedChildren(httpSpec, "path_parameter") {
-		got[stringValue(mapping["name"])]++
+		gotParameters[stringValue(mapping["name"])]++
 	}
-	if len(want) != len(got) {
+	for _, mapping := range namedChildren(httpSpec, "path_tail") {
+		gotTails[stringValue(mapping["name"])]++
+	}
+	if !exactHTTPMappingNames(wantParameters, gotParameters) {
 		return []Diagnostic{{Code: "SCN2110", Severity: "error", Message: "every HTTP path parameter requires exactly one matching mapping", Address: binding.Address}}
+	}
+	if !exactHTTPMappingNames(wantTails, gotTails) {
+		return []Diagnostic{{Code: "SCN2110", Severity: "error", Message: "every HTTP path tail requires exactly one matching path_tail mapping", Address: binding.Address}}
+	}
+	return nil
+}
+
+func exactHTTPMappingNames(want, got map[string]int) bool {
+	if len(want) != len(got) {
+		return false
 	}
 	for name, count := range want {
 		if count != 1 || got[name] != 1 {
-			return []Diagnostic{{Code: "SCN2110", Severity: "error", Message: "every HTTP path parameter requires exactly one matching mapping", Address: binding.Address}}
+			return false
 		}
 	}
-	return nil
+	return true
 }
 
 func validateHTTPResponses(resources map[string]Resource, binding, operation Resource, httpSpec map[string]any) []Diagnostic {
@@ -649,11 +692,8 @@ func resolveResourceRef(resource Resource, reference, kind string) string {
 }
 
 func validHTTPPath(value string) bool {
-	if value == "" || !strings.HasPrefix(value, "/") || strings.Contains(value, "*") || strings.Contains(value, "//") || path.Clean(value) != value {
-		return false
-	}
-	decoded, err := url.PathUnescape(value)
-	return err == nil && !strings.Contains(decoded, "//") && path.Clean(decoded) == decoded
+	_, err := parseHTTPPathTemplate(value)
+	return err == nil
 }
 
 func joinHTTPPath(base, binding string) string {

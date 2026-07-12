@@ -4,7 +4,7 @@ Normative migration companion specification
 
 Profile: `scenery.legacy-bridge/v1`  
 Legacy frontend: `scenery.legacy.v0`  
-Document revision: `0.4-draft`  
+Document revision: `0.5-draft`\
 Status: temporary migration profile  
 Umbrella specification: [SCENERY_LANGUAGE_SPEC.md](SCENERY_LANGUAGE_SPEC.md)
 
@@ -195,6 +195,7 @@ The compiler frontend uses parsing, Go syntax/type information, and build descri
 | Legacy construct | Canonical lowering |
 |---|---|
 | API directive | operation + direct execution + HTTP binding + compatibility policies |
+| Eligible terminal `/*path` route | HTTP binding with `{path...}` plus typed `path_tail` mapping under the path-tail profiles |
 | Raw API directive | operation + transport-coupled compatibility binding with advisory/opaque wire facets |
 | Service directive/discovery | service + lifecycle + implementation compatibility adapter |
 | Auth handler | compatibility authentication provider + principal mapping |
@@ -285,6 +286,31 @@ Correcting legacy semantics occurs in the native candidate and appears as an exp
 Lifecycle, durable, schedule, private-call, generated-client, environment/configuration, database, and storage constructs have equivalent fixture catalogs. A facet lacking a passing fixture is advisory, opaque, unsupported, or rewrite_required; it cannot be labelled legacy_exact.
 
 Native codec rules never apply to a still-legacy binding merely because it lowered into a native resource kind.
+
+### 7.2 Terminal wildcard migration
+
+[SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md) permits the bridge
+to lower a legacy route such as `/drive/*path` to `/drive/{path...}` plus a
+typed `path_tail "path"` mapping when all of these are true:
+
+- the compiler and runtime claim both path-tail profiles;
+- the wildcard is terminal and consumes zero or more complete path segments;
+- route selection, slash, and decoding parity have applicable behavioral evidence;
+- the target is explicitly `string`, `relative_path`, or `optional(relative_path)`;
+- the predicted active graph has no route conflict;
+- generated-client and route-parity consequences are visible.
+
+When those conditions hold, `SCN5401` MUST NOT be emitted solely because the
+legacy route contains that terminal wildcard. Raw body or response behavior,
+transport-coupled access, unresolved dependencies, guarantee gaps, and other
+facets remain independently classified and diagnosed. Failure of any lowering
+precondition retains legacy ownership and the applicable advisory, opaque, or
+`rewrite_required` disposition.
+
+The current bridge emits advisory `SCN5405` for a drafted terminal-wildcard
+lowering so slash, route-selection, and decoding parity remain explicit inputs
+to comparison and activation review. It does not turn the supported route shape
+back into `SCN5401` rewrite ownership.
 
 ## 8. Ownership and linking
 
@@ -582,6 +608,12 @@ Choose required(string) or optional(string).
 
 Other required ambiguity diagnostics include dynamic error surface, implicit status, opaque raw body, unresolved middleware order, package-derived identity, and runtime-only builder configuration.
 
+An eligible terminal wildcard is generated through the typed path-tail
+lowering in Section 7.2. Candidate generation MUST NOT omit the operation or
+emit `SCN5401` merely because that supported route shape was previously part of
+a raw legacy endpoint. Every remaining raw or unsupported facet is reported
+independently.
+
 ## 15. Shared application resources
 
 Legacy `.scenery.json` and bounded shared declarations lower into ordinary canonical resources. During mixed mode, verified exports are available through a temporary `legacy` reference root:
@@ -813,7 +845,7 @@ The legacy frontend may be removed only after:
 - at least one structurally different real application has completed migration;
 - shared legacy configuration is gone;
 - compatibility adapters are gone;
-- every raw endpoint, custom middleware ABI, streaming handler, or other unsupported native surface has either migrated to a claimed transport-coupled profile or been explicitly rewritten;
+- every raw endpoint, custom middleware ABI, streaming handler, or other unsupported native surface has either migrated to an applicable claimed native profile or been explicitly rewritten;
 - no legacy durable work, schedule cursor, schema/migration owner, event offset, external identity alias, v0 CLI consumer, or legacy generated-client dependency remains;
 - two stable Scenery releases have supported mixed mode;
 - rollback/support policy for the last bridge release is published.
@@ -855,6 +887,7 @@ A conforming bridge passes fixtures for:
 - comparison across every required dimension;
 - optional/null ambiguity diagnostics;
 - raw/dynamic legacy advisory behavior;
+- terminal wildcard lowering parity, including zero and nested segments, route precedence, invalid paths, and independent remaining raw-facet diagnostics;
 - contract migration with `legacy_go_v0` handler adapter;
 - native ABI migration;
 - atomic activation and revision conflict;

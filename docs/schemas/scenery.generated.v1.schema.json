@@ -12,6 +12,7 @@
     "package_contract_abi_revisions": { "$ref": "#/$defs/revision_map" },
     "runtime_abi": { "type": "string", "minLength": 1 },
     "runtime_abi_range": { "type": "string", "minLength": 1 },
+    "extension_profiles": { "$ref": "#/$defs/string_list" },
     "provider_capability_abis": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "string" } } },
     "http_surface_revisions": { "$ref": "#/$defs/revision_map" },
     "openapi_revisions": { "$ref": "#/$defs/revision_map" },

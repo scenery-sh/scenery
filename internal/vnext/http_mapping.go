@@ -50,6 +50,19 @@ func validateHTTPInputMappings(resources map[string]Resource, binding, operation
 	for _, mapping := range namedChildren(httpSpec, "path_parameter") {
 		addTarget("path_parameter", mapping, true)
 	}
+	for _, mapping := range namedChildren(httpSpec, "path_tail") {
+		target := refOrString(mapping["to"])
+		field, whole, ok := resolveOperationInputTarget(operation, shape, target)
+		if !ok || whole {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2113", Severity: "error", Message: fmt.Sprintf("path_tail mapping has invalid target %q", target), Address: binding.Address})
+			continue
+		}
+		counts[field.Name]++
+		targetType := strings.TrimSpace(typeExpression(field.Type))
+		if targetType != "string" && targetType != "relative_path" && targetType != "optional(relative_path)" {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN2114", Severity: "error", Message: fmt.Sprintf("path_tail mapping target %s must be string, relative_path, or optional(relative_path)", field.Name), Address: binding.Address})
+		}
+	}
 	for _, source := range []string{"query_parameter", "header", "cookie"} {
 		seenNames := map[string]bool{}
 		for _, mapping := range namedChildren(httpSpec, source) {

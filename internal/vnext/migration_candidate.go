@@ -79,7 +79,7 @@ func PlanMigrationCandidate(root string, request MigrationCandidateRequest) (Mig
 	if len(base.Migration.NativeCandidates[service.Name]) > 0 {
 		return MigrationCandidatePlan{}, fmt.Errorf("failed_precondition: migration service %s already has a native candidate", service.Name)
 	}
-	packageSource, requiresAuthentication, diagnostics, err := renderMigrationCandidatePackage(base.Root, service)
+	packageSource, requiresAuthentication, diagnostics, err := renderMigrationCandidatePackage(base.Root, service, base.Manifest.Profiles)
 	if err != nil {
 		return MigrationCandidatePlan{}, err
 	}
@@ -233,7 +233,7 @@ type migrationCandidateOperation struct {
 	Raw                                    bool
 }
 
-func renderMigrationCandidatePackage(root string, migrationService MigrationService) ([]byte, bool, []Diagnostic, error) {
+func renderMigrationCandidatePackage(root string, migrationService MigrationService, profiles []string) ([]byte, bool, []Diagnostic, error) {
 	_, config, err := appcfg.DiscoverRoot(root)
 	if err != nil {
 		return nil, false, nil, err
@@ -262,7 +262,8 @@ func renderMigrationCandidatePackage(root string, migrationService MigrationServ
 	}
 	packageRelative := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(migrationService.Package)), "./")
 	importPath := strings.TrimSuffix(goMod.Module.Mod.Path, "/") + "/" + packageRelative
-	operations, diagnostics := migrationCandidateOperations(legacyService)
+	pathTailsEnabled := containsExactString(profiles, HTTPPathTailProfile) && containsExactString(profiles, RuntimeHTTPPathTailProfile)
+	operations, diagnostics := migrationCandidateOperations(legacyService, pathTailsEnabled)
 	requiresAuthentication := false
 	for _, operation := range operations {
 		requiresAuthentication = requiresAuthentication || operation.Access == "auth"
@@ -281,7 +282,7 @@ func renderMigrationCandidatePackage(root string, migrationService MigrationServ
 	return []byte(source.String()), requiresAuthentication, diagnostics, nil
 }
 
-func migrationCandidateOperations(service *model.Service) ([]migrationCandidateOperation, []Diagnostic) {
+func migrationCandidateOperations(service *model.Service, pathTailsEnabled bool) ([]migrationCandidateOperation, []Diagnostic) {
 	operations := make([]migrationCandidateOperation, 0, len(service.Endpoints))
 	var diagnostics []Diagnostic
 	seenNames := map[string]int{}
@@ -291,17 +292,23 @@ func migrationCandidateOperations(service *model.Service) ([]migrationCandidateO
 		if seenNames[name] > 1 {
 			name += fmt.Sprintf("_%d", seenNames[name])
 		}
+		tailName, terminalTail := legacyTerminalPathTail(endpoint.Path)
+		operationPath := legacyPathToNative(endpoint.Path)
+		if terminalTail && pathTailsEnabled {
+			operationPath = legacyCandidatePathToNative(endpoint.Path)
+		}
 		operation := migrationCandidateOperation{
-			Name: name, Method: endpoint.Name, Path: legacyPathToNative(endpoint.Path), LegacyPath: endpoint.Path, Access: string(endpoint.Access),
+			Name: name, Method: endpoint.Name, Path: operationPath, LegacyPath: endpoint.Path, Access: string(endpoint.Access),
 			File: legacyModelFile(endpoint.Package, endpoint.File), Methods: append([]string(nil), endpoint.Methods...), Tags: append([]string(nil), endpoint.Tags...), HasPayload: endpoint.Payload != nil, Raw: endpoint.Raw,
 		}
 		if endpoint.Receiver != nil {
 			operation.Receiver = endpoint.Receiver.TypeName
 		}
-		if endpoint.Raw || strings.Contains(endpoint.Path, "*") {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5401", Severity: "warning", Message: "raw or wildcard legacy endpoint requires an explicit native rewrite", Address: resourceAddress(service.Name, "operation", name), Details: map[string]any{"migration_disposition": "rewrite_required"}})
+		if endpoint.Raw || strings.Contains(endpoint.Path, "*") && (!terminalTail || !pathTailsEnabled) {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5401", Severity: "warning", Message: "raw or unsupported wildcard legacy endpoint requires an explicit native rewrite", Address: resourceAddress(service.Name, "operation", name), Details: map[string]any{"migration_disposition": "rewrite_required"}})
 			continue
 		}
+		unsupportedTail := false
 		for index, parameter := range endpoint.PathParams {
 			field := endpoint.Params[index+1]
 			typeExpression, complete := migrationCandidateType(field.Type)
@@ -309,7 +316,25 @@ func migrationCandidateOperations(service *model.Service) ([]migrationCandidateO
 				diagnostics = append(diagnostics, candidateTypeDiagnostic(service.Name, name, parameter.Name, field.TypeExpr))
 			}
 			name := snakeName(parameter.Name)
-			operation.Input = append(operation.Input, migrationCandidateField{Name: name, WireName: name, Type: typeExpression, Source: "path", SourceName: name})
+			source := "path"
+			if terminalTail && parameter.Name == tailName {
+				source = "path_tail"
+				if typeExpression != "string" && typeExpression != "relative_path" && typeExpression != "optional(relative_path)" {
+					unsupportedTail = true
+				}
+			}
+			operation.Input = append(operation.Input, migrationCandidateField{Name: name, WireName: name, Type: typeExpression, Source: source, SourceName: name})
+		}
+		if unsupportedTail {
+			diagnostics = append(diagnostics, Diagnostic{Code: "SCN5401", Severity: "warning", Message: "legacy terminal wildcard target requires an explicitly supported path-tail type", Address: resourceAddress(service.Name, "operation", name), Details: map[string]any{"migration_disposition": "rewrite_required"}})
+			continue
+		}
+		if terminalTail {
+			diagnostics = append(diagnostics, Diagnostic{
+				Code: "SCN5405", Severity: "warning", Message: "legacy terminal wildcard lowering requires behavioral comparison for slash and decoding parity",
+				Address: resourceAddress(service.Name, "operation", name),
+				Details: map[string]any{"migration_disposition": "advisory", "legacy_path": endpoint.Path, "native_path": operation.Path, "required_profile": HTTPPathTailProfile},
+			})
 		}
 		if endpoint.Payload != nil {
 			fields, fieldDiagnostics := migrationCandidatePayloadFields(service.Name, name, endpoint.Payload.Type)
@@ -538,6 +563,8 @@ func renderMigrationCandidateHTTPBinding(source *strings.Builder, operation migr
 		switch field.Source {
 		case "path":
 			fmt.Fprintf(source, "\n    path_parameter %q {\n      to = operation.%s.input.%s\n    }\n", field.SourceName, operation.Name, field.Name)
+		case "path_tail":
+			fmt.Fprintf(source, "\n    path_tail %q {\n      to = operation.%s.input.%s\n    }\n", field.SourceName, operation.Name, field.Name)
 		case "query":
 			fmt.Fprintf(source, "\n    query_parameter %q {\n      to = operation.%s.input.%s\n    }\n", field.SourceName, operation.Name, field.Name)
 		case "header":
@@ -564,6 +591,32 @@ func renderMigrationCandidateHTTPBinding(source *strings.Builder, operation migr
 		source.WriteString("\n      body {\n        codec = \"json\"\n        from  = result.success\n      }\n")
 	}
 	source.WriteString("    }\n\n    response \"legacy_error\" {\n      when   = error.legacy_error\n      status = 500\n\n      body {\n        codec = \"problem_json\"\n        from  = error.legacy_error\n      }\n    }\n  }\n}\n")
+}
+
+func legacyTerminalPathTail(route string) (string, bool) {
+	segments := strings.Split(strings.TrimPrefix(route, "/"), "/")
+	if len(segments) == 0 || !strings.HasPrefix(segments[len(segments)-1], "*") || len(segments[len(segments)-1]) == 1 {
+		return "", false
+	}
+	for _, segment := range segments[:len(segments)-1] {
+		if strings.HasPrefix(segment, "*") {
+			return "", false
+		}
+	}
+	return strings.TrimPrefix(segments[len(segments)-1], "*"), true
+}
+
+func legacyCandidatePathToNative(route string) string {
+	segments := strings.Split(route, "/")
+	for index, segment := range segments {
+		switch {
+		case strings.HasPrefix(segment, ":"):
+			segments[index] = "{" + snakeName(strings.TrimPrefix(segment, ":")) + "}"
+		case strings.HasPrefix(segment, "*"):
+			segments[index] = "{" + snakeName(strings.TrimPrefix(segment, "*")) + "...}"
+		}
+	}
+	return strings.Join(segments, "/")
 }
 
 func appendMigrationCandidateModule(root string, service MigrationService, requiresAuthentication bool) error {

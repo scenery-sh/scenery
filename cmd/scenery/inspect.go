@@ -457,6 +457,11 @@ func cachedInspectAppModel(appRoot, appName string) (*model.App, error) {
 	inspectAppModelCache.Unlock()
 
 	appModel, err := parse.App(appRoot, appName)
+	if err != nil {
+		if _, statErr := os.Stat(filepath.Join(appRoot, "scenery.scn")); statErr == nil {
+			appModel, err = parse.AppAllowEmpty(appRoot, appName)
+		}
+	}
 
 	inspectAppModelCache.Lock()
 	entry.app = appModel

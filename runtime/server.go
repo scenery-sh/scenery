@@ -25,8 +25,10 @@ type server struct {
 }
 
 type contractCORSRoute struct {
-	path   string
-	policy *ContractHTTPPolicy
+	path     string
+	pathTail bool
+	methods  []string
+	policy   *ContractHTTPPolicy
 }
 
 // beginDrain cancels the contexts of in-flight streaming raw requests so
@@ -46,7 +48,8 @@ func newServer(listenAddr string) (*http.Server, error) {
 		drainCh: make(chan struct{}),
 	}
 	s.public.GlobalOPTIONS = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if policy := s.contractCORSPolicy(req.URL.Path); policy != nil {
+		requestedMethod := req.Header.Get("Access-Control-Request-Method")
+		if policy := s.contractCORSPolicy(req.URL.EscapedPath(), requestedMethod); policy != nil {
 			applyContractCORSHeaders(w.Header(), req, policy)
 		} else {
 			applyCORSHeaders(w.Header(), req)
@@ -468,9 +471,9 @@ func (s *server) registerTyped(ep *Endpoint) {
 	}
 
 	if ep.ContractPolicy != nil && ep.Access != Private {
-		s.contractCORS = append(s.contractCORS, contractCORSRoute{path: ep.Path, policy: ep.ContractPolicy})
+		s.contractCORS = append(s.contractCORS, contractCORSRoute{path: ep.Path, pathTail: ep.ContractPathTail != nil, methods: append([]string(nil), ep.Methods...), policy: ep.ContractPolicy})
 	}
-	registerRoute(s.selectRouter(ep), ep.Path, ep.Methods, handler)
+	registerEndpointRoute(s.selectRouter(ep), ep, handler)
 }
 
 func writeContractAdmissionError(writer http.ResponseWriter, endpoint *Endpoint, err error) bool {
@@ -511,22 +514,24 @@ func contractAdmissionHTTPStatus(endpoint *Endpoint, err error) (int, bool) {
 	return fallback, true
 }
 
-func (s *server) contractCORSPolicy(requestPath string) *ContractHTTPPolicy {
-	for _, route := range s.contractCORS {
-		pattern, value := strings.Split(strings.Trim(route.path, "/"), "/"), strings.Split(strings.Trim(requestPath, "/"), "/")
-		if len(pattern) != len(value) {
+func (s *server) contractCORSPolicy(requestPath, method string) *ContractHTTPPolicy {
+	var matches []*route
+	policies := map[*route]*ContractHTTPPolicy{}
+	for _, corsRoute := range s.contractCORS {
+		if method != "" && !routeAllowsMethod(expandMethods(corsRoute.methods), strings.ToUpper(method)) {
 			continue
 		}
-		matched := true
-		for index := range pattern {
-			if !strings.HasPrefix(pattern[index], ":") && pattern[index] != value[index] {
-				matched = false
-				break
-			}
+		pattern := parseRoutePattern(corsRoute.path)
+		pattern.pathTail = corsRoute.pathTail
+		if _, matched := pattern.match(requestPath); matched {
+			candidate := &route{pattern: pattern}
+			matches = append(matches, candidate)
+			policies[candidate] = corsRoute.policy
 		}
-		if matched {
-			return route.policy
-		}
+	}
+	slices.SortStableFunc(matches, compareRoutes)
+	if len(matches) > 0 {
+		return policies[matches[0]]
 	}
 	return nil
 }
@@ -540,6 +545,14 @@ func (s *server) selectRouter(ep *Endpoint) *routeTable {
 
 func registerRoute(router *routeTable, path string, methods []string, handler routeHandle) {
 	router.Handle(methods, path, handler)
+}
+
+func registerEndpointRoute(router *routeTable, endpoint *Endpoint, handler routeHandle) {
+	if endpoint.ContractPathTail != nil {
+		router.HandlePathTail(endpoint.Methods, endpoint.Path, handler)
+		return
+	}
+	router.Handle(endpoint.Methods, endpoint.Path, handler)
 }
 
 func expandMethods(methods []string) []string {

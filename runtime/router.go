@@ -29,6 +29,7 @@ type routePattern struct {
 	literals    int
 	hasParam    bool
 	hasWildcard bool
+	pathTail    bool
 }
 
 type routeSegment struct {
@@ -65,7 +66,16 @@ func newRouteTable() *routeTable {
 }
 
 func (r *routeTable) Handle(methods []string, path string, handler routeHandle) {
+	r.handle(methods, path, false, handler)
+}
+
+func (r *routeTable) HandlePathTail(methods []string, path string, handler routeHandle) {
+	r.handle(methods, path, true, handler)
+}
+
+func (r *routeTable) handle(methods []string, path string, pathTail bool, handler routeHandle) {
 	pattern := parseRoutePattern(path)
+	pattern.pathTail = pathTail
 	item := &route{
 		methods: expandMethods(methods),
 		pattern: pattern,
@@ -247,6 +257,13 @@ func splitRoutePath(path string) []string {
 
 func (p routePattern) match(path string) (routeParams, bool) {
 	requestSegments := splitRoutePath(path)
+	if p.pathTail {
+		for _, segment := range requestSegments {
+			if segment == "" {
+				return nil, false
+			}
+		}
+	}
 	params := make(routeParams, 0, len(p.segments))
 
 	i, j := 0, 0
@@ -260,7 +277,7 @@ func (p routePattern) match(path string) (routeParams, bool) {
 			i++
 			j++
 		case routeParam:
-			if j >= len(requestSegments) {
+			if j >= len(requestSegments) || requestSegments[j] == "" {
 				return nil, false
 			}
 			params = append(params, routeParamValue{Key: segment.value, Value: requestSegments[j]})

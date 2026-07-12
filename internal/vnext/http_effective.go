@@ -24,6 +24,7 @@ func applyHTTPEffectiveDefaults(resources []Resource) {
 		if httpSpec == nil {
 			continue
 		}
+		applyHTTPPathTailEffective(binding, httpSpec, byAddress)
 		if httpSpec["guarantee"] == nil {
 			httpSpec["guarantee"] = "framework_enforced"
 			setFieldProvenance(&binding.Origin, "/spec/http/guarantee", httpSpec["guarantee"], httpDefaultField())

@@ -37,7 +37,21 @@ scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-
 
 The checked-in `scenery.diagnostics.2027.v1` registry is publicly inspectable with `schema.get` using either the catalog identity or one `SCNxxxx` code. Request failures use `SCN8001` through `SCN8005`; only internal failures use `SCN9000` through `SCN9099`. Every internal failure carries an opaque `report_token` and a sanitized stable message, never its raw cause.
 
-The feature-complete draft profile set is `scenery.compiler-core/v1`, `scenery.go-implementation/v1`, `scenery.http-codec/v1`, `scenery.runtime-http/v1`, `scenery.runtime-durable/v1`, `scenery.events/v1`, `scenery.data/v1`, `scenery.deployment/v1`, `scenery.inspection-core/v1`, `scenery.agent-read/v1`, `scenery.agent-mutation/v1`, `scenery.patches/v1`, `scenery.ui/v1`, `scenery.legacy-bridge/v1`, `scenery.compatibility-core/v1`, and `scenery.typescript-client/v1`. Profile dependencies are resolved into the manifest. Edition 2027 remains `0.4-draft`: unresolved declarative extensions, Appendix E workflow, streaming/WebSocket, registry-trust/publication, provider-vocabulary, entity-evolution, platform-listener/certificate, and fixed-target native-toolchain surfaces are reported as draft or unsupported; `extension` and generic `resource` declarations specifically emit `SCN7001 unsupported_profile`, while genuinely unknown syntax remains `SCN1002`.
+The feature-complete draft profile set is `scenery.compiler-core/v1`, `scenery.go-implementation/v1`, `scenery.http-codec/v1`, `scenery.http-path-tail/v1`, `scenery.runtime-http/v1`, `scenery.runtime-http-path-tail/v1`, `scenery.runtime-durable/v1`, `scenery.events/v1`, `scenery.data/v1`, `scenery.deployment/v1`, `scenery.inspection-core/v1`, `scenery.agent-read/v1`, `scenery.agent-mutation/v1`, `scenery.patches/v1`, `scenery.ui/v1`, `scenery.legacy-bridge/v1`, `scenery.compatibility-core/v1`, and `scenery.typescript-client/v1`. Profile dependencies are resolved into the manifest. Edition 2027 remains `0.5-draft`: unresolved declarative extensions, Appendix E workflow, streaming/WebSocket, registry-trust/publication, provider-vocabulary, entity-evolution, platform-listener/certificate, and fixed-target native-toolchain surfaces are reported as draft or unsupported; `extension` and generic `resource` declarations specifically emit `SCN7001 unsupported_profile`, while genuinely unknown syntax remains `SCN1002`.
+
+The separate `scenery.http-path-tail/v1` and
+`scenery.runtime-http-path-tail/v1` profiles implement terminal `{name...}`
+plus an exactly matching `path_tail` mapping to `string`, `relative_path`, or
+`optional(relative_path)`. A tail captures zero or more non-empty segments, so
+`/drive/{path...}` matches `/drive` and `/drive/a/b` but not `/drive/` or
+`/drive//b`. Runtime decoding splits before one-time percent decoding, rejects
+separator/traversal/backslash/NUL/double-decode hazards, and never falls back
+to a broader tail after selecting a more specific route. Generated TypeScript
+clients encode each semantic segment independently. Eligible terminal legacy
+`/*path` routes lower to the typed form when both profiles are active;
+unsupported wildcard or independently raw facets retain `SCN5401`, while
+`SCN5405` keeps slash/selection/decoding comparison visible as advisory
+migration evidence.
 
 Edition schemas are enforced recursively against authored blocks before lowering. Unknown nested attributes or blocks, wrong label counts, repeated singleton blocks, and duplicate named children are errors. Workspace revision globs implement only `*`, `?`, and whole-segment `**`; character classes, escapes, embedded `**`, and host glob semantics are rejected.
 

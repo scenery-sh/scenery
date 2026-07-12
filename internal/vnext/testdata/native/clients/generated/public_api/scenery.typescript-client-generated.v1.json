@@ -360,7 +360,7 @@
       }
     ]
   },
-  "content_digest": "sha256:ae60bf9cabd619ce484f9fbecf6b46af3b6ae5cc67dea8bda1c3975728336c21",
+  "content_digest": "sha256:952e475165e5858e65981468dc58452553d57e44bf2745f63fc80313ddf713ef",
   "contract_revision": "sha256:fe7e93d91bc599c07fea0d0416d3219745e3c8018251d3b96804d84327115f6c",
   "covered_bindings": [
     "house/binding/process_scene_http"

@@ -744,7 +744,9 @@ func validateResources(root string, resources []Resource, migration *Migration) 
 func canonicalRoute(path string) string {
 	parts := strings.Split(path, "/")
 	for i, part := range parts {
-		if strings.HasPrefix(part, ":") || (strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}")) {
+		if strings.HasPrefix(part, "*") || httpPathTailPattern.MatchString(part) {
+			parts[i] = "{...}"
+		} else if strings.HasPrefix(part, ":") || (strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}")) {
 			parts[i] = "{}"
 		}
 	}
@@ -818,6 +820,14 @@ func validateProfiles(profiles []string, resources []Resource) []Diagnostic {
 		}
 	}
 	for _, resource := range resources {
+		if resource.Kind == "scenery.binding/v1" && bindingUsesHTTPPathTail(resource) {
+			if !active[HTTPPathTailProfile] {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN7008", Severity: "error", Message: "unsupported_profile: " + HTTPPathTailProfile, Address: resource.Address})
+			}
+			if active["scenery.runtime-http/v1"] && !active[RuntimeHTTPPathTailProfile] {
+				diagnostics = append(diagnostics, Diagnostic{Code: "SCN7008", Severity: "error", Message: "unsupported_profile: " + RuntimeHTTPPathTailProfile, Address: resource.Address})
+			}
+		}
 		switch resource.Kind {
 		case "scenery.execution/v1":
 			if mode, _ := resource.Spec["mode"].(string); mode == "durable" && !active["scenery.runtime-durable/v1"] {

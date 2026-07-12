@@ -211,7 +211,9 @@ func AppForVNextTarget(appRoot string, cfg app.Config, targetName, defaultRole s
 	if target.Role == "contract" {
 		return nil, fmt.Errorf("Go contract target %s does not produce a runtime binary", target.Name)
 	}
-	appModel, err := parse.AppWithOverlayTarget(appRoot, cfg.Name, nil, target.Context)
+	// vnext.Check has already validated any mixed-mode legacy declarations. A
+	// fully native application intentionally has no Go directives to discover.
+	appModel, err := parse.AppWithOverlayTargetAllowEmpty(appRoot, cfg.Name, nil, target.Context)
 	if err != nil {
 		return nil, err
 	}

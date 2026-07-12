@@ -21,6 +21,28 @@ scenery harness --json --write
 
 Treat `scenerycontract`, `internal/scenerygen`, generated TypeScript roots, and their descriptors as one atomically generated set. Implement the generated Go handler interfaces in ordinary app code; exact HTTP scalar/body/status behavior remains owned by the generated adapter and runtime codec.
 
+For a terminal zero-or-more path, add both extension profiles to
+`language.require_profiles` and map the final template segment explicitly:
+
+```hcl
+http {
+  method        = "GET"
+  path          = "/drive/{path...}"
+  codec_profile = std.codec.http_json_v1
+
+  path_tail "path" {
+    to = operation.download.input.path
+  }
+}
+```
+
+The target must be `string`, `relative_path`, or
+`optional(relative_path)`. `/drive` supplies the empty behavior for that type;
+`/drive/a/b` supplies `a/b`; a trailing slash, empty segment, traversal,
+backslash, encoded separator, NUL, or hazardous double encoding is never
+normalized into a value. Generated clients take semantic text, split on `/`,
+and percent-encode each segment independently.
+
 Use exact `std.type.unit` for an operation with no input or response body. To prove an implementation rather than only its contract, build a declared target and keep the runtime-bundle sidecar with the binary:
 
 ```sh

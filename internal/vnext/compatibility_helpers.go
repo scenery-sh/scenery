@@ -256,7 +256,7 @@ func securityRelevantPath(path string) bool {
 			return true
 		}
 	}
-	return false
+	return strings.Contains(path, "/path_tail/") || strings.Contains(path, "/required_profiles")
 }
 
 func classified(result, rule string) Classification {

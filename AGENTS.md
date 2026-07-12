@@ -91,6 +91,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - Route manifests expose the API, Scenery-owned runtime/dashboard surfaces where appropriate, and configured frontends; arbitrary backend names do not receive reserved route behavior.
 - Public and auth endpoints are externally reachable. Private endpoints are internal-only and must be called through generated helpers.
 - Typed endpoints decode path/query/header/cookie/body inputs into Go values and encode typed responses.
+- Edition-2027 terminal HTTP path tails use `{name...}` plus one typed `path_tail` mapping under the explicit codec/runtime extension profiles. They capture zero or more complete segments with exact/literal/parameter/tail precedence, strict one-time segment decoding, ordinary typed Go inputs, and independently encoded TypeScript segments.
 - Generated internal calls preserve route, private access, auth context, tracing, and error semantics.
 - Edition-2027 constructors receive typed `scenery.sh/datasource` and `scenery.sh/object` capabilities; built-in CRUD, fixtures, views, pages, and renderers stay in the same generated application composition.
 - Edition-2027 agent capabilities expose exact `resource_create_kinds`; `scenery schema` / `schema.get` provide the recursive authored shape, and semantic creation must reject unadvertised kinds instead of guessing blocks, labels, or source destinations.

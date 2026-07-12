@@ -34,12 +34,19 @@ func renderTSMetadata(target Resource, manifest *Manifest, bindings, reachable [
 		gateways = append(gateways, refOrString(value))
 	}
 	sort.Strings(gateways)
+	codecProfiles := typeScriptCodecProfileDigests(bindings)
+	profiles := []string{"scenery.http-codec/v1", "scenery.typescript-client/v1"}
+	profileDigests := map[string]string{"scenery.http-codec/v1": profileIdentityDigest("scenery.http-codec/v1"), "scenery.typescript-client/v1": profileIdentityDigest("scenery.typescript-client/v1")}
+	if bindingsUseHTTPPathTail(bindings) {
+		profiles = append(profiles, HTTPPathTailProfile)
+		profileDigests[HTTPPathTailProfile] = profileIdentityDigest(HTTPPathTailProfile)
+	}
 	b, _ := json.MarshalIndent(map[string]any{
 		"target": target.Address, "gateways": gateways, "bindings": resourceAddresses(bindings), "resources": resourceAddresses(reachable),
 		"contractRevision": manifest.ContractRevision, "typescriptClientRevision": revision,
-		"profiles": []string{"scenery.http-codec/v1", "scenery.typescript-client/v1"}, "codecProfiles": []string{"scenery.http-codec/v1"},
-		"profileDigests":       map[string]string{"scenery.http-codec/v1": profileIdentityDigest("scenery.http-codec/v1"), "scenery.typescript-client/v1": profileIdentityDigest("scenery.typescript-client/v1")},
-		"codecProfileDigests":  map[string]string{"scenery.http-codec/v1": profileIdentityDigest("scenery.http-codec/v1")},
+		"profiles": profiles, "codecProfiles": sortedMapKeys(codecProfiles),
+		"profileDigests":       profileDigests,
+		"codecProfileDigests":  codecProfiles,
 		"compatibilityCatalog": "scenery.compatibility-core/v1", "packageVersionRecommendation": recommendation, "generator": "scenery.vnext.typescript/v1", "sourceEdition": Edition,
 		"operationMethods": methods, "guaranteeClassifications": guarantees,
 	}, "", "  ")

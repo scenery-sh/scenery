@@ -26,10 +26,11 @@ const (
 )
 
 const (
-	ContractSourcePath   = "path"
-	ContractSourceQuery  = "query"
-	ContractSourceHeader = "header"
-	ContractSourceCookie = "cookie"
+	ContractSourcePath     = "path"
+	ContractSourcePathTail = "path_tail"
+	ContractSourceQuery    = "query"
+	ContractSourceHeader   = "header"
+	ContractSourceCookie   = "cookie"
 )
 
 type ContractInputMapping struct {
@@ -216,6 +217,12 @@ func contractMappingValues(request *http.Request, pathValues map[string]string, 
 			return nil, err
 		}
 		return []string{decoded}, nil
+	case ContractSourcePathTail:
+		raw, exists := pathValues[mapping.Name]
+		if !exists {
+			return nil, nil
+		}
+		return decodeContractPathTail(raw, mapping)
 	case ContractSourceQuery:
 		return contractRawQueryValues(request.URL.RawQuery, mapping.Name, mapping.Encoding)
 	case ContractSourceHeader:
@@ -298,6 +305,35 @@ func decodeContractPathSegment(encoded string) (string, error) {
 		return "", fmt.Errorf("invalid decoded path segment")
 	}
 	return decoded, nil
+}
+
+func decodeContractPathTail(encoded string, mapping ContractInputMapping) ([]string, error) {
+	if encoded == "" {
+		switch strings.TrimSpace(mapping.Type) {
+		case "string":
+			return []string{""}, nil
+		case "optional(relative_path)":
+			return nil, nil
+		default:
+			return nil, fmt.Errorf("empty path tail cannot construct %s", mapping.Type)
+		}
+	}
+	segments := strings.Split(encoded, "/")
+	decoded := make([]string, len(segments))
+	for index, segment := range segments {
+		if segment == "" || strings.Contains(segment, "\\") {
+			return nil, fmt.Errorf("invalid path-tail segment")
+		}
+		value, err := url.PathUnescape(segment)
+		if err != nil || !utf8.ValidString(value) || value == "." || value == ".." || strings.ContainsAny(value, "/\\") || strings.ContainsRune(value, 0) {
+			return nil, fmt.Errorf("invalid decoded path-tail segment")
+		}
+		if twice, secondErr := url.PathUnescape(value); secondErr == nil && (twice == "." || twice == ".." || strings.ContainsAny(twice, "/\\") || strings.ContainsRune(twice, 0)) {
+			return nil, fmt.Errorf("hazardous double-decoded path-tail segment")
+		}
+		decoded[index] = value
+	}
+	return []string{strings.Join(decoded, "/")}, nil
 }
 
 func contractMappedJSON(values []string, mapping ContractInputMapping) (json.RawMessage, error) {
@@ -708,6 +744,10 @@ func AddContractResponseHeader(response *ContractHTTPResponse, name string, valu
 	}
 	switch options.Encoding {
 	case "repeated":
+		if strings.EqualFold(name, "content-type") && len(values) == 1 {
+			response.Headers.Set(name, values[0])
+			break
+		}
 		for _, item := range values {
 			response.Headers.Add(name, item)
 		}

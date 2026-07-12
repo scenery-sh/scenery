@@ -4,7 +4,7 @@ Normative companion specification
 
 Profile: `scenery.http-codec/v1`  
 Runtime profile: `scenery.runtime-http/v1`  
-Document revision: `0.4-draft`  
+Document revision: `0.5-draft`\
 Status: draft for Scenery language edition 2027  
 Umbrella specification: [SCENERY_LANGUAGE_SPEC.md](SCENERY_LANGUAGE_SPEC.md)
 
@@ -35,6 +35,12 @@ The words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are normative.
 - the operation, binding, execution, authentication, authorization, and pipeline resource schemas.
 
 `scenery.runtime-http/v1` depends on this codec profile and implements direct HTTP delivery. Durable enqueue and wait delivery additionally require `scenery.runtime-durable/v1`.
+
+Terminal zero-or-more path segments are an additive extension defined by
+[SCENERY_HTTP_PATH_TAIL_V1.md](SCENERY_HTTP_PATH_TAIL_V1.md). The extension
+continues to use this codec for all non-tail HTTP semantics and requires
+separate `scenery.http-path-tail/v1` and
+`scenery.runtime-http-path-tail/v1` profile claims.
 
 A manifest and generated client MUST record the exact codec profile. A runtime MUST reject an unsupported codec profile rather than approximating it.
 
@@ -171,7 +177,11 @@ http {
 }
 ~~~
 
-Every template parameter has one mapping. Every path mapping names a template parameter. Wildcards and catch-all segments require a later profile.
+Every template parameter has one mapping. Every path mapping names a template
+parameter. This base profile supports only single-segment parameters.
+`{name...}` plus a matching `path_tail` block is defined only by the separately
+claimed [HTTP path-tail profile](SCENERY_HTTP_PATH_TAIL_V1.md). All other
+wildcard and catch-all spellings remain unsupported.
 
 ### 5.2 Decoding and normalization
 
@@ -525,7 +535,7 @@ Version 1 does not define:
 - unbuffered request bodies;
 - bidirectional streams;
 - non-UTF-8 text;
-- wildcard path segments;
+- wildcard path segments other than terminal `{name...}` under the separately claimed path-tail profile;
 - implementation-selected status codes outside declared outcomes.
 
 These require separately versioned profiles.

@@ -107,6 +107,9 @@ func generateApplicationArtifacts(result *Result) ([]generatedFile, error) {
 		"http_surface_revisions": result.HTTPSurfaceRevisions, "openapi_revisions": result.OpenAPIRevisions,
 		"content_digest": artifactDigest(generatedRoot, files), "files": generatedFilePaths(generatedRoot, files),
 	}
+	if bindingsUseHTTPPathTail(result.Manifest.Resources) {
+		descriptor["extension_profiles"] = []string{HTTPPathTailProfile, RuntimeHTTPPathTailProfile}
+	}
 	descriptorBytes, err := json.MarshalIndent(descriptor, "", "  ")
 	if err != nil {
 		return nil, err
@@ -769,6 +772,7 @@ func runtimeAccess(binding Resource) string {
 }
 
 func runtimeHTTPPath(path string) string {
+	path = httpPathTailPattern.ReplaceAllString(path, "*$1")
 	return httpPathParameterPattern.ReplaceAllString(path, ":$1")
 }
 

@@ -4,6 +4,7 @@ import { PublicApiClient } from "./native/clients/generated/public_api/client.ts
 import type { URLString } from "./native/clients/generated/public_api/types.ts";
 
 import {
+	appendPathTail,
 	appendHeader,
 	appendQuery,
 	decodeResponseCookie,
@@ -55,6 +56,22 @@ const registry: TypeRegistry = Object.freeze({
 const valueDescriptor: TypeDescriptor = { kind: "named", name: "test/record/value" };
 
 describe("Scenery TypeScript client exact codecs", () => {
+	test("encodes path tails one semantic segment at a time", () => {
+		const stringTail: TypeDescriptor = { kind: "primitive", name: "string" };
+		const relativeTail: TypeDescriptor = { kind: "primitive", name: "relative_path" };
+		const optionalRelativeTail: TypeDescriptor = { kind: "optional", value: relativeTail };
+		expect(appendPathTail("/drive", "", stringTail, registry)).toBe("/drive");
+		expect(appendPathTail("/drive", undefined, optionalRelativeTail, registry)).toBe("/drive");
+		expect(appendPathTail("/drive", "space here/a+b/café/%", stringTail, registry)).toBe(
+			"/drive/space%20here/a%2Bb/caf%C3%A9/%25",
+		);
+		expect(appendPathTail("", "asset", stringTail, registry)).toBe("/asset");
+		for (const value of ["/leading", "trailing/", "a//b", ".", "..", "a/../b", "a\\b", "a%2Fb", "%2e%2e", "%00"]) {
+			expect(() => appendPathTail("/drive", value, stringTail, registry)).toThrow(SceneryClientError);
+		}
+		expect(() => appendPathTail("/drive", "", relativeTail, registry)).toThrow(SceneryClientError);
+	});
+
   test("round-trips arbitrary precision JSON numbers without Number", () => {
     const parsed = parseExactJSON('{"large":9007199254740993123.4500,"tiny":1e-100}');
     expect(encodeJSON(parsed)).toBe('{"large":9007199254740993123.45,"tiny":0.' + "0".repeat(99) + "1}");

@@ -121,7 +121,7 @@ func diagnosticCategory(code string) string {
 
 func diagnosticDefaultSeverity(code string) string {
 	switch code {
-	case "SCN5204", "SCN5401", "SCN5402", "SCN5403", "SCN5404":
+	case "SCN5204", "SCN5401", "SCN5402", "SCN5403", "SCN5404", "SCN5405":
 		return "warning"
 	default:
 		return "error"
@@ -334,10 +334,11 @@ SCN5301|migration_ownership_inventory|A native or legacy namespace is absent fro
 SCN5302|migration_service_owner|A service lifecycle has invalid active or shadow ownership
 SCN5303|migration_operation_owner|An operation handler has invalid ownership or adapter selection
 SCN5304|migration_runtime_owner|A durable event data or UI resource has invalid ownership
-SCN5401|legacy_raw_rewrite|A raw or wildcard legacy endpoint requires explicit native rewriting
+SCN5401|legacy_raw_rewrite|A raw or unsupported wildcard legacy endpoint requires explicit native rewriting
 SCN5402|legacy_status_choice|Legacy implementation-selected HTTP status requires an explicit native choice
 SCN5403|legacy_header_normalization|A legacy header spelling changes under native normalization
 SCN5404|legacy_go_type_choice|A legacy Go type requires an explicit native contract choice
+SCN5405|legacy_path_tail_parity|A lowered legacy terminal wildcard requires behavioral path-tail comparison
 SCN5600|migration_readiness|Migration verification or retirement readiness is blocked
 SCN5601|migration_evidence|Required migration operational evidence is unavailable
 SCN6101|go_contract_generation|A Go contract cannot be generated from the canonical graph

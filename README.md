@@ -4,7 +4,7 @@
 
 Edition-2027 apps may opt into `scenery.scn`, a canonical typed resource graph with Go and TypeScript generation, HTTP/durable/event/data/deployment/UI profiles, semantic inspection and mutation, and a bounded `scenery.migration.scn` bridge. Mixed apps keep explicitly listed services legacy-owned while services move natively through one compiler graph and one runtime—never a second route table or lifecycle.
 
-Edition 2027 is a feature-complete `0.4-draft` across its claimed resolved profiles, not a stable language release. Surfaces whose semantics are still open—such as declarative extensions, Appendix E workflows, streaming/WebSockets, full registry trust, entity-evolution syntax, platform listener/certificate schemas, and fixed-target native toolchain identities—fail as draft or unsupported instead of receiving invented defaults.
+Edition 2027 is a feature-complete `0.5-draft` across its claimed resolved profiles, not a stable language release. Surfaces whose semantics are still open—such as declarative extensions, Appendix E workflows, streaming/WebSockets, full registry trust, entity-evolution syntax, platform listener/certificate schemas, and fixed-target native toolchain identities—fail as draft or unsupported instead of receiving invented defaults.
 
 scenery is a Go-native local runtime and toolchain for building service applications from ordinary Go packages.
 
@@ -29,7 +29,7 @@ Available now as draft profile surfaces:
 - edition-2027 Go contract/application/composition generation and exact TypeScript clients with descriptor, selection-manifest, constraint, cross-field validation, canonical HTTP sets, Fetch-safe header validation, declared multipart, and structurally disjoint typed response-map coverage
 - edition-2027 exact Go build-input/toolchain identities and runtime-bundle sidecars, with host-CGO native-tool identities and fail-closed fixed-target CGO
 - edition-2027 authored CLI execution with generated help/completion and typed outcomes, plus environment-selected typed fixtures shared by deployment and local database seeding
-- edition-2027 HTTP, durable execution, schedules, events, data/CRUD/provider, deployment plan/apply, patches, UI validation, compatibility, and bounded legacy-bridge profiles
+- edition-2027 HTTP, typed terminal zero-or-more path tails, durable execution, schedules, events, data/CRUD/provider, deployment plan/apply, patches, UI validation, compatibility, and bounded legacy-bridge profiles
 - workspace-issued, revision-bound semantic change, deployment, migration activation/rollback/retirement, and evidence-bound migration-finish transactions; apply rejects caller-recomputed plans before trusting approvals, edits, or provider actions
 - `.scenery.json` root discovery, with `.config.json` accepted as an alias
 - `scenery up`, `scenery task`, `scenery validate`, `scenery build`, `scenery check`

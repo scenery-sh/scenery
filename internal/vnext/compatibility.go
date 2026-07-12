@@ -730,7 +730,7 @@ func classifyBindingChange(dimension, operation string, resource Resource, path 
 			}
 			return notApplicable()
 		}
-		if strings.Contains(path, "/codec_profile") || strings.Contains(path, "/content_type") || strings.Contains(path, "/path_parameter/") || strings.Contains(path, "/query_parameter/") || strings.Contains(path, "/header/") || strings.Contains(path, "/cookie/") || strings.Contains(path, "/body/") {
+		if strings.Contains(path, "/codec_profile") || strings.Contains(path, "/content_type") || strings.Contains(path, "/path_parameter/") || strings.Contains(path, "/path_tail/") || strings.Contains(path, "/required_profiles") || strings.Contains(path, "/query_parameter/") || strings.Contains(path, "/header/") || strings.Contains(path, "/cookie/") || strings.Contains(path, "/body/") {
 			if dimension == "request_wire" || dimension == "response_wire" || dimension == "generated_client" || dimension == "runtime" {
 				return classified(CompatibilityBreaking, "SCN_COMPAT_HTTP_MAPPING_OR_CODEC_CHANGED")
 			}
@@ -795,6 +795,9 @@ func classifyExecutionChange(dimension, path string, base, target any) Classific
 }
 
 func classifySecurityChange(operation, path string, base, target any) Classification {
+	if path == "/spec/http/path" && (strings.Contains(fmt.Sprint(base), "...}") || strings.Contains(fmt.Sprint(target), "...}")) {
+		return Classification{Applicable: true, Result: CompatibilityUnknown, Relation: SecurityUnknown, Rule: "SCN_COMPAT_SECURITY_UNKNOWN"}
+	}
 	if !securityRelevantPath(path) && operation != "remove" {
 		return Classification{Applicable: true, Result: CompatibilityCompatible, Relation: SecurityEqual, Rule: "SCN_COMPAT_SECURITY_UNCHANGED"}
 	}

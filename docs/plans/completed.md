@@ -6,6 +6,25 @@ Completed means implemented or shipped at least once. It does not imply stable
 v0 support. Use [../local-contract.md](../local-contract.md) as the source of
 truth for stable, beta, dev-only, and compatibility-mode classification.
 
+## HTTP Path-Tail Profile
+
+- Status: completed
+- Owner: scenery compiler / HTTP runtime / migration
+- Completed: 2026-07-12
+- Quality: B
+- ExecPlan: [0106 HTTP Path-Tail Profile](0106-http-path-tail-profile.md)
+
+Shipped:
+
+- Added explicit `scenery.http-path-tail/v1` and `scenery.runtime-http-path-tail/v1` profiles with terminal `{name...}` syntax, exact typed mappings, canonical effective metadata, revisions, and profile advertisement.
+- Added deterministic literal/parameter/exact/tail precedence, zero-or-more strict routing, compiler and startup conflict checks, one-time segment decoding, typed Go input construction, no-fallback behavior, and CORS ownership.
+- Added independently encoded TypeScript segments, path-tail descriptor identities, an honest OpenAPI vendor extension, compatibility/security consequences, and profile-gated Drive-shaped GET/DELETE legacy candidate lowering.
+- Kept generic legacy wildcard behavior distinct: unsupported/raw facets retain `SCN5401`, while `SCN5405` makes slash/selection/decoding comparison explicit and the existing risk gate prevents advisory evidence from being called verified equality.
+
+Validation:
+
+- Passed the uncached full Go suite, focused compiler/runtime/migration tests, byte-stable House/native generation, sixteen TypeScript codec tests, generated-client typechecking, docs inspection, and self-harness with zero errors and advisory review, generated-file-size, and timing warnings only.
+
 ## Edition-2027 Transaction and Migration Conformance
 
 - Status: completed

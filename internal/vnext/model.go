@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	Edition           = "2027"
-	ManifestVersion   = "scenery.manifest.v1"
-	DiagnosticCatalog = "scenery.diagnostics.2027.v1"
+	Edition                    = "2027"
+	ManifestVersion            = "scenery.manifest.v1"
+	DiagnosticCatalog          = "scenery.diagnostics.2027.v1"
+	HTTPPathTailProfile        = "scenery.http-path-tail/v1"
+	RuntimeHTTPPathTailProfile = "scenery.runtime-http-path-tail/v1"
 )
 
 var KernelProfiles = []string{
@@ -27,7 +29,9 @@ var SupportedProfiles = map[string]bool{
 	"scenery.compiler-core/v1":      true,
 	"scenery.go-implementation/v1":  true,
 	"scenery.http-codec/v1":         true,
+	HTTPPathTailProfile:             true,
 	"scenery.runtime-http/v1":       true,
+	RuntimeHTTPPathTailProfile:      true,
 	"scenery.runtime-durable/v1":    true,
 	"scenery.events/v1":             true,
 	"scenery.data/v1":               true,
@@ -45,7 +49,9 @@ var SupportedProfiles = map[string]bool{
 var ProfileDependencies = map[string][]string{
 	"scenery.go-implementation/v1":  {"scenery.compiler-core/v1"},
 	"scenery.http-codec/v1":         {"scenery.compiler-core/v1"},
+	HTTPPathTailProfile:             {"scenery.compiler-core/v1", "scenery.http-codec/v1"},
 	"scenery.runtime-http/v1":       {"scenery.compiler-core/v1", "scenery.go-implementation/v1", "scenery.http-codec/v1"},
+	RuntimeHTTPPathTailProfile:      {"scenery.runtime-http/v1", HTTPPathTailProfile},
 	"scenery.runtime-durable/v1":    {"scenery.compiler-core/v1", "scenery.go-implementation/v1"},
 	"scenery.events/v1":             {"scenery.compiler-core/v1"},
 	"scenery.data/v1":               {"scenery.compiler-core/v1"},

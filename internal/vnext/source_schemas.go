@@ -126,6 +126,7 @@ var (
 	executionDeduplicationSourceSchema = sourceSchema("scenery.execution.deduplication/v1", 0, []string{"retention", "conflict"}, []string{"retention", "conflict"}, nil)
 
 	httpPathParameterSourceSchema  = sourceSchema("scenery.binding.http.path-parameter/v1", 1, []string{"to"}, []string{"to"}, nil)
+	httpPathTailSourceSchema       = sourceSchema("scenery.binding.http.path-tail/v1", 1, []string{"to"}, []string{"to"}, nil)
 	httpQueryParameterSourceSchema = wireLabelSchema(sourceSchema("scenery.binding.http.query-parameter/v1", 1, []string{"to", "encoding"}, []string{"to"}, nil), httpQueryLabelPattern, "http_query_name")
 	httpHeaderSourceSchema         = wireLabelSchema(sourceSchema("scenery.binding.http.request-header/v1", 1, []string{"to", "encoding"}, []string{"to"}, nil), httpHeaderLabelPattern, "http_field_name")
 	httpCookieSourceSchema         = wireLabelSchema(sourceSchema("scenery.binding.http.request-cookie/v1", 1, []string{"to", "encoding"}, []string{"to"}, nil), httpCookieLabelPattern, "cookie_name")
@@ -146,7 +147,7 @@ var (
 	httpSourceSchema = sourceSchema("scenery.binding.http/v1", 0,
 		[]string{"method", "path", "codec_profile", "guarantee", "request_limit", "response_limit", "timeouts"}, []string{"method", "path", "codec_profile"},
 		map[string]authoredChildSchema{
-			"path_parameter": repeated(httpPathParameterSourceSchema), "query_parameter": repeated(httpQueryParameterSourceSchema),
+			"path_parameter": repeated(httpPathParameterSourceSchema), "path_tail": repeated(httpPathTailSourceSchema), "query_parameter": repeated(httpQueryParameterSourceSchema),
 			"header": repeated(httpHeaderSourceSchema), "cookie": repeated(httpCookieSourceSchema),
 			"context": repeated(httpContextSourceSchema), "body": singleton(httpBodySourceSchema), "response": repeated(httpResponseSourceSchema),
 		})

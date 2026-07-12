@@ -27,7 +27,7 @@ scenery harness self --summary
 
 ## vNext Normative Specifications
 
-Language edition 2027 is an opt-in, profile-based contract. The current legacy DSL remains documented separately above. Start with the [Scenery Language Specification](specs/vnext/SCENERY_LANGUAGE_SPEC.md), then use its normative companions for the [Go ABI](specs/vnext/SCENERY_GO_IMPLEMENTATION_V1.md), [HTTP codec](specs/vnext/SCENERY_HTTP_CODEC_V1.md), [TypeScript client](specs/vnext/SCENERY_TYPESCRIPT_CLIENT_V1.md), [compatibility core](specs/vnext/SCENERY_COMPATIBILITY_CORE_V1.md), and [legacy bridge](specs/vnext/SCENERY_LEGACY_BRIDGE_V1.md).
+Language edition 2027 is an opt-in, profile-based contract. The current legacy DSL remains documented separately above. Start with the [Scenery Language Specification](specs/vnext/SCENERY_LANGUAGE_SPEC.md), then use its normative companions for the [Go ABI](specs/vnext/SCENERY_GO_IMPLEMENTATION_V1.md), [HTTP codec](specs/vnext/SCENERY_HTTP_CODEC_V1.md), [typed terminal path tails](specs/vnext/SCENERY_HTTP_PATH_TAIL_V1.md), [TypeScript client](specs/vnext/SCENERY_TYPESCRIPT_CLIENT_V1.md), [compatibility core](specs/vnext/SCENERY_COMPATIBILITY_CORE_V1.md), and [legacy bridge](specs/vnext/SCENERY_LEGACY_BRIDGE_V1.md).
 
 ## Product Plans
 

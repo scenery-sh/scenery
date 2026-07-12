@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This directory contains the normative design set for Scenery language edition 2027 and its first implementation profiles. `SCENERY_LANGUAGE_SPEC.md` is the umbrella specification; the five companion documents override its summaries for their named profiles.
+This directory contains the normative design set for Scenery language edition 2027 and its first implementation profiles. `SCENERY_LANGUAGE_SPEC.md` is the umbrella specification; the six companion documents override its summaries for their named profiles.
 
 ## Ownership
 
@@ -10,14 +10,14 @@ Scenery maintainers own these specifications together with the compiler, runtime
 
 ## Local Contracts
 
-- Keep the six documents together and preserve their relative links.
+- Keep the seven documents together and preserve their relative links.
 - Treat profile identities and normative MUST/MUST NOT statements as implementation contracts, not aspirational prose.
 - Record unresolved draft features as unsupported; do not invent defaults.
 - Update the applicable implementation, tests, schemas, user docs, and active ExecPlan in the same change when a normative rule changes.
 
 ## Work Guidance
 
-Use `SCENERY_LANGUAGE_SPEC.md` section 26 to determine the claimed profile boundary. The first migration-capable release is the kernel slice plus `scenery.legacy-bridge/v1`; later profiles are not implied.
+Use `SCENERY_LANGUAGE_SPEC.md` section 26 to determine the claimed profile boundary. The first migration-capable release is the kernel slice plus `scenery.legacy-bridge/v1`; later profiles are not implied. `SCENERY_HTTP_PATH_TAIL_V1.md` owns the implemented additive terminal path-tail contract; apps must claim both path-tail profiles explicitly.
 
 ## Verification
 

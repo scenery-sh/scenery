@@ -421,7 +421,7 @@ func agentCapabilities(manifest *Manifest) map[string]any {
 		"resource_schema_revisions": allResourceSchemaRevisions(),
 		"resource_create_kinds":     resourceCreateSchemaRevisions(),
 		"mutation_schema_revisions": allMutationSchemaRevisions(),
-		"codec_profiles":            []string{"scenery.http-codec/v1"},
+		"codec_profiles":            []string{"scenery.http-codec/v1", HTTPPathTailProfile},
 		"unsupported_draft_surfaces": []string{
 			"compatibility_source_and_wire_classification",
 			"declarative_extensions",
