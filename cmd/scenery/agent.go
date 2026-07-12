@@ -45,7 +45,6 @@ type downOptions struct {
 
 type downResponse struct {
 	SchemaVersion    string   `json:"schema_version"`
-	SessionID        string   `json:"session_id"`
 	AppRoot          string   `json:"app_root,omitempty"`
 	Deleted          bool     `json:"deleted"`
 	RecordPreserved  bool     `json:"record_preserved"`
@@ -332,7 +331,6 @@ func parseStatusArgs(args []string) (statusOptions, error) {
 	registerJSONOutput(flags, &opts.JSON)
 	flags.BoolVar(&opts.Watch, "watch", false, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	rejectCLIFlag(flags, "session", "scenery ps no longer accepts --session; use --app-root to inspect an app directory")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return statusOptions{}, err
@@ -464,7 +462,8 @@ func classifyConfiguredEdgeRoutesStatus(session localagent.Session) (string, str
 	if baseDomain == "" || baseDomain == localagent.DefaultRouteBaseDomain {
 		return "", ""
 	}
-	for route, raw := range session.Routes {
+	for route, record := range session.RouteManifest.Routes {
+		raw := record.URL
 		parsed, err := url.Parse(strings.TrimSpace(raw))
 		if err != nil || parsed.Host == "" {
 			continue
@@ -582,7 +581,6 @@ func downCommandWithClient(client *localagent.Client, stdout io.Writer, args []s
 	}
 	resp := downResponse{
 		SchemaVersion: "scenery.down.v1",
-		SessionID:     firstNonEmpty(deletedSession.SessionID, session.SessionID),
 		AppRoot:       appRoot,
 		Deleted:       deleted,
 		DBCleanup:     opts.DB,
@@ -714,7 +712,6 @@ func parseDownArgs(args []string) (downOptions, error) {
 	var opts downOptions
 	flags := newCLIFlagSet("down")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	rejectCLIFlag(flags, "session", "scenery down no longer accepts --session; use --app-root to stop an app directory's dev runtime")
 	flags.BoolVar(&opts.DB, "db", false, "")
 	flags.BoolVar(&opts.State, "state", false, "")
 	flags.BoolVar(&opts.All, "all", false, "")

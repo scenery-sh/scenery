@@ -2,8 +2,6 @@ package main
 
 import (
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -50,23 +48,6 @@ func TestVNextInspectDurableProjectsMergedExecution(t *testing.T) {
 	declaration := response.Declarations[0]
 	if declaration.Name != "ProcessScene" || declaration.Service != "house" || declaration.Input != "record.input" || declaration.Output != "record.output" {
 		t.Fatalf("durable declaration = %#v", declaration)
-	}
-}
-
-func TestNativeGenerateFindsAncestorAndIgnoresOptionValues(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "scenery.scn"), []byte("language { edition = \"2027\" }\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	nested := filepath.Join(root, "nested", "client")
-	if err := os.MkdirAll(nested, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(nested)
-	for _, args := range [][]string{nil, {"--app-root", "client"}, {"--target", "client"}, {"client"}, {"--lang", "typescript", "client"}, {"--output", "out", "client"}} {
-		if !isVNextGenerate(args) {
-			t.Fatalf("isVNextGenerate(%q) = false", args)
-		}
 	}
 }
 

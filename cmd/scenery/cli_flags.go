@@ -126,10 +126,6 @@ func cliFlagSet(flags *flag.FlagSet, names ...string) bool {
 	return set
 }
 
-func rejectCLIFlag(flags *flag.FlagSet, name, message string) {
-	flags.BoolFunc(name, "", func(string) error { return fmt.Errorf("%s", message) })
-}
-
 func rejectCLIPositionals(args []string) error {
 	if len(args) == 0 {
 		return nil

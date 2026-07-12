@@ -63,21 +63,6 @@ func logsCommand(args []string) error {
 
 var runSceneryLogsFunc = runSceneryLogs
 
-func attachCommand(args []string) error {
-	opts, err := parseLogsArgs(args)
-	if err != nil {
-		return err
-	}
-	if opts.TUI {
-		return runSceneryConsoleOrFallback(context.Background(), os.Stdin, os.Stdout, opts)
-	}
-	logArgs, err := attachLogArgs(args)
-	if err != nil {
-		return err
-	}
-	return runSceneryLogsFunc(context.Background(), os.Stdout, logArgs)
-}
-
 func consoleCommand(args []string) error {
 	opts, err := parseLogsArgs(args)
 	if err != nil {
@@ -85,14 +70,6 @@ func consoleCommand(args []string) error {
 	}
 	opts.TUI = true
 	return runSceneryConsoleOrFallback(context.Background(), os.Stdin, os.Stdout, opts)
-}
-
-func attachLogArgs(args []string) ([]string, error) {
-	opts, err := parseLogsArgs(args)
-	if err != nil {
-		return nil, err
-	}
-	return logArgsFromOptions(opts, true), nil
 }
 
 func logArgsFromOptions(opts logsOptions, follow bool) []string {
@@ -202,9 +179,7 @@ func parseLogsArgs(args []string) (logsOptions, error) {
 	flags := newCLIFlagSet("logs")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
-	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
 	flags.BoolVar(&opts.Follow, "follow", false, "")
-	flags.BoolVar(&opts.Follow, "f", false, "")
 	registerJSONLinesOutput(flags, &opts.JSONL)
 	flags.BoolVar(&opts.TUI, "tui", false, "")
 	flags.StringVar(&stream, "stream", stream, "")

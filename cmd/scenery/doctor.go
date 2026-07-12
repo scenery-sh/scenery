@@ -852,15 +852,6 @@ func doctorDependencyChecks(ctx context.Context, deps doctorProbeDeps, features 
 			SuggestedAction: "Install PostgreSQL client tools if you need postgres shell access.",
 		},
 		{
-			ID:              "tool.pg_dump",
-			Name:            "pg_dump",
-			Command:         "pg_dump",
-			VersionArgs:     []string{"--version"},
-			Relevant:        appFound && features.PostgresServices,
-			MissingMessage:  "pg_dump not found; postgres services need it for `scenery db snapshot create`",
-			SuggestedAction: "Install PostgreSQL client tools if you need postgres snapshots.",
-		},
-		{
 			ID:              "tool.git",
 			Name:            "Git",
 			Command:         "git",

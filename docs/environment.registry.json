@@ -163,7 +163,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Google OAuth client ID for standard auth when `auth.google_oauth.client_id_env` is omitted.",
+      "rationale": "Canonical Google OAuth client ID for standard auth.",
       "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth credentials",
       "replacement": "",
       "sunset": "",
@@ -185,7 +185,7 @@
         "tests"
       ],
       "owner": "scenery runtime",
-      "rationale": "Default Google OAuth client secret for standard auth when `auth.google_oauth.client_secret_env` is omitted.",
+      "rationale": "Canonical Google OAuth client secret for standard auth.",
       "preferred_surface": "app-root `.env` or process environment for app-supplied OAuth secrets",
       "replacement": "",
       "sunset": "",

@@ -184,7 +184,7 @@ func (c *agentDashboardController) appRecordWithRegistryLiveness(app devdash.App
 		return app
 	}
 	applySessionStatusToAppRecord(&app, &session)
-	app.Routes = visibleDashboardRoutesFromAgent(session.Routes)
+	app.Routes = visibleDashboardRoutesFromAgent(session.RouteManifest.URLs())
 	app.Aliases = visibleDashboardRoutesFromAgent(session.Aliases)
 	return app
 }

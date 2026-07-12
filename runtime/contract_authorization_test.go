@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"scenery.sh/errs"
@@ -58,12 +57,14 @@ func TestContractServerRunsAuthorizationBeforeHandler(t *testing.T) {
 	called := false
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "house", Name: "Denied", Access: Public, Path: "/denied", Methods: []string{http.MethodPost},
-		PayloadType: reflect.TypeFor[map[string]any](), ResponseType: reflect.TypeFor[map[string]any](),
 		ContractPolicy: &ContractHTTPPolicy{AuthorizationStrategy: "deny_unless_allowed", AuthorizationRuleCount: 1, AuthorizationRules: []ContractAuthorizationRule{{Name: "never", Expression: "false"}}, TransportStatuses: map[string]int{"admission.forbidden": http.StatusForbidden}},
 		DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
 			return ContractDecodedRequest{Payload: map[string]any{"value": true}}, nil
 		},
 		Invoke: func(context.Context, []any, any) (any, error) { called = true; return map[string]any{}, nil },
+		EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) {
+			return ContractHTTPResponse{Status: http.StatusOK}, nil
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}

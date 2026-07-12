@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/stdlog"
 	"scenery.sh/internal/vnext"
 )
@@ -155,10 +154,10 @@ func run(args []string) error {
 	case "worktree":
 		return worktreeCommand(args[1:])
 	case "generate":
-		if hasCLIArg(args[1:], "--check") || hasCLIArg(args[1:], "--target") || isVNextGenerate(args[1:]) {
-			return runVNextGenerate(os.Stdout, args[1:])
+		if len(args) > 1 && args[1] == "sqlc" {
+			return generateCommand(args[1:])
 		}
-		return generateCommand(args[1:])
+		return runVNextGenerate(os.Stdout, args[1:])
 	case "task":
 		return taskCommand(args[1:])
 	case "validate":
@@ -351,8 +350,6 @@ func upCommand(args []string) error {
 	if err := validateVNextRuntimePlan(opts.AppRoot); err != nil {
 		return err
 	}
-	restore := configureDevProcessEnv(opts)
-	defer restore()
 	warnDevEscapeHatches(opts)
 	if opts.Detach && !detachedDevChildMode() {
 		return runDetachedDevFunc(args, opts)
@@ -406,17 +403,13 @@ func parseDevArgs(args []string) (devOptions, error) {
 	opts := devOptions{Port: 4000, Wait: detachedDevWaitReady}
 	flags := newCLIFlagSet("up")
 	flags.IntVar(&opts.Port, "port", opts.Port, "")
-	flags.IntVar(&opts.Port, "p", opts.Port, "")
 	flags.StringVar(&opts.Listen, "listen", "", "")
 	flags.BoolVar(&opts.Verbose, "verbose", false, "")
-	flags.BoolVar(&opts.Verbose, "v", false, "")
 	flags.StringVar(&opts.Output, "o", "human", "")
 	flags.BoolVar(&opts.Detach, "detach", false, "")
 	flags.StringVar(&opts.Wait, "wait", opts.Wait, "")
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.BoolVar(&opts.ClaimAliases, "claim-aliases", false, "")
-	rejectCLIFlag(flags, "session", "scenery up no longer accepts --session; one app root has one live dev runtime, so use --app-root or a separate Git worktree")
-	rejectCLIFlag(flags, "new-session", "scenery up no longer accepts --new-session; use a separate Git worktree for another live code copy")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return devOptions{}, err
@@ -457,41 +450,12 @@ func resolveDevListenRequest(opts devOptions) devListenRequest {
 	}
 }
 
-func configureDevProcessEnv(opts devOptions) func() {
-	return applyTemporaryEnv(nil)
-}
-
 func warnDevEscapeHatches(opts devOptions) {
 	if opts.JSON {
 		return
 	}
 	if opts.ListenSet || opts.PortSet {
 		fmt.Fprintln(cliStderr, "scenery: warning: --listen/--port force a manual TCP app backend; this is a debugging escape hatch and can be less parallel-safe than the default agent Unix-socket backend")
-	}
-}
-
-func applyTemporaryEnv(values map[string]string) func() {
-	if len(values) == 0 {
-		return func() {}
-	}
-	type previousValue struct {
-		value string
-		ok    bool
-	}
-	previous := make(map[string]previousValue, len(values))
-	for key, value := range values {
-		old, ok := envpolicy.Lookup(key)
-		previous[key] = previousValue{value: old, ok: ok}
-		_ = envpolicy.Set(key, value)
-	}
-	return func() {
-		for key, old := range previous {
-			if old.ok {
-				_ = envpolicy.Set(key, old.value)
-			} else {
-				_ = envpolicy.Unset(key)
-			}
-		}
 	}
 }
 

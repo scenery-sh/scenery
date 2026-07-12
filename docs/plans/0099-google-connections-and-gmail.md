@@ -30,6 +30,7 @@ Observable end state:
 
 ## Surprises & Discoveries
 
+- (2026-07-12, post-v0 cleanup) Current contract note: `/auth/google/callback` is the only callback; the connect callback compatibility alias and configurable auth environment names are removed. `AUTH_TOKEN_CIPHER_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, and `GOOGLE_OAUTH_CLIENT_SECRET` are canonical. Historical notes below describe the migration that originally introduced those temporary surfaces.
 - (2026-07-07, plan authoring) The existing sign-in flow (`auth/standard_google.go`) requests only `openid email profile`, never `access_type=offline`, and discards Google's access token — only the ID token is used. There is no token storage anywhere; this plan adds the first one.
 - (2026-07-08, implementation) Generated sqlc output `auth/db/gen/queries.sql.go` is over the self-harness architecture warning threshold after adding Google connection queries. It is generated code and remained below the blocking threshold; no manual split is useful here.
 - (2026-07-08, real-Google smoke) The ONLV OAuth client accepted the existing sign-in redirect URI `https://local.clean.tech/api/auth/google/callback`, but rejected both `http://localhost:4747/api/auth/google/connect/callback` and `https://local.clean.tech/api/auth/google/connect/callback`. The platform should not require every app to register a second callback URI just to add Gmail connection consent.
@@ -142,7 +143,7 @@ Schema changes are additive (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EX
 ## Interfaces and Dependencies
 
 - Builds on completed plan 0098 (conditional registration, callback error-redirect convention, fake-Google scaffolding, endpoint-URL override vars).
-- New public surface (all conditional on `auth.google_oauth.enabled`): `POST /auth/google/connect/start`, shared raw `GET /auth/google/callback` handling login and connection states, compatibility raw `GET /auth/google/connect/callback`, `GET /auth/google/connection`, `POST /auth/google/connection/disconnect`; Go API `auth.GoogleAccessToken` / `auth.GoogleAccessTokenForUser`; config `auth.google_oauth.allowed_scopes`, `auth.google_oauth.token_cipher_key_env`; env `AuthTokenCipherKey`; error codes `google_reauth_required`, `google_scope_missing`.
+- Current public surface (all conditional on `auth.google_oauth.enabled`): `POST /auth/google/connect/start`, shared raw `GET /auth/google/callback` handling login and connection states, `GET /auth/google/connection`, `POST /auth/google/connection/disconnect`; Go API `auth.GoogleAccessToken` / `auth.GoogleAccessTokenForUser`; config `auth.google_oauth.allowed_scopes`; canonical env `AUTH_TOKEN_CIPHER_KEY`; error codes `google_reauth_required`, `google_scope_missing`.
 - Schema: new table `scenery.scenery_auth_google_connections`; `scenery_auth_oauth_states` gains nullable `user_id`, `purpose`.
 - No new Go module dependencies (stdlib crypto, existing `golang-jwt`, `httptest` fakes).
 - Downstream consumer: ONLV Gmail features (own plan in the onlv repo); the contract they code against is Milestone 2 + 3 surfaces and the cookbook recipe.

@@ -134,7 +134,7 @@ func TestContractPathTailPopulatesTypedInputAndRejectsUnsafePaths(t *testing.T) 
 	var invoked []string
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "drive", Name: "Download", Access: Public, Path: "/drive/*path", Methods: []string{http.MethodGet},
-		PayloadType: reflect.TypeFor[input](), ResponseType: reflect.TypeFor[struct{}](), ContractPathTail: testContractPathTail("path", "string"),
+		ContractPathTail: testContractPathTail("path", "string"),
 		DecodeContractRequest: func(request *http.Request, paths map[string]string) (ContractDecodedRequest, error) {
 			value, err := DecodeContractInput[input](request, paths, ContractRequestSchema{Mappings: []ContractInputMapping{{Source: ContractSourcePathTail, Name: "path", Target: "path", Type: "string"}}})
 			return ContractDecodedRequest{Payload: value}, err
@@ -177,15 +177,15 @@ func TestContractPathTailPopulatesTypedInputAndRejectsUnsafePaths(t *testing.T) 
 func TestContractPathTailRegistrationRejectsEqualRouteSets(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
-	first := &Endpoint{Service: "drive", Name: "Download", Access: Public, Path: "/drive/*path", Methods: []string{http.MethodGet}, ContractPathTail: testContractPathTail("path", "string")}
+	first := completeTestEndpoint(&Endpoint{Service: "drive", Name: "Download", Access: Public, Path: "/drive/*path", Methods: []string{http.MethodGet}, ContractPathTail: testContractPathTail("path", "string")})
 	if err := RegisterEndpointChecked(first); err != nil {
 		t.Fatal(err)
 	}
-	conflict := &Endpoint{Service: "drive", Name: "Delete", Access: Public, Path: "/drive/*rest", Methods: []string{http.MethodHead}, ContractPathTail: testContractPathTail("rest", "string")}
+	conflict := completeTestEndpoint(&Endpoint{Service: "drive", Name: "Delete", Access: Public, Path: "/drive/*rest", Methods: []string{http.MethodHead}, ContractPathTail: testContractPathTail("rest", "string")})
 	if err := RegisterEndpointChecked(conflict); err == nil {
 		t.Fatal("equal path-tail match set was registered")
 	}
-	nonConflict := &Endpoint{Service: "drive", Name: "Bucket", Access: Public, Path: "/drive/:bucket", Methods: []string{http.MethodGet}}
+	nonConflict := completeTestEndpoint(&Endpoint{Service: "drive", Name: "Bucket", Access: Public, Path: "/drive/:bucket", Methods: []string{http.MethodGet}})
 	if err := RegisterEndpointChecked(nonConflict); err != nil {
 		t.Fatalf("single-segment parameter should coexist with tail: %v", err)
 	}
@@ -213,6 +213,17 @@ func TestContractPathTailRegistrationRejectsInvalidMetadata(t *testing.T) {
 			}
 		})
 	}
+}
+
+func completeTestEndpoint(endpoint *Endpoint) *Endpoint {
+	endpoint.DecodeContractRequest = func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
+		return ContractDecodedRequest{}, nil
+	}
+	endpoint.Invoke = func(context.Context, []any, any) (any, error) { return struct{}{}, nil }
+	endpoint.EncodeContractOutcome = func(*http.Request, any) (ContractHTTPResponse, error) {
+		return ContractHTTPResponse{Status: http.StatusNoContent}, nil
+	}
+	return endpoint
 }
 
 func TestContractPathTailCORSUsesSelectedMethodAndRoutePrecedence(t *testing.T) {

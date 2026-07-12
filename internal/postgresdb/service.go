@@ -22,10 +22,6 @@ type Service struct {
 	Name   string `json:"service"`
 	Schema string `json:"schema"`
 	URL    string `json:"url"`
-	// Compatibility fields for later-wave CLI code that still reasons in service databases.
-	Database       string `json:"-"`
-	DatabaseURLEnv string `json:"-"`
-	Source         Source `json:"-"`
 }
 
 type Database struct {
@@ -54,13 +50,8 @@ func ServiceURL(baseURL, schema string) (string, error) {
 	return copied.String(), nil
 }
 
-func Env(database Database, databaseURLEnv string) []string {
-	values := map[string]string{}
-	databaseURLEnv = strings.TrimSpace(databaseURLEnv)
-	if databaseURLEnv == "" {
-		databaseURLEnv = "DATABASE_URL"
-	}
-	values[databaseURLEnv] = database.URL
+func Env(database Database) []string {
+	values := map[string]string{"DATABASE_URL": database.URL}
 	for _, svc := range database.Schemas {
 		values[postgresname.ServiceDatabaseURLEnv(svc.Name)] = svc.URL
 	}

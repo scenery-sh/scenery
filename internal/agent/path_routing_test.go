@@ -34,10 +34,10 @@ func TestPathRouteManifestForSession(t *testing.T) {
 	if got, want := session.RouteManifest.BaseURL, "http://localhost:4001"; got != want {
 		t.Fatalf("base url = %q, want %q", got, want)
 	}
-	if got, want := session.Routes[RouteAPI], "http://localhost:4001/api/"; got != want {
+	if got, want := session.RouteManifest.Routes[RouteAPI].URL, "http://localhost:4001/api/"; got != want {
 		t.Fatalf("api route = %q, want %q", got, want)
 	}
-	if got, want := session.Routes[RouteDashboard], "http://localhost:4001/consolenext/"; got != want {
+	if got, want := session.RouteManifest.Routes[RouteDashboard].URL, "http://localhost:4001/consolenext/"; got != want {
 		t.Fatalf("dashboard route = %q, want %q", got, want)
 	}
 	if got, want := session.RouteManifest.Routes["ui"].StripPrefix, "/ui"; got != want {

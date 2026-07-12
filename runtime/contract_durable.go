@@ -125,10 +125,6 @@ func RegisterContractDurableExecution(registration ContractDurableRegistration) 
 	return nil
 }
 
-func DispatchContractDurableExecution(ctx context.Context, address string, input any, dedupeKey string) (runtimeapi.ExecutionReceipt, error) {
-	return DispatchContractDurableExecutionWithOptions(ctx, address, input, ContractDurableDispatchOptions{DedupeKey: dedupeKey})
-}
-
 type ContractDurableDispatchOptions struct {
 	DedupeKey      string
 	ConcurrencyKey string
@@ -150,10 +146,6 @@ func DispatchContractDurableExecutionWithOptions(ctx context.Context, address st
 		return runtimeapi.ExecutionReceipt{}, err
 	}
 	return contractExecutionReceipt(registration, run.ID), nil
-}
-
-func DispatchAndWaitContractDurableExecution(ctx context.Context, address string, input any, dedupeKey string) ([]byte, error) {
-	return DispatchAndWaitContractDurableExecutionWithOptions(ctx, address, input, ContractDurableDispatchOptions{DedupeKey: dedupeKey})
 }
 
 func DispatchAndWaitContractDurableExecutionWithOptions(ctx context.Context, address string, input any, options ContractDurableDispatchOptions) ([]byte, error) {

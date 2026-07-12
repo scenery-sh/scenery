@@ -265,9 +265,9 @@ func TestWriteDetachedDevResultJSON(t *testing.T) {
 		Session: localagent.Session{
 			SessionID: "app-abc",
 			OwnerPID:  123,
-			Routes: map[string]string{
-				localagent.RouteAPI: "http://api.app-abc.demo.localhost:9440",
-			},
+			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+				localagent.RouteAPI: {URL: "http://api.app-abc.demo.localhost:9440"},
+			}},
 		},
 	}
 	var buf bytes.Buffer
@@ -296,9 +296,9 @@ func TestWriteDetachedDevResultTextSeparatesAliases(t *testing.T) {
 			SessionID: "app-abc",
 			AppRoot:   "/tmp/app",
 			Status:    "starting",
-			Routes: map[string]string{
-				localagent.RouteAPI: "https://api.app-abc.demo.localhost/",
-			},
+			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+				localagent.RouteAPI: {URL: "https://api.app-abc.demo.localhost/"},
+			}},
 			Aliases: map[string]string{
 				localagent.RouteAPI: "https://api.demo.localhost/",
 			},
@@ -341,11 +341,11 @@ func TestWriteDetachedDevResultTextIncludesReadyBanner(t *testing.T) {
 		Session: localagent.Session{
 			AppRoot: "/tmp/app",
 			Status:  "running",
-			Routes: map[string]string{
-				localagent.RouteAPI:       "https://app.localhost/api/",
-				localagent.RouteDashboard: "https://app.localhost/consolenext/",
-				"web":                     "https://app.localhost/web/",
-			},
+			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+				localagent.RouteAPI:       {URL: "https://app.localhost/api/"},
+				localagent.RouteDashboard: {URL: "https://app.localhost/consolenext/"},
+				"web":                     {URL: "https://app.localhost/web/"},
+			}},
 		},
 	}
 	var buf bytes.Buffer

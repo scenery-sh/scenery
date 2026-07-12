@@ -44,12 +44,11 @@ func prepareWithContractTarget(appRoot string, model *model.App, cfg app.Config,
 	if err != nil {
 		return nil, err
 	}
-	codegenOptions := codegen.Options{CompositionImport: runtimePlan.CompositionImport}
 	goBuildFlags := append([]string(nil), target.Context.BuildFlags...)
 	if len(target.Context.BuildTags) > 0 {
 		goBuildFlags = append(goBuildFlags, "-tags="+strings.Join(target.Context.BuildTags, ","))
 	}
-	gen, err := codegen.GenerateWithOptions(model, cfg, codegenOptions)
+	gen, err := codegen.Generate(model, cfg, runtimePlan.CompositionImport)
 	if err != nil {
 		return nil, err
 	}

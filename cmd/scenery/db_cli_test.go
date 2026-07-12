@@ -12,7 +12,7 @@ import (
 func TestDBCommandRejectsMissingOrRemovedSubcommand(t *testing.T) {
 	t.Parallel()
 
-	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|shell|apply|seed|setup|reset|drop|snapshot|diff|server [--app-root <path>]" {
+	if err := dbCommand(nil); err == nil || err.Error() != "usage: scenery db list|shell|apply|seed|setup|reset|drop|server [--app-root <path>]" {
 		t.Fatalf("dbCommand(nil) error = %v", err)
 	}
 	for _, cmd := range []string{"vacuum", "psql", "postgres", "path", "branch"} {
@@ -67,29 +67,6 @@ func TestParseDBResetArgs(t *testing.T) {
 	}
 	if _, err := parseDBResetArgs([]string{"--app-root"}); err == nil || err.Error() != "missing value for --app-root" {
 		t.Fatalf("parseDBResetArgs missing value error = %v", err)
-	}
-}
-
-func TestParseDBSnapshotArgs(t *testing.T) {
-	t.Parallel()
-
-	opts, err := parseDBSnapshotArgs([]string{"create", "--name", "before-refactor", "--app-root", "/tmp/app"})
-	if err != nil {
-		t.Fatalf("parseDBSnapshotArgs returned error: %v", err)
-	}
-	if opts.Action != "create" || opts.Name != "before-refactor" || opts.AppRoot != "/tmp/app" {
-		t.Fatalf("opts = %+v", opts)
-	}
-	if _, err := parseDBSnapshotArgs([]string{"create"}); err == nil || !strings.Contains(err.Error(), "db snapshot requires --name") {
-		t.Fatalf("missing name error = %v", err)
-	}
-	if _, err := parseDBSnapshotArgs([]string{}); err == nil || !strings.Contains(err.Error(), "scenery db snapshot create|restore") {
-		t.Fatalf("missing action error = %v", err)
-	}
-	for _, name := range []string{"../../x", "bad/name", "Bad", "bad.name", "bad name"} {
-		if _, err := parseDBSnapshotArgs([]string{"create", "--name", name}); err == nil || !strings.Contains(err.Error(), "db snapshot name") {
-			t.Fatalf("unsafe snapshot name %q error = %v", name, err)
-		}
 	}
 }
 

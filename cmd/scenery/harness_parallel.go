@@ -199,7 +199,7 @@ func runHarnessParallelDevCheck(parent context.Context) (map[string]any, []check
 		"sessions":        2,
 		"databases":       databaseCount,
 		"api_backends":    []string{sessionA.Backends[localagent.RouteAPI].Network, sessionB.Backends[localagent.RouteAPI].Network},
-		"frontend_routes": []string{sessionA.Routes["web"], sessionB.Routes["web"]},
+		"frontend_routes": []string{sessionA.RouteManifest.Routes["web"].URL, sessionB.RouteManifest.Routes["web"].URL},
 		"diagnostics":     len(diagnostics),
 	}
 	if hasErrorDiagnostics(diagnostics) {
@@ -257,7 +257,7 @@ func writeHarnessParallelObservability(ctx context.Context, store *devdash.Store
 			SessionID:    session.SessionID,
 			Name:         "parallel",
 			Root:         session.AppRoot,
-			Routes:       session.Routes,
+			Routes:       session.RouteManifest.URLs(),
 			Running:      true,
 			UpdatedAt:    now,
 		}); err != nil {
@@ -296,7 +296,7 @@ func validateHarnessParallelState(ctx context.Context, server *localagent.Server
 	check(sessionA.Backends[localagent.RouteAPI].Network == "unix" && sessionB.Backends[localagent.RouteAPI].Network == "unix", "default API backends must use Unix sockets")
 	check(sessionA.Backends[localagent.RouteAPI].Addr != sessionB.Backends[localagent.RouteAPI].Addr, "API backends must be distinct")
 	check(sessionA.Backends["web"].Addr != sessionB.Backends["web"].Addr, "frontend backends must be distinct")
-	check(routeIsSessionScoped(sessionA, "web") && routeIsSessionScoped(sessionB, "web") && sessionA.Routes["web"] != sessionB.Routes["web"], "frontend routes must be session-scoped")
+	check(routeIsSessionScoped(sessionA, "web") && routeIsSessionScoped(sessionB, "web") && sessionA.RouteManifest.Routes["web"].URL != sessionB.RouteManifest.Routes["web"].URL, "frontend routes must be session-scoped")
 	if dockerAvailable {
 		check(databaseA.Database != "" && databaseB.Database != "" && databaseA.Database != databaseB.Database, "managed Postgres app databases must be distinct")
 		check(envValueFromList(databaseEnvA, "DATABASE_URL") != "" && envValueFromList(databaseEnvB, "DATABASE_URL") != "" && envValueFromList(databaseEnvA, "DATABASE_URL") != envValueFromList(databaseEnvB, "DATABASE_URL"), "managed Postgres database URLs must be distinct")
@@ -322,7 +322,7 @@ func routeIsSessionScoped(session *localagent.Session, route string) bool {
 	if session == nil {
 		return false
 	}
-	value := strings.TrimSpace(session.Routes[route])
+	value := strings.TrimSpace(session.RouteManifest.Routes[route].URL)
 	if value == "" {
 		return false
 	}

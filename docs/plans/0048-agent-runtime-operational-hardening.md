@@ -37,6 +37,8 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 
 ## Surprises & Discoveries
 
+- 2026-07-12: Current contract note: `dev.setup` was removed rather than extended with lifecycle policy. Database initialization uses `database.apply`, seeds, and `scenery db setup`; app-local operational tasks are declared in `.scn`.
+
 - 2026-05-27: Agent home is decoupled from `SCENERY_DEV_CACHE_DIR`, but `cmd/scenery/devdash_store.go` still checks `SCENERY_DEV_CACHE_DIR` before the active agent. `cmd/scenery/watch.go` only forces the agent dashboard store when `SCENERY_DEV_CACHE_DIR` is empty, so a globally exported old cache dir can still split logs/traces/dashboard state. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-27: `cmd/scenery/agent.go` implements `scenery prune --older-than` without `--db`, `--state`, or `--all`. The current command deletes stale runtime records and state roots, but it does not drop managed runtime Postgres databases or prune `session.<id>` substrate metadata. Source review on 2026-05-28 confirmed this is still open.
 - 2026-05-28: The stale-session cleanup command is now `scenery prune` with no compatibility alias. The obsolete spelling is intentionally removed.

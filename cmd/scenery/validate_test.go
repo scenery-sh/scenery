@@ -23,16 +23,13 @@ func TestInspectValidationProfiles(t *testing.T) {
 
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
-		"tasks": {
-			"ok": {"run": "printf ok"}
-		},
 		"validation": {
 			"default": "quick",
 			"profiles": {
 				"quick": {
 					"description": "Fast gate",
 					"cost": "low",
-					"steps": ["task:ok"],
+					"steps": ["task:demo:ok"],
 					"artifacts": ["report.txt"]
 				},
 				"bad": {
@@ -97,13 +94,10 @@ func TestInspectValidationReturnsEmptyArrays(t *testing.T) {
 func TestValidateDryRunDoesNotExecute(t *testing.T) {
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
-		"tasks": {
-			"touch": {"run": "touch SHOULD_NOT_EXIST"}
-		},
 		"validation": {
 			"default": "quick",
 			"profiles": {
-				"quick": {"cost": "low", "steps": ["task:touch"]}
+				"quick": {"cost": "low", "steps": ["task:demo:touch"]}
 			}
 		}
 	}`)
@@ -119,24 +113,22 @@ func TestValidateDryRunDoesNotExecute(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if !resp.OK || len(resp.Steps) != 1 || resp.Steps[0].Name != "task:touch" {
+	if !resp.OK || len(resp.Steps) != 1 || resp.Steps[0].Name != "task:demo:touch" {
 		t.Fatalf("resp = %+v", resp)
 	}
 }
 
-func TestValidateRunsConfiguredTaskAndWritesResult(t *testing.T) {
+func TestValidateRunsCodeTaskAndWritesResult(t *testing.T) {
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
-		"tasks": {
-			"ok": {"run": "printf hello"}
-		},
 		"validation": {
 			"default": "quick",
 			"profiles": {
-				"quick": {"cost": "low", "steps": ["task:ok"]}
+				"quick": {"cost": "low", "steps": ["task:demo:ok"]}
 			}
 		}
 	}`)
+	writeTestAppFile(t, root, "demo/tasks/ok.task.go", "//go:build ignore\n\npackage main\nimport \"fmt\"\nfunc main(){fmt.Print(\"hello\")}\n")
 
 	var out bytes.Buffer
 	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "-o", "json", "--write"}); err != nil {
@@ -157,12 +149,6 @@ func TestValidateRunsConfiguredTaskAndWritesResult(t *testing.T) {
 func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
-		"tasks": {
-			"print-env": {
-				"run": "printf '%s/%s' \"$PARENT_VALUE\" \"$TASK_VALUE\"",
-				"env": {"TASK_VALUE": "task"}
-			}
-		},
 		"validation": {
 			"default": "full",
 			"profiles": {
@@ -170,10 +156,11 @@ func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
 					"env": {"PARENT_VALUE": "parent", "TASK_VALUE": "profile"},
 					"steps": ["profile:quick"]
 				},
-				"quick": {"steps": ["task:print-env"]}
+				"quick": {"steps": ["task:demo:print-env"]}
 			}
 		}
 	}`)
+	writeTestAppFile(t, root, "demo/tasks/print-env.task.go", "//go:build ignore\n\npackage main\nimport (\"fmt\"; \"os\")\nfunc main(){fmt.Printf(\"%s/%s\", os.Getenv(\"PARENT_VALUE\"), os.Getenv(\"TASK_VALUE\"))}\n")
 
 	var out bytes.Buffer
 	if err := runSceneryValidate(context.Background(), &out, []string{"--app-root", root, "-o", "json"}); err != nil {
@@ -183,7 +170,7 @@ func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
 	if err := decodeCLIJSON(out.Bytes(), &resp); err != nil {
 		t.Fatalf("decodeCLIJSON: %v\n%s", err, out.String())
 	}
-	if got := resp.Steps[0].Evidence.StdoutTail; got != "parent/task" {
+	if got := resp.Steps[0].Evidence.StdoutTail; got != "parent/profile" {
 		t.Fatalf("stdout tail = %q", got)
 	}
 	if strings.Join(resp.Selection.ResolvedProfiles, ",") != "full,quick" {
@@ -194,15 +181,11 @@ func TestValidateProfileEnvFlowsToNestedTasks(t *testing.T) {
 func TestValidateChangedSelectsMatchingProfiles(t *testing.T) {
 	root := validationFixtureRoot(t, `{
 		"name": "demo",
-		"tasks": {
-			"quick-task": {"run": "printf quick"},
-			"pulse-task": {"run": "printf pulse"}
-		},
 		"validation": {
 			"default": "quick",
 			"profiles": {
-				"quick": {"cost": "low", "steps": ["task:quick-task"]},
-				"pulse": {"cost": "medium", "paths": ["apps/pulse/**"], "steps": ["task:pulse-task"]}
+				"quick": {"cost": "low", "steps": ["task:demo:quick"]},
+				"pulse": {"cost": "medium", "paths": ["apps/pulse/**"], "steps": ["task:demo:pulse"]}
 			}
 		}
 	}`)

@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 )
 
@@ -27,17 +26,8 @@ type taskOptions struct {
 type taskGraphResponse struct {
 	SchemaVersion string             `json:"schema_version"`
 	App           inspectdata.AppRef `json:"app"`
-	Tasks         []taskRecord       `json:"tasks,omitempty"`
 	Nodes         []taskGraphNode    `json:"nodes"`
 	Edges         []taskGraphEdge    `json:"edges"`
-}
-
-type taskRecord struct {
-	Name    string   `json:"name"`
-	CWD     string   `json:"cwd,omitempty"`
-	Run     string   `json:"run,omitempty"`
-	Steps   []string `json:"steps,omitempty"`
-	EnvKeys []string `json:"env_keys,omitempty"`
 }
 
 type taskListResponse struct {
@@ -82,9 +72,7 @@ type taskGraphEdge struct {
 }
 
 const (
-	taskKindConfigured = "configured"
-	taskKindCode       = "code"
-	taskKindBuiltin    = "builtin"
+	taskKindCode = "code"
 )
 
 func taskCommand(args []string) error {
@@ -92,19 +80,12 @@ func taskCommand(args []string) error {
 }
 
 func runTaskCommand(ctx context.Context, stdout io.Writer, args []string) error {
-	return runTaskCommandWithHooks(ctx, stdout, args, defaultLifecycleHooks(), defaultDBSeedHooks())
-}
-
-func runTaskCommandWithHooks(ctx context.Context, stdout io.Writer, args []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
 	opts, err := parseTaskArgs(args)
 	if err != nil {
 		return err
 	}
 	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
 	if err != nil {
-		return err
-	}
-	if err := validateConfiguredTaskNames(cfg); err != nil {
 		return err
 	}
 	switch opts.Action {
@@ -150,7 +131,7 @@ func runTaskCommandWithHooks(ctx context.Context, stdout io.Writer, args []strin
 		}
 		return writeInspectJSON(stdout, graph)
 	case "run":
-		return runTaskTargetWithHooks(ctx, appRoot, cfg, opts, lifecycle, seed)
+		return runTaskTarget(ctx, appRoot, opts)
 	default:
 		return fmt.Errorf("unknown task command %q", opts.Action)
 	}
@@ -220,15 +201,6 @@ func buildTaskList(appRoot string, cfg appcfg.Config) (taskListResponse, error) 
 		App:           taskAppRef(appRoot, cfg),
 		Tasks:         []taskListRecord{},
 	}
-	names := make([]string, 0, len(cfg.Tasks))
-	for name := range cfg.Tasks {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		task := cfg.Tasks[name]
-		resp.Tasks = append(resp.Tasks, configuredTaskListRecord(appRoot, cfg, name, task))
-	}
 	codeTasks, err := listScriptCandidates(appRoot)
 	if err != nil {
 		return taskListResponse{}, err
@@ -249,12 +221,6 @@ func buildTaskInspect(appRoot string, cfg appcfg.Config, opts taskOptions) (task
 		App:           taskAppRef(appRoot, cfg),
 	}
 	switch kind {
-	case taskKindConfigured:
-		task, ok := cfg.Tasks[opts.Target]
-		if !ok {
-			return taskInspectResponse{}, fmt.Errorf("configured task %q is not configured", opts.Target)
-		}
-		resp.Task = configuredTaskListRecord(appRoot, cfg, opts.Target, task)
 	case taskKindCode:
 		target, err := parseScriptTarget(opts.Target)
 		if err != nil {
@@ -273,58 +239,19 @@ func buildTaskInspect(appRoot string, cfg appcfg.Config, opts taskOptions) (task
 }
 
 func buildTaskGraph(appRoot string, cfg appcfg.Config) (taskGraphResponse, error) {
-	names := make([]string, 0, len(cfg.Tasks))
-	for name := range cfg.Tasks {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 	resp := taskGraphResponse{
 		SchemaVersion: "scenery.task.graph.v1",
 		App:           taskAppRef(appRoot, cfg),
-		Tasks:         []taskRecord{},
 		Nodes:         []taskGraphNode{},
 		Edges:         []taskGraphEdge{},
 	}
 	seenNodes := map[string]bool{}
-	configRel := cfg.SourceRelPath(appRoot)
 	addNode := func(node taskGraphNode) {
 		if node.Target == "" || seenNodes[node.Kind+"\x00"+node.Target] {
 			return
 		}
 		seenNodes[node.Kind+"\x00"+node.Target] = true
 		resp.Nodes = append(resp.Nodes, node)
-	}
-	for _, name := range names {
-		task := cfg.Tasks[name]
-		resp.Tasks = append(resp.Tasks, taskRecord{
-			Name:    name,
-			CWD:     task.CWD,
-			Run:     task.Run,
-			Steps:   append([]string(nil), task.Steps...),
-			EnvKeys: sortedMapKeys(task.Env),
-		})
-		addNode(taskGraphNode{Target: name, Kind: taskKindConfigured, Source: configRel})
-		for _, step := range task.Steps {
-			step = strings.TrimSpace(step)
-			if step == "" {
-				continue
-			}
-			if strings.HasPrefix(step, "task:") {
-				target := strings.TrimSpace(strings.TrimPrefix(step, "task:"))
-				if target == "" {
-					continue
-				}
-				kind, err := taskTargetKind(target)
-				if err != nil {
-					kind = "invalid"
-				}
-				addNode(taskGraphNode{Target: target, Kind: kind, ArgsAccepted: kind == taskKindCode})
-				resp.Edges = append(resp.Edges, taskGraphEdge{From: name, To: target, Kind: "task"})
-				continue
-			}
-			addNode(taskGraphNode{Target: step, Kind: taskKindBuiltin, Source: "scenery"})
-			resp.Edges = append(resp.Edges, taskGraphEdge{From: name, To: step, Kind: taskKindBuiltin})
-		}
 	}
 	codeTasks, err := listScriptCandidates(appRoot)
 	if err != nil {
@@ -351,20 +278,6 @@ func taskAppRef(appRoot string, cfg appcfg.Config) inspectdata.AppRef {
 	}
 }
 
-func configuredTaskListRecord(appRoot string, cfg appcfg.Config, name string, task appcfg.TaskConfig) taskListRecord {
-	return taskListRecord{
-		Target:       name,
-		Kind:         taskKindConfigured,
-		Source:       cfg.SourceRelPath(appRoot),
-		Name:         name,
-		CWD:          task.CWD,
-		Run:          task.Run,
-		Steps:        append([]string(nil), task.Steps...),
-		EnvKeys:      sortedMapKeys(task.Env),
-		ArgsAccepted: false,
-	}
-}
-
 func codeTaskListRecord(task scriptCandidate) taskListRecord {
 	return taskListRecord{
 		Target:       scriptTargetString(task.Target),
@@ -377,52 +290,26 @@ func codeTaskListRecord(task scriptCandidate) taskListRecord {
 	}
 }
 
-func validateConfiguredTaskNames(cfg appcfg.Config) error {
-	for name := range cfg.Tasks {
-		if strings.Contains(name, ":") {
-			return fmt.Errorf("configured task %q is invalid: configured task names cannot contain ':'", name)
-		}
-	}
-	return nil
-}
-
 func taskTargetKind(target string) (string, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return "", fmt.Errorf("missing task target")
 	}
-	if strings.Contains(target, ":") {
-		if strings.Count(target, ":") != 1 {
-			return "", fmt.Errorf("invalid code task target %q; code-backed task targets must contain exactly one ':'", target)
-		}
-		if _, err := parseScriptTarget(target); err != nil {
-			return "", err
-		}
-		return taskKindCode, nil
+	if strings.Count(target, ":") != 1 {
+		return "", fmt.Errorf("invalid code task target %q; code-backed task targets must contain exactly one ':'", target)
 	}
-	if !validScriptSegment(target) {
-		return "", fmt.Errorf("invalid configured task target %q; configured task names must match [A-Za-z0-9_][A-Za-z0-9_-]*", target)
+	if _, err := parseScriptTarget(target); err != nil {
+		return "", err
 	}
-	return taskKindConfigured, nil
+	return taskKindCode, nil
 }
 
-func runTaskTargetWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, opts taskOptions, lifecycle lifecycleHooks, seed dbSeedHooks) error {
+func runTaskTarget(ctx context.Context, appRoot string, opts taskOptions) error {
 	kind, err := taskTargetKind(opts.Target)
 	if err != nil {
 		return err
 	}
 	switch kind {
-	case taskKindConfigured:
-		if opts.Env != "" {
-			return fmt.Errorf("--env is only supported for code tasks")
-		}
-		if opts.Lang != "" {
-			return fmt.Errorf("--lang is only supported for code tasks")
-		}
-		if len(opts.Args) > 0 {
-			return fmt.Errorf("configured task %q does not accept arguments", opts.Target)
-		}
-		return runConfiguredTaskWithHooks(ctx, appRoot, cfg, opts.Target, nil, lifecycle, seed)
 	case taskKindCode:
 		return runSceneryScript(ctx, scriptOptions{
 			AppRoot: appRoot,
@@ -433,94 +320,6 @@ func runTaskTargetWithHooks(ctx context.Context, appRoot string, cfg appcfg.Conf
 		})
 	default:
 		return fmt.Errorf("unsupported task target kind %q", kind)
-	}
-}
-
-func runConfiguredTaskWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, name string, stack []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
-	task, ok := cfg.Tasks[name]
-	if !ok {
-		return fmt.Errorf("task %q is not configured", name)
-	}
-	for _, active := range stack {
-		if active == name {
-			return fmt.Errorf("task cycle detected: %s -> %s", strings.Join(stack, " -> "), name)
-		}
-	}
-	stack = append(stack, name)
-	if strings.TrimSpace(task.Run) != "" && len(task.Steps) > 0 {
-		return fmt.Errorf("task %q cannot define both run and steps", name)
-	}
-	if strings.TrimSpace(task.Run) != "" {
-		return runTaskShellCommandWithHooks(ctx, appRoot, cfg, task, lifecycle)
-	}
-	if len(task.Steps) == 0 {
-		return fmt.Errorf("task %q has no run command or steps", name)
-	}
-	for _, step := range task.Steps {
-		if err := runTaskStepWithHooks(ctx, appRoot, cfg, step, stack, lifecycle, seed); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func runTaskShellCommandWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, task appcfg.TaskConfig, hooks lifecycleHooks) error {
-	env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-	if err != nil {
-		return err
-	}
-	storageEnv, err := storageCapabilityEnv(cfg, nil, env, "")
-	if err != nil {
-		return err
-	}
-	env = envWithOverrides(env, storageEnv...)
-	program, args := shellInvocation(task.Run)
-	hooks = hooks.withDefaults()
-	return hooks.runExec(ctx, lifecycleExecRequest{
-		Dir:     resolveLifecycleCWD(appRoot, task.CWD),
-		Env:     overlayEnv(env, task.Env),
-		Program: program,
-		Args:    args,
-		Stdin:   os.Stdin,
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
-	})
-}
-
-func runTaskStepWithHooks(ctx context.Context, appRoot string, cfg appcfg.Config, step string, stack []string, lifecycle lifecycleHooks, seed dbSeedHooks) error {
-	step = strings.TrimSpace(step)
-	switch {
-	case strings.HasPrefix(step, "task:"):
-		target := strings.TrimSpace(strings.TrimPrefix(step, "task:"))
-		if target == "" {
-			return fmt.Errorf("task step %q is missing a task target", step)
-		}
-		kind, err := taskTargetKind(target)
-		if err != nil {
-			return err
-		}
-		if kind == taskKindConfigured {
-			return runConfiguredTaskWithHooks(ctx, appRoot, cfg, target, stack, lifecycle, seed)
-		}
-		return runTaskTargetWithHooks(ctx, appRoot, cfg, taskOptions{Action: "run", Target: target}, lifecycle, seed)
-	case step == "check":
-		return runSceneryCheck(ctx, os.Stdout, []string{"--app-root", appRoot})
-	case step == "test":
-		return runSceneryTest(ctx, []string{"--app-root", appRoot})
-	case step == "test:go":
-		return runSceneryTest(ctx, []string{"--app-root", appRoot})
-	case step == "generate":
-		return runGenerateWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, lifecycle)
-	case step == "generate:sqlc":
-		return runGenerateWithHooks(ctx, os.Stdout, []string{"sqlc", "--app-root", appRoot}, lifecycle)
-	case step == "db:apply":
-		return runDBApplyWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, lifecycle)
-	case step == "db:seed":
-		return runDBSeedWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, seed)
-	case step == "db:setup":
-		return runDBSetupWithHooks(ctx, os.Stdout, []string{"--app-root", appRoot}, lifecycle, seed)
-	default:
-		return fmt.Errorf("unknown task step %q", step)
 	}
 }
 

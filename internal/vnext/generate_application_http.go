@@ -44,7 +44,6 @@ func renderHTTPBindingRegistration(b *strings.Builder, resources []Resource, ser
 	delivery := stringValue(binding.Spec["delivery"])
 	execution, executionOK := executionForBinding(resourceMap, binding)
 	fmt.Fprintf(b, "\t\t\tif err := sceneryruntime.RegisterEndpointChecked(&sceneryruntime.Endpoint{Service: %q, Name: %q, Access: %s, Path: %q, Methods: []string{%q},\n", service.Name, endpointName, runtimeAccess(binding), runtimeBindingPath(resourceMap, binding, path), method)
-	fmt.Fprintf(b, "\t\t\t\tPayloadType: sceneryruntime.TypeOf[contract.%sInput](), ResponseType: sceneryruntime.TypeOf[contract.%sOutcome](),\n", operationName, operationName)
 	fmt.Fprintf(b, "\t\t\t\tContractPolicy: %s,\n", contractPolicy)
 	if pathTail := renderContractPathTail(resourceMap, binding, httpSpec); pathTail != "nil" {
 		fmt.Fprintf(b, "\t\t\t\tContractPathTail: %s,\n", pathTail)

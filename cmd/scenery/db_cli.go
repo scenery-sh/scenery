@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	localagent "scenery.sh/internal/agent"
@@ -29,7 +28,7 @@ type dbCLIOptions struct {
 
 func dbCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery db list|shell|apply|seed|setup|reset|drop|snapshot|diff|server [--app-root <path>]")
+		return fmt.Errorf("usage: scenery db list|shell|apply|seed|setup|reset|drop|server [--app-root <path>]")
 	}
 	switch args[0] {
 	case "list":
@@ -46,8 +45,6 @@ func dbCommand(args []string) error {
 		return dbResetCommand(args[1:])
 	case "drop":
 		return dbDropCommand(args[1:])
-	case "snapshot":
-		return dbSnapshotCommand(args[1:])
 	case "server":
 		return dbServerCommand(args[1:])
 	default:
@@ -281,40 +278,6 @@ func dbResetCommand(args []string) error {
 	return nil
 }
 
-func dbSnapshotCommand(args []string) error {
-	opts, err := parseDBSnapshotArgs(args)
-	if err != nil {
-		return err
-	}
-	appRoot, cfg, err := discoverConfiguredApp(opts.AppRoot)
-	if err != nil {
-		return err
-	}
-	database, err := resolvePostgresDatabaseForCLI(context.Background(), appRoot, cfg)
-	if err != nil {
-		return err
-	}
-	dir := filepath.Join(appRoot, ".scenery", "db", "snapshots", opts.Name)
-	switch opts.Action {
-	case "create":
-		if err := snapshotPostgresDatabase(context.Background(), database, dir); err != nil {
-			return err
-		}
-		fmt.Fprintf(os.Stdout, "created scenery database snapshot %s at %s\n", opts.Name, dir)
-	case "restore":
-		if !opts.Yes {
-			return fmt.Errorf("postgres snapshot restore requires --yes")
-		}
-		if err := restorePostgresDatabase(context.Background(), database, dir); err != nil {
-			return err
-		}
-		fmt.Fprintf(os.Stdout, "restored scenery database snapshot %s from %s\n", opts.Name, dir)
-	default:
-		return fmt.Errorf("unknown db snapshot action %q", opts.Action)
-	}
-	return nil
-}
-
 type dbServerOptions struct {
 	Action string
 	JSON   bool
@@ -471,20 +434,20 @@ func resolveDatabaseURLForConfig(ctx context.Context, appRoot string, cfg appcfg
 
 func resolveDatabaseURLForConfigFromEnv(cfg appcfg.Config, env []string) (string, error) {
 	if svc, ok := cfg.DatabaseService("db"); ok {
-		return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
+		return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 	}
 	services := cfg.DatabaseServices()
 	if len(services) != 1 {
 		return "", fmt.Errorf("database service name is required when %d services are configured", len(services))
 	}
-	return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresname.ServiceDatabaseURLEnv(services[0].Name), "postgres", services[0].Name)
+	return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(services[0].Name), "postgres", services[0].Name)
 }
 
 func resolveDatabaseURLForServiceFromEnv(cfg appcfg.Config, env []string, service string) (string, error) {
 	service = strings.TrimSpace(service)
 	if service != "" && service != "." {
 		if svc, ok := cfg.DatabaseService(service); ok {
-			return databaseURLFromEnvList(env, cfg.DatabaseURLEnv(), postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
+			return databaseURLFromEnvList(env, appDatabaseURLEnv, postgresname.ServiceDatabaseURLEnv(svc.Name), "postgres", svc.Name)
 		}
 		if len(cfg.DatabaseServices()) > 1 {
 			return "", fmt.Errorf("seed service %q has no matching database service; configure dev.services.%s or use a single database service", service, service)
@@ -584,47 +547,6 @@ func dropPostgresDatabase(ctx context.Context, database postgresdb.Database, opt
 	return postgresdb.DropDatabase(ctx, admin, database.Database)
 }
 
-func snapshotPostgresDatabase(ctx context.Context, database postgresdb.Database, dir string) error {
-	if strings.TrimSpace(database.Database) == "" {
-		return nil
-	}
-	program, err := exec.LookPath("pg_dump")
-	if err != nil {
-		return fmt.Errorf("pg_dump not found in PATH; cannot snapshot postgres services")
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	cmd := exec.CommandContext(ctx, program, "-Fc", "-f", filepath.Join(dir, database.Database+".postgres.dump"), database.URL)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func restorePostgresDatabase(ctx context.Context, database postgresdb.Database, dir string) error {
-	if strings.TrimSpace(database.Database) == "" {
-		return nil
-	}
-	program, err := exec.LookPath("pg_restore")
-	if err != nil {
-		return fmt.Errorf("pg_restore not found in PATH; cannot restore postgres services")
-	}
-	source := filepath.Join(dir, database.Database+".postgres.dump")
-	if _, err := os.Stat(source); err != nil {
-		return err
-	}
-	cmd := exec.CommandContext(ctx, program, "--clean", "--if-exists", "-d", database.URL, source)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	return nil
-}
-
 func managedPostgresAdmin(ctx context.Context) (*sql.DB, error) {
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
@@ -642,7 +564,7 @@ func managedPostgresAdmin(ctx context.Context) (*sql.DB, error) {
 }
 
 func databaseEnvKeys(cfg appcfg.Config) []string {
-	keys := []string{appDatabaseURLEnv, cfg.DatabaseURLEnv(), postgresdb.RegistryEnv}
+	keys := []string{appDatabaseURLEnv, postgresdb.RegistryEnv}
 	for _, svc := range cfg.DatabaseServices() {
 		keys = append(keys, postgresname.ServiceDatabaseURLEnv(svc.Name))
 	}
@@ -662,13 +584,6 @@ func envMap(env []string) map[string]string {
 
 type dbResetOptions struct {
 	AppRoot string
-}
-
-type dbSnapshotOptions struct {
-	Action  string
-	Name    string
-	AppRoot string
-	Yes     bool
 }
 
 type databaseListResponse struct {
@@ -775,54 +690,4 @@ func parseDBApplyArgs(args []string) (dbApplyOptions, error) {
 		return dbApplyOptions{}, err
 	}
 	return opts, nil
-}
-
-func parseDBSnapshotArgs(args []string) (dbSnapshotOptions, error) {
-	var opts dbSnapshotOptions
-	flags := newCLIFlagSet("db snapshot")
-	flags.StringVar(&opts.Name, "name", "", "")
-	flags.StringVar(&opts.AppRoot, "app-root", "", "")
-	flags.BoolVar(&opts.Yes, "yes", false, "")
-	positionals, err := parseCLIFlags(flags, args)
-	if err != nil {
-		return dbSnapshotOptions{}, err
-	}
-	if len(positionals) > 0 && (positionals[0] == "create" || positionals[0] == "restore") {
-		opts.Action = positionals[0]
-		positionals = positionals[1:]
-	}
-	if len(positionals) > 0 {
-		if opts.Name != "" {
-			return dbSnapshotOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
-		}
-		opts.Name = positionals[0]
-		positionals = positionals[1:]
-	}
-	if len(positionals) > 0 {
-		return dbSnapshotOptions{}, fmt.Errorf("unexpected argument %q", positionals[0])
-	}
-	if opts.Action == "" {
-		return dbSnapshotOptions{}, fmt.Errorf("usage: scenery db snapshot create|restore --name <name> [--app-root <path>]")
-	}
-	opts.Name = strings.TrimSpace(opts.Name)
-	if opts.Name == "" {
-		return dbSnapshotOptions{}, fmt.Errorf("db snapshot requires --name")
-	}
-	if !validDBSnapshotName(opts.Name) {
-		return dbSnapshotOptions{}, fmt.Errorf("db snapshot name %q is invalid; use lowercase letters, numbers, dashes, or underscores", opts.Name)
-	}
-	return opts, nil
-}
-
-func validDBSnapshotName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			continue
-		}
-		return false
-	}
-	return true
 }

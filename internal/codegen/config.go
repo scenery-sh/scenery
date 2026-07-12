@@ -9,7 +9,7 @@ import (
 	"scenery.sh/internal/model"
 )
 
-func generateMain(appModel *model.App, cfg appcfg.Config, options Options) ([]byte, error) {
+func generateMain(appModel *model.App, cfg appcfg.Config, compositionImport string) ([]byte, error) {
 	var buf strings.Builder
 	buf.WriteString("package main\n\n")
 	buf.WriteString("import (\n")
@@ -19,8 +19,8 @@ func generateMain(appModel *model.App, cfg appcfg.Config, options Options) ([]by
 		buf.WriteString("\tsceneryauth \"scenery.sh/auth\"\n")
 	}
 	buf.WriteString("\tsceneryruntime \"scenery.sh/runtime\"\n")
-	if options.CompositionImport != "" {
-		fmt.Fprintf(&buf, "\tscenerycomposition %q\n", options.CompositionImport)
+	if compositionImport != "" {
+		fmt.Fprintf(&buf, "\tscenerycomposition %q\n", compositionImport)
 	}
 	buf.WriteString(")\n\n")
 	buf.WriteString("func main() {\n")
@@ -30,7 +30,7 @@ func generateMain(appModel *model.App, cfg appcfg.Config, options Options) ([]by
 		buf.WriteString("\t\tos.Exit(1)\n")
 		buf.WriteString("\t}\n")
 	}
-	if options.CompositionImport != "" {
+	if compositionImport != "" {
 		buf.WriteString("\tif err := sceneryruntime.VerifyLinkedContractBundle(scenerycomposition.ContractRevision); err != nil {\n\t\t_, _ = fmt.Fprintf(os.Stderr, \"scenery: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n")
 		buf.WriteString("\tcontractRegistry, err := sceneryruntime.NewContractRegistry(sceneryruntime.ContractRegistryOptions{ContractRevision: scenerycomposition.ContractRevision, RequiredAddresses: scenerycomposition.RequiredAddresses, ProviderABIs: sceneryruntime.ContractProviderABIs()})\n")
 		buf.WriteString("\tif err == nil { err = scenerycomposition.Register(contractRegistry) }\n")
@@ -47,27 +47,6 @@ func generateMain(appModel *model.App, cfg appcfg.Config, options Options) ([]by
 
 func authConfigLiteral(cfg appcfg.AuthConfig) string {
 	fields := []string{"Enabled: true"}
-	if cfg.DatabaseURLEnv != "" {
-		fields = append(fields, fmt.Sprintf("DatabaseURLEnv: %q", cfg.DatabaseURLEnv))
-	}
-	if cfg.JWTSecretEnv != "" {
-		fields = append(fields, fmt.Sprintf("JWTSecretEnv: %q", cfg.JWTSecretEnv))
-	}
-	if cfg.RefreshCookieName != "" {
-		fields = append(fields, fmt.Sprintf("RefreshCookieName: %q", cfg.RefreshCookieName))
-	}
-	if cfg.AuthCookieDomainEnv != "" {
-		fields = append(fields, fmt.Sprintf("AuthCookieDomainEnv: %q", cfg.AuthCookieDomainEnv))
-	}
-	if cfg.PublicAppURLEnv != "" {
-		fields = append(fields, fmt.Sprintf("PublicAppURLEnv: %q", cfg.PublicAppURLEnv))
-	}
-	if cfg.APIBaseURLEnv != "" {
-		fields = append(fields, fmt.Sprintf("APIBaseURLEnv: %q", cfg.APIBaseURLEnv))
-	}
-	if cfg.EmailFromEnv != "" {
-		fields = append(fields, fmt.Sprintf("EmailFromEnv: %q", cfg.EmailFromEnv))
-	}
 	if cfg.AutoBootstrapDatabase {
 		fields = append(fields, "AutoBootstrapDatabase: true")
 	}
@@ -81,15 +60,9 @@ func authConfigLiteral(cfg appcfg.AuthConfig) string {
 }
 
 func authGoogleConfigLiteral(cfg appcfg.AuthGoogleConfig) string {
-	fields := make([]string, 0, 5)
+	fields := make([]string, 0, 2)
 	if cfg.Enabled {
 		fields = append(fields, "Enabled: true")
-	}
-	if cfg.ClientIDEnv != "" {
-		fields = append(fields, fmt.Sprintf("ClientIDEnv: %q", cfg.ClientIDEnv))
-	}
-	if cfg.ClientSecretEnv != "" {
-		fields = append(fields, fmt.Sprintf("ClientSecretEnv: %q", cfg.ClientSecretEnv))
 	}
 	if len(cfg.AllowedScopes) > 0 {
 		quoted := make([]string, 0, len(cfg.AllowedScopes))
@@ -97,9 +70,6 @@ func authGoogleConfigLiteral(cfg appcfg.AuthGoogleConfig) string {
 			quoted = append(quoted, fmt.Sprintf("%q", scope))
 		}
 		fields = append(fields, "AllowedScopes: []string{"+strings.Join(quoted, ", ")+"}")
-	}
-	if cfg.TokenCipherKeyEnv != "" {
-		fields = append(fields, fmt.Sprintf("TokenCipherKeyEnv: %q", cfg.TokenCipherKeyEnv))
 	}
 	if len(fields) == 0 {
 		return ""

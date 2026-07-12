@@ -12,9 +12,6 @@ func TestDiscoverRootAcceptsDatabaseServices(t *testing.T) {
 	root := t.TempDir()
 	writeAppTestFile(t, root, ".scenery.json", `{
 		"name": "dbapp",
-		"database": {
-			"url_env": "APP_DATABASE_URL"
-		},
 		"dev": {
 			"services": {
 				"auth": {},
@@ -38,9 +35,6 @@ func TestDiscoverRootAcceptsDatabaseServices(t *testing.T) {
 	billing, ok := cfg.DatabaseService("billing-data")
 	if !ok || billing.Schema != "billing_data" {
 		t.Fatalf("billing service = %+v ok=%v", billing, ok)
-	}
-	if got := cfg.DatabaseURLEnv(); got != "APP_DATABASE_URL" {
-		t.Fatalf("DatabaseURLEnv = %q, want APP_DATABASE_URL", got)
 	}
 }
 
@@ -118,18 +112,6 @@ func TestDiscoverRootFindsParentFromNestedDirectory(t *testing.T) {
 	}
 	if appRoot != root || cfg.Name != "canonical" {
 		t.Fatalf("appRoot = %q cfg.Name = %q, want %q canonical", appRoot, cfg.Name, root)
-	}
-}
-
-func TestConfigDatabaseURLEnv(t *testing.T) {
-	t.Parallel()
-
-	if got := (Config{}).DatabaseURLEnv(); got != "DATABASE_URL" {
-		t.Fatalf("default database URL env = %q, want DATABASE_URL", got)
-	}
-	cfg := Config{Database: DatabaseConfig{URLEnv: "APP_DATABASE_URL"}}
-	if got := cfg.DatabaseURLEnv(); got != "APP_DATABASE_URL" {
-		t.Fatalf("configured database URL env = %q, want APP_DATABASE_URL", got)
 	}
 }
 

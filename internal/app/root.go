@@ -34,12 +34,13 @@ type Config struct {
 	Storage       StorageConfig             `json:"storage"`
 	Generators    GeneratorsConfig          `json:"generators"`
 	Database      DatabaseConfig            `json:"database"`
-	Tasks         map[string]TaskConfig     `json:"tasks"`
 	Validation    ValidationConfig          `json:"validation"`
 	Auth          AuthConfig                `json:"auth"`
 	Observability ObservabilityConfig       `json:"observability"`
 }
 
+// MarshalJSON omits optional object sections when they are not configured.
+// A zero struct cannot be omitted by encoding/json's omitempty handling.
 func (c Config) MarshalJSON() ([]byte, error) {
 	type configJSON struct {
 		Name          string                    `json:"name"`
@@ -52,23 +53,14 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		Storage       *StorageConfig            `json:"storage,omitempty"`
 		Generators    GeneratorsConfig          `json:"generators"`
 		Database      DatabaseConfig            `json:"database"`
-		Tasks         map[string]TaskConfig     `json:"tasks"`
 		Validation    ValidationConfig          `json:"validation"`
 		Auth          AuthConfig                `json:"auth"`
 		Observability ObservabilityConfig       `json:"observability"`
 	}
 	out := configJSON{
-		Name:          c.Name,
-		ID:            c.ID,
-		Build:         c.Build,
-		Frontends:     c.Frontends,
-		Watch:         c.Watch,
-		Dev:           c.Dev,
-		Generators:    c.Generators,
-		Database:      c.Database,
-		Tasks:         c.Tasks,
-		Validation:    c.Validation,
-		Auth:          c.Auth,
+		Name: c.Name, ID: c.ID, Build: c.Build, Frontends: c.Frontends,
+		Watch: c.Watch, Dev: c.Dev, Generators: c.Generators,
+		Database: c.Database, Validation: c.Validation, Auth: c.Auth,
 		Observability: c.Observability,
 	}
 	if !c.Storage.IsZero() {
@@ -126,13 +118,6 @@ func (c Config) StorageCellID() string {
 	return storageSlug(c.AppID())
 }
 
-func (c Config) DatabaseURLEnv() string {
-	if envName := strings.TrimSpace(c.Database.URLEnv); envName != "" {
-		return envName
-	}
-	return "DATABASE_URL"
-}
-
 func (c Config) DatabaseServices() []DatabaseServiceConfig {
 	out := make([]DatabaseServiceConfig, 0, len(c.Dev.Services))
 	for name, svc := range c.Dev.Services {
@@ -172,11 +157,10 @@ func (c Config) PostgresServices() []PostgresServiceConfig {
 	out := make([]PostgresServiceConfig, 0, len(services))
 	for _, svc := range services {
 		out = append(out, PostgresServiceConfig{
-			Name:           svc.Name,
-			DatabaseLabel:  svc.Schema,
-			DatabaseURLEnv: postgresname.ServiceDatabaseURLEnv(svc.Name),
-			Schema:         svc.Schema,
-			Raw:            svc.Raw,
+			Name:          svc.Name,
+			DatabaseLabel: svc.Schema,
+			Schema:        svc.Schema,
+			Raw:           svc.Raw,
 		})
 	}
 	return out
@@ -192,11 +176,10 @@ func (c Config) PostgresService(name string) (PostgresServiceConfig, bool) {
 }
 
 type PostgresServiceConfig struct {
-	Name           string
-	DatabaseLabel  string
-	DatabaseURLEnv string
-	Schema         string
-	Raw            DevServiceConfig
+	Name          string
+	DatabaseLabel string
+	Schema        string
+	Raw           DevServiceConfig
 }
 
 type BuildConfig struct {
@@ -215,7 +198,6 @@ type FrontendConfig struct {
 
 type DevConfig struct {
 	Services map[string]DevServiceConfig `json:"services"`
-	Setup    []string                    `json:"setup"`
 	Routing  DevRoutingConfig            `json:"routing"`
 }
 
@@ -276,9 +258,8 @@ type SQLCGeneratorSchema struct {
 }
 
 type DatabaseConfig struct {
-	URLEnv string              `json:"url_env"`
-	Apply  DatabaseApplyConfig `json:"apply"`
-	Seed   DatabaseSeedConfig  `json:"seed"`
+	Apply DatabaseApplyConfig `json:"apply"`
+	Seed  DatabaseSeedConfig  `json:"seed"`
 }
 
 type DatabaseApplyConfig struct {
@@ -293,13 +274,6 @@ type DatabaseSeedConfig struct {
 
 func (c DatabaseSeedConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
-}
-
-type TaskConfig struct {
-	CWD   string            `json:"cwd"`
-	Run   string            `json:"run"`
-	Steps []string          `json:"steps"`
-	Env   map[string]string `json:"env"`
 }
 
 type ValidationConfig struct {
@@ -318,24 +292,14 @@ type ValidationProfileConfig struct {
 
 type AuthConfig struct {
 	Enabled               bool             `json:"enabled"`
-	DatabaseURLEnv        string           `json:"database_url_env"`
-	JWTSecretEnv          string           `json:"jwt_secret_env"`
-	RefreshCookieName     string           `json:"refresh_cookie_name"`
-	AuthCookieDomainEnv   string           `json:"auth_cookie_domain_env"`
-	PublicAppURLEnv       string           `json:"public_app_url_env"`
-	APIBaseURLEnv         string           `json:"api_base_url_env"`
-	EmailFromEnv          string           `json:"email_from_env"`
 	AutoBootstrapDatabase bool             `json:"auto_bootstrap_database"`
 	GoogleOAuth           AuthGoogleConfig `json:"google_oauth"`
 	DevBootstrap          AuthDevBootstrap `json:"dev_bootstrap"`
 }
 
 type AuthGoogleConfig struct {
-	Enabled           bool     `json:"enabled"`
-	ClientIDEnv       string   `json:"client_id_env"`
-	ClientSecretEnv   string   `json:"client_secret_env"`
-	AllowedScopes     []string `json:"allowed_scopes"`
-	TokenCipherKeyEnv string   `json:"token_cipher_key_env"`
+	Enabled       bool     `json:"enabled"`
+	AllowedScopes []string `json:"allowed_scopes"`
 }
 
 type AuthDevBootstrap struct {

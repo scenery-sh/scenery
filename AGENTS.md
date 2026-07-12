@@ -185,11 +185,11 @@ scenery worker [--app-root <path>] [--env <name>]
 scenery build [--app-root <path>] [--target <go-target>] [--output <path>] [-o human|json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate --target typescript_client.<name> [--check] [--app-root <path>] -o json
-scenery db list|path|shell|apply|seed|setup|reset|drop|snapshot [--app-root <path>]
+scenery db list|shell|apply|seed|setup|reset|drop [--app-root <path>]
 scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
 ```
 
-`scenery up` is the preferred local loop for agents because it runs the app root's one live dev runtime and exposes safe capabilities: dashboard, logs, traces, metrics, routed local URLs, and managed dev services. Use a Git worktree for another live code copy. `scenery task` is for configured tasks and app-local code tasks.
+`scenery up` is the preferred local loop for agents because it runs the app root's one live dev runtime and exposes safe capabilities: dashboard, logs, traces, metrics, routed local URLs, and managed dev services. Use a Git worktree for another live code copy. `scenery task` runs app-local code tasks declared by their `<domain>:<name>` path.
 
 ## Documentation Update Rules
 

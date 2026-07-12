@@ -330,11 +330,12 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 	fmt.Fprintf(w, "  logs    %s\n", result.AttachCommand)
 	fmt.Fprintf(w, "  stop    %s\n", result.DownCommand)
 	fmt.Fprintf(w, "\nLog file: %s\n", result.LogPath)
-	if len(result.Session.Routes) > 0 {
+	routes := result.Session.RouteManifest.URLs()
+	if len(routes) > 0 {
 		fmt.Fprintln(w, "\nRoutes currently registered:")
 	}
-	for _, name := range sortedRouteNames(result.Session.Routes) {
-		fmt.Fprintf(w, "  %-10s %s\n", name, result.Session.Routes[name])
+	for _, name := range sortedRouteNames(routes) {
+		fmt.Fprintf(w, "  %-10s %s\n", name, routes[name])
 	}
 	if len(result.Session.Aliases) > 0 {
 		fmt.Fprintln(w, "\nAliases currently claimed:")
@@ -354,9 +355,9 @@ func writeDetachedDevResult(w io.Writer, jsonMode bool, result detachedDevResult
 
 func detachedDevRunURLs(session localagent.Session) runURLs {
 	return runURLs{
-		API:       session.Routes[localagent.RouteAPI],
-		Dashboard: session.Routes[localagent.RouteDashboard],
-		Frontends: frontendURLsFromAgentRoutes(session.Routes, nil),
+		API:       session.RouteManifest.Routes[localagent.RouteAPI].URL,
+		Dashboard: session.RouteManifest.Routes[localagent.RouteDashboard].URL,
+		Frontends: frontendURLsFromAgentRoutes(session.RouteManifest.URLs(), nil),
 	}
 }
 

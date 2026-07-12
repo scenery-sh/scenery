@@ -149,9 +149,6 @@ func parseWorkerArgs(args []string) (workerOptions, error) {
 	flags.StringVar(&opts.AppRoot, "app-root", "", "")
 	flags.StringVar(&opts.Env, "env", "", "")
 	flags.StringVar(&opts.LogFormat, "log-format", opts.LogFormat, "")
-	for _, name := range []string{"port", "p", "listen", "verbose", "v", "json", "dashboard", "watch"} {
-		rejectCLIFlag(flags, name, "--"+name+" is not supported by `scenery worker`")
-	}
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return workerOptions{}, err
@@ -531,7 +528,7 @@ func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (stri
 	if err != nil {
 		return "", err
 	}
-	if value, _ := lookupEnvValue(env, cfg.DatabaseURLEnv()); strings.TrimSpace(value) != "" {
+	if value, _ := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value), nil
 	}
 	if value, _ := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {
@@ -544,7 +541,7 @@ func durableDatabaseURLForCLI(root string, cfg app.Config, service string) (stri
 	if value, _ := lookupEnvValue(env, serviceEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value), nil
 	}
-	return "", fmt.Errorf("durable store requires %s for service %s", cfg.DatabaseURLEnv(), service)
+	return "", fmt.Errorf("durable store requires %s for service %s", appDatabaseURLEnv, service)
 }
 
 func durableJobRecordFromStore(job durablestore.JobDetail) durableJobRecord {

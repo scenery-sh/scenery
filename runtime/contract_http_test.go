@@ -36,13 +36,14 @@ func TestContractSystemFailureUsesStandardProblemOutcome(t *testing.T) {
 	}
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "contract", Name: "Failure", Access: Public, Path: "/failure", Methods: []string{http.MethodGet},
-		PayloadType: reflect.TypeFor[struct{}](), ResponseType: reflect.TypeFor[struct{}](),
+
 		DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
 			return ContractDecodedRequest{Payload: struct{}{}}, nil
 		},
 		Invoke: func(context.Context, []any, any) (any, error) {
 			return nil, systemError
 		},
+		EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) { return ContractHTTPResponse{}, nil },
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +121,13 @@ func TestContractGatewayLimitsConfigureHTTPServerBoundary(t *testing.T) {
 	defer restore()
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "contract", Name: "Limits", Access: Public, Path: "/limits", Methods: []string{http.MethodGet},
-		PayloadType: reflect.TypeFor[struct{}](), ResponseType: reflect.TypeFor[struct{}](), Invoke: func(context.Context, []any, any) (any, error) { return struct{}{}, nil },
+		Invoke: func(context.Context, []any, any) (any, error) { return struct{}{}, nil },
+		DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
+			return ContractDecodedRequest{}, nil
+		},
+		EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) {
+			return ContractHTTPResponse{Status: http.StatusNoContent}, nil
+		},
 		ContractPolicy: &ContractHTTPPolicy{MaxRequestHeaderBytes: 64 << 10, ReadTimeoutNanos: int64(3 * time.Second), WriteTimeoutNanos: int64(4 * time.Second), IdleTimeoutNanos: int64(5 * time.Second), AuthorizationStrategy: "public"},
 	}); err != nil {
 		t.Fatal(err)
@@ -243,7 +250,7 @@ func TestContractTransportErrorsUseProfileStatuses(t *testing.T) {
 
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "contract", Name: "Negotiate", Access: Public, Path: "/contract/:id", Methods: []string{http.MethodPost},
-		PayloadType: reflect.TypeFor[mappedContractInput](), ResponseType: reflect.TypeFor[mappedContractInput](),
+
 		DecodeContractRequest: func(request *http.Request, paths map[string]string) (ContractDecodedRequest, error) {
 			input, err := DecodeContractInput[mappedContractInput](request, paths, ContractRequestSchema{
 				Mappings: []ContractInputMapping{{Source: ContractSourcePath, Name: "id", Target: "id", Type: "string"}},
@@ -303,7 +310,7 @@ func TestContractTransportResponseAndTraceStatusesMatch(t *testing.T) {
 
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "contract", Name: "TraceStatus", Access: Public, Path: "/trace-status", Methods: []string{http.MethodPost},
-		PayloadType: reflect.TypeFor[mappedContractInput](), ResponseType: reflect.TypeFor[mappedContractInput](),
+
 		DecodeContractRequest: func(request *http.Request, paths map[string]string) (ContractDecodedRequest, error) {
 			input, err := DecodeContractInput[mappedContractInput](request, paths, ContractRequestSchema{Body: &ContractBodyMapping{Codec: "json", Include: []string{"name"}}})
 			return ContractDecodedRequest{Payload: input}, err

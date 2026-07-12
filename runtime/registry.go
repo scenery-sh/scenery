@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"scenery.sh/errs"
 	"scenery.sh/internal/envpolicy"
 	"scenery.sh/internal/runtimeapi"
 	"scenery.sh/runtime/shared"
@@ -56,9 +54,6 @@ type Endpoint struct {
 	Raw                   bool
 	Path                  string
 	Methods               []string
-	PathParams            []ParamSpec
-	PayloadType           reflect.Type
-	ResponseType          reflect.Type
 	Invoke                func(context.Context, []any, any) (any, error)
 	RawHandler            func(http.ResponseWriter, *http.Request)
 	DecodeContractRequest func(*http.Request, map[string]string) (ContractDecodedRequest, error)
@@ -94,9 +89,7 @@ type ContractHTTPResponse struct {
 type AuthHandler struct {
 	Name         string
 	Service      string
-	ParamType    reflect.Type
-	AuthDataType reflect.Type
-	Authenticate func(context.Context, any) (AuthInfo, error)
+	Authenticate func(context.Context, string) (AuthInfo, error)
 }
 
 type CronJob struct {
@@ -282,6 +275,9 @@ func RegisterEndpointChecked(ep *Endpoint) error {
 	if len(ep.Methods) == 0 {
 		return fmt.Errorf("runtime: endpoint %s missing methods", key)
 	}
+	if !ep.Raw && (ep.DecodeContractRequest == nil || ep.EncodeContractOutcome == nil || ep.Invoke == nil) {
+		return fmt.Errorf("runtime: endpoint %s missing contract codec or implementation", key)
+	}
 	for existingKey, existing := range global.endpoints {
 		if contractRouteConflict(ep, existing) {
 			return fmt.Errorf("runtime: endpoint %s conflicts with route registered by %s", key, existingKey)
@@ -396,13 +392,6 @@ func MarkServiceInitializedWithError(service string, shutdown func(context.Conte
 		order:    global.serviceInitOrder[service],
 		shutdown: shutdown,
 	}
-}
-
-func LookupEndpoint(service, name string) (*Endpoint, bool) {
-	global.mu.RLock()
-	defer global.mu.RUnlock()
-	ep, ok := global.endpoints[endpointKey(service, name)]
-	return ep, ok
 }
 
 func listEndpoints() []*Endpoint {
@@ -588,82 +577,6 @@ func compare(a, b string) int {
 	}
 }
 
-func CallEndpoint(ctx context.Context, service, name string, pathArgs []any, payload any) (any, error) {
-	ep, ok := LookupEndpoint(service, name)
-	if !ok {
-		return nil, errs.B().Code(errs.NotFound).Msgf("endpoint %s.%s not found", service, name).Err()
-	}
-	if ep.Raw {
-		return nil, errs.B().Code(errs.Unimplemented).Msg("raw endpoints cannot be called internally").Err()
-	}
-
-	state := stateFromContext(ctx)
-	started := time.Now()
-	requestType := shared.InternalCall
-	headers := make(http.Header)
-	cronKey := ""
-	if state != nil {
-		if state.request.CronIdempotencyKey != "" {
-			requestType = shared.APICall
-			started = state.request.Started
-			headers = state.request.Headers.Clone()
-			cronKey = state.request.CronIdempotencyKey
-		}
-	}
-	reqState := &requestState{
-		started: started,
-		request: shared.Request{
-			Type:               requestType,
-			Started:            started,
-			Service:            ep.Service,
-			Endpoint:           ep.Name,
-			Method:             "INTERNAL",
-			Path:               ep.Path,
-			Headers:            headers,
-			Payload:            payload,
-			PathParams:         encodePathParams(ep.PathParams, pathArgs),
-			CronIdempotencyKey: cronKey,
-			API: &shared.APIDesc{
-				RequestType:  ep.PayloadType,
-				ResponseType: ep.ResponseType,
-				Raw:          false,
-				Exposed:      ep.Access != Private,
-				AuthRequired: ep.Access == Auth,
-			},
-		},
-	}
-	reqState.logsEnabled = logsEnabledForRequest(reqState.request)
-	reqState.traceEnabled = traceEnabledForRequest(reqState.request)
-	if state != nil {
-		reqState.auth = state.auth
-		reqState.logsEnabled = state.logsEnabled && reqState.logsEnabled
-		reqState.traceEnabled = state.traceEnabled && reqState.traceEnabled
-		if state.request.CronIdempotencyKey != "" {
-			reqState.request.Method = "CRON"
-		}
-		startInternalCallTrace(state, reqState)
-	}
-	if ep.Access == Auth && reqState.auth.UID == "" {
-		return nil, errs.B().Code(errs.Unauthenticated).Msg("endpoint requires auth").Err()
-	}
-
-	callCtx := context.WithValue(ctx, requestStateKey{}, reqState)
-	restore := enterState(reqState)
-	defer restore()
-
-	resp, _, _, err := executeTypedEndpoint(ep, callCtx, pathArgs, payload)
-	finishRequestTrace(reqState, errs.HTTPStatus(err), resp, err)
-	return resp, err
-}
-
-func TypeOf[T any]() reflect.Type {
-	return reflect.TypeFor[T]()
-}
-
-func RecordServiceInit(service string, duration time.Duration, err error) {
-	recordServiceInit(service, duration, err)
-}
-
 func errorsJoin(errs ...error) error {
 	var filtered []error
 	for _, err := range errs {
@@ -672,18 +585,4 @@ func errorsJoin(errs ...error) error {
 		}
 	}
 	return errors.Join(filtered...)
-}
-
-func encodePathParams(specs []ParamSpec, values []any) shared.PathParams {
-	params := make(shared.PathParams, 0, len(specs))
-	for i, spec := range specs {
-		if i >= len(values) {
-			break
-		}
-		params = append(params, shared.PathParam{
-			Name:  spec.Name,
-			Value: fmt.Sprint(values[i]),
-		})
-	}
-	return params
 }

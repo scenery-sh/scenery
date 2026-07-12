@@ -126,7 +126,7 @@ func TestDashboardWebSocketOriginCheck(t *testing.T) {
 	}
 }
 
-func TestDashboardSymphonyRPCFallsBackToDashboardAppIDWithoutBaseAppID(t *testing.T) {
+func TestDashboardSymphonyRPCRejectsAppWithoutBaseAppID(t *testing.T) {
 	t.Parallel()
 
 	store, err := devdash.OpenStore(t.TempDir())
@@ -145,25 +145,12 @@ func TestDashboardSymphonyRPCFallsBackToDashboardAppIDWithoutBaseAppID(t *testin
 	}
 	server := newDashboardServerWithController(&symphonyNoBaseController{store: store}, t.TempDir(), "127.0.0.1:0", "", nil)
 	server.symphonyStore = newSymphonyStore(t)
-	task, err := dispatchSymphonyTestRPC[symphony.Task](context.Background(), server, "symphony/task/create", map[string]any{
+	_, err = dispatchSymphonyTestRPC[symphony.Task](context.Background(), server, "symphony/task/create", map[string]any{
 		"app_id": "legacy",
-		"input":  map[string]any{"title": "Fallback task"},
+		"input":  map[string]any{"title": "Rejected task"},
 	})
-	if err != nil {
-		t.Fatalf("create task through fallback app id: %v", err)
-	}
-	if !strings.HasPrefix(task.Identifier, "SYM-") {
-		t.Fatalf("task = %+v", task)
-	}
-	if task.AppID != "legacy" {
-		t.Fatalf("expected fallback app id legacy, got task %+v", task)
-	}
-	state, err := dispatchSymphonyTestRPC[symphony.State](context.Background(), server, "symphony/state", map[string]any{"app_id": "legacy"})
-	if err != nil {
-		t.Fatalf("state through fallback app id: %v", err)
-	}
-	if len(state.Tasks) != 1 || state.Tasks[0].Title != "Fallback task" {
-		t.Fatalf("state = %+v", state)
+	if err == nil || !strings.Contains(err.Error(), "stable app id") {
+		t.Fatalf("create task error = %v", err)
 	}
 }
 

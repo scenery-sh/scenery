@@ -276,7 +276,6 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		traceValues[name] = value
 		flags.StringVar(value, name, "", "")
 	}
-	flags.StringVar(traceValues["limit"], "n", "", "")
 	flags.BoolVar(&opts.Trace.Slowest, "slowest", false, "")
 	positionals, err := parseCLIFlags(flags, args[1:])
 	if err != nil {
@@ -311,11 +310,7 @@ func parseInspectArgsInternal(args []string, allowObservability bool) (inspectOp
 		return inspectOptions{}, fmt.Errorf("--top must be a positive integer")
 	}
 	for _, name := range []string{"limit", "since", "service", "endpoint", "trace-id", "session", "status", "min-duration-ms"} {
-		aliases := []string{name}
-		if name == "limit" {
-			aliases = append(aliases, "n")
-		}
-		if !cliFlagSet(flags, aliases...) {
+		if !cliFlagSet(flags, name) {
 			continue
 		}
 		if name == "session" && opts.Subject == "observability" {
@@ -530,7 +525,7 @@ func durableDatabaseURLForInspect(appRoot string, cfg appcfg.Config) string {
 	if err != nil {
 		env = envpolicy.Environ()
 	}
-	if value, _ := lookupEnvValue(env, cfg.DatabaseURLEnv()); strings.TrimSpace(value) != "" {
+	if value, _ := lookupEnvValue(env, appDatabaseURLEnv); strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value)
 	}
 	if value, _ := lookupEnvValue(env, postgresdb.RegistryEnv); strings.TrimSpace(value) != "" {

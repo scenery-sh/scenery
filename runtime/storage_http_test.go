@@ -19,10 +19,9 @@ func TestStorageHTTPRoutesRequireAuthAndServeObjects(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	RegisterAuthHandler(&AuthHandler{
-		Service:   "auth",
-		Name:      "Token",
-		ParamType: TypeOf[string](),
-		Authenticate: func(_ context.Context, token any) (AuthInfo, error) {
+		Service: "auth",
+		Name:    "Token",
+		Authenticate: func(_ context.Context, token string) (AuthInfo, error) {
 			if token == "storage-token" {
 				return AuthInfo{UID: "user-1"}, nil
 			}
@@ -183,10 +182,9 @@ func TestStorageHTTPRoutesScopeObjectsByTenant(t *testing.T) {
 	restore := replaceGlobalRegistryForTest()
 	defer restore()
 	RegisterAuthHandler(&AuthHandler{
-		Service:   "auth",
-		Name:      "Token",
-		ParamType: TypeOf[string](),
-		Authenticate: func(_ context.Context, token any) (AuthInfo, error) {
+		Service: "auth",
+		Name:    "Token",
+		Authenticate: func(_ context.Context, token string) (AuthInfo, error) {
 			switch token {
 			case "tenant-a":
 				return AuthInfo{UID: "user-a", Data: storageHTTPAuthData{tenant: "tenant-a"}}, nil

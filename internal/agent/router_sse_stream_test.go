@@ -64,7 +64,7 @@ func TestRouterStreamsSSEIncrementally(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := testRouteHost(t, session.Routes[RouteAPI])
+	host := testRouteHost(t, session.RouteManifest.Routes[RouteAPI].URL)
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/v1/shape?live=true", nil)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestRouterReturnsRetryableServiceUnavailableWhileBackendRestarts(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := testRouteHost(t, session.Routes[RouteAPI])
+	host := testRouteHost(t, session.RouteManifest.Routes[RouteAPI].URL)
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+server.routerAddr+"/tasks", nil)
 	if err != nil {

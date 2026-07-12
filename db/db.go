@@ -120,7 +120,7 @@ func databaseURLForConfiguredService(cfg app.Config, name string) (resolvedDatab
 	if dsn := strings.TrimSpace(getEnv(serviceEnv)); dsn != "" {
 		return resolvedDatabaseURL{Service: svc.Name, Schema: svc.Schema, URL: dsn, Source: serviceEnv}, true, nil
 	}
-	appEnv := cfg.DatabaseURLEnv()
+	appEnv := "DATABASE_URL"
 	if dsn := strings.TrimSpace(getEnv(appEnv)); dsn != "" {
 		serviceURL, err := postgresdb.ServiceURL(dsn, svc.Schema)
 		if err != nil {

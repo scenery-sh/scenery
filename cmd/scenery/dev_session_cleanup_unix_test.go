@@ -202,9 +202,9 @@ func TestMarkInconsistentStatusSessionsMarksConfiguredEdgeInternalRouterRouteDeg
 			RouteNamespace: localagent.RouteNamespace{
 				BaseDomain: "onlv.dev",
 			},
-			Routes: map[string]string{
-				localagent.RouteDashboard: "https://console.custom-domain.onlv.dev:9440/",
-			},
+			RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+				localagent.RouteDashboard: {URL: "https://console.custom-domain.onlv.dev:9440/"},
+			}},
 		},
 	})
 	if sessions[0].Status != "degraded" {

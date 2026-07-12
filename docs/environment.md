@@ -63,12 +63,12 @@ These are injected by scenery into generated app processes. App code may read th
 | Variable | Direction | Description |
 | --- | --- | --- |
 | `DATABASE_URL` | user input/injected | App-level Postgres database URL. When set, it wins and Scenery manages no server or database; otherwise Scenery injects the managed app database URL. |
-| `JWT_SECRET` | user input secret | Default standard-auth JWT signing secret when `auth.jwt_secret_env` is omitted. |
+| `JWT_SECRET` | user input secret | Standard-auth JWT signing secret. |
 | `AUTH_COOKIE_DOMAIN` | user input/injected | Default standard-auth cookie domain; empty in default local agent development. |
 | `AUTH_EMAIL_FROM` | user input/injected | Default sender address for standard-auth email flows. |
 | `AUTH_TOKEN_CIPHER_KEY` | user input secret | Default base64 32-byte AES-GCM key for encrypted Google connection token storage. |
-| `GOOGLE_OAUTH_CLIENT_ID` | user input | Default Google OAuth client ID when `auth.google_oauth.client_id_env` is omitted. |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | user input secret | Default Google OAuth client secret when `auth.google_oauth.client_secret_env` is omitted. |
+| `GOOGLE_OAUTH_CLIENT_ID` | user input | Standard-auth Google OAuth client ID. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | user input secret | Standard-auth Google OAuth client secret. |
 | `<SERVICE>_DATABASE_URL` | injected | Service schema Postgres URL derived from the app database URL with `search_path=<service>,scenery`. |
 | `SCENERY_DATABASE_JSON` | injected | JSON object describing the app database, source (`managed` or `external`), and service schemas. |
 | `API_BASE_URL` | injected | API route exposed to app/frontends. |

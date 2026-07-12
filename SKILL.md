@@ -143,7 +143,7 @@ Generated clients implement the exact declared HTTP mappings and typed outcomes.
 
 ## Tasks and Workers
 
-Use `scenery task` for configured repo tasks and app-local code tasks. Code tasks use `<domain>:<name>` and may run even when the application graph is temporarily invalid.
+Use `scenery task` for app-local code tasks. Targets use `<domain>:<name>` and may run even when the application graph is temporarily invalid.
 
 ```sh
 scenery task list -o json

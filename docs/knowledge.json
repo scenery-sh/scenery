@@ -18,6 +18,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0109-remove-post-v0-legacy-lanes.md",
+      "title": "Remove Post-v0 Legacy Lanes",
+      "owner": "scenery maintainers / runtime / CLI / agent routing",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Completed ExecPlan that removed reflection HTTP and internal-call compatibility, config-defined shell tasks and dev setup, duplicate routes, configurable app database env naming, old snapshots and dispatch helpers, short CLI aliases, compatibility wrappers and fields, and orphan dependencies and fixtures after v0 retirement.",
+      "tags": ["plans", "execplans", "cleanup", "v0", "runtime", "cli"]
+    },
+    {
       "path": "docs/schemas/scenery.build.result.v1.schema.json",
       "title": "scenery.build.result.v1 Schema",
       "owner": "scenery build / CLI",
@@ -492,9 +504,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-07",
-      "review_after": "2026-08-06",
-      "summary": "Active ExecPlan for per-user Google connections in standard auth: encrypted offline refresh-token storage, single-flight cross-process refresh, reauth_required and google_scope_missing error taxonomy, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV (sync, drafts, durable send outbox).",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Active ExecPlan for per-user Google connections in standard auth using canonical auth environment names: encrypted offline refresh-token storage, single-flight cross-process refresh, reauth_required and google_scope_missing error taxonomy, connect/status/disconnect endpoints, auth.GoogleAccessToken Go API, and the Gmail integration contract for ONLV.",
       "tags": [
         "plans",
         "execplans",
@@ -535,9 +547,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-10",
-      "review_after": "2026-08-06",
-      "summary": "Active ExecPlan adding a top-level scenery snapshot save|load command: one portable zip with a scenery.snapshot.manifest.v1 manifest, a pg_dump -Fc dump of the whole app database, and verbatim storage-cell store trees; explicit --db/--storage selection, --mode overwrite|merge with atomic merge-or-fail semantics, docker-exec pg_dump/pg_restore inside the managed scenery-postgres container (host fallback for external DSNs), and removal of scenery db snapshot.",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Active ExecPlan adding a top-level scenery snapshot save|load command after retirement of the old database-only snapshot command: one portable zip with a scenery.snapshot.manifest.v1 manifest, a pg_dump -Fc dump of the whole app database, and verbatim storage-cell store trees; explicit selection, atomic merge-or-fail semantics, and container-matched Postgres tooling.",
       "tags": [
         "plans",
         "execplans",
@@ -763,7 +775,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Frozen local developer and agent-facing contract for native edition-2027 applications and independently versioned CLI JSON surfaces, including typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, observability, harness timing, generators, and tasks.",
+      "summary": "Frozen local developer and agent-facing contract for native edition-2027 applications and independently versioned CLI JSON surfaces, including typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, observability, harness timing, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1478,9 +1490,9 @@
       "status": "active",
       "quality": "B",
       "freshness": "current",
-      "last_reviewed": "2026-07-07",
-      "review_after": "2026-08-06",
-      "summary": "Active ExecPlan for source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, setup policy, and Scenery-owned parallel runtime validation.",
+      "last_reviewed": "2026-07-12",
+      "review_after": "2026-08-11",
+      "summary": "Active ExecPlan for source-review gap closure around devdash storage, DB-aware prune, non-destructive restart, legacy proxy removal, and Scenery-owned parallel runtime validation; its former dev.setup policy work is obsolete because that surface was removed.",
       "tags": [
         "plans",
         "execplans",
@@ -1727,7 +1739,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-12",
       "review_after": "2026-08-11",
-      "summary": "Completed milestones and shipped behavior, including removal of remaining v0 compatibility and the Go-directive frontend, typed HTTP path-tail profiles, edition-2027 transaction conformance, devdash control-plane/store work, audited active-plan retirements, Neon dev-cell/selfhost support, CLI observability, and browser UI harness baselines.",
+      "summary": "Completed milestones and shipped behavior, including post-v0 legacy-lane removal, removal of remaining v0 compatibility and the Go-directive frontend, typed HTTP path-tail profiles, edition-2027 transaction conformance, devdash control-plane/store work, audited active-plan retirements, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",

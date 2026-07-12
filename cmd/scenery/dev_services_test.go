@@ -36,21 +36,21 @@ func TestManagedDatabaseEnvUsesExternalDSN(t *testing.T) {
 	}
 }
 
-func TestManagedDatabaseEnvUsesConfiguredAppURLEnv(t *testing.T) {
+func TestManagedDatabaseEnvUsesCanonicalAppURLEnv(t *testing.T) {
 	root := t.TempDir()
 	cfg := app.Config{
 		Name:     "demo",
-		Database: app.DatabaseConfig{URLEnv: "APP_DATABASE_URL"},
+		Database: app.DatabaseConfig{},
 		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
 			"reports": {},
 		}},
 	}
 	dsn := "postgres://user:secret@localhost/app"
-	env, _, err := managedDatabaseEnv(t.Context(), root, cfg, nil, []string{"APP_DATABASE_URL=" + dsn})
+	env, _, err := managedDatabaseEnv(t.Context(), root, cfg, nil, []string{"DATABASE_URL=" + dsn})
 	if err != nil {
 		t.Fatalf("managedDatabaseEnv returned error: %v", err)
 	}
-	if envValueFromList(env, "APP_DATABASE_URL") != dsn || envValueFromList(env, "REPORTS_DATABASE_URL") == "" {
+	if envValueFromList(env, "DATABASE_URL") != dsn || envValueFromList(env, "REPORTS_DATABASE_URL") == "" {
 		t.Fatalf("env = %+v", env)
 	}
 }

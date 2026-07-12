@@ -143,13 +143,6 @@ func (s *devSupervisor) prepareDevRuntimePlan(ctx context.Context, initial bool,
 			return nil, devBuildError(metadata, apiEncoding, err)
 		}
 	}
-	if len(s.cfg.Dev.Setup) > 0 {
-		if err := s.console.Phase("Running development setup", func() error {
-			return s.runDevSetup(ctx)
-		}); err != nil {
-			return nil, devBuildError(metadata, apiEncoding, err)
-		}
-	}
 	return &devRuntimePlan{
 		Result:      result,
 		Metadata:    metadata,

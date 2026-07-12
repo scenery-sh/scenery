@@ -6,6 +6,25 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Post-v0 Legacy Lane Removal
+
+- Status: completed
+- Owner: scenery maintainers / runtime / CLI / agent routing
+- Completed: 2026-07-12
+- Quality: B
+- ExecPlan: [0109 Remove Post-v0 Legacy Lanes](0109-remove-post-v0-legacy-lanes.md)
+
+Shipped:
+
+- Moved standard auth onto typed contract codecs and deleted reflection request decoding, response encoding, endpoint metadata, and internal-call compatibility APIs.
+- Removed config-defined shell tasks, old generate sniffing, rejected legacy flags, duplicate routes, unused wrappers and PostgreSQL fields, dashboard compatibility metadata, and orphan dependencies and fixtures.
+- Standardized auth on canonical environment names and the `scenery_refresh` cookie, simplified code generation, and synchronized docs, schemas, generated fixtures, and agent guidance.
+- Removed migration-only `dev.setup`, configurable app database URL env naming, Symphony's missing-base-ID fallback, the superseded database-only snapshot command, and non-output short CLI aliases.
+
+Validation:
+
+- Passed focused and full Go tests, Go vet, tracked-source searches, docs inspection, schema validation, UI validation, fixture/runtime/Postgres/storage probes, and full self-harness; advisory review-date, file-size, and timing warnings remain.
+
 ## Remaining v0 Compatibility Removal
 
 - Status: completed

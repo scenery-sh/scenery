@@ -307,7 +307,6 @@ func parseLogsQueryArgs(args []string) (logsQueryOptions, error) {
 	flags.StringVar(&start, "start", "", "")
 	flags.StringVar(&end, "end", "", "")
 	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
-	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
 	flags.StringVar(&timeout, "timeout", timeout, "")
 	flags.StringVar(&fields, "fields", "", "")
 	positionals, err := parseCLIFlags(flags, args)
@@ -382,7 +381,6 @@ func parseMetricsQueryArgs(args []string) (metricsQueryOptions, error) {
 	flags.StringVar(&step, "step", step, "")
 	flags.StringVar(&timeout, "timeout", timeout, "")
 	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
-	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {
 		return metricsQueryOptions{}, err
@@ -435,7 +433,6 @@ func parseMetricsCatalogArgs(args []string, requireMatch bool) (metricsCatalogOp
 	flags.StringVar(&start, "start", "", "")
 	flags.StringVar(&end, "end", "", "")
 	flags.IntVar(&opts.Limit, "limit", opts.Limit, "")
-	flags.IntVar(&opts.Limit, "n", opts.Limit, "")
 	flags.StringVar(&timeout, "timeout", timeout, "")
 	positionals, err := parseCLIFlags(flags, args)
 	if err != nil {

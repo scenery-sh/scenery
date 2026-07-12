@@ -72,7 +72,7 @@ type EmailLoginParams struct {
 }
 
 type RefreshParams struct {
-	RefreshToken string `cookie:"onlv_refresh"`
+	RefreshToken string `cookie:"scenery_refresh"`
 }
 
 type PasswordResetRequestParams struct {

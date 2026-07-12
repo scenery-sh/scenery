@@ -19,7 +19,6 @@
   },
   "devDependencies": {
     "@astryxdesign/build": "^0.1.2",
-    "@astryxdesign/cli": "^0.1.2",
     "@stylexjs/babel-plugin": "0.18.3",
     "@stylexjs/unplugin": "0.18.3",
     "@types/node": "^24.13.2",

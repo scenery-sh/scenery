@@ -542,8 +542,8 @@ func (s *devSupervisor) startApp(ctx context.Context, result *build.Result, meta
 		return nil, err
 	}
 	env = append(env, storageEnv...)
-	if agentSession != nil && agentSession.Routes[localagent.RouteAPI] != "" {
-		env = append(env, "SCENERY_PUBLIC_BASE_URL="+agentSession.Routes[localagent.RouteAPI])
+	if agentSession != nil && agentSession.RouteManifest.Routes[localagent.RouteAPI].URL != "" {
+		env = append(env, "SCENERY_PUBLIC_BASE_URL="+agentSession.RouteManifest.Routes[localagent.RouteAPI].URL)
 	}
 	env = append(env, s.sessionAuthEnv()...)
 	if err := backendAvailableBeforeStartup(s.backend); err != nil {
@@ -647,47 +647,6 @@ func copySessionAppBinary(source, target string) error {
 	if closeErr != nil {
 		_ = os.Remove(target)
 		return closeErr
-	}
-	return nil
-}
-
-func (s *devSupervisor) runDevSetup(ctx context.Context) error {
-	baseEnv, err := appEnvWithDotEnv(envpolicy.Environ(), s.root, ".env", ".env.local")
-	if err != nil {
-		return err
-	}
-	appBaseEnv := s.appDatabaseAuthorityEnv(baseEnv)
-	managedEnv, err := s.managedAppEnv(ctx, baseEnv)
-	if err != nil {
-		return err
-	}
-	env := appChildEnv(
-		appBaseEnv,
-		s.console != nil && s.console.palette.Enabled(),
-		"SCENERY_APP_ID="+s.activeAppID(),
-		"SCENERY_APP_ROOT="+s.root,
-		"SCENERY_DEV_SUPERVISOR=1",
-	)
-	env = append(env, managedEnv...)
-	for _, command := range s.cfg.Dev.Setup {
-		command = strings.TrimSpace(command)
-		if command == "" {
-			continue
-		}
-		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
-		cmd.Dir = s.root
-		cmd.Env = env
-		stdout := newSetupOutputWriter(s.console, "stdout", os.Stdout)
-		stderr := newSetupOutputWriter(s.console, "stderr", os.Stderr)
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-		if err := cmd.Run(); err != nil {
-			stdout.Close()
-			stderr.Close()
-			return fmt.Errorf("dev.setup %q failed: %w", command, err)
-		}
-		stdout.Close()
-		stderr.Close()
 	}
 	return nil
 }
@@ -865,7 +824,7 @@ func (s *devSupervisor) sessionIdentityEnv() []string {
 		"SCENERY_WORKTREE=" + appWorktreeName(session.AppRoot),
 		"SCENERY_ROUTE_MODE=" + string(firstRouteMode(session)),
 		"SCENERY_BASE_URL=" + strings.TrimSpace(session.RouteManifest.BaseURL),
-		"SCENERY_API_URL=" + strings.TrimSpace(session.Routes[localagent.RouteAPI]),
+		"SCENERY_API_URL=" + strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteAPI].URL),
 		"SCENERY_API_BASE_PATH=" + routeBasePath(session, localagent.RouteAPI),
 		"SCENERY_PUBLIC_APP_URL=" + publicAppURLForSession(session),
 	}
@@ -909,7 +868,7 @@ func publicAppURLForSession(session *localagent.Session) string {
 	if len(names) > 0 {
 		return strings.TrimSpace(session.RouteManifest.Routes[names[0]].URL)
 	}
-	return strings.TrimSpace(firstNonEmpty(session.RouteManifest.BaseURL, session.Routes[localagent.RouteAPI]))
+	return strings.TrimSpace(firstNonEmpty(session.RouteManifest.BaseURL, session.RouteManifest.Routes[localagent.RouteAPI].URL))
 }
 
 func appRootHash(root string) string {
@@ -977,18 +936,10 @@ func (s *devSupervisor) sessionAuthEnv() []string {
 		}
 	}
 	return []string{
-		authEnvName(s.cfg.Auth.APIBaseURLEnv, "SCENERY_API_BASE_URL") + "=" + apiURL,
-		authEnvName(s.cfg.Auth.PublicAppURLEnv, "SCENERY_PUBLIC_APP_URL") + "=" + publicAppURL,
-		authEnvName(s.cfg.Auth.AuthCookieDomainEnv, "AUTH_COOKIE_DOMAIN") + "=",
+		"SCENERY_API_BASE_URL=" + apiURL,
+		"SCENERY_PUBLIC_APP_URL=" + publicAppURL,
+		"AUTH_COOKIE_DOMAIN=",
 	}
-}
-
-func authEnvName(value, fallback string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return fallback
-	}
-	return value
 }
 
 func (s *devSupervisor) waitForAppStartup(ctx context.Context, app *runningApp) error {
@@ -1394,22 +1345,22 @@ func (s *devSupervisor) announceRebuild(paths []string) {
 }
 
 func (s *devSupervisor) apiURL() string {
-	if session := s.currentAgentSession(); session != nil && session.Routes[localagent.RouteAPI] != "" {
-		return session.Routes[localagent.RouteAPI]
+	if session := s.currentAgentSession(); session != nil && session.RouteManifest.Routes[localagent.RouteAPI].URL != "" {
+		return session.RouteManifest.Routes[localagent.RouteAPI].URL
 	}
 	return "http://" + s.addr
 }
 
 func (s *devSupervisor) dashboardURL() string {
-	if session := s.currentAgentSession(); session != nil && session.Routes[localagent.RouteDashboard] != "" {
-		return session.Routes[localagent.RouteDashboard]
+	if session := s.currentAgentSession(); session != nil && session.RouteManifest.Routes[localagent.RouteDashboard].URL != "" {
+		return session.RouteManifest.Routes[localagent.RouteDashboard].URL
 	}
 	return "http://" + devdash.ListenAddr() + "/" + url.PathEscape(s.activeAppID())
 }
 
 func (s *devSupervisor) frontendURLs() map[string]string {
 	if session := s.currentAgentSession(); session != nil {
-		return frontendURLsFromAgentRoutes(session.Routes, s.cfg.Frontends)
+		return frontendURLsFromAgentRoutes(session.RouteManifest.URLs(), s.cfg.Frontends)
 	}
 	return nil
 }
@@ -1792,7 +1743,7 @@ func (s *devSupervisor) statusDashboardRoutesLocked(sessionID string) map[string
 	if s.agentSession != nil {
 		currentSessionID := strings.TrimSpace(s.agentSession.SessionID)
 		if sessionID == "" || sessionID == currentSessionID {
-			if routes := visibleDashboardRoutesFromAgent(s.agentSession.Routes); len(routes) > 0 {
+			if routes := visibleDashboardRoutesFromAgent(s.agentSession.RouteManifest.URLs()); len(routes) > 0 {
 				return routes
 			}
 		}

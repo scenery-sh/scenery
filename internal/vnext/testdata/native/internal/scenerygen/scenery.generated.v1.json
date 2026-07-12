@@ -1,7 +1,7 @@
 {
   "api_version": "scenery.generated.v1",
   "artifact_kind": "go_application_adapters",
-  "content_digest": "sha256:35b2688a312507667471664601928f17b83869a8dfb44e3e3f3a621951ac4635",
+  "content_digest": "sha256:fadbbc9b754b117d7f02e632e9ad0f5c2289d7487aa912bdf85d0eb57ebf0e86",
   "contract_revision": "sha256:fe7e93d91bc599c07fea0d0416d3219745e3c8018251d3b96804d84327115f6c",
   "covered": [
     "house/binding/process_scene_http",

@@ -274,27 +274,6 @@ func TestReadConsoleKeyParsesEscapeSequences(t *testing.T) {
 	}
 }
 
-func TestAttachTUIFallsBackToLogsWhenNotTerminal(t *testing.T) {
-	prev := runSceneryLogsFunc
-	defer func() { runSceneryLogsFunc = prev }()
-	called := false
-	runSceneryLogsFunc = func(ctx context.Context, stdout io.Writer, args []string) error {
-		called = true
-		got := strings.Join(args, "\x00")
-		want := strings.Join([]string{"--follow", "--limit", "200", "--stream", "all", "--source", "api"}, "\x00")
-		if got != want {
-			t.Fatalf("fallback logs args = %#v, want %#v", args, strings.Split(want, "\x00"))
-		}
-		return nil
-	}
-	if err := attachCommand([]string{"--tui", "--source", "api"}); err != nil {
-		t.Fatalf("attachCommand returned error: %v", err)
-	}
-	if !called {
-		t.Fatal("expected logs fallback")
-	}
-}
-
 func TestRunSceneryConsoleFallsBackToLogsWhenRawModeFails(t *testing.T) {
 	root := t.TempDir()
 	cacheRoot := filepath.Join(t.TempDir(), "cache")

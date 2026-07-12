@@ -322,7 +322,6 @@ func TestSyncGeneratedFilesKeepsPathsThatAreNowRegularSourceFiles(t *testing.T) 
 	writeBuildTestFile(t, root, rel, "package house\n\nfunc oldGenerated() {}\n")
 
 	got, err := syncGeneratedFiles(root, appRoot, &codegen.Output{
-		Rewritten: map[string][]byte{},
 		Generated: map[string][]byte{},
 	}, []string{rel}, []string{rel})
 	if err != nil {

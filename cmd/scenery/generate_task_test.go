@@ -817,16 +817,8 @@ func TestTaskGraphAndRun(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	writeTestAppFile(t, root, ".scenery.json", `{
-  "name": "demo",
-  "tasks": {
-    "echo": {
-      "cwd": "tools",
-      "run": "echo hello",
-      "env": { "TASK_MODE": "test" }
-    }
-  }
-}`)
+	writeTestAppFile(t, root, ".scenery.json", `{"name":"demo"}`)
+	writeTestAppFile(t, root, "tools/tasks/echo.task.go", "//go:build ignore\n\npackage main\nfunc main() {}\n")
 
 	var graphOut bytes.Buffer
 	if err := runTaskCommand(context.Background(), &graphOut, []string{"graph", "-o", "json", "--app-root", root}); err != nil {
@@ -836,23 +828,8 @@ func TestTaskGraphAndRun(t *testing.T) {
 	if err := decodeCLIJSON(graphOut.Bytes(), &graph); err != nil {
 		t.Fatalf("decodeCLIJSON graph: %v\n%s", err, graphOut.String())
 	}
-	if len(graph.Tasks) != 1 || graph.Tasks[0].Name != "echo" || graph.Tasks[0].EnvKeys[0] != "TASK_MODE" {
+	if len(graph.Nodes) != 1 || graph.Nodes[0].Target != "tools:echo" {
 		t.Fatalf("graph = %+v", graph)
-	}
-
-	var ran []lifecycleExecRequest
-	hooks := stubLifecycleExec(t, func(_ context.Context, req lifecycleExecRequest) error {
-		ran = append(ran, req)
-		return nil
-	}, nil)
-	if err := runTaskCommandWithHooks(context.Background(), &bytes.Buffer{}, []string{"run", "echo", "--app-root", root}, hooks, defaultDBSeedHooks()); err != nil {
-		t.Fatalf("runTaskCommand run returned error: %v", err)
-	}
-	if len(ran) != 1 || ran[0].Dir != filepath.Join(root, "tools") {
-		t.Fatalf("ran = %+v", ran)
-	}
-	if !containsEnv(ran[0].Env, "TASK_MODE=test") {
-		t.Fatalf("task env missing overlay: %+v", ran[0].Env)
 	}
 }
 

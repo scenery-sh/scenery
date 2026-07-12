@@ -145,7 +145,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 	}); err != nil {
 		return nil, diagnostics, err
 	}
-	if err := withPatchedEnvForDB(rootB, postgresdb.Env(databaseB, cfg.DatabaseURLEnv()), func() error {
+	if err := withPatchedEnvForDB(rootB, postgresdb.Env(databaseB), func() error {
 		db, err := appdb.Get(ctx, "reports")
 		if err != nil {
 			return err

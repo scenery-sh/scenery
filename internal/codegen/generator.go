@@ -6,17 +6,12 @@ import (
 )
 
 type Output struct {
-	Rewritten map[string][]byte
 	Generated map[string][]byte
 }
 
-type Options struct {
-	CompositionImport string
-}
-
-func GenerateWithOptions(appModel *model.App, cfg appcfg.Config, options Options) (*Output, error) {
-	out := &Output{Rewritten: map[string][]byte{}, Generated: map[string][]byte{}}
-	mainFile, err := generateMain(appModel, cfg, options)
+func Generate(appModel *model.App, cfg appcfg.Config, compositionImport string) (*Output, error) {
+	out := &Output{Generated: map[string][]byte{}}
+	mainFile, err := generateMain(appModel, cfg, compositionImport)
 	if err != nil {
 		return nil, err
 	}

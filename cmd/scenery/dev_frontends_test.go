@@ -96,10 +96,10 @@ func TestFrontendDevEnvIncludesSessionRoutes(t *testing.T) {
 
 	env := frontendDevEnv([]string{"EXISTING=1"}, "/repo/app", "127.0.0.1:49231", localagent.Session{
 		SessionID: "main-abc123",
-		Routes: map[string]string{
-			localagent.RouteAPI: "http://api.main-abc123.local.dev:9440/",
-			"web":               "http://web.main-abc123.local.dev:9440/",
-		},
+		RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+			localagent.RouteAPI: {URL: "http://api.main-abc123.local.dev:9440/"},
+			"web":               {URL: "http://web.main-abc123.local.dev:9440/"},
+		}},
 	}, "web")
 	for _, want := range []string{
 		"EXISTING=1",

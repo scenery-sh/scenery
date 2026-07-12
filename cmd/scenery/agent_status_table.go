@@ -67,9 +67,6 @@ func statusSessionURL(session localagent.Session) string {
 
 func statusSessionServices(session localagent.Session) string {
 	routes := session.RouteManifest.Routes
-	if len(routes) == 0 {
-		return statusTableURLs(session.Routes)
-	}
 	names := make([]string, 0, len(routes))
 	for name, record := range routes {
 		if name == "root" || strings.TrimSpace(record.URL) == "" {
@@ -89,8 +86,8 @@ func statusSessionServices(session localagent.Session) string {
 }
 
 func statusSessionConsoleURL(session localagent.Session) string {
-	if session.Routes != nil {
-		if value := strings.TrimSpace(session.Routes[localagent.RouteDashboard]); value != "" {
+	if session.RouteManifest.Routes != nil {
+		if value := strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteDashboard].URL); value != "" {
 			return value
 		}
 	}

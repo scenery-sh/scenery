@@ -158,9 +158,6 @@ func (s *dashboardServer) symphonyAppID(ctx context.Context, raw json.RawMessage
 		return "", err
 	}
 	appID := strings.TrimSpace(status.BaseAppID)
-	if appID == "" && strings.TrimSpace(status.SessionID) == "" {
-		appID = strings.TrimSpace(status.AppID)
-	}
 	if appID == "" {
 		return "", fmt.Errorf("symphony requires a stable app id for %q", requested)
 	}

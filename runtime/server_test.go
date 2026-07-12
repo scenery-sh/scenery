@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +87,7 @@ func TestContractEndpointUsesGeneratedDecodeAndOutcomeMapping(t *testing.T) {
 
 	if err := RegisterEndpointChecked(&Endpoint{
 		Service: "contract", Name: "Create", Access: Public, Path: "/contract", Methods: []string{http.MethodPost},
-		PayloadType: reflect.TypeFor[contractTestInput](), ResponseType: reflect.TypeFor[contractTestOutcome](),
+
 		DecodeContractRequest: func(request *http.Request, _ map[string]string) (ContractDecodedRequest, error) {
 			input, err := DecodeContractJSON[contractTestInput](request)
 			return ContractDecodedRequest{Payload: input}, err

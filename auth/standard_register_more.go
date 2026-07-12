@@ -8,43 +8,43 @@ import (
 )
 
 func registerStandardOrganizations() {
-	registerStandardTyped("auth", "ListOrganizations", runtime.Auth, "/auth/organizations", []string{http.MethodGet}, nil, (*ListOrganizationsResponse)(nil), func(ctx context.Context, svc *Service, _ []any, _ any) (any, error) {
+	registerStandardEmpty("auth", "ListOrganizations", runtime.Auth, "/auth/organizations", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*ListOrganizationsResponse, error) {
 		return svc.ListOrganizations(ctx)
 	})
-	registerStandardTyped("auth", "CreateOrganization", runtime.Auth, "/auth/organizations", []string{http.MethodPost}, (*CreateOrganizationParams)(nil), (*AuthBootstrapResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.CreateOrganization(ctx, payload.(*CreateOrganizationParams))
+	registerStandardJSON("auth", "CreateOrganization", runtime.Auth, "/auth/organizations", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *CreateOrganizationParams) (*AuthBootstrapResponse, error) {
+		return svc.CreateOrganization(ctx, input)
 	})
-	registerStandardTyped("auth", "SwitchOrganization", runtime.Auth, "/auth/organizations/switch", []string{http.MethodPost}, (*SwitchOrganizationParams)(nil), (*AuthBootstrapResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.SwitchOrganization(ctx, payload.(*SwitchOrganizationParams))
+	registerStandardJSON("auth", "SwitchOrganization", runtime.Auth, "/auth/organizations/switch", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *SwitchOrganizationParams) (*AuthBootstrapResponse, error) {
+		return svc.SwitchOrganization(ctx, input)
 	})
-	registerStandardTyped("auth", "UpdateOrganization", runtime.Auth, "/auth/organizations/:tenantID", []string{http.MethodPatch}, (*UpdateOrganizationParams)(nil), (*AuthBootstrapResponse)(nil), func(ctx context.Context, svc *Service, pathArgs []any, payload any) (any, error) {
-		return svc.UpdateOrganization(ctx, pathArgs[0].(string), payload.(*UpdateOrganizationParams))
+	registerStandardJSON("auth", "UpdateOrganization", runtime.Auth, "/auth/organizations/:tenantID", http.MethodPatch, func(ctx context.Context, svc *Service, path []string, input *UpdateOrganizationParams) (*AuthBootstrapResponse, error) {
+		return svc.UpdateOrganization(ctx, path[0], input)
 	})
-	registerStandardTyped("auth", "DeleteOrganization", runtime.Auth, "/auth/organizations/:tenantID", []string{http.MethodDelete}, nil, (*AuthBootstrapResponse)(nil), func(ctx context.Context, svc *Service, pathArgs []any, _ any) (any, error) {
-		return svc.DeleteOrganization(ctx, pathArgs[0].(string))
+	registerStandardEmpty("auth", "DeleteOrganization", runtime.Auth, "/auth/organizations/:tenantID", http.MethodDelete, func(ctx context.Context, svc *Service, path []string) (*AuthBootstrapResponse, error) {
+		return svc.DeleteOrganization(ctx, path[0])
 	})
-	registerStandardTyped("auth", "ListOrganizationMembers", runtime.Auth, "/auth/organizations/:tenantID/members", []string{http.MethodGet}, nil, (*ListOrganizationMembersResponse)(nil), func(ctx context.Context, svc *Service, pathArgs []any, _ any) (any, error) {
-		return svc.ListOrganizationMembers(ctx, pathArgs[0].(string))
+	registerStandardEmpty("auth", "ListOrganizationMembers", runtime.Auth, "/auth/organizations/:tenantID/members", http.MethodGet, func(ctx context.Context, svc *Service, path []string) (*ListOrganizationMembersResponse, error) {
+		return svc.ListOrganizationMembers(ctx, path[0])
 	})
-	registerStandardTyped("auth", "InviteOrganizationMember", runtime.Auth, "/auth/organizations/:tenantID/invites", []string{http.MethodPost}, (*InviteMemberParams)(nil), (*InviteMemberResponse)(nil), func(ctx context.Context, svc *Service, pathArgs []any, payload any) (any, error) {
-		return svc.InviteOrganizationMember(ctx, pathArgs[0].(string), payload.(*InviteMemberParams))
+	registerStandardJSON("auth", "InviteOrganizationMember", runtime.Auth, "/auth/organizations/:tenantID/invites", http.MethodPost, func(ctx context.Context, svc *Service, path []string, input *InviteMemberParams) (*InviteMemberResponse, error) {
+		return svc.InviteOrganizationMember(ctx, path[0], input)
 	})
-	registerStandardTyped("auth", "AcceptInvite", runtime.Auth, "/auth/invites/accept", []string{http.MethodPost}, (*AcceptInviteParams)(nil), (*AuthBootstrapResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.AcceptInvite(ctx, payload.(*AcceptInviteParams))
+	registerStandardJSON("auth", "AcceptInvite", runtime.Auth, "/auth/invites/accept", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *AcceptInviteParams) (*AuthBootstrapResponse, error) {
+		return svc.AcceptInvite(ctx, input)
 	})
-	registerStandardTyped("auth", "UpdateOrganizationMemberRole", runtime.Auth, "/auth/organizations/:tenantID/members/:userID", []string{http.MethodPatch}, (*UpdateMemberRoleParams)(nil), (*ListOrganizationMembersResponse)(nil), func(ctx context.Context, svc *Service, pathArgs []any, payload any) (any, error) {
-		return svc.UpdateOrganizationMemberRole(ctx, pathArgs[0].(string), pathArgs[1].(string), payload.(*UpdateMemberRoleParams))
+	registerStandardJSON("auth", "UpdateOrganizationMemberRole", runtime.Auth, "/auth/organizations/:tenantID/members/:userID", http.MethodPatch, func(ctx context.Context, svc *Service, path []string, input *UpdateMemberRoleParams) (*ListOrganizationMembersResponse, error) {
+		return svc.UpdateOrganizationMemberRole(ctx, path[0], path[1], input)
 	})
-	registerStandardTyped("auth", "DisableOrganizationMember", runtime.Auth, "/auth/organizations/:tenantID/members/disable", []string{http.MethodPost}, (*DisableMemberParams)(nil), (*ListOrganizationMembersResponse)(nil), func(ctx context.Context, svc *Service, pathArgs []any, payload any) (any, error) {
-		return svc.DisableOrganizationMember(ctx, pathArgs[0].(string), payload.(*DisableMemberParams))
+	registerStandardJSON("auth", "DisableOrganizationMember", runtime.Auth, "/auth/organizations/:tenantID/members/disable", http.MethodPost, func(ctx context.Context, svc *Service, path []string, input *DisableMemberParams) (*ListOrganizationMembersResponse, error) {
+		return svc.DisableOrganizationMember(ctx, path[0], input)
 	})
 }
 
 func registerStandardImpersonation() {
-	registerStandardTyped("auth", "StartImpersonation", runtime.Auth, "/auth/impersonation/start", []string{http.MethodPost}, (*StartImpersonationParams)(nil), (*AuthSessionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.StartImpersonation(ctx, payload.(*StartImpersonationParams))
+	registerStandardJSON("auth", "StartImpersonation", runtime.Auth, "/auth/impersonation/start", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *StartImpersonationParams) (*AuthSessionResponse, error) {
+		return svc.StartImpersonation(ctx, input)
 	})
-	registerStandardTyped("auth", "StopImpersonation", runtime.Auth, "/auth/impersonation/stop", []string{http.MethodPost}, (*RefreshParams)(nil), (*AuthSessionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.StopImpersonation(ctx, payload.(*RefreshParams))
+	registerStandardCookie("auth", "StopImpersonation", runtime.Auth, "/auth/impersonation/stop", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*AuthSessionResponse, error) {
+		return svc.StopImpersonation(ctx, input)
 	})
 }

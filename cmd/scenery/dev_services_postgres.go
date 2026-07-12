@@ -95,7 +95,7 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 		return nil, postgresdb.Database{}, nil
 	}
 	services := make([]postgresdb.Service, 0, len(cfgs))
-	databaseEnv := cfg.DatabaseURLEnv()
+	databaseEnv := appDatabaseURLEnv
 	if value, _ := lookupEnvValue(baseEnv, databaseEnv); value != "" {
 		if _, err := postgresdb.ParseURL(value); err != nil {
 			return nil, postgresdb.Database{}, fmt.Errorf("%s must be a postgres URL for plan 0097: %w", databaseEnv, err)
@@ -106,16 +106,13 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 				return nil, postgresdb.Database{}, fmt.Errorf("derive postgres URL for service %s schema %s: %w", svc.Name, svc.Schema, err)
 			}
 			services = append(services, postgresdb.Service{
-				Name:           svc.Name,
-				Schema:         svc.Schema,
-				URL:            serviceURL,
-				Database:       postgresdb.DatabaseNameFromURL(value),
-				DatabaseURLEnv: postgresname.ServiceDatabaseURLEnv(svc.Name),
-				Source:         postgresdb.SourceExternal,
+				Name:   svc.Name,
+				Schema: svc.Schema,
+				URL:    serviceURL,
 			})
 		}
 		database := postgresdb.Database{Database: postgresdb.DatabaseNameFromURL(value), URL: value, Source: postgresdb.SourceExternal, Schemas: services}
-		return postgresdb.Env(database, databaseEnv), database, nil
+		return postgresdb.Env(database), database, nil
 	}
 
 	server, err := ensureSharedPostgresServerWithAgent(ctx, appRoot, session, agent)
@@ -149,16 +146,13 @@ func managedDatabaseEnvWithAgent(ctx context.Context, appRoot string, cfg app.Co
 			return nil, postgresdb.Database{}, fmt.Errorf("derive postgres URL for service %s schema %s: %w", svc.Name, svc.Schema, err)
 		}
 		services = append(services, postgresdb.Service{
-			Name:           svc.Name,
-			Schema:         svc.Schema,
-			URL:            serviceURL,
-			Database:       dbName,
-			DatabaseURLEnv: postgresname.ServiceDatabaseURLEnv(svc.Name),
-			Source:         postgresdb.SourceManaged,
+			Name:   svc.Name,
+			Schema: svc.Schema,
+			URL:    serviceURL,
 		})
 	}
 	database := postgresdb.Database{Database: dbName, URL: baseURL, Source: postgresdb.SourceManaged, Schemas: services}
-	return postgresdb.Env(database, databaseEnv), database, nil
+	return postgresdb.Env(database), database, nil
 }
 
 func ensureSharedPostgresServer(ctx context.Context, appRoot string, session *localagent.Session) (*postgresServerState, error) {

@@ -398,7 +398,7 @@ func (r *Registry) claimAliasesLocked(session Session, force bool) (map[string]s
 	for configuredRoute, configuredHost := range session.RouteNamespace.Hosts {
 		route := normalizeAliasRoute(configuredRoute)
 		host := normalizeRouteHost(configuredHost)
-		if route == "" || host == "" || session.Routes[route] == "" {
+		if route == "" || host == "" || session.RouteManifest.Routes[route].URL == "" {
 			continue
 		}
 		desired[host] = route
@@ -574,8 +574,8 @@ func (r *Registry) rebuildRouteHostIndexLocked() {
 		if session.RouteManifest.Mode == RouteModePath {
 			continue
 		}
-		for route, routeURL := range session.Routes {
-			host := normalizeRouteHost(routeURL)
+		for route, record := range session.RouteManifest.Routes {
+			host := normalizeRouteHost(record.URL)
 			route = normalizeAliasRoute(route)
 			if host == "" || route == "" {
 				continue

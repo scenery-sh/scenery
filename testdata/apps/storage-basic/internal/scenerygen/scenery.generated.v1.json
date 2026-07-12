@@ -1,7 +1,7 @@
 {
   "api_version": "scenery.generated.v1",
   "artifact_kind": "go_application_adapters",
-  "content_digest": "sha256:864631bce0625825a0512f6227678c73d0a632e461c92cf345165b0c8386b24d",
+  "content_digest": "sha256:c26d0a2877a1bdca66d322355ea807c5b8eeceae4182bbc1cf8fd29b29ef0387",
   "contract_revision": "sha256:9fc22974ac02542ff7b31fa7b556f410395cdedb5b613f7c7e2bb73056b5241b",
   "covered": [
     "service/binding/public_storage_probe_http",

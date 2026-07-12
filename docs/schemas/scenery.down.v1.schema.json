@@ -6,7 +6,6 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
-    "session_id",
     "deleted",
     "record_preserved",
     "db_cleanup",
@@ -14,7 +13,6 @@
   ],
   "properties": {
     "schema_version": { "const": "scenery.down.v1" },
-    "session_id": { "type": "string", "minLength": 1 },
     "app_root": { "type": "string" },
     "deleted": { "type": "boolean" },
     "record_preserved": { "type": "boolean" },

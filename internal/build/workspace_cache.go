@@ -269,11 +269,7 @@ func workspaceBuildFingerprint(root string, goBuildFlags []string, groups ...[]s
 }
 
 func syncGeneratedFiles(root, appRoot string, gen *codegen.Output, prev, sourceFiles []string) ([]string, error) {
-	next := make(map[string][]byte, len(gen.Rewritten)+len(gen.Generated))
-	for rel, data := range gen.Rewritten {
-		rel = filepath.ToSlash(rel)
-		next[rel] = data
-	}
+	next := make(map[string][]byte, len(gen.Generated))
 	for rel, data := range gen.Generated {
 		next[filepath.ToSlash(rel)] = data
 	}

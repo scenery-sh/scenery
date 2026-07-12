@@ -47,10 +47,6 @@
           "type": ["object", "null"],
           "additionalProperties": { "$ref": "#/$defs/devService" }
         },
-        "setup": {
-          "type": ["array", "null"],
-          "items": { "type": "string" }
-        },
         "routing": {
           "type": "object",
           "description": "Browser-facing local dev routing. The default mode is path, which assigns one stable localhost port per app root.",
@@ -81,15 +77,10 @@
     "database": {
       "type": "object",
       "properties": {
-        "url_env": { "type": "string", "description": "App-level Postgres database URL environment variable. Defaults to DATABASE_URL." },
         "apply": { "$ref": "#/$defs/databaseApply" },
         "seed": { "$ref": "#/$defs/databaseSeed" }
       },
       "additionalProperties": false
-    },
-    "tasks": {
-      "type": ["object", "null"],
-      "additionalProperties": { "$ref": "#/$defs/task" }
     },
     "validation": {
       "type": "object",
@@ -106,13 +97,6 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
-        "database_url_env": { "type": "string" },
-        "jwt_secret_env": { "type": "string" },
-        "refresh_cookie_name": { "type": "string" },
-        "auth_cookie_domain_env": { "type": "string" },
-        "public_app_url_env": { "type": "string" },
-        "api_base_url_env": { "type": "string" },
-        "email_from_env": { "type": "string" },
         "auto_bootstrap_database": { "type": "boolean" },
         "google_oauth": { "$ref": "#/$defs/authGoogleOAuth" },
         "dev_bootstrap": { "$ref": "#/$defs/authDevBootstrap" }
@@ -268,22 +252,6 @@
       },
       "additionalProperties": false
     },
-    "task": {
-      "type": "object",
-      "properties": {
-        "cwd": { "type": "string" },
-        "run": { "type": "string" },
-        "steps": {
-          "type": ["array", "null"],
-          "items": { "type": "string" }
-        },
-        "env": {
-          "type": ["object", "null"],
-          "additionalProperties": { "type": "string" }
-        }
-      },
-      "additionalProperties": false
-    },
     "validationProfile": {
       "type": "object",
       "properties": {
@@ -312,13 +280,10 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean" },
-        "client_id_env": { "type": "string" },
-        "client_secret_env": { "type": "string" },
         "allowed_scopes": {
           "type": ["array", "null"],
           "items": { "type": "string" }
-        },
-        "token_cipher_key_env": { "type": "string" }
+        }
       },
       "additionalProperties": false
     },

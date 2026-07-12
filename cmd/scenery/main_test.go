@@ -310,7 +310,7 @@ func TestResolveAppRoot(t *testing.T) {
 func TestDevLegacyProxySurfaceRejected(t *testing.T) {
 	t.Parallel()
 
-	for _, flag := range []string{"--proxy", "--trust"} {
+	for _, flag := range []string{"--proxy", "--trust", "-p", "-v"} {
 		if _, err := parseDevArgs([]string{flag}); err == nil || !strings.Contains(err.Error(), `unknown flag "`+flag+`"`) {
 			t.Fatalf("parseDevArgs(%s) error = %v, want unknown flag", flag, err)
 		}

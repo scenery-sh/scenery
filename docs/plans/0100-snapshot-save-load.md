@@ -32,7 +32,7 @@ When this plan is done: `scenery snapshot save --db --storage --output app.zip` 
 * [ ] Milestone 2: Postgres dump/restore engine — docker-exec streaming for the managed server, host-PATH fallback for external DSNs.
 * [ ] Milestone 3: `snapshot save` — manifest, zip writer, db section, storage section.
 * [ ] Milestone 4: `snapshot load` — preflights, overwrite and merge modes, storage conflict handling, `--dry-run`.
-* [ ] Milestone 5: Retire `scenery db snapshot` — code, tests, help, docs sweep, knowledge index.
+* [x] 2026-07-12 - Milestone 5: retired `scenery db snapshot` code, tests, help, docs, and host `pg_dump` doctor requirement ahead of the new command implementation.
 * [ ] Milestone 6: Self-harness round-trip probe and final validation.
 
 Update this section at every meaningful stopping point with date, what changed, and whether validation ran.
@@ -41,6 +41,7 @@ Update this section at every meaningful stopping point with date, what changed, 
 
 * 2026-07-07 (pre-implementation survey): `scenery db snapshot` restore uses `pg_restore --clean --if-exists` against the live database URL; it does not drop/recreate the database, so objects added after the snapshot that are absent from the dump survive a "restore". The new `overwrite` mode fixes this by dropping and recreating the database before restoring.
 * 2026-07-07: The storage cell is shared across worktrees for the same app (`share: worktree` default, `cfg.StorageCellID()` excludes the worktree path). A `snapshot load --storage` therefore affects *all* worktrees of the app, unlike `--db` which targets only the current worktree's database. The load output must state the cell path it is writing to.
+* 2026-07-12: The old database-only snapshot command was removed during the post-v0 surface cleanup. Until milestones 1-4 land, there is intentionally no scenery-owned backup command.
 * 2026-07-07: `postgresDockerRunner.Run` (`cmd/scenery/dev_services_postgres.go:52-68`) buffers combined output as a string; dump/restore needs streaming stdio, so the engine adds a streaming variant rather than reusing `Run`.
 
 Add new surprises here with the command, test, or file that exposed them.

@@ -85,7 +85,7 @@ The command runs:
 
 `scenery traces list -o json` and `scenery metrics list -o json` are included
 as beta diagnostic inputs for agents. Their schema versions are useful for
-automation, but their rollup and backend-selection semantics are not stable v0
+automation, but their rollup and backend-selection semantics are internal and unstable
 API yet; see [local-contract.md](local-contract.md).
 
 `scenery harness ui -o json` is the implemented browser-backed dashboard route

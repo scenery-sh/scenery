@@ -125,21 +125,6 @@ func TestDashboardResponsesIncludeBundleIdentity(t *testing.T) {
 	if body := rec.Body.String(); !strings.Contains(body, `name="scenery-dashboard-bundle-hash" content="`+hash+`"`) {
 		t.Fatalf("missing dashboard bundle meta tag: %s", body)
 	}
-
-	result, err := server.dispatchRPC(context.Background(), "version", nil)
-	if err != nil {
-		t.Fatalf("version rpc: %v", err)
-	}
-	payload, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("version payload type = %T", result)
-	}
-	if payload["dashboard_bundle_hash"] != hash {
-		t.Fatalf("dashboard_bundle_hash = %v, want %s", payload["dashboard_bundle_hash"], hash)
-	}
-	if _, ok := payload["dashboard_bundle"].(devdash.DashboardBundle); !ok {
-		t.Fatalf("dashboard_bundle missing or wrong type: %#v", payload["dashboard_bundle"])
-	}
 }
 
 func TestDashboardProcessOutputListRPC(t *testing.T) {

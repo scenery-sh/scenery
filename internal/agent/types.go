@@ -59,7 +59,6 @@ type Session struct {
 	AppPID         string                `json:"app_pid,omitempty"`
 	Processes      map[string]Process    `json:"processes,omitempty"`
 	RouteManifest  RouteManifest         `json:"route_manifest,omitempty"`
-	Routes         map[string]string     `json:"routes"`
 	Aliases        map[string]string     `json:"aliases,omitempty"`
 	AliasConflicts map[string]AliasLease `json:"alias_conflicts,omitempty"`
 	Backends       map[string]Backend    `json:"backends"`
@@ -105,6 +104,14 @@ type RouteManifest struct {
 	Worktree      string                 `json:"worktree,omitempty"`
 	Routes        map[string]RouteRecord `json:"routes,omitempty"`
 	PortLease     *PortLease             `json:"port_lease,omitempty"`
+}
+
+func (m RouteManifest) URLs() map[string]string {
+	urls := make(map[string]string, len(m.Routes))
+	for name, route := range m.Routes {
+		urls[name] = route.URL
+	}
+	return urls
 }
 
 type RouteRecord struct {

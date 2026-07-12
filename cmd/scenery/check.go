@@ -74,11 +74,11 @@ func deployConfigInfoDiagnostics(appRoot string, cfg appcfg.Config) []checkDiagn
 
 func missingGoogleOAuthEnv(cfg appcfg.AuthGoogleConfig, env []string) []string {
 	var missing []string
-	if !hasAnyEnvValue(env, firstNonEmpty(cfg.ClientIDEnv, "GOOGLE_OAUTH_CLIENT_ID")) {
-		missing = append(missing, firstNonEmpty(cfg.ClientIDEnv, "GOOGLE_OAUTH_CLIENT_ID"))
+	if !hasAnyEnvValue(env, "GOOGLE_OAUTH_CLIENT_ID") {
+		missing = append(missing, "GOOGLE_OAUTH_CLIENT_ID")
 	}
-	if !hasAnyEnvValue(env, firstNonEmpty(cfg.ClientSecretEnv, "GOOGLE_OAUTH_CLIENT_SECRET")) {
-		missing = append(missing, firstNonEmpty(cfg.ClientSecretEnv, "GOOGLE_OAUTH_CLIENT_SECRET"))
+	if !hasAnyEnvValue(env, "GOOGLE_OAUTH_CLIENT_SECRET") {
+		missing = append(missing, "GOOGLE_OAUTH_CLIENT_SECRET")
 	}
 	return missing
 }

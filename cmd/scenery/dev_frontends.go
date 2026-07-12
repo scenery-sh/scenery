@@ -585,7 +585,7 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 		"SCENERY_APP_ROOT="+appRoot,
 		"SCENERY_SESSION_ID="+session.SessionID,
 	)
-	if apiURL := strings.TrimSpace(session.Routes[localagent.RouteAPI]); apiURL != "" {
+	if apiURL := strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteAPI].URL); apiURL != "" {
 		env = append(env,
 			"API_BASE_URL="+apiURL,
 			"SCENERY_API_BASE_URL="+apiURL,
@@ -595,7 +595,7 @@ func frontendDevEnv(baseEnv []string, appRoot, addr string, session localagent.S
 	}
 	if session.RouteManifest.Mode != "" {
 		frontendPath := managedFrontendBasePath(session, frontendName)
-		frontendURL := strings.TrimSpace(session.Routes[localagentLabel(frontendName)])
+		frontendURL := strings.TrimSpace(session.RouteManifest.Routes[localagentLabel(frontendName)].URL)
 		env = append(env,
 			"SCENERY_ROUTE_MODE="+string(session.RouteManifest.Mode),
 			"SCENERY_BASE_URL="+strings.TrimSpace(session.RouteManifest.BaseURL),
@@ -620,7 +620,7 @@ func managedFrontendAllowedHost(session localagent.Session, frontendName string)
 	if frontendName == "" {
 		return ""
 	}
-	if route := strings.TrimSpace(session.Routes[frontendName]); route != "" {
+	if route := strings.TrimSpace(session.RouteManifest.Routes[frontendName].URL); route != "" {
 		u, err := url.Parse(route)
 		if err == nil {
 			return strings.TrimSpace(u.Hostname())

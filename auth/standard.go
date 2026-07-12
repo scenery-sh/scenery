@@ -6,7 +6,6 @@ import (
 	"embed"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -22,24 +21,14 @@ var standardAuthSchema embed.FS
 
 type StandardConfig struct {
 	Enabled               bool
-	DatabaseURLEnv        string
-	JWTSecretEnv          string
-	RefreshCookieName     string
-	AuthCookieDomainEnv   string
-	PublicAppURLEnv       string
-	APIBaseURLEnv         string
-	EmailFromEnv          string
 	GoogleOAuth           GoogleOAuthConfig
 	DevBootstrap          DevBootstrapConfig
 	AutoBootstrapDatabase bool
 }
 
 type GoogleOAuthConfig struct {
-	Enabled           bool
-	ClientIDEnv       string
-	ClientSecretEnv   string
-	AllowedScopes     []string
-	TokenCipherKeyEnv string
+	Enabled       bool
+	AllowedScopes []string
 }
 
 type DevBootstrapConfig struct {
@@ -98,12 +87,9 @@ func RegisterStandard(config StandardConfig) error {
 	standardAuthState.mu.Unlock()
 
 	runtime.RegisterAuthHandler(&runtime.AuthHandler{
-		Service:      "auth",
-		Name:         "AuthHandler",
-		ParamType:    reflect.TypeFor[string](),
-		AuthDataType: reflect.TypeFor[*AuthData](),
-		Authenticate: func(ctx context.Context, params any) (runtime.AuthInfo, error) {
-			token, _ := params.(string)
+		Service: "auth",
+		Name:    "AuthHandler",
+		Authenticate: func(ctx context.Context, token string) (runtime.AuthInfo, error) {
 			uid, data, err := AuthHandler(ctx, token)
 			if err != nil {
 				return runtime.AuthInfo{}, err
@@ -116,36 +102,6 @@ func RegisterStandard(config StandardConfig) error {
 }
 
 func normalizeStandardConfig(config StandardConfig) StandardConfig {
-	if strings.TrimSpace(config.DatabaseURLEnv) == "" {
-		config.DatabaseURLEnv = "DATABASE_URL"
-	}
-	if strings.TrimSpace(config.JWTSecretEnv) == "" {
-		config.JWTSecretEnv = "JWT_SECRET"
-	}
-	if strings.TrimSpace(config.RefreshCookieName) == "" {
-		config.RefreshCookieName = "onlv_refresh"
-	}
-	if strings.TrimSpace(config.AuthCookieDomainEnv) == "" {
-		config.AuthCookieDomainEnv = "AUTH_COOKIE_DOMAIN"
-	}
-	if strings.TrimSpace(config.PublicAppURLEnv) == "" {
-		config.PublicAppURLEnv = "SCENERY_PUBLIC_APP_URL"
-	}
-	if strings.TrimSpace(config.APIBaseURLEnv) == "" {
-		config.APIBaseURLEnv = "SCENERY_API_BASE_URL"
-	}
-	if strings.TrimSpace(config.EmailFromEnv) == "" {
-		config.EmailFromEnv = "AUTH_EMAIL_FROM"
-	}
-	if strings.TrimSpace(config.GoogleOAuth.ClientIDEnv) == "" {
-		config.GoogleOAuth.ClientIDEnv = "GOOGLE_OAUTH_CLIENT_ID"
-	}
-	if strings.TrimSpace(config.GoogleOAuth.ClientSecretEnv) == "" {
-		config.GoogleOAuth.ClientSecretEnv = "GOOGLE_OAUTH_CLIENT_SECRET"
-	}
-	if strings.TrimSpace(config.GoogleOAuth.TokenCipherKeyEnv) == "" {
-		config.GoogleOAuth.TokenCipherKeyEnv = "AUTH_TOKEN_CIPHER_KEY"
-	}
 	if strings.TrimSpace(config.DevBootstrap.DefaultUserID) == "" {
 		config.DevBootstrap.DefaultUserID = "dev-user"
 	}
@@ -159,17 +115,16 @@ func normalizeStandardConfig(config StandardConfig) StandardConfig {
 }
 
 func applyStandardSecrets(config StandardConfig) {
-	refreshCookieName = strings.TrimSpace(config.RefreshCookieName)
-	secrets.JWTSecret = strings.TrimSpace(envpolicy.Get(config.JWTSecretEnv))
+	secrets.JWTSecret = strings.TrimSpace(envpolicy.Get("JWT_SECRET"))
 	if strings.TrimSpace(secrets.JWTSecret) == "" && isLocalRuntime() {
 		secrets.JWTSecret = "scenery-local-development-secret"
 	}
-	secrets.GoogleOAuthClientID = strings.TrimSpace(envpolicy.Get(config.GoogleOAuth.ClientIDEnv))
-	secrets.GoogleOAuthClientSecret = strings.TrimSpace(envpolicy.Get(config.GoogleOAuth.ClientSecretEnv))
-	secrets.PublicAppURL = strings.TrimSpace(envpolicy.Get(config.PublicAppURLEnv))
-	secrets.APIBaseURL = strings.TrimSpace(envpolicy.Get(config.APIBaseURLEnv))
-	secrets.AuthCookieDomain = strings.TrimSpace(envpolicy.Get(config.AuthCookieDomainEnv))
-	secrets.AuthEmailFrom = strings.TrimSpace(envpolicy.Get(config.EmailFromEnv))
+	secrets.GoogleOAuthClientID = strings.TrimSpace(envpolicy.Get("GOOGLE_OAUTH_CLIENT_ID"))
+	secrets.GoogleOAuthClientSecret = strings.TrimSpace(envpolicy.Get("GOOGLE_OAUTH_CLIENT_SECRET"))
+	secrets.PublicAppURL = strings.TrimSpace(envpolicy.Get("SCENERY_PUBLIC_APP_URL"))
+	secrets.APIBaseURL = strings.TrimSpace(envpolicy.Get("SCENERY_API_BASE_URL"))
+	secrets.AuthCookieDomain = strings.TrimSpace(envpolicy.Get("AUTH_COOKIE_DOMAIN"))
+	secrets.AuthEmailFrom = strings.TrimSpace(envpolicy.Get("AUTH_EMAIL_FROM"))
 }
 
 func standardAuthService(ctx context.Context) (*Service, error) {
@@ -177,9 +132,9 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 	defer standardAuthState.mu.Unlock()
 	standardAuthState.once.Do(func() {
 		cfg := standardAuthState.cfg
-		databaseURL := strings.TrimSpace(envpolicy.Get(cfg.DatabaseURLEnv))
+		databaseURL := strings.TrimSpace(envpolicy.Get("DATABASE_URL"))
 		if strings.TrimSpace(databaseURL) == "" {
-			standardAuthState.err = fmt.Errorf("standard auth database URL is not configured (%s)", cfg.DatabaseURLEnv)
+			standardAuthState.err = fmt.Errorf("standard auth database URL is not configured (DATABASE_URL)")
 			return
 		}
 		authURL, err := postgresdb.ServiceURL(databaseURL, "scenery")
@@ -208,46 +163,46 @@ func standardAuthService(ctx context.Context) (*Service, error) {
 }
 
 func registerStandardAuthEndpoints(config StandardConfig) {
-	registerStandardTyped("auth", "SignupEmail", runtime.Public, "/auth/signup/email", []string{http.MethodPost}, (*EmailSignupParams)(nil), (*EmailSignupResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.SignupEmail(ctx, payload.(*EmailSignupParams))
+	registerStandardJSON("auth", "SignupEmail", runtime.Public, "/auth/signup/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailSignupParams) (*EmailSignupResponse, error) {
+		return svc.SignupEmail(ctx, input)
 	})
-	registerStandardTyped("auth", "ConfirmEmailVerification", runtime.Public, "/auth/email-verification/confirm", []string{http.MethodPost}, (*EmailVerificationConfirmParams)(nil), (*AuthSessionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.ConfirmEmailVerification(ctx, payload.(*EmailVerificationConfirmParams))
+	registerStandardJSON("auth", "ConfirmEmailVerification", runtime.Public, "/auth/email-verification/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationConfirmParams) (*AuthSessionResponse, error) {
+		return svc.ConfirmEmailVerification(ctx, input)
 	})
-	registerStandardTyped("auth", "ResendEmailVerification", runtime.Public, "/auth/email-verification/resend", []string{http.MethodPost}, (*EmailVerificationResendParams)(nil), (*EmailVerificationResendResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.ResendEmailVerification(ctx, payload.(*EmailVerificationResendParams))
+	registerStandardJSON("auth", "ResendEmailVerification", runtime.Public, "/auth/email-verification/resend", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailVerificationResendParams) (*EmailVerificationResendResponse, error) {
+		return svc.ResendEmailVerification(ctx, input)
 	})
-	registerStandardTyped("auth", "LoginEmail", runtime.Public, "/auth/login/email", []string{http.MethodPost}, (*EmailLoginParams)(nil), (*AuthSessionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.LoginEmail(ctx, payload.(*EmailLoginParams))
+	registerStandardJSON("auth", "LoginEmail", runtime.Public, "/auth/login/email", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *EmailLoginParams) (*AuthSessionResponse, error) {
+		return svc.LoginEmail(ctx, input)
 	})
-	registerStandardTyped("auth", "Refresh", runtime.Public, "/auth/refresh", []string{http.MethodPost}, (*RefreshParams)(nil), (*AuthSessionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.Refresh(ctx, payload.(*RefreshParams))
+	registerStandardCookie("auth", "Refresh", runtime.Public, "/auth/refresh", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*AuthSessionResponse, error) {
+		return svc.Refresh(ctx, input)
 	})
-	registerStandardTyped("auth", "Logout", runtime.Public, "/auth/logout", []string{http.MethodPost}, (*RefreshParams)(nil), (*LogoutResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.Logout(ctx, payload.(*RefreshParams))
+	registerStandardCookie("auth", "Logout", runtime.Public, "/auth/logout", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *RefreshParams) (*LogoutResponse, error) {
+		return svc.Logout(ctx, input)
 	})
-	registerStandardTyped("auth", "Me", runtime.Auth, "/auth/me", []string{http.MethodGet}, nil, (*AuthBootstrapResponse)(nil), func(ctx context.Context, svc *Service, _ []any, _ any) (any, error) {
+	registerStandardEmpty("auth", "Me", runtime.Auth, "/auth/me", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*AuthBootstrapResponse, error) {
 		return svc.Me(ctx)
 	})
-	registerStandardTyped("auth", "RequestPasswordReset", runtime.Public, "/auth/password-reset/request", []string{http.MethodPost}, (*PasswordResetRequestParams)(nil), (*PasswordResetRequestResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.RequestPasswordReset(ctx, payload.(*PasswordResetRequestParams))
+	registerStandardJSON("auth", "RequestPasswordReset", runtime.Public, "/auth/password-reset/request", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetRequestParams) (*PasswordResetRequestResponse, error) {
+		return svc.RequestPasswordReset(ctx, input)
 	})
-	registerStandardTyped("auth", "ConfirmPasswordReset", runtime.Public, "/auth/password-reset/confirm", []string{http.MethodPost}, (*PasswordResetConfirmParams)(nil), (*AuthSessionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-		return svc.ConfirmPasswordReset(ctx, payload.(*PasswordResetConfirmParams))
+	registerStandardJSON("auth", "ConfirmPasswordReset", runtime.Public, "/auth/password-reset/confirm", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *PasswordResetConfirmParams) (*AuthSessionResponse, error) {
+		return svc.ConfirmPasswordReset(ctx, input)
 	})
 	registerStandardOrganizations()
 	registerStandardImpersonation()
-	registerStandardNoServiceTyped("users", "DevBootstrap", runtime.Public, "/users/dev-bootstrap", []string{http.MethodPost}, (*DevBootstrapParams)(nil), (*AuthResponse)(nil), func(ctx context.Context, _ []any, payload any) (any, error) {
-		return DevBootstrap(ctx, payload.(*DevBootstrapParams))
+	registerStandardJSONNoService("users", "DevBootstrap", runtime.Public, "/users/dev-bootstrap", http.MethodPost, func(ctx context.Context, _ []string, input *DevBootstrapParams) (*AuthResponse, error) {
+		return DevBootstrap(ctx, input)
 	})
 	if config.GoogleOAuth.Enabled {
-		registerStandardTyped("auth", "GoogleConnectStart", runtime.Auth, "/auth/google/connect/start", []string{http.MethodPost}, (*GoogleConnectStartParams)(nil), (*GoogleConnectStartResponse)(nil), func(ctx context.Context, svc *Service, _ []any, payload any) (any, error) {
-			return svc.GoogleConnectStart(ctx, payload.(*GoogleConnectStartParams))
+		registerStandardJSON("auth", "GoogleConnectStart", runtime.Auth, "/auth/google/connect/start", http.MethodPost, func(ctx context.Context, svc *Service, _ []string, input *GoogleConnectStartParams) (*GoogleConnectStartResponse, error) {
+			return svc.GoogleConnectStart(ctx, input)
 		})
-		registerStandardTyped("auth", "GetGoogleConnection", runtime.Auth, "/auth/google/connection", []string{http.MethodGet}, nil, (*GoogleConnectionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, _ any) (any, error) {
+		registerStandardEmpty("auth", "GetGoogleConnection", runtime.Auth, "/auth/google/connection", http.MethodGet, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
 			return svc.GetGoogleConnection(ctx)
 		})
-		registerStandardTyped("auth", "DisconnectGoogleConnection", runtime.Auth, "/auth/google/connection/disconnect", []string{http.MethodPost}, nil, (*GoogleConnectionResponse)(nil), func(ctx context.Context, svc *Service, _ []any, _ any) (any, error) {
+		registerStandardEmpty("auth", "DisconnectGoogleConnection", runtime.Auth, "/auth/google/connection/disconnect", http.MethodPost, func(ctx context.Context, svc *Service, _ []string) (*GoogleConnectionResponse, error) {
 			return svc.DisconnectGoogleConnection(ctx)
 		})
 		runtime.RegisterEndpoint(&runtime.Endpoint{
@@ -271,73 +226,103 @@ func registerStandardAuthEndpoints(config StandardConfig) {
 	}
 }
 
-func registerStandardTyped(service string, name string, access runtime.Access, path string, methods []string, payload any, response any, invoke func(context.Context, *Service, []any, any) (any, error)) {
-	var payloadType reflect.Type
-	if payload != nil {
-		payloadType = reflect.TypeOf(payload)
-	}
-	var responseType reflect.Type
-	if response != nil {
-		responseType = reflect.TypeOf(response)
-	}
+func registerStandardJSON[I, O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string, *I) (*O, error)) {
+	registerStandardContract(service, name, access, path, method,
+		func(request *http.Request) (any, error) {
+			input, err := runtime.DecodeContractJSON[I](request)
+			return &input, err
+		},
+		func(ctx context.Context, svc *Service, path []string, input any) (any, error) {
+			return invoke(ctx, svc, path, input.(*I))
+		},
+	)
+}
+
+func registerStandardCookie[O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string, *RefreshParams) (*O, error)) {
+	registerStandardContract(service, name, access, path, method,
+		func(request *http.Request) (any, error) {
+			input := &RefreshParams{}
+			if cookie, err := request.Cookie(refreshCookieName); err == nil {
+				input.RefreshToken = cookie.Value
+			}
+			return input, nil
+		},
+		func(ctx context.Context, svc *Service, path []string, input any) (any, error) {
+			return invoke(ctx, svc, path, input.(*RefreshParams))
+		},
+	)
+}
+
+func registerStandardEmpty[O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, *Service, []string) (*O, error)) {
+	registerStandardContract(service, name, access, path, method, func(*http.Request) (any, error) { return nil, nil }, func(ctx context.Context, svc *Service, path []string, _ any) (any, error) {
+		return invoke(ctx, svc, path)
+	})
+}
+
+func registerStandardJSONNoService[I, O any](service, name string, access runtime.Access, path, method string, invoke func(context.Context, []string, *I) (*O, error)) {
+	registerStandardContractWithInvoke(service, name, access, path, method,
+		func(request *http.Request) (any, error) {
+			input, err := runtime.DecodeContractJSON[I](request)
+			return &input, err
+		},
+		func(ctx context.Context, path []string, input any) (any, error) { return invoke(ctx, path, input.(*I)) },
+	)
+}
+
+func registerStandardContract(service, name string, access runtime.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, *Service, []string, any) (any, error)) {
+	registerStandardContractWithInvoke(service, name, access, path, method, decode, func(ctx context.Context, path []string, input any) (any, error) {
+		svc, err := standardAuthService(ctx)
+		if err != nil {
+			return nil, clarifyStandardAuthTenantError(err)
+		}
+		out, err := invoke(ctx, svc, path, input)
+		return out, clarifyStandardAuthTenantError(err)
+	})
+}
+
+func registerStandardContractWithInvoke(service, name string, access runtime.Access, path, method string, decode func(*http.Request) (any, error), invoke func(context.Context, []string, any) (any, error)) {
+	pathNames := standardPathNames(path)
 	runtime.RegisterEndpoint(&runtime.Endpoint{
-		Service:      service,
-		Name:         name,
-		Access:       access,
-		Path:         path,
-		Methods:      methods,
-		PathParams:   pathParamsFromPath(path),
-		PayloadType:  payloadType,
-		ResponseType: responseType,
-		Invoke: func(ctx context.Context, pathArgs []any, payload any) (any, error) {
-			svc, err := standardAuthService(ctx)
-			if err != nil {
-				return nil, clarifyStandardAuthTenantError(err)
+		Service: service, Name: name, Access: access, Path: path, Methods: []string{method},
+		DecodeContractRequest: func(request *http.Request, values map[string]string) (runtime.ContractDecodedRequest, error) {
+			input, err := decode(request)
+			path := make([]any, len(pathNames))
+			for i, name := range pathNames {
+				path[i] = values[name]
 			}
-			out, err := invoke(ctx, svc, pathArgs, payload)
-			if err != nil {
-				return nil, clarifyStandardAuthTenantError(err)
+			return runtime.ContractDecodedRequest{Payload: input, PathArgs: path}, err
+		},
+		Invoke: func(ctx context.Context, path []any, input any) (any, error) {
+			values := make([]string, len(path))
+			for i := range path {
+				values[i], _ = path[i].(string)
 			}
-			return out, nil
+			return invoke(ctx, values, input)
+		},
+		EncodeContractOutcome: func(_ *http.Request, outcome any) (runtime.ContractHTTPResponse, error) {
+			response, err := runtime.EncodeContractJSON(http.StatusOK, outcome)
+			if err != nil {
+				return response, err
+			}
+			switch value := outcome.(type) {
+			case *AuthSessionResponse:
+				response.Headers.Add("Set-Cookie", value.SetCookie)
+			case *LogoutResponse:
+				response.Headers.Add("Set-Cookie", value.SetCookie)
+			}
+			return response, nil
 		},
 	})
 }
 
-func registerStandardNoServiceTyped(service string, name string, access runtime.Access, path string, methods []string, payload any, response any, invoke func(context.Context, []any, any) (any, error)) {
-	var payloadType reflect.Type
-	if payload != nil {
-		payloadType = reflect.TypeOf(payload)
-	}
-	var responseType reflect.Type
-	if response != nil {
-		responseType = reflect.TypeOf(response)
-	}
-	runtime.RegisterEndpoint(&runtime.Endpoint{
-		Service:      service,
-		Name:         name,
-		Access:       access,
-		Path:         path,
-		Methods:      methods,
-		PathParams:   pathParamsFromPath(path),
-		PayloadType:  payloadType,
-		ResponseType: responseType,
-		Invoke:       invoke,
-	})
-}
-
-func pathParamsFromPath(path string) []runtime.ParamSpec {
-	var params []runtime.ParamSpec
+func standardPathNames(path string) []string {
+	var names []string
 	for part := range strings.SplitSeq(path, "/") {
-		if !strings.HasPrefix(part, ":") {
-			continue
+		if name := strings.TrimPrefix(part, ":"); name != part && name != "" {
+			names = append(names, name)
 		}
-		name := strings.TrimPrefix(part, ":")
-		if name == "" {
-			continue
-		}
-		params = append(params, runtime.ParamSpec{Name: name, Kind: runtime.ParamString})
 	}
-	return params
+	return names
 }
 
 func bootstrapStandardAuthSchema(ctx context.Context, pool *sql.DB) error {

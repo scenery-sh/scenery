@@ -104,7 +104,6 @@ func NewSession(req RegisterRequest, routerAddr, routerScheme string, existing *
 		AppPID:         strings.TrimSpace(req.AppPID),
 		Processes:      processes,
 		RouteManifest:  routeManifest,
-		Routes:         routes,
 		Backends:       backends,
 		ReportToken:    reportToken,
 		CreatedAt:      createdAt,

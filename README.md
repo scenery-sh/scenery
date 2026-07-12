@@ -328,7 +328,7 @@ Example frontend config:
 ## CLI Overview
 
 ```text
-scenery up [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [-v|--verbose] [-o jsonl] [--detach]
+scenery up [--port <n>] [--listen <addr>] [--app-root <path>] [--claim-aliases] [--verbose] [-o jsonl] [--detach]
 scenery logs --follow [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-o jsonl|-o json]
 scenery console [--app-root <path>] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>]
 scenery system agent [--socket <path>] [--router-listen <addr>] [--router-tls|--router-http] [--trust] [-o json]
@@ -374,7 +374,7 @@ scenery inspect docs -o json [--repo-root <path>]
 scenery traces list -o json [--app-root <path>]
 scenery metrics list -o json [--app-root <path>]
 scenery traces clear -o json [--app-root <path>]
-scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [-f|--follow] [-o jsonl|-o json]
+scenery logs [--app-root <path>] [--limit <n>] [--stream all|stdout|stderr] [--source <id>] [--kind <kind>] [--level <level>] [--grep <text>] [--since <duration>] [--follow] [-o jsonl|-o json]
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery db list [--app-root <path>] [-o json]
 scenery db shell [--app-root <path>] [--service <name>] [psql args...]
@@ -383,7 +383,6 @@ scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
 scenery db setup [--app-root <path>] [-o json]
 scenery db reset [--app-root <path>] [--service <name>] [--yes]
 scenery db drop [--app-root <path>] [--service <name>] [--yes]
-scenery db snapshot create|restore <name> [--app-root <path>] [--yes]
 scenery db server status|start|stop|logs [-o json] [--yes]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
 scenery worktree list [--app-root <path>] [-o json]
@@ -431,7 +430,7 @@ The DB lifecycle split uses `scenery db apply` for schema/app database mutation,
 Worktree database isolation is automatic: the managed database name includes a
 hash of the app root, so `scenery worktree create <name> -o json` only creates the
 Git worktree. `scenery db reset <service>` drops and recreates only that service
-schema; full-database save/restore uses `scenery db snapshot create|restore`.
+schema. Portable database and storage save/load is tracked by active plan 0100.
 
 The default self-harness includes a Docker-gated Postgres probe for the shared
 server, one app database, service schemas, durable state, auth bootstrap,

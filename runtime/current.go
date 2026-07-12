@@ -68,12 +68,6 @@ func WithAuthContext(ctx context.Context, auth AuthInfo) context.Context {
 	})
 }
 
-func SetCurrentRequestPayload(ctx context.Context, payload any) {
-	if state := stateFromContext(ctx); state != nil {
-		state.request.Payload = payload
-	}
-}
-
 func stateFromContext(ctx context.Context) *requestState {
 	if ctx == nil {
 		return nil
@@ -163,8 +157,6 @@ func newExternalState(ep *Endpoint, req *http.Request, path shared.PathParams, p
 		Headers:      req.Header.Clone(),
 		Payload:      payload,
 		API: &shared.APIDesc{
-			RequestType:  ep.PayloadType,
-			ResponseType: ep.ResponseType,
 			Raw:          ep.Raw,
 			Exposed:      ep.Access != Private,
 			AuthRequired: ep.Access == Auth,

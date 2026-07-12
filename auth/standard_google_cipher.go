@@ -70,11 +70,7 @@ func googleTokenGCM() (cipher.AEAD, error) {
 }
 
 func googleTokenCipherKey() ([]byte, error) {
-	cfg := currentStandardConfig()
-	envName := strings.TrimSpace(cfg.GoogleOAuth.TokenCipherKeyEnv)
-	if envName == "" {
-		envName = "AUTH_TOKEN_CIPHER_KEY"
-	}
+	const envName = "AUTH_TOKEN_CIPHER_KEY"
 	if value := strings.TrimSpace(envpolicy.Get(envName)); value != "" {
 		key, err := base64.StdEncoding.DecodeString(value)
 		if err != nil {

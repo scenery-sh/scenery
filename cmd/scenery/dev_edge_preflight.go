@@ -98,7 +98,7 @@ func verifyConfiguredEdgeSessionRoute(ctx context.Context, client *localagent.Cl
 	if !probe {
 		return nil
 	}
-	dashboardURL := strings.TrimSpace(session.Routes[localagent.RouteDashboard])
+	dashboardURL := strings.TrimSpace(session.RouteManifest.Routes[localagent.RouteDashboard].URL)
 	if dashboardURL == "" {
 		return nil
 	}
@@ -137,7 +137,8 @@ func configuredEdgeProbeFailedError(baseDomain, probeURL string) error {
 }
 
 func rejectInternalRouterRoutesForConfiguredEdge(baseDomain string, session localagent.Session) error {
-	for route, raw := range session.Routes {
+	for route, record := range session.RouteManifest.Routes {
+		raw := record.URL
 		u, err := url.Parse(strings.TrimSpace(raw))
 		if err != nil || u.Host == "" {
 			continue

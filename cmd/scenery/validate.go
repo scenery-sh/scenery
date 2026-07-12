@@ -14,7 +14,6 @@ import (
 	"time"
 
 	appcfg "scenery.sh/internal/app"
-	"scenery.sh/internal/envpolicy"
 	inspectdata "scenery.sh/internal/inspect"
 )
 
@@ -551,7 +550,7 @@ func (plan *validationResolvedPlan) addValidationProfile(appRoot string, cfg app
 			Kind:     ref.Kind,
 			Profile:  name,
 			Command:  validationStepCommand(appRoot, ref),
-			CWD:      validationStepCWD(appRoot, cfg, ref),
+			CWD:      appRoot,
 			Artifact: append([]string(nil), prof.Artifacts...),
 			Env:      profileEnv,
 		})
@@ -610,15 +609,6 @@ func validationStepCommand(appRoot string, ref validationStepRef) []string {
 		}
 	}
 	return nil
-}
-
-func validationStepCWD(appRoot string, cfg appcfg.Config, ref validationStepRef) string {
-	if ref.Kind == "task" {
-		if task, ok := cfg.Tasks[ref.Name]; ok {
-			return resolveLifecycleCWD(appRoot, task.CWD)
-		}
-	}
-	return appRoot
 }
 
 func validationProfileRecords(cfg appcfg.Config) []validationProfileRecord {
@@ -715,13 +705,8 @@ func validateValidationConfig(appRoot string, cfg appcfg.Config) []checkDiagnost
 					diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" has an empty task step"))
 					continue
 				}
-				kind, err := taskTargetKind(ref.Name)
-				if err != nil {
+				if _, err := taskTargetKind(ref.Name); err != nil {
 					diags = append(diags, validationDiagnostic("validation", "error", err.Error()))
-				} else if kind == taskKindConfigured {
-					if _, ok := cfg.Tasks[ref.Name]; !ok {
-						diags = append(diags, validationDiagnostic("validation", "error", "validation profile "+name+" references unknown task "+ref.Name))
-					}
 				}
 			case "builtin":
 				if !validationBuiltinSupported(ref.Name) {
@@ -813,14 +798,16 @@ func referencedValidationTasks(appRoot string, cfg appcfg.Config, steps []valida
 			continue
 		}
 		seen[ref.Name] = true
-		kind, err := taskTargetKind(ref.Name)
+		if _, err := taskTargetKind(ref.Name); err != nil {
+			continue
+		}
+		target, err := parseScriptTarget(ref.Name)
 		if err != nil {
 			continue
 		}
-		if kind == taskKindConfigured {
-			if task, ok := cfg.Tasks[ref.Name]; ok {
-				out = append(out, configuredTaskListRecord(appRoot, cfg, ref.Name, task))
-			}
+		candidate, _, err := resolveScriptCandidate(appRoot, target, "")
+		if err == nil {
+			out = append(out, codeTaskListRecord(candidate))
 		}
 	}
 	return out
@@ -980,68 +967,17 @@ func runWithCapturedProcessOutput(stdout, stderr io.Writer, fn func() error) err
 }
 
 func runValidationTask(ctx context.Context, appRoot string, cfg appcfg.Config, target string, stack []string, stdout, stderr io.Writer, envOverlay map[string]string) error {
-	kind, err := taskTargetKind(target)
-	if err != nil {
+	if _, err := taskTargetKind(target); err != nil {
 		return err
 	}
-	if kind == taskKindCode {
-		return runSceneryScript(ctx, scriptOptions{
-			AppRoot:    appRoot,
-			EnvOverlay: envOverlay,
-			Target:     target,
-			Stdout:     stdout,
-			Stderr:     stderr,
-			Stdin:      os.Stdin,
-		})
-	}
-	task, ok := cfg.Tasks[target]
-	if !ok {
-		return fmt.Errorf("task %q is not configured", target)
-	}
-	for _, active := range stack {
-		if active == target {
-			return fmt.Errorf("task cycle detected: %s -> %s", strings.Join(stack, " -> "), target)
-		}
-	}
-	stack = append(stack, target)
-	if strings.TrimSpace(task.Run) != "" && len(task.Steps) > 0 {
-		return fmt.Errorf("task %q cannot define both run and steps", target)
-	}
-	if strings.TrimSpace(task.Run) != "" {
-		env, err := appEnvWithDotEnv(envpolicy.Environ(), appRoot)
-		if err != nil {
-			return err
-		}
-		env = overlayEnv(env, envOverlay)
-		env = overlayEnv(env, task.Env)
-		program, args := shellInvocation(task.Run)
-		return runLifecycleExec(ctx, lifecycleExecRequest{
-			Dir:     resolveLifecycleCWD(appRoot, task.CWD),
-			Env:     env,
-			Program: program,
-			Args:    args,
-			Stdin:   os.Stdin,
-			Stdout:  stdout,
-			Stderr:  stderr,
-		})
-	}
-	if len(task.Steps) == 0 {
-		return fmt.Errorf("task %q has no run command or steps", target)
-	}
-	for _, step := range task.Steps {
-		ref := parseValidationStep(step)
-		if ref.Kind == "task" {
-			if err := runValidationTask(ctx, appRoot, cfg, ref.Name, stack, stdout, stderr, envOverlay); err != nil {
-				return err
-			}
-			continue
-		}
-		planStep := validationPlanStep{Name: step, Kind: ref.Kind, CWD: appRoot, Command: validationStepCommand(appRoot, ref)}
-		if err := runValidationStepCommand(ctx, appRoot, cfg, planStep, stdout, stderr, true); err != nil {
-			return err
-		}
-	}
-	return nil
+	return runSceneryScript(ctx, scriptOptions{
+		AppRoot:    appRoot,
+		EnvOverlay: envOverlay,
+		Target:     target,
+		Stdout:     stdout,
+		Stderr:     stderr,
+		Stdin:      os.Stdin,
+	})
 }
 
 func overlayStringMap(base, values map[string]string) map[string]string {

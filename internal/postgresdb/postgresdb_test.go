@@ -55,7 +55,7 @@ func TestEnvAndRegistry(t *testing.T) {
 		t.Fatalf("ServiceURL returned error: %v", err)
 	}
 	database := Database{Database: "app_abc", URL: "postgres://u:p@localhost/app", Source: SourceManaged, Schemas: []Service{{Name: "reports", Schema: "reports", URL: serviceURL}}}
-	envList := Env(database, "DATABASE_URL")
+	envList := Env(database)
 	env := strings.Join(envList, "\n")
 	if !strings.Contains(env, "DATABASE_URL=postgres://u:p@localhost/app") || !strings.Contains(env, "REPORTS_DATABASE_URL="+serviceURL) {
 		t.Fatalf("Env missing service URL: %s", env)

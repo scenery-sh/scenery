@@ -58,7 +58,7 @@ Edit authored `.scn` and Go implementation files. Never hand-edit generated `sce
 Compilation intentionally leaves `implementation_revision` null. When exact implementation identity matters, use a declared build target:
 
 ```sh
-scenery build --target development -o ./bin/app
+scenery build --target development --output ./bin/app
 ```
 
 The build revision comes from the complete content-addressed Go input manifest and resolved toolchain, not source globs or the ambient shell.
@@ -110,7 +110,7 @@ Use `-o json` for edition-2027 commands and `-o json` for command-specific curre
 | Run app validation | `scenery harness -o json --write` |
 | Follow logs | `scenery logs -o jsonl --limit 200` |
 | Inspect traces and metrics | `scenery traces list -o json`, `scenery metrics list -o json` |
-| Run configured/code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
+| Run code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
 | Inspect databases | `scenery db list -o json`, `scenery db shell` |
 | Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
 
@@ -124,7 +124,7 @@ Use `-o json` for edition-2027 commands and `-o json` for command-specific curre
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.
 - Use `scenery build` for a deployable binary.
 - Use `scenery generate` only for file generation. It must not apply database state.
-- Use `scenery task` for configured repository tasks and app-local code tasks.
+- Use `scenery task` for app-local code tasks.
 - Use Git worktrees for another live code copy.
 
 Default local routing gives one app root/worktree one localhost base URL with API, dashboard, runtime, and frontend paths. Do not guess hidden ports. Host-mode wildcard HTTPS is opt-in through managed edge/DNS commands.

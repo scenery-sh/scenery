@@ -54,9 +54,6 @@ func TestGoogleOAuthBrowserFlowWithFakeGoogle(t *testing.T) {
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()
-	if _, ok := runtime.LookupEndpoint("auth", "Me"); !ok {
-		registerStandardAuthEndpoints(cfg)
-	}
 
 	callbackReq, callbackRec := runFakeGoogleFlow(t, fake, "/welcome")
 	assertRedirect(t, callbackRec, "https://app.example.test/welcome")
@@ -189,14 +186,11 @@ func assertRefreshCookieValid(t *testing.T, svc *Service, refreshToken string) *
 
 func assertMeEndpointBootstrap(t *testing.T, authData *AuthData) {
 	t.Helper()
-	resp, err := runtime.CallEndpoint(WithContext(t.Context(), UID(authData.UserID), authData), "auth", "Me", nil, nil)
+	resp, err := standardAuthState.svc.Me(WithContext(t.Context(), UID(authData.UserID), authData))
 	if err != nil {
 		t.Fatalf("/auth/me endpoint after google sign-in: %v", err)
 	}
-	me, ok := resp.(*AuthBootstrapResponse)
-	if !ok {
-		t.Fatalf("/auth/me response type = %T, want *AuthBootstrapResponse", resp)
-	}
+	me := resp
 	if me.User.ID != string(authData.UserID) || me.CurrentTenantID != string(authData.TenantID) {
 		t.Fatalf("/auth/me bootstrap = user %q tenant %q, want user %q tenant %q", me.User.ID, me.CurrentTenantID, authData.UserID, authData.TenantID)
 	}
@@ -290,17 +284,11 @@ func TestGoogleConnectionStartFallsBackToConfiguredAPIBaseURL(t *testing.T) {
 	svc, fake, authData := setupGoogleConnectionTest(t)
 	_ = svc
 
-	resp, err := runtime.CallEndpoint(
-		WithContext(t.Context(), UID(authData.UserID), authData),
-		"auth",
-		"GoogleConnectStart",
-		nil,
-		&GoogleConnectStartParams{Scopes: []string{gmailModifyScope}},
-	)
+	resp, err := svc.GoogleConnectStart(WithContext(t.Context(), UID(authData.UserID), authData), &GoogleConnectStartParams{Scopes: []string{gmailModifyScope}})
 	if err != nil {
 		t.Fatalf("GoogleConnectStart endpoint: %v", err)
 	}
-	start := resp.(*GoogleConnectStartResponse)
+	start := resp
 	authURL, err := url.Parse(start.AuthorizeURL)
 	if err != nil {
 		t.Fatalf("authorize url: %v", err)
@@ -339,18 +327,18 @@ func TestGoogleConnectionFlowStoresEncryptedTokenAndDisconnects(t *testing.T) {
 		t.Fatalf("open refresh token = %q, %v", opened, err)
 	}
 
-	status, err := runtime.CallEndpoint(WithContext(t.Context(), UID(authData.UserID), authData), "auth", "GetGoogleConnection", nil, nil)
+	status, err := svc.GetGoogleConnection(WithContext(t.Context(), UID(authData.UserID), authData))
 	if err != nil {
 		t.Fatalf("GetGoogleConnection endpoint: %v", err)
 	}
-	if got := status.(*GoogleConnectionResponse); got.Status != "active" || !googleScopesContain(got.Scopes, []string{gmailModifyScope}) {
+	if got := status; got.Status != "active" || !googleScopesContain(got.Scopes, []string{gmailModifyScope}) {
 		t.Fatalf("status = %+v", got)
 	}
-	disc, err := runtime.CallEndpoint(WithContext(t.Context(), UID(authData.UserID), authData), "auth", "DisconnectGoogleConnection", nil, nil)
+	disc, err := svc.DisconnectGoogleConnection(WithContext(t.Context(), UID(authData.UserID), authData))
 	if err != nil {
 		t.Fatalf("DisconnectGoogleConnection endpoint: %v", err)
 	}
-	if got := disc.(*GoogleConnectionResponse); got.Status != "disconnected" {
+	if got := disc; got.Status != "disconnected" {
 		t.Fatalf("disconnect status = %+v", got)
 	}
 	if fake.revokeCalls.Load() != 1 {
@@ -359,19 +347,13 @@ func TestGoogleConnectionFlowStoresEncryptedTokenAndDisconnects(t *testing.T) {
 }
 
 func TestGoogleConnectionCallbackOAuthErrorUsesStateRedirect(t *testing.T) {
-	_, _, authData := setupGoogleConnectionTest(t)
+	svc, _, authData := setupGoogleConnectionTest(t)
 
-	resp, err := runtime.CallEndpoint(
-		WithContext(t.Context(), UID(authData.UserID), authData),
-		"auth",
-		"GoogleConnectStart",
-		nil,
-		&GoogleConnectStartParams{Scopes: []string{gmailModifyScope}, RedirectPath: "/settings"},
-	)
+	resp, err := svc.GoogleConnectStart(WithContext(t.Context(), UID(authData.UserID), authData), &GoogleConnectStartParams{Scopes: []string{gmailModifyScope}, RedirectPath: "/settings"})
 	if err != nil {
 		t.Fatalf("GoogleConnectStart endpoint: %v", err)
 	}
-	start := resp.(*GoogleConnectStartResponse)
+	start := resp
 	authURL, err := url.Parse(start.AuthorizeURL)
 	if err != nil {
 		t.Fatalf("authorize url: %v", err)
@@ -580,9 +562,6 @@ func setupGoogleConnectionTest(t *testing.T) (*Service, *fakeGoogleServer, *Auth
 	standardAuthState.mu.Lock()
 	standardAuthState.cfg = cfg
 	standardAuthState.mu.Unlock()
-	if _, ok := runtime.LookupEndpoint("auth", "GoogleConnectStart"); !ok {
-		registerStandardAuthEndpoints(cfg)
-	}
 	svc, err := standardAuthService(ctx)
 	if err != nil {
 		t.Fatalf("standard auth service: %v", err)
@@ -604,17 +583,11 @@ func allowGoogleScopeForTest(scope string) {
 
 func runFakeGoogleConnectionFlow(t *testing.T, fake *fakeGoogleServer, authData *AuthData, redirectPath string) *httptest.ResponseRecorder {
 	t.Helper()
-	resp, err := runtime.CallEndpoint(
-		WithContext(t.Context(), UID(authData.UserID), authData),
-		"auth",
-		"GoogleConnectStart",
-		nil,
-		&GoogleConnectStartParams{Scopes: []string{gmailModifyScope}, RedirectPath: redirectPath},
-	)
+	resp, err := standardAuthState.svc.GoogleConnectStart(WithContext(t.Context(), UID(authData.UserID), authData), &GoogleConnectStartParams{Scopes: []string{gmailModifyScope}, RedirectPath: redirectPath})
 	if err != nil {
 		t.Fatalf("GoogleConnectStart endpoint: %v", err)
 	}
-	start := resp.(*GoogleConnectStartResponse)
+	start := resp
 	callbackURL := fake.authorize(t, start.AuthorizeURL)
 	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, nil)
 	callbackRec := httptest.NewRecorder()

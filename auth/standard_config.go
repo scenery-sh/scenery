@@ -14,7 +14,7 @@ const (
 	refreshTokenReplayGrace     = 30 * time.Second
 )
 
-var refreshCookieName = "onlv_refresh"
+const refreshCookieName = "scenery_refresh"
 
 const (
 	identityProviderEmail  = "email"

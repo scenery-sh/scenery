@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/pprof"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -329,34 +328,15 @@ func (s *server) registerTyped(ep *Endpoint) {
 			defer cancel()
 			req = req.WithContext(ctx)
 		}
-		var pathValues []any
-		var pathParams shared.PathParams
-		var payload any
-		var err error
-		var contractPathValues map[string]string
-		if ep.DecodeContractRequest != nil {
-			contractPathValues = make(map[string]string, len(params))
-			pathParams = make(shared.PathParams, 0, len(params))
-			for _, param := range params {
-				value := strings.TrimPrefix(param.Value, "/")
-				contractPathValues[param.Key] = value
-				pathParams = append(pathParams, shared.PathParam{Name: param.Key, Value: value})
-			}
-		} else {
-			pathValues, pathParams, err = decodePathParams(ep, params)
-			if err != nil {
-				errs.HTTPError(w, err)
-				return
-			}
-
-			payload, err = decodePayload(req, ep.PayloadType)
-			if err != nil {
-				errs.HTTPError(w, err)
-				return
-			}
+		contractPathValues := make(map[string]string, len(params))
+		pathParams := make(shared.PathParams, 0, len(params))
+		for _, param := range params {
+			value := strings.TrimPrefix(param.Value, "/")
+			contractPathValues[param.Key] = value
+			pathParams = append(pathParams, shared.PathParam{Name: param.Key, Value: value})
 		}
 
-		state := newExternalState(ep, req, pathParams, payload, AuthInfo{})
+		state := newExternalState(ep, req, pathParams, nil, AuthInfo{})
 		ctx := withState(req.Context(), state)
 		restore := enterState(state)
 		defer restore()
@@ -371,25 +351,23 @@ func (s *server) registerTyped(ep *Endpoint) {
 		}
 		state.auth = authInfo
 		ctx = withRuntimeInvocation(ctx, state)
-		if ep.DecodeContractRequest != nil {
-			decoded, decodeErr := ep.DecodeContractRequest(req.WithContext(ctx), contractPathValues)
-			if decodeErr != nil {
-				logRequestStart(state)
-				decodeStatus := errs.HTTPStatus(decodeErr)
-				if transportStatus, ok := contractTransportHTTPStatus(decodeErr); ok {
-					decodeStatus = transportStatus
-				}
-				finishRequestTrace(state, decodeStatus, nil, decodeErr)
-				if writeContractTransportError(w, decodeErr) {
-					return
-				}
-				errs.HTTPError(w, decodeErr)
+		decoded, decodeErr := ep.DecodeContractRequest(req.WithContext(ctx), contractPathValues)
+		if decodeErr != nil {
+			logRequestStart(state)
+			decodeStatus := errs.HTTPStatus(decodeErr)
+			if transportStatus, ok := contractTransportHTTPStatus(decodeErr); ok {
+				decodeStatus = transportStatus
+			}
+			finishRequestTrace(state, decodeStatus, nil, decodeErr)
+			if writeContractTransportError(w, decodeErr) {
 				return
 			}
-			pathValues, payload = decoded.PathArgs, decoded.Payload
-			state.request.Payload = payload
-			state.request.PathParams = pathParams
+			errs.HTTPError(w, decodeErr)
+			return
 		}
+		pathValues, payload := decoded.PathArgs, decoded.Payload
+		state.request.Payload = payload
+		state.request.PathParams = pathParams
 		if authorizationErr := authorizeContractInvocation(ep.ContractPolicy, payload); authorizationErr != nil {
 			logRequestStart(state)
 			authorizationStatus := errs.HTTPStatus(authorizationErr)
@@ -422,37 +400,31 @@ func (s *server) registerTyped(ep *Endpoint) {
 			errs.HTTPErrorWithCode(w, callErr, status)
 			return
 		}
-		if ep.EncodeContractOutcome != nil {
-			encoded, encodeErr := ep.EncodeContractOutcome(req, resp)
-			if encodeErr != nil {
-				callErr = encodeErr
-				status = errs.HTTPStatus(encodeErr)
-				if transportStatus, ok := contractTransportHTTPStatus(encodeErr); ok {
-					status = transportStatus
-				}
-				if writeContractTransportError(w, encodeErr) {
-					return
-				}
-				errs.HTTPError(w, errs.Wrap(encodeErr, "encode contract outcome"))
+		encoded, encodeErr := ep.EncodeContractOutcome(req, resp)
+		if encodeErr != nil {
+			callErr = encodeErr
+			status = errs.HTTPStatus(encodeErr)
+			if transportStatus, ok := contractTransportHTTPStatus(encodeErr); ok {
+				status = transportStatus
+			}
+			if writeContractTransportError(w, encodeErr) {
 				return
 			}
-			if encoded.Status != 0 {
-				status = encoded.Status
-			}
-			if status == 0 {
-				status = http.StatusOK
-			}
-			applyHeaders(w.Header(), encoded.Headers)
-			w.WriteHeader(status)
-			if req.Method != http.MethodHead {
-				_, _ = w.Write(encoded.Body)
-			}
+			errs.HTTPError(w, errs.Wrap(encodeErr, "encode contract outcome"))
 			return
 		}
-		if err := encodeResponseWithStatus(w, resp, status); err != nil {
-			errs.HTTPError(w, errs.Wrap(err, "encode response"))
-			return
+		if encoded.Status != 0 {
+			status = encoded.Status
 		}
+		if status == 0 {
+			status = http.StatusOK
+		}
+		applyHeaders(w.Header(), encoded.Headers)
+		w.WriteHeader(status)
+		if req.Method != http.MethodHead {
+			_, _ = w.Write(encoded.Body)
+		}
+		return
 	}
 
 	if ep.ContractPolicy != nil && ep.Access != Private {
@@ -560,9 +532,15 @@ func authenticateRequest(req *http.Request, ep *Endpoint) (AuthInfo, error) {
 	if handler == nil {
 		return AuthInfo{}, errs.B().Code(errs.Internal).Msg("auth endpoint configured but no auth handler registered").Err()
 	}
-	params, err := decodeAuthParams(req, handler)
-	if err != nil {
-		return AuthInfo{}, err
+	var token string
+	for _, prefix := range []string{"Bearer ", "Token "} {
+		if after, ok := strings.CutPrefix(req.Header.Get("Authorization"), prefix); ok {
+			token = strings.TrimSpace(after)
+			break
+		}
+	}
+	if token == "" {
+		return AuthInfo{}, errs.B().Code(errs.Unauthenticated).Msg("invalid auth param").Err()
 	}
 	ctx := req.Context()
 	if stateFromContext(ctx) == nil {
@@ -581,7 +559,7 @@ func authenticateRequest(req *http.Request, ep *Endpoint) (AuthInfo, error) {
 		})
 	}
 	info, err := traceAuthCall(ctx, handler, func(callCtx context.Context) (AuthInfo, error) {
-		return handler.Authenticate(callCtx, params)
+		return handler.Authenticate(callCtx, token)
 	})
 	if err != nil {
 		return AuthInfo{}, err
@@ -590,48 +568,4 @@ func authenticateRequest(req *http.Request, ep *Endpoint) (AuthInfo, error) {
 		return AuthInfo{}, errs.B().Code(errs.Unauthenticated).Msg("auth handler returned empty user id").Err()
 	}
 	return info, nil
-}
-
-func decodePathParams(ep *Endpoint, params routeParams) ([]any, shared.PathParams, error) {
-	if len(ep.PathParams) == 0 {
-		return nil, nil, nil
-	}
-	values := make([]any, 0, len(ep.PathParams))
-	decoded := make(shared.PathParams, 0, len(ep.PathParams))
-	for _, spec := range ep.PathParams {
-		raw := strings.TrimPrefix(params.ByName(spec.Name), "/")
-		value, err := decodeScalar(spec.Kind, raw)
-		if err != nil {
-			return nil, nil, errs.B().Code(errs.InvalidArgument).Msgf("invalid path param %q: %v", spec.Name, err).Err()
-		}
-		values = append(values, value)
-		decoded = append(decoded, shared.PathParam{Name: spec.Name, Value: raw})
-	}
-	return values, decoded, nil
-}
-
-func decodeAuthParams(req *http.Request, handler *AuthHandler) (any, error) {
-	if handler.ParamType == nil {
-		return nil, nil
-	}
-	if handler.ParamType.Kind() == 0 {
-		return nil, nil
-	}
-	if handler.ParamType.Kind() == reflect.String {
-		auth := req.Header.Get("Authorization")
-		for _, prefix := range []string{"Bearer ", "Token "} {
-			if after, ok := strings.CutPrefix(auth, prefix); ok {
-				token := strings.TrimSpace(after)
-				if token != "" {
-					return token, nil
-				}
-			}
-		}
-		return nil, errs.B().Code(errs.Unauthenticated).Msg("invalid auth param").Err()
-	}
-	return decodeTaggedStruct(req, handler.ParamType, true)
-}
-
-func decodeScalar(kind ParamKind, value string) (any, error) {
-	return convertScalar(kind, value)
 }
