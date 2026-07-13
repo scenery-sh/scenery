@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -156,6 +157,13 @@ func TestStartWritesRunningStateAndStopTerminatesProcess(t *testing.T) {
 	}
 	if target.TargetAddr != "127.0.0.1:19443" || target.HTTPTargetAddr != "127.0.0.1:19080" || target.PID != state.PID || target.OwnerUID != os.Getuid() {
 		t.Fatalf("edge target state = %+v", target)
+	}
+	if err := Start(StartConfig{
+		Binary: caddy, Paths: paths, PublicAddr: "127.0.0.1:443",
+		TargetAddr: "127.0.0.1:19443", HTTPTargetAddr: "127.0.0.1:19080",
+		AdminSocket: adminSocket, UpstreamAddr: "127.0.0.1:9440", StartupSettle: 50 * time.Millisecond,
+	}); !errors.Is(err, localagent.ErrProcessLocked) {
+		t.Fatalf("second edge start error = %v", err)
 	}
 	if err := Stop(paths, 2*time.Second); err != nil {
 		t.Fatal(err)

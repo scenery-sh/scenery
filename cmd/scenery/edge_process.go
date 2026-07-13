@@ -18,6 +18,108 @@ import (
 	edgelifecycle "scenery.sh/internal/edge"
 )
 
+type runtimeProcess struct {
+	PID     int
+	UID     int
+	Command string
+}
+
+func parseRuntimeProcesses(output string) []runtimeProcess {
+	var processes []runtimeProcess
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		uid, uidErr := strconv.Atoi(fields[1])
+		if pidErr == nil && uidErr == nil && pid > 0 {
+			processes = append(processes, runtimeProcess{PID: pid, UID: uid, Command: strings.Join(fields[2:], " ")})
+		}
+	}
+	return processes
+}
+
+func stopStaleUserCaddyEdges(paths localagent.Paths, timeout time.Duration) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
+	if err != nil {
+		return err
+	}
+	configs := []string{filepath.Clean(paths.EdgeConfigPath)}
+	if home, err := os.UserHomeDir(); err == nil {
+		configs = append(configs, filepath.Join(home, ".onlava", "agent", "edge", "Caddyfile"))
+	}
+	for _, process := range parseRuntimeProcesses(string(out)) {
+		if process.UID != os.Getuid() || !managedCaddyCommandMatches(process.Command, configs) {
+			continue
+		}
+		owner := localagent.CaptureOwner(process.PID, "stale scenery edge")
+		if err := localagent.VerifyOwner(owner); err != nil {
+			return fmt.Errorf("verify stale Caddy edge pid %d: %w", process.PID, err)
+		}
+		if err := signalPID(process.PID, syscall.SIGTERM); err != nil {
+			return fmt.Errorf("stop stale Caddy edge pid %d: %w", process.PID, err)
+		}
+		deadline := time.Now().Add(timeout)
+		for processAliveForEdge(process.PID) && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if processAliveForEdge(process.PID) {
+			if err := signalPID(process.PID, syscall.SIGKILL); err != nil {
+				return fmt.Errorf("kill stale Caddy edge pid %d: %w", process.PID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func stopStaleUserSceneryAgents(socketPath, routerAddr string, timeout time.Duration) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	out, err := exec.Command("ps", "-axo", "pid=,uid=,command=").Output()
+	if err != nil {
+		return err
+	}
+	for _, process := range parseRuntimeProcesses(string(out)) {
+		if process.UID != os.Getuid() || process.PID == os.Getpid() || !edgeAgentCommandMatches(process.Command, socketPath, routerAddr) {
+			continue
+		}
+		owner := localagent.CaptureOwner(process.PID, "stale scenery agent")
+		if err := localagent.VerifyOwner(owner); err != nil {
+			return fmt.Errorf("verify stale scenery agent pid %d: %w", process.PID, err)
+		}
+		if err := signalPID(process.PID, syscall.SIGTERM); err != nil {
+			return fmt.Errorf("stop stale scenery agent pid %d: %w", process.PID, err)
+		}
+		deadline := time.Now().Add(timeout)
+		for processAliveForEdge(process.PID) && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if processAliveForEdge(process.PID) {
+			if err := signalPID(process.PID, syscall.SIGKILL); err != nil {
+				return fmt.Errorf("kill stale scenery agent pid %d: %w", process.PID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func managedCaddyCommandMatches(command string, configPaths []string) bool {
+	if !strings.Contains(command, "caddy run") {
+		return false
+	}
+	for _, configPath := range configPaths {
+		if strings.Contains(command, "--config "+filepath.Clean(configPath)) {
+			return true
+		}
+	}
+	return false
+}
+
 func stopStaleRootCaddyEdge(ownerHome string, timeout time.Duration) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("stale root Caddy cleanup must run as root")

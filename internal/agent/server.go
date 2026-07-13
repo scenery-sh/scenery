@@ -49,6 +49,7 @@ type Server struct {
 	router               *http.Server
 	controlLn            net.Listener
 	routerLn             net.Listener
+	processLock          *ProcessLock
 }
 
 func NewServer(opts RunOptions) (*Server, error) {
@@ -69,6 +70,16 @@ func NewServer(opts RunOptions) (*Server, error) {
 	if err := EnsureDirs(paths); err != nil {
 		return nil, err
 	}
+	processLock, err := AcquireProcessLock(paths.AgentLockPath)
+	if err != nil {
+		return nil, fmt.Errorf("scenery agent already running for %s: %w", paths.Home, err)
+	}
+	releaseLock := true
+	defer func() {
+		if releaseLock {
+			_ = processLock.Release()
+		}
+	}()
 	routerAddr := strings.TrimSpace(opts.RouterAddr)
 	if routerAddr == "" {
 		routerAddr = RouterAddrFromEnv()
@@ -141,9 +152,11 @@ func NewServer(opts RunOptions) (*Server, error) {
 		tlsCA:                tlsCA,
 		controlLn:            controlLn,
 		routerLn:             routerLn,
+		processLock:          processLock,
 	}
 	server.control = &http.Server{Handler: server.controlMux()}
 	server.router = &http.Server{Handler: server.routerMux()}
+	releaseLock = false
 	return server, nil
 }
 
@@ -258,6 +271,12 @@ func (s *Server) Close() error {
 			errs = append(errs, err)
 		}
 	}
+	if s.processLock != nil {
+		if err := s.processLock.Release(); err != nil {
+			errs = append(errs, err)
+		}
+		s.processLock = nil
+	}
 	return errors.Join(errs...)
 }
 
@@ -316,15 +335,7 @@ func listenRouter(addr string) (net.Listener, string, error) {
 	if err == nil {
 		return ln, ln.Addr().String(), nil
 	}
-	if strings.TrimSpace(addr) != defaultRouterAddr {
-		return nil, "", fmt.Errorf("listen scenery agent router at %s failed; choose a different --router-listen address or free that port: %w", addr, err)
-	}
-	ln, fallbackErr := net.Listen("tcp", "127.0.0.1:0")
-	if fallbackErr != nil {
-		return nil, "", err
-	}
-	slog.Warn("scenery agent router default port unavailable; using fallback", "addr", ln.Addr().String(), "err", err)
-	return ln, ln.Addr().String(), nil
+	return nil, "", fmt.Errorf("listen scenery agent router at %s failed; stop the existing owner or choose a different --router-listen address: %w", addr, err)
 }
 
 func listenUnixSocket(path string) (net.Listener, error) {

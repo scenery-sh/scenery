@@ -28,7 +28,9 @@ type Paths struct {
 	EdgeDir             string
 	SocketPath          string
 	StatePath           string
+	AgentLockPath       string
 	EdgeStatePath       string
+	EdgeLockPath        string
 	EdgeTokenPath       string
 	EdgeTargetPath      string
 	EdgeConfigPath      string
@@ -73,7 +75,9 @@ func PathsForHome(home string) Paths {
 		EdgeDir:             edgeDir,
 		SocketPath:          filepath.Clean(socketPath),
 		StatePath:           filepath.Join(runDir, "agent.json"),
+		AgentLockPath:       filepath.Join(runDir, "agent.lock"),
 		EdgeStatePath:       filepath.Join(runDir, "edge.json"),
+		EdgeLockPath:        filepath.Join(runDir, "edge.lock"),
 		EdgeTargetPath:      filepath.Join(runDir, "edge-target.json"),
 		EdgeTokenPath:       filepath.Join(edgeDir, "edge-token"),
 		EdgeConfigPath:      filepath.Join(edgeDir, "Caddyfile"),

@@ -71,6 +71,9 @@ func agentCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := reapStaleAgentRouterOwner(opts); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if opts.JSON {
@@ -114,6 +117,22 @@ func agentCommand(args []string) error {
 	}
 	defer dashboard.Close()
 	return server.Run(ctx)
+}
+
+func reapStaleAgentRouterOwner(opts agentOptions) error {
+	paths, err := localagent.DefaultPaths()
+	if err != nil {
+		return err
+	}
+	if opts.SocketPath != "" {
+		paths.SocketPath = filepath.Clean(opts.SocketPath)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if localagent.NewClient(paths.SocketPath).Ping(ctx) == nil {
+		return nil
+	}
+	return stopStaleUserSceneryAgents(paths.SocketPath, firstNonEmpty(opts.RouterAddr, localagent.RouterAddrFromEnv()), 2*time.Second)
 }
 
 func agentRestartCommand(args []string) error {

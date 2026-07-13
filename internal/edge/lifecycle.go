@@ -40,6 +40,19 @@ func Start(config StartConfig) error {
 		settle = defaultStartupSettle
 	}
 	logOffset := fileSize(config.Paths.EdgeLogPath)
+	lockPath := config.Paths.EdgeLockPath
+	processLock, err := localagent.AcquireProcessLock(lockPath)
+	if err != nil {
+		return fmt.Errorf("managed Caddy edge already running: %w", err)
+	}
+	inherited := false
+	defer func() {
+		if inherited {
+			_ = processLock.CloseParent()
+		} else {
+			_ = processLock.Release()
+		}
+	}()
 	logFile, err := os.OpenFile(config.Paths.EdgeLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
@@ -50,6 +63,11 @@ func Start(config StartConfig) error {
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
 	configureDetachedChildProcess(cmd)
+	inherited, err = processLock.Inherit(cmd)
+	if err != nil {
+		_ = logFile.Close()
+		return err
+	}
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return err

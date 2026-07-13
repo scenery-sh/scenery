@@ -30,9 +30,9 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [x] 2026-06-25: Added structured `scenery.dev.failure.v1` evidence artifacts for required managed ZeroFS preflight, toolchain/start, and bounded readiness failures, including phase, session, and substrate context.
 - [ ] Phase 3: Keep parallel runtime safety covered by Scenery-owned fixtures and self-harness checks, not client-app worktrees.
 - [ ] Phase 4: Consider optional `doctor dev`, browser-profile isolation, and later network sandbox hardening after the default path is stable.
-- [ ] Phase 5.1: Add single-instance locks for the edge Caddy and `scenery system agent`, and reap stale binders on owned ports (TCP and UDP 19443, router port) at startup.
+- [x] 2026-07-14 Phase 5.1: Added lifetime single-instance locks for the local agent and Unix Caddy edge, fail-closed router binding, serialized edge operations, and fingerprint-verified same-user stale-owner reaping for current and pre-rebrand Caddy configuration paths.
 - [ ] Phase 5.2: Add a rebrand-migration sweep that detects and stops pre-rebrand `~/.onlava` processes and offers `~/.onlava` state cleanup.
-- [ ] Phase 5.3: Teach `scenery doctor` to flag duplicate listeners on scenery-owned ports and orphaned `scenery system agent` processes.
+- [x] 2026-07-14 Phase 5.3: `scenery doctor` now reports duplicate local-agent or managed-Caddy owners and foreign TCP/UDP listeners on Scenery-owned ports.
 - [x] 2026-06-12: Hardened shared substrate and Postgres branch locks with bounded nonblocking acquisition, named wait diagnostics, real Windows file locking, short `branches.lock` registry sections, and a separate parent-database operation lock for branch DDL.
 - [x] 2026-07-13: Made running `scenery up` supervisors self-heal the shared Victoria stack after a component or agent-driven shutdown, using owner verification, the existing substrate locks/registry, and bounded retry backoff.
 - [x] 2026-07-13: Made each failed Victoria recovery attempt visible without Victoria through a red foreground warning, detached JSONL event, dashboard notification, and best-effort degraded registry state.

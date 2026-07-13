@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -78,4 +80,22 @@ func doctorHasCheck(checks []doctorCheck, id string) bool {
 		}
 	}
 	return false
+}
+
+func TestDoctorWarnsAboutDuplicateRuntimeOwners(t *testing.T) {
+	home := t.TempDir()
+	paths := localagent.PathsForHome(home)
+	check := doctorProcessOwnershipCheck(context.Background(), doctorProbeDeps{
+		ResourceProbe: fakeDoctorResourceProbe{},
+		AgentHome:     func() (string, error) { return home, nil },
+		RunCommand: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			if name == "ps" {
+				return []byte(fmt.Sprintf("10 %d /bin/scenery system agent --socket %s --router-listen 127.0.0.1:9440\n11 %d /bin/scenery system agent --socket /tmp/stale.sock --router-listen 127.0.0.1:9440\n", os.Getuid(), paths.SocketPath, os.Getuid())), nil
+			}
+			return []byte("10\n11\n"), nil
+		},
+	})
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("process ownership check = %+v", check)
+	}
 }

@@ -385,6 +385,8 @@ Each invocation best-effort appends command, duration, exit code, version, and `
 
 `scenery system agent restart` restarts only the local control plane and router; registered shared Postgres and Victoria processes keep their PIDs. Destructive substrate shutdown stays with substrate-specific commands.
 
+The agent and managed Caddy edge are single-owner processes. Startup fails closed instead of choosing an unadvertised port, safely reaps only fingerprint-verified stale Scenery owners, and `scenery doctor -o json` reports duplicate or foreign listeners.
+
 `scenery db list -o json` reports the app's Postgres database and service schemas.
 An explicit app-level `DATABASE_URL` wins and makes the database external;
 otherwise `scenery up` creates one isolated database per app root/worktree on the

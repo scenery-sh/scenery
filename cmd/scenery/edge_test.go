@@ -421,6 +421,20 @@ func TestEdgeAgentCommandMatchesSameRouter(t *testing.T) {
 	}
 }
 
+func TestRuntimeProcessParsingAndManagedCaddyMatch(t *testing.T) {
+	t.Parallel()
+	processes := parseRuntimeProcesses(" 42 501 /opt/caddy run --config /Users/petr/.onlava/agent/edge/Caddyfile --adapter caddyfile\ninvalid\n")
+	if len(processes) != 1 || processes[0].PID != 42 || processes[0].UID != 501 {
+		t.Fatalf("processes = %+v", processes)
+	}
+	if !managedCaddyCommandMatches(processes[0].Command, []string{"/Users/petr/.onlava/agent/edge/Caddyfile"}) {
+		t.Fatal("legacy managed Caddy did not match")
+	}
+	if managedCaddyCommandMatches(processes[0].Command, []string{"/Users/petr/.scenery/agent/edge/Caddyfile"}) {
+		t.Fatal("unrelated Caddy matched")
+	}
+}
+
 func TestResolveCaddyBinaryUsesManagedToolchain(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable shell fixture is Unix-only")

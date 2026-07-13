@@ -13,6 +13,7 @@
 ## Local Contracts
 
 - `Start` writes both `agent.EdgeState` and `agent.EdgeTargetState` only after the Caddy process survives its startup window.
+- On Unix, `Start` passes the agent home's `edge.lock` to the detached Caddy child for its full lifetime; a second owner must fail before spawning.
 - `Stop` acts only on the PID recorded in edge state.
 - `Reload` must address the configured Unix admin socket.
 - `TrustLocalCA` must use a temporary admin-only Caddyfile and leave no listener or temporary directory behind.

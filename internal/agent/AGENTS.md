@@ -15,6 +15,7 @@
 - Durable identity migrations preserve the exact legacy bytes in an owner-only backup, fsync the replacement, and write an idempotent completion marker.
 - Never recreate deploy ownership, live process ownership, or credentials after a decode failure.
 - Closing or restarting the agent never signals registered substrate processes. Substrate-specific owners perform destructive shutdown explicitly.
+- `agent.lock` is held for the control-plane process lifetime. `edge.lock` is inherited by managed Caddy on Unix so a second owner fails before binding.
 
 ## Verification
 

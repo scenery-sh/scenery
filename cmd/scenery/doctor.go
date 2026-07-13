@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -335,6 +336,7 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 	resp.Checks = append(resp.Checks, doctorDependencyChecks(ctx, deps, features, appFound)...)
 	resp.Checks = append(resp.Checks, doctorDockerChecks(ctx, deps)...)
 	resp.Checks = append(resp.Checks, doctorPostgresServerCheck(ctx, deps, features))
+	resp.Checks = append(resp.Checks, doctorProcessOwnershipCheck(ctx, deps))
 	if deployInfo, deployChecks := doctorDeployDiagnostics(ctx, deps); deployInfo != nil {
 		resp.Deploy = deployInfo
 		resp.Checks = append(resp.Checks, deployChecks...)
@@ -343,6 +345,114 @@ func buildDoctorResponse(ctx context.Context, opts doctorOptions, deps doctorPro
 	resp.Summary = summarizeDoctorChecks(resp.Checks)
 	resp.OK = resp.Summary.Errors == 0
 	return resp
+}
+
+func doctorProcessOwnershipCheck(ctx context.Context, deps doctorProbeDeps) doctorCheck {
+	check := doctorCheck{
+		ID:       "runtime.process_ownership",
+		Category: "runtime",
+		Name:     "Scenery process ownership",
+		Status:   doctorStatusOK,
+		Severity: doctorSeverityInformational,
+		Message:  "no duplicate Scenery agent or edge owners detected",
+	}
+	runtimeInfo := deps.ResourceProbe.Runtime()
+	if runtimeInfo.GOOS != "darwin" && runtimeInfo.GOOS != "linux" {
+		check.Status = doctorStatusSkipped
+		check.Message = "process ownership inspection is unavailable on " + runtimeInfo.GOOS
+		return check
+	}
+	out, err := deps.RunCommand(ctx, "ps", "-axo", "pid=,uid=,command=")
+	if err != nil {
+		check.Status = doctorStatusSkipped
+		check.Message = "process ownership inspection failed: " + err.Error()
+		return check
+	}
+	home, _ := deps.AgentHome()
+	paths := localagent.PathsForHome(home)
+	routerAddr := localagent.RouterAddrFromEnv()
+	configs := []string{paths.EdgeConfigPath}
+	if userHome, err := os.UserHomeDir(); err == nil {
+		configs = append(configs, filepath.Join(userHome, ".onlava", "agent", "edge", "Caddyfile"))
+	}
+	var agents, caddies []int
+	for _, process := range parseRuntimeProcesses(string(out)) {
+		if process.UID != os.Getuid() {
+			continue
+		}
+		if edgeAgentCommandMatches(process.Command, paths.SocketPath, routerAddr) {
+			agents = append(agents, process.PID)
+		}
+		if managedCaddyCommandMatches(process.Command, configs) {
+			caddies = append(caddies, process.PID)
+		}
+	}
+	routerListeners := doctorListenerPIDs(ctx, deps, "TCP", portFromAddr(routerAddr), true)
+	edgeTCP := doctorListenerPIDs(ctx, deps, "TCP", portFromAddr(defaultEdgeTargetAddr), true)
+	edgeUDP := doctorListenerPIDs(ctx, deps, "UDP", portFromAddr(defaultEdgeTargetAddr), false)
+	unknownRouter := pidsWithout(routerListeners, agents)
+	unknownEdge := pidsWithout(append(edgeTCP, edgeUDP...), caddies)
+	check.Observed = map[string]any{
+		"agent_pids": agents, "edge_pids": caddies,
+		"router_listener_pids": routerListeners, "edge_listener_pids": uniqueInts(append(edgeTCP, edgeUDP...)),
+	}
+	if len(agents) > 1 || len(caddies) > 1 || len(unknownRouter) > 0 || len(unknownEdge) > 0 {
+		check.Status = doctorStatusWarn
+		check.Severity = doctorSeverityOptional
+		check.Message = "duplicate or unowned processes are using Scenery runtime ports"
+		check.SuggestedAction = "Stop orphaned `scenery system agent` or Caddy processes, then run `scenery system agent restart` and `scenery system edge restart`."
+		check.Observed["unknown_router_pids"] = unknownRouter
+		check.Observed["unknown_edge_pids"] = unknownEdge
+	}
+	return check
+}
+
+func doctorListenerPIDs(ctx context.Context, deps doctorProbeDeps, network, port string, listen bool) []int {
+	if port == "" {
+		return nil
+	}
+	args := []string{"-nP", "-t", "-i" + network + ":" + port}
+	if listen {
+		args = append(args, "-sTCP:LISTEN")
+	}
+	out, err := deps.RunCommand(ctx, "lsof", args...)
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, field := range strings.Fields(string(out)) {
+		if pid, err := strconv.Atoi(field); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return uniqueInts(pids)
+}
+
+func pidsWithout(values, allowed []int) []int {
+	set := map[int]bool{}
+	for _, pid := range allowed {
+		set[pid] = true
+	}
+	var out []int
+	for _, pid := range uniqueInts(values) {
+		if !set[pid] {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+func uniqueInts(values []int) []int {
+	set := map[int]bool{}
+	var out []int
+	for _, value := range values {
+		if value > 0 && !set[value] {
+			set[value] = true
+			out = append(out, value)
+		}
+	}
+	sort.Ints(out)
+	return out
 }
 
 func fillDoctorProbeDeps(deps doctorProbeDeps) doctorProbeDeps {

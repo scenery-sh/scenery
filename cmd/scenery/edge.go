@@ -159,6 +159,11 @@ func edgeRestart(opts edgeOptions) error {
 	if err := localagent.EnsureDirs(paths); err != nil {
 		return err
 	}
+	operationLock, err := localagent.AcquireProcessLock(paths.EdgeLockPath + ".operation")
+	if err != nil {
+		return fmt.Errorf("another edge operation is running: %w", err)
+	}
+	defer operationLock.Release()
 	caddyBin, err := resolveCaddyBinary(ctx, paths, true)
 	if err != nil {
 		return err
@@ -180,6 +185,9 @@ func edgeRestart(opts edgeOptions) error {
 		return err
 	}
 	if err := stopEdge(paths, 2*time.Second); err != nil {
+		return err
+	}
+	if err := stopStaleUserCaddyEdges(paths, 2*time.Second); err != nil {
 		return err
 	}
 	if err := startCaddyEdge(caddyBin, paths, publicAddr, targetAddr, httpTargetAddr, adminSocket, upstreamAddr); err != nil {
