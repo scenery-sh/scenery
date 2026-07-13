@@ -103,6 +103,8 @@ scenery metrics list -o json --since 1h
 scenery down
 ```
 
+The default detached wait verifies every advertised route and one script or stylesheet asset from each frontend before returning. Use `--wait registered` only when route readiness is intentionally deferred.
+
 Default local routing gives each live app root one localhost base URL. Discover it and every routed capability through `scenery ps -o json`; do not guess hidden ports or substrate paths. Treat Caddy, dnsmasq, and Victoria as substrate unless the task explicitly diagnoses them. Use managed toolchain commands instead of relying on ambient `PATH` binaries.
 
 ```sh

@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -165,6 +168,9 @@ func TestWaitForDetachedDevSessionReadyModeWaitsForAPIAndFrontends(t *testing.T)
 		return strings.HasPrefix(backend.Addr, "ready-")
 	}
 	t.Cleanup(func() { detachedDevBackendAcceptsConnections = oldProbe })
+	oldRoutesProbe := detachedDevRoutesReachable
+	detachedDevRoutesReachable = func(context.Context, localagent.Session) error { return nil }
+	t.Cleanup(func() { detachedDevRoutesReachable = oldRoutesProbe })
 
 	calls := 0
 	waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -192,6 +198,103 @@ func TestWaitForDetachedDevSessionReadyModeWaitsForAPIAndFrontends(t *testing.T)
 	}
 	if calls < 2 {
 		t.Fatalf("calls = %d, want wait for frontend backend", calls)
+	}
+}
+
+func TestWaitForDetachedDevSessionReadyModeWaitsForAdvertisedRoutes(t *testing.T) {
+	oldInterval := detachedDevStartupInterval
+	detachedDevStartupInterval = time.Millisecond
+	t.Cleanup(func() { detachedDevStartupInterval = oldInterval })
+	oldBackendProbe := detachedDevBackendAcceptsConnections
+	detachedDevBackendAcceptsConnections = func(devBackend) bool { return true }
+	t.Cleanup(func() { detachedDevBackendAcceptsConnections = oldBackendProbe })
+	oldRoutesProbe := detachedDevRoutesReachable
+	probes := 0
+	detachedDevRoutesReachable = func(context.Context, localagent.Session) error {
+		probes++
+		if probes == 1 {
+			return fmt.Errorf("route web not reachable")
+		}
+		return nil
+	}
+	t.Cleanup(func() { detachedDevRoutesReachable = oldRoutesProbe })
+
+	session := localagent.Session{
+		AppRoot: "/tmp/app", OwnerPID: 4242, Status: "running",
+		Backends: map[string]localagent.Backend{localagent.RouteAPI: {Network: "unix", Addr: "api"}},
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := waitForDetachedDevSessionWithLister(waitCtx, func(context.Context, string) ([]localagent.Session, error) {
+		return []localagent.Session{session}, nil
+	}, session.AppRoot, session.OwnerPID, detachedDevWaitReady, nil); err != nil {
+		t.Fatalf("waitForDetachedDevSessionWithLister: %v", err)
+	}
+	if probes < 2 {
+		t.Fatalf("route probes = %d, want retry", probes)
+	}
+}
+
+func TestProbeDetachedDevRoutesFetchesFrontendAsset(t *testing.T) {
+	assetRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/":
+			http.NotFound(w, req)
+		case "/web/":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = fmt.Fprint(w, `<html><script src="assets/app.js"></script></html>`)
+		case "/web/assets/app.js":
+			assetRequests++
+			_, _ = fmt.Fprint(w, "export {}")
+		default:
+			http.Error(w, "unexpected", http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	session := localagent.Session{RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+		localagent.RouteAPI: {Kind: "api", URL: server.URL + "/api/"},
+		"web":               {Kind: "frontend", URL: server.URL + "/web/"},
+	}}}
+	if err := probeDetachedDevRoutes(context.Background(), session); err != nil {
+		t.Fatalf("probeDetachedDevRoutes: %v", err)
+	}
+	if assetRequests != 1 {
+		t.Fatalf("asset requests = %d, want 1", assetRequests)
+	}
+}
+
+func TestProbeDetachedDevRoutesRejectsBrokenRouteOrAsset(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+	}{
+		{name: "route"},
+		{name: "asset", html: `<script src="/missing.js"></script>`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.URL.Path == "/web/" && tt.html != "" {
+					w.Header().Set("Content-Type", "text/html")
+					_, _ = fmt.Fprint(w, tt.html)
+					return
+				}
+				status := http.StatusBadGateway
+				if req.URL.Path == "/missing.js" {
+					status = http.StatusNotFound
+				}
+				http.Error(w, "broken", status)
+			}))
+			t.Cleanup(server.Close)
+			session := localagent.Session{RouteManifest: localagent.RouteManifest{Routes: map[string]localagent.RouteRecord{
+				"web": {Kind: "frontend", URL: server.URL + "/web/"},
+			}}}
+			if err := probeDetachedDevRoutes(context.Background(), session); err == nil {
+				t.Fatal("probeDetachedDevRoutes returned nil")
+			}
+		})
 	}
 }
 

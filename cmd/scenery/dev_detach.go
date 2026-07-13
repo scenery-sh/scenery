@@ -31,6 +31,7 @@ const (
 var detachedDevStartupInterval = 100 * time.Millisecond
 
 var detachedDevBackendAcceptsConnections = backendAcceptsConnections
+var detachedDevRoutesReachable = probeDetachedDevRoutes
 
 type detachedDevResult struct {
 	cliPayloadIdentity
@@ -238,7 +239,7 @@ func waitForDetachedDevSessionWithLister(ctx context.Context, list detachedDevSe
 		for _, session := range sessions {
 			if session.OwnerPID == ownerPID {
 				lastSession = session
-				ready, state := detachedDevReadinessState(session, waitMode, expectedFrontends)
+				ready, state := detachedDevReadinessState(ctx, session, waitMode, expectedFrontends)
 				lastState = state
 				if ready {
 					return session, nil
@@ -280,7 +281,7 @@ func detachedDevExpectedFrontendRoutes(frontends map[string]app.FrontendConfig) 
 	return names
 }
 
-func detachedDevReadinessState(session localagent.Session, waitMode string, expectedFrontends []string) (bool, string) {
+func detachedDevReadinessState(ctx context.Context, session localagent.Session, waitMode string, expectedFrontends []string) (bool, string) {
 	if waitMode == detachedDevWaitRegistered {
 		return true, "registered"
 	}
@@ -304,6 +305,9 @@ func detachedDevReadinessState(session localagent.Session, waitMode string, expe
 		if !detachedDevBackendAcceptsConnections(devBackend{Network: backend.Network, Addr: backend.Addr}) {
 			return false, fmt.Sprintf("registered running; frontend %s backend not accepting connections", name)
 		}
+	}
+	if err := detachedDevRoutesReachable(ctx, session); err != nil {
+		return false, "registered running; " + err.Error()
 	}
 	return true, "ready"
 }

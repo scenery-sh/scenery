@@ -118,7 +118,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 ## Runtime Command Choice
 
 - Use `scenery up` for the app root's one live development runtime and all safe local capabilities.
-- Use `scenery up --detach` when the local agent should retain it; the default wait returns after readiness.
+- Use `scenery up --detach` when the local agent should retain it; the default wait returns only after every advertised route and one declared frontend asset are reachable.
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
 - Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive.
 - Use `scenery doctor -o json` when startup reports an occupied Scenery port; it distinguishes duplicate Scenery owners from foreign listeners, and startup never falls back to an unadvertised router port.

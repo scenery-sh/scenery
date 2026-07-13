@@ -217,7 +217,7 @@ Inspected 2 eligible Codex threads attached to `/Users/petrbrazdil/Repos/scenery
    - Area: routing / agent workflow.
    - Symptom agents experienced: a path-mode `scenery ps` table was presented as success even though `/`, `/console/`, `/pulse/`, and other URLs were not actually reachable or usable.
    - Evidence needed to avoid recreating the issue: thread `019f09cb-ae40-79c3-b838-5d1d746cb06c` (`Scenery ps, path routing, and console work`); user report "none of those urls work"; commands around `scenery ps`, `curl http://localhost:4747/...`, and browser checks; affected paths included `cmd/scenery/dev_frontends.go`, `cmd/scenery/local_path_router.go`, `internal/agent/router.go`, `internal/agent/session.go`, and `docs/local-contract.md`; shortcut: after any route table change, curl every advertised URL plus one asset URL per frontend before reporting success.
-   - Likely fix owner or next concrete action: scenery runtime / agent DX should add a cheap route-manifest reachability check to `scenery harness ui` or a `scenery ps --verify-routes` style command.
+   - Resolved 2026-07-14: default `scenery up --detach --wait ready` now requests every advertised route and one script or stylesheet asset from each frontend before returning. `scenery ps` remains an inspection surface rather than a probe.
 
 2. Path-mode asset prefixing escaped the service paths.
    - Area: local path routing.

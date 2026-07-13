@@ -109,6 +109,8 @@ scenery up --detach --app-root /path/to/app
 scenery deploy status -o json
 ```
 
+Detached startup waits for every advertised route and one frontend script or stylesheet by default, so a successful return means the printed URLs are reachable end to end.
+
 Point DNS A/AAAA records at the reported public IP and forward router TCP 80/443 to the reported LAN IP. `scenery deploy status -o json` reports listener, DNS, reachability, sleep, firewall, and certificate diagnostics. Switch to `--acme-ca production` after staging works.
 
 ## Agent Skill

@@ -284,6 +284,8 @@ scenery metrics list -o json --since 1h
 scenery down
 ```
 
+The default wait checks every advertised route and one script or stylesheet asset from each frontend. If this returns successfully, the printed URLs have passed an end-to-end HTTP probe; use `--wait registered` only when another process will own the readiness wait.
+
 Discover URLs from `scenery ps -o json`; do not guess hidden ports. Use a Git worktree for a second live code copy.
 
 ## Debug A Failing App
