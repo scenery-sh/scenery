@@ -519,7 +519,7 @@ func renderTSClient(target Resource, bindings, resources []Resource) string {
 	}
 	fmt.Fprintf(&b, "  constructor(options: %sOptions) {\n", className)
 	b.WriteString("    if (!/^https?:\\/\\/[^/?#]+(?:\\/[^?#]*)?$/.test(options.baseUrl)) throw new Runtime.SceneryClientError(\"invalid_options\", \"\", \"baseUrl must be an absolute hierarchical HTTP URL without query or fragment\");\n")
-	b.WriteString("    this.#baseUrl = options.baseUrl.replace(/\\/$/, \"\");\n    this.#fetch = options.fetch ?? globalThis.fetch;\n    this.#headers = Object.freeze({ ...(options.defaultHeaders ?? {}) });\n    this.#authentication = options.authentication === undefined ? undefined : Object.freeze({ ...options.authentication });\n")
+	b.WriteString("    this.#baseUrl = options.baseUrl.replace(/\\/$/, \"\");\n    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);\n    this.#headers = Object.freeze({ ...(options.defaultHeaders ?? {}) });\n    this.#authentication = options.authentication === undefined ? undefined : Object.freeze({ ...options.authentication });\n")
 	if retry.Enabled {
 		b.WriteString("    this.#retryRuntime = options.retryRuntime;\n")
 	}

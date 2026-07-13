@@ -14,7 +14,7 @@ export class PublicApiClient {
   constructor(options: PublicApiClientOptions) {
     if (!/^https?:\/\/[^/?#]+(?:\/[^?#]*)?$/.test(options.baseUrl)) throw new Runtime.SceneryClientError("invalid_options", "", "baseUrl must be an absolute hierarchical HTTP URL without query or fragment");
     this.#baseUrl = options.baseUrl.replace(/\/$/, "");
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#headers = Object.freeze({ ...(options.defaultHeaders ?? {}) });
     this.#authentication = options.authentication === undefined ? undefined : Object.freeze({ ...options.authentication });
   }

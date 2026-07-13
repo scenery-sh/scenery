@@ -168,6 +168,9 @@ func TestExportedFixtureProducesNativeTypeScriptClientBinding(t *testing.T) {
 		t.Fatalf("bindings = %#v, exported = %#v, declared = %#v", resourceAddresses(bindings), exported, declared)
 	}
 	client := renderTSClient(targets[0], bindings, result.Manifest.Resources)
+	if !strings.Contains(client, "this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);") {
+		t.Fatalf("generated fixture client does not bind the default fetch:\n%s", client)
+	}
 	if !strings.Contains(client, "response.status === 200") || strings.Contains(client, "response.status === 0") || strings.Contains(client, "mergeResponseValue(payload, null") {
 		t.Fatalf("generated fixture client lost exact response status/path semantics:\n%s", client)
 	}
