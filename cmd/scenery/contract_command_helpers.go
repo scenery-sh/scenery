@@ -82,16 +82,7 @@ func checkCompiledContract(root string) (*compiler.Result, error) {
 	if err != nil || !result.Valid() {
 		return result, err
 	}
-	result.Diagnostics = append(result.Diagnostics, generate.Check(result)...)
-	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Severity == "error" {
-			result.ImplementationStatus = "invalid"
-			if result.Manifest != nil {
-				result.Manifest.Diagnostics = append([]graph.Diagnostic(nil), result.Diagnostics...)
-			}
-			break
-		}
-	}
+	generate.ApplyCheck(result, generate.Check(result))
 	return result, nil
 }
 

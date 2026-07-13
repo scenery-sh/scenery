@@ -11,7 +11,7 @@ import (
 const ManifestKind = "scenery.manifest"
 
 var (
-	ManifestSchemaRevision = "sha256:05219d86e7f37c7b8542ec2441f89c21548e55da43b33abd18ed0eeecc6bfcbc"
+	ManifestSchemaRevision = "sha256:d5b3c19523c452c5fafe25bceac20c42ab1d6de2d285a11615c7d24f21c2c3c7"
 	DiagnosticCatalog      = string(spec.SchemaRevision(spec.DiagnosticDefinitions()))
 )
 

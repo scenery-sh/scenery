@@ -12,7 +12,7 @@ This document defines the current Scenery declaration language and its semantic 
 - extension and provider authors;
 - code generators and runtime integrations.
 
-The source language uses a deliberately small HCL-like syntax. Source files compile into a canonical, typed, versioned resource graph. The graph—not file order, filenames, generated Go, or runtime discovery—is the semantic truth.
+The source language uses a deliberately small HCL-like syntax. Source files compile into a canonical, typed, content-revisioned resource graph. The graph—not file order, filenames, generated Go, or runtime discovery—is the semantic truth.
 
 Scenery has one declaration surface: `.scn` source. Go comments, struct tags, JSON application-model declarations, and runtime builder calls are not source syntax and MUST NOT be parsed as application resources.
 
@@ -502,6 +502,14 @@ Every application uses the current Scenery language. Source has no language-vers
 - canonical IR lowering rules.
 
 Core resources use unversioned logical kinds in the compiled graph, such as `scenery.operation`, and carry independent digest-valued `schema_revision` fields.
+
+`spec_revision` identifies the complete current catalog: resource schemas,
+structural application/workspace/package/module/input/export schemas, stable
+diagnostic rules, and explicit reviewed revisions for source composition,
+defaults, expansion, reference resolution, contract projection, evolution,
+Go generation, and TypeScript generation. Explanatory diagnostic text has a
+separate diagnostic-catalog revision and does not by itself change contract
+identity.
 
 The current specification MAY change source defaults or syntax only through an explicit repository-wide upgrade. A resource schema revision MAY evolve independently when its semantics are preserved or migrated explicitly.
 
@@ -2685,6 +2693,10 @@ The compiler emits a canonical manifest independent of Scenery source syntax.
   "schema_revision": "sha256:...",
   "spec_revision": "sha256:...",
   "diagnostic_catalog": "sha256:...",
+  "producer": {
+    "version": "v0.3.2",
+    "toolchain": { "go_version": "go1.26.3" }
+  },
   "application": {
     "name": "clean_tech"
   },
@@ -2694,6 +2706,13 @@ The compiler emits a canonical manifest independent of Scenery source syntax.
   "diagnostics": []
 }
 ~~~
+
+A manifest file is accepted only as an exact current manifest or as the
+`data.manifest` value of an exact current `scenery.cli` compile envelope. Both
+forms pass the same validation: identity, producer, diagnostic catalog, known
+resource schemas, unique canonical address order, and recomputation of
+`contract_revision`. Unknown fields, trailing JSON, old envelope identities,
+and heuristic wrappers MUST be rejected.
 
 ### 20.2 Resource envelope
 
@@ -2969,7 +2988,7 @@ scenery compile --view expanded -o json
 
 check performs semantic validation without generating deployable artifacts. compile emits the canonical manifest even when code generation is disabled.
 
-With -o json, compile returns one scenery.cli envelope. data.contract_status is valid or invalid and data.implementation_status is valid, invalid, unavailable, or not_requested. A valid language contract places its manifest at data.manifest and its revision at contract_revision even when implementation verification fails. A contract-language error sets contract_revision and data.manifest to null. workspace_revision remains available when the source snapshot is readable. A requested recovery graph appears at data.partial_graph with deployable set to false; it is never a manifest.
+With -o json, compile returns one scenery.cli envelope. data.contract_status is valid or invalid. Compile-only commands and contracts with no applicable native implementation report data.implementation_status as not_requested; a requested native implementation check reports valid or invalid. A valid language contract places its manifest at data.manifest and its revision at contract_revision even when implementation verification fails. A contract-language error sets contract_revision and data.manifest to null. workspace_revision remains available when the source snapshot is readable. A requested recovery graph appears at data.partial_graph with deployable set to false; it is never a manifest.
 
 ### 21.4 Resource inspection
 
@@ -3081,7 +3100,7 @@ JSON commands use a stable envelope:
 }
 ~~~
 
-Unknown kinds or schema revisions MUST be rejected by clients; no alternate decoder is retained.
+Unknown kinds or schema revisions MUST be rejected by clients; no alternate decoder is retained. The envelope `schema_revision` is the complete self-normalized digest of the checked JSON Schema. `workspace_revision` and `contract_revision` permit only a canonical digest or null. `implementation_revision` and `deployment_revision` permit only a canonical digest, an object whose values are canonical digests, or null.
 
 ok is false exactly when effective error diagnostics exist or the requested operation failed. Severity values are error, warning, information, and hint.
 

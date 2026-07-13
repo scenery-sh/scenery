@@ -29,8 +29,6 @@ func TestEvolutionArtifactSchemaRevisionsMatchCheckedSchemas(t *testing.T) {
 }
 
 func TestPrivateEvolutionArtifactDescriptorsCoverTypeShapes(t *testing.T) {
-	assertDescriptorFields(t, changeTransactionSchemaDescriptor, changeTransactionJournal{})
-	assertDescriptorFields(t, changeTransactionLockDescriptor, changeTransactionLock{})
 	assertDescriptorFields(t, semanticDiffSchemaDescriptor, SemanticDiff{})
 }
 

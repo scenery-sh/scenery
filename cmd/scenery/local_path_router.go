@@ -214,8 +214,22 @@ func localPathRouterRedirect(next http.Handler, target string) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if localPathRouterLocalOnlyPath(req.URL.Path) {
+			next.ServeHTTP(w, req)
+			return
+		}
 		http.Redirect(w, req, target+req.URL.RequestURI(), http.StatusTemporaryRedirect)
 	})
+}
+
+func localPathRouterLocalOnlyPath(value string) bool {
+	requestPath := cleanLocalPath(value)
+	for _, prefix := range []string{localagent.PathModeDashboardPrefix, localagent.PathModeRuntimePrefix, "/__scenery"} {
+		if requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/") {
+			return true
+		}
+	}
+	return localPathRouterDashboardAssetPath(requestPath)
 }
 
 func localPathRouterCurrentSession(ctx context.Context, client *localagent.Client, fallback localagent.Session) localagent.Session {

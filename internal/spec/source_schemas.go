@@ -244,15 +244,34 @@ type SourceAttributeSchema = authoredAttributeSchema
 type SourceChildSchema = authoredChildSchema
 
 func ResourceSourceSchema(blockType string) (*SourceBlockSchema, bool) {
-	return authoredResourceSourceSchema(blockType)
+	schema, ok := authoredResourceSourceSchema(blockType)
+	if !ok {
+		return nil, false
+	}
+	return cloneSourceBlockSchema(schema, map[*authoredBlockSchema]*authoredBlockSchema{}), true
 }
 
 func StructuralSourceSchemas() map[string]*SourceBlockSchema {
-	return authoredStructuralSchemas
+	result := make(map[string]*SourceBlockSchema, len(authoredStructuralSchemas))
+	cloned := map[*authoredBlockSchema]*authoredBlockSchema{}
+	for name, schema := range authoredStructuralSchemas {
+		result[name] = cloneSourceBlockSchema(schema, cloned)
+	}
+	return result
 }
 
 func ResourceSourceChildren() map[string]map[string]SourceChildSchema {
-	return authoredResourceChildren
+	result := make(map[string]map[string]SourceChildSchema, len(authoredResourceChildren))
+	cloned := map[*authoredBlockSchema]*authoredBlockSchema{}
+	for blockType, children := range authoredResourceChildren {
+		childCopies := make(map[string]SourceChildSchema, len(children))
+		for name, child := range children {
+			child.Schema = cloneSourceBlockSchema(child.Schema, cloned)
+			childCopies[name] = child
+		}
+		result[blockType] = childCopies
+	}
+	return result
 }
 
 func AuthoredEnumAllows(field SourceAttributeSchema, value string) bool {
@@ -269,7 +288,7 @@ func AuthoredEnumAllows(field SourceAttributeSchema, value string) bool {
 }
 
 func NamedSourceSchemas() map[string]*SourceBlockSchema {
-	return map[string]*SourceBlockSchema{
+	live := map[string]*SourceBlockSchema{
 		"deployment_listener":   deploymentListenerSourceSchema,
 		"http":                  httpSourceSchema,
 		"http_cookie":           httpCookieSourceSchema,
@@ -282,4 +301,47 @@ func NamedSourceSchemas() map[string]*SourceBlockSchema {
 		"http_response_header":  httpResponseHeaderSourceSchema,
 		"operation_idempotency": operationIdempotencySourceSchema,
 	}
+	result := make(map[string]*SourceBlockSchema, len(live))
+	cloned := map[*authoredBlockSchema]*authoredBlockSchema{}
+	for name, schema := range live {
+		result[name] = cloneSourceBlockSchema(schema, cloned)
+	}
+	return result
+}
+
+func cloneSourceBlockSchema(schema *authoredBlockSchema, cloned map[*authoredBlockSchema]*authoredBlockSchema) *authoredBlockSchema {
+	if schema == nil {
+		return nil
+	}
+	if existing := cloned[schema]; existing != nil {
+		return existing
+	}
+	copy := &authoredBlockSchema{
+		Revision: schema.Revision, Labels: schema.Labels, LabelPattern: schema.LabelPattern, LabelPolicy: schema.LabelPolicy,
+		Attributes: make(map[string]authoredAttributeSchema, len(schema.Attributes)), Required: make(map[string]bool, len(schema.Required)),
+		Children: make(map[string]authoredChildSchema, len(schema.Children)), AllowUnknownAttributes: schema.AllowUnknownAttributes,
+	}
+	cloned[schema] = copy
+	for name, attribute := range schema.Attributes {
+		copy.Attributes[name] = cloneAuthoredAttributeSchema(attribute)
+	}
+	for name, required := range schema.Required {
+		copy.Required[name] = required
+	}
+	for name, child := range schema.Children {
+		child.Schema = cloneSourceBlockSchema(child.Schema, cloned)
+		copy.Children[name] = child
+	}
+	if schema.DynamicAttribute != nil {
+		dynamic := cloneAuthoredAttributeSchema(*schema.DynamicAttribute)
+		copy.DynamicAttribute = &dynamic
+	}
+	return copy
+}
+
+func cloneAuthoredAttributeSchema(attribute authoredAttributeSchema) authoredAttributeSchema {
+	attribute.Type = cloneMapValue(attribute.Type)
+	attribute.Default = cloneSemanticValue(attribute.Default)
+	attribute.Constraints = cloneMapValue(attribute.Constraints)
+	return attribute
 }

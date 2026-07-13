@@ -1,6 +1,10 @@
 package compiler
 
-import "fmt"
+import (
+	"fmt"
+
+	"scenery.sh/internal/spec"
+)
 
 func validateAuthoredBlockSchemas(sources []*Source, packageScope bool) []Diagnostic {
 	var diagnostics []Diagnostic
@@ -97,34 +101,8 @@ func validateAuthoredBlock(block *Block, schema *authoredBlockSchema) []Diagnost
 func validateResourceSchemas(resources []Resource) []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, resource := range resources {
-		schema, ok := resourceSchemas[resource.Kind]
-		if !ok {
-			diagnostics = append(diagnostics, Diagnostic{Code: "SCN1008", Severity: "error", Message: "unknown resource schema " + resource.Kind, Address: resource.Address})
-			continue
-		}
-		allowed := map[string]bool{}
-		for _, name := range resourceSchemaAllowedFields(resource.Kind) {
-			allowed[name] = true
-		}
-		for name := range resource.Spec {
-			if !allowed[name] {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1007", Severity: "error", Message: "unknown field " + name + " for " + resource.Kind, Address: resource.Address})
-			}
-		}
-		for _, name := range schema.Required {
-			if resource.Spec[name] == nil {
-				diagnostics = append(diagnostics, Diagnostic{Code: "SCN1009", Severity: "error", Message: "missing required field " + name, Address: resource.Address})
-			}
-		}
-		for _, requirement := range resourceConditionalRequirements[resource.Kind] {
-			if !semanticEqual(resource.Spec[requirement.Field], requirement.Equals) {
-				continue
-			}
-			for _, name := range requirement.Required {
-				if resource.Spec[name] == nil {
-					diagnostics = append(diagnostics, Diagnostic{Code: "SCN1009", Severity: "error", Message: "missing required field " + name + " when " + requirement.Field + " is " + stringValue(requirement.Equals), Address: resource.Address})
-				}
-			}
+		for _, violation := range spec.ValidateResource(resource.Kind, resource.Spec) {
+			diagnostics = append(diagnostics, Diagnostic{Code: violation.Code, Severity: "error", Message: violation.Message, Address: resource.Address})
 		}
 	}
 	return diagnostics

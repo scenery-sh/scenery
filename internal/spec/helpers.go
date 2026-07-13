@@ -23,6 +23,14 @@ func cloneSemanticValue(value any) any {
 			result[index] = cloneSemanticValue(item)
 		}
 		return result
+	case []string:
+		return append([]string(nil), typed...)
+	case map[string]string:
+		result := make(map[string]string, len(typed))
+		for key, item := range typed {
+			result[key] = item
+		}
+		return result
 	default:
 		return typed
 	}

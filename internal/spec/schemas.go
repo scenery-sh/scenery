@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -451,16 +452,71 @@ type ResourceSchema = resourceSchema
 type ConditionalRequirement = resourceConditionalRequirement
 type DynamicRevisionDomain = dynamicRevisionDomain
 
+type ResourceViolation struct {
+	Code    string
+	Message string
+}
+
+func ValidateResource(kind string, fields map[string]any) []ResourceViolation {
+	schema, ok := resourceSchemas[kind]
+	if !ok {
+		return []ResourceViolation{{Code: "SCN1008", Message: "unknown resource schema " + kind}}
+	}
+	allowed := map[string]bool{}
+	for _, name := range resourceSchemaAllowedFields(kind) {
+		allowed[name] = true
+	}
+	var violations []ResourceViolation
+	for name := range fields {
+		if !allowed[name] {
+			violations = append(violations, ResourceViolation{Code: "SCN1007", Message: "unknown field " + name + " for " + kind})
+		}
+	}
+	for _, name := range schema.Required {
+		if fields[name] == nil {
+			violations = append(violations, ResourceViolation{Code: "SCN1009", Message: "missing required field " + name})
+		}
+	}
+	for _, requirement := range resourceConditionalRequirements[kind] {
+		left, leftErr := MarshalCanonical(fields[requirement.Field])
+		right, rightErr := MarshalCanonical(requirement.Equals)
+		if leftErr != nil || rightErr != nil || string(left) != string(right) {
+			continue
+		}
+		for _, name := range requirement.Required {
+			if fields[name] == nil {
+				violations = append(violations, ResourceViolation{Code: "SCN1009", Message: "missing required field " + name + " when " + requirement.Field + " is " + fmt.Sprint(requirement.Equals)})
+			}
+		}
+	}
+	sort.Slice(violations, func(i, j int) bool {
+		if violations[i].Code != violations[j].Code {
+			return violations[i].Code < violations[j].Code
+		}
+		return violations[i].Message < violations[j].Message
+	})
+	return violations
+}
+
 func ResourceSchemas() map[string]ResourceSchema {
-	return resourceSchemas
+	result := make(map[string]ResourceSchema, len(resourceSchemas))
+	for kind, schema := range resourceSchemas {
+		schema.Required = append([]string(nil), schema.Required...)
+		schema.Attributes = append([]string(nil), schema.Attributes...)
+		if schema.CanonicalOnly != nil {
+			schema.CanonicalOnly = cloneSemanticValue(schema.CanonicalOnly).(map[string]string)
+		}
+		result[kind] = schema
+	}
+	return result
 }
 
 func ConditionalRequirements() map[string][]ConditionalRequirement {
-	return resourceConditionalRequirements
+	return cloneConditionalRequirements(resourceConditionalRequirements)
 }
 
 func AuthoredConditionalRequirements() map[string][]ConditionalRequirement {
-	return authoredConditionalRequirements
+	return cloneConditionalRequirements(authoredConditionalRequirements)
 }
 
 func ResourceSchemaAllowedFields(kind string) []string {
@@ -480,7 +536,29 @@ func PublicAuthoredBlockSchema(schema *SourceBlockSchema) map[string]any {
 }
 
 func DynamicResourceRevisionDomains() map[string]map[string]DynamicRevisionDomain {
-	return dynamicResourceRevisionDomains
+	result := make(map[string]map[string]DynamicRevisionDomain, len(dynamicResourceRevisionDomains))
+	for kind, fields := range dynamicResourceRevisionDomains {
+		fieldCopies := make(map[string]DynamicRevisionDomain, len(fields))
+		for name, rule := range fields {
+			fieldCopies[name] = rule
+		}
+		result[kind] = fieldCopies
+	}
+	return result
+}
+
+func cloneConditionalRequirements(source map[string][]resourceConditionalRequirement) map[string][]resourceConditionalRequirement {
+	result := make(map[string][]resourceConditionalRequirement, len(source))
+	for kind, requirements := range source {
+		copies := make([]resourceConditionalRequirement, len(requirements))
+		for index, requirement := range requirements {
+			requirement.Equals = cloneSemanticValue(requirement.Equals)
+			requirement.Required = append([]string(nil), requirement.Required...)
+			copies[index] = requirement
+		}
+		result[kind] = copies
+	}
+	return result
 }
 
 func ResourceCreateSchemaRevisions() []string {

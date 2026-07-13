@@ -7,10 +7,10 @@ import (
 
 func TestCurrentCatalogUsesUnversionedKindsAndContentRevisions(t *testing.T) {
 	catalog := Current()
-	if len(catalog.Resources) == 0 || len(catalog.Diagnostics) == 0 {
-		t.Fatalf("incomplete current catalog: resources=%d diagnostics=%d", len(catalog.Resources), len(catalog.Diagnostics))
+	if len(catalog.ResourceSchemas) == 0 || len(catalog.StructuralSchemas) != 6 || len(catalog.DiagnosticRules) == 0 {
+		t.Fatalf("incomplete current catalog: resources=%d structural=%d diagnostics=%d", len(catalog.ResourceSchemas), len(catalog.StructuralSchemas), len(catalog.DiagnosticRules))
 	}
-	for kind, schema := range catalog.Resources {
+	for kind, schema := range catalog.ResourceSchemas {
 		if !strings.HasPrefix(string(kind), "scenery.") || strings.Contains(string(kind), "/") {
 			t.Errorf("resource kind %q is not an unversioned logical kind", kind)
 		}
@@ -23,6 +23,18 @@ func TestCurrentCatalogUsesUnversionedKindsAndContentRevisions(t *testing.T) {
 			}
 		}
 	}
+	for name, schema := range catalog.StructuralSchemas {
+		if revision, _ := schema["schema_revision"].(string); !canonicalDigest(revision) {
+			t.Errorf("structural schema %s revision = %q", name, revision)
+		}
+	}
+	semantics, err := MarshalCanonical(catalog.Semantics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(semantics), "sha256:") != 8 {
+		t.Fatalf("semantic revision gates = %s", semantics)
+	}
 }
 
 func TestCurrentRevisionIsDeterministicCanonicalCatalogDigest(t *testing.T) {
@@ -30,6 +42,51 @@ func TestCurrentRevisionIsDeterministicCanonicalCatalogDigest(t *testing.T) {
 	second := CurrentRevision()
 	if first != second || !canonicalDigest(string(first)) {
 		t.Fatalf("catalog revisions = %q and %q", first, second)
+	}
+}
+
+func TestCatalogAccessorsDoNotExposeMutableSpecificationStorage(t *testing.T) {
+	want := CurrentRevision()
+
+	resources := ResourceSchemas()
+	provider := resources["scenery.provider"]
+	provider.Attributes[0] = "mutated"
+	provider.CanonicalOnly["locked_integrity"] = "mutated"
+	delete(resources, "scenery.record")
+
+	structural := StructuralSourceSchemas()
+	structural["workspace"].Revision = "mutated"
+	delete(structural, "application")
+
+	children := ResourceSourceChildren()
+	children["record"]["field"].Schema.Revision = "mutated"
+	dynamic := DynamicResourceRevisionDomains()
+	delete(dynamic["scenery.service"], "config")
+	overrides := AuthoredFieldOverrides()
+	for key, override := range overrides {
+		override.Constraints["mutated"] = true
+		overrides[key] = override
+		break
+	}
+
+	if got := CurrentRevision(); got != want {
+		t.Fatalf("mutating exported catalog copies changed current revision: %s -> %s", want, got)
+	}
+	if ResourceSchemas()["scenery.provider"].Attributes[0] == "mutated" || StructuralSourceSchemas()["workspace"].Revision == "mutated" {
+		t.Fatal("an exported schema accessor returned live specification storage")
+	}
+	if ResourceSourceChildren()["record"]["field"].Schema.Revision == "mutated" || DynamicResourceRevisionDomains()["scenery.service"]["config"].SchemaField == "" {
+		t.Fatal("an exported nested schema accessor returned live specification storage")
+	}
+}
+
+func TestDiagnosticExplanatoryTextIsSeparateFromSemanticRuleIdentity(t *testing.T) {
+	encoded, err := MarshalCanonical(Current().DiagnosticRules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "meaning") || strings.Contains(string(encoded), "documentation") {
+		t.Fatalf("semantic diagnostic rules include explanatory prose: %s", encoded)
 	}
 }
 

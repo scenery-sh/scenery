@@ -6,12 +6,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"scenery.sh/internal/compiler"
 )
 
 func TestChangeApplyRejectsCallerRecomputedPlan(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -54,7 +56,7 @@ record "point" {
 }
 export "point" { value = record.point }
 `)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}

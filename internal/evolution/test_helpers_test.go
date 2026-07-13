@@ -65,17 +65,10 @@ func hasSCNErrors(diagnostics []scn.Diagnostic) bool {
 	return false
 }
 
-func Compile(root string) (*Result, error) {
-	if err := recoverInterruptedChangeTransaction(root, false); err != nil {
-		return nil, err
-	}
-	return compiler.Compile(root)
-}
-
 func Check(root string) (*Result, error) {
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err == nil {
-		result.Diagnostics = append(result.Diagnostics, generate.Check(result)...)
+		generate.ApplyCheck(result, generate.Check(result))
 	}
 	return result, err
 }

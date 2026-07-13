@@ -11,7 +11,7 @@ import (
 	sceneryruntime "scenery.sh/runtime"
 )
 
-const ContractRevision = "sha256:50426c5811f184cc12eab3202e5b2a4ee06756eddb3ffe944066102f842bc30e"
+const ContractRevision = "sha256:2872b4e15d35fd5d413196a1f7e00df02a884c991a53903ac5d2227d710cdb1c"
 const PackageIdentity = "service"
 const PackageContractABIRevision = "sha256:e26f525ca795b22a4a5a4c511ac07b2b58b212188230d3bd4a09ec5838ded3a0"
 

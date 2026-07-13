@@ -23,11 +23,7 @@ func PrepareWithSnapshot(appRoot string, model *model.App, cfg app.Config, snaps
 	if err != nil {
 		return nil, err
 	}
-	generationDiagnostics := generate.Check(contract)
-	contract.Diagnostics = append(contract.Diagnostics, generationDiagnostics...)
-	if len(generationDiagnostics) > 0 {
-		contract.ImplementationStatus = "invalid"
-	}
+	generate.ApplyCheck(contract, generate.Check(contract))
 	if !contract.Valid() {
 		message := "app contract or generated artifacts are invalid"
 		for _, diagnostic := range contract.Diagnostics {

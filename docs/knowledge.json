@@ -19,6 +19,18 @@
   },
   "documents": [
     {
+      "path": "docs/plans/0112-single-current-identity-correctness.md",
+      "title": "Single Current Identity Correctness",
+      "owner": "scenery compiler / graph / machine / specification",
+      "status": "completed",
+      "quality": "B",
+      "freshness": "current",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "Completed corrective ExecPlan restoring production workspace transaction recovery, strict current manifest and envelope identities, truthful implementation verification status, complete checked machine schema digests, and a frozen complete specification catalog after plan 0111.",
+      "tags": ["plans", "execplans", "compiler", "transactions", "manifest", "machine", "specification", "correctness"]
+    },
+    {
       "path": "docs/plans/0111-single-current-scenery-specification.md",
       "title": "Single Current Scenery Specification",
       "owner": "scenery language / runtime / CLI / agent DX",
@@ -27,7 +39,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Completed flag-day ExecPlan that removed product version selectors and compatibility dispatch, established one current catalog and machine protocol with exact digest identities, split the former vnext implementation by responsibility, migrated durable state safely, moved the dashboard to apps/console at /console/, and completed Scenery plus ONLV runtime acceptance.",
+      "summary": "Completed flag-day ExecPlan that removed product version selectors and compatibility dispatch, established one current catalog and machine protocol with exact digest identities, split the former umbrella implementation by responsibility, migrated durable state safely, moved the dashboard to apps/console at /console/, and completed Scenery plus ONLV runtime acceptance.",
       "tags": ["plans", "execplans", "language", "specification", "compiler", "runtime", "cli", "cleanup"]
     },
     {
@@ -377,7 +389,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, typed terminal HTTP path tails, truthful graph views and field provenance, authenticated plans, semantic transactions, revisions, synchronized Go implementation, and the House example.",
+      "summary": "Normative evolving current Scenery specification, including the singular .scn declaration surface, complete resource, structural, diagnostic-rule, and behavioral specification identity, strict current manifests and machine envelopes, typed HTTP path tails, graph provenance, authenticated transactions, synchronized Go implementation, and the House example.",
       "tags": [
         "spec",
         "language",
@@ -769,9 +781,9 @@
       "status": "active",
       "quality": "A",
       "freshness": "current",
-      "last_reviewed": "2026-07-12",
-      "review_after": "2026-08-11",
-      "summary": "High-level repo map and current specification architecture boundaries, including source parsing, the digest-addressed catalog and canonical graph, analysis-only Go parsing, generation, managed edge, public local-filesystem storage, and content-addressed repository test execution.",
+      "last_reviewed": "2026-07-13",
+      "review_after": "2026-08-12",
+      "summary": "High-level repo map and current specification architecture boundaries, including source parsing, compiler transaction recovery, the digest-addressed catalog and canonical graph, generation, evolution, deployment planning, contract-agent composition, managed edge, public local-filesystem storage, and repository test execution.",
       "tags": [
         "architecture",
         "agents",
@@ -788,7 +800,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Frozen local developer and agent-facing contract for current applications and independently versioned CLI JSON surfaces, including canonical standard-auth refresh-cookie behavior, typed HTTP path tails, graph provenance, recursive schemas, trusted plans, semantic changes and rename receipts, Go config provenance, app-root discovery, runtimes, deploy, data, storage, visible self-healing local observability, cached-by-default harness validation, explicit fresh timing, generators, and code tasks.",
+      "summary": "Frozen local developer and agent-facing contract for current applications and exact current CLI JSON surfaces, including complete schema and specification identities, strict manifests, source-transaction recovery, truthful implementation status, typed HTTP path tails, graph provenance, trusted plans, runtimes, deploy, data, storage, observability, harness validation, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -1758,7 +1770,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Current plans that should inform agent decisions, led by the single-current-specification flag day, using permanent historical IDs and links mirrored in docs/knowledge.json.",
+      "summary": "Current plans that should inform agent decisions, using permanent historical IDs and links mirrored in docs/knowledge.json; completed single-current specification and identity work lives in the completed index.",
       "tags": [
         "plans",
         "roadmap",
@@ -1774,7 +1786,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Completed milestones and shipped behavior, including bounded refresh-cookie compatibility and its removal, post-v0 cleanup, remaining v0 and Go-directive frontend removal, typed HTTP path-tail support, historical transaction conformance, devdash control-plane/store work, audited active-plan retirements, and browser UI harness baselines.",
+      "summary": "Completed milestones and shipped behavior, led by the single-current specification and identity correctness work, plus refresh-cookie retirement, post-v0 cleanup, typed HTTP path tails, transaction conformance, devdash control-plane/store work, audited active-plan retirements, and browser UI harness baselines.",
       "tags": [
         "plans",
         "history",

@@ -40,7 +40,7 @@ http_gateway "secondary" {
 	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -48,7 +48,7 @@ http_gateway "secondary" {
 	if err := mutateResourceValue(root, base, module, SemanticOperation{Op: "value.set", Path: "/spec/inputs/gateway", Value: map[string]any{"$ref": "http_gateway.secondary"}}); err != nil {
 		t.Fatal(err)
 	}
-	afterModule, err := Compile(root)
+	afterModule, err := compiler.Compile(root)
 	if err != nil || !afterModule.Valid() {
 		t.Fatalf("compile after module edit: %v diagnostics=%#v", err, afterModule.Diagnostics)
 	}
@@ -93,7 +93,7 @@ func TestSemanticPointerAddressesNamedChildren(t *testing.T) {
 func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -116,7 +116,7 @@ func TestChangePlanAppliesNestedBlockEditAtomically(t *testing.T) {
 	if receipt.WorkspaceRevision != plan.PredictedWorkspaceRevision || receipt.ContractRevision != plan.PredictedContractRevision {
 		t.Fatalf("receipt=%#v plan=%#v", receipt, plan)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile after apply: %v diagnostics=%#v", err, result.Diagnostics)
 	}

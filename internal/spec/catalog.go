@@ -13,9 +13,30 @@ import (
 type Kind string
 type Revision string
 
+type DiagnosticRule struct {
+	Code             string   `json:"code"`
+	Category         string   `json:"category"`
+	Identity         string   `json:"identity"`
+	DefaultSeverity  string   `json:"default_severity"`
+	StructuredFields []string `json:"structured_fields"`
+}
+
+type SemanticRevisions struct {
+	SourceComposition    Revision `json:"source_composition"`
+	Defaults             Revision `json:"defaults"`
+	Expansion            Revision `json:"expansion"`
+	ReferenceResolution  Revision `json:"reference_resolution"`
+	ContractProjection   Revision `json:"contract_projection"`
+	EvolutionRules       Revision `json:"evolution_rules"`
+	GoGeneration         Revision `json:"go_generation"`
+	TypeScriptGeneration Revision `json:"typescript_generation"`
+}
+
 type Catalog struct {
-	Resources   map[Kind]map[string]any         `json:"resources"`
-	Diagnostics map[string]DiagnosticDefinition `json:"diagnostics"`
+	ResourceSchemas   map[Kind]map[string]any   `json:"resource_schemas"`
+	StructuralSchemas map[string]map[string]any `json:"structural_schemas"`
+	DiagnosticRules   map[string]DiagnosticRule `json:"diagnostic_rules"`
+	Semantics         SemanticRevisions         `json:"semantics"`
 }
 
 func Current() Catalog {
@@ -27,11 +48,34 @@ func Current() Catalog {
 		}
 		resources[Kind(kind)] = schema
 	}
-	diagnostics := make(map[string]DiagnosticDefinition, len(diagnosticDefinitions))
-	for _, definition := range DiagnosticDefinitions() {
-		diagnostics[definition.Code] = definition
+	structural := make(map[string]map[string]any, len(authoredStructuralSchemas))
+	for name, schema := range authoredStructuralSchemas {
+		structural[name] = publicAuthoredBlockSchema(schema)
 	}
-	return Catalog{Resources: resources, Diagnostics: diagnostics}
+	diagnostics := make(map[string]DiagnosticRule, len(diagnosticDefinitions))
+	for _, definition := range DiagnosticDefinitions() {
+		diagnostics[definition.Code] = DiagnosticRule{
+			Code: definition.Code, Category: definition.Category, Identity: definition.Identity,
+			DefaultSeverity: definition.DefaultSeverity, StructuredFields: append([]string(nil), definition.StructuredFields...),
+		}
+	}
+	return Catalog{ResourceSchemas: resources, StructuralSchemas: structural, DiagnosticRules: diagnostics, Semantics: CurrentSemanticRevisions()}
+}
+
+// CurrentSemanticRevisions are explicit review gates for behavior that is not
+// fully represented by declarative source/resource schemas. Change the owning
+// digest whenever that behavior changes.
+func CurrentSemanticRevisions() SemanticRevisions {
+	return SemanticRevisions{
+		SourceComposition:    "sha256:d7b7bf5f2f7187f43cabf92d66774f44cdef8a15ac53dbf30b4048a88461df5e",
+		Defaults:             "sha256:624f80596718cc9cfc71ddbee9989204b485d98ab96e517dfdf7ba549f3ab685",
+		Expansion:            "sha256:a1ff16940d253b7c290e5e5f4f9af146fae30bad0e2cf00a887d30b8dd8a8dd1",
+		ReferenceResolution:  "sha256:7ecc0fc75e31d0a9a6c69ba50ae2817b69f0ae9447d7648b2188d9786724e89b",
+		ContractProjection:   "sha256:35bf6a93c2b8acbf829a6253c7aba39bedb6d41c708ec213f5454a1bbf455fcc",
+		EvolutionRules:       "sha256:0a70ca1cfe1861065897ee0d3e947670e11b38acf06f260ba23e589a70abd056",
+		GoGeneration:         "sha256:5f5535c40936b12763bcb7df26169c98717ea065227898cd4a13808d42625459",
+		TypeScriptGeneration: "sha256:63cb18ae655c3cf82f9a218fb02a698ab2e59ec11cfad67d1e90cda293d3ee62",
+	}
 }
 
 func RevisionOf(catalog Catalog) Revision {

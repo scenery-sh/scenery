@@ -10,6 +10,9 @@
 - Keep resource addresses, graph ordering, provenance paths, and revision hashes deterministic.
 - Graph views are immutable compiler outputs: source, effective, and expanded.
 - Cross-process graph and context results carry strict current artifact identities; opaque continuation tokens have one unversioned hash domain and no decoder selection.
+- Raw manifests and compile-envelope manifests pass through the same exact
+  decoder and validator, including producer/catalog identity, resource schema
+  validation, canonical ordering, and recomputed contract revision.
 - Keep HTTP, generator, evolution, and deployment-specific projections in their owning packages.
 
 ## Verification

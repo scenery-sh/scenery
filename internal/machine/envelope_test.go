@@ -1,13 +1,13 @@
 package machine
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"scenery.sh/internal/spec"
 )
 
 const testSpecRevision = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -32,19 +32,7 @@ func TestEnvelopeRoundTripUsesOnlyCurrentIdentity(t *testing.T) {
 	}
 }
 
-func TestSchemaRevisionsMatchCanonicalShapeDescriptors(t *testing.T) {
-	for descriptor, want := range map[string]string{
-		envelopeSchemaDescriptor:      EnvelopeSchemaRevision,
-		eventEnvelopeSchemaDescriptor: EventEnvelopeSchemaRevision,
-	} {
-		digest := sha256.Sum256([]byte("scenery.machine.schema\x00" + descriptor))
-		if got := fmt.Sprintf("sha256:%x", digest); got != want {
-			t.Fatalf("schema revision = %q, want %q", got, want)
-		}
-	}
-}
-
-func TestSchemaFilesPublishCurrentMachineIdentity(t *testing.T) {
+func TestSchemaFilesPublishCompleteCurrentMachineIdentity(t *testing.T) {
 	for path, identity := range map[string]struct {
 		kind     string
 		revision string
@@ -62,6 +50,10 @@ func TestSchemaFilesPublishCurrentMachineIdentity(t *testing.T) {
 		if err := json.Unmarshal(encoded, &schema); err != nil {
 			t.Fatal(err)
 		}
+		completeRevision, err := spec.SchemaDocumentRevision(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
 		var kind, revision struct {
 			Const string `json:"const"`
 		}
@@ -73,6 +65,9 @@ func TestSchemaFilesPublishCurrentMachineIdentity(t *testing.T) {
 		}
 		if kind.Const != identity.kind || revision.Const != identity.revision {
 			t.Fatalf("%s identity = %q %q", path, kind.Const, revision.Const)
+		}
+		if string(completeRevision) != identity.revision {
+			t.Fatalf("%s complete schema revision = %q, want %q", path, completeRevision, identity.revision)
 		}
 	}
 }
@@ -93,6 +88,43 @@ func TestEnvelopeDecoderRejectsOldUnknownAndWrongSchemas(t *testing.T) {
 				t.Fatal("Decode() accepted non-current envelope")
 			}
 		})
+	}
+}
+
+func TestEnvelopeDecoderRejectsInvalidRevisionValues(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("b", 64)
+	tests := map[string]func(*Envelope[string]){
+		"workspace number":          func(value *Envelope[string]) { value.WorkspaceRevision = 1 },
+		"workspace map":             func(value *Envelope[string]) { value.WorkspaceRevision = map[string]string{"app": digest} },
+		"contract array":            func(value *Envelope[string]) { value.ContractRevision = []string{digest} },
+		"implementation boolean":    func(value *Envelope[string]) { value.ImplementationRevision = true },
+		"implementation bad digest": func(value *Envelope[string]) { value.ImplementationRevision = map[string]string{"app": "nope"} },
+		"deployment array":          func(value *Envelope[string]) { value.DeploymentRevision = []string{digest} },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			envelope := NewEnvelope[string](testSpecRevision, testProducer(), true, nil, nil)
+			mutate(&envelope)
+			encoded, err := json.Marshal(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Decode[string](encoded, testSpecRevision); err == nil {
+				t.Fatal("Decode() accepted an invalid revision value")
+			}
+		})
+	}
+}
+
+func TestEventEnvelopeRejectsInvalidRevisionValues(t *testing.T) {
+	event := NewEventEnvelope(testSpecRevision, testProducer(), 1, "event", false, nil, []string{})
+	event.ImplementationRevision = map[string]any{"app": false}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeEvent[string](encoded, testSpecRevision); err == nil {
+		t.Fatal("DecodeEvent() accepted an invalid implementation revision")
 	}
 }
 

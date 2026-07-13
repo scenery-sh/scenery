@@ -1,14 +1,12 @@
 package evolution
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"scenery.sh/internal/compiler"
 	"scenery.sh/internal/graph"
-	"scenery.sh/internal/spec"
 )
 
 func LoadManifestReference(reference string) (*Manifest, error) {
@@ -30,17 +28,9 @@ func LoadManifestReference(reference string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	var manifest Manifest
-	if err := json.Unmarshal(b, &manifest); err == nil && manifest.Kind == graph.ManifestKind && manifest.SchemaRevision == graph.ManifestSchemaRevision && manifest.SpecRevision == string(spec.CurrentRevision()) {
-		return &manifest, nil
+	manifest, err := graph.DecodeManifest(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not a current scenery manifest or compile envelope: %w", reference, err)
 	}
-	var envelope struct {
-		Data struct {
-			Manifest *Manifest `json:"manifest"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(b, &envelope); err != nil || envelope.Data.Manifest == nil {
-		return nil, fmt.Errorf("%s is not a scenery manifest or compile envelope", reference)
-	}
-	return envelope.Data.Manifest, nil
+	return manifest, nil
 }

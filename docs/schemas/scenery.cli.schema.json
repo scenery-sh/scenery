@@ -6,7 +6,7 @@
   "required": ["kind", "schema_revision", "spec_revision", "producer", "ok", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "data", "diagnostics"],
   "properties": {
     "kind": { "const": "scenery.cli" },
-    "schema_revision": { "const": "sha256:2f9c241ad368ba2a9495d8b8025bb7de5a0fde893da4b5659dde8774519abe6e" },
+    "schema_revision": { "const": "sha256:63e0e06289654ca0ab355a28890148f4d5bf7d905c3a857f2d6d2ef07f753bb6" },
     "spec_revision": { "$ref": "#/$defs/revision" },
     "producer": { "$ref": "#/$defs/producer" },
     "ok": { "type": "boolean" },

@@ -109,6 +109,28 @@ func TestContractJSONEnvelopeHasStableFields(t *testing.T) {
 	}
 }
 
+func TestContractCheckJSONReportsValidNativeImplementation(t *testing.T) {
+	root := filepath.Join(filepath.Dir(contractFixtureRoot(t)), "native")
+	var output strings.Builder
+	if err := runContractCheck(&output, []string{"--app-root", root, "-o", "json", "--non-interactive", "--quiet"}); err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := machine.Decode[graph.Diagnostic]([]byte(output.String()), currentMachineSpecRevision())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, ok := envelope.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data = %#v", envelope.Data)
+	}
+	if got := data["implementation_status"]; got != "valid" {
+		t.Fatalf("implementation_status = %#v, want valid", got)
+	}
+	if _, err := graph.DecodeManifest([]byte(output.String())); err != nil {
+		t.Fatalf("check output does not contain an exact current manifest: %v", err)
+	}
+}
+
 func TestCLIJSONWrapsCommandData(t *testing.T) {
 	var output strings.Builder
 	if err := writeCLIJSON(&output, map[string]any{"schema_version": "example.v1"}); err != nil {
@@ -200,8 +222,23 @@ func TestContractDiffConsumesRenameReceiptFile(t *testing.T) {
 	before := graph.Resource{Address: "house/record/old", Kind: "scenery.record", Module: "house", Name: "old", Spec: map[string]any{}}
 	after := before
 	after.Address, after.Name = "house/record/new", "new"
-	base := &graph.Manifest{Kind: graph.ManifestKind, SchemaRevision: graph.ManifestSchemaRevision, SpecRevision: string(spec.CurrentRevision()), ContractRevision: "sha256:base", Resources: []graph.Resource{before}}
-	target := &graph.Manifest{Kind: graph.ManifestKind, SchemaRevision: graph.ManifestSchemaRevision, SpecRevision: string(spec.CurrentRevision()), ContractRevision: "sha256:target", Resources: []graph.Resource{after}}
+	newManifest := func(resource graph.Resource) *graph.Manifest {
+		t.Helper()
+		manifest := &graph.Manifest{
+			Kind: graph.ManifestKind, SchemaRevision: graph.ManifestSchemaRevision, SpecRevision: string(spec.CurrentRevision()),
+			Producer: machine.RuntimeProducer(), DiagnosticCatalog: graph.DiagnosticCatalog,
+			Application: graph.ApplicationIdentity{Name: "app"}, Resources: []graph.Resource{resource},
+			SourceMap: map[string]graph.SourceRecord{}, Diagnostics: []graph.Diagnostic{},
+		}
+		var revisionErr error
+		manifest.ContractRevision, revisionErr = graph.ContractRevision(manifest.Resources, manifest.Application.Name)
+		if revisionErr != nil {
+			t.Fatal(revisionErr)
+		}
+		return manifest
+	}
+	base := newManifest(before)
+	target := newManifest(after)
 	receipt := evolution.RenameReceipt{From: before.Address, To: after.Address, BaseContractRevision: base.ContractRevision, TargetContractRevision: target.ContractRevision}
 	canonical, err := spec.MarshalCanonical(receipt)
 	if err != nil {

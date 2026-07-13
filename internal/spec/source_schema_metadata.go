@@ -132,11 +132,17 @@ func authoredAttributeDefinition(revision, name string) authoredAttributeSchema 
 }
 
 func AuthoredAttributeDefinition(revision, name string) SourceAttributeSchema {
-	return authoredAttributeDefinition(revision, name)
+	return cloneAuthoredAttributeSchema(authoredAttributeDefinition(revision, name))
 }
 
 func AuthoredFieldOverrides() map[AuthoredFieldKey]AuthoredFieldOverride {
-	return authoredFieldOverrides
+	result := make(map[AuthoredFieldKey]AuthoredFieldOverride, len(authoredFieldOverrides))
+	for key, override := range authoredFieldOverrides {
+		override.Default = cloneSemanticValue(override.Default)
+		override.Constraints = cloneMapValue(override.Constraints)
+		result[key] = override
+	}
+	return result
 }
 
 func AuthoredRevisionDomain(revision, name string) string {

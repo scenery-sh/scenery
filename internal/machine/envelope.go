@@ -16,11 +16,8 @@ const (
 
 	// These revisions identify the concrete shapes described by the matching
 	// schemas under docs/schemas. They do not select an older decoder.
-	EnvelopeSchemaRevision      = "sha256:2f9c241ad368ba2a9495d8b8025bb7de5a0fde893da4b5659dde8774519abe6e"
-	EventEnvelopeSchemaRevision = "sha256:85aeaf3276c078fe745cc7d327447caebd7926d5410a2a3dcbb036b188e61a75"
-
-	envelopeSchemaDescriptor      = `{"contract_revision":"revision_value","data":"any","deployment_revision":"revision_value","diagnostics":"array","implementation_revision":"revision_value","kind":"scenery.cli","ok":"boolean","producer":{"built_at":"optional_string","commit":"optional_string","toolchain":{"go_version":"string","manifest_revision":"optional_digest"},"version":"string"},"schema_revision":"digest","spec_revision":"digest","workspace_revision":"revision_value"}`
-	eventEnvelopeSchemaDescriptor = `{"contract_revision":"revision_value","data":"any","deployment_revision":"revision_value","diagnostics":"array","event":["event","summary"],"implementation_revision":"revision_value","kind":"scenery.cli.event","producer":{"built_at":"optional_string","commit":"optional_string","toolchain":{"go_version":"string","manifest_revision":"optional_digest"},"version":"string"},"schema_revision":"digest","sequence":"positive_integer","spec_revision":"digest","terminal":"boolean","workspace_revision":"revision_value"}`
+	EnvelopeSchemaRevision      = "sha256:63e0e06289654ca0ab355a28890148f4d5bf7d905c3a857f2d6d2ef07f753bb6"
+	EventEnvelopeSchemaRevision = "sha256:8138ed6b8d979ade5ae1c826a0c2615f36384180ef841d2be1e2c7357f38d46d"
 )
 
 type Toolchain struct {
@@ -90,6 +87,9 @@ func Decode[D any](encoded []byte, specRevision string) (Envelope[D], error) {
 	if err := validateEnvelope(envelope.Kind, envelope.SchemaRevision, envelope.SpecRevision, specRevision, envelope.Producer); err != nil {
 		return Envelope[D]{}, err
 	}
+	if err := validateRevisionFields(envelope.WorkspaceRevision, envelope.ContractRevision, envelope.ImplementationRevision, envelope.DeploymentRevision); err != nil {
+		return Envelope[D]{}, err
+	}
 	return envelope, nil
 }
 
@@ -115,6 +115,9 @@ func DecodeEvent[D any](encoded []byte, specRevision string) (EventEnvelope[D], 
 	if err := validateEnvelope(envelope.Kind, envelope.SchemaRevision, envelope.SpecRevision, specRevision, envelope.Producer); err != nil {
 		return EventEnvelope[D]{}, err
 	}
+	if err := validateRevisionFields(envelope.WorkspaceRevision, envelope.ContractRevision, envelope.ImplementationRevision, envelope.DeploymentRevision); err != nil {
+		return EventEnvelope[D]{}, err
+	}
 	if envelope.Kind != EventEnvelopeKind || envelope.SchemaRevision != EventEnvelopeSchemaRevision {
 		return EventEnvelope[D]{}, fmt.Errorf("unexpected CLI event envelope identity")
 	}
@@ -122,6 +125,53 @@ func DecodeEvent[D any](encoded []byte, specRevision string) (EventEnvelope[D], 
 		return EventEnvelope[D]{}, fmt.Errorf("invalid CLI event envelope")
 	}
 	return envelope, nil
+}
+
+func validateRevisionFields(workspace, contract, implementation, deployment any) error {
+	if err := validateSingularRevision("workspace_revision", workspace); err != nil {
+		return err
+	}
+	if err := validateSingularRevision("contract_revision", contract); err != nil {
+		return err
+	}
+	if err := validateRevisionValue("implementation_revision", implementation); err != nil {
+		return err
+	}
+	return validateRevisionValue("deployment_revision", deployment)
+}
+
+func validateSingularRevision(field string, value any) error {
+	if value == nil {
+		return nil
+	}
+	revision, ok := value.(string)
+	if !ok || !isDigest(revision) {
+		return fmt.Errorf("invalid %s: expected a canonical digest or null", field)
+	}
+	return nil
+}
+
+func validateRevisionValue(field string, value any) error {
+	if value == nil {
+		return nil
+	}
+	if revision, ok := value.(string); ok {
+		if isDigest(revision) {
+			return nil
+		}
+		return fmt.Errorf("invalid %s: expected a canonical digest, digest map, or null", field)
+	}
+	byTarget, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("invalid %s: expected a canonical digest, digest map, or null", field)
+	}
+	for target, value := range byTarget {
+		revision, ok := value.(string)
+		if !ok || !isDigest(revision) {
+			return fmt.Errorf("invalid %s target %q: expected a canonical digest", field, target)
+		}
+	}
+	return nil
 }
 
 func validateEnvelope(kind, schemaRevision, specRevision, currentSpecRevision string, producer Producer) error {
@@ -140,11 +190,18 @@ func validateEnvelope(kind, schemaRevision, specRevision, currentSpecRevision st
 	if specRevision != currentSpecRevision {
 		return fmt.Errorf("unexpected %s spec revision %q; regenerate with the current Scenery CLI", kind, specRevision)
 	}
+	if err := ValidateProducer(producer); err != nil {
+		return fmt.Errorf("invalid %s producer identity: %w", kind, err)
+	}
+	return nil
+}
+
+func ValidateProducer(producer Producer) error {
 	if strings.TrimSpace(producer.Version) == "" || strings.TrimSpace(producer.Toolchain.GoVersion) == "" {
-		return fmt.Errorf("invalid %s producer identity", kind)
+		return fmt.Errorf("version and Go toolchain are required")
 	}
 	if producer.Toolchain.ManifestRevision != "" && !isDigest(producer.Toolchain.ManifestRevision) {
-		return fmt.Errorf("invalid %s producer toolchain revision", kind)
+		return fmt.Errorf("toolchain manifest revision is not a canonical digest")
 	}
 	return nil
 }

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"scenery.sh/internal/compiler"
-	"scenery.sh/internal/machine"
+	"scenery.sh/internal/workspacetx"
 )
 
 func TestChangeTransactionRecoversInterruptedMultiFileApply(t *testing.T) {
@@ -95,8 +95,8 @@ func TestCompileRejectsActiveTransactionOwnedByCurrentProcess(t *testing.T) {
 	}
 	defer rollback()
 
-	if _, err := Compile(root); err == nil || !strings.Contains(err.Error(), "workspace change transaction is active") {
-		t.Fatalf("Compile() error = %v, want active transaction rejection", err)
+	if _, err := compiler.Compile(root); err == nil || !strings.Contains(err.Error(), "workspace change transaction is active") {
+		t.Fatalf("compiler.Compile() error = %v, want active transaction rejection", err)
 	}
 	if _, err := compiler.CompileDuringChangeTransaction(root); err != nil {
 		t.Fatalf("transaction owner could not verify its staged result: %v", err)
@@ -152,7 +152,7 @@ func TestChangeTransactionRecoveryRejectsEscapingMetadata(t *testing.T) {
 	if err := os.MkdirAll(transactionRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	lock := changeTransactionLock{ArtifactIdentity: machine.NewArtifactIdentity(changeTransactionLockKind, changeTransactionLockDescriptor), TransactionDir: outside}
+	lock, _ := workspacetx.NewArtifacts(outside, "")
 	encoded, _ := json.Marshal(lock)
 	if err := os.WriteFile(filepath.Join(transactionRoot, "change.lock"), encoded, 0o600); err != nil {
 		t.Fatal(err)

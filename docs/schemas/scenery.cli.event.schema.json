@@ -6,7 +6,7 @@
   "required": ["kind", "schema_revision", "spec_revision", "producer", "sequence", "event", "terminal", "workspace_revision", "contract_revision", "implementation_revision", "deployment_revision", "data", "diagnostics"],
   "properties": {
     "kind": { "const": "scenery.cli.event" },
-    "schema_revision": { "const": "sha256:85aeaf3276c078fe745cc7d327447caebd7926d5410a2a3dcbb036b188e61a75" },
+    "schema_revision": { "const": "sha256:8138ed6b8d979ade5ae1c826a0c2615f36384180ef841d2be1e2c7357f38d46d" },
     "spec_revision": { "$ref": "#/$defs/revision" },
     "producer": { "$ref": "#/$defs/producer" },
     "sequence": { "type": "integer", "minimum": 1 },

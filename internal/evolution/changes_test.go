@@ -24,7 +24,7 @@ import (
 func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestChangePlanDoesNotWriteAndApplyIsRevisionBound(t *testing.T) {
 func TestChangePlanNormalizesPresentationEquivalentOperations(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -121,7 +121,7 @@ func TestChangePlanNormalizesPresentationEquivalentOperations(t *testing.T) {
 func TestChangePlanNormalizesOperationsAcrossTemporarilyInvalidGraph(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -146,7 +146,7 @@ func TestChangePlanNormalizesOperationsAcrossTemporarilyInvalidGraph(t *testing.
 func TestChangeRenameUpdatesTypedReferences(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ export "shapes" {
 }
 input "point" { type = resource_ref("record") }
 `)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -248,7 +248,7 @@ input "point" { type = resource_ref("record") }
 	if err != nil || !strings.Contains(string(persistedReceipt), `"rename_receipts"`) {
 		t.Fatalf("persisted receipt = %s, %v", persistedReceipt, err)
 	}
-	applied, err := Compile(root)
+	applied, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ record "point" {
   field "x" { type = float64 }
 }
 `)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -314,7 +314,7 @@ record "point" {
 func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestChangeCreateThenRenameUsesRefreshedGraph(t *testing.T) {
 func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestChangeCreateAddsStructuredRecord(t *testing.T) {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -420,7 +420,7 @@ record "lookup_result" {
   }
 }
 `)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -452,7 +452,7 @@ record "lookup_result" {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		written, _ := os.ReadFile(filepath.Join(root, "catalog", "scenery.package.scn"))
 		t.Fatalf("compile: %v diagnostics=%#v\nsource:\n%s", err, result.Diagnostics, written)
@@ -538,7 +538,7 @@ func TestChangeCreateRejectsScalarIdempotencyKey(t *testing.T) {
 func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -561,7 +561,7 @@ func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -579,7 +579,7 @@ func TestChangeCreateLowersCanonicalReferenceAndDurationScalar(t *testing.T) {
 func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -617,7 +617,7 @@ func TestChangeCreateAddsStructuredHTTPBinding(t *testing.T) {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -650,7 +650,7 @@ input "model_path" {
 	if err := os.WriteFile(packagePath, packageSource, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -673,7 +673,7 @@ input "model_path" {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -718,7 +718,7 @@ record "point" {
   field "x" { type = float64 }
 }
 `)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, base.Diagnostics)
 	}
@@ -740,7 +740,7 @@ record "point" {
 	if _, err := ApplyChangePlan(root, plan, base.WorkspaceRevision, base.Manifest.ContractRevision); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Compile(root)
+	result, err := compiler.Compile(root)
 	if err != nil || !result.Valid() {
 		t.Fatalf("compile: %v diagnostics=%#v", err, result.Diagnostics)
 	}
@@ -756,7 +756,7 @@ record "point" {
 func TestChangeApplyRequiresBoundApprovalAndRejectsReplay(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil || !base.Valid() {
 		t.Fatalf("compile: %v %#v", err, base.Diagnostics)
 	}
@@ -816,7 +816,7 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 	if err := os.WriteFile(path, broken, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -854,7 +854,7 @@ func TestRepairPlanUsesNullContractRevisionAndEstablishesContract(t *testing.T) 
 func TestChangePlanRejectsSecretPlaintext(t *testing.T) {
 	root := t.TempDir()
 	copyTree(t, filepath.Join("..", "compiler", "testdata", "house"), root)
-	base, err := Compile(root)
+	base, err := compiler.Compile(root)
 	if err != nil {
 		t.Fatal(err)
 	}

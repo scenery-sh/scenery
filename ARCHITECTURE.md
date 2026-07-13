@@ -116,6 +116,56 @@ Architecture invariant: `scenery.scn` is required. There is no Go-comment,
 package-init, or alternate application-model frontend. Generated roots are declared, confined,
 transactional, and reproducible from the canonical graph.
 
+### `internal/compiler`
+
+`internal/compiler` loads the current `.scn` workspace and produces immutable
+source, effective, and expanded graph snapshots. Before any ordinary source
+read, it uses `internal/workspacetx` to recover an abandoned source transaction
+or reject a live owner; staged validation admits only that transaction's owner.
+
+Architecture invariant: compiler depends on the foundational source/spec/graph
+packages. Evolution, generation, deployment, and runtime orchestration consume
+compiler results and never sit below it.
+
+### `internal/generate`
+
+`internal/generate` renders Go contracts and composition, TypeScript clients,
+and OpenAPI projections from one compiler result. Its check path reports both
+diagnostics and whether native implementation verification was requested and
+valid.
+
+Architecture invariant: render every selected output before one atomic commit;
+verification is read-only and generated paths stay beneath declared managed
+roots.
+
+### `internal/evolution`
+
+`internal/evolution` owns semantic diffs, source mutation plans, approvals,
+migration consequences, and revision-bound receipts. It shares workspace
+transaction metadata/recovery with the compiler through `internal/workspacetx`.
+
+Architecture invariant: evolution never defines another graph or transaction
+reader. Plans and receipts bind exact current revisions and reject stale or old
+disposable shapes.
+
+### `internal/deployplan`
+
+`internal/deployplan` resolves deployment graphs into exact provider plans and
+applies them with crash-safe progress and revision checks.
+
+Architecture invariant: deployment planning consumes canonical compiler output
+and provider contracts; it does not reinterpret source or own language schema.
+
+### `internal/contractagent`
+
+`internal/contractagent` exposes graph inspection and semantic-evolution
+capabilities over JSON-RPC. It composes compiler, evolution, and schema queries
+without owning their models.
+
+Architecture invariant: advertised capabilities and schemas are exact current
+contracts. The agent rejects unadvertised creation kinds and stale artifacts
+instead of guessing or translating them.
+
 ### `internal/codegen`
 
 `internal/codegen` writes the small runtime entrypoint and configuration glue

@@ -20,10 +20,7 @@ func validateStagedWorkspace(root string, checkGenerated bool) (*Result, map[str
 		return result, nil, err
 	}
 	if checkGenerated {
-		result.Diagnostics = append(result.Diagnostics, generate.Check(result)...)
-		if hasErrors(result.Diagnostics) {
-			result.ImplementationStatus = "invalid"
-		}
+		generate.ApplyCheck(result, generate.Check(result))
 	}
 	after, err := snapshotWorkspaceFiles(root)
 	if err != nil {

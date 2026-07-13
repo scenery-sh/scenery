@@ -11,8 +11,9 @@ migration consequences, approvals, and revision-bound receipts.
   second graph model.
 - Keep plans, approvals, and rename receipts bound to exact content revisions.
 - Reject stale or tampered artifacts; never translate an older plan shape.
-- Source mutations must remain confined to the app workspace and preserve
-  transactional recovery.
+- Source mutations must remain confined to the app workspace. Transaction
+  metadata and recovery are owned by `internal/workspacetx`; evolution writes
+  that shared exact shape and never creates a parallel recovery reader.
 
 ## Verification
 

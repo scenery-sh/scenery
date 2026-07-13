@@ -6,6 +6,27 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Single Current Identity Correctness
+
+- Status: completed
+- Owner: scenery compiler / graph / machine / specification
+- Completed: 2026-07-13
+- Quality: B
+- ExecPlan: [0112 Single Current Identity Correctness](0112-single-current-identity-correctness.md)
+
+Shipped:
+
+- Restored production source-transaction recovery/rejection below compiler and evolution, with direct compiler regression coverage.
+- Added exact raw-manifest/current-envelope decoding with shared producer, catalog, resource, ordering, and recomputed-revision validation.
+- Made implementation verification status explicit across CLI check, build, and staged evolution validation.
+- Bound CLI and event envelope identities to their complete checked JSON Schemas and rejected invalid revision-value wire shapes.
+- Expanded `spec_revision` across structural grammar and explicit behavioral revisions, separated diagnostic prose identity, and returned deep copies from catalog accessors.
+
+Validation:
+
+- Passed full Scenery tests, vet, docs/schema/architecture checks, and self-harness; regenerated all revision-bound fixtures.
+- Refreshed ONLV provider locks and generated artifacts, then passed current-source check with a valid native implementation, full Go tests, and the app harness.
+
 ## Single Current Scenery Specification
 
 - Status: completed

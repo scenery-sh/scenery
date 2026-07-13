@@ -89,7 +89,7 @@ To update a local prebuilt install later:
 scenery upgrade
 ```
 
-`scenery upgrade` verifies the selected release archive against `checksums.txt`, replaces the current local binary, and then syncs managed toolchain entries already present in the local store. Use `scenery upgrade --toolchain all` when you intentionally want every frozen tool and image from the upgraded binary pulled immediately.
+`scenery upgrade` verifies the current release archive against `checksums.txt`, replaces the current local binary, and then syncs managed toolchain entries already present in the local store. Use `scenery upgrade --toolchain all` when you intentionally want every frozen tool and image from the upgraded binary pulled immediately.
 
 ## Public Deploy Edge
 

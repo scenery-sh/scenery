@@ -139,6 +139,7 @@ var legacyIdentityMigrationFiles = map[string]struct{}{
 	"internal/evolution/changes_transaction.go":      {},
 	"internal/evolution/changes_transaction_test.go": {},
 	"internal/evolution/recovery.go":                 {},
+	"internal/workspacetx/recover.go":                {},
 	"internal/machine/envelope_test.go":              {},
 }
 

@@ -46,6 +46,32 @@ func TestLocalPathRouterRedirect(t *testing.T) {
 	}
 }
 
+func TestLocalPathRouterRedirectKeepsControlRoutesLocal(t *testing.T) {
+	t.Parallel()
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := localPathRouterRedirect(next, "https://local.clean.tech")
+
+	for _, path := range []string{
+		"/console/",
+		"/console/__scenery",
+		"/runtime/health",
+		"/__scenery",
+		"/assets/index.js",
+		"/site.webmanifest",
+		"/favicon.ico",
+		"/apple-touch-icon.png",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost:4748"+path, nil))
+		if response.Code != http.StatusNoContent {
+			t.Errorf("%s response = %d, want %d", path, response.Code, http.StatusNoContent)
+		}
+	}
+}
+
 func TestLocalPathRouterRewriteHTMLRootRefs(t *testing.T) {
 	t.Parallel()
 

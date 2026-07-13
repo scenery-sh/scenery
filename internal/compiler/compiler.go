@@ -11,6 +11,7 @@ import (
 	"scenery.sh/internal/machine"
 	"scenery.sh/internal/scn"
 	"scenery.sh/internal/spec"
+	"scenery.sh/internal/workspacetx"
 )
 
 var rootSingletons = map[string]bool{"application": true, "workspace": true}
@@ -34,19 +35,25 @@ var packageResourceKinds = map[string]bool{
 }
 
 func Compile(root string) (*Result, error) {
+	if err := workspacetx.RecoverOrReject(root, workspacetx.NormalRead); err != nil {
+		return nil, err
+	}
 	return compileResult(root)
 }
 
 // CompileDuringChangeTransaction compiles the graph while evolution owns an
-// active source transaction. Transaction recovery itself belongs to evolution.
+// active source transaction in this process.
 func CompileDuringChangeTransaction(root string) (*Result, error) {
+	if err := workspacetx.RecoverOrReject(root, workspacetx.CurrentOwnerRead); err != nil {
+		return nil, err
+	}
 	return compileResult(root)
 }
 
 // CompileContractGraph resolves and validates the canonical contract graph.
 // Build, generation, and deployment phases consume this immutable result.
 func CompileContractGraph(root string) (*Result, error) {
-	return compileResult(root)
+	return Compile(root)
 }
 
 func compileResult(root string) (*Result, error) {
