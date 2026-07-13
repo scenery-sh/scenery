@@ -243,6 +243,16 @@ scenery db setup -o json
 
 `db apply` runs configured schema/app setup. `db seed` applies service-local seed files and typed fixture plans. Previously applied content changes and destructive seed SQL fail closed. `db setup` runs apply then seed. `scenery generate sqlc` refreshes source only.
 
+Save or restore a portable point-in-time copy of the database and storage cell explicitly:
+
+```sh
+scenery snapshot save --db --storage --output app.zip -o json
+scenery down
+scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o json
+```
+
+The archive is checksummed before load. Use `--mode merge` only when an atomic data-only database insert and storage conflict policy are intended; use `--dry-run` to preflight. Snapshots are operator-created restore points, not continuous offsite replication.
+
 ## Storage
 
 Declare storage cells/stores in app config. App code uses `scenery.sh/storage`:
@@ -261,7 +271,7 @@ scenery storage status -o json
 scenery storage ls app -o json
 ```
 
-Treat store roots and proxy sockets as substrate. Replicate local storage-cell object and metadata trees offsite with operator tooling when durability requires it.
+Treat store roots and proxy sockets as substrate. Replicate local storage-cell object and metadata trees offsite with operator tooling when continuous durability requires it; snapshots provide explicit database-plus-storage restore points.
 
 ## Local Development
 

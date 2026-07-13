@@ -346,7 +346,9 @@ func (s *server) registerTyped(ep *Endpoint) {
 		if err != nil {
 			logRequestStart(state)
 			finishRequestTrace(state, errs.HTTPStatus(err), nil, err)
-			errs.HTTPError(w, err)
+			if !writeContractAdmissionError(w, ep, err) {
+				errs.HTTPError(w, err)
+			}
 			return
 		}
 		state.auth = authInfo

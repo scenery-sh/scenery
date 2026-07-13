@@ -6,6 +6,24 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Snapshot Save/Load
+
+- Status: completed
+- Owner: scenery runtime / data platform
+- Completed: 2026-07-13
+- Quality: B
+- ExecPlan: [0100 Snapshot Save/Load](0100-snapshot-save-load.md)
+
+Shipped:
+
+- Added explicit `scenery snapshot save|load` for one portable Postgres-plus-storage zip.
+- Added complete SHA-256 preflight, strict current manifest identity, container-matched Postgres tools, atomic archive replacement, and recoverable database/storage overwrite.
+- Added atomic database merge, storage conflict policies, dry-run, JSON schemas, docs, focused corruption/interruption tests, and a live Docker round-trip probe.
+
+Validation:
+
+- Passed focused and full command tests, schema validation, architecture checks, and live database-plus-storage self-harness proof.
+
 ## Single Current Identity Correctness
 
 - Status: completed

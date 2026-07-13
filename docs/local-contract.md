@@ -22,6 +22,8 @@ scenery changes apply <plan> --expect-workspace-revision <rev> --expect-contract
 scenery changes rename <address> <new-name> [--dry-run] [--approval-token <file>] [-o human|json]
 scenery generate [--target contracts|typescript_client.<name>] [--check] [--app-root <path>] [-o human|json]
 scenery build [--target <go-target>] [--output <binary>] [-o human|json]
+scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
+scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
 scenery deploy plan <deployment> --out <plan> [-o human|json]
 scenery deploy apply <plan> --expect-workspace-revision <rev> --expect-contract-revision <rev> [--approval-token <file>] [-o human|json]
 ```
@@ -108,6 +110,7 @@ Implemented now:
 - `scenery db setup`
 - `scenery db reset`
 - `scenery db drop`
+- `scenery snapshot save|load`
 - `scenery worktree create|list|remove`
 - `scenery task list|inspect|run|graph`
 - `scenery task run <name>`
@@ -146,6 +149,7 @@ Dev-only or beta surface:
 - `scenery db setup`
 - `scenery db reset`
 - `scenery db drop`
+- `scenery snapshot save|load`
 - `scenery worktree create|list|remove`
 - `scenery generate`
 - `scenery task list|inspect|run|graph`
@@ -368,6 +372,8 @@ scenery db setup [--app-root <path>] [-o json]
 scenery db reset [service] [--app-root <path>] [--yes]
 scenery db drop [--app-root <path>] [--yes]
 scenery db server status|start|stop|logs [-o json] [--yes]
+scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
+scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
 scenery generate [--app-root <path>] [--dry-run] [-o json]
 scenery generate sqlc [--app-root <path>] [--dry-run] [-o json]
 scenery storage status [--app-root <path>] -o json
@@ -417,6 +423,10 @@ scenery worktree remove <name> [--app-root <path>] [--db] [-o json]
 ```
 
 `scenery db list -o json` reports the app Postgres database as `scenery.db.list`; the record includes the database name, redacted URL, source (`managed` or `external`), optional size, and the configured service schemas. `scenery db shell [service]` opens `psql` on the app database; a service argument pins `search_path` to `<service_schema>,scenery`. `scenery db reset [service]` resets one service schema with `ResetSchema`; without a service it resets the managed app database and requires `--yes`. `scenery db drop` drops the managed app database. Destructive reset/drop operations refuse external DSNs. `scenery db server status|start|stop|logs` manages only the shared local Postgres server and reports `scenery.db.server.status`. `scenery db apply` runs only `database.apply.command` and does not run seed files or SQLC generation.
+
+`scenery snapshot save` writes one portable zip containing the explicitly selected app database and/or configured storage stores. The manifest carries the singular current `scenery.snapshot.manifest` identity and records every payload byte count and SHA-256 digest; load verifies the complete archive before mutation and rejects undeclared, duplicate, unsafe, or corrupt entries. Managed Postgres dumps and restores use the matching tools inside the managed container. External database saves and merge loads use host tools; overwrite refuses external databases.
+
+`scenery snapshot load` requires a stopped app runtime. Database overwrite drops, recreates, and restores the managed app database; rerunning the same archive recovers an interrupted restore. Database merge is a single-transaction data-only restore. Storage overwrite stages on the same filesystem and atomically swaps each store; a later load recovers an interrupted swap. Storage merge preflights conflicts and applies `fail`, `skip`, or atomic per-object `overwrite`. `--dry-run` performs every preflight without mutation. Database and storage are separate recovery units: if storage fails after database success, rerun with `--storage` only.
 
 `scenery down --db` drops the app root's managed app database even when no live dev runtime is registered. Runtime-stop output still reports when no runtime was found. It refuses external DSNs. `scenery down --state` removes only the app root's local runtime state when a runtime record exists.
 
@@ -827,6 +837,9 @@ Implemented now:
 - [scenery.db.setup.result.schema.json](schemas/scenery.db.setup.result.schema.json)
 - [scenery.db.list.schema.json](schemas/scenery.db.list.schema.json)
 - [scenery.db.server.status.schema.json](schemas/scenery.db.server.status.schema.json)
+- [scenery.snapshot.save.schema.json](schemas/scenery.snapshot.save.schema.json)
+- [scenery.snapshot.load.schema.json](schemas/scenery.snapshot.load.schema.json)
+- [scenery.snapshot.manifest.schema.json](schemas/scenery.snapshot.manifest.schema.json)
 - [scenery.task.list.schema.json](schemas/scenery.task.list.schema.json)
 - [scenery.task.inspect.schema.json](schemas/scenery.task.inspect.schema.json)
 - [scenery.task.graph.schema.json](schemas/scenery.task.graph.schema.json)

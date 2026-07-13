@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.snapshot.load.schema.json",
+  "title": "scenery snapshot load",
+  "type": "object",
+  "required": ["kind", "schema_revision", "archive", "app", "mode", "dry_run"],
+  "properties": {
+    "kind": { "const": "scenery.snapshot.load" },
+    "schema_revision": { "const": "sha256:c4bfe6cf0b695861f9a82f98b8f969d71e8e3a5ff05e6572fec977f3507e5b1f" },
+    "archive": { "type": "string", "minLength": 1 },
+    "app": { "$ref": "scenery.snapshot.save.schema.json#/$defs/app" },
+    "mode": { "type": "string", "enum": ["overwrite", "merge"] },
+    "dry_run": { "type": "boolean" },
+    "db": {
+      "allOf": [
+        { "$ref": "scenery.snapshot.save.schema.json#/$defs/db" },
+        { "type": "object", "properties": { "action": { "enum": ["overwrite", "merge"] } } }
+      ]
+    },
+    "storage": { "$ref": "scenery.snapshot.save.schema.json#/$defs/storage" }
+  },
+  "anyOf": [{ "required": ["db"] }, { "required": ["storage"] }],
+  "additionalProperties": false
+}

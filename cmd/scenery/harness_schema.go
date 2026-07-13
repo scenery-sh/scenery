@@ -237,6 +237,22 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 		{name: "doctor", schemaRel: "docs/schemas/scenery.doctor.result.schema.json", payload: buildHarnessDoctorSchemaPayload(versionPayload)},
 		{name: "deploy.registry", schemaRel: "docs/schemas/scenery.deploy.registry.schema.json", payload: buildHarnessDeployRegistrySchemaPayload()},
 		{name: "deploy.status", schemaRel: "docs/schemas/scenery.deploy.status.schema.json", payload: buildHarnessDeployStatusSchemaPayload()},
+		{name: "snapshot.save", schemaRel: "docs/schemas/scenery.snapshot.save.schema.json", payload: snapshotSaveResult{
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.save"), Archive: "/tmp/app.zip",
+			App: snapshotAppResult{Name: "app", ID: "app", Root: "/tmp/app"},
+			DB:  &snapshotDBResult{Database: "app_main", Source: "managed", Action: "saved"}, Files: 1, Bytes: 128,
+		}},
+		{name: "snapshot.load", schemaRel: "docs/schemas/scenery.snapshot.load.schema.json", payload: snapshotLoadResult{
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.load"), Archive: "/tmp/app.zip",
+			App: snapshotAppResult{Name: "app", ID: "app", Root: "/tmp/app"}, Mode: "overwrite",
+			DB: &snapshotDBResult{Database: "app_main", Source: "managed", Action: "overwrite"},
+		}},
+		{name: "snapshot.manifest", schemaRel: "docs/schemas/scenery.snapshot.manifest.schema.json", payload: snapshotManifest{
+			Kind: snapshotManifestKind, SchemaRevision: snapshotManifestSchemaRevision, CreatedAt: time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC),
+			App:   snapshotManifestApp{Name: "app", ID: "app"},
+			DB:    &snapshotManifestDB{Database: "app_main", Source: "managed", DumpFile: "db/app_main.postgres.dump", DumpFormat: "pg_custom", Schemas: []snapshotManifestSchema{{Service: "api", Schema: "api"}}},
+			Files: []snapshotManifestFile{{Path: "db/app_main.postgres.dump", Bytes: 128, SHA256: digest}},
+		}},
 		{name: "inspect.docs", schemaRel: "docs/schemas/scenery.inspect.docs.schema.json", payload: inspectDocsPayload},
 		{name: "inspect.harness", schemaRel: "docs/schemas/scenery.inspect.harness.schema.json", payload: inspectHarnessPayload},
 		{name: "harness.artifact", schemaRel: "docs/schemas/scenery.harness.artifact.schema.json", payload: artifactEvidencePayload},

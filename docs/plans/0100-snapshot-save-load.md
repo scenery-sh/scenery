@@ -17,7 +17,7 @@ scenery snapshot load --input <file.zip> --db --storage --mode overwrite|merge \
     [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [--json]
 ```
 
-The archive is a single zip containing a versioned manifest (`scenery.snapshot.manifest.v1`), a Postgres custom-format dump (`pg_dump -Fc`) of the whole app database, and the verbatim storage-cell object trees (objects plus metadata sidecars) for every configured store. Because `-Fc` dumps do not pin a database name, an archive saved in one worktree or machine loads into another app root's differently-named managed database, making this the app's move/backup/share story.
+The archive is a single zip containing the singular current manifest (`scenery.snapshot.manifest` plus its exact schema revision), a Postgres custom-format dump (`pg_dump -Fc`) of the whole app database, and the verbatim storage-cell object trees (objects plus metadata sidecars) for every configured store. Because `-Fc` dumps do not pin a database name, an archive saved in one worktree or machine loads into another app root's differently-named managed database, making this the app's move/backup/share story.
 
 Selection is explicit by design: `--db` and `--storage` are opt-in flags on both `save` and `load`; passing neither is an error, never a silent default. Load offers two modes: `overwrite` (drop and recreate, destructive, gated on `--yes`) and `merge` (an atomic all-or-nothing attempt that fails cleanly on any conflict).
 
@@ -28,12 +28,12 @@ When this plan is done: `scenery snapshot save --db --storage --output app.zip` 
 ## Progress
 
 * [x] 2026-07-07 - Explored the db CLI (`cmd/scenery/db_cli.go`), storage cell layout (`cmd/scenery/storage_cell.go`, now implemented by `storage/runtime.go`), managed Postgres server state (`cmd/scenery/dev_services_postgres.go`), and prior art (plans 0094, 0097, 0022); settled the four headline decisions with the repo owner; drafted this plan.
-* [ ] Milestone 1: `scenery snapshot` command skeleton — dispatcher, explicit flag parsing/validation, help registration, JSON result types, new schemas.
-* [ ] Milestone 2: Postgres dump/restore engine — docker-exec streaming for the managed server, host-PATH fallback for external DSNs.
-* [ ] Milestone 3: `snapshot save` — manifest, zip writer, db section, storage section.
-* [ ] Milestone 4: `snapshot load` — preflights, overwrite and merge modes, storage conflict handling, `--dry-run`.
+* [x] 2026-07-13 - Milestone 1: added the `scenery snapshot` dispatcher, explicit parsers, help, current JSON identities, checked schemas, and schema examples.
+* [x] 2026-07-13 - Milestone 2: added streaming container-matched Postgres dump/restore with the external host-tool fallback.
+* [x] 2026-07-13 - Milestone 3: implemented checksummed atomic zip save for database dumps and configured storage trees.
+* [x] 2026-07-13 - Milestone 4: implemented full-archive preflight, dry-run, database overwrite/merge, and recoverable storage overwrite/merge.
 * [x] 2026-07-12 - Milestone 5: retired `scenery db snapshot` code, tests, help, docs, and host `pg_dump` doctor requirement ahead of the new command implementation.
-* [ ] Milestone 6: Self-harness round-trip probe and final validation.
+* [x] 2026-07-13 - Milestone 6: the Docker-gated self-harness restored a mutated database row and storage object, then proved a conflicting database merge rolled back; full self-harness passed.
 
 Update this section at every meaningful stopping point with date, what changed, and whether validation ran.
 
@@ -43,6 +43,7 @@ Update this section at every meaningful stopping point with date, what changed, 
 * 2026-07-07: The storage cell is shared across worktrees for the same app (`share: worktree` default, `cfg.StorageCellID()` excludes the worktree path). A `snapshot load --storage` therefore affects *all* worktrees of the app, unlike `--db` which targets only the current worktree's database. The load output must state the cell path it is writing to.
 * 2026-07-12: The old database-only snapshot command was removed during the post-v0 surface cleanup. Until milestones 1-4 land, there is intentionally no scenery-owned backup command.
 * 2026-07-07: `postgresDockerRunner.Run` (`cmd/scenery/dev_services_postgres.go:52-68`) buffers combined output as a string; dump/restore needs streaming stdio, so the engine adds a streaming variant rather than reusing `Run`.
+* 2026-07-13: the architecture gate rejects semantic `v1` artifact identities and `scenery_version` selectors. The manifest therefore uses `kind: scenery.snapshot.manifest` plus the exact self-normalized checked-schema revision.
 
 Add new surprises here with the command, test, or file that exposed them.
 
@@ -104,13 +105,19 @@ Add new surprises here with the command, test, or file that exposed them.
   Rationale: Repo owner chose fold-over-keep; two overlapping save/restore spellings invite drift, and repo rules forbid compatibility shims.
   Date/Author: 2026-07-07 / repo owner.
 
-* Decision: New JSON contracts: `scenery.snapshot.manifest.v1` (inside the archive), `scenery.snapshot.save.v1` and `scenery.snapshot.load.v1` (command `--json` output). All three get schema files under `docs/schemas/` and harness schema-validation examples.
+* Decision: New JSON contracts use singular logical identities: `scenery.snapshot.manifest` inside the archive and `scenery.snapshot.save` / `scenery.snapshot.load` for command output. All three carry exact schema revisions, have checked schemas, and have harness schema-validation examples.
   Rationale: Repo-wide rule — machine-readable JSON surfaces are the agent contract and must be schema-backed.
-  Date/Author: 2026-07-07 / Claude.
+  Date/Author: 2026-07-13 / Codex, updating the 2026-07-07 draft to the current identity contract.
+
+* Decision: Every database or storage payload in the archive records its byte count and SHA-256 digest; load validates all entries before any database or storage mutation.
+  Rationale: A portable backup is not a recovery mechanism unless truncation and corruption fail closed before destructive replacement.
+  Date/Author: 2026-07-13 / repo owner request, implemented by Codex.
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed 2026-07-13. `scenery snapshot save|load` now carries the app database and configured storage stores in one portable zip with explicit section selection. Every payload is size- and SHA-256-validated before mutation. Archive save uses fsync plus atomic replacement; managed database overwrite is rerunnable after interruption; storage overwrite uses recoverable same-filesystem stage/trash swaps; database merge is single-transaction; storage merge has explicit conflict policies.
+
+Focused tests cover parser safety, storage and metadata round-trip, corrupt archives, zip traversal, atomic save failure, merge policies, and simulated interrupted storage replacement. The Docker-gated self-harness proves the live Postgres-plus-storage save→mutate→overwrite-load path and failed-merge rollback. Final `go test ./...` and `scenery harness self --summary --write` passed.
 
 ## Context and Orientation
 
@@ -138,12 +145,12 @@ Docs that name the old command (the Milestone 5 sweep): `docs/local-contract.md`
 
 Archive layout (normative):
 
-    manifest.json                                  scenery.snapshot.manifest.v1
+    manifest.json                                  scenery.snapshot.manifest
     db/<database>.postgres.dump                    pg_dump -Fc of the app database (only with --db)
     storage/<store>/<object key path>              verbatim object files (only with --storage)
     storage/<store>/__scenery/metadata/<key>.json  metadata sidecars, verbatim
 
-Manifest fields (normative): `schema_version`, `created_at` (UTC RFC3339), `scenery_version`, `app` `{name, id}`, `db` (present only when saved) `{database, source, schemas: [{service, schema}], dump_file, dump_format: "pg_custom"}`, `storage` (present only when saved) `{cell_id, stores: [{name, files, bytes}]}` where `files`/`bytes` count archived entries including sidecars.
+Manifest fields (normative): `kind`, `schema_revision`, `created_at` (UTC RFC3339), `app` `{name, id}`, `db` (present only when saved) `{database, source, schemas: [{service, schema}], dump_file, dump_format: "pg_custom"}`, `storage` (present only when saved) `{cell_id, stores: [{name, files, bytes}]}`, and `files` entries `{path, bytes, sha256}` for every payload including sidecars.
 
 CLI grammar (normative):
 
@@ -157,7 +164,7 @@ Validation rules: at least one of `--db`/`--storage` on both verbs; `--mode` man
 
 Each milestone leaves `go test ./...` green.
 
-1. **Command skeleton and contracts.** New files `cmd/scenery/snapshot_cli.go` (dispatcher `snapshotCommand`, option structs `snapshotSaveOptions`/`snapshotLoadOptions`, parsers with the full validation-rule set above) wired into `main.go` and `help.go`. JSON result types for `scenery.snapshot.save.v1` / `scenery.snapshot.load.v1` and the manifest type. Schema files `docs/schemas/scenery.snapshot.manifest.v1.schema.json`, `...save.v1...`, `...load.v1...`; harness schema examples registered in `harness_schema.go`. Parser unit tests covering every validation rule (`snapshot_cli_test.go`).
+1. **Command skeleton and contracts.** New files `cmd/scenery/snapshot_cli.go` (dispatcher `snapshotCommand`, option structs `snapshotSaveOptions`/`snapshotLoadOptions`, parsers with the full validation-rule set above) wired into `main.go` and `help.go`. JSON result types for `scenery.snapshot.save` / `scenery.snapshot.load` and the manifest type. Schema files `docs/schemas/scenery.snapshot.manifest.schema.json`, `...save...`, `...load...`; harness schema examples registered in `harness_schema.go`. Parser unit tests cover the validation rules.
 2. **Postgres dump/restore engine.** New `cmd/scenery/postgres_dumptool.go`: a streaming exec seam (interface with a real implementation and a test fake) that runs `docker exec -i <container> pg_dump -Fc -d <in-container URL>` with stdout streamed to a writer, and `docker exec -i <container> pg_restore <flags> -d <in-container URL>` with stdin streamed from a reader, deriving the in-container URL (`127.0.0.1:5432`, state-file credentials) from `postgresServerState`; plus the host-`PATH` fallback used when `Database.Source == external` (error text names the missing binary and the version-match requirement). Unit tests with the fake runner assert exact argv, URL derivation, and fallback selection. `db_cli.go`'s `snapshotPostgresDatabase`/`restorePostgresDatabase` are not yet touched.
 3. **`snapshot save`.** `cmd/scenery/snapshot_save.go`: resolve app + database (`resolvePostgresDatabaseForCLI`, ensuring the managed server is up via the existing lifecycle helper) and storage cell (`resolveStorageCellPlan`); stream the dump into the zip (`zip.Store` for the dump entry), walk each configured store's directory into `storage/<store>/...` (deflate), write `manifest.json` last with real counts; write the zip to `--output` via temp-file+rename in the destination directory. Human and `--json` output report the archive path, database, schemas, stores, files, and bytes. Tests: storage-only round-trip against a temp cell (no Docker needed); manifest golden assertions; db section covered via the fake dump runner.
 4. **`snapshot load`.** `cmd/scenery/snapshot_load.go`: open zip, decode manifest, run the full preflight list (app ID match, schema ⊆ services, store ⊆ config, zip-slip, section presence, live-session guard, external-DSN refusal for overwrite); `--dry-run` stops here and reports the plan. Then db: overwrite = terminate/drop (`postgresdb.DropDatabase`) + `EnsureDatabase` + full `pg_restore --exit-on-error`; merge = schema-existence preflight + `pg_restore --data-only --single-transaction --exit-on-error`. Then storage: overwrite = stage-and-rename per store; merge = conflict scan across all stores first, then apply per `--on-conflict`. Output reports per-section actions, counts, skipped/overwritten conflicts, and the storage cell path. Tests: storage modes and conflict policies against temp cells; zip-slip rejection with crafted archives; preflight failures with exact error text; db paths via the fake runner.
@@ -177,7 +184,7 @@ Ordering within load matters and is fixed: all preflights → db restore (atomic
 All commands run from the repository root.
 
 1. `cmd/scenery/snapshot_cli.go`: `snapshotCommand(args []string) error` dispatching `save`/`load`; parsers enforcing every rule in Context and Orientation; wire `case "snapshot": return snapshotCommand(args[1:])` into `main.go`; add the help entry (`Summary: "Save and load portable app snapshots (Postgres database and storage cell) as zip archives."`, usage lines for both verbs) and the two command spellings to the help index.
-2. `cmd/scenery/snapshot_types.go` (or inline in snapshot_cli.go if small): manifest struct + `scenery.snapshot.manifest.v1`; save/load result structs with `schema_version` fields. Write the three schema files under `docs/schemas/`; add examples to `harness_schema.go`.
+2. `cmd/scenery/snapshot_types.go` (or inline in snapshot_cli.go if small): manifest struct + `scenery.snapshot.manifest`; save/load result structs with exact current identities. Write the three schema files under `docs/schemas/`; add examples to `harness_schema.go`.
 3. `cmd/scenery/postgres_dumptool.go`: `type pgDumpRunner interface { Dump(ctx, target, out io.Writer) error; Restore(ctx, target, flags []string, in io.Reader) error }` with `target` carrying `postgresdb.Database` + server state; docker-exec implementation (managed) and host-PATH implementation (external); constructor picks by `Source`. In-container URL derivation helper with unit test.
 4. `cmd/scenery/snapshot_save.go`: assemble archive as described in Milestone 3. Use a `*zip.Writer` over a temp file in the output directory; `CreateHeader` with `zip.Store` for the dump entry; `filepath.WalkDir` per store writing relative slash paths; fsync + rename the temp file to `--output`.
 5. `cmd/scenery/snapshot_load.go`: preflight + apply as described in Milestone 4. Zip-slip guard: every entry name must be `manifest.json`, `db/<manifest dump_file>`, or `storage/<declared store>/<clean relative path>` after `path.Clean`, rejecting `..`, absolute paths, and backslashes. Staging dirs live under `<cellRoot>/objects/` (same filesystem, so rename is atomic); trash dirs removed after successful swap and reported if removal fails.
@@ -203,7 +210,7 @@ After Milestone 6, substantial-change validation:
 
 Behavioral acceptance (live, Docker available; fixture app with one db service, one seed, one storage store):
 
-* `scenery snapshot save --db --storage --output /tmp/app.zip --json` emits `scenery.snapshot.save.v1`; the zip contains `manifest.json`, one `db/*.postgres.dump`, and the store tree including `__scenery/metadata/` sidecars; no host `pg_dump` is required (verify with `PATH` stripped of Postgres client tools).
+* `scenery snapshot save --db --storage --output /tmp/app.zip --json` emits `scenery.snapshot.save`; the zip contains `manifest.json`, one `db/*.postgres.dump`, and the store tree including `__scenery/metadata/` sidecars; no host `pg_dump` is required (verify with `PATH` stripped of Postgres client tools).
 * On a second worktree of the same app (different database name): `scenery snapshot load --input /tmp/app.zip --db --mode merge` after `scenery db setup` merges the data atomically; re-running the same load fails with a rollback and the database is byte-identical to before the attempt (row counts unchanged).
 * `scenery snapshot load --input /tmp/app.zip --db --storage --mode overwrite --yes` restores exact saved state after arbitrary mutation; seed ledger rows travel (a subsequent `scenery db seed` reports `skipped`, not re-applied).
 * `scenery snapshot save --output x.zip` (no section flags) errors; `load` without `--mode` errors; `load --mode overwrite` without `--yes` errors; `load` while `scenery up` is running errors and names `scenery down`.
@@ -224,7 +231,7 @@ Do not run `go install ./cmd/scenery`; use the self-harness worktree-local binar
 ## Interfaces and Dependencies
 
 * New public CLI: `scenery snapshot save|load` with the grammar and validation rules in Context and Orientation. Removed public CLI: `scenery db snapshot create|restore` (and its `.scenery/db/snapshots/` artifact path leaves the contract).
-* New JSON contracts: `scenery.snapshot.manifest.v1` (in-archive), `scenery.snapshot.save.v1`, `scenery.snapshot.load.v1` (command output), each with a schema under `docs/schemas/` and a harness example.
+* New JSON contracts: `scenery.snapshot.manifest` (in-archive), `scenery.snapshot.save`, `scenery.snapshot.load` (command output), each with an exact checked schema and a harness example.
 * External binaries: `docker` (already required for the managed server); `pg_dump`/`pg_restore` on the host only for external-DSN apps. No new Go dependencies — `archive/zip` is stdlib.
 * Unchanged surfaces this plan relies on: `internal/postgresdb` admin helpers, `resolvePostgresDatabaseForCLI`, `resolveStorageCellPlan`, `writeInspectJSON`, the storage local-backend on-disk layout (objects + `__scenery/metadata/` sidecars), and the `scenery.sh/storage` app API (untouched).
 * Docs updated together (Milestone 5): `docs/local-contract.md`, `docs/agent-guide.md`, `SKILL.md`, `README.md`, `docs/app-development-cookbook.md`, `docs/knowledge.json`, `docs/plans/active.md`. No new environment variables.

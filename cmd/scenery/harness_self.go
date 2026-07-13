@@ -693,6 +693,9 @@ func buildHarnessSelfKnowledge(repoRoot string) harnessKnowledge {
 		"docs/schemas/scenery.metrics.query.schema.json",
 		"docs/schemas/scenery.metrics.series.schema.json",
 		"docs/schemas/scenery.db.list.schema.json",
+		"docs/schemas/scenery.snapshot.load.schema.json",
+		"docs/schemas/scenery.snapshot.manifest.schema.json",
+		"docs/schemas/scenery.snapshot.save.schema.json",
 		"docs/schemas/scenery.run.event.schema.json",
 		"docs/schemas/scenery.version.schema.json",
 	}

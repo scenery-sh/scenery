@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.snapshot.manifest.schema.json",
+  "title": "Scenery snapshot manifest",
+  "type": "object",
+  "required": ["kind", "schema_revision", "created_at", "app", "files"],
+  "properties": {
+    "kind": { "const": "scenery.snapshot.manifest" },
+    "schema_revision": { "const": "sha256:83cc59388d47510203407af1dd68d22fcad86d95add34d9dfb4cabcd56b54792" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "app": {
+      "type": "object",
+      "required": ["name", "id"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "db": {
+      "type": "object",
+      "required": ["database", "source", "schemas", "dump_file", "dump_format"],
+      "properties": {
+        "database": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "enum": ["managed", "external"] },
+        "schemas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["service", "schema"],
+            "properties": {
+              "service": { "type": "string", "minLength": 1 },
+              "schema": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "dump_file": { "type": "string", "pattern": "^db/[^/]+\\.postgres\\.dump$" },
+        "dump_format": { "const": "pg_custom" }
+      },
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "required": ["cell_id", "stores"],
+      "properties": {
+        "cell_id": { "type": "string", "minLength": 1 },
+        "stores": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "files", "bytes"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "files": { "type": "integer", "minimum": 0 },
+              "bytes": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "bytes", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "anyOf": [{ "required": ["db"] }, { "required": ["storage"] }],
+  "additionalProperties": false
+}

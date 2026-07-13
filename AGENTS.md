@@ -200,6 +200,8 @@ scenery test [--app-root <path>] [go test flags/packages...]
 scenery generate --target typescript_client.<name> [--check] [--app-root <path>] -o json
 scenery db list|shell|apply|seed|setup|reset|drop [--app-root <path>]
 scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
+scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]
+scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]
 ```
 
 `scenery up` is the preferred local loop for agents because it runs the app root's one live dev runtime and exposes safe capabilities: dashboard, logs, traces, metrics, routed local URLs, and managed dev services. Use a Git worktree for another live code copy. `scenery task` runs app-local code tasks declared by their `<domain>:<name>` path.

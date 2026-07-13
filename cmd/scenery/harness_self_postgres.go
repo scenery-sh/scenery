@@ -95,10 +95,13 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 	defer restoreEnv()
 	rootA := filepath.Join(agentHome, "worktree-a")
 	rootB := filepath.Join(agentHome, "worktree-b")
-	cfg := app.Config{Name: "postgres-harness", ID: "postgres-harness", Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{
-		"cache":   {},
-		"reports": {},
-	}}}
+	cfg := app.Config{
+		Name: "postgres-harness", ID: "postgres-harness",
+		Dev: app.DevConfig{Services: map[string]app.DevServiceConfig{"cache": {}, "reports": {}}},
+		Storage: app.StorageConfig{CellID: "postgres-harness", Stores: map[string]app.StorageStoreConfig{
+			"app": {Kind: "local"},
+		}},
+	}
 	if err := writePostgresHarnessConfig(rootA); err != nil {
 		return nil, nil, err
 	}
@@ -184,6 +187,12 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 	}
 	check(!reportsMarker, "db reset reports must empty only the reports schema")
 	check(cacheMarker, "db reset reports must leave the cache schema intact")
+	if err := appDB.Close(); err != nil {
+		return nil, diagnostics, err
+	}
+	if err := runPostgresHarnessSnapshotRoundTrip(ctx, rootA, cfg, databaseA.URL); err != nil {
+		return nil, diagnostics, err
+	}
 	admin, err := managedPostgresAdmin(ctx)
 	if err != nil {
 		return nil, diagnostics, err
@@ -201,6 +210,7 @@ func runHarnessPostgresProbeCheck(parent context.Context, repoRoot string) (summ
 		"durable":        "roundtrip",
 		"auth":           "bootstrap",
 		"reset":          "service_schema_only",
+		"snapshot":       "db_storage_roundtrip",
 		"diagnostics":    len(diagnostics),
 	}
 	if hasErrorDiagnostics(diagnostics) {
@@ -289,7 +299,83 @@ func writePostgresHarnessConfig(root string) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","dev":{"services":{"reports":{},"cache":{}}}}`), 0o644)
+	return os.WriteFile(filepath.Join(root, ".scenery.json"), []byte(`{"name":"postgres-harness","id":"postgres-harness","dev":{"services":{"reports":{},"cache":{}}},"storage":{"cell_id":"postgres-harness","stores":{"app":{"kind":"local"}}}}`), 0o644)
+}
+
+func runPostgresHarnessSnapshotRoundTrip(ctx context.Context, appRoot string, cfg app.Config, databaseURL string) error {
+	db, err := openPostgresDatabase(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, `create table reports.snapshot_marker(value text primary key); insert into reports.snapshot_marker values ('saved')`); err != nil {
+		_ = db.Close()
+		return err
+	}
+	if err := db.Close(); err != nil {
+		return err
+	}
+	storagePlan, err := resolveStorageCellPlan(cfg, "")
+	if err != nil {
+		return err
+	}
+	objectPath := filepath.Join(storagePlan.storageStoreObjectsDir("app"), "snapshot.txt")
+	if err := os.MkdirAll(filepath.Dir(objectPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(objectPath, []byte("saved\n"), 0o600); err != nil {
+		return err
+	}
+	archivePath := filepath.Join(filepath.Dir(appRoot), "snapshot-roundtrip.zip")
+	defer os.Remove(archivePath)
+	if _, err := saveSnapshot(ctx, appRoot, cfg, snapshotSaveOptions{Output: archivePath, DB: true, Storage: true}); err != nil {
+		return err
+	}
+	db, err = openPostgresDatabase(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, `update reports.snapshot_marker set value = 'mutated'`); err != nil {
+		_ = db.Close()
+		return err
+	}
+	if err := db.Close(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(objectPath, []byte("mutated\n"), 0o600); err != nil {
+		return err
+	}
+	if _, err := loadSnapshot(ctx, appRoot, cfg, snapshotLoadOptions{Input: archivePath, DB: true, Storage: true, Mode: "overwrite", Yes: true}); err != nil {
+		return err
+	}
+	db, err = openPostgresDatabase(ctx, databaseURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var value string
+	if err := db.QueryRowContext(ctx, `select value from reports.snapshot_marker`).Scan(&value); err != nil {
+		return err
+	}
+	if value != "saved" {
+		return fmt.Errorf("snapshot database value = %q, want saved", value)
+	}
+	object, err := os.ReadFile(objectPath)
+	if err != nil {
+		return err
+	}
+	if string(object) != "saved\n" {
+		return fmt.Errorf("snapshot storage value = %q, want saved", object)
+	}
+	if _, err := loadSnapshot(ctx, appRoot, cfg, snapshotLoadOptions{Input: archivePath, DB: true, Mode: "merge"}); err == nil {
+		return fmt.Errorf("snapshot database merge unexpectedly accepted duplicate rows")
+	}
+	if err := db.QueryRowContext(ctx, `select value from reports.snapshot_marker`).Scan(&value); err != nil {
+		return err
+	}
+	if value != "saved" {
+		return fmt.Errorf("failed snapshot merge changed database value to %q", value)
+	}
+	return nil
 }
 
 func withPatchedEnvForDB(appRoot string, env []string, fn func() error) error {

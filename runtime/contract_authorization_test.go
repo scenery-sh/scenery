@@ -79,6 +79,42 @@ func TestContractServerRunsAuthorizationBeforeHandler(t *testing.T) {
 	}
 }
 
+func TestContractAuthFailureUsesDeclaredAdmissionOutcome(t *testing.T) {
+	restore := replaceGlobalRegistryForTest()
+	defer restore()
+	RegisterAuthHandler(&AuthHandler{Authenticate: func(context.Context, string) (AuthInfo, error) {
+		return AuthInfo{UID: "user"}, nil
+	}})
+	if err := RegisterEndpointChecked(&Endpoint{
+		Service: "house", Name: "Protected", Access: Auth, Path: "/protected", Methods: []string{http.MethodGet},
+		ContractPolicy: &ContractHTTPPolicy{AuthorizationStrategy: "public", TransportStatuses: map[string]int{"admission.unauthenticated": http.StatusUnauthorized}},
+		DecodeContractRequest: func(*http.Request, map[string]string) (ContractDecodedRequest, error) {
+			return ContractDecodedRequest{}, nil
+		},
+		Invoke: func(context.Context, []any, any) (any, error) { return nil, nil },
+		EncodeContractOutcome: func(*http.Request, any) (ContractHTTPResponse, error) {
+			return ContractHTTPResponse{Status: http.StatusOK}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := newServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	server.Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	if recorder.Code != http.StatusUnauthorized || recorder.Header().Get("Content-Type") != "application/problem+json" {
+		t.Fatalf("status=%d content-type=%q body=%s", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body.String())
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil || body.Code != "admission.unauthenticated" {
+		t.Fatalf("body=%s decode=%v", recorder.Body.String(), err)
+	}
+}
+
 func TestContractAuthorizationFailsClosed(t *testing.T) {
 	restore := enterState(&requestState{request: shared.Request{}})
 	defer restore()

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.snapshot.save.schema.json",
+  "title": "scenery snapshot save",
+  "type": "object",
+  "required": ["kind", "schema_revision", "archive", "app", "files", "bytes"],
+  "properties": {
+    "kind": { "const": "scenery.snapshot.save" },
+    "schema_revision": { "const": "sha256:2b96edbc636dc4810f4cd13a15ed7ec9703c5ba78e5d7ee5406bbd38fcf1110a" },
+    "archive": { "type": "string", "minLength": 1 },
+    "app": { "$ref": "#/$defs/app" },
+    "db": { "$ref": "#/$defs/db" },
+    "storage": { "$ref": "#/$defs/storage" },
+    "files": { "type": "integer", "minimum": 0 },
+    "bytes": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "app": {
+      "type": "object",
+      "required": ["name", "id", "root"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "root": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "db": {
+      "type": "object",
+      "required": ["database", "source", "action"],
+      "properties": {
+        "database": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "enum": ["managed", "external"] },
+        "action": { "type": "string", "enum": ["saved", "overwrite", "merge"] }
+      },
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "required": ["cell_id", "cell_root", "stores", "files", "bytes"],
+      "properties": {
+        "cell_id": { "type": "string", "minLength": 1 },
+        "cell_root": { "type": "string", "minLength": 1 },
+        "stores": { "type": "integer", "minimum": 0 },
+        "files": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "conflicts": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "overwritten": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "anyOf": [{ "required": ["db"] }, { "required": ["storage"] }],
+  "additionalProperties": false
+}

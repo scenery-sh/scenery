@@ -113,6 +113,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Run code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
 | Inspect databases | `scenery db list -o json`, `scenery db shell` |
 | Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
+| Save or load app data | `scenery snapshot save|load --db --storage ... -o json` |
 
 ## Runtime Command Choice
 
@@ -143,6 +144,15 @@ scenery storage ls <store> -o json
 ```
 
 An explicit app-level `DATABASE_URL` is external. Otherwise `scenery up` manages one database per app root/worktree and service schemas. Use `db apply` for schema/app setup, `db seed` for initial data, and `db setup` for both. Changed applied seeds and destructive seed SQL fail closed.
+
+For a portable point-in-time copy, explicitly select the data classes. Stop the runtime before load; overwrite is destructive and requires `--yes`.
+
+```sh
+scenery snapshot save --db --storage --output app.zip -o json
+scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o json
+```
+
+Load validates every payload checksum before changing data. Managed database overwrite and storage-store replacement are rerunnable after interruption; use `--dry-run` for preflight only.
 
 ## Generated And Cache Artifacts
 

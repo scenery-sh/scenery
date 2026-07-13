@@ -47,6 +47,7 @@ Available now:
 - beta public deploy edge for serving a live local app on your own domain
 - dashboard and API explorer
 - configured generators, SQLC refresh, database lifecycle commands, and repo task commands
+- portable checksummed database-and-storage snapshots with recoverable overwrite loads
 - app-local code tasks
 - TypeScript client generation
 - benchmark fixture
@@ -373,6 +374,8 @@ scenery db setup [--app-root <path>] [-o json]
 scenery db reset [--app-root <path>] [--service <name>] [--yes]
 scenery db drop [--app-root <path>] [--service <name>] [--yes]
 scenery db server status|start|stop|logs [-o json] [--yes]
+scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
+scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
 scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [--db] [-o json]
@@ -423,11 +426,15 @@ The DB lifecycle split uses `scenery db apply` for schema/app database mutation,
 Worktree database isolation is automatic: the managed database name includes a
 hash of the app root, so `scenery worktree create <name> -o json` only creates the
 Git worktree. `scenery db reset <service>` drops and recreates only that service
-schema. Portable database and storage save/load is tracked by active plan 0100.
+schema. `scenery snapshot save --db --storage --output app.zip` writes a portable,
+checksummed restore point. Stop the runtime before `snapshot load`; overwrite
+requires `--yes`, verifies the whole archive first, and is safe to rerun after an
+interrupted database restore or storage swap.
 
 The default self-harness includes a Docker-gated Postgres probe for the shared
 server, one app database, service schemas, durable state, auth bootstrap,
-worktree isolation, and service-schema reset.
+worktree isolation, service-schema reset, and a database-plus-storage snapshot
+round-trip.
 
 ## Managed Toolchain
 
