@@ -43,20 +43,22 @@ func TestCLIExitStatusMatchesEdition2027Contract(t *testing.T) {
 
 func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
-		want int
+		name        string
+		args        []string
+		want        int
+		wantCommand string
 	}{
-		{name: "success", args: nil, want: 0},
-		{name: "invalid usage", args: []string{"not-a-command"}, want: 2},
-		{name: "missing resource", args: []string{"get", "missing/operation/nope", "--app-root", contractFixtureRoot(t)}, want: 2},
+		{name: "success", args: nil, want: 0, wantCommand: "help"},
+		{name: "invalid usage", args: []string{"not-a-command"}, want: 2, wantCommand: "not-a-command"},
+		{name: "missing resource", args: []string{"get", "missing/operation/nope", "--app-root", contractFixtureRoot(t)}, want: 2, wantCommand: "get"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
 			args := []string{"-test.run=^TestCLIProcessHelper$", "--"}
 			args = append(args, test.args...)
 			command := exec.Command(os.Args[0], args...)
-			command.Env = append(os.Environ(), "SCENERY_TEST_CLI_PROCESS=1")
+			command.Env = append(os.Environ(), "SCENERY_TEST_CLI_PROCESS=1", "HOME="+home)
 			err := command.Run()
 			got := 0
 			if exitError, ok := err.(*exec.ExitError); ok {
@@ -66,6 +68,17 @@ func TestCLIProcessExitStatusMatchesEdition2027Contract(t *testing.T) {
 			}
 			if got != test.want {
 				t.Fatalf("exit code = %d, want %d", got, test.want)
+			}
+			encoded, err := os.ReadFile(filepath.Join(home, ".scenery", "telemetry.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var record cliTelemetryRecord
+			if err := json.Unmarshal(encoded, &record); err != nil {
+				t.Fatal(err)
+			}
+			if record.Command != test.wantCommand || record.ExitCode != test.want {
+				t.Fatalf("telemetry = %#v, want command %q and exit code %d", record, test.wantCommand, test.want)
 			}
 		})
 	}

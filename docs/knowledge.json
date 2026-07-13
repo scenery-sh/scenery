@@ -693,7 +693,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular current app model, app-root runtime config, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular current app model, app-root runtime config, private best-effort CLI telemetry, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -800,7 +800,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-13",
       "review_after": "2026-08-12",
-      "summary": "Frozen local developer and agent-facing contract for current applications and exact current CLI JSON surfaces, including complete schema and specification identities, strict manifests, source-transaction recovery, truthful implementation status, typed HTTP path tails, graph provenance, trusted plans, runtimes, deploy, data, storage, observability, harness validation, generators, and code tasks.",
+      "summary": "Frozen local developer and agent-facing contract for current applications and exact current CLI JSON surfaces, including private best-effort CLI telemetry, complete schema and specification identities, strict manifests, source-transaction recovery, truthful implementation status, typed HTTP path tails, graph provenance, trusted plans, runtimes, deploy, data, storage, observability, harness validation, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",

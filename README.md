@@ -378,6 +378,8 @@ scenery worktree list [--app-root <path>] [-o json]
 scenery worktree remove <name> [--app-root <path>] [--db] [-o json]
 ```
 
+Each invocation best-effort appends command, duration, exit code, version, and `oneshot` or `long_running` mode to `~/.scenery/telemetry.jsonl`. Full arguments are never recorded, and telemetry write failures never affect the command.
+
 `scenery db list -o json` reports the app's Postgres database and service schemas.
 An explicit app-level `DATABASE_URL` wins and makes the database external;
 otherwise `scenery up` creates one isolated database per app root/worktree on the

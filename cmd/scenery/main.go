@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	appcfg "scenery.sh/internal/app"
 	"scenery.sh/internal/compiler"
@@ -24,12 +25,27 @@ import (
 var cliStderr io.Writer = os.Stderr
 
 func main() {
-	if err := renderMachineError(os.Stdout, os.Args[1:], run(os.Args[1:])); err != nil {
-		if _, ok := errors.AsType[*silentCLIError](err); !ok {
+	os.Exit(executeCLI(os.Args[1:]))
+}
+
+func executeCLI(args []string) int {
+	started := time.Now()
+	err := renderMachineError(os.Stdout, args, run(args))
+	exitCode := cliExitCode(err)
+	recordCLITelemetry(cliTelemetryRecord{
+		At:         started.UTC(),
+		Command:    telemetryCommand(args),
+		DurationMS: time.Since(started).Milliseconds(),
+		ExitCode:   exitCode,
+		Version:    sceneryVersion,
+		Mode:       telemetryMode(args),
+	})
+	if err != nil {
+		if _, silent := errors.AsType[*silentCLIError](err); !silent {
 			fmt.Fprintln(os.Stderr, err)
 		}
-		os.Exit(cliExitCode(err))
 	}
+	return exitCode
 }
 
 func renderMachineError(stdout io.Writer, args []string, err error) error {
