@@ -49,6 +49,12 @@ func TestSnapshotParsersRequireExplicitDestructiveChoices(t *testing.T) {
 	}
 }
 
+func TestSnapshotVerifyRequiresInput(t *testing.T) {
+	if _, err := parseSnapshotVerifyArgs(nil); err == nil || !strings.Contains(err.Error(), "--input") {
+		t.Fatalf("parseSnapshotVerifyArgs error = %v", err)
+	}
+}
+
 func TestSnapshotStorageRoundTripRecoversInterruptedReplacement(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SCENERY_AGENT_HOME", home)
@@ -67,6 +73,13 @@ func TestSnapshotStorageRoundTripRecoversInterruptedReplacement(t *testing.T) {
 	}
 	if result.Files != 2 || result.Storage == nil || result.Storage.Files != 2 {
 		t.Fatalf("save result = %#v", result)
+	}
+	verified, err := verifySnapshot(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verified.Storage || verified.DB || verified.Files != 2 || verified.Bytes != result.Bytes {
+		t.Fatalf("verify result = %#v", verified)
 	}
 	archive, err := openSnapshotArchive(archivePath)
 	if err != nil {

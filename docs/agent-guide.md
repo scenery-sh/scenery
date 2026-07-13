@@ -113,7 +113,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 | Run code tasks | `scenery task list -o json`, `scenery task run <domain>:<name> -- [args...]` |
 | Inspect databases | `scenery db list -o json`, `scenery db shell` |
 | Apply initial DB state | `scenery db apply -o json`, `scenery db seed -o json`, `scenery db setup -o json` |
-| Save or load app data | `scenery snapshot save|load --db --storage ... -o json` |
+| Save, verify, or load app data | `scenery snapshot save|verify|load ... -o json` |
 
 ## Runtime Command Choice
 
@@ -150,10 +150,11 @@ For a portable point-in-time copy, explicitly select the data classes. Stop the 
 
 ```sh
 scenery snapshot save --db --storage --output app.zip -o json
+scenery snapshot verify --input app.zip -o json
 scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o json
 ```
 
-Load validates every payload checksum before changing data. Managed database overwrite and storage-store replacement are rerunnable after interruption; use `--dry-run` for preflight only.
+Verify validates every payload checksum without discovering or stopping a target app. Load repeats validation before changing data. Managed database overwrite and storage-store replacement are rerunnable after interruption; use `--dry-run` for target-specific preflight only. Use `scripts/snapshot-backup.sh` from the host scheduler for verified retention and optional rclone replication; Scenery does not install or own that schedule.
 
 ## Generated And Cache Artifacts
 

@@ -247,11 +247,39 @@ Save or restore a portable point-in-time copy of the database and storage cell e
 
 ```sh
 scenery snapshot save --db --storage --output app.zip -o json
+scenery snapshot verify --input app.zip -o json
 scenery down
 scenery snapshot load --db --storage --input app.zip --mode overwrite --yes -o json
 ```
 
 The archive is checksummed before load. Use `--mode merge` only when an atomic data-only database insert and storage conflict policy are intended; use `--dry-run` to preflight. Snapshots are operator-created restore points, not continuous offsite replication.
+
+### Scheduled Off-Machine Backups
+
+Run the repository's backup runner from the host scheduler during a quiet write window. It serializes runs per output directory, recovers a stale lock after an interrupted job, validates every archive checksum, copies with rclone only after validation, and prunes local history only after all earlier steps succeed:
+
+```sh
+/path/to/scenery/scripts/snapshot-backup.sh \
+  --app-root /srv/my-app \
+  --output-dir /var/backups/my-app \
+  --keep 14 \
+  --copy-to s3:company-backups/my-app
+```
+
+Configure rclone credentials outside the app and apply a remote bucket lifecycle policy for remote retention. The script deliberately installs no Scenery schedule. On macOS, create a user launch agent whose `ProgramArguments` are the command and arguments above and whose `StartCalendarInterval` contains `Hour = 3`; on Linux use a systemd timer, or add the same command to cron. Keep stdout/stderr in an operator-owned log and alert on nonzero exit.
+
+At least monthly, restore the newest replicated archive into a disposable worktree with a separate `SCENERY_AGENT_HOME`, then run the app's data assertions as well as route readiness:
+
+```sh
+scenery snapshot verify --input /tmp/replicated-latest.zip -o json
+SCENERY_AGENT_HOME=/tmp/scenery-restore-drill-agent scenery snapshot load \
+  --app-root /tmp/my-app-restore-drill --input /tmp/replicated-latest.zip \
+  --db --storage --mode overwrite --yes -o json
+SCENERY_AGENT_HOME=/tmp/scenery-restore-drill-agent scenery up \
+  --detach --wait ready --app-root /tmp/my-app-restore-drill
+```
+
+Check representative database rows and stored objects through the app, then run `scenery down --all` for the drill root and remove only the disposable worktree and drill agent home. A checksum-only verify is not a restore drill.
 
 ## Storage
 

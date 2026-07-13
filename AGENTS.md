@@ -98,6 +98,7 @@ scenery is a Go-native service runtime and local development platform. Think in 
 - `scenery worker` builds once and starts a worker-role runtime for declared durable executions and schedules.
 - `scenery up` starts the app root's one live dev runtime: supervised app process, file watching, dashboard, API explorer, logs, traces, metrics, managed dev services, and optional frontend routing. Detached `--wait ready` returns only after every advertised route and one declared frontend asset are reachable. While that supervisor remains live, shared Victoria observability is probed and recovered as one managed stack; failed recovery is always surfaced as a degraded error rather than hidden behind verbose output.
 - The local agent and managed edge are single-owner processes. Startup fails closed when a verified owner holds the runtime lock, reaps only same-user stale owners whose process fingerprints still match, and `scenery doctor` reports duplicate owners or foreign listeners on Scenery-owned ports.
+- Portable snapshots can be verified without a target app or stopped runtime. Scheduled retention, off-machine copy, and restore drills remain operator-owned through `scripts/snapshot-backup.sh` plus the host scheduler.
 - `scenery system agent restart` restarts only the local control plane and router. Registered shared substrate processes survive; destructive shutdown stays with substrate-specific commands and verified lifecycle owners.
 - Every CLI invocation best-effort appends one coarse, argument-free usage record to `~/.scenery/telemetry.jsonl`; telemetry write failures never affect the command result.
 - Route manifests expose the API, Scenery-owned runtime/dashboard surfaces where appropriate, and configured frontends; arbitrary backend names do not receive reserved route behavior.
@@ -202,6 +203,7 @@ scenery generate --target typescript_client.<name> [--check] [--app-root <path>]
 scenery db list|shell|apply|seed|setup|reset|drop [--app-root <path>]
 scenery db seed [--app-root <path>] [--env <name>] [--dry-run] [-o json]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]
+scenery snapshot verify --input <file.zip> [-o json]
 scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]
 ```
 

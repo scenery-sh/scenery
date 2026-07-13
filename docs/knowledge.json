@@ -693,7 +693,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-14",
       "review_after": "2026-08-13",
-      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular current app model, single-owner agent and edge runtimes, end-to-end detached readiness, app-root runtime config, snapshot workflows, private best-effort CLI telemetry, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
+      "summary": "Repo-local operating manual for agents changing Scenery itself, including the singular current app model, single-owner agent and edge runtimes, end-to-end detached readiness, app-root runtime config, verified operator-scheduled snapshot workflows, private best-effort CLI telemetry, trusted plan issuance, local Markdown issue tracking and triage, domain docs, package boundaries, cached-by-default validation, documentation drift handling, AGENTS hierarchy, and client-app instruction rules.",
       "tags": [
         "agents",
         "repo",
@@ -710,7 +710,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-14",
       "review_after": "2026-08-13",
-      "summary": "Concise installed-skill entrypoint for current Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, end-to-end detached readiness, dev runtimes and capabilities, deploy, storage, Postgres, portable snapshots, durable work, observability, TypeScript clients, and cached-by-default validation loops.",
+      "summary": "Concise installed-skill entrypoint for current Scenery apps, including target-app AGENTS checks, graph views and provenance, schema-driven authoring, trusted transactions, end-to-end detached readiness, dev runtimes and capabilities, deploy, storage, Postgres, portable snapshot verification, durable work, observability, TypeScript clients, and cached-by-default validation loops.",
       "tags": [
         "skill",
         "agents",
@@ -729,7 +729,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-14",
       "review_after": "2026-08-13",
-      "summary": "Agent workflow guide for current app roots, including CLI JSON, graph provenance, schema-driven authoring, typed HTTP path tails, trusted plans and rename receipts, single-owner runtime diagnosis, end-to-end detached readiness, typed Go config, runtime capabilities, deploy, storage, Postgres, portable snapshots, observability, cached-by-default tests, clients, and app-local AGENTS hierarchy.",
+      "summary": "Agent workflow guide for current app roots, including CLI JSON, graph provenance, schema-driven authoring, typed HTTP path tails, trusted plans and rename receipts, single-owner runtime diagnosis, end-to-end detached readiness, typed Go config, runtime capabilities, deploy, storage, Postgres, portable snapshot verification and operator scheduling, observability, cached-by-default tests, clients, and app-local AGENTS hierarchy.",
       "tags": [
         "agents",
         "cli",
@@ -800,7 +800,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-14",
       "review_after": "2026-08-13",
-      "summary": "Frozen local developer and agent-facing contract for current applications and exact current CLI JSON surfaces, including private best-effort CLI telemetry, complete schema and specification identities, strict manifests, source-transaction recovery, truthful implementation status, typed HTTP path tails, graph provenance, trusted plans, single-owner runtimes, end-to-end detached readiness, deploy, data, checksummed database and storage snapshots, observability, harness validation, generators, and code tasks.",
+      "summary": "Frozen local developer and agent-facing contract for current applications and exact current CLI JSON surfaces, including private best-effort CLI telemetry, complete schema and specification identities, strict manifests, source-transaction recovery, truthful implementation status, typed HTTP path tails, graph provenance, trusted plans, single-owner runtimes, end-to-end detached readiness, deploy, data, checksummed database and storage snapshot save, verify, and load, observability, harness validation, generators, and code tasks.",
       "tags": [
         "contract",
         "cli",
@@ -947,7 +947,7 @@
       "freshness": "current",
       "last_reviewed": "2026-07-14",
       "review_after": "2026-08-13",
-      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated Go contracts, typed HTTP and internal bindings, constructor capabilities, auth, storage, Postgres, portable snapshots, end-to-end detached readiness, durable work and schedules, TypeScript targets, observability, and validation workflows.",
+      "summary": "Practical recipes for building current Scenery apps, including .scn source, generated Go contracts, typed HTTP and internal bindings, constructor capabilities, auth, storage, Postgres, portable snapshot verification, scheduled retention, off-machine replication, restore drills, end-to-end detached readiness, durable work and schedules, TypeScript targets, observability, and validation workflows.",
       "tags": [
         "cookbook",
         "apps",

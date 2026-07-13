@@ -247,6 +247,11 @@ func buildHarnessSchemaValidationReport(repoRoot string, resp harnessSelfRespons
 			App: snapshotAppResult{Name: "app", ID: "app", Root: "/tmp/app"}, Mode: "overwrite",
 			DB: &snapshotDBResult{Database: "app_main", Source: "managed", Action: "overwrite"},
 		}},
+		{name: "snapshot.verify", schemaRel: "docs/schemas/scenery.snapshot.verify.schema.json", payload: snapshotVerifyResult{
+			cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.verify"), Archive: "/tmp/app.zip",
+			App: snapshotManifestApp{Name: "app", ID: "app"}, CreatedAt: time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
+			Files: 1, Bytes: 128, DB: true,
+		}},
 		{name: "snapshot.manifest", schemaRel: "docs/schemas/scenery.snapshot.manifest.schema.json", payload: snapshotManifest{
 			Kind: snapshotManifestKind, SchemaRevision: snapshotManifestSchemaRevision, CreatedAt: time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC),
 			App:   snapshotManifestApp{Name: "app", ID: "app"},

@@ -115,6 +115,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		"scenery.snapshot.load.schema.json",
 		"scenery.snapshot.manifest.schema.json",
 		"scenery.snapshot.save.schema.json",
+		"scenery.snapshot.verify.schema.json",
 		"scenery.version.schema.json",
 	)
 	resp := harnessSelfResponse{
@@ -140,7 +141,7 @@ func TestBuildHarnessSchemaValidationReport(t *testing.T) {
 		Artifacts: []harnessArtifact{{Name: "self-harness", Path: ".scenery/harness/self-latest.json", Exists: true}},
 	}
 	report := buildHarnessSchemaValidationReport(root, resp)
-	if len(report.Validated) != 22 {
+	if len(report.Validated) != 23 {
 		t.Fatalf("validated = %+v", report.Validated)
 	}
 	if hasErrorDiagnostics(report.Diagnostics) {

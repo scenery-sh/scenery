@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scenery.sh/schemas/scenery.snapshot.verify.schema.json",
+  "title": "scenery snapshot verify",
+  "type": "object",
+  "required": ["kind", "schema_revision", "archive", "app", "created_at", "files", "bytes", "db", "storage"],
+  "properties": {
+    "kind": { "const": "scenery.snapshot.verify" },
+    "schema_revision": { "const": "sha256:987c278f197ef24ba46d2123574f9e356cea37132c22d15d1a82d9cc309473ab" },
+    "archive": { "type": "string", "minLength": 1 },
+    "app": {
+      "type": "object",
+      "required": ["name", "id"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "files": { "type": "integer", "minimum": 0 },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "db": { "type": "boolean" },
+    "storage": { "type": "boolean" }
+  },
+  "additionalProperties": false
+}

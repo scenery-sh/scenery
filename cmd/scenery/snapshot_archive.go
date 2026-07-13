@@ -397,6 +397,31 @@ func openSnapshotArchive(filePath string) (*snapshotArchive, error) {
 	return archive, nil
 }
 
+func verifySnapshot(filePath string) (snapshotVerifyResult, error) {
+	input, err := filepath.Abs(filePath)
+	if err != nil {
+		return snapshotVerifyResult{}, err
+	}
+	archive, err := openSnapshotArchive(input)
+	if err != nil {
+		return snapshotVerifyResult{}, err
+	}
+	defer archive.reader.Close()
+	result := snapshotVerifyResult{
+		cliPayloadIdentity: newCLIPayloadIdentity("scenery.snapshot.verify"),
+		Archive:            input,
+		App:                archive.manifest.App,
+		CreatedAt:          archive.manifest.CreatedAt,
+		Files:              int64(len(archive.manifest.Files)),
+		DB:                 archive.manifest.DB != nil,
+		Storage:            archive.manifest.Storage != nil,
+	}
+	for _, file := range archive.manifest.Files {
+		result.Bytes += file.Bytes
+	}
+	return result, nil
+}
+
 func validateSnapshotArchivePath(name string) error {
 	if name == "" || name == ".." || strings.HasPrefix(name, "../") || strings.Contains(name, "\\") || path.IsAbs(name) || path.Clean(name) != name || strings.HasSuffix(name, "/") {
 		return fmt.Errorf("invalid snapshot archive path %q", name)

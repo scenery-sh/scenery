@@ -38,6 +38,11 @@ type snapshotLoadOptions struct {
 	JSON       bool
 }
 
+type snapshotVerifyOptions struct {
+	Input string
+	JSON  bool
+}
+
 type snapshotManifest struct {
 	Kind           string                   `json:"kind"`
 	SchemaRevision string                   `json:"schema_revision"`
@@ -126,18 +131,49 @@ type snapshotLoadResult struct {
 	Storage *snapshotStorageResult `json:"storage,omitempty"`
 }
 
+type snapshotVerifyResult struct {
+	cliPayloadIdentity
+	Archive   string              `json:"archive"`
+	App       snapshotManifestApp `json:"app"`
+	CreatedAt time.Time           `json:"created_at"`
+	Files     int64               `json:"files"`
+	Bytes     int64               `json:"bytes"`
+	DB        bool                `json:"db"`
+	Storage   bool                `json:"storage"`
+}
+
 func snapshotCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: scenery snapshot save|load [flags]")
+		return fmt.Errorf("usage: scenery snapshot save|verify|load [flags]")
 	}
 	switch args[0] {
 	case "save":
 		return runSnapshotSave(context.Background(), os.Stdout, args[1:])
 	case "load":
 		return runSnapshotLoad(context.Background(), os.Stdout, args[1:])
+	case "verify":
+		return runSnapshotVerify(os.Stdout, args[1:])
 	default:
 		return fmt.Errorf("unknown snapshot command %q", args[0])
 	}
+}
+
+func parseSnapshotVerifyArgs(args []string) (snapshotVerifyOptions, error) {
+	var opts snapshotVerifyOptions
+	flags := newCLIFlagSet("snapshot verify")
+	flags.StringVar(&opts.Input, "input", "", "")
+	registerJSONOutput(flags, &opts.JSON)
+	positionals, err := parseCLIFlags(flags, args)
+	if err != nil {
+		return snapshotVerifyOptions{}, err
+	}
+	if err := rejectCLIPositionals(positionals); err != nil {
+		return snapshotVerifyOptions{}, err
+	}
+	if strings.TrimSpace(opts.Input) == "" {
+		return snapshotVerifyOptions{}, fmt.Errorf("snapshot verify requires --input <file.zip>")
+	}
+	return opts, nil
 }
 
 func parseSnapshotSaveArgs(args []string) (snapshotSaveOptions, error) {
@@ -255,6 +291,22 @@ func runSnapshotLoad(ctx context.Context, stdout io.Writer, args []string) error
 	} else {
 		fmt.Fprintf(stdout, "loaded snapshot %s\n", result.Archive)
 	}
+	return nil
+}
+
+func runSnapshotVerify(stdout io.Writer, args []string) error {
+	opts, err := parseSnapshotVerifyArgs(args)
+	if err != nil {
+		return err
+	}
+	result, err := verifySnapshot(opts.Input)
+	if err != nil {
+		return err
+	}
+	if opts.JSON {
+		return writeInspectJSON(stdout, result)
+	}
+	fmt.Fprintf(stdout, "verified snapshot %s (%d files, %d bytes)\n", result.Archive, result.Files, result.Bytes)
 	return nil
 }
 

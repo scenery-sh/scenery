@@ -130,9 +130,10 @@ scenery db list -o json
 scenery db seed --env development --dry-run -o json
 scenery db setup -o json
 scenery snapshot save --db --storage --output app.zip -o json
+scenery snapshot verify --input app.zip -o json
 ```
 
-Snapshots include only explicitly selected data. Stop the app before loading; use `--dry-run` to preflight and `--mode overwrite --yes` for an exact managed-database and storage replacement. Payload checksums are verified before mutation, and interrupted overwrite loads are safe to rerun.
+Snapshots include only explicitly selected data. Verify checks every payload without discovering or stopping a target app. Stop the app before loading; use `--dry-run` for target-specific preflight and `--mode overwrite --yes` for an exact managed-database and storage replacement. Payload checksums are verified again before mutation, and interrupted overwrite loads are safe to rerun.
 
 ## Generated TypeScript Clients
 
@@ -195,7 +196,7 @@ scenery traces list -o json [--app-root <path>]
 scenery metrics list -o json [--app-root <path>]
 scenery task list|inspect|run ...
 scenery db list|path|shell|apply|seed|setup|reset|drop ...
-scenery snapshot save|load --db --storage ...
+scenery snapshot save|verify|load ...
 scenery test [--app-root <path>] [go test flags/packages...]
 scenery harness [--app-root <path>] -o json --write
 ```

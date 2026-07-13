@@ -143,6 +143,7 @@ var helpReferenceGroups = []helpReferenceGroup{
 	}},
 	{Name: "Storage", Commands: []string{
 		"scenery snapshot save",
+		"scenery snapshot verify",
 		"scenery snapshot load",
 		"scenery storage status",
 		"scenery storage webui",
@@ -342,8 +343,8 @@ var helpCommands = []helpCommandEntry{
 	{
 		Command:     "snapshot",
 		Group:       "Storage",
-		Summary:     "Save and load portable Postgres and storage snapshots.",
-		Usage:       []string{"scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]", "scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]"},
+		Summary:     "Save, verify, and load portable Postgres and storage snapshots.",
+		Usage:       []string{"scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o json]", "scenery snapshot verify --input <file.zip> [-o json]", "scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o json]"},
 		Subcommands: []string{"save", "load"},
 		Flags:       []string{"--output <file.zip>", "--input <file.zip>", "--db", "--storage", "--mode overwrite|merge", "--on-conflict fail|skip|overwrite", "--yes", "--dry-run", "--app-root <path>", "-o", "json"},
 		JSON:        true,

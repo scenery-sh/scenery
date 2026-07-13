@@ -377,6 +377,7 @@ scenery db reset [--app-root <path>] [--service <name>] [--yes]
 scenery db drop [--app-root <path>] [--service <name>] [--yes]
 scenery db server status|start|stop|logs [-o json] [--yes]
 scenery snapshot save --output <file.zip> [--db] [--storage] [--app-root <path>] [-o human|json]
+scenery snapshot verify --input <file.zip> [-o human|json]
 scenery snapshot load --input <file.zip> [--db] [--storage] --mode overwrite|merge [--on-conflict fail|skip|overwrite] [--yes] [--dry-run] [--app-root <path>] [-o human|json]
 scenery worktree create <name> [--from <branch>] [--app-root <path>] [-o json]
 scenery worktree list [--app-root <path>] [-o json]
@@ -434,6 +435,8 @@ schema. `scenery snapshot save --db --storage --output app.zip` writes a portabl
 checksummed restore point. Stop the runtime before `snapshot load`; overwrite
 requires `--yes`, verifies the whole archive first, and is safe to rerun after an
 interrupted database restore or storage swap.
+
+`scenery snapshot verify --input app.zip` validates an archive without a target app or stopped runtime. For scheduled DB+storage backups, use `scripts/snapshot-backup.sh` from the host scheduler; it verifies before optional rclone replication and local retention.
 
 The default self-harness includes a Docker-gated Postgres probe for the shared
 server, one app database, service schemas, durable state, auth bootstrap,
