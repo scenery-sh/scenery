@@ -12,36 +12,11 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: scenery runtime / edge
   - Created: 2026-07-07
   - Focus: new `scenery deploy` surface — one privileged edge binds `0.0.0.0:80/443` (macOS root LaunchDaemon extending `dev.scenery.edge-helper`), Caddy terminates public ACME TLS, and requests route by `deploy.domain` in app config to the enabled app root's live dev session; login-time resume via user LaunchAgent, helper version-drift detection across `scenery upgrade`.
-- [0099 Google Connections and Gmail Platform](0099-google-connections-and-gmail.md)
-  - Status: active
-  - Owner: scenery auth / ONLV integration
-  - Created: 2026-07-07
-  - Focus: per-user Google connections with encrypted offline refresh tokens, single-flight refresh across processes, transient-vs-permanent error taxonomy with `reauth_required` status and reconnect flow, connection endpoints + `auth.GoogleAccessToken` API, and the Gmail integration contract ONLV builds on.
 - [0096 Dev Loop Performance](0096-dev-loop-performance.md)
   - Status: active
   - Owner: scenery runtime / agent DX
   - Created: 2026-07-06
   - Focus: speed up `scenery up` startup to full readiness through a single source snapshot, parse/compile fast paths, parallel startup phases, and tighter readiness probes. The test-suite target formerly referenced here is complete in plan 0050.
-- [0095 Symphony Hardening](0095-symphony-hardening.md)
-  - Status: active
-  - Owner: scenery dashboard / agent DX
-  - Created: 2026-07-03
-  - Focus: close Symphony auto-mode escalation over unauthenticated dashboard RPC, add run leases and stale recovery, separate max attempts from max turns, and harden runner workspace lifecycle.
-- [0094 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0094-local-storage-and-zerofs-removal.md)
-  - Status: active
-  - Owner: scenery runtime / storage
-  - Created: 2026-07-02
-  - Focus: promote the local filesystem storage backend to a production-supported kind with a documented rclone/restic S3 replication recipe, and remove ZeroFS entirely (adapter, managed dev service, toolchain artifact, p9 dependency, docs, schemas, harness surfaces).
-- [0090 Local Path Routing and Per-Runtime Dev Ports](0090-local-path-routing.md)
-  - Status: active
-  - Owner: scenery runtime / agent DX
-  - Created: 2026-06-27
-  - Focus: make localhost path routing with one automatic port per dev runtime the default local routing mode, keep Caddy, and make dnsmasq/domain routing optional.
-- [0079 Victoria Shared Substrate Visibility](0079-victoria-shared-substrate-visibility.md)
-  - Status: active
-  - Owner: scenery runtime / agent DX
-  - Created: 2026-06-26
-  - Focus: keep Victoria efficient through the existing shared-agent substrate, make reuse/ownership visible, and avoid OS-level service infrastructure unless measurements later justify it.
 - [0064 Agent-First Development Control Plane](0064-agent-first-development-control-plane.md)
   - Status: active
   - Owner: scenery maintainers / agent DX
@@ -57,11 +32,6 @@ reuse IDs; this list can still be ordered by current priority.
   - Owner: scenery runtime / release tooling / agent DX
   - Created: 2026-06-01
   - Focus: add a root frozen toolchain manifest, managed local tool store, `scenery toolchain` CLI, and remove implicit system `PATH` resolution for Scenery-managed tools.
-- [0063 Database Lifecycle Split](0063-db-lifecycle-split.md)
-  - Status: active
-  - Owner: scenery runtime / ONLV integration
-  - Created: 2026-06-02
-  - Focus: split DB apply, seed, and setup from generated SQLC artifacts and migrate ONLV to the new lifecycle.
 
 ## Agent-Friendly Local Runtime
 

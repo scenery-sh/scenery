@@ -32,7 +32,7 @@ Service-local seed files such as `SERVICE/db/seed.sql` are initial data. They ar
 - [x] 2026-06-02: Implemented `scenery db setup` as apply followed by seed.
 - [x] 2026-06-02: Wired `scenery dev` to the setup lifecycle before app startup, with rebuild skipping unless DB setup inputs change.
 - [x] 2026-06-02: Added seed safety diagnostics for destructive SQL and kept the no-escape-hatch fail-closed model.
-- [ ] Migrate ONLV to the split lifecycle.
+- [x] 2026-07-06: ONLV migrated to the split apply/seed/setup lifecycle as part of the Postgres-only data-platform acceptance in plan 0097.
 
 ## Surprises & Discoveries
 
@@ -71,7 +71,7 @@ Service-local seed files such as `SERVICE/db/seed.sql` are initial data. They ar
 
 ## Outcomes & Retrospective
 
-Not yet completed.
+Completed. Database mutation is split into apply, seed, and setup; SQLC remains source generation only. ONLV acceptance was completed by plan 0097's Postgres migration on 2026-07-06.
 
 As of 2026-06-02, the first two implementation slices are complete: service DB artifact discovery and `scenery db apply`.
 

@@ -6,6 +6,66 @@ Completed means implemented or shipped at least once. It does not imply stable
 support for every surface. Use [../local-contract.md](../local-contract.md) as
 the source of truth for stable, beta, and dev-only classification.
 
+## Google Connections and Gmail Platform
+
+- Status: completed
+- Owner: scenery auth / ONLV integration
+- Completed: 2026-07-14
+- Quality: B
+- ExecPlan: [0099 Google Connections and Gmail Platform](0099-google-connections-and-gmail.md)
+
+Shipped encrypted per-user offline Google connections, cross-process refresh serialization, explicit reconnect/scope failures, typed token access, and real ONLV Gmail API acceptance. Optional proactive worker refresh remains a downstream product decision.
+
+## Symphony Hardening
+
+- Status: completed
+- Owner: scenery dashboard / agent DX
+- Completed: 2026-07-03
+- Quality: B
+- ExecPlan: [0095 Symphony Hardening](0095-symphony-hardening.md)
+
+Shipped local-trust auto-mode gating, run leases and stale recovery, terminal timeout/stall routing, distinct attempt limits, race fixes, and workspace reset/cleanup.
+
+## Local Filesystem Storage and ZeroFS Removal
+
+- Status: completed
+- Owner: scenery runtime / storage
+- Completed: 2026-07-02
+- Quality: B
+- ExecPlan: [0094 Local Filesystem Storage Promotion and Complete ZeroFS Removal](0094-local-storage-and-zerofs-removal.md)
+
+Promoted the checked-fsync local backend for app and headless runtimes and removed the ZeroFS adapter, process, toolchain artifact, dependency, configuration, and operational surfaces.
+
+## Local Path Routing
+
+- Status: completed
+- Owner: scenery runtime / agent DX
+- Completed: 2026-06-27
+- Quality: B
+- ExecPlan: [0090 Local Path Routing and Per-Runtime Dev Ports](0090-local-path-routing.md)
+
+Made one leased localhost base URL plus path routes the default per-runtime dev surface, with route manifests for agents and optional host-mode routing retained.
+
+## Victoria Shared Substrate Visibility
+
+- Status: completed
+- Owner: scenery runtime / agent DX
+- Completed: 2026-06-26
+- Quality: B
+- ExecPlan: [0079 Victoria Shared Substrate Visibility](0079-victoria-shared-substrate-visibility.md)
+
+Kept Victoria shared through the existing agent substrate registry, exposed reuse and ownership through CLI state, and retained the simple no-agent fallback without a new OS service.
+
+## Database Lifecycle Split
+
+- Status: completed
+- Owner: scenery runtime / ONLV integration
+- Completed: 2026-07-06
+- Quality: B
+- ExecPlan: [0063 Database Lifecycle Split](0063-db-lifecycle-split.md)
+
+Split database apply, seed, and setup from SQLC source generation, added fail-closed seed safety and setup fingerprinting, and completed ONLV migration through plan 0097's Postgres acceptance.
+
 ## Snapshot Save/Load
 
 - Status: completed

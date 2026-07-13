@@ -19,7 +19,7 @@ Observable end state:
 - [x] Milestone 2: connect / callback / status / disconnect endpoints
 - [x] Milestone 3: token access API + refresh engine with fake-Google tests
 - [x] Milestone 4: docs — local contract, cookbook Gmail recipe, env registry, ONLV integration contract
-- [ ] Milestone 5 (optional, separate decision): worker cron proactive refresh; ONLV end-to-end acceptance
+- [x] 2026-07-14: Closed the plan after real ONLV consent, encrypted-token, token-access, and Gmail API acceptance. Optional proactive worker refresh remains a separate downstream product decision, not an unfinished platform milestone.
 
 (2026-07-07) Plan created. No implementation started. Depends on plan 0098 (Google social login enable/disable + fake-Google test scaffolding) landing first.
 (2026-07-07) Plan 0098 completed in this changeset, so this plan is unblocked once the changeset lands.
@@ -51,7 +51,7 @@ Observable end state:
 
 ## Outcomes & Retrospective
 
-Implementation milestones 1-4 are complete. Real-Google consent, token retrieval, encrypted storage, and a Gmail REST profile call are proven in ONLV against `p.brazdil@gmail.com`. Milestone 5 remains explicitly optional and deferred to the downstream ONLV Gmail product plan.
+Completed. Real-Google consent, token retrieval, encrypted storage, and a Gmail REST profile call are proven in ONLV against `p.brazdil@gmail.com`. Proactive worker refresh remains explicitly optional and deferred to the downstream ONLV Gmail product plan.
 
 ## Context and Orientation
 

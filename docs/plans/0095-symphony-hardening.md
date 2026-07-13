@@ -78,7 +78,7 @@ Terminal task worktrees are removed from the Symphony cache and Git worktree reg
 
 ## Outcomes & Retrospective
 
-Implemented the Symphony hardening slice: dashboard RPC auto-mode escalation is blocked, local CLI auto opt-in exists, run leases and stale recovery are implemented, timeout/stall statuses are terminal and routed, `max_attempts` is distinct from `max_turns`, client races are fixed, latest-run selection is attempt-based, and workspace reset/cleanup is covered by tests.
+Completed. Dashboard RPC auto-mode escalation is blocked, local CLI auto opt-in exists, run leases and stale recovery are implemented, timeout/stall statuses are terminal and routed, `max_attempts` is distinct from `max_turns`, client races are fixed, latest-run selection is attempt-based, and workspace reset/cleanup is covered by tests.
 
 Validation passed for focused race tests, full Go tests, and consolenext lint/typecheck/build. `scenery harness self --summary --write` remains blocked by the existing missing `scenery-postgres` managed container state described in Surprises & Discoveries.
 

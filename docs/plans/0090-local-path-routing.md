@@ -150,7 +150,7 @@ The current DNS path installs/runs dnsmasq and resolver state, and that is the p
 
 ## Outcomes & Retrospective
 
-Path-mode local dev is now the default for agent-backed `scenery up`. Sessions carry a route manifest with `mode`, `base_url`, route records, and a per-runtime port lease; compatibility `routes` are still populated from that manifest.
+Completed. Path-mode local dev is now the default for agent-backed `scenery up`. Sessions carry a route manifest with `mode`, `base_url`, route records, and a per-runtime port lease; compatibility `routes` are still populated from that manifest.
 
 dnsmasq and wildcard HTTPS are no longer required for default local development. Host/domain routing remains available through `dev.routing.mode = "host"` and keeps the existing edge readiness checks.
 
