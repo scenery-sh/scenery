@@ -119,6 +119,7 @@ Use `-o json` for compiler commands and command-specific current protocols. Neve
 - Use `scenery up` for the app root's one live development runtime and all safe local capabilities.
 - Use `scenery up --detach` when the local agent should retain it; the default wait returns after readiness.
 - Use `scenery ps -o json` to discover the current base URL, route manifest, child health, and substrate state.
+- Use `scenery system agent restart` to restart only the control plane/router; registered Postgres and Victoria processes survive.
 - Use `scenery logs --follow` for the current runtime.
 - Use `scenery down` to stop it; add destructive cleanup flags only intentionally.
 - Use `scenery worker` for a worker-role runtime serving declared durable executions and schedules.

@@ -253,39 +253,6 @@ func (s *Server) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	if s.registry != nil {
-		for _, substrate := range s.registry.ListSubstrates() {
-			substrateOwnerVerified := false
-			if substrate.OwnerPID > 0 || substrate.Owner.PID > 0 {
-				if _, err := ownerForSignal(substrate.OwnerPID, substrate.Owner); err == nil {
-					substrateOwnerVerified = true
-				} else {
-					slog.Warn("substrate owner fingerprint did not verify; component owners are required for safe interrupt", "kind", substrate.Kind, "pid", firstPositive(substrate.Owner.PID, substrate.OwnerPID), "err", err)
-				}
-			}
-			for name, pid := range substrate.PIDs {
-				if pid <= 0 {
-					continue
-				}
-				if owner := substrate.Owners[name]; owner.PID > 0 {
-					if owner.PID != pid {
-						slog.Warn("skipping substrate component interrupt because owner pid does not match component pid", "kind", substrate.Kind, "component", name, "pid", pid, "owner_pid", owner.PID)
-						continue
-					}
-					if _, err := ownerForSignal(pid, owner); err != nil {
-						slog.Warn("skipping substrate component interrupt because owner fingerprint did not verify", "kind", substrate.Kind, "component", name, "pid", pid, "err", err)
-						continue
-					}
-				} else if !substrateOwnerVerified {
-					slog.Warn("skipping substrate component interrupt because no verified owner fingerprint is available", "kind", substrate.Kind, "component", name, "pid", pid)
-					continue
-				}
-				if err := interruptProcess(pid); err != nil {
-					slog.Warn("failed to interrupt scenery substrate process", "kind", substrate.Kind, "component", name, "pid", pid, "err", err)
-				}
-			}
-		}
-	}
 	if s.paths.SocketPath != "" {
 		if err := os.Remove(s.paths.SocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)

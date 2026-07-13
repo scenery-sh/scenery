@@ -22,7 +22,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [ ] Phase 0: Record the current agent-safe default baseline with tests, install, harness, and live ONLV URL checks.
 - [ ] Phase 1.1: Make dev dashboard/log storage agent-owned in agent mode even when `SCENERY_DEV_CACHE_DIR` is exported.
 - [ ] Phase 1.2: Add DB-aware prune and prune stale managed Postgres substrate session metadata.
-- [ ] Phase 1.3: Make `scenery agent restart` preserve shared substrates by default.
+- [x] Phase 1.3: Make `scenery agent restart` preserve shared substrates by default.
 - [x] Phase 1.4: Remove or hard-block the legacy local proxy from the normal `scenery dev` surface with no backwards-compatibility alias.
 - [x] 2026-07-07: Separate source grep and focused tests covered old CLI/env proxy paths: `scenery up --proxy` and `scenery up --trust` are unknown flags, and `SCENERY_LOCAL_PROXY` is absent from production `cmd/scenery` and `internal` source. App-config `proxy` removal did not close this phase by itself.
 - [ ] Phase 2: Add `dev.setup` run policy and update ONLV to use schema-change setup.
@@ -34,8 +34,9 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
 - [ ] Phase 5.2: Add a rebrand-migration sweep that detects and stops pre-rebrand `~/.onlava` processes and offers `~/.onlava` state cleanup.
 - [ ] Phase 5.3: Teach `scenery doctor` to flag duplicate listeners on scenery-owned ports and orphaned `scenery system agent` processes.
 - [x] 2026-06-12: Hardened shared substrate and Postgres branch locks with bounded nonblocking acquisition, named wait diagnostics, real Windows file locking, short `branches.lock` registry sections, and a separate parent-database operation lock for branch DDL.
-- [x] 2026-07-13: Made running `scenery up` supervisors self-heal the shared Victoria stack after a component or agent-driven shutdown, using owner verification, the existing substrate locks/registry, and bounded retry backoff. Phase 1.3 remains open because ordinary agent restart still interrupts other shared substrate kinds.
+- [x] 2026-07-13: Made running `scenery up` supervisors self-heal the shared Victoria stack after a component or agent-driven shutdown, using owner verification, the existing substrate locks/registry, and bounded retry backoff.
 - [x] 2026-07-13: Made each failed Victoria recovery attempt visible without Victoria through a red foreground warning, detached JSONL event, dashboard notification, and best-effort degraded registry state.
+- [x] 2026-07-13: Made generic agent close/restart control-plane-only by removing registered-substrate signaling and the obsolete restart wait. A process-backed regression test proves registered Postgres and Victoria PIDs plus an app route survive registry reload under a replacement agent.
 
 ## Surprises & Discoveries
 
@@ -76,7 +77,7 @@ This file is the active ExecPlan for the 2026-05-28 source-review findings about
   Rationale: The repository now has an explicit no-legacy/no-backcompat rule in `AGENTS.md`. For this plan, that means old command spellings and legacy proxy flags should fail clearly or be removed rather than kept as deprecated aliases.
   Date/Author: 2026-05-28 / Codex.
 - Decision: Ordinary `agent restart` should restart only the router/control plane.
-  Rationale: Shared substrates are session-continuity infrastructure. Restarting the control plane should not stop live app dependencies unless the caller opts into `--substrates` or uses `agent stop --all`.
+  Rationale: Shared substrates are session-continuity infrastructure. Restarting the control plane must not stop live app dependencies; destructive shutdown stays with existing substrate-specific commands and verified lifecycle owners instead of a generic agent-wide flag.
   Date/Author: 2026-05-27 / Codex.
 - Decision: Keep `branches.lock` scoped to short branch registry reads and writes, and use a separate parent-database operation lock for managed Postgres branch DDL.
   Rationale: Holding the registry lock through substrate startup or database cloning hides useful diagnostics and blocks unrelated metadata readers. The parent template database is the actual shared Postgres resource that needs serialization during `CREATE DATABASE ... WITH TEMPLATE`, reset, and drop.
@@ -169,10 +170,9 @@ Finally add setup policies and keep parallel runtime proof in the Scenery repo. 
    - Reuse the same cleanup from `scenery down --db`, `scenery down --all`, and session deletion paths where practical.
    - Add unit tests for argument parsing, non-destructive defaults, metadata pruning, and database-drop command construction. Add integration coverage when Docker/Postgres is available.
 4. Agent restart semantics:
-   - Add flags for `agent restart --substrates` and `agent stop --all`, updating `parseAgentArgs` or introducing command-specific option parsing if clearer.
-   - Change ordinary `agent restart` so it stops only the old agent/router/control plane. It must not call a shutdown path that signals substrates.
-   - Keep owner verification for any explicit substrate stop/restart.
-   - Add tests proving ordinary restart preserves registered substrate PIDs and explicit substrate restart signals only verified owners.
+   - Keep generic agent close/restart limited to the old agent/router/control plane; it must never signal registered substrate processes.
+   - Keep destructive shutdown in existing substrate-specific commands and verified lifecycle recovery paths.
+   - Test that registered Postgres and Victoria PIDs and an app route survive agent shutdown, registry reload, and replacement startup.
 5. Legacy proxy removal or hard block:
    - Remove `--proxy`, `--trust`, and `SCENERY_LOCAL_PROXY` from the normal `scenery dev` path, or make them fail with a short actionable error that points to the agent router.
    - Do not add acknowledgement aliases, compatibility aliases, or deprecated spellings.

@@ -14,6 +14,7 @@
 - Cross-process state uses unversioned artifact kinds, digest schema/spec revisions, and producer identity.
 - Durable identity migrations preserve the exact legacy bytes in an owner-only backup, fsync the replacement, and write an idempotent completion marker.
 - Never recreate deploy ownership, live process ownership, or credentials after a decode failure.
+- Closing or restarting the agent never signals registered substrate processes. Substrate-specific owners perform destructive shutdown explicitly.
 
 ## Verification
 

@@ -286,7 +286,6 @@ func ensureDevAgentDashboardBackend(ctx context.Context, client *localagent.Clie
 	if health.PID == os.Getpid() {
 		return fmt.Errorf("scenery agent did not expose dashboard backend")
 	}
-	substrates, _ := client.ListSubstrates(ctx)
 	if health.PID > 0 {
 		if err := signalAgentPID(health.PID); err != nil {
 			return fmt.Errorf("stop stale scenery agent pid %d: %w", health.PID, err)
@@ -294,7 +293,6 @@ func ensureDevAgentDashboardBackend(ctx context.Context, client *localagent.Clie
 		if err := waitForAgentStop(ctx, client, health.PID); err != nil {
 			return err
 		}
-		waitForSubstrateProcessesExit(ctx, substrates, 3*time.Second)
 	}
 	paths, err := localagent.DefaultPaths()
 	if err != nil {
@@ -319,46 +317,6 @@ func ensureDevAgentDashboardBackend(ctx context.Context, client *localagent.Clie
 		return fmt.Errorf("restarted scenery agent did not expose dashboard backend")
 	}
 	return nil
-}
-
-func waitForSubstrateProcessesExit(ctx context.Context, substrates []localagent.Substrate, timeout time.Duration) {
-	if len(substrates) == 0 || timeout <= 0 {
-		return
-	}
-	pids := map[int]bool{}
-	for _, substrate := range substrates {
-		for _, pid := range substrate.PIDs {
-			if pid > 0 && pid != os.Getpid() {
-				pids[pid] = true
-			}
-		}
-	}
-	if len(pids) == 0 {
-		return
-	}
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		alive := false
-		for pid := range pids {
-			if _, ok := inspectProcess(pid); ok {
-				alive = true
-				break
-			}
-		}
-		if !alive {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-deadline.C:
-			return
-		case <-ticker.C:
-		}
-	}
 }
 
 func waitForStableChange(ctx context.Context, root string, current fileSnapshot, watcher *fileChangeWatcher) (fileSnapshot, error) {
